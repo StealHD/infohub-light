@@ -11,25 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "将多条上下文摘要改为保留前两条预览，使用图标化向上展开仅显示尚未出现的其余条目，移除“查看全部”及重复内容。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-upward-remainder",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "相关 Vitest 35 项、TypeScript、UI contract 与完整 Test Gate 23/23 通过。",
-    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；浏览器实测 4 条时预览 2 条、向上浮层仅含剩余 2 条，不重复前两条。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "将 OpenClaw 多附件的剩余信息从独立 Popover 改为原摘要容器向上拉伸，保留前两条预览、仅显示增量条目，并统一所有行右边线。",
   "status": "partial",
   "task_id": "2026-08-07-openclaw-context-inline-expansion",
@@ -395,6 +376,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "UI contract、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）、生产构建及专题 Playwright 三视口通过。",
     "完整 Test Gate 24/24 通过（244.110 秒）；未请求部署或重建 8080。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "优化 /feed 专题速览：模式标签收进搜索前工具栏，来源默认收起并以单专题手风琴展开；专题阅读帧避让信息概览，来源/文章锚点和触底文案稳定性同步修复。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed-interaction",
+  "unresolved": [],
+  "validation": [
+    "专题速览 Playwright 在 1440×900、1024×768、390×844 验证来源连续、手风琴、无横向溢出和 Axe；桌面信息概览避让及搜索锚点回归通过。",
+    "完整 Test Gate 24/24 通过（246.281 秒）；待本地 8080 切换后补充运行态验证。"
   ]
 }
 ```

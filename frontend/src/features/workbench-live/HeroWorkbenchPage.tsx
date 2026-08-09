@@ -73,6 +73,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const feedToolbarRef = useRef<HTMLDivElement>(null)
   const feedToolbarInsetRef = useRef(64)
   const [sourceOverviewResumeAnchor, setSourceOverviewResumeAnchor] = useState<SourceOverviewViewportAnchor | null>(null)
+  const [sourceOverviewExpandedSourceId, setSourceOverviewExpandedSourceId] = useState<string | null>(null)
   const [feedToolbarInset, setFeedToolbarInset] = useState(64)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
@@ -317,6 +318,10 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [allowedSourceIds, detailQuery.data, globalSearchRequested, kind, localDayReference, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceOverviewSections = useMemo(() => buildSourceOverviewSections(cards), [cards])
+  const selectedSourceSectionId = useMemo(() => selectedId
+    ? sourceOverviewSections.find((section) => section.cards.some((card) => card.id === selectedId))?.id ?? null
+    : null, [selectedId, sourceOverviewSections])
+  const activeSourceOverviewSectionId = selectedSourceSectionId ?? sourceOverviewExpandedSourceId
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
     const value = item.presentation?.source?.id || item.source_id || item.source || ''
@@ -447,6 +452,26 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     setParams(next)
   }
 
+  function toggleSourceOverviewSection(sourceId: string) {
+    const sourceForSelectedItem = selectedId
+      ? sourceOverviewSections.find((section) => section.cards.some((card) => card.id === selectedId))?.id
+      : undefined
+    const next = new URLSearchParams(params)
+    if (activeSourceOverviewSectionId === sourceId) {
+      setSourceOverviewExpandedSourceId(null)
+      if (sourceForSelectedItem === sourceId) {
+        next.delete('item')
+        setParams(next)
+      }
+      return
+    }
+    setSourceOverviewExpandedSourceId(sourceId)
+    if (selectedId && sourceForSelectedItem !== sourceId) {
+      next.delete('item')
+      setParams(next)
+    }
+  }
+
   function updateFeed() {
     window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     refresh()
@@ -570,25 +595,23 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   return <section aria-label="信息流工作区" data-feed-blank-region className="relative flex h-full min-h-0 flex-col">
     <div ref={feedToolbarRef} data-testid="workbench-feed-toolbar" className="quiet-scroll-region absolute inset-x-0 top-0 z-10 overflow-y-scroll px-3 py-2 sm:px-5">
       <PageFrame width="reading">
-        {kind === 'feed' && <div data-feed-mode-switch className="mb-2 flex min-w-0">
-          <Tabs selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)}>
-            <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="flex w-max gap-1 rounded-lg border border-separator/80 bg-surface-secondary/70 p-1">
-              <Tabs.Tab id="timeline" isDisabled={globalSearchTransition} className="type-control min-h-8 rounded-md px-3">时间流<Tabs.Indicator /></Tabs.Tab>
-              <Tabs.Tab id="source-overview" isDisabled={globalSearchTransition} className="type-control min-h-8 rounded-md px-3">专题速览<Tabs.Indicator /></Tabs.Tab>
-            </Tabs.List>
-            <Tabs.Panel id="timeline" className="sr-only">时间流</Tabs.Panel>
-            <Tabs.Panel id="source-overview" className="sr-only">专题速览</Tabs.Panel>
-          </Tabs>
-        </div>}
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'} className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
         <ViewBar>
-        <LoadingReveal
+        {kind === 'feed' && <Tabs data-feed-mode-switch selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)} className="shrink-0">
+          <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="inline-flex min-h-7 gap-0.5 rounded-md bg-default/70 p-0.5">
+            <Tabs.Tab id="timeline" isDisabled={globalSearchTransition} className="type-meta relative z-[1] min-h-6 rounded px-2.5 text-muted data-[selected=true]:text-foreground">时间流<Tabs.Indicator /></Tabs.Tab>
+            <Tabs.Tab id="source-overview" isDisabled={globalSearchTransition} className="type-meta relative z-[1] min-h-6 rounded px-2.5 text-muted data-[selected=true]:text-foreground">专题速览<Tabs.Indicator /></Tabs.Tab>
+          </Tabs.List>
+          <Tabs.Panel id="timeline" className="sr-only">时间流</Tabs.Panel>
+          <Tabs.Panel id="source-overview" className="sr-only">专题速览</Tabs.Panel>
+        </Tabs>}
+        {kind !== 'feed' && <LoadingReveal
           loading={loading}
           label="正在读取内容数量"
           name="feed-count"
           className="mr-auto min-h-4 min-w-16 shrink-0"
           skeleton={<span data-feed-count-skeleton><CalmSkeleton className="h-4 w-16 rounded-md" /></span>}
-        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{countLabel}</span></LoadingReveal>
+        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{countLabel}</span></LoadingReveal>}
         <div className="hidden min-w-0 flex-1 sm:flex">
           <SearchField aria-label={kind === 'history' ? '搜索历史内容' : kind === 'feed' ? '搜索全部内容' : '搜索当前列表'} value={searchValue} onChange={setSearchValue} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
@@ -760,7 +783,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         />
       </PageFrame></div>
       : cards.length === 0 ? null
-      : effectiveViewMode === 'source-overview' ? <SourceOverviewFeed
+      : effectiveViewMode === 'source-overview' ? <div key="source-overview" className="inteliscope-content-reveal min-h-0 flex-1">
+        <SourceOverviewFeed
       topInset={feedContentInset}
       resetToTopKey={`source-overview:${preference.sortBasis}:${preference.order}`}
       sections={sourceOverviewSections}
@@ -770,6 +794,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       footer={paginationFooter}
       terminal={terminalContent}
       terminalKey={terminalContextKey}
+      expandedSourceId={activeSourceOverviewSectionId}
       expandedId={selectedId}
       navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
       contextIds={agent.draft.items.map((item) => item.articleId)}
@@ -781,6 +806,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         setSourceOverviewResumeAnchor(null)
       }}
       onTerminalReach={handleTerminalReach}
+      onToggleSource={toggleSourceOverviewSection}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => {
         stateMutation.mutateItem(id, { is_saved: saved })
@@ -816,7 +842,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           })
         }
       }}
-    /> : <VirtualFeed
+        />
+      </div> : <div key="timeline" className="inteliscope-content-reveal min-h-0 flex-1">
+        <VirtualFeed
       topInset={feedContentInset}
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       resetToTopKey={`${preference.sortBasis}:${preference.order}:${debouncedHistoryQuery}:${historySourceId}`}
@@ -870,7 +898,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           })
         }
       }}
-    />}
+        />
+      </div>}
     </LoadingReveal>
   </section>
 }

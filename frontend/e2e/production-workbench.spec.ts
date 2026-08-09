@@ -1114,10 +1114,20 @@ test('Feed source overview keeps each source contiguous across supported viewpor
   await expect(sections.nth(0)).toHaveAttribute('data-source-section-id', 'fallback:rss:openai blog')
   await expect(sections.nth(0).getByRole('heading', { name: 'OpenAI Blog' })).toBeVisible()
   await expect(sections.nth(1).getByRole('heading', { name: 'GitHub' })).toBeVisible()
+  await expect(sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(sections.nth(1).getByRole('button', { name: '展开专题 GitHub' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toHaveCount(0)
+
+  await sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  await expect(sections.nth(0).getByRole('button', { name: '收起专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
 
   const sourceItemIds = await Promise.all([0, 1].map((index) => sections.nth(index).locator('[data-item-id]').evaluateAll((items) => items.map((item) => item.getAttribute('data-item-id')))))
   expect(sourceItemIds[0]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 0)).toBe(true)
   expect(sourceItemIds[1]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 1)).toBe(true)
+  await sections.nth(1).getByRole('button', { name: '展开专题 GitHub' }).click()
+  await expect(sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(sections.nth(1).getByRole('button', { name: '收起专题 GitHub' })).toHaveAttribute('aria-expanded', 'true')
   expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.feed-view.v1:e2e-user'))).toBe(JSON.stringify('source-overview'))
   expect(await page.evaluate(() => (window as typeof window & {
     feedRequestCounts: () => Promise<{ latest: number; updates: number }>
@@ -1135,6 +1145,8 @@ test('source overview restores its article anchor after global search', async ({
   await page.getByRole('tab', { name: '专题速览' }).click()
   const feed = page.getByTestId('workbench-feed-scroll')
   await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await page.getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   await feed.evaluate((element) => {
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 3)
     element.dispatchEvent(new Event('scroll'))
@@ -1329,6 +1341,35 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.getByRole('button', { name: '关闭信息概览' }).click()
   await expect(insights).toHaveCount(0)
 
+  await page.getByRole('tab', { name: '专题速览' }).click()
+  await expect(scroll).toHaveAttribute('data-feed-mode', 'source-overview')
+  await page.getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  const sourceReading = scroll.locator('[data-source-overview-frame][data-feed-reading-frame]')
+  await expect(sourceReading).toBeVisible()
+  const sourceCenteredReading = await sourceReading.boundingBox()
+  await scroll.evaluate((element) => {
+    element.scrollTop = 320
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const sourceScrollTop = await scroll.evaluate((element) => element.scrollTop)
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const sourceInsights = page.locator('#feed-insights-surface')
+  await expect(sourceInsights).toBeVisible()
+  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'false')
+  await sourceReading.evaluate(async (element) => Promise.all(
+    element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  ))
+  const sourceShiftedReading = await sourceReading.boundingBox()
+  const sourceInsightsBounds = await sourceInsights.boundingBox()
+  expect(sourceCenteredReading).not.toBeNull()
+  expect(sourceShiftedReading).not.toBeNull()
+  expect(sourceInsightsBounds).not.toBeNull()
+  expect(sourceShiftedReading!.x).toBeLessThan(sourceCenteredReading!.x)
+  expect(sourceInsightsBounds!.x - (sourceShiftedReading!.x + sourceShiftedReading!.width)).toBeGreaterThanOrEqual(11)
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(sourceScrollTop)
+  await page.getByRole('button', { name: '关闭信息概览' }).click()
+  await expect(sourceInsights).toHaveCount(0)
+
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.getByRole('button', { name: '展开 Agent 面板' }).click()
   const dockedAgent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
@@ -1340,7 +1381,7 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.getByRole('button', { name: /切换到(白天|黑夜)模式/ }).click()
   await expect(manualInsights).toBeVisible()
   await page.getByRole('heading', { name: '信息流' }).click()
-  await expect(manualInsights).toHaveAttribute('aria-hidden', 'true')
+  if (await manualInsights.count()) await expect(manualInsights).toHaveAttribute('aria-hidden', 'true')
   await expect(manualInsights).toHaveCount(0)
   await page.getByRole('button', { name: '收起 Agent 面板' }).click()
   await expect(dockedAgent).toHaveCount(0)

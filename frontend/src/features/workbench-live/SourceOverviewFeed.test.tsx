@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -34,27 +34,47 @@ function card(id: string, sourceId: string, sourceName: string, publishedAt: str
 }
 
 describe('SourceOverviewFeed', () => {
-  it('renders contiguous compact source sections without an empty insight placeholder', async () => {
+  it('starts source sections collapsed and exposes one compact source feed at a time', async () => {
+    const browser = userEvent.setup()
     const sections = buildSourceOverviewSections([
       card('a-old', 'source-a', '来源 A', '2026-08-01T00:00:00Z', ['AI', '产品']),
       card('b-new', 'source-b', '来源 B', '2026-08-03T00:00:00Z', ['工程']),
       card('a-new', 'source-a', '来源 A', '2026-08-02T00:00:00Z', ['AI']),
     ])
 
-    render(<SourceOverviewFeed
+    const onToggleSource = vi.fn()
+    const { rerender } = render(<SourceOverviewFeed
       sections={sections}
       contextIds={[]}
+      onToggleSource={onToggleSource}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
       onToggleContext={vi.fn()}
       onItemAction={vi.fn()}
     />)
 
-    expect(await screen.findByText('来源 B', { selector: 'h2' })).toBeInTheDocument()
+    const sourceB = await screen.findByRole('button', { name: '展开专题 来源 B' })
+    expect(sourceB).toHaveAttribute('aria-expanded', 'false')
+    expect(sourceB).toHaveAttribute('aria-controls', 'source-section-content-source:source-b')
     expect(screen.getByText('近7天 · 1 篇内容 · 1 个主题')).toBeInTheDocument()
-    expect(screen.getAllByTestId('workbench-card').every((element) => element.getAttribute('data-card-variant') === 'source-overview')).toBe(true)
+    expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('source-insight')).not.toBeInTheDocument()
     expect(screen.getAllByText('#工程')).toHaveLength(2)
+
+    await browser.click(sourceB)
+    expect(onToggleSource).toHaveBeenCalledWith('source:source-b')
+    rerender(<SourceOverviewFeed
+      sections={sections}
+      expandedSourceId="source:source-b"
+      contextIds={[]}
+      onToggleSource={onToggleSource}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByRole('article', { name: '标题 b-new' })).toBeInTheDocument()
+    expect(screen.getAllByTestId('workbench-card').every((element) => element.getAttribute('data-card-variant') === 'source-overview')).toBe(true)
   })
 
   it('keeps the existing article actions and detail callbacks available in compact rows', async () => {
@@ -67,8 +87,10 @@ describe('SourceOverviewFeed', () => {
 
     render(<SourceOverviewFeed
       sections={buildSourceOverviewSections([story])}
+      expandedSourceId="source:source-a"
       expandedId={undefined}
       contextIds={[]}
+      onToggleSource={vi.fn()}
       onToggleExpanded={onToggleExpanded}
       onToggleSaved={onToggleSaved}
       onToggleContext={onToggleContext}
@@ -87,5 +109,64 @@ describe('SourceOverviewFeed', () => {
   it('keeps SourceInsight optional for future content', () => {
     const { container } = render(<SourceInsight><p>未来洞察</p></SourceInsight>)
     expect(container.querySelector('[data-source-insight]')).toHaveTextContent('未来洞察')
+  })
+
+  it('keeps the terminal copy stable while its visible text rerenders', () => {
+    let emitVisibility: ((visible: boolean) => void) | undefined
+    class TestIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        emitVisibility = (visible) => callback(
+          [{ isIntersecting: visible } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        )
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return [] }
+      root = null
+      rootMargin = '0px'
+      thresholds = [0.01]
+    }
+    vi.stubGlobal('IntersectionObserver', TestIntersectionObserver)
+    const onTerminalReach = vi.fn()
+    const sections = buildSourceOverviewSections([card('a-terminal', 'source-a', '来源 A', '2026-08-02T00:00:00Z', ['AI'])])
+
+    try {
+      const { rerender } = render(<SourceOverviewFeed
+        sections={sections}
+        contextIds={[]}
+        terminal={<p>第一句</p>}
+        terminalKey="feed"
+        onTerminalReach={onTerminalReach}
+        onToggleSource={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onToggleSaved={vi.fn()}
+        onToggleContext={vi.fn()}
+        onItemAction={vi.fn()}
+      />)
+
+      act(() => emitVisibility?.(true))
+      rerender(<SourceOverviewFeed
+        sections={sections}
+        contextIds={[]}
+        terminal={<p>第二句</p>}
+        terminalKey="feed"
+        onTerminalReach={onTerminalReach}
+        onToggleSource={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onToggleSaved={vi.fn()}
+        onToggleContext={vi.fn()}
+        onItemAction={vi.fn()}
+      />)
+      act(() => emitVisibility?.(true))
+      expect(onTerminalReach).toHaveBeenCalledTimes(1)
+
+      act(() => emitVisibility?.(false))
+      act(() => emitVisibility?.(true))
+      expect(onTerminalReach).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

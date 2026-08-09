@@ -348,15 +348,12 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
-    const itemCount = await screen.findByText('近7天 · 1 条')
     const orderControl = screen.getByRole('button', { name: '排序顺序：最新优先' })
     const reloadControl = screen.getByRole('button', { name: '重新载入信息流数据' })
     const updateControl = screen.getByRole('button', { name: '获取新内容' })
     const filterControl = screen.getByRole('button', { name: '筛选信息流' })
-    expect(itemCount).toHaveClass('type-control')
-    expect(itemCount).toHaveClass('whitespace-nowrap')
-    expect(itemCount.closest('[data-loading-reveal="feed-count"]')).toHaveClass('min-w-16')
-    expect(itemCount.closest('[data-loading-reveal="feed-count"]')).not.toHaveClass('w-16')
+    expect(screen.queryByText('近7天 · 1 条')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '时间流' })).toBeInTheDocument()
     expect(orderControl).toHaveClass('size-8')
     expect(reloadControl).toHaveClass('size-8')
     expect(updateControl).toHaveClass('size-8')
@@ -417,6 +414,8 @@ describe('App routes', () => {
 
       expect(await screen.findByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
       expect(document.querySelector('[data-feed-mode-switch]')).toBeInTheDocument()
+      expect(document.querySelector('[data-testid="feed-view-bar"]')?.contains(document.querySelector('[data-feed-mode-switch]'))).toBe(true)
+      expect(screen.queryByText('近7天 · 3 条')).not.toBeInTheDocument()
       expect(screen.getByRole('tab', { name: '时间流' })).toHaveAttribute('aria-selected', 'true')
       const initialRequestCount = latestFeed.mock.calls.length
 
@@ -426,6 +425,12 @@ describe('App routes', () => {
       expect(sourceFeed).toHaveAttribute('data-feed-mode', 'source-overview')
       expect(Array.from(document.querySelectorAll('[data-source-section]')).map((section) => section.getAttribute('data-source-section-id'))).toEqual(['source:source-b', 'source:source-a'])
       expect(screen.getByText('近7天 · 2 篇内容 · 2 个主题')).toBeInTheDocument()
+      expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()
+      await browser.click(screen.getByRole('button', { name: '展开专题 来源 B' }))
+      expect(screen.getByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
+      await browser.click(screen.getByRole('button', { name: '展开专题 来源 A' }))
+      expect(screen.getByRole('button', { name: '展开专题 来源 B' })).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByRole('article', { name: '来源 A 的新内容' })).toBeInTheDocument()
       expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
       expect(window.localStorage.getItem(viewModeKey)).toBe(JSON.stringify('source-overview'))
 
@@ -436,6 +441,7 @@ describe('App routes', () => {
 
       await browser.clear(search)
       await waitFor(() => expect(document.querySelector('[data-source-overview-frame]')).toBeInTheDocument())
+      expect(screen.getByRole('button', { name: '收起专题 来源 A' })).toHaveAttribute('aria-expanded', 'true')
       expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
     } finally {
       window.localStorage.removeItem(viewModeKey)
@@ -654,7 +660,7 @@ describe('App routes', () => {
       expect(row.querySelector('.inteliscope-skeleton-calm')).not.toBeNull()
     }
     expect(screen.queryByText('0 条内容')).not.toBeInTheDocument()
-    expect(document.querySelector('[data-feed-count-skeleton]')).toBeInTheDocument()
+    expect(document.querySelector('[data-feed-count-skeleton]')).not.toBeInTheDocument()
 
     feed.resolve({
       schema_version: 2,
@@ -668,7 +674,7 @@ describe('App routes', () => {
     expect(reveal?.querySelector('[data-content-layer]')).toHaveClass('inteliscope-content-reveal')
     fireEvent.animationEnd(reveal!.querySelector('[data-loading-layer]')!, { animationName: 'inteliscope-skeleton-exit' })
     await waitFor(() => expect(reveal?.querySelector('[data-loading-layer]')).not.toBeInTheDocument())
-    expect(screen.getByText('近7天 · 1 条')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '时间流' })).toBeInTheDocument()
   })
 
   it('places collection search and sorting inside the shared Quiet Studio ViewBar', async () => {
@@ -3653,6 +3659,24 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '深链条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 深链条目' })).toHaveAttribute('aria-expanded', 'true')
     expect(feedItem).toHaveBeenCalledWith('deep', expect.any(AbortSignal))
+  })
+
+  it('auto-expands the owning source section for a source-overview deep link', async () => {
+    const viewModeKey = 'inteliscope.ui.feed-view.v1:user-live'
+    window.localStorage.setItem(viewModeKey, JSON.stringify('source-overview'))
+    const deep = detailedItem('source-deep')
+    const feedItem = vi.fn().mockResolvedValue(deep)
+    const api = liveApi({ latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [deep] }), feedItem } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=source-deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('button', { name: '收起专题 详情来源' })).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('article', { name: '详情标题 source-deep' })).toBeInTheDocument()
+    } finally {
+      window.localStorage.removeItem(viewModeKey)
+    }
   })
 
   it('waits for the source snapshot before fetching detail for an initial deep link', async () => {
