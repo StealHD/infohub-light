@@ -421,3 +421,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "将 ActorOps 引导流程分支切换到共享 8080，并离线安装 Pool Stage schema 20；共享运行目录继续使用主 checkout 的 .env、data 与 logs。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-guided-flow-local-cutover",
+  "unresolved": [],
+  "validation": [
+    "切换前活跃任务为 0；3 个来源自动调度保持启用，但 scheduler 容器未启动。",
+    "schema 20 迁移生成 0600 备份，integrity_check=ok 且 foreign_key_violations=0。",
+    "API/Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务 ActorOps 新任务流资源。"
+  ]
+}
+```
