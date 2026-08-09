@@ -12,27 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "OpenClaw 附件摘要改为数量、中央大点击区与一键清空三段布局；原容器仅向上展开增量附件，模型触发器与可滚动列表按紧凑尺寸收口。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-attachment-clear-and-model-selector",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript、ESLint（仅既有 Fast Refresh 警告）和产品文档检查通过。",
-    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
-    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-Cmr-lcIw.js 已服务。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "将订阅布局清理分支合并到本地 main，保留 OpenClaw 的同期更新，并整合来源库直接列表与两态顶部工具栏。",
   "status": "completed",
   "task_id": "2026-08-07-merge-subscriptions-layout-to-local-main",
@@ -393,6 +372,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "UI contract、TypeScript、完整 Vitest 596/596、ESLint（仅既有 Fast Refresh 警告）和生产构建通过。",
     "Playwright 验证 1440×900、1024×768、390×844 与 967×889 下两种阅读布局拥有真实滚动范围，专题分组、锚点、信息概览避让、Reduced Motion、无横向溢出和 Axe 回归通过。",
     "完整 Test Gate 24/24 通过（276.586 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-09",
+  "result": "从专题速览任务 Worktree 重新构建并启动本地 8080 API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed-local-runtime-start",
+  "unresolved": [],
+  "validation": [
+    "horizon-light-api 与 horizon-light-worker 均为 healthy。",
+    "readiness 返回 worker_status=ready，运行 revision 为 e1026912b009，前端资源已由 8080 提供。"
   ]
 }
 ```
