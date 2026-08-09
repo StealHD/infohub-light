@@ -63,6 +63,7 @@ import type {
   SecretRef,
   SavedFeed,
   SourceHealthResponse,
+  SourceSummary,
   SourceShareResult,
   SourceTypeDefinition,
   SourceUsage,
@@ -100,6 +101,11 @@ export function createServiceApi(client: ApiClient) {
       signal,
     ),
     feedItem: (articleId: string, signal?: AbortSignal) => client.get<FeedItem>(resource('/api/feed/items', articleId), signal),
+    sourceSummary: (articleIds: string[], signal?: AbortSignal) => client.post<SourceSummary>(
+      '/api/feed/source-summary',
+      { article_ids: articleIds },
+      signal,
+    ),
     historyFeed: (params: FeedHistoryParams = {}, signal?: AbortSignal) => {
       const search = new URLSearchParams()
       if (params.q?.trim()) search.set('q', params.q.trim())

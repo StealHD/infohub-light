@@ -42,16 +42,10 @@ export function InteliscopeMark({ size = 20, ...props }: Omit<SplitPanelProps, '
     data-inteliscope-mark
     width={size}
     height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.65"
-    strokeLinecap="round"
-    strokeLinejoin="round"
+    viewBox="0 0 64 64"
+    fill="currentColor"
   >
-    <circle cx="12" cy="12" r="7.75" opacity="0.55" />
-    <path d="M12 4.25v2.2M12 17.55v2.2M4.25 12h2.2M17.55 12h2.2" opacity="0.8" />
-    <path d="M12 12l4.8-3.1" />
-    <circle cx="12" cy="12" r="2.15" fill="currentColor" stroke="none" />
+    <path d="M56 10.5C46.5 12.5 35.5 16.3 29 20.5c-4.5 2.9-3.9 6.6-3.2 9.5.9 3 .1 5.6-3 6.3-4 1-8-1.5-10-4.5-2.8-4-1.9-8.5 1-12.3C20.5 10.9 39.3 8.9 53.8 9.9c2 .1 2.6.3 2.2.6Z" />
+    <path d="M8.2 53.3c9-3.8 20.3-7.5 26.5-12.6 3.8-3.1 5.4-6.9 4.8-10-.6-3 1.6-5.3 5.1-5.5 4.2-.3 8.6 2.8 10.3 7.2 2.4 6.3-1.3 12.2-7.4 15.7-7.8 4.6-18.7 5.8-29.6 6.2-6.6.3-10.9.1-9.7-1Z" />
   </svg>
 }

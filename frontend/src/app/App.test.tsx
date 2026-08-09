@@ -348,15 +348,12 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
-    const itemCount = await screen.findByText('近7天 · 1 条')
     const orderControl = screen.getByRole('button', { name: '排序顺序：最新优先' })
     const reloadControl = screen.getByRole('button', { name: '重新载入信息流数据' })
     const updateControl = screen.getByRole('button', { name: '获取新内容' })
     const filterControl = screen.getByRole('button', { name: '筛选信息流' })
-    expect(itemCount).toHaveClass('type-control')
-    expect(itemCount).toHaveClass('whitespace-nowrap')
-    expect(itemCount.closest('[data-loading-reveal="feed-count"]')).toHaveClass('min-w-16')
-    expect(itemCount.closest('[data-loading-reveal="feed-count"]')).not.toHaveClass('w-16')
+    expect(screen.queryByText('近7天 · 1 条')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '时间流' })).toBeInTheDocument()
     expect(orderControl).toHaveClass('size-8')
     expect(reloadControl).toHaveClass('size-8')
     expect(updateControl).toHaveClass('size-8')
@@ -369,6 +366,118 @@ describe('App routes', () => {
     expect(api.latestFeed).toHaveBeenCalled()
     expect(api.agentDelegations).toHaveBeenCalled()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
+  })
+
+  it('switches Feed to source overview without another Feed request and restores it after a global search', async () => {
+    const browser = userEvent.setup()
+    const viewModeKey = 'inteliscope.ui.feed-view.v1:user-live'
+    window.localStorage.removeItem(viewModeKey)
+    const overviewItems: FeedItem[] = [
+      {
+        ...basicFeedItem('source-a-old', '来源 A 的旧内容'),
+        source: '来源 A',
+        source_id: 'source-a',
+        published_at: '2026-07-15T00:00:00Z',
+        topics: ['产品'],
+      },
+      {
+        ...basicFeedItem('source-b-new', '来源 B 的最新内容'),
+        source: '来源 B',
+        source_id: 'source-b',
+        published_at: '2026-07-17T00:00:00Z',
+        topics: ['工程'],
+      },
+      {
+        ...basicFeedItem('source-a-new', '来源 A 的新内容'),
+        source: '来源 A',
+        source_id: 'source-a',
+        published_at: '2026-07-16T00:00:00Z',
+        topics: ['产品', 'AI'],
+      },
+    ]
+    const latestFeed = vi.fn().mockResolvedValue({ schema_version: 2, items: overviewItems })
+    const searchFeed = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      scope: 'user',
+      items: [overviewItems[1]],
+      item_count: 1,
+      total_count: 1,
+      has_more: false,
+      next_cursor: null,
+      window: { timezone: 'Asia/Shanghai', feed_days: 7, today_start: '2026-07-17T00:00:00Z', feed_start: '2026-07-10T00:00:00Z', now: '2026-07-17T12:00:00Z' },
+    })
+    const sourceSummary = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      overview: '来源 B 最近集中发布工程进展。',
+      highlights: ['完成一项关键更新'],
+      item_count: 1,
+    })
+    const api = liveApi({ latestFeed, searchFeed, sourceSummary } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    window.sessionStorage.setItem('inteliscope.agent-context.v6:user-live', JSON.stringify({
+      userId: 'user-live',
+      question: '重点关注风险',
+      items: [{ articleId: 'old-context', title: '旧上下文' }],
+    }))
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
+      const modeSwitch = document.querySelector('[data-feed-mode-switch]')
+      expect(modeSwitch).toBeInTheDocument()
+      expect(modeSwitch?.querySelector('[data-slot="tabs-list-container"]')).toBeInTheDocument()
+      expect(document.querySelector('[data-testid="feed-view-bar"]')?.contains(modeSwitch)).toBe(true)
+      expect(screen.queryByText('近7天 · 3 条')).not.toBeInTheDocument()
+      const timelineTab = screen.getByRole('tab', { name: '时间流' })
+      const sourceOverviewTab = screen.getByRole('tab', { name: '专题速览' })
+      expect(timelineTab).toHaveAttribute('aria-selected', 'true')
+      expect(timelineTab.querySelector('[data-feed-mode-icon="timeline"]')).toBeInTheDocument()
+      expect(sourceOverviewTab.querySelector('[data-feed-mode-icon="source-overview"]')).toBeInTheDocument()
+      const initialRequestCount = latestFeed.mock.calls.length
+
+      await browser.click(sourceOverviewTab)
+
+      const sourceFeed = await screen.findByTestId('workbench-feed-scroll')
+      expect(sourceFeed).toHaveAttribute('data-feed-mode', 'source-overview')
+      expect(document.querySelector('[data-feed-mode-layer="source-overview"]')).toBeInTheDocument()
+      expect(Array.from(document.querySelectorAll('[data-source-section]')).map((section) => section.getAttribute('data-source-section-id'))).toEqual(['source:source-b', 'source:source-a'])
+      expect(screen.getByText('近7天 · 2 篇内容 · 2 个主题')).toBeInTheDocument()
+      expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()
+      await browser.click(screen.getByRole('button', { name: '展开专题 来源 B' }))
+      expect(screen.getByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
+      await browser.click(screen.getByRole('button', { name: '总结专题 来源 B' }))
+      expect(await screen.findByText('来源 B 最近集中发布工程进展。')).toBeInTheDocument()
+      expect(sourceSummary).toHaveBeenCalledWith(['source-b-new'], expect.any(AbortSignal))
+      await browser.click(screen.getByRole('button', { name: '展开专题 来源 A' }))
+      expect(screen.getByRole('button', { name: '展开专题 来源 B' })).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByRole('article', { name: '来源 A 的新内容' })).toBeInTheDocument()
+      expect(sourceSummary).toHaveBeenCalledTimes(1)
+      expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
+      expect(window.localStorage.getItem(viewModeKey)).toBe(JSON.stringify('source-overview'))
+
+      const search = screen.getByRole('searchbox', { name: '搜索全部内容' })
+      await browser.type(search, '专题')
+      await waitFor(() => expect(document.querySelector('[data-source-overview-frame]')).not.toBeInTheDocument())
+      expect(screen.getByRole('tab', { name: '专题速览' })).toHaveAttribute('aria-disabled', 'true')
+
+      await browser.clear(search)
+      await waitFor(() => expect(document.querySelector('[data-source-overview-frame]')).toBeInTheDocument())
+      expect(screen.getByRole('button', { name: '收起专题 来源 A' })).toHaveAttribute('aria-expanded', 'true')
+      expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
+
+      await browser.click(screen.getByRole('button', { name: '针对专题 来源 A 问 Agent' }))
+      await waitFor(() => expect(window.sessionStorage.getItem('inteliscope.agent-context.v6:user-live')).not.toBeNull())
+      const sourceDraft = JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v6:user-live') || '{}')
+      expect(sourceDraft.sourceSnapshot).toMatchObject({ sourceName: '来源 A', windowLabel: '近7天', itemCount: 2 })
+      expect(sourceDraft.sourceSnapshot.items.map((item: { articleId: string }) => item.articleId)).toEqual(['source-a-new', 'source-a-old'])
+      expect(JSON.stringify(sourceDraft.sourceSnapshot)).not.toContain('https://')
+      expect(sourceDraft.question).toBe('重点关注风险')
+      expect(sourceDraft.items).toEqual([])
+    } finally {
+      window.localStorage.removeItem(viewModeKey)
+      window.sessionStorage.removeItem('inteliscope.agent-context.v6:user-live')
+    }
   })
 
   it('replaces the deterministic empty card with one lightweight empty message', async () => {
@@ -583,7 +692,7 @@ describe('App routes', () => {
       expect(row.querySelector('.inteliscope-skeleton-calm')).not.toBeNull()
     }
     expect(screen.queryByText('0 条内容')).not.toBeInTheDocument()
-    expect(document.querySelector('[data-feed-count-skeleton]')).toBeInTheDocument()
+    expect(document.querySelector('[data-feed-count-skeleton]')).not.toBeInTheDocument()
 
     feed.resolve({
       schema_version: 2,
@@ -597,7 +706,7 @@ describe('App routes', () => {
     expect(reveal?.querySelector('[data-content-layer]')).toHaveClass('inteliscope-content-reveal')
     fireEvent.animationEnd(reveal!.querySelector('[data-loading-layer]')!, { animationName: 'inteliscope-skeleton-exit' })
     await waitFor(() => expect(reveal?.querySelector('[data-loading-layer]')).not.toBeInTheDocument())
-    expect(screen.getByText('近7天 · 1 条')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '时间流' })).toBeInTheDocument()
   })
 
   it('places collection search and sorting inside the shared Quiet Studio ViewBar', async () => {
@@ -3582,6 +3691,24 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '深链条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 深链条目' })).toHaveAttribute('aria-expanded', 'true')
     expect(feedItem).toHaveBeenCalledWith('deep', expect.any(AbortSignal))
+  })
+
+  it('auto-expands the owning source section for a source-overview deep link', async () => {
+    const viewModeKey = 'inteliscope.ui.feed-view.v1:user-live'
+    window.localStorage.setItem(viewModeKey, JSON.stringify('source-overview'))
+    const deep = detailedItem('source-deep')
+    const feedItem = vi.fn().mockResolvedValue(deep)
+    const api = liveApi({ latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [deep] }), feedItem } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=source-deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('button', { name: '收起专题 详情来源' })).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('article', { name: '详情标题 source-deep' })).toBeInTheDocument()
+    } finally {
+      window.localStorage.removeItem(viewModeKey)
+    }
   })
 
   it('waits for the source snapshot before fetching detail for an initial deep link', async () => {

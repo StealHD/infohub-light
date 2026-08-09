@@ -487,6 +487,13 @@ export type FeedSnapshot = {
   window?: FeedWindow
 }
 
+export type SourceSummary = {
+  schema_version: 1
+  overview: string
+  highlights: string[]
+  item_count: number
+}
+
 export type FeedWindow = {
   timezone: 'Asia/Shanghai'
   feed_days: 7 | 14 | 30

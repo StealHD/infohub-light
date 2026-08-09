@@ -393,3 +393,127 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "为 /feed 新增按来源连续阅读的专题速览：用户可在时间流与专题速览间切换，前端按当前过滤结果分组并保留既有文章交互、阅读状态与搜索返回锚点。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed",
+  "unresolved": [],
+  "validation": [
+    "UI contract、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）、生产构建及专题 Playwright 三视口通过。",
+    "完整 Test Gate 24/24 通过（244.110 秒）；未请求部署或重建 8080。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "优化 /feed 专题速览：模式标签收进搜索前工具栏，来源默认收起并以单专题手风琴展开；专题阅读帧避让信息概览，来源/文章锚点和触底文案稳定性同步修复。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed-interaction",
+  "unresolved": [],
+  "validation": [
+    "专题速览 Playwright 在 1440×900、1024×768、390×844 验证来源连续、手风琴、无横向溢出和 Axe；桌面信息概览避让及搜索锚点回归通过。",
+    "完整 Test Gate 24/24 通过（246.281 秒）；待本地 8080 切换后补充运行态验证。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "修复 /feed 时间流与专题速览的滚动高度回归；模式切换改为 HeroUI 图标 Tabs，专题改为一来源一张分组卡片且文章保持组内紧凑行。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed-visual-scroll",
+  "unresolved": [],
+  "validation": [
+    "UI contract、TypeScript、完整 Vitest 596/596、ESLint（仅既有 Fast Refresh 警告）和生产构建通过。",
+    "Playwright 验证 1440×900、1024×768、390×844 与 967×889 下两种阅读布局拥有真实滚动范围，专题分组、锚点、信息概览避让、Reduced Motion、无横向溢出和 Axe 回归通过。",
+    "完整 Test Gate 24/24 通过（276.586 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-09",
+  "result": "从专题速览任务 Worktree 重新构建并启动本地 8080 API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed-local-runtime-start",
+  "unresolved": [],
+  "validation": [
+    "horizon-light-api 与 horizon-light-worker 均为 healthy。",
+    "readiness 返回 worker_status=ready，运行 revision 为 e1026912b009，前端资源已由 8080 提供。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "api",
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "将专题速览收紧为来源级紧凑时间线，新增继承工作区 AI 设置且不访问网址的一键总结，并以无 URL 的 V6 来源快照支持专题级自定义 Agent 提问。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-timeline-ai-agent",
+  "unresolved": [],
+  "validation": [
+    "UI 静态检查、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）和生产构建通过；后端专题总结与可观测性定向测试 11/11 通过。",
+    "Playwright 在 1440×900、1024×768、390×844 与 815×889 验证独立滚动、时间线、Fake AI、100 篇 Agent 快照、信息概览避让、无横向溢出和 Axe。",
+    "测试未调用真实 AI、付费接口、外部网页或 Scheduler。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-09",
+  "result": "将浏览器 favicon 与应用侧栏品牌标记统一为用户提供的双弧图形，并分别跟随浏览器明暗环境和应用前景色。",
+  "status": "completed",
+  "task_id": "2026-08-09-theme-aware-brand-icon",
+  "unresolved": [],
+  "validation": [
+    "favicon 与设计系统图标定向 Vitest 8/8 通过，SVG 透明边界和双弧轮廓完成本地渲染复核。",
+    "完整 Test Gate 24/24 通过（242.489 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "api",
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "将 codex/topic-overview-feed 合入本地 main，同时保留登录页 Quiet Studio 更新；登录页决策保持 D136，专题速览登记为 D137。",
+  "status": "completed",
+  "task_id": "2026-08-10-integrate-topic-overview-main",
+  "unresolved": [],
+  "validation": [
+    "登录、专题速览、Changelog、设计系统与 Agent 交叉 Vitest 169/169、专题总结后端 6/6、TypeScript 通过。",
+    "合并后 main 完整 Test Gate 24/24 通过（255.852 秒），mapping_miss=false。"
+  ]
+}
+```

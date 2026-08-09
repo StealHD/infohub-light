@@ -147,6 +147,26 @@ async function expectFeedMarkerBelowToolbar(page: Page, marker: Locator) {
   }, { message: 'the floating toolbar must not cover Feed notices or empty states' }).toBe(true)
 }
 
+async function expectFeedCanScroll(page: Page, feed: Locator) {
+  const metrics = await feed.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+  }))
+  expect(metrics.clientHeight).toBeGreaterThan(0)
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+  await feed.hover()
+  await page.mouse.wheel(0, Math.max(320, Math.floor(metrics.clientHeight / 2)))
+  await expect.poll(() => feed.evaluate((element) => element.scrollTop), {
+    message: 'the Feed must consume wheel input in its own bounded viewport',
+  }).toBeGreaterThan(metrics.scrollTop)
+  await feed.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => feed.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(1)
+}
+
 async function expectLocatorInside(inner: Locator, outer: Locator) {
   await expect.poll(async () => {
     const [innerBounds, outerBounds] = await Promise.all([inner.boundingBox(), outer.boundingBox()])
@@ -281,6 +301,25 @@ test.beforeEach(async ({ page }) => {
       data = { schema_version: 2, items: socialMode ? [socialRouteItem] : backgroundRefreshComplete || manualReloadComplete
         ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem]
         : items }
+    }
+    else if (url.pathname === '/api/feed/search') data = {
+      schema_version: 1,
+      scope: 'user',
+      items,
+      item_count: items.length,
+      total_count: items.length,
+      has_more: false,
+      next_cursor: null,
+      window: { timezone: 'Asia/Shanghai', feed_days: 7, today_start: '2026-07-01T00:00:00Z', feed_start: '2026-06-24T00:00:00Z', now: '2026-07-01T04:00:00Z' },
+    }
+    else if (url.pathname === '/api/feed/source-summary' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { article_ids: string[] }
+      data = {
+        schema_version: 1,
+        overview: '近期更新集中在产品能力与工程进展。',
+        highlights: ['连续发布多项更新', `覆盖 ${body.article_ids.length} 篇当前内容`],
+        item_count: body.article_ids.length,
+      }
     }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
     else if (url.pathname === '/api/feed/history') {
@@ -1067,7 +1106,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(agent.getByRole('button', { name: /模型偏好/ })).toHaveCount(0)
   await agent.getByRole('button', { name: '复制交接提示词' }).click()
   const handoff = await page.evaluate(() => navigator.clipboard.readText())
-  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V7]')
+  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V8]')
   expect(handoff).toContain('调用 get_item')
   expect(handoff).not.toContain('模型偏好：')
 
@@ -1086,6 +1125,128 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Feed source overview keeps each source contiguous across supported viewports', async ({ page }) => {
+  await page.goto('/feed')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expectFeedCanScroll(page, feed)
+  const modeSwitch = page.locator('[data-feed-mode-switch]')
+  await expect(modeSwitch.locator('[data-slot="tabs-list-container"]')).toHaveCount(1)
+  await expect(page.getByRole('tab', { name: '时间流' }).locator('[data-feed-mode-icon="timeline"]')).toHaveCount(1)
+  await expect(page.getByRole('tab', { name: '专题速览' }).locator('[data-feed-mode-icon="source-overview"]')).toHaveCount(1)
+  const requestCountBeforeSwitch = await page.evaluate(() => (window as typeof window & {
+    feedRequestCounts: () => Promise<{ latest: number; updates: number }>
+  }).feedRequestCounts())
+
+  await page.getByRole('tab', { name: '专题速览' }).click()
+
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  const sections = page.locator('[data-source-section]')
+  await expect(sections).toHaveCount(2)
+  await expect(page.locator('[data-source-group-card]')).toHaveCount(2)
+  await expect(sections.nth(0)).toHaveAttribute('data-source-section-id', 'fallback:rss:openai blog')
+  await expect(sections.nth(0).getByRole('heading', { name: 'OpenAI Blog' })).toBeVisible()
+  await expect(sections.nth(1).getByRole('heading', { name: 'GitHub' })).toBeVisible()
+  await expect(sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(sections.nth(1).getByRole('button', { name: '展开专题 GitHub' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toHaveCount(0)
+
+  await sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  await expect(sections.nth(0).getByRole('button', { name: '收起专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'true')
+  await expect(sections.nth(0).locator('[data-source-group-card]')).toHaveAttribute('data-state', 'expanded')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await expect(sections.nth(0).locator('[data-timeline]')).toHaveCount(1)
+  await expect(sections.nth(0).getByText('#Codex')).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('link', { name: /原文/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /收藏 实时条目 200/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /将 实时条目 200 加入 Agent/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /更多操作/u })).toHaveCount(0)
+  const summaryRequest = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/feed/source-summary'))
+  await sections.nth(0).getByRole('button', { name: '总结专题 OpenAI Blog' }).click()
+  const summaryBody = (await summaryRequest).postDataJSON() as { article_ids: string[] }
+  expect(summaryBody.article_ids).toHaveLength(100)
+  expect(new Set(summaryBody.article_ids).size).toBe(100)
+  await expect(sections.nth(0).getByText('近期更新集中在产品能力与工程进展。')).toBeVisible()
+  await expectFeedCanScroll(page, feed)
+
+  const sourceItemIds = await Promise.all([0, 1].map((index) => sections.nth(index).locator('[data-item-id]').evaluateAll((items) => items.map((item) => item.getAttribute('data-item-id')))))
+  expect(sourceItemIds[0]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 0)).toBe(true)
+  expect(sourceItemIds[1]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 1)).toBe(true)
+  await sections.nth(1).getByRole('button', { name: '展开专题 GitHub' }).click()
+  await expect(sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(sections.nth(1).getByRole('button', { name: '收起专题 GitHub' })).toHaveAttribute('aria-expanded', 'true')
+  expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.feed-view.v1:e2e-user'))).toBe(JSON.stringify('source-overview'))
+  expect(await page.evaluate(() => (window as typeof window & {
+    feedRequestCounts: () => Promise<{ latest: number; updates: number }>
+  }).feedRequestCounts())).toEqual(requestCountBeforeSwitch)
+
+  await sections.nth(1).getByRole('button', { name: '针对专题 GitHub 问 Agent' }).click()
+  await expect(page.locator('#live-agent-panel')).toBeVisible()
+  const sourceDraft = await page.evaluate(() => JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v6:e2e-user') || '{}'))
+  expect(sourceDraft.items).toEqual([])
+  expect(sourceDraft.sourceSnapshot.itemCount).toBe(100)
+  expect(sourceDraft.sourceSnapshot.items).toHaveLength(100)
+  expect(JSON.stringify(sourceDraft.sourceSnapshot).length).toBeLessThanOrEqual(32_000)
+  expect(JSON.stringify(sourceDraft.sourceSnapshot)).not.toContain('https://')
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
+test('Feed mode controls and both reading layouts stay usable at the reported viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'the reported 815×889 viewport needs one dedicated desktop regression')
+  await page.setViewportSize({ width: 815, height: 889 })
+  await page.goto('/feed')
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await expectFeedCanScroll(page, feed)
+
+  const toolbar = page.getByTestId('workbench-feed-toolbar')
+  const modeSwitch = page.locator('[data-feed-mode-switch]')
+  const tabs = [page.getByRole('tab', { name: '时间流' }), page.getByRole('tab', { name: '专题速览' })]
+  await expect(modeSwitch.locator('[data-slot="tabs-list-container"]')).toHaveCount(1)
+  for (const tab of tabs) {
+    const bounds = await tab.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(Math.abs(bounds!.width - bounds!.height)).toBeLessThanOrEqual(1)
+    expect(bounds!.width).toBeGreaterThanOrEqual(30)
+    expect(bounds!.width).toBeLessThanOrEqual(34)
+  }
+  expect(await toolbar.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+
+  await tabs[1].click()
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await page.getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  await expect(page.locator('[data-source-group-card][data-state="expanded"]')).toHaveCount(1)
+  await expectFeedCanScroll(page, feed)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('source overview restores its article anchor after global search', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'source grouping and responsive behavior are covered in every viewport above')
+  await page.goto('/feed')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await page.getByRole('tab', { name: '专题速览' }).click()
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await page.getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await feed.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 3)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const anchorBeforeSearch = await stableTopVisibleSnapshot(page)
+
+  const search = page.getByRole('searchbox', { name: '搜索全部内容' })
+  await search.fill('实时')
+  await expect(page.locator('[data-source-overview-frame]')).toHaveCount(0)
+  await search.fill('')
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBeforeSearch.name)
+  await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBeforeSearch.offset)).toBeLessThanOrEqual(2)
 })
 
 test('a proven-stale initial deep link returns the real Feed viewport to the newest edge', async ({ page }) => {
@@ -1267,6 +1428,35 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.getByRole('button', { name: '关闭信息概览' }).click()
   await expect(insights).toHaveCount(0)
 
+  await page.getByRole('tab', { name: '专题速览' }).click()
+  await expect(scroll).toHaveAttribute('data-feed-mode', 'source-overview')
+  await page.getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  const sourceReading = scroll.locator('[data-source-overview-frame][data-feed-reading-frame]')
+  await expect(sourceReading).toBeVisible()
+  const sourceCenteredReading = await sourceReading.boundingBox()
+  await scroll.evaluate((element) => {
+    element.scrollTop = 320
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const sourceScrollTop = await scroll.evaluate((element) => element.scrollTop)
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const sourceInsights = page.locator('#feed-insights-surface')
+  await expect(sourceInsights).toBeVisible()
+  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'false')
+  await sourceReading.evaluate(async (element) => Promise.all(
+    element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  ))
+  const sourceShiftedReading = await sourceReading.boundingBox()
+  const sourceInsightsBounds = await sourceInsights.boundingBox()
+  expect(sourceCenteredReading).not.toBeNull()
+  expect(sourceShiftedReading).not.toBeNull()
+  expect(sourceInsightsBounds).not.toBeNull()
+  expect(sourceShiftedReading!.x).toBeLessThan(sourceCenteredReading!.x)
+  expect(sourceInsightsBounds!.x - (sourceShiftedReading!.x + sourceShiftedReading!.width)).toBeGreaterThanOrEqual(11)
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(sourceScrollTop)
+  await page.getByRole('button', { name: '关闭信息概览' }).click()
+  await expect(sourceInsights).toHaveCount(0)
+
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.getByRole('button', { name: '展开 Agent 面板' }).click()
   const dockedAgent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
@@ -1278,7 +1468,7 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.getByRole('button', { name: /切换到(白天|黑夜)模式/ }).click()
   await expect(manualInsights).toBeVisible()
   await page.getByRole('heading', { name: '信息流' }).click()
-  await expect(manualInsights).toHaveAttribute('aria-hidden', 'true')
+  if (await manualInsights.count()) await expect(manualInsights).toHaveAttribute('aria-hidden', 'true')
   await expect(manualInsights).toHaveCount(0)
   await page.getByRole('button', { name: '收起 Agent 面板' }).click()
   await expect(dockedAgent).toHaveCount(0)

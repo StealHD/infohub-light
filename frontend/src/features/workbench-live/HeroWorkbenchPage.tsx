@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -19,6 +19,7 @@ import {
   Select,
   StatusNotice,
   Switch,
+  Tabs,
   Tooltip,
   TooltipTriggerButton,
   ViewBar,
@@ -34,9 +35,13 @@ import {
   type FeedPreference,
 } from '../feed/feedPreference'
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
+import { readFeedViewMode, writeFeedViewMode, type FeedViewMode } from '../feed/feedViewModePreference'
 import { sourceMatchesSubscriptionVisibility } from '../subscriptions/subscriptionModel'
+import { createAgentSourceSnapshot } from './agentContext'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
+import { readSourceOverviewViewportAnchor, SourceOverviewFeed, type SourceOverviewViewportAnchor, type SourceSummaryViewState } from './SourceOverviewFeed'
+import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './sourceOverviewModel'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
@@ -53,6 +58,13 @@ import {
   type WorkbenchKind,
 } from './workbenchModel'
 
+function FeedModeLayer({ mode, children }: { mode: FeedViewMode; children: ReactNode }) {
+  return <div
+    data-feed-mode-layer={mode}
+    className="inteliscope-content-reveal flex min-h-0 flex-1 flex-col overflow-hidden"
+  >{children}</div>
+}
+
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const { api, user, query, setQuery, activity, refresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
   const queryClient = useQueryClient()
@@ -61,16 +73,22 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
+  const [viewModeState, setViewModeState] = useState(() => ({ userId: user.id, value: readFeedViewMode(user.id) }))
   const [collectionSearchOpen, setCollectionSearchOpen] = useState(false)
   const [submittedSingleSearch, setSubmittedSingleSearch] = useState('')
   const [terminalEndMessage, setTerminalEndMessage] = useState<{ key: string; message: string } | null>(null)
   const reloadButtonRef = useRef<HTMLButtonElement>(null)
   const feedToolbarRef = useRef<HTMLDivElement>(null)
   const feedToolbarInsetRef = useRef(64)
+  const [sourceOverviewResumeAnchor, setSourceOverviewResumeAnchor] = useState<SourceOverviewViewportAnchor | null>(null)
+  const [sourceOverviewExpandedSourceId, setSourceOverviewExpandedSourceId] = useState<string | null>(null)
+  const [sourceSummaryStates, setSourceSummaryStates] = useState<Record<string, SourceSummaryViewState | undefined>>({})
+  const sourceSummaryRequests = useRef(new Map<string, AbortController>())
   const [feedToolbarInset, setFeedToolbarInset] = useState(64)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
+  const storedViewMode = viewModeState.userId === user.id ? viewModeState.value : readFeedViewMode(user.id)
   const selectedId = params.get('item') ?? undefined
   const historySourceId = kind === 'history' ? params.get('source_id')?.trim() || '' : ''
   const searchValue = kind === 'history' ? params.get('q') ?? '' : query
@@ -86,6 +104,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     : ''
   const globalSearchRequested = kind === 'feed' && Boolean(normalizedSearchValue)
   const globalSearchActive = Boolean(globalSearchTerm)
+  const globalSearchTransition = globalSearchRequested || globalSearchActive
+  const effectiveViewMode: FeedViewMode = kind === 'feed' && !globalSearchTransition ? storedViewMode : 'timeline'
   const historyPageSize = 50
   const savedPageSize = 50
   const [initialNavigationTargetId] = useState(selectedId)
@@ -307,6 +327,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     return filterFeedItems(pinned, { query: '', unreadFirst: preference.unreadFirst })
   }, [allowedSourceIds, detailQuery.data, globalSearchRequested, kind, localDayReference, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
+  const sourceOverviewSections = useMemo(() => buildSourceOverviewSections(cards), [cards])
+  const selectedSourceSectionId = useMemo(() => selectedId
+    ? sourceOverviewSections.find((section) => section.cards.some((card) => card.id === selectedId))?.id ?? null
+    : null, [selectedId, sourceOverviewSections])
+  const activeSourceOverviewSectionId = selectedSourceSectionId ?? sourceOverviewExpandedSourceId
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
     const value = item.presentation?.source?.id || item.source_id || item.source || ''
@@ -387,6 +412,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     return () => window.clearTimeout(timer)
   }, [activeWindow?.today_start, queryClient, user.id])
 
+  useEffect(() => () => {
+    sourceSummaryRequests.current.forEach((controller) => controller.abort())
+    sourceSummaryRequests.current.clear()
+  }, [])
+
   function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'reset-top' = 'preserve') {
     const next = { ...preference, ...patch }
     if (scrollPolicy === 'preserve') window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
@@ -394,7 +424,17 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     writeFeedPreference(user.id, next)
   }
 
+  function updateViewMode(mode: FeedViewMode) {
+    if (kind !== 'feed' || globalSearchRequested || mode === storedViewMode) return
+    setViewModeState({ userId: user.id, value: mode })
+    writeFeedViewMode(user.id, mode)
+  }
+
   function setSearchValue(value: string) {
+    if (kind === 'feed' && value.trim()) {
+      const viewport = document.querySelector<HTMLDivElement>('[data-feed-mode="source-overview"]')
+      if (viewport) setSourceOverviewResumeAnchor(readSourceOverviewViewportAnchor(viewport, feedContentInset))
+    }
     if (kind === 'feed' && value.trim() !== submittedSingleSearch) {
       setSubmittedSingleSearch('')
     }
@@ -425,6 +465,81 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     if (selectedId === id) next.delete('item')
     else next.set('item', id)
     setParams(next)
+  }
+
+  function toggleSourceOverviewSection(sourceId: string) {
+    const sourceForSelectedItem = selectedId
+      ? sourceOverviewSections.find((section) => section.cards.some((card) => card.id === selectedId))?.id
+      : undefined
+    const next = new URLSearchParams(params)
+    if (activeSourceOverviewSectionId === sourceId) {
+      setSourceOverviewExpandedSourceId(null)
+      if (sourceForSelectedItem === sourceId) {
+        next.delete('item')
+        setParams(next)
+      }
+      return
+    }
+    setSourceOverviewExpandedSourceId(sourceId)
+    if (selectedId && sourceForSelectedItem !== sourceId) {
+      next.delete('item')
+      setParams(next)
+    }
+  }
+
+  async function requestSourceSummary(section: SourceOverviewSectionModel, regenerate = false) {
+    if (section.cards.length > 100) {
+      actionToast.info('专题内容过多', { description: '请先缩小筛选范围到 100 篇以内再总结。' })
+      return
+    }
+    if (activeSourceOverviewSectionId !== section.id) toggleSourceOverviewSection(section.id)
+    const current = sourceSummaryStates[section.id]
+    if (!regenerate && current?.fingerprint === section.contentFingerprint && (current.status === 'loading' || current.status === 'success')) return
+    sourceSummaryRequests.current.get(section.id)?.abort()
+    const controller = new AbortController()
+    sourceSummaryRequests.current.set(section.id, controller)
+    setSourceSummaryStates((states) => ({
+      ...states,
+      [section.id]: { fingerprint: section.contentFingerprint, status: 'loading' },
+    }))
+    try {
+      const data = await api.sourceSummary(section.cards.map((card) => card.id), controller.signal)
+      if (controller.signal.aborted) return
+      setSourceSummaryStates((states) => ({
+        ...states,
+        [section.id]: { fingerprint: section.contentFingerprint, status: 'success', data },
+      }))
+    } catch (caught) {
+      if (controller.signal.aborted) return
+      setSourceSummaryStates((states) => ({
+        ...states,
+        [section.id]: {
+          fingerprint: section.contentFingerprint,
+          status: 'error',
+          message: caught instanceof ApiError ? caught.message : '专题总结生成失败，请稍后重试。',
+        },
+      }))
+    } finally {
+      if (sourceSummaryRequests.current.get(section.id) === controller) sourceSummaryRequests.current.delete(section.id)
+    }
+  }
+
+  function askAgentAboutSource(section: SourceOverviewSectionModel) {
+    const snapshot = createAgentSourceSnapshot({
+      sourceName: section.sourceName,
+      windowLabel: `近${feedWindowDays}天`,
+      items: section.cards.map((card) => ({
+        articleId: card.id,
+        title: card.displayKind === 'social' ? card.primaryText : card.title,
+        summary: card.summary,
+        publishedAt: card.publishedAt,
+      })),
+    })
+    if (!snapshot) {
+      actionToast.info('专题内容过多', { description: '请先缩小筛选范围到 100 篇以内再问 Agent。' })
+      return
+    }
+    agent.openWithSourceSnapshot(snapshot)
   }
 
   function updateFeed() {
@@ -552,13 +667,41 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <PageFrame width="reading">
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'} className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
         <ViewBar>
-        <LoadingReveal
+        {kind === 'feed' && <Tabs data-feed-mode-switch variant="secondary" selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)} className="shrink-0 gap-0">
+          <Tabs.ListContainer className="bg-transparent">
+            <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="!w-auto !min-w-0 gap-0.5 p-0">
+              <Tabs.Tab
+                id="timeline"
+                isDisabled={globalSearchTransition}
+                aria-label="时间流"
+                className="!size-8 !min-w-8 !rounded-[var(--inteliscope-radius-compact)] !px-0 text-muted"
+              >
+                <span title="时间流"><Icons.Rows3 data-feed-mode-icon="timeline" size={15} aria-hidden="true" /></span>
+                <span className="sr-only">时间流</span>
+                <Tabs.Indicator />
+              </Tabs.Tab>
+              <Tabs.Tab
+                id="source-overview"
+                isDisabled={globalSearchTransition}
+                aria-label="专题速览"
+                className="!size-8 !min-w-8 !rounded-[var(--inteliscope-radius-compact)] !px-0 text-muted"
+              >
+                <span title="专题速览"><Icons.Layers3 data-feed-mode-icon="source-overview" size={15} aria-hidden="true" /></span>
+                <span className="sr-only">专题速览</span>
+                <Tabs.Indicator />
+              </Tabs.Tab>
+            </Tabs.List>
+          </Tabs.ListContainer>
+          <Tabs.Panel id="timeline" className="sr-only">时间流</Tabs.Panel>
+          <Tabs.Panel id="source-overview" className="sr-only">专题速览</Tabs.Panel>
+        </Tabs>}
+        {kind !== 'feed' && <LoadingReveal
           loading={loading}
           label="正在读取内容数量"
           name="feed-count"
           className="mr-auto min-h-4 min-w-16 shrink-0"
           skeleton={<span data-feed-count-skeleton><CalmSkeleton className="h-4 w-16 rounded-md" /></span>}
-        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{countLabel}</span></LoadingReveal>
+        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{countLabel}</span></LoadingReveal>}
         <div className="hidden min-w-0 flex-1 sm:flex">
           <SearchField aria-label={kind === 'history' ? '搜索历史内容' : kind === 'feed' ? '搜索全部内容' : '搜索当前列表'} value={searchValue} onChange={setSearchValue} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
@@ -730,7 +873,72 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         />
       </PageFrame></div>
       : cards.length === 0 ? null
-      : <VirtualFeed
+      : effectiveViewMode === 'source-overview' ? <FeedModeLayer key="source-overview" mode="source-overview">
+        <SourceOverviewFeed
+      topInset={feedContentInset}
+      resetToTopKey={`source-overview:${preference.sortBasis}:${preference.order}`}
+      sections={sourceOverviewSections}
+      sourceItemIds={sourceItemIds}
+      trackNewItems={kind !== 'history' && !globalSearchRequested}
+      feedWindowDays={feedWindowDays}
+      footer={paginationFooter}
+      terminal={terminalContent}
+      terminalKey={terminalContextKey}
+      expandedSourceId={activeSourceOverviewSectionId}
+      summaryStates={sourceSummaryStates}
+      canSummarize={user.role !== 'viewer'}
+      expandedId={selectedId}
+      navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
+      contextIds={agent.draft.items.map((item) => item.articleId)}
+      detailLoading={detailQuery.isFetching}
+      detailError={detailQuery.isError && selectedInSource}
+      readonly={user.role === 'viewer'}
+      resumeAnchor={sourceOverviewResumeAnchor}
+      onResumeAnchorRestored={() => {
+        setSourceOverviewResumeAnchor(null)
+      }}
+      onTerminalReach={handleTerminalReach}
+      onToggleSource={toggleSourceOverviewSection}
+      onRequestSummary={(section, regenerate) => void requestSourceSummary(section, regenerate)}
+      onAskAgent={askAgentAboutSource}
+      onToggleExpanded={toggleExpanded}
+      onToggleSaved={(id, saved) => {
+        stateMutation.mutateItem(id, { is_saved: saved })
+        if (!saved) {
+          actionToast.info('已取消收藏', {
+            description: '内容已从收藏列表移除。',
+            timeout: 8_000,
+            retryLabel: '撤销',
+            onRetry: () => stateMutation.mutateItem(id, { is_saved: true }),
+          })
+        }
+      }}
+      onToggleContext={(card) => {
+        const alreadySelected = agent.draft.items.some((item) => item.articleId === card.id)
+        agent.toggleItem({
+          articleId: card.id,
+          title: card.displayKind === 'social' ? card.primaryText : card.title,
+          sourceName: workbenchSourceLabels(card, true).join(' · ') || card.source,
+          sourceUrl: card.url,
+          sourceAvatarUrl: card.sourceAvatar,
+          publishedAt: card.publishedAt,
+        })
+        if (!alreadySelected) agent.openComposer()
+      }}
+      onItemAction={(id, value) => {
+        stateMutation.mutateItem(id, { dismissed: value })
+        if (value) {
+          actionToast.info('已忽略这条内容', {
+            description: '8 秒内可以撤销，内容会回到原来的排序位置。',
+            timeout: 8_000,
+            retryLabel: '撤销',
+            onRetry: () => stateMutation.mutateItem(id, { dismissed: false }),
+          })
+        }
+      }}
+        />
+      </FeedModeLayer> : <FeedModeLayer key="timeline" mode="timeline">
+        <VirtualFeed
       topInset={feedContentInset}
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       resetToTopKey={`${preference.sortBasis}:${preference.order}:${debouncedHistoryQuery}:${historySourceId}`}
@@ -784,7 +992,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           })
         }
       }}
-    />}
+        />
+      </FeedModeLayer>}
     </LoadingReveal>
   </section>
 }

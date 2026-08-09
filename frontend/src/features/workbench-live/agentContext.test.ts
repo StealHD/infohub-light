@@ -4,6 +4,7 @@ import {
   INTELISCOPE_HANDOFF_MARKER,
   buildAgentHandoffPrompt,
   clearAgentContextDraft,
+  createAgentSourceSnapshot,
   projectAgentHandoffDisplay,
   readAgentContextDraft,
   sanitizeSourceAvatarUrl,
@@ -62,7 +63,7 @@ describe('Agent context draft', () => {
     }
     const prompt = buildAgentHandoffPrompt(draft)
 
-    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V7]')
+    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V8]')
     expect(prompt).toContain(INTELISCOPE_HANDOFF_MARKER)
     expect(prompt).toContain('问题：提炼机会')
     expect(prompt).toContain('1. 调用 get_item，article_id="a"；原文网址="https://example.com/a?keep=yes"')
@@ -105,6 +106,53 @@ describe('Agent context draft', () => {
       displayText: '订阅 B 站 UP 主食贫道',
       contextCount: 0,
     })
+  })
+
+  it('stores a bounded full-source snapshot and builds a tool-free V8 handoff', () => {
+    const snapshot = createAgentSourceSnapshot({
+      sourceName: '专题来源 https://source.example.test',
+      windowLabel: '近7天',
+      items: Array.from({ length: 21 }, (_, index) => ({
+        articleId: `article-${index + 1}`,
+        title: `标题 ${index + 1} https://example.com/title/${index + 1}`,
+        summary: `摘要 ${index + 1} https://example.com/summary/${index + 1} ` + '长内容'.repeat(2_000),
+        publishedAt: `2026-08-${String(index + 1).padStart(2, '0')}`,
+      })),
+    })
+    expect(snapshot).not.toBeNull()
+    expect(snapshot?.items).toHaveLength(21)
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(32_000)
+    const prompt = buildAgentHandoffPrompt({
+      userId: 'user-a',
+      question: '梳理时间脉络',
+      items: [],
+      sourceSnapshot: snapshot!,
+    })
+    expect(prompt).toContain('"mode":"source_snapshot_readonly"')
+    expect(prompt).toContain('"contextCount":21')
+    expect(prompt).toContain('标题 21')
+    expect(prompt).toContain('不得调用 get_item、web_fetch')
+    expect(prompt).not.toContain('https://')
+    expect(projectAgentHandoffDisplay(prompt)).toEqual({ displayText: '梳理时间脉络', contextCount: 21 })
+    expect(createAgentSourceSnapshot({
+      sourceName: '过大专题',
+      windowLabel: '近7天',
+      items: Array.from({ length: 101 }, (_, index) => ({ articleId: String(index), title: String(index) })),
+    })).toBeNull()
+
+    const pathological = createAgentSourceSnapshot({
+      sourceName: '来源'.repeat(100),
+      windowLabel: '窗口'.repeat(100),
+      items: Array.from({ length: 100 }, (_, index) => ({
+        articleId: `${index}-${'id'.repeat(100)}`,
+        title: `标题 ${index} ${'\\"'.repeat(200)}`,
+        summary: '摘要'.repeat(2_000),
+        publishedAt: '2026-08-09T00:00:00Z'.repeat(5),
+      })),
+    })
+    expect(pathological?.items).toHaveLength(100)
+    expect(pathological?.items.every((item) => item.title.length > 0)).toBe(true)
+    expect(JSON.stringify(pathological).length).toBeLessThanOrEqual(32_000)
   })
 
   it('uses an internal image-only question without exposing image data in the handoff', () => {
@@ -162,6 +210,24 @@ describe('Agent context draft', () => {
     })
     expect(sanitizeSourceAvatarUrl('/api/media/med_source-a_1')).toBe('/api/media/med_source-a_1')
     expect(sanitizeSourceAvatarUrl('/api/media/med_source?token=secret')).toBe('')
+  })
+
+  it('reads a V5 draft and rewrites it under the V6 storage key', () => {
+    window.sessionStorage.setItem('inteliscope.agent-context.v5:user-a', JSON.stringify({
+      userId: 'user-a',
+      question: '延续旧问题',
+      items: [{ articleId: 'article-a', title: '旧条目' }],
+    }))
+
+    const migrated = readAgentContextDraft('user-a')
+    expect(migrated).toEqual({
+      userId: 'user-a',
+      question: '延续旧问题',
+      items: [{ articleId: 'article-a', title: '旧条目' }],
+    })
+    writeAgentContextDraft('user-a', migrated)
+    expect(window.sessionStorage.getItem('inteliscope.agent-context.v6:user-a')).not.toBeNull()
+    expect(window.sessionStorage.getItem('inteliscope.agent-context.v5:user-a')).toBeNull()
   })
 
   it('projects legacy handoffs without exposing their internal instructions', () => {

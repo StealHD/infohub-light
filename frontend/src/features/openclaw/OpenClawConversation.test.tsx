@@ -17,6 +17,7 @@ function contextValue(overrides: Partial<WorkbenchAgentContextValue['draft']> = 
     removeItem: vi.fn(),
     clearItems: vi.fn(),
     openComposer: vi.fn(),
+    openWithSourceSnapshot: vi.fn(),
     setQuestion: vi.fn(),
     clearComposer: vi.fn(),
     restoreComposer: vi.fn(),
@@ -372,7 +373,7 @@ describe('OpenClaw conversation surface', () => {
       displayText: '创建食贫道的 Bilibili 订阅',
       contextItems: [],
     })
-    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V7]')
+    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V8]')
     expect(request.gatewayPrompt).toContain('"mode":"direct"')
     expect(request.gatewayPrompt).toContain('prepare → preview → exact confirmation → apply')
     expect(request.gatewayPrompt).not.toContain('不得执行任何写操作')
@@ -741,7 +742,7 @@ describe('OpenClaw conversation surface', () => {
     await browser.click(screen.getByRole('button', { name: '重试' }))
     expect(chat.retry).toHaveBeenCalledWith('send-1')
     await browser.click(screen.getByRole('button', { name: '重新编辑' }))
-    expect(value.restoreComposer).toHaveBeenCalledWith('分析机会', snapshot.contextItems)
+    expect(value.restoreComposer).toHaveBeenCalledWith('分析机会', snapshot.contextItems, undefined)
   })
 
   it('builds Origin repair commands that append without a wildcard', () => {

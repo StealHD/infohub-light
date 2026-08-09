@@ -42,14 +42,14 @@ export function HandoffComposer({ value }: { value: WorkbenchAgentContextValue }
           </Tooltip.Trigger>
           <Tooltip.Content {...anchoredTooltipProps}>只复制交接提示词，由本地 OpenClaw 执行。</Tooltip.Content>
         </Tooltip>
-        <span className="type-label shrink-0 text-muted">{value.draft.items.length}/8</span>
+        <span className="type-label shrink-0 text-muted">{value.draft.sourceSnapshot ? `${value.draft.sourceSnapshot.itemCount} 条快照` : `${value.draft.items.length}/8`}</span>
         <span className="type-label min-w-0 flex-1 whitespace-normal break-words text-muted [overflow-wrap:anywhere]">使用 OpenClaw 当前设置</span>
         <span role="status" aria-label="交接状态" aria-live="polite" className="type-label min-w-0 truncate text-muted">{notice}</span>
         <Button
           size="sm"
           isIconOnly
           className="size-9 shrink-0 rounded-full active:scale-95 motion-reduce:transform-none"
-          isDisabled={!value.draft.items.length}
+          isDisabled={!value.draft.items.length && !value.draft.sourceSnapshot}
           aria-label="复制交接提示词"
           onPress={() => void copyHandoff()}
         ><Icons.ArrowUp size={16} aria-hidden="true" /></Button>

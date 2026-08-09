@@ -80,6 +80,7 @@ from ..services.apify_discovery_ai import (
 )
 from ..services.apify_actor_monitoring import ApifyActorAlertBridge
 from ..services.source_health import SourceHealthService
+from ..services.source_summary import SourceSummaryError, SourceSummaryService
 from ..services.storage_governance import (
     StorageGovernanceError,
     StorageGovernanceService,
@@ -377,6 +378,30 @@ def _sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class SourceSummaryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    article_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("article_ids", mode="before")
+    @classmethod
+    def validate_article_ids(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            raise ValueError("article_ids must be a list")
+        normalized: list[str] = []
+        for candidate in value:
+            if not isinstance(candidate, str):
+                raise ValueError("article_ids must contain strings")
+            article_id = candidate.strip()
+            if not article_id or len(article_id) > 256 or "\x00" in article_id:
+                raise ValueError("article_ids must contain 1 to 256 safe characters")
+            if article_id not in normalized:
+                normalized.append(article_id)
+        if not normalized:
+            raise ValueError("article_ids must contain at least one item")
+        return normalized
 
 
 class UserCreateRequest(BaseModel):
@@ -979,6 +1004,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "/api/admin/notification-services/{service_id}/test-and-enable",
     ): ("notification", "service_test_enable"),
     ("POST", "/api/config/action"): ("source", "compat_config_action"),
+    ("POST", "/api/feed/source-summary"): (
+        "request",
+        "source_summary_generate",
+    ),
     ("POST", "/api/admin/feed-end-messages/refresh"): (
         "job",
         "feed_end_messages_refresh",
@@ -2543,6 +2572,7 @@ def create_app(
     app.state.apify_actor_ops_for = apify_actor_ops_for
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
     app.state.youtube_channel_resolver = youtube_channels
+    app.state.source_summary_service = SourceSummaryService(store, quota=quota)
 
     @app.middleware("http")
     async def _remote_mcp_body_limit(request: Request, call_next):
@@ -8329,6 +8359,36 @@ def create_app(
                 config=config,
             )
         )
+
+    @app.post("/api/feed/source-summary")
+    async def feed_source_summary(
+        payload: SourceSummaryRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        if user.get("role") == "viewer":
+            raise ApiError(
+                "forbidden",
+                "viewer users cannot generate AI summaries",
+                status_code=403,
+            )
+        _data, config = read_base_config()
+        try:
+            result = await app.state.source_summary_service.generate(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                article_ids=payload.article_ids,
+                ai_config=config.ai,
+            )
+        except SourceSummaryError as exc:
+            raise ApiError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+            ) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
 
     @app.post("/api/admin/feed-end-messages/refresh")
     async def feed_end_messages_refresh(
