@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将 OpenClaw 多附件的剩余信息从独立 Popover 改为原摘要容器向上拉伸，保留前两条预览、仅显示增量条目，并统一所有行右边线。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-inline-expansion",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "OpenClaw 与更新日志相关 Vitest 35 项、TypeScript、UI contract 检查通过。",
-    "完整 Test Gate 23/23 通过（250.607 秒）。",
-    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；已服务原位展开资源，代码中不再包含 context-summary-popover 或“查看全部”。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -395,6 +375,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "切换前确认规范运行时挂载、无 queued/running 活动任务、Feed 自动计划 0 个、Source 自动计划 3 个，数据库迁移版本已到 v19。",
     "./scripts/up-latest.sh 完成无缓存构建与容器重建；API/Worker 均 healthy，readiness 返回 worker_status=ready，live revision 为 ae38d53829a0。",
     "8080 实际服务的 /assets/index-BcPiyAg-.js 包含登录页文案‘专注你真正关心的信息’。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "根据登录页浏览器评审，将桌面与平板品牌区的三条能力说明收拢为带细边框的圆角实色信息块，移动端仍隐藏该低优先级列表。",
+  "status": "completed",
+  "task_id": "2026-08-09-login-capability-corners",
+  "unresolved": [],
+  "validation": [
+    "HeroLoginPage 定向 Vitest 3/3、TypeScript 与 ESLint 通过。",
+    "生产构建预览下强制刷新并复验 1440×900 与 1024×768 的 light/dark 视觉基线；390×844 保持隐藏能力列表。",
+    "完整 Test Gate 24/24 命令通过（250.29 秒），mapping_miss=false。"
   ]
 }
 ```

@@ -40,6 +40,10 @@ describe('HeroLoginPage', () => {
     expect(document.querySelector('[data-login-layout="quiet-studio-split"]')).toBeInTheDocument()
     expect(document.querySelector('[data-login-brand]')).toBeInTheDocument()
     expect(document.querySelector('[data-login-form]')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-login-capability]')).toHaveLength(3)
+    document.querySelectorAll<HTMLElement>('[data-login-capability]').forEach((capability) => {
+      expect(capability).toHaveClass('rounded-xl', 'border', 'bg-surface')
+    })
 
     const username = screen.getByLabelText('用户名')
     const password = screen.getByLabelText('密码')

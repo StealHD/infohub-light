@@ -78,16 +78,16 @@ export function HeroLoginPage({ api, onAuthenticated }: { api: ServiceApi; onAut
             <p className="type-section-title mt-8 max-w-xs">专注你真正关心的信息</p>
             <p className="type-body mt-3 max-w-sm text-muted">订阅、获取并留存真正需要的信息。</p>
           </div>
-          <ul className="mt-8 hidden gap-4 min-[768px]:grid" aria-label="产品能力">
-            <li className="flex items-start gap-3">
+          <ul className="mt-8 hidden gap-3 min-[768px]:grid" aria-label="产品能力">
+            <li data-login-capability className="flex items-start gap-3 rounded-xl border border-separator bg-surface p-3">
               <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-control border border-separator bg-surface text-accent"><Icons.Rss size={16} aria-hidden="true" /></span>
               <span><span className="type-control block">多源订阅</span><span className="type-meta mt-0.5 block text-muted">把关注的来源收进一个工作台</span></span>
             </li>
-            <li className="flex items-start gap-3">
+            <li data-login-capability className="flex items-start gap-3 rounded-xl border border-separator bg-surface p-3">
               <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-control border border-separator bg-surface text-accent"><Icons.Rows3 size={16} aria-hidden="true" /></span>
               <span><span className="type-control block">统一信息流</span><span className="type-meta mt-0.5 block text-muted">按自己的节奏集中阅读</span></span>
             </li>
-            <li className="flex items-start gap-3">
+            <li data-login-capability className="flex items-start gap-3 rounded-xl border border-separator bg-surface p-3">
               <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-control border border-separator bg-surface text-accent"><Icons.History size={16} aria-hidden="true" /></span>
               <span><span className="type-control block">稳定留存</span><span className="type-meta mt-0.5 block text-muted">收藏与历史始终属于当前账户</span></span>
             </li>
