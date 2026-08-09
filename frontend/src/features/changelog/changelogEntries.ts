@@ -23,6 +23,18 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-11',
+        title: '旧 UI 与历史发布链路完成退役',
+        summary: '运行面收敛为 React、FastAPI、Worker 与 Remote MCP；旧接口和 writer 停止工作，同时保留现役 Feed、冷归档和历史数据安全边界。',
+        items: [
+          { title: 'React 成为唯一界面', description: '删除旧静态 UI、horizon-web 与构建缺失 fallback。React 产物缺失时 API 和 Remote MCP 仍可启动，页面明确返回 404；历史书签继续重定向到当前页面。' },
+          { title: '运行服务只保留两项', description: 'Docker、Compose 与发布流程只运行 FastAPI 和 Worker；自动 Feed 与单源计划都由 Worker 执行，不再安装 CLI publisher、本地 MCP 或 scheduler。发布仍会阻断残留旧 scheduler 容器。' },
+          { title: '旧分析接口明确下线', description: 'Archive analytics、Graph 与偏好反馈接口不再出现在 OpenAPI，访问时使用统一 404。Feed latest/history/search、存储治理冷归档、成员管理、来源总结、ActorOps 和 Remote MCP 保持不变。' },
+          { title: '历史数据原样保留', description: '既有 data/site、horizon.db、旧 summaries、本地 MCP run 与 feedback 行不再被现役代码读取或改写，也不会由初始化或迁移删除；Fresh DB 不再创建 feedback 表。' },
+          { title: '共享能力迁出 UI 命名空间', description: '认证、配置运行时、来源探测、Feed payload 与 Feed read 进入中性模块；Feed 读取强制使用 ServiceStore，杜绝静态文件和 ArticleStore 兜底。' },
+        ],
+      },
+      {
+        date: '2026-08-11',
         title: '信息流提示与深色状态更易辨认',
         summary: '新内容提示不再被顶部工具栏遮挡；深色模式下 Agent 面板的未配置与交接状态也保持可读。',
         items: [
@@ -120,7 +132,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '精确复用 main 绿灯', description: '发布只接受与 origin/main 完全一致且已通过 Test Gate 的 SHA；main 绿灯后才创建 Tag，Tag 只验证同一 SHA 并追加隔离 API smoke，不再重复后端、前端和 UI 全套检查。' },
           { title: '耗时步骤并行执行', description: 'Linux 镜像构建与 main CI 同时进行，源包和镜像使用可恢复传输并行上传；UI E2E 也不再等待前端门禁结束。文档-only 变更不会启动无关的后端或前端作业。' },
           { title: '普通升级不再套用首次引导', description: '标准脚本直接升级现有 Service 数据库，不再要求空库 RC1 流程；发现迁移改动时会明确阻断并转入独立迁移手册。' },
-          { title: '失败恢复与本地清理', description: '切换前在线备份 service.db 和环境文件，确认无活跃任务且 scheduler 关闭；API、Worker、readiness、前端资源或公网 revision 任一失败都会恢复上一 release。发布结束后删除本次本地镜像，避免旧 build 持续堆积。' },
+          { title: '失败恢复与本地清理', description: '切换前在线备份 service.db 和环境文件，确认无活跃任务，并阻断仍在运行的历史 scheduler 容器；API、Worker、readiness、前端资源或公网 revision 任一失败都会恢复上一 release。发布结束后删除本次本地镜像，避免旧 build 持续堆积。' },
         ],
       },
       {

@@ -147,3 +147,4 @@
 | D141 | ActorOps 由管理员选择安全候选且验证后立即可运行 | 2026-08-10 | [查看](records/D126-D150.md#d141) |
 | D142 | ActorOps 验证参数按失败冻结并禁止原样重复付费 | 2026-08-10 | [查看](records/D126-D150.md#d142) |
 | D143 | ActorOps legacy 默认升级原 Actor 且来源验证在审批前阻断不安全 Revision | 2026-08-10 | [查看](records/D126-D150.md#d143) |
+| D144 | React、FastAPI、Worker 与 Remote MCP 成为唯一运行面 | 2026-08-11 | [查看](records/D126-D150.md#d144) |

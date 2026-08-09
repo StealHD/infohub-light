@@ -13,9 +13,10 @@ Inteliscope is a small-group, multi-user information feed built from Horizon. It
 - User-scoped Feed snapshots, stable saved/later content, explicit read/unread state, captured-body detail, protected media, history, and source health.
 - Editable source and subscription settings, connection tests, refetch, partial/failure diagnostics, and source priority ordering.
 - Bounded per-item summaries and owner/admin write-only management of AI and Apify keys.
-- Optional read-only Remote MCP for each user's own local OpenClaw, with self-managed 90-day connections and a bundled Skill.
+- Optional user-scoped Remote MCP for each user's own OpenClaw, with self-managed connections, safe reads, gated subscription writes, and a bundled Skill.
+- Opt-in per-source notifications through current Email, Webhook, and Telegram Service transports.
 
-Graph, archive analytics, recommendation learning, in-site article proxying, daily summary publishing, and notifications are not part of the default Service product. The legacy CLI and scheduler remain optional compatibility paths only.
+Graph, archive analytics, recommendation learning, in-site article proxying, daily summary publishing, the static-site publisher, and the local stdio MCP are retired. Their historical files are not read, migrated, or deleted by the current runtime.
 
 ## Default runtime
 
@@ -26,7 +27,7 @@ horizon-api     FastAPI, React reader UI, authentication and Service APIs
 horizon-worker  acquisition jobs, Feed finalization, schedules and source health
 ```
 
-`horizon-scheduler` is never started by default and does not participate in the multi-user Feed path.
+There is no scheduler or legacy publisher service. Both automatic Feed refresh and per-source schedules run inside `horizon-worker`.
 
 ## Local Docker start
 
@@ -52,7 +53,7 @@ started or forces removal of an image still referenced by a container. Set
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), log in, create or subscribe to a source, and select “获取新内容”.
 
 When this command runs from a linked task Worktree, it builds that Worktree and mounts `.env`, `data`, and `logs` from the primary checkout resolved through Git's common directory. Use `--runtime-root /absolute/path` only to select another runtime intentionally, and `--dry-run` to inspect the resolved roots without calling Docker. The authoritative completion and migration-safety rules are in [AGENTS.md](AGENTS.md#6-verification). Production images do not contain `.env`, `service.db`, `data/config.json`, logs, or backups.
-API, Worker, Scheduler, and CLI runtime/operation logs are private UTC-rotated JSONL files with a 30-day default retention. See the [diagnostic logging developer guide](docs/dev/observability-logging.md); logs are never rendered in the frontend.
+API and Worker runtime/operation logs are private UTC-rotated JSONL files with a 30-day default retention. See the [diagnostic logging developer guide](docs/dev/observability-logging.md); logs are never rendered in the frontend.
 
 The default Service UI is the React three-column radar. For frontend development:
 
@@ -65,13 +66,13 @@ npm run typecheck
 npm run e2e
 ```
 
-Set `HORIZON_SERVICE_UI_VARIANT=legacy` for the one-release rollback path. This does not change the legacy CLI/static publisher boundary.
+React is the only UI. If its build output is missing, FastAPI and Remote MCP still start while non-API pages return 404; there is no legacy fallback.
 
 Owner/admin users can add and rotate AI/Apify keys in the configuration page. Values are write-only, stored in ignored `data/secrets.env` with mode `0600`, hot-loaded by API and Worker, and never returned to the browser. `data/config.json` and SQLite contain only the selected environment-variable reference.
 
 ## Authentication
 
-The Service API always requires an application account. `HORIZON_AUTH_ENABLED` controls only the legacy Web profile and cannot disable Service authentication.
+The Service API always requires an application account; there is no environment switch that disables Service authentication.
 
 For HTTPS deployments:
 
@@ -117,7 +118,7 @@ The default reuses the current Docker image; pass `--rebuild` to rebuild the
 working tree. Afterward, create a read-only connection on `/agents`, run its
 generated MCP commands, then pair the Feed panel with `openclaw dashboard`.
 
-Install and configure the bundled Skill by following [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md). The legacy stdio MCP remains separate and is never exposed by `/mcp`.
+Install and configure the bundled Skill by following [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md). `/mcp` is the only MCP server shipped by this repository.
 
 The local acceptance benchmark uses an isolated temporary database and 100 real MCP client calls:
 
@@ -136,23 +137,20 @@ Normal upgrades use one guarded command from a clean `main` that exactly matches
 ./scripts/release_vps.sh rollback [release-id]
 ```
 
-The release command reuses the successful Test Gate for the exact main SHA, builds the pinned `linux/amd64` image locally while CI completes, uploads the source and image concurrently with resumable `rsync`, pushes the tag only after main is green, and waits for the tag's isolated API smoke before cutover. The VPS only performs `docker load`; it never builds this repository. Before replacing API and Worker it checks for active jobs, confirms the scheduler is stopped, creates private online database and environment backups, and automatically restarts the previous release if readiness or asset verification fails. A release that contains database migration work is refused and must use its explicit migration runbook.
+The release command reuses the successful Test Gate for the exact main SHA, builds the pinned `linux/amd64` image locally while CI completes, uploads the source and image concurrently with resumable `rsync`, pushes the tag only after main is green, and waits for the tag's isolated API smoke before cutover. The VPS only performs `docker load`; it never builds this repository. Before replacing API and Worker it checks for active jobs, blocks cutover if a residual historical scheduler container is running, creates private online database and environment backups, and automatically restarts the previous immutable API/Worker release if readiness or asset verification fails. A release that contains database migration work is refused and must use its explicit migration runbook.
 
 The public target is `https://rb.jiefs.top/`. VPS releases live under `/opt/inteliscope/releases/<release-id>` and share `/opt/inteliscope/{data,logs,.env}`. The local release image is removed after the command finishes so release builds do not accumulate. `scripts/release_rc1.sh` remains only for a first-time empty-database bootstrap; it is not the normal upgrade path.
 
 ## Verification
 
 ```bash
-./.venv/bin/pytest -q
-node --test tests/reading_ui_behavior.test.cjs tests/subscription_job_ui_behavior.test.cjs
-for file in src/ui/static/*.js; do node --check "$file"; done
-./.venv/bin/python -m compileall -q src scripts
-docker compose -f docker-compose.light.yml config
+python scripts/test_gate.py run --mode full
+python scripts/test_gate.py run --mode release
 git diff --check
 ```
 
-## Legacy compatibility
+## Retired data boundary
 
-The upstream-style `horizon` CLI, static site output, summaries, notifications, and scheduler remain available through explicit manual/profile commands. They may write global files under `data/site/`, but the Service API, Worker, Feed, and history must never use those files as a fallback.
+Existing `data/site/**`, `data/horizon.db`, generated summaries, local MCP runs, and legacy feedback rows remain operator-owned inert artifacts. The current API, Worker, React UI, Remote MCP, initialization, and migrations do not read, rewrite, migrate, or physically delete them. Current cold archives under `data/archives/**` and Service DB snapshot compatibility remain supported.
 
 Inteliscope is derived from [Thysrael/Horizon](https://github.com/Thysrael/Horizon) and remains MIT licensed.

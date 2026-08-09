@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-10',
-  change: '专题总结推理预算与缓存升级',
+  reviewedAt: '2026-08-11',
+  change: '旧 UI 与 Legacy 运行链路退役',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -238,7 +238,11 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '发布不会临时下载依赖',
-        description: '正式镜像已经包含 API、Worker 与迁移需要的 Python 环境，容器启动直接使用镜像内可执行文件；标准发布会复用同一 main revision 已通过的完整门禁，在本地构建 Linux 镜像并由 VPS 直接载入，Tag 只追加隔离 smoke。切换前会备份并检查空闲任务，失败自动恢复上一版本；含迁移的版本会被普通流程阻断。若运行日志出现解析或下载 Python 构建依赖，应停止切换并继续使用上一健康版本，而不是在 VPS 现场安装。',
+        description: '正式镜像已经包含 API、Worker 与迁移需要的 Python 环境，容器启动直接使用镜像内可执行文件；标准发布会复用同一 main revision 已通过的完整门禁，在本地构建 Linux 镜像并由 VPS 直接载入，Tag 只追加隔离 smoke。切换前会备份并检查空闲任务，发现残留历史 scheduler 容器会阻断；失败自动恢复上一 API/Worker 版本，含迁移的版本会被普通流程阻断。若运行日志出现解析或下载 Python 构建依赖，应停止切换并继续使用上一健康版本，而不是在 VPS 现场安装。',
+      },
+      {
+        title: '当前只有一套界面与数据路径',
+        description: 'React 是唯一界面，FastAPI、Worker 与 Remote MCP 只读取 Service DB 和现役冷归档。旧静态站、Graph/Archive 分析、偏好反馈、本地 MCP 与日报发布已经退役；历史 data/site、horizon.db、summaries、MCP run 和 feedback 行会原样留在磁盘，不会由页面、初始化或迁移自动清理。',
       },
       {
         title: '工具未发现',

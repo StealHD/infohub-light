@@ -1,4 +1,4 @@
-Feed retention / legacy archive compatibility 规则：
+Feed retention / current cold-storage 规则：
 
 1. `GET /api/feed/latest` 从当前用户隔离的 `user_content_items` 稳定索引投影 `feed_start <= effective_at <= now` 的内容，按 `effective_at DESC, article_id ASC` 稳定返回；最新 schema-v2 snapshot 只提供生成元数据和已保存集合成员证据。不得读取全局 `data/site/radar-data.json`、`history-data.json` 或 `article-graph.json`。响应增加 `window{timezone="Asia/Shanghai",feed_days,today_start,feed_start,now}`，`feed_days` 来自工作区 `filtering.feed_window_days` 且只允许 `7/14/30`。
 2. `effective_at` 是稳定展示时间：优先使用可解析且不超过当前时间五分钟的可信 `published_at`，否则使用首次入库时间。缺失、非法或异常未来发布时间不得进入未来；同一稳定 article ID 的重复抓取只更新展示内容和 `last_seen_at`，不得改写已有 `effective_at` 把旧内容重新移回 Feed。v11 以带备份的显式迁移回填 `effective_at/search_text` 和增量 FTS5 索引。
@@ -15,11 +15,7 @@ Feed retention / legacy archive compatibility 规则：
 10C. `latest_per_source` 只对显式声明该 retention 的来源生效：序列化 item 以 additive `retention_policy_explicit=true` 标记该事实，同一 provenance 的新 latest 替换旧 latest。X/Instagram profile 未显式声明时统一采用 `time_window`；读取缺少该标记的遗留 `latest_per_source` 社交快照时按 `time_window` 规范化，并可从用户稳定内容索引恢复仍在采集窗口内但已被旧 snapshot 替换的帖子。该兼容不迁移或重写历史 snapshot。
 10D. X/Instagram profile adapter 只返回 acquisition time window 内的帖子；Actor 成功但只返回超窗旧帖时结果为成功空集合，Source Health 记录 `last_fetched_count=0`，内容未变化时复用 snapshot。Facebook page/group/post 与 Telegram channel 保留既有 stale fallback；本规则不触发额外 Actor 调用。
 10E. `source_fetch` 按 canonical identity 合并目标来源结果到最新采集 snapshot，不替换其他来源；目标来源的普通采集窗口内容继续累计，只有显式 `latest_per_source` 会替换其旧 latest。Service Feed 随后独立从稳定索引按 `feed_window_days` 投影；`personal_only` 内容进入用户稳定索引和 Feed，但跳过 AI、精选和推送。
-11. `GET /api/archive/graph` 固定返回 `{"nodes": [], "edges": [], "scope": "user", "capability": "disabled", "degraded": true, "reason": "user_scoped_graph_not_available"}`，不得读取全局图文件；默认 Service UI 无 Graph 入口。
-12. compatibility-only `GET /api/archive/items` 返回 `{items, page, filters, scope}`，支持 `channel/topic/source/date_from/date_to/min_score/limit/offset/sort/order`。
-13. compatibility-only `GET /api/archive/trends` 支持 `group_by=channel|topic|entity|source` 和 `bucket=none|day|week`。
-14. compatibility-only `GET /api/archive/facets` 返回既有 `channels/topics/sources/entities` 计数；`GET /api/archive/source-quality` 返回既有 source 质量字段。默认 UI 不调用这些路由。
-15. 兼容 archive 路由的非法 query 参数仍返回统一 error envelope，例如 `invalid_sort`、`invalid_order`、`invalid_date_range`、`invalid_group_by`、`invalid_bucket`。
+11. 已退役的 `/api/archive/{graph,items,trends,facets,source-quality}` 不得读取 `data/site`、`data/horizon.db` 或关系图文件，不在 OpenAPI 中，并统一返回 `not_found`。当前冷归档只属于 `/api/admin/storage/*` 与 `/api/feed/search`，不是 `/api/archive/*` 的延续。
 16. Service source config 把 subscription `priority` 以 `source_priority` 传入所有 adapter 输出；snapshot item 顶层保存整数 `source_priority`。旧 snapshot/item 缺该字段时按 `0` 处理。
 17. 跨 source URL 去重时，合并 item 的 `source_priority` 取参与组的最大值，并继续保留全部 `source_ids/subscription_ids/source_keys` provenance；不能因选择内容最丰富的 primary item 而丢失较高 priority。
 18. Feed finalizer 的 canonical `items/today_items` 排序精确为 `(score DESC, source_priority DESC, published_at 或 fetched_at 的 UTC instant DESC, id DESC)`。score 永远是第一排序键，较低 score 不得靠 priority 越过较高 score；全部 score 缺失或为零时自然变为 priority 优先。
@@ -50,6 +46,5 @@ Feed retention / legacy archive compatibility 规则：
 
 1. `GET /api/me/item-state?article_ids=a,b` 返回当前用户这些 article id 的状态 map；不可见或不存在的 id 返回默认 false 状态，不泄露其他用户数据。
 2. `PATCH /api/me/items/{article_id}/state` 只允许当前用户写自己 feed 中可见的 item；不可见 item 返回 `not_found`。
-3. compatibility-only `POST /api/me/items/{article_id}/feedback` 只允许当前用户对自己可见 item 提交 `more_like_this/less_like_this/not_relevant/wrong_topic/quality_issue`；默认 UI 不提供这些操作。
-4. feedback 只做兼容入库，不驱动 Feed 过滤、排序、推荐、archive trends 或 source-quality；当前产品行为只使用已读、收藏、稍后读和忽略状态。
-5. 忽略是当前用户作用域的可逆隐藏：设置 `dismissed=true` 后条目从默认 Feed 隐藏并进入 `/api/feed/ignored`；设置 `dismissed=false` 后从忽略集合移除。恢复只修改当前用户状态，不重抓来源、不重写其他用户数据。
+3. 忽略是当前用户作用域的可逆隐藏：设置 `dismissed=true` 后条目从默认 Feed 隐藏并进入 `/api/feed/ignored`；设置 `dismissed=false` 后从忽略集合移除。恢复只修改当前用户状态，不重抓来源、不重写其他用户数据。
+4. Fresh DB 不创建 feedback 表。既有库中的 feedback 表与行属于 inert operator-owned data；初始化、Feed v2 migration、reset 与运行时不得读取、删除或改写它们。

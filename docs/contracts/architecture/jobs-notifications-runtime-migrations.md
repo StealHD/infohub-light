@@ -8,7 +8,7 @@ Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保
 
 Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为每个 `/api/*` 请求创建和关闭连接；鉴权读取与路由处理必须处于同一请求边界。请求结束仍存在事务时必须回滚并返回 `database_transaction_leak`，避免 macOS Docker bind mount 下长连接停留在旧 WAL 视图而误判 Worker heartbeat 或任务状态。`/api/health/live` 不访问数据库，也不受该边界阻塞。
 
-`user_feed_refresh` 的 `succeeded/partial` 结果必须把 schema-v2 payload 保存为当前用户 snapshot，同时 upsert 稳定内容并写入 `snapshot_id/item_count` 到 job result。snapshot、稳定 items 和 job 终态在同一短事务提交；过期 claim 无权提交。同一非空 job 最多一个 snapshot，同一 snapshot 内 article 唯一；terminal job 手动 retry 产生的新 run 原子替换该 job 的旧 snapshot 内容，但既有稳定 `effective_at` 不变。`/api/feed/latest|history|search` 只读取目标用户稳定索引并按 timeline 投影；compatibility-only archive 路由遵守上一节 legacy 边界，不能反向成为 Feed 依赖。
+`user_feed_refresh` 的 `succeeded/partial` 结果必须把 schema-v2 payload 保存为当前用户 snapshot，同时 upsert 稳定内容并写入 `snapshot_id/item_count` 到 job result。snapshot、稳定 items 和 job 终态在同一短事务提交；过期 claim 无权提交。同一非空 job 最多一个 snapshot，同一 snapshot 内 article 唯一；terminal job 手动 retry 产生的新 run 原子替换该 job 的旧 snapshot 内容，但既有稳定 `effective_at` 不变。`/api/feed/latest|history|search` 只通过强制持有 `ServiceStore` 的 `FeedReadService` 读取目标用户稳定索引并按 timeline 投影，不存在文件或 ArticleStore fallback。
 
 `source_fetch` 带 `source_id` 时属于用户作用域精准抓取，不走旧 `source_type:index` 单源刷新路径。Worker 执行后必须通过 `UserFeedStore` 保存当前用户 snapshot，并在 job result 中返回 source 和 snapshot 元数据。
 
@@ -21,17 +21,17 @@ Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为
 
 自动与手动全量刷新共享“每用户最多一个 queued/running”约束；active `source_fetch` 和 migration gate 延后 5 分钟，其他不可运行状态记录明确 skip reason 并推进到下一周期，避免热循环。关闭计划只取消 queued 的自动 job，不强杀 running job；`partial/failed` 不改变 enabled 状态。
 
-静态 UI 每 30 秒低频读取当前用户 schedule，发现 active job 后复用 2 秒 job poll；terminal snapshot 由 watcher/poll 共享单次处理状态，只有 Feed 明确加载成功后才记为 handled，poll 失败时 watcher 必须可接管重试。所有 Feed/config/item-state/schedule 异步读取必须绑定当前 auth user 与 load generation；logout、unauthorized 或用户切换会失效旧 generation、清理 watcher/job timer 并阻止旧用户响应写入全局状态或重新渲染。
+React UI 低频读取当前用户 schedule，并在发现 active job 后复用有界 job poll；terminal snapshot 只有在 Feed 明确加载成功后才记为 handled。所有 Feed/config/item-state/schedule 异步读取必须绑定当前 auth user 与 query generation；logout、unauthorized 或用户切换会取消旧请求、删除旧用户缓存并阻止旧响应重新渲染。
 
-这条边界不得 import 或调用 `src/services/scheduler.py`、`HorizonOrchestrator.run()` 或 `LegacyPublisher`，不得新增 dispatcher 容器，也不得读取/修改 `data/site/*.json`、摘要、通知、Graph、Archive analytics 或推荐链路。`horizon-scheduler` 仍只服务 legacy 显式 profile。
+这条边界只依赖常驻 Worker，不得新增 scheduler/dispatcher 容器，也不得读取或修改 `data/site/*.json`、旧摘要、图谱或 archive analytics。已退役的 scheduler、publisher 与全局 `run()` 不得重新成为调度依赖。
 
 ### 3.8B Subscription Source Schedule Boundary
 
-`src/services/source_schedule.py::SourceScheduleService` 是订阅级自动 `source_fetch` 的唯一调度边界。权威状态位于 additive `user_source_schedules`，以 `subscription_id` 隔离用户；缺 row 等同关闭。API 只能读写当前用户的订阅计划，静态 UI 不得自行创建定时器抓取外部来源。
+`src/services/source_schedule.py::SourceScheduleService` 是订阅级自动 `source_fetch` 的唯一调度边界。权威状态位于 additive `user_source_schedules`，以 `subscription_id` 隔离用户；缺 row 等同关闭。API 只能读写当前用户的订阅计划，React 不得自行创建定时器抓取外部来源。
 
 现有 Worker 在用户 Feed schedule 之后、claim 普通任务之前评估到期 source schedule。到期检查、active job 去重、配额、job 创建和计划推进必须处于同一 `BEGIN IMMEDIATE` 事务；自动任务固定 `reason=scheduled_source_fetch`、`priority=-10`，并继续复用 catalog runner、结构化 run、Feed v2 finalizer、Source Health 和 claim guard。手动/自动单源任务共享“同一订阅最多一个 queued/running”；active 全量刷新会延后单源计划，参与该订阅的全量刷新也会推进下一周期。
 
-关闭计划、停用订阅或 catalog source、用户降级为 viewer 时，只取消仍 queued 的自动单源任务，不强杀 running claim。该链路与用户 Feed schedule 共享同一个 Worker 和 30 秒 tick，不新增容器，不接触 legacy scheduler、全局静态 Feed、摘要、legacy 通知、Graph 或 Archive analytics。成功 Feed 的偏好来源 outbox 仍由 3.8C 独立判定。
+关闭计划、停用订阅或 catalog source、用户降级为 viewer 时，只取消仍 queued 的自动单源任务，不强杀 running claim。该链路与用户 Feed schedule 共享同一个 Worker 和 30 秒 tick，不新增容器，不接触旧全局 Feed、摘要、图谱或 archive analytics。成功 Feed 的偏好来源 outbox 仍由 3.8C 独立判定。
 
 ### 3.8C Preferred-source Notification Boundary
 
@@ -58,14 +58,14 @@ Webhook egress 只接受 SecretStore 当前保存并与所选 Provider 精确匹
 同一 incident 首次打开只创建一次告警；持续相同状态只更新 `last_seen_at`，从 degraded 升级到全挂必须创建独立 critical incident，精确恢复只解决对应 open incident 并各发送一次 recovery。每个事件按 `(incident_id, event_type, target_id)` 唯一 stage；各目标独立配置/启停/绑定/Transport generation 与水位，incident schema v3 按目标返回 `target_id/target_name/channel` 并保留确定性聚合的兼容状态。明确的临时投递失败最多技术重试三次；已开始发送但结果未知保持 `unknown` 且永不自动重放。旧业务 test 仅为兼容入口；新 UI 只在目标管理处测试。任一目标失败不得改变其他目标、Actor 路由、费用账本、抓取 Job 或 Feed。
 
 ### 3.9 Config Compatibility Boundary
-`data/config.json` 暂时只承载 AI、过滤、workspace RSSHub Base URL、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户通知 outbox 源于 Service schema v9，工作区邮件 transport 位于 schema v10，Webhook Provider 位于 schema v14，多渠道状态与 Telegram Transport 位于 schema v15，统一目标、业务绑定和按 target delivery 约束位于 schema v16。通知真实值进入 SecretStore，不复用或导入 legacy Webhook/SMTP/email 配置。内部 `legacy_auto` 只用于读取 v14 前的 Service Webhook row 或承接旧客户端省略 Provider 的 URL-only PATCH，不能写入 legacy config 或由请求显式选择。RSSHub Base URL 是可切换的非密钥 runtime URL，可含安全 path prefix，但不得复制进 catalog config、MCP/Agent 输出或 Feed；可选 `RSSHUB_ACCESS_KEY` 只存在 SecretStore，Worker 只派生 route-scoped access code。VPS-only `RSSHUB_BILIBILI_ANONYMOUS_COOKIE` 也只能进入 SecretStore 和 RSSHub 容器环境，且必须由隔离的无 profile 浏览器 context 从公开页面生成，禁止复用账号 Cookie。兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
+`data/config.json` 当前承载 AI、过滤、workspace RSSHub Base URL、标签库和可导入 source 输入；多人 source 的权威状态位于 `source_catalog` 和 `user_subscriptions`。当前用户通知 outbox 源于 Service schema v9，工作区邮件 transport 位于 schema v10，Webhook Provider 位于 schema v14，多渠道状态与 Telegram Transport 位于 schema v15，统一目标、业务绑定和按 target delivery 约束位于 schema v16；通知真实值只进入 SecretStore。磁盘上既有 `email/webhook/premium_analysis/article_graph` 块必须保持字节语义不变，但 API 不投影、当前代码不执行、配置 action 不改写。内部 `legacy_auto` 只用于读取 v14 前的 Service Webhook row 或承接旧客户端省略 Provider 的 URL-only PATCH，不能写入旧 config 或由请求显式选择。RSSHub Base URL 是可切换的非密钥 runtime URL，可含安全 path prefix，但不得复制进 catalog config、MCP/Agent 输出或 Feed；可选 `RSSHUB_ACCESS_KEY` 只存在 SecretStore，Worker 只派生 route-scoped access code。VPS-only `RSSHUB_BILIBILI_ANONYMOUS_COOKIE` 也只能进入 SecretStore 和 RSSHub 容器环境，且必须由隔离的无 profile 浏览器 context 从公开页面生成，禁止复用账号 Cookie。
 
 全局非 source 配置只允许 `owner/admin` 修改；`member/viewer` 不得借兼容 facade 改写 AI、过滤、标签或 Webhook。member source action 的 topics/personal tags 只写 source/subscription；任何管理员全局标签写入也必须在 catalog/subscription 成功后执行。旧配置批量导入只能更新 scope/owner/type 兼容的 source，另一用户 private key 碰撞必须跳过。SQLite 连接必须统一开启 foreign keys 和 busy timeout；native/Linux 默认使用 WAL，但 macOS Docker bind mount 的 light Compose 必须让 API/Worker 同时使用 DELETE journal，避免跨容器 WAL 共享内存可见性漂移。journal mode 只能由 `HORIZON_SQLITE_JOURNAL_MODE=WAL|DELETE` 选择。API 连接按 ContextVar 请求作用域隔离，禁止跨并发请求共享。
 
 member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL userinfo；Worker 必须以 catalog row 而非 job payload 为权威。初始请求和每次 redirect 都必须解析并审核全部地址，随后只连接本次审核通过的字面 IP并保留原 Host/SNI；安全请求使用隔离且 `trust_env=False` 的连接、拒绝压缩响应并执行 2 MB 流式上限。受控 RSSHub row 是单独边界：成员只能提供 allowlisted `site/route_key/params`，运行 origin 只来自管理员配置，Worker 禁止跟随 redirect。除此之外，`owner/admin` 拥有的 source 仍是本地/私网任意 RSS URL 的唯一显式信任边界。
 
 ### 3.10 Runtime / Migration Boundary
-默认部署单元是独立 `horizon-api + horizon-worker`；用户 Feed schedule 内嵌在现有 Worker，不形成第三个默认进程或容器。旧 scheduler 永远位于显式 `scheduler` profile，也不参与 Service Feed 调度。旧 snapshot 到 Feed v2 的清空重建只能由 `scripts/migrate_user_feed_v2.py --apply` 在服务停止后显式执行，应用启动不得自动删除用户数据；未完成迁移时 readiness 和 Feed Worker 都必须拒绝继续。迁移工具已存在不表示真实数据库已执行迁移。
+部署单元固定为独立 `horizon-api + horizon-worker`；用户 Feed schedule 内嵌在现有 Worker，不形成第三个进程或容器，也不存在 scheduler profile。发布脚本必须在切换前阻断仍在运行的历史 scheduler 容器，避免旧镜像继续写数据或发送通知。旧 snapshot 到 Feed v2 的清空重建只能由 `scripts/migrate_user_feed_v2.py --apply` 在服务停止后显式执行，应用启动不得自动删除用户数据；未完成迁移时 readiness 和 Feed Worker 都必须拒绝继续。迁移工具已存在不表示真实数据库已执行迁移。
 
 Feed storage v3 使用 `scripts/migrate_feed_storage_v3.py --dry-run|--apply`。apply 前必须停止 Worker；工具以 SQLite backup API 创建 UTC 命名、权限 `0600` 的独立副本，additive 初始化/backfill content hash，执行 retention，并通过 `integrity_check` 与 `foreign_key_check` 后才记录 version 3。Worker maintenance 以持久化小时门禁执行相同 retention，且无论时间/数量阈值都保留每用户/每 acquisition key 最新必要记录。
 
@@ -89,7 +89,7 @@ v5 apply 负责备份、旧 snapshot 线索恢复、模型无关 input hash 与 
 
 DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归 AI client 所有；Secret API 只保存 ref metadata，真实值归 `SecretStore`。`UserAnalysisCache` 先查当前模型，再查同用户/同输入哈希的安全历史投影；跨模型命中只应用安全分析字段并保留来源标识，不写当前模型 cache。`user_content_items.analysis_input_hash` 由原始 `ContentItem` 计算，历史正文修复本身不触发分析。
 
-本地切换必须先保持 AI disabled，使用轮换后的新 Key 执行一次 retry=0 smoke：同一事件循环先调用零推理 Token 的 `models.list()`，确认精确模型后才允许一次 completion；该请求省略 `temperature` 并关闭 SDK 与应用层参数降级重试，首次失败即终止；任一预检失败都保持 completion=0。成功后才启用 DeepSeek。默认本地拓扑仍为 API + Worker；legacy scheduler 与 VPS Tokyo Worker 不因该切换获得启动授权。
+本地切换必须先保持 AI disabled，使用轮换后的新 Key 执行一次 retry=0 smoke：同一事件循环先调用零推理 Token 的 `models.list()`，确认精确模型后才允许一次 completion；该请求省略 `temperature` 并关闭 SDK 与应用层参数降级重试，首次失败即终止；任一预检失败都保持 completion=0。成功后才启用 DeepSeek。默认本地拓扑仍为 API + Worker；VPS Tokyo Worker 不因该切换获得启动授权。
 
 ## 4. 禁止事项
 1. 禁止入口层直接访问外部系统细节。
@@ -98,10 +98,10 @@ DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归
 4. 禁止把某个运行时来源的字段命名作为全系统标准命名。
 5. 禁止在 Web UI JS 中重新实现 Python taxonomy 规则。
 6. 禁止把成本型流程作为 light runtime 的默认副作用。
-7. 禁止静态 UI 直接读取 `radar-data.json`、`history-data.json`、`article-graph.json` 或依赖 `data/config.json` 源列表文件结构。
-8. 禁止默认 Service UI 调用 archive analytics、source-quality、Graph 或 feedback compatibility routes。
-9. 禁止用 legacy scheduler、第三个 dispatcher、摘要/legacy 通知或静态 publisher 承担用户 Feed schedule；偏好来源通知只能消费 3.8C 的提交后 outbox。
-10. 禁止 Remote MCP 复用 legacy MCP 工具注册、接受客户端指定的 user/workspace，或运行任何服务器侧 Agent/模型。
+7. 禁止 API、Worker、React 或 Remote MCP 读写 `radar-data.json`、`history-data.json`、`article-graph.json`、`data/horizon.db` 或旧 MCP run。
+8. 禁止重新暴露 archive analytics、source-quality、Graph 或 feedback 路由。
+9. 禁止用第三个 scheduler/dispatcher、旧摘要/通知或静态 publisher 承担用户 Feed schedule；偏好来源通知只能消费 3.8C 的提交后 outbox。
+10. 禁止 Remote MCP 接受客户端指定的 user/workspace，或运行任何服务器侧 Agent/模型。
 
 ## 5. 扩展原则
 新增来源、规则、输出或存储时，应先扩展抽象合同，再实现具体适配。
@@ -109,6 +109,6 @@ DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归
 具体要求：
 
 1. 新 source adapter：更新 source config model、adapter、tests，必要时更新 `docs/contracts/api/` 和 `project-defaults.yaml`。
-2. 新 taxonomy 字段：先更新 `tag_policy.py`、`ContentItem` 和 Service snapshot contract；只有影响 legacy compatibility 时才同步 static/archive contract，再更新 UI。
-3. 新输出面：先定义 static JSON 或 API contract，再做 UI。
+2. 新 taxonomy 字段：先更新 `tag_policy.py`、`ContentItem` 和 Service snapshot contract，再更新 API/UI 合同。
+3. 新输出面：先定义 API contract，再做 UI。
 4. 新成本型能力：必须有配置开关、低成本验证路径和 degrade 行为。

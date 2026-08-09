@@ -13,7 +13,7 @@
 3. 首次开启默认在下一个 Worker tick 运行；已开启时修改周期从当前时间重新计算。切回跟随全局时保留 `interval_minutes`，把 `next_run_at` 清空，并取消仍 queued 且 `reason=scheduled_source_fetch` 的任务；running 任务继续完成。未来再次开启单源独立周期时可复用该周期。停用订阅或把用户降级为 viewer 时必须同步关闭计划。
 4. Worker 每次 schedule tick 在 claim 普通任务前原子评估到期订阅。自动 job 固定为 `job_type=source_fetch`、`reason=scheduled_source_fetch`、`priority=-10`，沿用现有配额、claim token、Source Health 和 Feed v2 单源合并语义。
 5. 同一订阅最多一个 queued/running `source_fetch`；手动、自动和重复页面提交复用已有 active job。当前用户存在 active 全量刷新时延后 5 分钟；只有手动全量刷新会包含单源独立周期来源，并在成功参与该订阅后推进其下一次单源计划，避免紧邻重复抓取。自动全局刷新不包含这些来源。停用 catalog source 时，相关计划关闭并记录 `source_disabled`，仍 queued 的自动任务被取消。
-6. 调度链路不得调用 legacy scheduler、`HorizonOrchestrator.run()` 或 `LegacyPublisher`，不得读取或写入全局静态 Feed、摘要、legacy 通知、Graph 或 Archive analytics。偏好来源通知只可由下述 Service outbox 在 Feed/Health/Job 提交后消费。
+6. 调度链路只由当前 Worker 与 Service `execute` 主链组成，不得重新引入第三个 scheduler/dispatcher、全局 publisher，也不得读取或写入全局静态 Feed、旧摘要/通知、Graph 或 Archive analytics。偏好来源通知只可由下述 Service outbox 在 Feed/Health/Job 提交后消费。
 
 用户偏好来源通知规则：
 
@@ -38,7 +38,7 @@
 5. 管理员 test 只接受一次性 `recipient_email`，按 workspace 在 SQLite 写锁内原子领取 60 秒冷却；成功只返回 `sent=true/generation`。测试通过与启用是两个独立动作，测试不创建 Feed/Job/outbox、不移动用户或订阅水位，也不把测试收件人写入任何持久状态。
 6. 统一 `EmailTransport` 使用系统 CA 校验的 TLS、20 秒 timeout 和同一 MIME/HTML 转义实现；API 测试与 Worker 正式投递不得复制 Provider 发送逻辑。正式发送在 SMTP 连接中断或其他结果未知后保持 delivery=`sending` 且不自动重放；认证、发件人、收件人或 DATA 的明确拒绝可安全终结为 `failed`。
 7. transport 轮换、停用或删除时，尚未开始的 workspace email `pending` delivery 原子终结为 `failed/notification_transport_changed`；已经 `sending` 的记录保持未知结果。transport 未 ready 时不创建新的 email outbox；已有用户 email opt-in 和逐来源水位均保留，因此恢复后只比较暂停期间保存的最新相邻 Feed 基线并发送之后严格新增的内容。Webhook staging 与发送不受邮件 transport 状态影响。
-8. `data/config.json.email` 与 legacy `EmailManager` 只服务显式 CLI/日报兼容路径，Service API、Worker、设置页与偏好来源通知不得读取它们作为配置或降级兜底。
+8. 磁盘上既有 `data/config.json.email` 与 `data/config.json.webhook` 块是 inert 数据：Service API、Worker、设置页与偏好来源通知不得投影、执行、改写或用作降级兜底。当前通知只使用 Service DB 与 SecretStore 中的通知服务/Transport 配置。
 
 工作区 Telegram Bot 服务规则：
 

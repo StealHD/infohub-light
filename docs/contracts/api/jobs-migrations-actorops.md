@@ -14,10 +14,10 @@
 
 当前任务边界：
 
-1. 两份 compose 默认运行单元固定为 `horizon-api + horizon-worker`；`horizon-scheduler` 只在显式启用 `scheduler` profile 时运行。
-2. 单源刷新是 Worker 异步任务，不启动 scheduler。
-3. Full-text 和 article graph 仅可由旧 CLI/scheduler publisher 在对应配置启用时运行；Service Worker 和默认 UI 不运行或消费它们。
-4. API、Worker、Scheduler 与 CLI 的 runtime/operation 日志写入 `logs/**`，UTC 每日轮转且默认保留 30 天；原始文件不进入 Agent 上下文，只有 5B 定义的当前用户脱敏结构化事件可由 OpenClaw 查询。
+1. 两份 compose 的运行单元固定为 `horizon-api + horizon-worker`，不存在 scheduler profile 或旧发布器进程。
+2. 单源刷新、用户 Feed 刷新与周期计划都由 Worker 异步任务执行。
+3. Full-text、article graph、静态站发布与日报摘要链已退役；API、Worker 和 React 不得重新引入这些 writer 或读取其历史文件。
+4. API 与 Worker 的 runtime/operation 日志写入 `logs/**`，UTC 每日轮转且默认保留 30 天；原始文件不进入 Agent 上下文，只有 5B 定义的当前用户脱敏结构化事件可由 OpenClaw 查询。
 5. 响应结构诊断只在 adapter 收到上游值时即时提取字段路径/类型，原始值随调用栈释放；Job 只保留有界双层摘要，Feed snapshot、稳定内容索引和媒体记录不得保存该诊断。
 
 ### 11.1 信息流触底文案生成
@@ -32,9 +32,9 @@
 
 实现中存在迁移脚本不代表任意部署数据库已迁移；当前本地目标部署已于 2026-07-11 显式迁移并验收，是否完成仍必须逐个目标数据库以 migration marker 与 readiness 为准。其他旧库不得沿用本地部署结论，仍需逐库显式执行并验收。
 
-1. 未记录 v2 migration 且存在旧 snapshot/item/state/feedback，或存在 queued/running 的 `source_fetch/user_feed_refresh` 时，readiness 返回 `migration_required`，Worker 拒绝执行 Feed 任务；只有真正无这些遗留产物的新库才可自动记录空库 v2 marker。
-2. 应先停止 API、Worker 和 scheduler，再运行 `python scripts/migrate_user_feed_v2.py --data-dir data --backup-dir data/backups --apply`；不带 `--apply` 使用 SQLite 只读连接检查，不建表、不增列、不写 migration marker。
-3. apply 必须先生成 UTC 时间戳 SQLite 备份，再取消未完成 Feed job、清空旧 snapshot/item/state/feedback、创建 v2 唯一索引、写 migration 记录并通过 `PRAGMA foreign_key_check`。
+1. 未记录 v2 migration 且存在旧 snapshot/item/state，或存在 queued/running 的 `source_fetch/user_feed_refresh` 时，readiness 返回 `migration_required`，Worker 拒绝执行 Feed 任务；只有真正无这些现役 Feed 遗留产物的新库才可自动记录空库 v2 marker。旧 feedback 表与行不参与判定。
+2. 应先停止 API 与 Worker，再运行 `python scripts/migrate_user_feed_v2.py --data-dir data --backup-dir data/backups --apply`；不带 `--apply` 使用 SQLite 只读连接检查，不建表、不增列、不写 migration marker。
+3. apply 必须先生成 UTC 时间戳 SQLite 备份，再取消未完成 Feed job、清空旧 snapshot/item/state、创建 v2 唯一索引、写 migration 记录并通过 `PRAGMA foreign_key_check`。既有 feedback 表与行不得读取、清空或改写。
 4. 应用启动不得自动清空旧 Feed 数据；真实环境迁移属于显式运维动作。
 5. 已完成迁移时重复 `--apply` 必须返回 `already_migrated` 且不备份、不清空 v2 数据；备份权限固定为 `0600`，`data/backups/` 不进入 Git。
 

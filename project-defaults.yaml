@@ -11,7 +11,6 @@
     },
     "features": {
       "local_web_enabled": true,
-      "cli_enabled": true,
       "config_api_enabled": true,
       "service_config_compat_enabled": true,
       "service_api_enabled": true,
@@ -24,8 +23,6 @@
       "worker_feed_schedule_poll_enabled": true,
       "user_source_schedule_enabled": true,
       "worker_source_schedule_poll_enabled": true,
-      "archive_product_enabled": false,
-      "archive_api_compat_enabled": true,
       "source_type_registry_enabled": true,
       "catalog_import_enabled": true,
       "catalog_source_key_enabled": true,
@@ -54,16 +51,12 @@
       "feed_end_messages_enabled": true,
       "workspace_email_transport_enabled": true,
       "workspace_telegram_transport_enabled": true,
-      "feedback_product_enabled": false,
-      "feedback_api_compat_enabled": true,
       "feed_behavior_filters_enabled": true,
       "item_state_counts_enabled": true,
       "api_error_envelope_validation_enabled": true,
       "api_permissions_matrix_enabled": true,
       "service_api_smoke_enabled": true,
       "service_stack_smoke_enabled": true,
-      "service_ui_smoke_enabled": true,
-      "static_ui_minimum_flow_enabled": true,
       "member_management_ui_enabled": true,
       "user_password_reset_enabled": true,
       "structured_feed_run_enabled": true,
@@ -71,18 +64,11 @@
       "atomic_claim_token_enabled": true,
       "worker_heartbeat_enabled": true,
       "explicit_feed_v2_migration_enabled": true,
-      "article_graph_enabled": false,
       "member_rss_public_network_only": true,
-      "static_site_enabled": true,
-      "archive_analysis_enabled": false,
-      "legacy_archive_analysis_enabled": "optional",
-      "legacy_article_graph_enabled": "optional",
       "formal_frontend_enabled": true,
       "react_service_ui_enabled": true,
       "react_ui_axe_regression_enabled": true,
-      "legacy_service_ui_fallback_enabled": true,
       "html_validation_enabled": false,
-      "scheduler_default_enabled": false,
       "worker_default_enabled": true,
       "immutable_service_image_enabled": true,
       "release_identity_in_liveness_enabled": true,
@@ -161,7 +147,12 @@
       "apify_actor_systemic_failure_targets": 2,
       "apify_actor_systemic_failure_window_minutes": 15,
       "apify_actor_target_pause_hours": 6,
-      "apify_actor_cooldown_hours": [1, 3, 6, 24],
+      "apify_actor_cooldown_hours": [
+        1,
+        3,
+        6,
+        24
+      ],
       "apify_actor_recovery_real_post_successes": 2,
       "apify_actor_probation_hours": 48,
       "apify_actor_probation_success_rate": 0.95,
@@ -172,7 +163,7 @@
       "apify_actor_canary_adjustable_max_charge_usd": 0.10,
       "apify_actor_dami_canary_distinct_sources": 2,
       "apify_x_quota_allocation_ratio": 0.8,
-      "apify_non_x_minimum_reserve_usd": 1.0,
+      "apify_non_x_minimum_reserve_usd": 1,
       "apify_actor_alert_delivery_max_attempts": 3,
       "apify_actor_ops_required_slots": 3,
       "apify_actor_ops_min_runtime_healthy": 2,
@@ -191,8 +182,19 @@
       "apify_actor_ops_metadata_recheck_seconds": 604800,
       "apify_actor_ops_member_support_checks_per_day": 10,
       "apify_actor_ops_pending_route_limit": 20,
-      "shared_acquisition_ttl_minutes": {"min": 5, "max": 60, "fallback": 30},
-      "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14, "managed_logs": 30},
+      "shared_acquisition_ttl_minutes": {
+        "min": 5,
+        "max": 60,
+        "fallback": 30
+      },
+      "retention_days": {
+        "feed": 90,
+        "source_content": 7,
+        "analysis_cache": 30,
+        "usage": 90,
+        "jobs": 14,
+        "managed_logs": 30
+      },
       "max_feed_snapshots_per_user": 100,
       "max_notification_items_per_delivery": 20,
       "notification_test_cooldown_seconds": 60,
@@ -263,9 +265,28 @@
     },
     "runtime_sources": {
       "apify_actor_ops_profiles": [
-        {"profile_id": "x/profile/items", "route_key": "x/profile", "platform": "x", "target_type": "profile", "capability": "items", "mode": "primary"},
-        {"profile_id": "youtube/channel/items", "platform": "youtube", "target_type": "channel", "capability": "items", "mode": "fallback"},
-        {"profile_id": "instagram/profile/items", "platform": "instagram", "target_type": "profile", "capability": "items", "mode": "primary"}
+        {
+          "profile_id": "x/profile/items",
+          "route_key": "x/profile",
+          "platform": "x",
+          "target_type": "profile",
+          "capability": "items",
+          "mode": "primary"
+        },
+        {
+          "profile_id": "youtube/channel/items",
+          "platform": "youtube",
+          "target_type": "channel",
+          "capability": "items",
+          "mode": "fallback"
+        },
+        {
+          "profile_id": "instagram/profile/items",
+          "platform": "instagram",
+          "target_type": "profile",
+          "capability": "items",
+          "mode": "primary"
+        }
       ],
       "agent_public_types": [
         "rss",
@@ -330,7 +351,9 @@
       "managed_rsshub": {
         "catalog_type": "rss",
         "sites": {
-          "bilibili": ["user_video"]
+          "bilibili": [
+            "user_video"
+          ]
         },
         "credentials_enabled": false,
         "redirects_enabled": false,
@@ -400,7 +423,6 @@
       "test_gate_success_summary_max_bytes": 2048,
       "test_gate_failure_summary_max_bytes": 8192,
       "test_gate_failure_artifact_retention_days": 7,
-      "full_scheduler_requires_explicit_request": true,
       "default_quotas": {
         "max_sources_per_user": 100,
         "max_fetch_jobs_per_day": 100,
@@ -420,13 +442,14 @@
       "feed_schedule_poll_seconds": 30,
       "scheduled_feed_refresh_reason": "scheduled_service_refresh",
       "scheduled_feed_refresh_priority": -10,
-      "member_rss_private_host_allowlist": [
-
-      ],
+      "member_rss_private_host_allowlist": [],
       "worker_retry_base_seconds": 30,
       "rss_initial_fetch_window_hours": 168,
       "feed_window_days": 7,
-      "rss_initial_fetch_window_allowed_hours": [168, 720],
+      "rss_initial_fetch_window_allowed_hours": [
+        168,
+        720
+      ],
       "rsshub_vps_memory_limit_mb": 640,
       "rsshub_vps_loopback_port": 1200,
       "rsshub_access_key_env": "RSSHUB_ACCESS_KEY",
@@ -449,16 +472,40 @@
       "deepseek_smoke_max_calls": 1,
       "content_repair_max_images_per_item": 6,
       "content_repair_bulk_paid_sources_enabled": false,
-      "preferred_source_notification_channels": ["email", "webhook", "telegram"],
-      "notification_target_scopes": ["private", "shared"],
-      "notification_target_business_bindings": ["preferred_source", "apify_actor_alert"],
+      "preferred_source_notification_channels": [
+        "email",
+        "webhook",
+        "telegram"
+      ],
+      "notification_target_scopes": [
+        "private",
+        "shared"
+      ],
+      "notification_target_business_bindings": [
+        "preferred_source",
+        "apify_actor_alert"
+      ],
       "apify_actor_alert_private_targets_enabled": false,
-      "notification_webhook_providers": ["generic_event", "generic_text", "feishu_lark_v2", "wecom", "dingtalk", "slack", "discord"],
+      "notification_webhook_providers": [
+        "generic_event",
+        "generic_text",
+        "feishu_lark_v2",
+        "wecom",
+        "dingtalk",
+        "slack",
+        "discord"
+      ],
       "notification_webhook_legacy_provider": "legacy_auto",
       "notification_webhook_generic_auth": "url_only",
       "notification_webhook_generic_response_body": "discard",
       "notification_webhook_platform_response_body": "bounded",
-      "workspace_email_transport_providers": ["qq", "netease", "gmail", "resend", "amazon_ses"],
+      "workspace_email_transport_providers": [
+        "qq",
+        "netease",
+        "gmail",
+        "resend",
+        "amazon_ses"
+      ],
       "workspace_email_transport_custom_smtp_enabled": false,
       "workspace_email_transport_outlook_enabled": false,
       "workspace_telegram_transport_provider": "telegram_bot_api",
@@ -467,14 +514,7 @@
       "preferred_source_notification_test_moves_cursor": false,
       "source_excerpt_max_chars": 600,
       "action_suggestion_max_chars": 80,
-      "user_analysis_cache_retention_days": 30,
-      "single_source_update_skips": [
-        "notifications",
-        "summaries",
-        "enrichment",
-        "full_text",
-        "article_graph"
-      ]
+      "user_analysis_cache_retention_days": 30
     },
     "agent_context_budget": {
       "default_initial_control_files": 2,
@@ -494,17 +534,6 @@
     "output": {
       "concise_agent_response": true,
       "retain_source_evidence": true,
-      "static_payload_contract": {
-        "required_item_fields": [
-          "channel",
-          "topics",
-          "category",
-          "tags",
-          "signal_strength",
-          "signal_type",
-          "entities"
-        ]
-      },
       "service_feed_presentation_contract": {
         "version": 1,
         "required_sections": [
@@ -530,7 +559,6 @@
       "full_gate": "python scripts/test_gate.py run --mode full",
       "release_gate": "python scripts/test_gate.py run --mode release",
       "python_syntax": "python3 -m py_compile <changed python files>",
-      "static_js_syntax": "node --check src/ui/static/*.js",
       "react_typecheck": "cd frontend && npm run typecheck",
       "react_ui_contract": "cd frontend && npm run check:ui && npm run lint",
       "react_unit_tests": "cd frontend && npm test",
@@ -539,7 +567,6 @@
       "control_plane": "python3 ${CODEX_HOME:-$HOME/.codex}/skills/init-pro/scripts/validate_project_controls.py --project-root . --format markdown",
       "worklog": "python3 ${CODEX_HOME:-$HOME/.codex}/skills/init-pro/scripts/worklogctl.py validate --project-root .",
       "diff_check": "git diff --check",
-      "service_ui_smoke": "./.venv/bin/python scripts/service_ui_smoke.py --base-url http://127.0.0.1:8080 --json-output logs/service-ui-smoke-latest.json",
       "service_stack_smoke": "./.venv/bin/python scripts/service_stack_smoke.py --compose-file docker-compose.light.yml --base-url http://127.0.0.1:8080 --api-only --json-output logs/service-stack-smoke-latest.json",
       "real_source_smoke": "uv run python scripts/service_real_source_smoke.py --base-url http://127.0.0.1:8080 --run-worker --hours 168",
       "feed_v2_migration_check": "./.venv/bin/python scripts/migrate_user_feed_v2.py --data-dir data --backup-dir data/backups",

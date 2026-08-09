@@ -3,7 +3,7 @@
 ## Development Context
 - Read targeted files only. Avoid generated `data/site/**`, historical snapshots, logs, and cached media unless debugging those outputs.
 - Use `rg` to locate code paths before opening files.
-- Prefer `node --check src/ui/static/*.js` and targeted pytest files over full Docker fetch runs.
+- Prefer targeted pytest/Vitest, lint, typecheck, and React build checks over full Docker fetch runs.
 
 ## Runtime Model Usage
 - First-pass analysis is the main per-item token cost.

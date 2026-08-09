@@ -4,214 +4,6 @@
 
 Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not logged.
 
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "将产品可见品牌统一为 Inscope；仅 React 与 legacy static HTML 的 document title 使用 Inscope | Private & Insights，保留内部 inteliscope 标识。",
-  "status": "completed",
-  "task_id": "2026-08-10-inscope-brand-display",
-  "unresolved": [],
-  "validation": [
-    "品牌相关 Vitest 4 文件 29 项通过；静态页面与邮件默认名称 pytest 26 项通过。",
-    "前端 TypeScript、ESLint（仅既有 10 条 Fast Refresh 警告）和生产构建通过。"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "将登录页 Quiet Studio 分支快进整合到本地 main，并将共享 8080 的 API/Worker 切换到整合后的产品 revision 8d3cac39728e。",
-  "status": "completed",
-  "task_id": "2026-08-09-integrate-login-quiet-studio-main",
-  "unresolved": [],
-  "validation": [
-    "main 整合 Worktree 完整 Test Gate 24/24 命令通过（283.146 秒）；产品文档、Markdown 控制与 Worklog 校验通过。",
-    "切换前确认规范运行时挂载、无 queued/running 活动任务、Feed 自动计划 0 个、Source 自动计划 3 个，迁移版本为 v19。",
-    "./scripts/up-latest.sh 使用 main Worktree 构建并完成切换；API/Worker healthy，readiness 返回 worker_status=ready，实际前端资源为 index-KRd366US.js。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "为 /feed 新增按来源连续阅读的专题速览：用户可在时间流与专题速览间切换，前端按当前过滤结果分组并保留既有文章交互、阅读状态与搜索返回锚点。",
-  "status": "completed",
-  "task_id": "2026-08-09-topic-overview-feed",
-  "unresolved": [],
-  "validation": [
-    "UI contract、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）、生产构建及专题 Playwright 三视口通过。",
-    "完整 Test Gate 24/24 通过（244.110 秒）；未请求部署或重建 8080。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "优化 /feed 专题速览：模式标签收进搜索前工具栏，来源默认收起并以单专题手风琴展开；专题阅读帧避让信息概览，来源/文章锚点和触底文案稳定性同步修复。",
-  "status": "completed",
-  "task_id": "2026-08-09-topic-overview-feed-interaction",
-  "unresolved": [],
-  "validation": [
-    "专题速览 Playwright 在 1440×900、1024×768、390×844 验证来源连续、手风琴、无横向溢出和 Axe；桌面信息概览避让及搜索锚点回归通过。",
-    "完整 Test Gate 24/24 通过（246.281 秒）；待本地 8080 切换后补充运行态验证。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "修复 /feed 时间流与专题速览的滚动高度回归；模式切换改为 HeroUI 图标 Tabs，专题改为一来源一张分组卡片且文章保持组内紧凑行。",
-  "status": "completed",
-  "task_id": "2026-08-09-topic-overview-feed-visual-scroll",
-  "unresolved": [],
-  "validation": [
-    "UI contract、TypeScript、完整 Vitest 596/596、ESLint（仅既有 Fast Refresh 警告）和生产构建通过。",
-    "Playwright 验证 1440×900、1024×768、390×844 与 967×889 下两种阅读布局拥有真实滚动范围，专题分组、锚点、信息概览避让、Reduced Motion、无横向溢出和 Axe 回归通过。",
-    "完整 Test Gate 24/24 通过（276.586 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-09",
-  "result": "从专题速览任务 Worktree 重新构建并启动本地 8080 API 与 Worker。",
-  "status": "completed",
-  "task_id": "2026-08-09-topic-overview-feed-local-runtime-start",
-  "unresolved": [],
-  "validation": [
-    "horizon-light-api 与 horizon-light-worker 均为 healthy。",
-    "readiness 返回 worker_status=ready，运行 revision 为 e1026912b009，前端资源已由 8080 提供。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "将专题速览收紧为来源级紧凑时间线，新增继承工作区 AI 设置且不访问网址的一键总结，并以无 URL 的 V6 来源快照支持专题级自定义 Agent 提问。",
-  "status": "completed",
-  "task_id": "2026-08-09-topic-overview-timeline-ai-agent",
-  "unresolved": [],
-  "validation": [
-    "UI 静态检查、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）和生产构建通过；后端专题总结与可观测性定向测试 11/11 通过。",
-    "Playwright 在 1440×900、1024×768、390×844 与 815×889 验证独立滚动、时间线、Fake AI、100 篇 Agent 快照、信息概览避让、无横向溢出和 Axe。",
-    "测试未调用真实 AI、付费接口、外部网页或 Scheduler。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-09",
-  "result": "将浏览器 favicon 与应用侧栏品牌标记统一为用户提供的双弧图形，并分别跟随浏览器明暗环境和应用前景色。",
-  "status": "completed",
-  "task_id": "2026-08-09-theme-aware-brand-icon",
-  "unresolved": [],
-  "validation": [
-    "favicon 与设计系统图标定向 Vitest 8/8 通过，SVG 透明边界和双弧轮廓完成本地渲染复核。",
-    "完整 Test Gate 24/24 通过（242.489 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "将 codex/topic-overview-feed 合入本地 main，同时保留登录页 Quiet Studio 更新；登录页决策保持 D136，专题速览登记为 D137。",
-  "status": "completed",
-  "task_id": "2026-08-10-integrate-topic-overview-main",
-  "unresolved": [],
-  "validation": [
-    "登录、专题速览、Changelog、设计系统与 Agent 交叉 Vitest 169/169、专题总结后端 6/6、TypeScript 通过。",
-    "合并后 main 完整 Test Gate 24/24 通过（255.852 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "为成员管理补充用户名修改与账号删除，保护所有者和当前管理员，并在删除时安全清理成员数据及私有来源。",
-  "status": "completed",
-  "task_id": "2026-08-10-member-username-delete",
-  "unresolved": [],
-  "validation": [
-    "后端定向测试 8/8、前端 App 测试 107/107、Changelog 测试 5/5、Playwright 三视口 3/3、TypeScript、UI 检查与 ESLint 通过。",
-    "完整 Test Gate 24/24 通过（250.52 秒），mapping_miss=false；浏览器实页验证修改用户名与精确确认删除交互。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "从成员账号改名与删除任务分支重新构建并启动本地 8080 API 与 Worker。",
-  "status": "completed",
-  "task_id": "2026-08-10-member-actions-local-runtime-restart",
-  "unresolved": [],
-  "validation": [
-    "horizon-light-api 与 horizon-light-worker 均运行镜像 inteliscope-service:local-616ec79c2ede 并保持 healthy，readiness 返回 worker_status=ready。",
-    "8080 已服务 HeroUsersPage-CgP1z52m.js，资源内包含修改成员用户名、删除成员账号与精确确认交互；scheduler 未启动。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "将成员账号用户名修改与安全删除功能分支合入本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-10-merge-member-actions-to-main",
-  "unresolved": [],
-  "validation": [
-    "任务分支以非快进合并进入 main，无冲突；任务功能提交与本地 8080 运行验证记录均已包含。",
-    "合并后 main 完整 Test Gate 24/24 通过（249.893 秒），mapping_miss=false。"
-  ]
-}
-```
 
 ```json
 {
@@ -370,84 +162,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "在独立分支完成 ActorOps 引导式配置：以持久 Pool Stage 安全补齐第三槽、旁路升级 legacy 池并预验证全部已启用来源；页面收敛为抓取类型选择器、三个任务页签和服务端权威的唯一下一步。",
-  "status": "completed",
-  "task_id": "2026-08-09-actorops-guided-flow",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 后端回归全部通过，覆盖 schema 20 迁移、第三槽、legacy 旁路、来源预验证、增量重计划、原子 apply、费用/CAS 与 unknown-start。",
-    "前端类型检查、定向 ESLint 与 Vitest 54/54 通过。",
-    "ActorOps Playwright 10 通过、2 个预期 tablet 跳过；1440/1024/390 三视口、明暗视觉基线、零中断流程、无横向溢出与 Axe 门槛通过。",
-    "完整 Test Gate 24/24 命令通过（254.88 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "将 ActorOps 引导流程分支切换到共享 8080，并离线安装 Pool Stage schema 20；共享运行目录继续使用主 checkout 的 .env、data 与 logs。",
-  "status": "completed",
-  "task_id": "2026-08-09-actorops-guided-flow-local-cutover",
-  "unresolved": [],
-  "validation": [
-    "切换前活跃任务为 0；3 个来源自动调度保持启用，但 scheduler 容器未启动。",
-    "schema 20 迁移生成 0600 备份，integrity_check=ok 且 foreign_key_violations=0。",
-    "API/Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务 ActorOps 新任务流资源。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "修复 ActorOps legacy 候选仅 1/2 时错误打开 $0.00 禁用付费确认框的问题；服务端改为投影候选不足进度，页面提供可点击的免费继续搜索动作。",
-  "status": "completed",
-  "task_id": "2026-08-09-actorops-candidate-shortfall-action",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 后端定向回归 29/29 通过。",
-    "ActorOps 前端 Vitest 32/32、TypeScript 类型检查与定向 ESLint 通过。",
-    "完整 Test Gate 24/24 命令通过（252.47 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "修复活动主用或备用 1 处于 probationary 时来源 Canary 被误判为审批失效的问题；保持槽位、来源、generation 与候选健康状态的安全校验不变。",
-  "status": "completed",
-  "task_id": "2026-08-09-actorops-probationary-source-canary",
-  "unresolved": [],
-  "validation": [
-    "新增活动 probationary 主用完成来源 Canary 的端到端回归。",
-    "Actor Canary 9/9、Worker 与 Pool Stage 14/14 定向测试通过。",
-    "完整 Test Gate 24/24 命令通过（256.52 秒）。"
-  ]
-}
-```
 
 ```json
 {
@@ -596,7 +310,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "decisions",
     "interface",
-    "storage",
     "ui"
   ],
   "recorded_on": "2026-08-11",
@@ -614,8 +327,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "storage"
+    "interface"
   ],
   "recorded_on": "2026-08-11",
   "result": "将包含 ActorOps schema 20–22 显式迁移的合并版本递增为 v2.2.14，避免复用已存在的 v2.2.13 Tag。",
@@ -642,6 +354,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整发布 E2E 162/162 通过。",
     "最终完整 Test Gate 24/24 命令通过（270.09 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "基于当前 main 串行重建并集成 Legacy 退役改动，保留成员管理、来源总结和 ActorOps schema 20–22，将唯一运行面决策登记为 D144，并在完整验证后 fast-forward 本地 main。",
+  "status": "completed",
+  "task_id": "2026-08-11-integrate-retire-legacy-surfaces-main",
+  "unresolved": [],
+  "validation": [
+    "现役认证、配置、Feed、API、Store、Worker、来源总结、ActorOps、通知、冷归档和 Remote MCP 定向回归通过。",
+    "前端 check:ui、lint、typecheck、666 项 Vitest、production build 与 release Playwright（107 通过、55 按配置跳过）通过。",
+    "组合结果 Test Gate full 与 release、Compose/API-only smoke、控制文件校验、负向引用和 diff 检查通过。"
   ]
 }
 ```

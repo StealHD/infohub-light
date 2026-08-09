@@ -10,16 +10,15 @@ Current domain objects:
 1. `ContentItem`: normalized item from RSS, GitHub, Reddit, Telegram, Hacker News, Apify social, OpenBB, or OSS Insight.
 2. Source catalog and subscriptions: user-managed source definitions and per-user subscription state in the Service database; `data/config.json` remains a legacy/global compatibility input.
 3. Hub taxonomy: `channel`, `topics`, `signal_strength`, `signal_type`, `entities`, with legacy `category/tags` compatibility.
-4. User Feed snapshots: latest and historical per-user payloads stored in `data/service.db`, plus static UI assets that consume `/api/*`.
-5. Legacy optional outputs: `data/site/*.json`, `data/horizon.db`, and article graph JSON; the old CLI publisher may maintain them, but the default Service UI/API does not depend on them.
+4. User Feed snapshots: latest and historical per-user payloads stored in `data/service.db`, consumed by the React UI through `/api/*`.
+5. Retired runtime artifacts such as `data/site/**`, `data/horizon.db`, summaries and local MCP runs are operator-owned inert data: current code must not read, migrate, rewrite or delete them.
 
 ## 2. Hard Constraints
 - Do not put API keys, webhook URLs, Telegram Bot Tokens, Telegram Chat IDs, Apify tokens, or model keys in JSON config or code. Store environment variable names only.
 - Personal tags are user preference signals and must not be sent to AI scoring prompts.
 - `analysis_mode=personal_only` items enter history and personal feed but skip AI analysis, featured selection, and daily push.
-- Prefer targeted tests and static checks before running full fetch, enrichment, full-text, scheduler, or push workflows.
+- Prefer targeted tests and static checks before running full fetch, enrichment, or push workflows.
 - Do not read `data/site/history-data.json`, `data/site/history/**`, cached media, full logs, generated summaries, or `data/horizon.db` unless the task specifically concerns those files.
-- Do not run the full scheduler while developing a narrow change.
 - Keys pasted into a task are compromised evidence: never persist or call them. DeepSeek activation requires a replacement value written through SecretStore and a one-call smoke.
 - `content_repair` may refetch only free sources in bulk, updates existing stable content only, and must never create a Feed snapshot or call AI. Paid social repair requires separate per-item authorization.
 - Every merge containing product code must review both `frontend/src/features/manual/manualContent.ts` and `frontend/src/features/changelog/changelogEntries.ts`; `scripts/check_product_docs.py` enforces this in the Test Gate.
@@ -32,7 +31,7 @@ Current control plane files:
 1. `project-controls.json`: init-pro schema-v3 machine-readable topic map and compact worklog policy.
 2. `AGENTS.md`: highest-level project constraints, output format, worklog rule, and unique source-of-truth map.
 3. `PLAN.md`: current phase, implementation order, non-goals, and verification order.
-4. `docs/contracts/api/`: Service, Gateway, legacy/static, storage and ActorOps interfaces.
+4. `docs/contracts/api/`: Service, Gateway, storage and ActorOps interfaces.
 5. `docs/contracts/architecture/`: module ownership and layering boundaries.
 6. `docs/contracts/ui/`: React visual system, interaction and browser acceptance.
 7. `docs/decisions/`: durable decision reasons and compatibility rationale.
@@ -49,7 +48,7 @@ Use one authoritative file for each topic:
 | Machine-readable control topic mapping and worklog policy | `project-controls.json` |
 | Overall goal, hard constraints, output format | `AGENTS.md` |
 | Current phase, priorities, non-goals | `PLAN.md` |
-| Service API and legacy compatibility interfaces | `docs/contracts/api/` |
+| Service API and current compatibility interfaces | `docs/contracts/api/` |
 | Layering and module boundaries | `docs/contracts/architecture/` |
 | React visual system, UI components, layout, interaction and visual gates | `docs/contracts/ui/` |
 | Runtime/operation logging, redaction, retention and safe query rules | `docs/dev/observability-logging.md` |
@@ -71,7 +70,7 @@ Read `project-defaults.yaml` only when capability, limit, degradation, provider 
 
 | Task | Expand context with |
 | --- | --- |
-| API, CLI, public payload, auth, error, Job or compatibility | `docs/contracts/api/README.md`, then only the linked module |
+| API, public payload, auth, error, Job or compatibility | `docs/contracts/api/README.md`, then only the linked module |
 | Source/AI/frontend/store/tenant boundary | `docs/contracts/architecture/README.md`, then only the linked module |
 | React visual, layout, interaction or browser acceptance | `docs/contracts/ui/README.md`, its linked module, relevant `frontend/src/` and Vitest/Playwright |
 | Storage or migration | API Feed/storage module, architecture runtime/migration module, target migration and tests |
@@ -84,11 +83,9 @@ For broad orientation or taxonomy/backend changes, also read:
 
 1. `src/models.py`
 2. `src/orchestrator.py`
-3. `src/ui/server.py`
-4. `src/ui/site.py`
+3. `src/services/config_runtime.py`
+4. `src/services/feed_payload.py`
 5. Task-relevant tests
-
-For legacy UI work, read only the relevant file under `src/ui/static/`: `state.js`, `utils.js`, `media.js`, `reader.js`, `config.js`, `subscriptions.js`, `auth.js`, or `app.js`.
 
 For scraper work, read the target adapter under `src/scrapers/` and its matching tests.
 
@@ -96,7 +93,7 @@ For scraper work, read the target adapter under `src/scrapers/` and its matching
 - Observation phase default: `python scripts/test_gate.py run --mode full`. Do not paste or automatically read its complete logs; use the compact stdout summary first.
 - A task may create a hash baseline with `python scripts/test_gate.py snapshot --output /tmp/impact.json`, inspect it with `python scripts/test_gate.py plan --snapshot /tmp/impact.json --json`, and explicitly run `targeted` for local iteration. Until 10 distinct CI commits satisfy the observation criteria in `PLAN.md`, `targeted` is not the default completion gate.
 - PR/main and merge verification permanently run the full gate for every impacted backend/frontend domain; global dependency/build changes fail closed to both domains. UI-impacting main revisions run Playwright in parallel with the frontend gate. A formal VPS release must reuse a successful Test Gate for the exact main SHA, then create the version tag; the tag workflow verifies that same main result and runs only the isolated API Docker smoke. Never create or push a release tag before the exact main SHA is green.
-- The standard `scripts/release_vps.sh` path runs only bounded local control/product-doc preflight before reusing CI; it must not duplicate the full main gate. `release` smoke must not run real-source smoke, paid providers, AI, Worker, or scheduler.
+- The standard `scripts/release_vps.sh` path runs only bounded local control/product-doc preflight before reusing CI; it must not duplicate the full main gate. `release` smoke must not run real-source smoke, paid providers, AI, Worker, notifications or any retired scheduler.
 - Selector ownership is `tests/test_impact_map.json`. Unmapped executable code, dependency manifests, and build configuration fail closed to full.
 - Gate logs stay under ignored `.test-results/<run-id>/` with private permissions. Read only the named failing log section when the bounded first-failure summary is insufficient.
 - Rebuild the local web service by running `./scripts/up-latest.sh` from the target task Worktree. The script must build that Worktree while resolving `.env`, `data`, and `logs` from the primary checkout through Git's common directory; use `--runtime-root ABSOLUTE_PATH` only for an intentional alternate runtime. Do not replace this with a temporary Compose override, runtime symlinks, or a build from the primary checkout. The command holds one host-local lock for the shared Compose project and containers. A rebuild is complete only after the target revision, API readiness with a ready Worker, both container health checks, and the served React asset all pass and the terminal state is rechecked; image build alone is never completion. Required database migrations remain explicit, backup-producing actions and must not be applied automatically.
@@ -108,7 +105,7 @@ Do not modify Markdown control files by default during ordinary coding tasks.
 
 Modify control files only when the 控制面发生变化, including:
 
-1. API, CLI, static payload, or archive contract changes.
+1. API, runtime entrypoint, public payload, or storage contract changes.
 2. Architecture boundary changes.
 3. Capability, degrade, unsupported, or unknown vocabulary changes.
 4. Rule, threshold, taxonomy, or output-shape changes.
