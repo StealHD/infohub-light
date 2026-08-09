@@ -13,7 +13,7 @@
   --inteliscope-width-admin: 1180px;
   --inteliscope-width-settings: 920px;
   --inteliscope-width-settings-sidebar: 232px;
-  --inteliscope-width-auth: 420px;
+  --inteliscope-width-auth: 960px;
 
   --inteliscope-type-display-size: 24px;
   --inteliscope-type-display-line: 32px;
@@ -299,6 +299,7 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   .search-field__input,
   .number-field__input,
   .input,
+  .input-group__input,
   .textarea,
   .label
 ) {

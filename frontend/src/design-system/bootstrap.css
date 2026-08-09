@@ -163,12 +163,55 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-toolbar {
 }
 
 html[data-bootstrap-layout="auth"] .bootstrap-shell-grid { display: block; }
-html[data-bootstrap-layout="auth"] .bootstrap-shell-main { display: grid; height: 100dvh; place-items: center; }
-html[data-bootstrap-layout="auth"] .bootstrap-shell-feed { width: min(calc(100% - 32px), 420px); }
-html[data-bootstrap-layout="auth"] .bootstrap-shell-card { height: 320px; border-radius: 16px; }
+html[data-bootstrap-layout="auth"] .bootstrap-shell-main {
+  position: relative;
+  display: grid;
+  height: 100dvh;
+  padding: 64px 16px 16px;
+  place-items: center;
+  box-sizing: border-box;
+}
+html[data-bootstrap-layout="auth"] .bootstrap-shell-main::before {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--inteliscope-bootstrap-surface-secondary);
+  content: "";
+}
+html[data-bootstrap-layout="auth"] .bootstrap-shell-feed {
+  width: min(100%, 960px);
+  margin: 0;
+}
+html[data-bootstrap-layout="auth"] .bootstrap-shell-card {
+  position: relative;
+  height: 520px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--inteliscope-bootstrap-surface);
+}
+html[data-bootstrap-layout="auth"] .bootstrap-shell-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 152px;
+  border-bottom: 1px solid var(--inteliscope-bootstrap-separator);
+  background: var(--inteliscope-bootstrap-surface-secondary);
+  content: "";
+}
 html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { display: none; }
 
 @media (min-width: 768px) {
+  html[data-bootstrap-layout="auth"] .bootstrap-shell-main { padding: 24px; }
+  html[data-bootstrap-layout="auth"] .bootstrap-shell-card::before {
+    inset: 0 auto 0 0;
+    width: 47.83%;
+    height: auto;
+    border-right: 1px solid var(--inteliscope-bootstrap-separator);
+    border-bottom: 0;
+  }
+
   .bootstrap-shell-grid {
     grid-template-columns: 72px minmax(0, 1fr);
     grid-template-rows: 52px minmax(0, 1fr);

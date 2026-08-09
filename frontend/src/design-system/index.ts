@@ -17,6 +17,7 @@ export {
   Form,
   Header,
   Input,
+  InputGroup,
   Label,
   Link,
   ListBox,

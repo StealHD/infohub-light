@@ -11,25 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "修正 OpenClaw Composer 附件摘要：所有来源行统一占满可用宽度并对齐右侧移除操作，超过两条时显示向上箭头并在上方柔和展开全部信息。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-row-alignment",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "相关 Vitest 44 项、TypeScript、lint、UI contract 与完整 Test Gate 23/23 通过。",
-    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；浏览器实测两条摘要行均为 357px，四条上浮列表右边线一致且浮层位于触发器上方。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "将多条上下文摘要改为保留前两条预览，使用图标化向上展开仅显示尚未出现的其余条目，移除“查看全部”及重复内容。",
   "status": "partial",
   "task_id": "2026-08-07-openclaw-context-upward-remainder",
@@ -396,6 +377,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "main 完整 Test Gate 24/24 命令通过（249.60 秒）。",
     "本地服务运行 da1c42b：API/Worker healthy，readiness 返回 worker_status=ready。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "登录页按 Quiet Studio 重构为桌面品牌/表单双栏与移动端单列，并补齐密码显隐、自动聚焦、提交防重入、凭据清理和首屏骨架。",
+  "status": "completed",
+  "task_id": "2026-08-09-login-quiet-studio-ui",
+  "unresolved": [],
+  "validation": [
+    "登录、App 路由、设计系统、手册与更新日志定向 Vitest 共 152 项通过；TypeScript、UI contract、ESLint 和生产构建通过。",
+    "Playwright 在 1440×900、1024×768、390×844 的明暗模式生成并复验 6 张快照；布局、焦点、密码显隐、无横向溢出与 Axe 严重/致命问题为零。",
+    "完整 Test Gate 24/24 命令通过（252 秒），mapping_miss=false；git diff --check 与控制面校验通过。"
   ]
 }
 ```

@@ -146,7 +146,7 @@ describe('HeroUI import contract', () => {
     expect(result.stderr).toBe('')
   })
 
-  it.each(['820', '1180', '420'])('rejects business-owned Quiet Studio max width %spx', (width) => {
+  it.each(['820', '1180', '960'])('rejects business-owned Quiet Studio max width %spx', (width) => {
     const result = checkSource(
       'src/features/feed/PageSurface.tsx',
       `export const PageSurface = () => <main className="max-w-[${width}px]">内容</main>\n`,
@@ -179,7 +179,8 @@ describe('HeroUI import contract', () => {
 
     expect(theme).toContain('--inteliscope-width-reading: 820px')
     expect(theme).toContain('--inteliscope-width-admin: 1180px')
-    expect(theme).toContain('--inteliscope-width-auth: 420px')
+    expect(theme).toContain('--inteliscope-width-auth: 960px')
+    expect(theme).toMatch(/:where\([^)]*\.input-group__input[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-control-size\)/s)
     expect(theme).toMatch(/\.quiet-compact-select[^}]*\.select__value[^}]*\{[^}]*font-size:\s*var\(--inteliscope-type-control-size\)/s)
   })
 })

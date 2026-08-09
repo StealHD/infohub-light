@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import * as DesignSystem from './index'
 
 it('exposes workbench runtime components', () => {
-  for (const name of ['anchoredTooltipProps', 'bottomAnchoredTooltipProps', 'topAnchoredTooltipProps', 'AvatarRoot', 'AvatarImage', 'AvatarFallback', 'Button', 'Card', 'Chip', 'Icons']) {
+  for (const name of ['anchoredTooltipProps', 'bottomAnchoredTooltipProps', 'topAnchoredTooltipProps', 'AvatarRoot', 'AvatarImage', 'AvatarFallback', 'Button', 'Card', 'Chip', 'InputGroup', 'Icons']) {
     expect(DesignSystem[name as keyof typeof DesignSystem], name).toBeDefined()
   }
   expect(DesignSystem.Icons.Bookmark).toBeDefined()

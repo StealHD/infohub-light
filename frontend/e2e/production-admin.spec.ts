@@ -1910,16 +1910,54 @@ test('subscription semantic UI matches light and dark visual baselines at every 
   }
 })
 
-test('production login is a standalone HeroUI page at every acceptance viewport', async ({ page }) => {
+test('production login is a standalone responsive Quiet Studio page in both color modes', async ({ page }) => {
   await mockAdminApi(page, false)
   await page.goto('/login')
-  await expect(page.getByRole('heading', { name: '登录私人信息雷达' })).toBeVisible()
-  await expect(page.locator('h1')).toHaveCount(1)
-  await expect(page.locator('[data-page-frame="auth"]')).toBeVisible()
-  await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
-  await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
-  await expect(page.getByRole('navigation')).toHaveCount(0)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  const accessibility = await new AxeBuilder({ page }).analyze()
-  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  const viewport = page.viewportSize()
+
+  for (const colorMode of ['light', 'dark'] as const) {
+    await page.evaluate((mode) => {
+      window.localStorage.setItem('inteliscope.ui.theme.v1', JSON.stringify({
+        themeName: 'graphite-purple',
+        colorMode: mode,
+      }))
+    }, colorMode)
+    await page.reload()
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorMode)
+    await expect(page.getByRole('heading', { name: '登录私人信息雷达' })).toBeVisible()
+    await expect(page.getByText('专注你真正关心的信息')).toBeVisible()
+    await expect(page.locator('h1')).toHaveCount(1)
+    await expect(page.locator('[data-page-frame="auth"]')).toBeVisible()
+    await expect(page.locator('[data-login-brand]')).toBeVisible()
+    await expect(page.locator('[data-login-form]')).toBeVisible()
+    await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
+    await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
+    await expect(page.getByRole('navigation')).toHaveCount(0)
+
+    const columnCount = await page.locator('[data-login-layout="quiet-studio-split"]').evaluate((element) => (
+      getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/).length
+    ))
+    expect(columnCount).toBe((viewport?.width ?? 0) >= 768 ? 2 : 1)
+
+    const username = page.getByLabel('用户名')
+    const password = page.locator('input[name="password"]')
+    await expect(username).toBeFocused()
+    await expect(password).toHaveAttribute('type', 'password')
+    await page.getByRole('button', { name: '显示密码' }).click()
+    await expect(password).toHaveAttribute('type', 'text')
+    await page.getByRole('button', { name: '隐藏密码' }).click()
+    await expect(password).toHaveAttribute('type', 'password')
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const accessibility = await new AxeBuilder({ page }).analyze()
+    expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+    await page.evaluate(async () => {
+      await document.fonts.ready
+    })
+    await expect(page).toHaveScreenshot(`login-quiet-studio-${colorMode}.png`, {
+      animations: 'disabled',
+      caret: 'hide',
+    })
+  }
 })
