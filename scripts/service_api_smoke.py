@@ -240,15 +240,6 @@ def run_smoke_checks(
                     {"is_read": True},
                 ),
             )
-            _check(
-                "item_feedback",
-                checks,
-                lambda: client.data(
-                    "POST",
-                    f"/api/me/items/{_quote(article_id)}/feedback",
-                    {"feedback_type": "not_relevant", "metadata": {"surface": "service_api_smoke"}},
-                ),
-            )
         else:
             checks.append({"name": "item_state_skipped", "ok": True, "reason": "no feed items"})
 

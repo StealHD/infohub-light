@@ -101,9 +101,7 @@ COMPOSE=(
   -f "$SOURCE_ROOT/docker-compose.light.yml"
 )
 LIGHT_SERVICES=("horizon-api" "horizon-worker")
-LIGHT_MANUAL_SERVICE="horizon"
 SERVICES=("${LIGHT_SERVICES[@]}")
-MANUAL_SERVICE="$LIGHT_MANUAL_SERVICE"
 API_CONTAINER="horizon-light-api"
 WORKER_CONTAINER="horizon-light-worker"
 PRUNE_PROJECT="infohub-light"
@@ -195,8 +193,8 @@ command -v curl >/dev/null 2>&1 || fail "curl is required"
 docker compose version >/dev/null 2>&1 || fail "docker compose is unavailable"
 
 echo "==> Building current workspace into Docker images"
-echo "    ${COMPOSE[*]} build ${BUILD_FLAGS[*]} ${SERVICES[*]} $MANUAL_SERVICE"
-"${COMPOSE[@]}" build "${BUILD_FLAGS[@]}" "${SERVICES[@]}" "$MANUAL_SERVICE"
+echo "    ${COMPOSE[*]} build ${BUILD_FLAGS[*]} ${SERVICES[*]}"
+"${COMPOSE[@]}" build "${BUILD_FLAGS[@]}" "${SERVICES[@]}"
 
 echo "==> Recreating running services from freshly built images"
 "${COMPOSE[@]}" up -d --no-build --force-recreate --remove-orphans "${SERVICES[@]}"

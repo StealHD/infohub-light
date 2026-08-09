@@ -46,5 +46,5 @@ LABEL org.opencontainers.image.version=${INTELISCOPE_VERSION} \
       org.opencontainers.image.created=${INTELISCOPE_BUILT_AT}
 
 # Run the already-installed application without resolving dependencies at runtime.
-ENTRYPOINT ["/app/.venv/bin/horizon"]
-CMD []
+ENTRYPOINT ["/app/.venv/bin/horizon-api"]
+CMD ["--host", "0.0.0.0", "--port", "8080"]

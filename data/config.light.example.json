@@ -13,7 +13,9 @@
     "analysis_content_chars": 1000,
     "analysis_comments_chars": 1500,
     "enrichment_content_chars": 4000,
-    "languages": ["zh"]
+    "languages": [
+      "zh"
+    ]
   },
   "tags": [
     "AI Agent",
@@ -29,17 +31,6 @@
     "行业动态"
   ],
   "personal_tags": [],
-  "email": {
-    "enabled": false,
-    "smtp_server": "smtp.qq.com",
-    "smtp_port": 465,
-    "imap_server": "imap.qq.com",
-    "imap_port": 993,
-    "email_address": "xxx@qq.com",
-    "sender_name": "Horizon Daily",
-    "subscribe_keyword": "SUBSCRIBE",
-    "unsubscribe_keyword": "UNSUBSCRIBE"
-  },
   "sources": {
     "github": [],
     "hackernews": {
@@ -71,7 +62,9 @@
     "apify_social": {
       "enabled": false,
       "token_env": "APIFY_TOKEN",
-      "token_envs": ["APIFY_TOKEN"],
+      "token_envs": [
+        "APIFY_TOKEN"
+      ],
       "timeout_seconds": 180,
       "actors": {
         "x": {
@@ -98,7 +91,9 @@
     "ossinsight": {
       "enabled": false,
       "period": "past_24_hours",
-      "languages": ["All"],
+      "languages": [
+        "All"
+      ],
       "keywords": [],
       "min_stars": 10,
       "max_items": 30
@@ -109,47 +104,8 @@
     "featured_score_threshold": 7.5,
     "daily_push_score_threshold": 8.5,
     "daily_push_limit": 10,
-    "homepage_min_score": 6.0,
+    "homepage_min_score": 6,
     "time_window_hours": 24,
     "recent_item_limit": 20
-  },
-  "premium_analysis": {
-    "enabled": false,
-    "full_fetch_score_threshold": 8.5,
-    "max_full_fetch_per_run": 10,
-    "max_full_text_chars": 12000,
-    "full_fetch_concurrency": 2,
-    "keep_premium_articles": 1000,
-    "keep_full_text_days": 90
-  },
-  "article_graph": {
-    "enabled": false,
-    "premium_score_threshold": 8.5,
-    "active_window_days": 30,
-    "extended_window_days": 90,
-    "max_active_nodes": 300,
-    "max_visible_nodes": 30,
-    "max_visible_edges": 100,
-    "relation_top_k": 3,
-    "min_relation_score": 0.55,
-    "strong_relation_score": 0.75,
-    "snapshot_min_new_premium_articles": 3,
-    "snapshot_max_age_hours": 6,
-    "enable_embedding": false,
-    "enable_ai_group_summary": false
-  },
-  "webhook": {
-    "enabled": false,
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "delivery": "summary",
-    "overview_position": "first",
-    "platform": "generic",
-    "layout": "markdown",
-    "fallback_layout": "markdown",
-    "languages": null,
-    "request_body": {
-      "text": "#{message_title}\\n\\n#{summary}"
-    },
-    "headers": ""
   }
 }

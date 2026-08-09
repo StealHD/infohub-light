@@ -136,7 +136,7 @@ def build_report(
     source_results: list[dict[str, Any]],
     *,
     feed_latest: dict[str, Any] | None = None,
-    source_quality: dict[str, Any] | None = None,
+    source_health: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a stable JSON report and pass/fail summary."""
 
@@ -161,7 +161,7 @@ def build_report(
         "feed_latest_ok": feed_ok,
         "sources": source_results,
         "feed_latest": feed_latest or {},
-        "source_quality": source_quality or {},
+        "source_health": source_health or {},
     }
 
 
@@ -353,8 +353,8 @@ def run_smoke(
         results.append(result)
 
     feed_latest = client.data("GET", "/api/feed/latest")
-    source_quality = client.data("GET", "/api/archive/source-quality")
-    return build_report(results, feed_latest=feed_latest, source_quality=source_quality)
+    source_health = client.data("GET", "/api/me/source-health")
+    return build_report(results, feed_latest=feed_latest, source_health=source_health)
 
 
 def write_report(report: dict[str, Any], output: str | None) -> Path | None:

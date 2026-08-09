@@ -249,8 +249,8 @@ previous_release=""
 previous_release="$(readlink -f "$base/current")"
 [[ -d "$previous_release" ]] || { echo "previous release is unavailable: $previous_release" >&2; exit 1; }
 [[ ! -e "$release_dir" ]] || { echo "release already exists: $release_dir" >&2; exit 1; }
-if docker ps --format '{{.Names}}' | grep -qx 'horizon-light-scheduler'; then
-  echo "scheduler must remain stopped during Service releases" >&2
+if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; then
+  echo "legacy scheduler must remain stopped during Service releases" >&2
   exit 1
 fi
 
@@ -388,7 +388,6 @@ set_env INTELISCOPE_BUILD_REVISION "$revision"
 set_env INTELISCOPE_BUILT_AT "$built_at"
 chmod 600 "$base/.env"
 cd "$release_dir"
-docker compose -f docker-compose.light.yml stop horizon-scheduler >/dev/null 2>&1 || true
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
   horizon-api horizon-worker
 wait_until_ready
@@ -469,7 +468,6 @@ for key in INTELISCOPE_IMAGE INTELISCOPE_VERSION INTELISCOPE_BUILD_REVISION INTE
   set_env "$key" "$value"
 done
 cd "$target"
-docker compose -f docker-compose.light.yml stop horizon-scheduler >/dev/null 2>&1 || true
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
   horizon-api horizon-worker
 revision="$(grep '^INTELISCOPE_BUILD_REVISION=' "$target/release-metadata.env" | cut -d= -f2-)"

@@ -13,7 +13,9 @@
     "analysis_content_chars": 1000,
     "analysis_comments_chars": 1500,
     "enrichment_content_chars": 4000,
-    "languages": ["zh"]
+    "languages": [
+      "zh"
+    ]
   },
   "tags": [
     "AI Agent",
@@ -32,31 +34,24 @@
     "价格监控",
     "能黄通"
   ],
-  "email": {
-    "enabled": false,
-    "smtp_server": "smtp.qq.com",
-    "smtp_port": 465,
-    "imap_server": "imap.qq.com",
-    "imap_port": 993,
-    "email_address": "xxx@qq.com",
-    "sender_name": "Horizon Daily",
-    "subscribe_keyword": "SUBSCRIBE",
-    "unsubscribe_keyword": "UNSUBSCRIBE"
-  },
   "sources": {
     "github": [
       {
         "type": "user_events",
         "username": "torvalds",
         "enabled": true,
-        "tags": ["行业动态"]
+        "tags": [
+          "行业动态"
+        ]
       },
       {
         "type": "repo_releases",
         "owner": "astral-sh",
         "repo": "uv",
         "enabled": true,
-        "tags": ["AI 编程"]
+        "tags": [
+          "AI 编程"
+        ]
       }
     ],
     "hackernews": {
@@ -70,7 +65,10 @@
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
         "category": "ai-tools",
-        "tags": ["AI 编程", "RAG/MCP"]
+        "tags": [
+          "AI 编程",
+          "RAG/MCP"
+        ]
       },
       {
         "name": "LWN.net (subscriber full-text)",
@@ -89,7 +87,10 @@
           "time_filter": "day",
           "fetch_limit": 15,
           "min_score": 50,
-          "tags": ["研究论文", "行业动态"]
+          "tags": [
+            "研究论文",
+            "行业动态"
+          ]
         }
       ],
       "users": [
@@ -98,7 +99,9 @@
           "enabled": true,
           "sort": "new",
           "fetch_limit": 10,
-          "tags": ["行业动态"]
+          "tags": [
+            "行业动态"
+          ]
         }
       ],
       "fetch_comments": 5
@@ -106,7 +109,10 @@
     "twitter": {
       "enabled": false,
       "apify_token_env": "APIFY_TOKEN",
-      "users": ["karpathy", "ylecun"],
+      "users": [
+        "karpathy",
+        "ylecun"
+      ],
       "fetch_limit": 10,
       "fetch_reply_text": false,
       "max_replies_per_tweet": 3,
@@ -116,7 +122,11 @@
     "apify_social": {
       "enabled": false,
       "token_env": "APIFY_TOKEN",
-      "token_envs": ["APIFY_TOKEN", "APIFY_TOKEN_2", "APIFY_TOKEN_3"],
+      "token_envs": [
+        "APIFY_TOKEN",
+        "APIFY_TOKEN_2",
+        "APIFY_TOKEN_3"
+      ],
       "timeout_seconds": 180,
       "actors": {
         "x": {
@@ -139,7 +149,11 @@
           "target": "OpenAI",
           "fetch_limit": 20,
           "enabled": true,
-          "tags": ["AI Agent", "模型发布", "行业动态"]
+          "tags": [
+            "AI Agent",
+            "模型发布",
+            "行业动态"
+          ]
         },
         {
           "platform": "instagram",
@@ -147,7 +161,10 @@
           "target": "#aiagents",
           "fetch_limit": 20,
           "enabled": true,
-          "tags": ["AI Agent", "产品创业"]
+          "tags": [
+            "AI Agent",
+            "产品创业"
+          ]
         },
         {
           "platform": "instagram",
@@ -155,8 +172,12 @@
           "target": "tsucha_ri",
           "fetch_limit": 1,
           "enabled": true,
-          "tags": ["行业动态"],
-          "personal_tags": ["能黄通"],
+          "tags": [
+            "行业动态"
+          ],
+          "personal_tags": [
+            "能黄通"
+          ],
           "analysis_mode": "personal_only"
         },
         {
@@ -165,7 +186,10 @@
           "target": "https://www.facebook.com/openai",
           "fetch_limit": 20,
           "enabled": true,
-          "tags": ["模型发布", "行业动态"]
+          "tags": [
+            "模型发布",
+            "行业动态"
+          ]
         },
         {
           "platform": "telegram",
@@ -173,7 +197,10 @@
           "target": "zaihuapd",
           "fetch_limit": 20,
           "enabled": true,
-          "tags": ["产品创业", "行业动态"]
+          "tags": [
+            "产品创业",
+            "行业动态"
+          ]
         }
       ]
     },
@@ -188,14 +215,26 @@
           "provider": "yfinance",
           "fetch_limit": 20,
           "category": "equities",
-          "symbols": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
+          "symbols": [
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "GOOGL",
+            "AMZN",
+            "META",
+            "TSLA"
+          ]
         }
       ]
     },
     "ossinsight": {
       "enabled": false,
       "period": "past_24_hours",
-      "languages": ["All", "Python", "TypeScript"],
+      "languages": [
+        "All",
+        "Python",
+        "TypeScript"
+      ],
       "keywords": [],
       "min_stars": 10,
       "max_items": 30
@@ -206,75 +245,8 @@
     "featured_score_threshold": 7.5,
     "daily_push_score_threshold": 8.5,
     "daily_push_limit": 10,
-    "homepage_min_score": 6.0,
+    "homepage_min_score": 6,
     "time_window_hours": 24,
     "recent_item_limit": 20
-  },
-  "premium_analysis": {
-    "enabled": false,
-    "full_fetch_score_threshold": 8.5,
-    "max_full_fetch_per_run": 10,
-    "max_full_text_chars": 12000,
-    "full_fetch_concurrency": 2,
-    "keep_premium_articles": 1000,
-    "keep_full_text_days": 90
-  },
-  "article_graph": {
-    "enabled": false,
-    "premium_score_threshold": 8.5,
-    "active_window_days": 30,
-    "extended_window_days": 90,
-    "max_active_nodes": 300,
-    "max_visible_nodes": 30,
-    "max_visible_edges": 100,
-    "relation_top_k": 3,
-    "min_relation_score": 0.55,
-    "strong_relation_score": 0.75,
-    "snapshot_min_new_premium_articles": 3,
-    "snapshot_max_age_hours": 6,
-    "enable_embedding": false,
-    "enable_ai_group_summary": false
-  },
-  "webhook": {
-    "enabled": false,
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "delivery": "summary",
-    "overview_position": "first",
-    "platform": "generic",
-    "layout": "markdown",
-    "fallback_layout": "markdown",
-    "languages": null,
-    "request_body": {
-      "msg_type": "interactive",
-      "card": {
-        "schema": "2.0",
-        "config": {
-          "wide_screen_mode": true
-        },
-        "header": {
-          "title": {
-            "tag": "plain_text",
-            "content": "#{message_title}"
-          },
-          "template": "blue"
-        },
-        "body": {
-          "elements": [
-            {
-              "tag": "markdown",
-              "content": "Horizon生成结果: #{result}\nHorizon日报重要资讯数量: #{important_items}/#{all_items}"
-            },
-            {
-              "tag": "hr"
-            },
-            {
-              "tag": "markdown",
-              "content": "#{summary}"
-            }
-          ]
-        }
-      }
-    },
-    "headers": ""
   }
 }

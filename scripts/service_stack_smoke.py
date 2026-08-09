@@ -131,7 +131,6 @@ def run_stack_smoke(
     api_only: bool,
     full_real_source: bool,
     run_worker: bool,
-    include_ui_smoke: bool = False,
     project_name: str | None = None,
     cleanup: bool = False,
     report_dir: str = "logs",
@@ -203,14 +202,6 @@ def run_stack_smoke(
                 "reason": "compose_up_failed",
             }
         )
-        if include_ui_smoke:
-            steps.append(
-                {
-                    "name": "ui_smoke",
-                    "status": "skipped",
-                    "reason": "compose_up_failed",
-                }
-            )
         steps.append(
             {
                 "name": "real_source_smoke",
@@ -246,14 +237,6 @@ def run_stack_smoke(
                 "reason": "api_health_failed",
             }
         )
-        if include_ui_smoke:
-            steps.append(
-                {
-                    "name": "ui_smoke",
-                    "status": "skipped",
-                    "reason": "api_health_failed",
-                }
-            )
         steps.append(
             {
                 "name": "real_source_smoke",
@@ -281,26 +264,6 @@ def run_stack_smoke(
             report_path=api_report_path,
         )
     )
-
-    if include_ui_smoke:
-        ui_report_path = _child_report_path("service-ui-smoke", report_dir)
-        steps.append(
-            _command_step(
-                "ui_smoke",
-                [
-                    sys.executable,
-                    "scripts/service_ui_smoke.py",
-                    "--base-url",
-                    base_url,
-                    "--username",
-                    username,
-                    "--json-output",
-                    ui_report_path,
-                ],
-                runner=command_runner,
-                report_path=ui_report_path,
-            )
-        )
 
     if api_only or not full_real_source:
         steps.append(
@@ -379,7 +342,6 @@ def main() -> int:
     parser.add_argument("--api-only", action="store_true")
     parser.add_argument("--full-real-source", action="store_true")
     parser.add_argument("--run-worker", action="store_true")
-    parser.add_argument("--include-ui-smoke", action="store_true")
     parser.add_argument("--project-name", default=None)
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--report-dir", default="logs")
@@ -402,7 +364,6 @@ def main() -> int:
         api_only=args.api_only,
         full_real_source=args.full_real_source,
         run_worker=args.run_worker,
-        include_ui_smoke=args.include_ui_smoke,
         project_name=args.project_name,
         cleanup=args.cleanup,
         report_dir=args.report_dir,

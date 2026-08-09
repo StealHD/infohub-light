@@ -197,8 +197,20 @@ set_env HORIZON_REQUIRE_WORKER_FOR_READINESS false
 set_env HORIZON_AUTH_SECURE_COOKIE false
 set_env HORIZON_AUTH_SESSION_TTL_SECONDS 604800
 
-cd "$base"
-docker compose stop horizon-scheduler
+if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; then
+  echo "legacy scheduler must be stopped before Service bootstrap" >&2
+  exit 1
+fi
+
+cleanup_staged_api() {
+  local status=$?
+  trap - ERR
+  cd "$release_dir"
+  docker compose -f docker-compose.light.yml stop horizon-api >/dev/null 2>&1 || true
+  exit "$status"
+}
+trap cleanup_staged_api ERR
+
 cd "$release_dir"
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate horizon-api
 for attempt in $(seq 1 60); do
@@ -209,6 +221,7 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 ln -sfn "$release_dir" "$base/current-staged"
+trap - ERR
 REMOTE
 
   echo "Staged release: $release_id"
@@ -238,15 +251,13 @@ set_env() {
 rollback_initial_cutover() {
   cd "$release_dir"
   docker compose -f docker-compose.light.yml stop horizon-worker horizon-api || true
-  cd "$base"
-  docker compose stop horizon-scheduler || true
-  docker compose start horizon-web || true
 }
 trap rollback_initial_cutover ERR
 
-cd "$base"
-docker compose stop horizon-scheduler
-docker compose stop horizon-web
+if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; then
+  echo "legacy scheduler must be stopped before Service bootstrap" >&2
+  exit 1
+fi
 set_env HORIZON_WEB_PORT 8080
 set_env HORIZON_REQUIRE_WORKER_FOR_READINESS true
 set_env HORIZON_AUTH_SECURE_COOKIE true
@@ -262,7 +273,7 @@ for attempt in $(seq 1 90); do
 done
 revision="$(grep '^INTELISCOPE_BUILD_REVISION=' "$base/.env" | tail -n 1 | cut -d= -f2-)"
 curl -fsS http://127.0.0.1:8080/api/health/live | grep -Fq "$revision"
-if docker ps --format '{{.Names}}' | grep -qx 'horizon-scheduler'; then
+if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; then
   echo "legacy scheduler is still running" >&2
   exit 1
 fi
@@ -288,9 +299,12 @@ if [[ -d "$release_dir" ]]; then
   cd "$release_dir"
   docker compose -f docker-compose.light.yml stop horizon-worker horizon-api
 fi
-cd "$base"
-docker compose stop horizon-scheduler
-docker compose start horizon-web
+if [[ -L "$base/current" && "$(readlink -f "$base/current")" == "$release_dir" ]]; then
+  rm -f "$base/current"
+fi
+if [[ -L "$base/current-staged" && "$(readlink -f "$base/current-staged")" == "$release_dir" ]]; then
+  rm -f "$base/current-staged"
+fi
 REMOTE
 }
 
