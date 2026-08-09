@@ -12,27 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "OpenClaw 附件摘要改为数量、中央大点击区与一键清空三段布局；原容器仅向上展开增量附件，模型触发器与可滚动列表按紧凑尺寸收口。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-attachment-clear-and-model-selector",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript、ESLint（仅既有 Fast Refresh 警告）和产品文档检查通过。",
-    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
-    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-Cmr-lcIw.js 已服务。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "将订阅布局清理分支合并到本地 main，保留 OpenClaw 的同期更新，并整合来源库直接列表与两态顶部工具栏。",
   "status": "completed",
   "task_id": "2026-08-07-merge-subscriptions-layout-to-local-main",
@@ -393,6 +372,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "HeroLoginPage 定向 Vitest 3/3、TypeScript 与 ESLint 通过。",
     "生产构建预览下强制刷新并复验 1440×900 与 1024×768 的 light/dark 视觉基线；390×844 保持隐藏能力列表。",
     "完整 Test Gate 24/24 命令通过（250.29 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "将登录页 Quiet Studio 分支快进整合到本地 main，并将共享 8080 的 API/Worker 切换到整合后的产品 revision 8d3cac39728e。",
+  "status": "completed",
+  "task_id": "2026-08-09-integrate-login-quiet-studio-main",
+  "unresolved": [],
+  "validation": [
+    "main 整合 Worktree 完整 Test Gate 24/24 命令通过（283.146 秒）；产品文档、Markdown 控制与 Worklog 校验通过。",
+    "切换前确认规范运行时挂载、无 queued/running 活动任务、Feed 自动计划 0 个、Source 自动计划 3 个，迁移版本为 v19。",
+    "./scripts/up-latest.sh 使用 main Worktree 构建并完成切换；API/Worker healthy，readiness 返回 worker_status=ready，实际前端资源为 index-KRd366US.js。"
   ]
 }
 ```
