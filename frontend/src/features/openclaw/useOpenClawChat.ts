@@ -7,6 +7,7 @@ import {
   sanitizeSourceUrl,
   type AgentContextItem,
   type AgentSourceReference,
+  type AgentSourceSnapshot,
 } from '../workbench-live/agentContext'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
 import { forgetOpenClawBrowser } from './openclawDevice'
@@ -85,6 +86,8 @@ export type OpenClawSendRequest = {
   displayText: string
   gatewayPrompt: string
   contextItems: AgentContextItem[]
+  contextCount?: number
+  sourceSnapshot?: AgentSourceSnapshot
   attachments?: OpenClawImageAttachment[]
 }
 
@@ -1467,7 +1470,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     if (!client || !key || !agentId || !snapshot.gatewayPrompt.trim() || runIdRef.current) return false
     const sendAttempt = ++sendAttemptRef.current
     terminalSendAttemptsRef.current.delete(sendAttempt)
-    beginRunTrace(snapshot.contextItems.length)
+    beginRunTrace(snapshot.contextCount ?? snapshot.contextItems.length)
     pendingSendRef.current = true
     streamTextRef.current = ''
     streamCreatedAtRef.current = null
@@ -1547,6 +1550,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       displayText,
       gatewayPrompt,
       contextItems,
+      ...(request.contextCount !== undefined ? { contextCount: request.contextCount } : {}),
+      ...(request.sourceSnapshot ? { sourceSnapshot: request.sourceSnapshot } : {}),
       idempotencyKey,
       modelId: runtimeSelection.modelId,
       thinkingLevel: runtimeSelection.thinkingLevel,
@@ -1557,7 +1562,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       role: 'user',
       text: displayText,
       status: 'pending',
-      contextCount: snapshot.contextItems.length,
+      contextCount: snapshot.contextCount ?? snapshot.contextItems.length,
       contextSources: agentSourceReferences(snapshot.contextItems),
       sendSnapshot: snapshot,
       createdAt: Date.now(),
@@ -1602,6 +1607,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       displayText: message.sendSnapshot.displayText,
       gatewayPrompt: message.sendSnapshot.gatewayPrompt,
       contextItems: message.sendSnapshot.contextItems.map((item) => ({ ...item })),
+      ...(message.sendSnapshot.contextCount !== undefined ? { contextCount: message.sendSnapshot.contextCount } : {}),
+      ...(message.sendSnapshot.sourceSnapshot ? { sourceSnapshot: message.sendSnapshot.sourceSnapshot } : {}),
     }
     persistVisibleTranscript((current) => current.filter((candidate) => candidate.id !== messageId))
     return request

@@ -180,13 +180,7 @@ export function WorkbenchCard({
       : card.item.timeline_bucket === 'history'
         ? '历史'
         : ''
-  const classificationMetadata = sourceOverview
-    ? <>
-      <span>{relativeTime(card.publishedAt)}</span>
-      {card.topics.slice(0, 2).map((topic) => <Fragment key={topic}><span aria-hidden="true">·</span><span>#{topic.replace(/^#/, '')}</span></Fragment>)}
-      {card.topics.length > 2 && <><span aria-hidden="true">·</span><span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span></>}
-    </>
-    : <>
+  const classificationMetadata = <>
       <span>{card.formatLabel}</span>
       {imageCountLabel && <>
         <span aria-hidden="true">·</span>
@@ -213,10 +207,10 @@ export function WorkbenchCard({
       {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
     </span>}
     {social
-      ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
+      ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : sourceOverview ? 'line-clamp-2' : 'line-clamp-3'}`}>{socialText}</Card.Description>
       : <>
         <Card.Title ref={measurePrimary} className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
-        {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
+        {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : sourceOverview ? 'line-clamp-1' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
       </>}
   </>
 
@@ -267,7 +261,7 @@ export function WorkbenchCard({
       ? showCompactMedia && mediaPreview
         ? <div
           data-card-media-layout="compact"
-          className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${sourceOverview ? 'px-0 pt-4' : 'px-[19px] pt-[18px]'}`}
+          className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${sourceOverview ? 'px-0 pt-2' : 'px-[19px] pt-[18px]'}`}
         >
           <button
             type="button"
@@ -313,13 +307,13 @@ export function WorkbenchCard({
         </div>
         : <button
           type="button"
-          className={`w-full cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${sourceOverview ? 'px-0 pt-4' : 'px-[19px] pt-[18px]'}`}
+          className={`w-full cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${sourceOverview ? 'px-0 pt-2' : 'px-[19px] pt-[18px]'}`}
           aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
           aria-controls={detailsId}
           aria-expanded={expanded}
           onClick={onToggleExpanded}
         >{summaryContent}</button>
-      : <div className={`w-full text-left ${sourceOverview ? 'px-0 pt-4' : 'px-[19px] pt-[18px]'}`}>{summaryContent}</div>}
+      : <div className={`w-full text-left ${sourceOverview ? 'px-0 pt-2' : 'px-[19px] pt-[18px]'}`}>{summaryContent}</div>}
 
     <div
       id={detailsId}
@@ -361,7 +355,9 @@ export function WorkbenchCard({
       </div>
     </div>
 
-    <Card.Footer className={`flex items-center gap-2 ${sourceOverview ? 'px-0 pb-3 pt-2' : 'px-[19px] pb-[15px] pt-[10px]'}`}>
+    {sourceOverview ? <Card.Footer className="flex items-center px-0 pb-2 pt-1.5">
+      <span className="type-meta min-w-0 flex-1 text-muted">{relativeTime(card.publishedAt)}</span>
+    </Card.Footer> : <Card.Footer className="flex items-center gap-2 px-[19px] pb-[15px] pt-[10px]">
       <div
         data-card-expand-zone={canToggleExpansion ? 'true' : 'false'}
         className={`type-meta flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 self-stretch py-1 text-left text-muted ${canToggleExpansion ? 'cursor-pointer' : ''}`}
@@ -443,7 +439,7 @@ export function WorkbenchCard({
         </Popover>
         {copyNotice && <span role="status" aria-live="polite" className="sr-only">{copyNotice}</span>}
       </div>
-    </Card.Footer>
+    </Card.Footer>}
   </Card>
 }
 

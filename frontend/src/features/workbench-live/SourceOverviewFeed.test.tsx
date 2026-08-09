@@ -61,7 +61,7 @@ describe('SourceOverviewFeed', () => {
     expect(screen.getByText('近7天 · 1 篇内容 · 1 个主题')).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('source-insight')).not.toBeInTheDocument()
-    expect(screen.getAllByText('#工程')).toHaveLength(2)
+    expect(screen.queryByText('#工程')).not.toBeInTheDocument()
 
     await browser.click(sourceB)
     expect(onToggleSource).toHaveBeenCalledWith('source:source-b')
@@ -80,10 +80,11 @@ describe('SourceOverviewFeed', () => {
     expect(screen.getByRole('button', { name: '收起专题 来源 B' }).closest('[data-source-group-card]')).toHaveAttribute('data-state', 'expanded')
     expect(sourceArticle.closest('[data-source-group-card]')).toBe(screen.getByRole('button', { name: '收起专题 来源 B' }).closest('[data-source-group-card]'))
     expect(sourceArticle.closest('[data-source-feed-row]')).toBeInTheDocument()
+    expect(sourceArticle.closest('[data-timeline-item]')).toBeInTheDocument()
     expect(screen.getAllByTestId('workbench-card').every((element) => element.getAttribute('data-card-variant') === 'source-overview')).toBe(true)
   })
 
-  it('keeps the existing article actions and detail callbacks available in compact rows', async () => {
+  it('keeps detail expansion while removing per-article actions and tags from compact rows', async () => {
     const browser = userEvent.setup()
     const story = card('a-detail', 'source-a', '来源 A', '2026-08-02T00:00:00Z', ['AI'])
     const onToggleExpanded = vi.fn()
@@ -103,17 +104,107 @@ describe('SourceOverviewFeed', () => {
       onItemAction={onItemAction}
     />)
 
-    await browser.click(await screen.findByRole('button', { name: '展开 标题 a-detail' }))
+    await browser.click(await screen.findByRole('button', { name: '打开详情 标题 a-detail' }))
     expect(onToggleExpanded).toHaveBeenCalledWith('a-detail')
-    await browser.click(screen.getByRole('button', { name: '收藏 标题 a-detail' }))
-    expect(onToggleSaved).toHaveBeenCalledWith('a-detail', true)
-    await browser.click(screen.getByRole('button', { name: '将 标题 a-detail 加入 Agent 上下文' }))
-    expect(onToggleContext).toHaveBeenCalledWith(story)
+    expect(screen.queryByRole('button', { name: '收藏 标题 a-detail' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '将 标题 a-detail 加入 Agent 上下文' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /原文/u })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /更多操作/u })).not.toBeInTheDocument()
+    expect(screen.queryByText('#AI')).not.toBeInTheDocument()
+    expect(onToggleSaved).not.toHaveBeenCalled()
+    expect(onToggleContext).not.toHaveBeenCalled()
     expect(onItemAction).not.toHaveBeenCalled()
   })
 
-  it('keeps SourceInsight optional for future content', () => {
-    const { container } = render(<SourceInsight><p>未来洞察</p></SourceInsight>)
+  it('keeps source AI and Agent actions separate from the accordion trigger', async () => {
+    const browser = userEvent.setup()
+    const section = buildSourceOverviewSections([card('a-ai', 'source-a', '来源 A', '2026-08-02T00:00:00Z', ['AI'])])[0]
+    const onRequestSummary = vi.fn()
+    const onAskAgent = vi.fn()
+    const onToggleSource = vi.fn()
+    const { rerender } = render(<SourceOverviewFeed
+      sections={[section]}
+      contextIds={[]}
+      onToggleSource={onToggleSource}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+      onRequestSummary={onRequestSummary}
+      onAskAgent={onAskAgent}
+    />)
+
+    await browser.click(screen.getByRole('button', { name: '总结专题 来源 A' }))
+    expect(onRequestSummary).toHaveBeenCalledWith(section, false)
+    expect(onToggleSource).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('button', { name: '针对专题 来源 A 问 Agent' }))
+    expect(onAskAgent).toHaveBeenCalledWith(section)
+    expect(onToggleSource).not.toHaveBeenCalled()
+
+    rerender(<SourceOverviewFeed
+      sections={[section]}
+      contextIds={[]}
+      canSummarize={false}
+      onToggleSource={onToggleSource}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+      onRequestSummary={onRequestSummary}
+      onAskAgent={onAskAgent}
+    />)
+    expect(screen.getByRole('button', { name: '总结专题 来源 A' })).toBeDisabled()
+  })
+
+  it('renders source summary success, loading, failure, and retry inside the same group card', async () => {
+    const browser = userEvent.setup()
+    const section = buildSourceOverviewSections([card('a-summary', 'source-a', '来源 A', '2026-08-02T00:00:00Z', ['AI'])])[0]
+    const onRequestSummary = vi.fn()
+    const baseProps = {
+      sections: [section],
+      expandedSourceId: section.id,
+      contextIds: [],
+      onToggleSource: vi.fn(),
+      onToggleExpanded: vi.fn(),
+      onToggleSaved: vi.fn(),
+      onToggleContext: vi.fn(),
+      onItemAction: vi.fn(),
+      onRequestSummary,
+    }
+    const { rerender } = render(<SourceOverviewFeed {...baseProps} summaryStates={{
+      [section.id]: { fingerprint: section.contentFingerprint, status: 'loading' },
+    }} />)
+    expect(screen.getByRole('status')).toHaveTextContent('正在总结当前专题')
+    expect(screen.getByRole('button', { name: '总结专题 来源 A' })).toBeDisabled()
+
+    rerender(<SourceOverviewFeed {...baseProps} summaryStates={{
+      [section.id]: { fingerprint: section.contentFingerprint, status: 'error', message: '生成暂时失败' },
+    }} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('生成暂时失败')
+    await browser.click(screen.getByRole('button', { name: '重试' }))
+    expect(onRequestSummary).toHaveBeenLastCalledWith(section, true)
+
+    rerender(<SourceOverviewFeed {...baseProps} summaryStates={{
+      [section.id]: {
+        fingerprint: section.contentFingerprint,
+        status: 'success',
+        data: { schema_version: 1, overview: '近期更新集中在产品发布。', highlights: ['发布新版', '补充安全说明'], item_count: 1 },
+      },
+    }} />)
+    expect(screen.getByText('近期更新集中在产品发布。')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '专题总结关键要点' })).toHaveTextContent('发布新版')
+    await browser.click(screen.getByRole('button', { name: '重新总结' }))
+    expect(onRequestSummary).toHaveBeenLastCalledWith(section, true)
+  })
+
+  it('keeps SourceInsight absent until a summary state is provided', () => {
+    const { container, rerender } = render(<SourceInsight />)
+    expect(container.querySelector('[data-source-insight]')).not.toBeInTheDocument()
+    rerender(<SourceInsight state={{
+      fingerprint: 'one',
+      status: 'success',
+      data: { schema_version: 1, overview: '未来洞察', highlights: ['关键要点'], item_count: 1 },
+    }} />)
     expect(container.querySelector('[data-source-insight]')).toHaveTextContent('未来洞察')
   })
 

@@ -522,7 +522,8 @@ function ContextRow({ item, onRemove }: { item: AgentContextItem; onRemove: () =
 }
 
 function ContextSummary({ value }: { value: WorkbenchAgentContextValue }) {
-  const count = value.draft.items.length
+  const snapshot = value.draft.sourceSnapshot
+  const count = snapshot?.itemCount ?? value.draft.items.length
   const hiddenItems = value.draft.items.slice(2)
   const hiddenItemsKey = hiddenItems.map((item) => item.articleId).join(':')
   const [expandedItemsKey, setExpandedItemsKey] = useState<string | null>(null)
@@ -530,6 +531,20 @@ function ContextSummary({ value }: { value: WorkbenchAgentContextValue }) {
   const hiddenItemsId = useId()
 
   if (!count) return null
+  if (snapshot) return <div
+    className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-separator bg-surface-secondary p-2"
+    aria-label={`已附带 ${snapshot.sourceName} 专题快照，共 ${snapshot.itemCount} 条信息`}
+    data-source-snapshot-summary
+  >
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent"><Icons.Layers3 size={15} aria-hidden="true" /></span>
+    <span className="min-w-0 flex-1">
+      <span className="type-control block truncate">{snapshot.sourceName}</span>
+      <span className="type-label block truncate text-muted">{snapshot.windowLabel} · {snapshot.itemCount} 条只读快照</span>
+    </span>
+    <Button size="sm" variant="ghost" isIconOnly className="size-8 shrink-0" aria-label={`移除 ${snapshot.sourceName} 专题快照`} onPress={value.clearItems}>
+      <Icons.X size={14} aria-hidden="true" />
+    </Button>
+  </div>
   return <div
     className="mb-2 min-w-0 rounded-xl border border-separator bg-surface-secondary p-2"
     aria-label={`已附带 ${count} 条信息`}
@@ -748,7 +763,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   const [attachmentIssue, setAttachmentIssue] = useState<string | null>(null)
   const [viewer, setViewer] = useState<OpenClawImageViewerState | null>(null)
   const attachmentModelBlocked = Boolean(attachments.length && !chat.currentModelSupportsImages)
-  const canSend = Boolean(value.draft.question.trim() || value.draft.items.length || attachments.length) && !attachmentModelBlocked
+  const canSend = Boolean(value.draft.question.trim() || value.draft.items.length || value.draft.sourceSnapshot || attachments.length) && !attachmentModelBlocked
   const runTrace = chat.runTrace
   const outputVersion = `${chat.messages.length}:${chat.streamText.length}:${runTrace?.phase ?? ''}:${runTrace?.activities.map((activity) => activity.status).join(',') ?? ''}`
   const attachTerminalTrace = Boolean(
@@ -847,11 +862,14 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       ...value.draft,
       items: value.draft.items.map((item) => ({ ...item })),
     }
-    const displayText = draft.question.trim() || (draft.items.length ? `分析已附带的 ${draft.items.length} 条信息` : '')
+    const displayText = draft.question.trim()
+      || (draft.sourceSnapshot ? `分析 ${draft.sourceSnapshot.sourceName} 的 ${draft.sourceSnapshot.itemCount} 条专题快照` : draft.items.length ? `分析已附带的 ${draft.items.length} 条信息` : '')
     const sent = await chat.send({
       displayText,
       gatewayPrompt: buildAgentHandoffPrompt(draft, { imageCount: attachments.length }),
       contextItems: draft.items,
+      contextCount: draft.sourceSnapshot?.itemCount ?? draft.items.length,
+      sourceSnapshot: draft.sourceSnapshot,
       attachments,
     })
     if (sent) {
@@ -864,7 +882,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   function editFailed(messageId: string) {
     const request = chat.takeFailedMessage(messageId)
     if (!request) return
-    value.restoreComposer(request.displayText, request.contextItems)
+    value.restoreComposer(request.displayText, request.contextItems, request.sourceSnapshot)
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-label="发送给 OpenClaw 的问题"]')?.focus())
   }
 
@@ -891,7 +909,13 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
           <PromptSuggestion.Description className="mt-1">可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</PromptSuggestion.Description>
         </PromptSuggestion.Header>
         <PromptSuggestion.Items className="mt-4 text-left" aria-label="问题建议">
-          {(value.draft.items.length
+          {(value.draft.sourceSnapshot
+            ? [
+              { prompt: '概括最近变化', description: '基于当前专题快照提炼最近发生了什么。', icon: Icons.FileText },
+              { prompt: '梳理时间脉络', description: '按发布时间整理变化顺序。', icon: Icons.GitCompareArrows },
+              { prompt: '提炼风险与机会', description: '找出值得关注的风险和后续机会。', icon: Icons.ListChecks },
+            ]
+            : value.draft.items.length
             ? [
               { prompt: '总结这些内容', description: '归纳已选内容中的关键结论。', icon: Icons.FileText },
               { prompt: '比较关键信号', description: '找出相同趋势与值得关注的差异。', icon: Icons.GitCompareArrows },

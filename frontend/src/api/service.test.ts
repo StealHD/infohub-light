@@ -31,6 +31,8 @@ describe('service api', () => {
     }, historySignal)
     await api.savedFeed()
     await api.feedItem('article/with space')
+    const summarySignal = new AbortController().signal
+    await api.sourceSummary(['article/one', 'article/two'], summarySignal)
     await api.createFeedRefresh()
     await api.updateItemState('article/1', { is_saved: true })
     await api.updateFeedSchedule({ enabled: true, interval_minutes: 360 })
@@ -114,6 +116,7 @@ describe('service api', () => {
     )
     expect(client.get).toHaveBeenCalledWith('/api/feed/saved?limit=200&offset=0', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/feed/items/article%2Fwith%20space', undefined)
+    expect(client.post).toHaveBeenCalledWith('/api/feed/source-summary', { article_ids: ['article/one', 'article/two'] }, summarySignal)
     expect(client.post).toHaveBeenCalledWith('/api/jobs/user-feed-refresh', {
       payload: { reason: 'manual_service_refresh' },
       priority: 0,

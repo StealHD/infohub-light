@@ -406,8 +406,19 @@ describe('App routes', () => {
       next_cursor: null,
       window: { timezone: 'Asia/Shanghai', feed_days: 7, today_start: '2026-07-17T00:00:00Z', feed_start: '2026-07-10T00:00:00Z', now: '2026-07-17T12:00:00Z' },
     })
-    const api = liveApi({ latestFeed, searchFeed } as Partial<ServiceApi>)
+    const sourceSummary = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      overview: '来源 B 最近集中发布工程进展。',
+      highlights: ['完成一项关键更新'],
+      item_count: 1,
+    })
+    const api = liveApi({ latestFeed, searchFeed, sourceSummary } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    window.sessionStorage.setItem('inteliscope.agent-context.v6:user-live', JSON.stringify({
+      userId: 'user-live',
+      question: '重点关注风险',
+      items: [{ articleId: 'old-context', title: '旧上下文' }],
+    }))
 
     try {
       render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
@@ -435,9 +446,13 @@ describe('App routes', () => {
       expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()
       await browser.click(screen.getByRole('button', { name: '展开专题 来源 B' }))
       expect(screen.getByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
+      await browser.click(screen.getByRole('button', { name: '总结专题 来源 B' }))
+      expect(await screen.findByText('来源 B 最近集中发布工程进展。')).toBeInTheDocument()
+      expect(sourceSummary).toHaveBeenCalledWith(['source-b-new'], expect.any(AbortSignal))
       await browser.click(screen.getByRole('button', { name: '展开专题 来源 A' }))
       expect(screen.getByRole('button', { name: '展开专题 来源 B' })).toHaveAttribute('aria-expanded', 'false')
       expect(screen.getByRole('article', { name: '来源 A 的新内容' })).toBeInTheDocument()
+      expect(sourceSummary).toHaveBeenCalledTimes(1)
       expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
       expect(window.localStorage.getItem(viewModeKey)).toBe(JSON.stringify('source-overview'))
 
@@ -450,8 +465,18 @@ describe('App routes', () => {
       await waitFor(() => expect(document.querySelector('[data-source-overview-frame]')).toBeInTheDocument())
       expect(screen.getByRole('button', { name: '收起专题 来源 A' })).toHaveAttribute('aria-expanded', 'true')
       expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
+
+      await browser.click(screen.getByRole('button', { name: '针对专题 来源 A 问 Agent' }))
+      await waitFor(() => expect(window.sessionStorage.getItem('inteliscope.agent-context.v6:user-live')).not.toBeNull())
+      const sourceDraft = JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v6:user-live') || '{}')
+      expect(sourceDraft.sourceSnapshot).toMatchObject({ sourceName: '来源 A', windowLabel: '近7天', itemCount: 2 })
+      expect(sourceDraft.sourceSnapshot.items.map((item: { articleId: string }) => item.articleId)).toEqual(['source-a-new', 'source-a-old'])
+      expect(JSON.stringify(sourceDraft.sourceSnapshot)).not.toContain('https://')
+      expect(sourceDraft.question).toBe('重点关注风险')
+      expect(sourceDraft.items).toEqual([])
     } finally {
       window.localStorage.removeItem(viewModeKey)
+      window.sessionStorage.removeItem('inteliscope.agent-context.v6:user-live')
     }
   })
 

@@ -312,6 +312,15 @@ test.beforeEach(async ({ page }) => {
       next_cursor: null,
       window: { timezone: 'Asia/Shanghai', feed_days: 7, today_start: '2026-07-01T00:00:00Z', feed_start: '2026-06-24T00:00:00Z', now: '2026-07-01T04:00:00Z' },
     }
+    else if (url.pathname === '/api/feed/source-summary' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { article_ids: string[] }
+      data = {
+        schema_version: 1,
+        overview: '近期更新集中在产品能力与工程进展。',
+        highlights: ['连续发布多项更新', `覆盖 ${body.article_ids.length} 篇当前内容`],
+        item_count: body.article_ids.length,
+      }
+    }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
     else if (url.pathname === '/api/feed/history') {
       const sourceId = url.searchParams.get('source_id')
@@ -1097,7 +1106,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(agent.getByRole('button', { name: /模型偏好/ })).toHaveCount(0)
   await agent.getByRole('button', { name: '复制交接提示词' }).click()
   const handoff = await page.evaluate(() => navigator.clipboard.readText())
-  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V7]')
+  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V8]')
   expect(handoff).toContain('调用 get_item')
   expect(handoff).not.toContain('模型偏好：')
 
@@ -1148,6 +1157,18 @@ test('Feed source overview keeps each source contiguous across supported viewpor
   await expect(sections.nth(0).getByRole('button', { name: '收起专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'true')
   await expect(sections.nth(0).locator('[data-source-group-card]')).toHaveAttribute('data-state', 'expanded')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await expect(sections.nth(0).locator('[data-timeline]')).toHaveCount(1)
+  await expect(sections.nth(0).getByText('#Codex')).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('link', { name: /原文/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /收藏 实时条目 200/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /将 实时条目 200 加入 Agent/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /更多操作/u })).toHaveCount(0)
+  const summaryRequest = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/feed/source-summary'))
+  await sections.nth(0).getByRole('button', { name: '总结专题 OpenAI Blog' }).click()
+  const summaryBody = (await summaryRequest).postDataJSON() as { article_ids: string[] }
+  expect(summaryBody.article_ids).toHaveLength(100)
+  expect(new Set(summaryBody.article_ids).size).toBe(100)
+  await expect(sections.nth(0).getByText('近期更新集中在产品能力与工程进展。')).toBeVisible()
   await expectFeedCanScroll(page, feed)
 
   const sourceItemIds = await Promise.all([0, 1].map((index) => sections.nth(index).locator('[data-item-id]').evaluateAll((items) => items.map((item) => item.getAttribute('data-item-id')))))
@@ -1161,14 +1182,23 @@ test('Feed source overview keeps each source contiguous across supported viewpor
     feedRequestCounts: () => Promise<{ latest: number; updates: number }>
   }).feedRequestCounts())).toEqual(requestCountBeforeSwitch)
 
+  await sections.nth(1).getByRole('button', { name: '针对专题 GitHub 问 Agent' }).click()
+  await expect(page.locator('#live-agent-panel')).toBeVisible()
+  const sourceDraft = await page.evaluate(() => JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v6:e2e-user') || '{}'))
+  expect(sourceDraft.items).toEqual([])
+  expect(sourceDraft.sourceSnapshot.itemCount).toBe(100)
+  expect(sourceDraft.sourceSnapshot.items).toHaveLength(100)
+  expect(JSON.stringify(sourceDraft.sourceSnapshot).length).toBeLessThanOrEqual(32_000)
+  expect(JSON.stringify(sourceDraft.sourceSnapshot)).not.toContain('https://')
+
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('Feed mode controls and both reading layouts stay usable at the reported viewport', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'the reported 967×889 viewport needs one dedicated desktop regression')
-  await page.setViewportSize({ width: 967, height: 889 })
+  test.skip(testInfo.project.name !== 'desktop', 'the reported 815×889 viewport needs one dedicated desktop regression')
+  await page.setViewportSize({ width: 815, height: 889 })
   await page.goto('/feed')
   const feed = page.getByTestId('workbench-feed-scroll')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()

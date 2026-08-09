@@ -118,7 +118,7 @@ describe('HeroChangelogPage', () => {
     expect(latestEntries).toHaveLength(20)
     expect(latestEntries[0]).toHaveAttribute('aria-current', 'true')
     expect(within(latestEntries[0] as HTMLElement).getByText('按来源连续快速阅读')).toBeVisible()
-    expect(within(latestEntries[0] as HTMLElement).getByText('现有阅读功能完全复用')).toBeVisible()
+    expect(within(latestEntries[0] as HTMLElement).getByText('来源级总结与追问')).toBeVisible()
     expect(within(latestEntries[1] as HTMLElement).getByText('保留一层输入边框')).toBeVisible()
     expect(within(latestEntries[1] as HTMLElement).getByText('对话从建议开始')).toBeVisible()
     expect(within(latestEntries[2] as HTMLElement).getByText('精确复用 main 绿灯')).toBeVisible()

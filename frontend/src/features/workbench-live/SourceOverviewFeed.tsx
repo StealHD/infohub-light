@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { Button, Card, Icons, ImageGalleryModal } from '../../design-system'
+import type { SourceSummary } from '../../api/types'
+import { Button, Card, Icons, ImageGalleryModal, Timeline } from '../../design-system'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import type { WorkbenchCardModel } from './workbenchModel'
 import { cardLabelForViewer, WorkbenchCard } from './VirtualFeed'
@@ -34,6 +35,17 @@ type SourceOverviewFeedProps = {
   onToggleContext: (card: WorkbenchCardModel) => void
   onItemAction: (id: string, dismissed: boolean) => void
   onTerminalReach?: () => void
+  summaryStates?: Record<string, SourceSummaryViewState | undefined>
+  canSummarize?: boolean
+  onRequestSummary?: (section: SourceOverviewSectionModel, regenerate?: boolean) => void
+  onAskAgent?: (section: SourceOverviewSectionModel) => void
+}
+
+export type SourceSummaryViewState = {
+  fingerprint: string
+  status: 'loading' | 'success' | 'error'
+  data?: SourceSummary
+  message?: string
 }
 
 export type SourceOverviewViewportAnchor = {
@@ -65,9 +77,24 @@ function sectionForItem(sections: SourceOverviewSectionModel[], itemId: string):
   return sections.findIndex((section) => section.cards.some((card) => card.id === itemId))
 }
 
-export function SourceInsight({ children }: { children?: ReactNode }) {
-  if (!children) return null
-  return <div data-source-insight className="border-t border-separator px-4 py-3 sm:px-5">{children}</div>
+export function SourceInsight({ state, onRetry }: { state?: SourceSummaryViewState; onRetry?: () => void }) {
+  if (!state) return null
+  return <div data-source-insight className="border-t border-separator px-4 py-3 sm:px-5">
+    {state.status === 'loading' && <div role="status" className="type-meta flex items-center gap-2 text-muted">
+      <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在总结当前专题…
+    </div>}
+    {state.status === 'error' && <div className="flex min-w-0 flex-wrap items-center gap-2" role="alert">
+      <span className="type-meta min-w-0 flex-1 text-danger">{state.message || '专题总结生成失败，请稍后重试。'}</span>
+      {onRetry && <Button size="sm" variant="ghost" onPress={onRetry}><Icons.RefreshCw size={13} aria-hidden="true" />重试</Button>}
+    </div>}
+    {state.status === 'success' && state.data && <div className="grid gap-2">
+      <p className="type-body text-foreground">{state.data.overview}</p>
+      <ul className="grid gap-1 pl-4 text-muted" aria-label="专题总结关键要点">
+        {state.data.highlights.map((highlight, index) => <li key={`${index}:${highlight}`} className="type-meta list-disc">{highlight}</li>)}
+      </ul>
+      {onRetry && <div><Button size="sm" variant="ghost" onPress={onRetry}><Icons.RefreshCw size={13} aria-hidden="true" />重新总结</Button></div>}
+    </div>}
+  </div>
 }
 
 type SourceHeaderProps = {
@@ -76,10 +103,14 @@ type SourceHeaderProps = {
   expanded: boolean
   controlsId: string
   onToggle: () => void
+  summaryState?: SourceSummaryViewState
+  canSummarize?: boolean
+  onRequestSummary?: () => void
+  onAskAgent?: () => void
 }
 
-export function SourceHeader({ section, feedWindowDays, expanded, controlsId, onToggle }: SourceHeaderProps) {
-  return <header data-source-header data-expanded={expanded ? 'true' : 'false'} className="relative">
+export function SourceHeader({ section, feedWindowDays, expanded, controlsId, onToggle, summaryState, canSummarize = true, onRequestSummary, onAskAgent }: SourceHeaderProps) {
+  return <header data-source-header data-expanded={expanded ? 'true' : 'false'} className="relative flex min-w-0 flex-col sm:flex-row sm:items-stretch">
     <span
       aria-hidden="true"
       className={`absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-accent transition-opacity duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'opacity-100' : 'opacity-0'}`}
@@ -91,7 +122,7 @@ export function SourceHeader({ section, feedWindowDays, expanded, controlsId, on
       aria-label={`${expanded ? '收起' : '展开'}专题 ${section.sourceName}`}
       aria-expanded={expanded}
       aria-controls={controlsId}
-      className={`group flex min-h-[76px] w-full flex-col px-4 py-3.5 text-left outline-none transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/35 focus-visible:bg-default/35 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus motion-reduce:transition-none sm:px-5 ${expanded ? 'bg-default/30' : 'bg-transparent'}`}
+      className={`group flex min-h-[76px] min-w-0 flex-1 flex-col justify-center px-4 py-3.5 text-left outline-none transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/25 focus-visible:bg-default/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus motion-reduce:transition-none sm:px-5 ${expanded ? 'bg-default/20' : 'bg-transparent'}`}
       onClick={onToggle}
     >
       <span className="flex min-w-0 items-center gap-3">
@@ -113,10 +144,20 @@ export function SourceHeader({ section, feedWindowDays, expanded, controlsId, on
           />
         </span>
       </span>
-      {section.topics.length > 0 && <span aria-label={`${section.sourceName} 的主题`} className="type-meta mt-2.5 flex flex-wrap gap-1.5 text-muted">
-        {section.topics.map((topic) => <span key={topic} className="rounded-full border border-separator/80 bg-background/55 px-2 py-0.5">#{topic}</span>)}
-      </span>}
     </button>
+    {(onRequestSummary || onAskAgent) && <div data-source-actions className="grid grid-cols-2 gap-2 px-4 pb-3 sm:flex sm:shrink-0 sm:items-center sm:px-4 sm:pb-0 sm:pl-0">
+      {onRequestSummary && <Button
+        size="sm"
+        variant="ghost"
+        className="min-w-0 justify-center whitespace-nowrap"
+        isDisabled={!canSummarize || summaryState?.status === 'loading'}
+        aria-label={`${summaryState?.status === 'success' ? '重新' : ''}总结专题 ${section.sourceName}`}
+        onPress={onRequestSummary}
+      >{summaryState?.status === 'loading' ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Sparkles size={14} aria-hidden="true" />}{summaryState?.status === 'success' ? '重新总结' : 'AI 总结'}</Button>}
+      {onAskAgent && <Button size="sm" variant="ghost" className="min-w-0 justify-center whitespace-nowrap" aria-label={`针对专题 ${section.sourceName} 问 Agent`} onPress={onAskAgent}>
+        <Icons.MessageCircle size={14} aria-hidden="true" />问 Agent
+      </Button>}
+    </div>}
   </header>
 }
 
@@ -146,14 +187,17 @@ export function SourceFeed({
   onToggleSaved,
   onOpenMedia,
 }: SourceFeedProps) {
-  return <div data-source-feed className="border-t border-separator">
-    {cards.map((card, index) => <div
+  return <div data-source-feed className="border-t border-separator px-4 py-3 sm:px-5">
+    <Timeline density="compact" className="[&>[data-timeline-item]:last-child_[data-timeline-content]]:border-b-0">
+    {cards.map((card) => <Timeline.Item
       key={card.id}
       data-item-id={card.id}
       data-source-feed-row
-      className={`px-4 transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/20 motion-reduce:transition-none sm:px-5 ${index > 0 ? 'border-t border-separator' : ''}`}
+      status={card.id === expandedId ? 'current' : 'default'}
     >
-      <WorkbenchCard
+      <Timeline.Rail><Timeline.Marker className="mt-3" /><Timeline.Connector className="top-7" /></Timeline.Rail>
+      <Timeline.Content className="border-b border-separator/80 pb-1">
+        <WorkbenchCard
         card={card}
         variant="source-overview"
         expanded={card.id === expandedId}
@@ -176,8 +220,10 @@ export function SourceFeed({
           onItemAction(card.id, dismissed)
         }}
         onOpenMedia={(index, trigger) => onOpenMedia(card, index, trigger)}
-      />
-    </div>)}
+        />
+      </Timeline.Content>
+    </Timeline.Item>)}
+    </Timeline>
   </div>
 }
 
@@ -192,9 +238,13 @@ type SourceSectionProps = Pick<SourceOverviewFeedProps,
   onActionMenuOpenChange: (id: string, open: boolean) => void
   onOpenMedia: (card: WorkbenchCardModel, index: number, trigger: HTMLButtonElement) => void
   onBeforeLayoutChange: () => void
+  summaryState?: SourceSummaryViewState
+  canSummarize?: boolean
+  onRequestSummary?: (section: SourceOverviewSectionModel, regenerate?: boolean) => void
+  onAskAgent?: (section: SourceOverviewSectionModel) => void
 }
 
-export function SourceSection({ section, feedWindowDays, expanded, onToggleSource, onBeforeLayoutChange, ...feedProps }: SourceSectionProps) {
+export function SourceSection({ section, feedWindowDays, expanded, onToggleSource, onBeforeLayoutChange, summaryState, canSummarize, onRequestSummary, onAskAgent, ...feedProps }: SourceSectionProps) {
   const contentId = `source-section-content-${section.id}`
   return <section data-source-section data-source-section-id={section.id} aria-labelledby={`source-section-${section.id}`} className="pb-3">
     <Card
@@ -212,6 +262,13 @@ export function SourceSection({ section, feedWindowDays, expanded, onToggleSourc
           onBeforeLayoutChange()
           onToggleSource(section.id)
         }}
+        summaryState={summaryState}
+        canSummarize={canSummarize}
+        onRequestSummary={onRequestSummary ? () => {
+          onBeforeLayoutChange()
+          onRequestSummary(section, summaryState?.status === 'success')
+        } : undefined}
+        onAskAgent={onAskAgent ? () => onAskAgent(section) : undefined}
       />
       <div
         id={contentId}
@@ -221,7 +278,10 @@ export function SourceSection({ section, feedWindowDays, expanded, onToggleSourc
         className={`grid transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
       >
         <div className="min-h-0 overflow-hidden">
-          <SourceInsight />
+          <SourceInsight state={summaryState} onRetry={onRequestSummary ? () => {
+            onBeforeLayoutChange()
+            onRequestSummary(section, true)
+          } : undefined} />
           <SourceFeed cards={section.cards} onBeforeLayoutChange={onBeforeLayoutChange} {...feedProps} />
         </div>
       </div>
@@ -257,7 +317,11 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
   const sectionsSignature = props.sections.map((section) => `${section.id}:${section.cards.map((card) => card.id).join(',')}`).join('|')
   const sourceItemIds = props.sourceItemIds ?? props.sections.flatMap((section) => section.cards.map((card) => card.id))
   const sourceSignature = sourceItemIds.join('\u0000')
-  const layoutSignature = `${sectionsSignature}\u0000${props.expandedSourceId ?? ''}`
+  const summarySignature = props.sections.map((section) => {
+    const state = props.summaryStates?.[section.id]
+    return `${section.id}:${state?.status ?? ''}:${state?.data?.overview ?? ''}:${state?.data?.highlights.join('|') ?? ''}`
+  }).join('\u0001')
+  const layoutSignature = `${sectionsSignature}\u0000${props.expandedSourceId ?? ''}\u0000${props.expandedId ?? ''}\u0000${summarySignature}`
   // TanStack Virtual returns mutable imperative methods; React Compiler skips this component safely.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -529,6 +593,10 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
               actionMenuCardId={openActionCardId}
               onActionMenuOpenChange={(id, open) => setOpenActionCardId(open ? id : null)}
               onBeforeLayoutChange={captureAnchor}
+              summaryState={props.summaryStates?.[section.id]?.fingerprint === section.contentFingerprint ? props.summaryStates[section.id] : undefined}
+              canSummarize={props.canSummarize}
+              onRequestSummary={props.onRequestSummary}
+              onAskAgent={props.onAskAgent}
               onToggleExpanded={props.onToggleExpanded}
               onToggleSaved={props.onToggleSaved}
               onToggleContext={props.onToggleContext}

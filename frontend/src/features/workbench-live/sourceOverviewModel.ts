@@ -11,6 +11,7 @@ export type SourceOverviewSectionModel = {
   topicCount: number
   topics: string[]
   latestPublishedAt?: string
+  contentFingerprint: string
 }
 
 type MutableSection = SourceOverviewSectionModel & {
@@ -37,6 +38,7 @@ export function buildSourceOverviewSections(cards: WorkbenchCardModel[]): Source
         topicCount: 0,
         topics: [],
         latestPublishedAt: undefined,
+        contentFingerprint: '',
         order: sections.size,
         latestPublishedTimestamp: null,
         topicStats: new Map(),
@@ -91,6 +93,12 @@ export function buildSourceOverviewSections(cards: WorkbenchCardModel[]): Source
       topicCount: section.topicCount,
       topics: section.topics,
       latestPublishedAt: section.latestPublishedAt,
+      contentFingerprint: section.cards.map((card) => [
+        card.id,
+        card.displayKind === 'social' ? card.primaryText : card.title,
+        card.summary ?? '',
+        card.publishedAt ?? '',
+      ].join('\u0001')).join('\u0002'),
     }))
 }
 

@@ -37,10 +37,11 @@ import {
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
 import { readFeedViewMode, writeFeedViewMode, type FeedViewMode } from '../feed/feedViewModePreference'
 import { sourceMatchesSubscriptionVisibility } from '../subscriptions/subscriptionModel'
+import { createAgentSourceSnapshot } from './agentContext'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
-import { readSourceOverviewViewportAnchor, SourceOverviewFeed, type SourceOverviewViewportAnchor } from './SourceOverviewFeed'
-import { buildSourceOverviewSections } from './sourceOverviewModel'
+import { readSourceOverviewViewportAnchor, SourceOverviewFeed, type SourceOverviewViewportAnchor, type SourceSummaryViewState } from './SourceOverviewFeed'
+import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './sourceOverviewModel'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
@@ -81,6 +82,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const feedToolbarInsetRef = useRef(64)
   const [sourceOverviewResumeAnchor, setSourceOverviewResumeAnchor] = useState<SourceOverviewViewportAnchor | null>(null)
   const [sourceOverviewExpandedSourceId, setSourceOverviewExpandedSourceId] = useState<string | null>(null)
+  const [sourceSummaryStates, setSourceSummaryStates] = useState<Record<string, SourceSummaryViewState | undefined>>({})
+  const sourceSummaryRequests = useRef(new Map<string, AbortController>())
   const [feedToolbarInset, setFeedToolbarInset] = useState(64)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
@@ -409,6 +412,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     return () => window.clearTimeout(timer)
   }, [activeWindow?.today_start, queryClient, user.id])
 
+  useEffect(() => () => {
+    sourceSummaryRequests.current.forEach((controller) => controller.abort())
+    sourceSummaryRequests.current.clear()
+  }, [])
+
   function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'reset-top' = 'preserve') {
     const next = { ...preference, ...patch }
     if (scrollPolicy === 'preserve') window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
@@ -477,6 +485,61 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       next.delete('item')
       setParams(next)
     }
+  }
+
+  async function requestSourceSummary(section: SourceOverviewSectionModel, regenerate = false) {
+    if (section.cards.length > 100) {
+      actionToast.info('专题内容过多', { description: '请先缩小筛选范围到 100 篇以内再总结。' })
+      return
+    }
+    if (activeSourceOverviewSectionId !== section.id) toggleSourceOverviewSection(section.id)
+    const current = sourceSummaryStates[section.id]
+    if (!regenerate && current?.fingerprint === section.contentFingerprint && (current.status === 'loading' || current.status === 'success')) return
+    sourceSummaryRequests.current.get(section.id)?.abort()
+    const controller = new AbortController()
+    sourceSummaryRequests.current.set(section.id, controller)
+    setSourceSummaryStates((states) => ({
+      ...states,
+      [section.id]: { fingerprint: section.contentFingerprint, status: 'loading' },
+    }))
+    try {
+      const data = await api.sourceSummary(section.cards.map((card) => card.id), controller.signal)
+      if (controller.signal.aborted) return
+      setSourceSummaryStates((states) => ({
+        ...states,
+        [section.id]: { fingerprint: section.contentFingerprint, status: 'success', data },
+      }))
+    } catch (caught) {
+      if (controller.signal.aborted) return
+      setSourceSummaryStates((states) => ({
+        ...states,
+        [section.id]: {
+          fingerprint: section.contentFingerprint,
+          status: 'error',
+          message: caught instanceof ApiError ? caught.message : '专题总结生成失败，请稍后重试。',
+        },
+      }))
+    } finally {
+      if (sourceSummaryRequests.current.get(section.id) === controller) sourceSummaryRequests.current.delete(section.id)
+    }
+  }
+
+  function askAgentAboutSource(section: SourceOverviewSectionModel) {
+    const snapshot = createAgentSourceSnapshot({
+      sourceName: section.sourceName,
+      windowLabel: `近${feedWindowDays}天`,
+      items: section.cards.map((card) => ({
+        articleId: card.id,
+        title: card.displayKind === 'social' ? card.primaryText : card.title,
+        summary: card.summary,
+        publishedAt: card.publishedAt,
+      })),
+    })
+    if (!snapshot) {
+      actionToast.info('专题内容过多', { description: '请先缩小筛选范围到 100 篇以内再问 Agent。' })
+      return
+    }
+    agent.openWithSourceSnapshot(snapshot)
   }
 
   function updateFeed() {
@@ -604,9 +667,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <PageFrame width="reading">
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'} className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
         <ViewBar>
-        {kind === 'feed' && <Tabs data-feed-mode-switch variant="primary" selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)} className="shrink-0 gap-0">
-          <Tabs.ListContainer className="rounded-[var(--inteliscope-radius-control)] bg-default/70">
-            <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="!w-auto !min-w-0 gap-0.5 p-0.5">
+        {kind === 'feed' && <Tabs data-feed-mode-switch variant="secondary" selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)} className="shrink-0 gap-0">
+          <Tabs.ListContainer className="bg-transparent">
+            <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="!w-auto !min-w-0 gap-0.5 p-0">
               <Tabs.Tab
                 id="timeline"
                 isDisabled={globalSearchTransition}
@@ -615,7 +678,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               >
                 <span title="时间流"><Icons.Rows3 data-feed-mode-icon="timeline" size={15} aria-hidden="true" /></span>
                 <span className="sr-only">时间流</span>
-                <Tabs.Indicator className="!rounded-[var(--inteliscope-radius-compact)]" />
+                <Tabs.Indicator />
               </Tabs.Tab>
               <Tabs.Tab
                 id="source-overview"
@@ -625,7 +688,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               >
                 <span title="专题速览"><Icons.Layers3 data-feed-mode-icon="source-overview" size={15} aria-hidden="true" /></span>
                 <span className="sr-only">专题速览</span>
-                <Tabs.Indicator className="!rounded-[var(--inteliscope-radius-compact)]" />
+                <Tabs.Indicator />
               </Tabs.Tab>
             </Tabs.List>
           </Tabs.ListContainer>
@@ -822,6 +885,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       terminal={terminalContent}
       terminalKey={terminalContextKey}
       expandedSourceId={activeSourceOverviewSectionId}
+      summaryStates={sourceSummaryStates}
+      canSummarize={user.role !== 'viewer'}
       expandedId={selectedId}
       navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
       contextIds={agent.draft.items.map((item) => item.articleId)}
@@ -834,6 +899,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       }}
       onTerminalReach={handleTerminalReach}
       onToggleSource={toggleSourceOverviewSection}
+      onRequestSummary={(section, regenerate) => void requestSourceSummary(section, regenerate)}
+      onAskAgent={askAgentAboutSource}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => {
         stateMutation.mutateItem(id, { is_saved: saved })

@@ -40,7 +40,7 @@ import {
   sanitizeSourceUrl,
   updateAgentContextDraft,
   writeAgentContextDraft,
-  type AgentContextDraftV5,
+  type AgentContextDraftV6,
 } from './agentContext'
 import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat } from '../openclaw/useOpenClawChat'
@@ -634,8 +634,12 @@ function AgentPanelContent({
     >
     {chat.status === 'disabled' ? <>
       <div className="min-h-0 flex-1 overflow-hidden p-3" data-testid="agent-scroll-region">
-        <div className="type-meta mb-2 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.items.length} / 8</span></div>
-        {!value.draft.items.length && <Card variant="transparent" className="p-3">
+        <div className="type-meta mb-2 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.sourceSnapshot ? `${value.draft.sourceSnapshot.itemCount} 条快照` : `${value.draft.items.length} / 8`}</span></div>
+        {value.draft.sourceSnapshot && <Card data-agent-source-snapshot variant="secondary" className="mb-2 p-3">
+          <Card.Title>{value.draft.sourceSnapshot.sourceName}</Card.Title>
+          <Card.Description className="mt-1">{value.draft.sourceSnapshot.windowLabel} · {value.draft.sourceSnapshot.itemCount} 条只读快照</Card.Description>
+        </Card>}
+        {!value.draft.items.length && !value.draft.sourceSnapshot && <Card variant="transparent" className="p-3">
           <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
         </Card>}
         <div className="grid gap-1">
@@ -835,7 +839,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     navigate('/feed')
   }
 
-  const persistDraft = useCallback((next: AgentContextDraftV5) => {
+  const persistDraft = useCallback((next: AgentContextDraftV6) => {
     setDraft(writeAgentContextDraft(props.user.id, next))
   }, [props.user.id])
 
@@ -910,11 +914,15 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     draft,
     toggleItem: (item) => persistDraft(updateAgentContextDraft(draft, item)),
     removeItem: (id) => persistDraft({ ...draft, items: draft.items.filter((value) => value.articleId !== id) }),
-    clearItems: () => persistDraft({ ...draft, items: [] }),
+    clearItems: () => persistDraft({ ...draft, items: [], sourceSnapshot: undefined }),
     openComposer,
+    openWithSourceSnapshot: (sourceSnapshot) => {
+      persistDraft({ ...draft, items: [], sourceSnapshot })
+      openComposer()
+    },
     setQuestion: (question) => persistDraft({ ...draft, question }),
-    clearComposer: () => persistDraft({ ...draft, question: '', items: [] }),
-    restoreComposer: (question, items) => persistDraft({ ...draft, question, items }),
+    clearComposer: () => persistDraft({ ...draft, question: '', items: [], sourceSnapshot: undefined }),
+    restoreComposer: (question, items, sourceSnapshot) => persistDraft({ ...draft, question, items, sourceSnapshot }),
   }), [draft, openComposer, persistDraft])
 
   const closeRightRail = useCallback(() => {

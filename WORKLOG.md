@@ -390,3 +390,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "api",
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "将专题速览收紧为来源级紧凑时间线，新增继承工作区 AI 设置且不访问网址的一键总结，并以无 URL 的 V6 来源快照支持专题级自定义 Agent 提问。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-timeline-ai-agent",
+  "unresolved": [],
+  "validation": [
+    "UI 静态检查、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）和生产构建通过；后端专题总结与可观测性定向测试 11/11 通过。",
+    "Playwright 在 1440×900、1024×768、390×844 与 815×889 验证独立滚动、时间线、Fake AI、100 篇 Agent 快照、信息概览避让、无横向溢出和 Axe。",
+    "测试未调用真实 AI、付费接口、外部网页或 Scheduler。"
+  ]
+}
+```
