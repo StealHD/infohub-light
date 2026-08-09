@@ -1572,6 +1572,15 @@ export function HeroActorOpsControlPlane({
       })
     },
     onSuccess: (plan) => {
+      if (!plan.ready) {
+        setBatchTarget(null)
+        setBatchError('')
+        refreshSelected()
+        actionToast.warning('候选仍不足，未启动付费验证', {
+          description: '已通过的候选会保留；请继续免费搜索更多不同 Actor 或发布者。',
+        })
+        return
+      }
       setBatchError('')
       setBatchTarget({ plan, approvalId: crypto.randomUUID() })
     },
@@ -1740,9 +1749,31 @@ export function HeroActorOpsControlPlane({
   const workflowPendingSourceCount = typeof workflow?.progress?.pending_sources === 'number'
     ? Math.max(0, Math.trunc(workflow.progress.pending_sources))
     : pendingSourceCount
+  const candidateShortfall = Boolean(
+    workflow?.blockers?.includes('candidate_shortfall')
+    && next.action === 'start_discovery',
+  )
+  const eligibleCandidateCount = typeof workflow?.progress?.eligible_candidate_count === 'number'
+    ? Math.max(0, Math.trunc(workflow.progress.eligible_candidate_count))
+    : null
+  const requiredSuccessCount = typeof workflow?.progress?.required_success_count === 'number'
+    ? Math.max(1, Math.trunc(workflow.progress.required_success_count))
+    : null
   const nextTitle = workflow?.kind === 'source_validation_required' && workflowPendingSourceCount > 0
     ? `有 ${workflowPendingSourceCount} 个来源等待启用`
+    : candidateShortfall
+      ? workflow?.goal === 'upgrade_legacy'
+        ? '新版主备候选不足'
+        : workflow?.goal === 'complete_third'
+          ? '第三路备用候选不足'
+          : '主备候选不足'
     : next.title
+  const nextDescription = candidateShortfall
+    ? `${eligibleCandidateCount !== null && requiredSuccessCount !== null
+      ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
+      : '当前符合条件的候选还不足。'}已通过的候选会保留；继续免费搜索不会启动 Actor 或产生费用。`
+    : next.description
+  const nextCta = candidateShortfall ? '继续免费搜索候选' : next.cta
 
   function performNextAction() {
     if (actionPending) return
@@ -1851,13 +1882,13 @@ export function HeroActorOpsControlPlane({
 
               <Card variant="secondary" className="grid gap-4 border border-separator p-4 shadow-sm" data-testid="actorops-next-action">
                 <div className="flex flex-col gap-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
-                  <div className="min-w-0"><Card.Title>{nextTitle}</Card.Title><Card.Description className="mt-1 max-w-3xl">{next.description}</Card.Description></div>
-                  {next.cta && <Button
+                  <div className="min-w-0"><Card.Title>{nextTitle}</Card.Title><Card.Description className="mt-1 max-w-3xl">{nextDescription}</Card.Description></div>
+                  {nextCta && <Button
                     ref={next.action === 'approve_canary' ? batchTriggerRef : next.action === 'approve_activation' ? activationTriggerRef : undefined}
                     className="w-full shrink-0 min-[720px]:w-auto"
                     isDisabled={actionPending}
                     onPress={performNextAction}
-                  >{actionPending ? '处理中…' : next.cta}</Button>}
+                  >{actionPending ? '处理中…' : nextCta}</Button>}
                 </div>
                 {workflow?.kind && /(setup|backup_2|legacy)_(discovery|canary|activation)/.test(workflow.kind) && <div className="grid gap-2 border-t border-separator pt-3 type-meta text-muted min-[640px]:grid-cols-3" aria-label="配置流程">
                   <span>1. {workflow.kind.startsWith('legacy') ? '旁路建立新方案（免费）' : '搜索候选（免费）'}</span><span>2. 付费验证（确认 1/2）</span><span>3. 生效（确认 2/2）</span>

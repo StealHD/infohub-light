@@ -3472,6 +3472,7 @@ class ApifyActorOpsService:
                 POOL_STAGE_MAX_TOTAL_USD - authorized_total, 6
             ),
             "items": plan_items,
+            "_eligible_candidate_count": len(distinct),
             "_source_snapshot": source_snapshot,
         }
 
@@ -4591,6 +4592,41 @@ class ApifyActorOpsService:
             for row in source_rows
             if str(row["validation_status"]) not in _READY_BINDING_STATUSES
         )
+
+        def paid_plan_readiness(
+            run_id: str | None,
+            goal: Literal[
+                "initial_pool", "complete_third", "upgrade_legacy"
+            ],
+        ) -> tuple[bool, dict[str, int], list[str]]:
+            if not run_id:
+                return False, {}, ["candidate_shortfall"]
+            try:
+                plan = self.get_canary_plan(run_id, goal=goal)
+            except ActorOpsError as exc:
+                return False, {}, [str(exc.code)]
+            if bool(plan.get("ready")):
+                return True, {}, []
+            required = int(
+                plan.get("required_success_count")
+                or (1 if goal == "complete_third" else 2)
+            )
+            eligible = int(
+                plan.get("_eligible_candidate_count")
+                or max(
+                    len(plan.get("items") or []),
+                    int(plan.get("successful_actor_count") or 0),
+                )
+            )
+            return (
+                False,
+                {
+                    "eligible_candidate_count": eligible,
+                    "required_success_count": required,
+                },
+                ["candidate_shortfall"],
+            )
+
         if str(route.get("status")) == "blocked_unknown_start" or str(
             gate.error_code or ""
         ) in {
@@ -4616,12 +4652,30 @@ class ApifyActorOpsService:
         if stage is not None:
             prefix = "backup_2" if stage["goal"] == "complete_third" else "legacy"
             status = str(stage["status"])
+            progress = dict(stage["source_summary"])
+            blockers = (
+                [str(stage["last_error_code"])]
+                if stage.get("last_error_code")
+                else []
+            )
             if status in {"queued", "validating_route", "validating_sources"}:
                 kind = f"{prefix}_canary_running"
             elif status == "apply_ready":
                 kind = f"{prefix}_activation_approval_required"
             elif status == "blocked_unknown_start":
                 kind = "blocked_unknown_start"
+            elif status == "replan_required":
+                ready, plan_progress, plan_blockers = paid_plan_readiness(
+                    str(stage["discovery_run_id"]),
+                    str(stage["goal"]),
+                )
+                kind = (
+                    f"{prefix}_canary_approval_required"
+                    if ready
+                    else f"{prefix}_discovery_required"
+                )
+                progress = plan_progress
+                blockers = plan_blockers
             else:
                 kind = f"{prefix}_canary_approval_required"
             return {
@@ -4630,12 +4684,8 @@ class ApifyActorOpsService:
                 "stage_id": str(stage["stage_id"]),
                 "run_id": str(stage["discovery_run_id"]),
                 "plan_hash": str(stage["plan_hash"]),
-                "progress": dict(stage["source_summary"]),
-                "blockers": (
-                    [str(stage["last_error_code"])]
-                    if stage.get("last_error_code")
-                    else []
-                ),
+                "progress": progress,
+                "blockers": blockers,
             }
         latest = self.store.connect().execute(
             """
@@ -4670,19 +4720,24 @@ class ApifyActorOpsService:
         }
         run_id = str(latest["run_id"]) if latest is not None else None
         if "legacy_builtin" in lifecycles:
+            ready, plan_progress, plan_blockers = (
+                paid_plan_readiness(run_id, "upgrade_legacy")
+                if approval_discovery
+                else (False, {}, [])
+            )
             kind = (
                 "legacy_discovery_running"
                 if running_discovery
                 else "legacy_canary_approval_required"
-                if approval_discovery
+                if approval_discovery and ready
                 else "legacy_discovery_required"
             )
             return {
                 "kind": kind,
                 "goal": "upgrade_legacy",
                 "run_id": run_id,
-                "progress": {},
-                "blockers": [],
+                "progress": plan_progress,
+                "blockers": plan_blockers,
             }
         probationary = [
             slot for slot in slots if str(slot.get("lifecycle")) == "probationary"
@@ -4701,21 +4756,31 @@ class ApifyActorOpsService:
                 "blockers": [],
             }
         if len(slots) == 2:
+            ready, plan_progress, plan_blockers = (
+                paid_plan_readiness(run_id, "complete_third")
+                if approval_discovery
+                else (False, {}, [])
+            )
             kind = (
                 "backup_2_discovery_running"
                 if running_discovery
                 else "backup_2_canary_approval_required"
-                if approval_discovery
+                if approval_discovery and ready
                 else "backup_2_discovery_required"
             )
             return {
                 "kind": kind,
                 "goal": "complete_third",
                 "run_id": run_id,
-                "progress": {},
-                "blockers": [],
+                "progress": plan_progress,
+                "blockers": plan_blockers,
             }
         if len(slots) < 2:
+            ready, plan_progress, plan_blockers = (
+                paid_plan_readiness(run_id, "initial_pool")
+                if approval_discovery
+                else (False, {}, [])
+            )
             kind = (
                 "setup_canary_running"
                 if active_initial_batch is not None
@@ -4724,15 +4789,15 @@ class ApifyActorOpsService:
                 else "setup_discovery_running"
                 if running_discovery
                 else "setup_canary_approval_required"
-                if approval_discovery
+                if approval_discovery and ready
                 else "setup_discovery_required"
             )
             return {
                 "kind": kind,
                 "goal": "initial_pool",
                 "run_id": run_id,
-                "progress": {},
-                "blockers": [],
+                "progress": plan_progress,
+                "blockers": plan_blockers,
             }
         if source_pending:
             return {

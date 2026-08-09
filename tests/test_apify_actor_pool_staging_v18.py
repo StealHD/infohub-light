@@ -710,6 +710,49 @@ def test_new_source_replans_only_missing_proofs_before_third_slot_apply(tmp_path
     assert ops.get_source_binding(new_source_id)["validation_status"] == "ready_3of3"
 
 
+def test_legacy_workflow_keeps_paid_confirmation_hidden_until_pair_is_ready(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    seeded = ops.get_route(str(_route(store, "x/profile")["route_id"]))
+    first_run, _first_revision = _discovery_with_revisions(
+        store,
+        ops,
+        seeded,
+        (("publisher-new-a/x-primary", "publisher-new-a"),),
+        host="x.com",
+    )
+
+    shortfall = ops.workflow_state(str(seeded["route_id"]))
+
+    assert shortfall["kind"] == "legacy_discovery_required"
+    assert shortfall["run_id"] == first_run["run_id"]
+    assert shortfall["progress"] == {
+        "eligible_candidate_count": 1,
+        "required_success_count": 2,
+    }
+    assert shortfall["blockers"] == ["candidate_shortfall"]
+
+    second_run, _second_revision = _discovery_with_revisions(
+        store,
+        ops,
+        seeded,
+        (("publisher-new-b/x-backup", "publisher-new-b"),),
+        host="x.com",
+    )
+
+    ready = ops.workflow_state(str(seeded["route_id"]))
+    assert ready["kind"] == "legacy_canary_approval_required"
+    assert ready["run_id"] in {first_run["run_id"], second_run["run_id"]}
+    assert ready["progress"] == {}
+    assert ready["blockers"] == []
+    assert ops.get_canary_plan(
+        str(ready["run_id"]), goal="upgrade_legacy"
+    )["ready"] is True
+
+
 def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
     tmp_path,
 ) -> None:

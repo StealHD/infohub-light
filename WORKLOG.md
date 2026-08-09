@@ -441,3 +441,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "修复 ActorOps legacy 候选仅 1/2 时错误打开 $0.00 禁用付费确认框的问题；服务端改为投影候选不足进度，页面提供可点击的免费继续搜索动作。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-candidate-shortfall-action",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 后端定向回归 29/29 通过。",
+    "ActorOps 前端 Vitest 32/32、TypeScript 类型检查与定向 ESLint 通过。",
+    "完整 Test Gate 24/24 命令通过（252.47 秒）。"
+  ]
+}
+```

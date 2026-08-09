@@ -318,6 +318,69 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     else expect(within(nextAction).queryByRole('button')).not.toBeInTheDocument()
   })
 
+  it('turns a server-projected legacy candidate shortfall into a free search action', async () => {
+    const browser = userEvent.setup()
+    const legacyShortfall = detail({
+      workflow: workflow('legacy_discovery_required', {
+        goal: 'upgrade_legacy',
+        run_id: 'run-guided',
+        progress: {
+          eligible_candidate_count: 1,
+          required_success_count: 2,
+        },
+        blockers: ['candidate_shortfall'],
+      }),
+    })
+    const { api } = renderControlPlane(legacyShortfall)
+
+    const nextAction = await screen.findByTestId('actorops-next-action')
+    expect(within(nextAction).getByText('新版主备候选不足')).toBeVisible()
+    expect(within(nextAction).getByText(/当前找到 1\/2 个符合条件的候选/)).toBeVisible()
+    expect(within(nextAction).queryByRole('button', { name: /付费验证/ })).not.toBeInTheDocument()
+
+    await browser.click(within(nextAction).getByRole('button', { name: '继续免费搜索候选' }))
+    expect(api.requestApifyActorSupportCheck).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'x',
+      target_type: 'profile',
+      capability: 'items',
+      force_discovery: true,
+    }))
+  })
+
+  it('does not open a disabled paid modal when a stale plan is not ready', async () => {
+    const browser = userEvent.setup()
+    const warning = vi.spyOn(actionToast, 'warning').mockReturnValue('candidate-shortfall-toast')
+    const insufficientPlan: ApifyActorCanaryPlan = {
+      ...canaryPlan(),
+      goal: 'upgrade_legacy',
+      status: 'insufficient_candidates',
+      ready: false,
+      max_total_charge_usd: 0,
+      route_validation_cap_usd: 0,
+      source_validation_cap_usd: 0,
+      source_validation_count: 0,
+      items: [],
+    }
+    const { api } = renderControlPlane(detail({
+      workflow: workflow('legacy_canary_approval_required', {
+        goal: 'upgrade_legacy',
+        run_id: 'run-guided',
+      }),
+    }), '/?route=x%2Fprofile%2Fitems&tab=pool', {
+      apifyActorCanaryPlan: vi.fn().mockResolvedValue(insufficientPlan),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '查看并确认新版验证' }))
+    await waitFor(() => expect(api.apifyActorCanaryPlan).toHaveBeenCalledTimes(1))
+
+    expect(screen.queryByRole('heading', { name: '确认付费验证新版主备' })).not.toBeInTheDocument()
+    expect(api.createApifyActorCanaryBatch).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledWith('候选仍不足，未启动付费验证', {
+      description: '已通过的候选会保留；请继续免费搜索更多不同 Actor 或发布者。',
+    })
+    warning.mockRestore()
+  })
+
   it('fails closed for an unknown workflow kind', async () => {
     renderControlPlane(detail({ workflow: workflow('future_server_state') }))
 
