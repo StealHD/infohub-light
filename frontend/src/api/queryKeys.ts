@@ -50,12 +50,6 @@ export const queryKeys = {
   notificationSettings: (userId: string) => [...userKey(userId), 'notification-settings'] as const,
   notificationTargets: (userId: string) => [...userKey(userId), 'notification-targets'] as const,
   notificationServices: (userId: string) => [...userKey(userId), 'notification-services'] as const,
-  notificationEmailTransport: (userId: string) => [
-    ...userKey(userId), 'notification-email-transport',
-  ] as const,
-  notificationTelegramTransport: (userId: string) => [
-    ...userKey(userId), 'notification-telegram-transport',
-  ] as const,
   agentDelegations: (userId: string) => [...userKey(userId), 'agent-delegations'] as const,
   config: (userId: string) => [...userKey(userId), 'config'] as const,
   storageSummary: (userId: string) => [...userKey(userId), 'storage-summary'] as const,
@@ -63,9 +57,6 @@ export const queryKeys = {
   users: (userId: string) => [...userKey(userId), 'users'] as const,
   secrets: (userId: string) => [...userKey(userId), 'secrets'] as const,
   apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,
-  apifyActorXProfileRoute: (userId: string) => [
-    ...userKey(userId), 'apify-actor-route', 'x', 'profile',
-  ] as const,
   apifyActorRoutes: (userId: string) => [
     ...userKey(userId), 'apify-actor-routes',
   ] as const,

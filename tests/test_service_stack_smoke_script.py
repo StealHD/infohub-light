@@ -178,7 +178,6 @@ def test_stack_smoke_full_real_source_runs_real_source_with_worker():
         api_only=False,
         full_real_source=True,
         run_worker=True,
-        include_ui_smoke=False,
         runner=runner,
         health_checker=_healthy,
     )
@@ -189,29 +188,6 @@ def test_stack_smoke_full_real_source_runs_real_source_with_worker():
     assert any("scripts/service_real_source_smoke.py" in item for item in joined)
     assert any("--run-worker" in item for item in joined)
     assert any(step["name"] == "worker_once" and step["status"] == "passed" for step in report["steps"])
-
-
-def test_stack_smoke_can_include_ui_smoke_without_real_sources():
-    runner = FakeRunner()
-
-    report = run_stack_smoke(
-        compose_file="docker-compose.light.yml",
-        base_url="http://127.0.0.1:8080",
-        username="owner",
-        password="secret-password",
-        api_only=True,
-        full_real_source=False,
-        run_worker=False,
-        include_ui_smoke=True,
-        runner=runner,
-        health_checker=_healthy,
-    )
-
-    joined = [" ".join(command) for command in runner.commands]
-
-    assert report["ok"] is True
-    assert any("scripts/service_ui_smoke.py" in item for item in joined)
-    assert any(step["name"] == "ui_smoke" and step["status"] == "passed" for step in report["steps"])
 
 
 def test_stack_smoke_failed_child_command_records_command_and_exit_code():
@@ -233,7 +209,6 @@ def test_stack_smoke_failed_child_command_records_command_and_exit_code():
         api_only=True,
         full_real_source=False,
         run_worker=False,
-        include_ui_smoke=False,
         runner=runner,
         health_checker=_healthy,
     )

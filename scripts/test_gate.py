@@ -56,9 +56,6 @@ KNOWN_GROUPS = {
     "frontend_full",
     "frontend_related",
     "full",
-    "legacy_test_files",
-    "legacy_ui",
-    "legacy_ui_contract",
     "python_ai_orchestrator",
     "python_api_store",
     "python_feed",
@@ -67,7 +64,6 @@ KNOWN_GROUPS = {
     "python_scripts",
     "python_source_acquisition",
     "python_test_files",
-    "python_ui",
 }
 
 
@@ -246,7 +242,6 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
     groups = {"control"}
     reasons: list[str] = []
     python_test_targets: list[str] = []
-    legacy_test_targets: list[str] = []
     frontend_related_files: list[str] = []
     mapping_miss = False
 
@@ -268,11 +263,6 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
             groups.add("python_test_files")
             python_test_targets.append(relative)
             reasons.append(f"{relative}: changed Python test runs itself")
-            continue
-        if relative.startswith("tests/") and relative.endswith(".test.cjs"):
-            groups.add("legacy_test_files")
-            legacy_test_targets.append(relative)
-            reasons.append(f"{relative}: changed legacy Node test runs itself")
             continue
         matched = bool(matching_rules)
         for rule in matching_rules:
@@ -300,7 +290,7 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
         group.startswith("python_") for group in groups
     )
     frontend_impacted = "full" in groups or any(
-        group.startswith(("frontend_", "legacy_")) for group in groups
+        group.startswith("frontend_") for group in groups
     )
     return {
         "mode": "targeted",
@@ -320,7 +310,6 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
         "frontend_impacted": frontend_impacted,
         "mapping_miss": mapping_miss,
         "python_test_targets": sorted(set(python_test_targets)),
-        "legacy_test_targets": sorted(set(legacy_test_targets)),
         "frontend_related_files": sorted(set(frontend_related_files)),
     }
 
@@ -404,29 +393,13 @@ def _full_backend_specs(root: Path) -> list[CommandSpec]:
 
 def _full_frontend_specs(root: Path) -> list[CommandSpec]:
     frontend = root / "frontend"
-    legacy_tests = sorted(str(path.relative_to(root)) for path in (root / "tests").glob("*.test.cjs"))
-    specs = [
-        _spec("legacy_node_full", ["node", "--test", *legacy_tests], root, domain="frontend"),
+    return [
+        _spec("frontend_contract", ["npm", "run", "check:ui"], frontend, domain="frontend"),
+        _spec("frontend_lint", ["npm", "run", "lint"], frontend, domain="frontend"),
+        _spec("frontend_typecheck", ["npm", "run", "typecheck"], frontend, domain="frontend"),
+        _spec("frontend_vitest", ["npm", "test", "--", "--reporter=default"], frontend, domain="frontend"),
+        _spec("frontend_build", ["npm", "run", "build"], frontend, domain="frontend"),
     ]
-    for path in sorted((root / "src" / "ui" / "static").glob("*.js")):
-        specs.append(
-            _spec(
-                f"legacy_syntax_{path.stem}",
-                ["node", "--check", str(path.relative_to(root))],
-                root,
-                domain="frontend",
-            )
-        )
-    specs.extend(
-        [
-            _spec("frontend_contract", ["npm", "run", "check:ui"], frontend, domain="frontend"),
-            _spec("frontend_lint", ["npm", "run", "lint"], frontend, domain="frontend"),
-            _spec("frontend_typecheck", ["npm", "run", "typecheck"], frontend, domain="frontend"),
-            _spec("frontend_vitest", ["npm", "test", "--", "--reporter=default"], frontend, domain="frontend"),
-            _spec("frontend_build", ["npm", "run", "build"], frontend, domain="frontend"),
-        ]
-    )
-    return specs
 
 
 def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -> list[CommandSpec]:
@@ -441,7 +414,6 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
         "python_scrapers",
         "python_scripts",
         "python_source_acquisition",
-        "python_ui",
     }
     targets = set(plan.get("python_test_targets", []))
     for group in sorted(groups & python_groups):
@@ -471,48 +443,6 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
     ]
     if changed_python:
         specs.append(_spec("python_changed_syntax", [python, "-m", "py_compile", *changed_python], root))
-
-    legacy_targets = set(plan.get("legacy_test_targets", []))
-    if "legacy_ui" in groups:
-        legacy_targets.update(str(path.relative_to(root)) for path in (root / "tests").glob("*.test.cjs"))
-    if legacy_targets:
-        specs.append(
-            _spec("legacy_node_targeted", ["node", "--test", *sorted(legacy_targets)], root, domain="frontend")
-        )
-    changed_legacy_js = [
-        relative
-        for relative in plan["changed_files"]
-        if relative.startswith("src/ui/static/")
-        and relative.endswith(".js")
-        and (root / relative).is_file()
-    ]
-    for relative in changed_legacy_js:
-        specs.append(
-            _spec(
-                f"legacy_syntax_{Path(relative).stem}",
-                ["node", "--check", relative],
-                root,
-                domain="frontend",
-            )
-        )
-    if "legacy_ui_contract" in groups:
-        specs.append(
-            _spec(
-                "legacy_ui_contract",
-                [
-                    python,
-                    "-m",
-                    "pytest",
-                    "-q",
-                    "--tb=short",
-                    "-W",
-                    "default::ResourceWarning",
-                    "tests/test_static_reading_ui.py",
-                ],
-                root,
-                domain="frontend",
-            )
-        )
 
     frontend = root / "frontend"
     if "frontend_checks" in groups:
@@ -992,7 +922,6 @@ def _blank_plan(mode: str) -> dict[str, Any]:
         "frontend_impacted": mode in {"full", "release"},
         "mapping_miss": False,
         "python_test_targets": [],
-        "legacy_test_targets": [],
         "frontend_related_files": [],
     }
 
@@ -1051,8 +980,11 @@ def _validate_json_files(root: Path) -> None:
             continue
         if any(marker in upper for marker in SECRET_NAME_PARTS):
             continue
+        candidate = root / relative
+        if not candidate.is_file():
+            continue
         try:
-            json.loads((root / relative).read_text(encoding="utf-8"))
+            json.loads(candidate.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise GateConfigError(f"invalid JSON file {relative}: {exc}") from exc
 

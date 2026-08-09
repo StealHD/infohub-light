@@ -135,6 +135,19 @@ export type NotificationServices = {
   can_manage: boolean
 }
 
+export type NotificationEmailProvider = 'qq' | 'netease' | 'gmail' | 'resend' | 'amazon_ses'
+
+export type NotificationEmailProviderOption = {
+  provider: NotificationEmailProvider
+  label: string
+  credential_label: string
+  sender_hint: string
+  requires_region: boolean
+  requires_smtp_username: boolean
+  smtp_port: 465
+  security: 'ssl'
+}
+
 export type NotificationTargetCreate = {
   name: string
   scope: NotificationTargetScope
@@ -219,86 +232,6 @@ export type NotificationTestResult = {
   target_id?: string
   provider?: WebhookProvider
   verification?: 'http_accepted' | 'provider_accepted'
-}
-
-export type NotificationEmailProvider = 'qq' | 'netease' | 'gmail' | 'resend' | 'amazon_ses'
-
-export type NotificationEmailProviderOption = {
-  provider: NotificationEmailProvider
-  label: string
-  credential_label: string
-  sender_hint: string
-  requires_region: boolean
-  requires_smtp_username: boolean
-  smtp_port: 465
-  security: 'ssl'
-}
-
-export type NotificationEmailTransport = {
-  schema_version: number
-  configured: boolean
-  provider: NotificationEmailProvider | null
-  sender_email: string | null
-  sender_name: string
-  region: string | null
-  smtp_username: string | null
-  enabled: boolean
-  credential_configured: boolean
-  generation: number
-  last_test_status: 'sent' | 'failed' | null
-  last_test_generation: number | null
-  last_tested_at: string | null
-  last_test_error_code: string | null
-  can_enable: boolean
-  ready: boolean
-  connection: {
-    smtp_host: string
-    smtp_port: 465
-    security: 'ssl'
-    smtp_username: string
-  } | null
-  providers: NotificationEmailProviderOption[]
-  updated_at: string | null
-}
-
-export type NotificationEmailTransportPatch = {
-  provider?: NotificationEmailProvider
-  sender_email?: string
-  sender_name?: string
-  credential?: string | null
-  enabled?: boolean
-  region?: string | null
-  smtp_username?: string | null
-}
-
-export type NotificationEmailTransportTestResult = {
-  sent: boolean
-  generation: number
-}
-
-export type NotificationTelegramTransport = {
-  schema_version: 1
-  configured: boolean
-  enabled: boolean
-  token_configured: boolean
-  generation: number
-  last_test_status: NotificationChannelTestStatus
-  last_test_generation: number | null
-  last_tested_at: string | null
-  last_test_error_code: string | null
-  can_enable: boolean
-  ready: boolean
-  updated_at: string | null
-}
-
-export type NotificationTelegramTransportPatch = {
-  bot_token?: string | null
-  enabled?: boolean
-}
-
-export type NotificationTelegramTransportTestResult = {
-  sent: boolean
-  generation: number
 }
 
 export type AgentDelegationAccess = 'read' | 'subscriptions_write'
@@ -816,66 +749,6 @@ export type ApifyKeyPool = {
   blocked_reason: string | null
   retry_at: string | null
   members: ApifyKeyPoolMember[]
-}
-
-export type ApifyActorCandidateState =
-  | 'closed'
-  | 'open'
-  | 'half_open'
-  | 'disabled'
-  | 'probationary'
-
-export type ApifyActorRouteStatus =
-  | 'ready'
-  | 'degraded'
-  | 'exhausted'
-  | 'budget_blocked'
-  | 'blocked'
-
-export type ApifyActorRouteCandidate = {
-  id: string
-  position: number
-  display_name: string
-  actor_public_name: string
-  state: ApifyActorCandidateState
-  listed_price_usd_per_1000: number | null
-  paid_plan_listed_price_usd_per_1000?: number | null
-  last_charge_usd: number | null
-  avg_charge_24h_usd: number | null
-  success_rate_24h: number | null
-  last_success_at: string | null
-  last_failure_at: string | null
-  retry_at: string | null
-  last_error_code: string | null
-  can_enable: boolean
-  can_disable: boolean
-  can_canary: boolean
-}
-
-export type ApifyActorRoute = {
-  schema_version: 1
-  route: 'x/profile'
-  generation: number
-  status: ApifyActorRouteStatus
-  active_candidate_id: string | null
-  last_switch_reason: string | null
-  last_switch_at: string | null
-  retry_at: string | null
-  blocked_reason: string | null
-  quota: {
-    currency: 'USD'
-    total_remaining_usd: number | null
-    x_allocatable_usd: number | null
-    spend_24h_usd: number | null
-    estimated_days_remaining: number | null
-    as_of: string | null
-  }
-  limits: {
-    per_run_usd: number
-    per_job_usd: number
-    failed_spend_6h_usd: number
-  }
-  candidates: ApifyActorRouteCandidate[]
 }
 
 export type ApifyActorRouteSupportStatus =

@@ -48,6 +48,7 @@ import { HandoffComposer } from './HandoffComposer'
 import { FeedInsightsPanel, type FeedInsightsMetric } from './FeedInsightsPanel'
 import { AgentPanelSkeleton } from './WorkbenchLoadingState'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
+import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { relativeTime } from '../feed/feedModel'
 import { toWorkbenchCardModel, workbenchSourceLabels } from './workbenchModel'
 import {
@@ -885,6 +886,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
   const closeInsights = useCallback((restoreFocus = true) => {
     if (insightsSurface === 'closed' || insightsSurface === 'closing') return
+    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     suppressAutomaticInsights()
     cancelInsightsClose()
     insightsOpenedAlongsideAgentRef.current = false
@@ -963,6 +965,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       closeInsights(false)
       return
     }
+    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     if (!dockCapable) setRightRailMode('closed')
     insightsOpenedAlongsideAgentRef.current = visibleRightRailMode === 'agent' && dockCapable
     setInsightsSurface('manual')

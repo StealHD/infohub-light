@@ -24,7 +24,6 @@ import type {
   ApifyActorPoolCandidateRefresh,
   ApifyActorPoolCandidates,
   ApifyActorRecommendedPoolActivation,
-  ApifyActorRoute,
   ApifyActorRouteDetail,
   ApifyActorRoutesResponse,
   ApifyActorSourceCapabilitiesResponse,
@@ -47,9 +46,6 @@ import type {
   FeedItem,
   IgnoredFeed,
   Job,
-  NotificationEmailTransport,
-  NotificationEmailTransportPatch,
-  NotificationEmailTransportTestResult,
   NotificationChannel,
   NotificationTarget,
   NotificationTargetCreate,
@@ -59,9 +55,6 @@ import type {
   NotificationServiceCreate,
   NotificationServicePatch,
   NotificationServices,
-  NotificationTelegramTransport,
-  NotificationTelegramTransportPatch,
-  NotificationTelegramTransportTestResult,
   NotificationTestResult,
   SecretQuota,
   SecretRef,
@@ -216,37 +209,6 @@ export function createServiceApi(client: ApiClient) {
       '/api/me/notification-settings/test',
       channel ? { channel } : undefined,
     ),
-    notificationEmailTransport: (signal?: AbortSignal) => client.get<NotificationEmailTransport>(
-      '/api/admin/notification-email-transport',
-      signal,
-    ),
-    updateNotificationEmailTransport: (patch: NotificationEmailTransportPatch) => client.patch<NotificationEmailTransport>(
-      '/api/admin/notification-email-transport',
-      patch,
-    ),
-    testNotificationEmailTransport: (recipientEmail: string) => client.post<NotificationEmailTransportTestResult>(
-      '/api/admin/notification-email-transport/test',
-      { recipient_email: recipientEmail },
-    ),
-    deleteNotificationEmailTransport: () => client.delete<{ deleted: boolean }>(
-      '/api/admin/notification-email-transport',
-    ),
-    notificationTelegramTransport: (signal?: AbortSignal) => client.get<NotificationTelegramTransport>(
-      '/api/admin/notification-telegram-transport',
-      signal,
-    ),
-    updateNotificationTelegramTransport: (patch: NotificationTelegramTransportPatch) => client.patch<NotificationTelegramTransport>(
-      '/api/admin/notification-telegram-transport',
-      patch,
-    ),
-    testNotificationTelegramTransport: (chatId: string) => client.post<NotificationTelegramTransportTestResult>(
-      '/api/admin/notification-telegram-transport/test',
-      { chat_id: chatId },
-    ),
-    deleteNotificationTelegramTransport: () => client.delete<{ deleted: boolean }>(
-      '/api/admin/notification-telegram-transport',
-    ),
-
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
     createAgentDelegation: (
       name: string,
@@ -294,35 +256,6 @@ export function createServiceApi(client: ApiClient) {
     ),
     drainApifyKey: (secretId: string) => client.post<ApifyKeyPool>(
       `${resource('/api/admin/apify-key-pool', secretId)}/drain`,
-    ),
-    apifyActorXProfileRoute: (signal?: AbortSignal) => client.get<ApifyActorRoute>(
-      '/api/admin/apify-actor-routes/x/profile',
-      signal,
-    ),
-    reorderApifyActorXProfileRoute: (candidateIds: string[], expectedGeneration: number) => client.put<ApifyActorRoute>(
-      '/api/admin/apify-actor-routes/x/profile/order',
-      { candidate_ids: candidateIds, expected_generation: expectedGeneration },
-    ),
-    enableApifyActorXProfileCandidate: (candidateId: string, expectedGeneration: number) => client.post<ApifyActorRoute>(
-      `${resource('/api/admin/apify-actor-routes/x/profile/candidates', candidateId)}/enable`,
-      { expected_generation: expectedGeneration },
-    ),
-    disableApifyActorXProfileCandidate: (candidateId: string, expectedGeneration: number) => client.post<ApifyActorRoute>(
-      `${resource('/api/admin/apify-actor-routes/x/profile/candidates', candidateId)}/disable`,
-      { expected_generation: expectedGeneration },
-    ),
-    canaryApifyActorXProfileCandidate: (
-      candidateId: string,
-      sourceId: string,
-      expectedGeneration: number,
-      confirmation: '确认付费试跑',
-    ) => client.post<ApifyActorRoute>(
-      `${resource('/api/admin/apify-actor-routes/x/profile/candidates', candidateId)}/canary`,
-      {
-        source_id: sourceId,
-        expected_generation: expectedGeneration,
-        confirmation,
-      },
     ),
     apifyActorRoutes: (signal?: AbortSignal) => client.get<ApifyActorRoutesResponse>(
       '/api/admin/apify-routes',

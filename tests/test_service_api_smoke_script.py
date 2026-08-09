@@ -63,8 +63,6 @@ class FakeClient:
             return {"states": {"rss:item:1": {"is_read": False}}}
         if path == "/api/me/items/rss%3Aitem%3A1/state":
             return {"article_id": "rss:item:1", "is_read": True}
-        if path == "/api/me/items/rss%3Aitem%3A1/feedback":
-            return {"article_id": "rss:item:1", "feedback_type": "not_relevant"}
         raise AssertionError(f"unexpected call: {method} {path}")
 
 
@@ -107,7 +105,7 @@ def test_service_api_smoke_mutating_mode_creates_private_source_job_and_item_sta
     assert any(check["name"] == "patch_smoke_member" for check in report["checks"])
     assert any(check["name"] == "create_private_source" for check in report["checks"])
     assert any(check["name"] == "source_test_job" for check in report["checks"])
-    assert any(check["name"] == "item_feedback" for check in report["checks"])
+    assert any(check["name"] == "item_state_update" for check in report["checks"])
 
 
 def test_service_api_smoke_report_marks_failed_checks():

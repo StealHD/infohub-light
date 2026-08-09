@@ -1,33 +1,7 @@
 import { ApiError } from '../../api/client'
-import type {
-  ApifyActorAlertEvent,
-  ApifyActorCandidateState,
-  ApifyActorRouteStatus,
-} from '../../api/types'
+import type { ApifyActorAlertEvent } from '../../api/types'
 
 export const APIFY_ACTOR_ROUTE_REFRESH_MS = 30_000
-
-export const actorRouteStatusPresentation: Record<ApifyActorRouteStatus, {
-  label: string
-  tone: 'neutral' | 'success' | 'warning' | 'danger'
-}> = {
-  ready: { label: '可以抓取', tone: 'success' },
-  degraded: { label: '已切换备用', tone: 'warning' },
-  exhausted: { label: '三个 Actor 均不可用', tone: 'danger' },
-  budget_blocked: { label: '费用保护已暂停', tone: 'danger' },
-  blocked: { label: '需要人工核对', tone: 'danger' },
-}
-
-export const actorCandidateStatePresentation: Record<ApifyActorCandidateState, {
-  label: string
-  tone: 'neutral' | 'success' | 'warning' | 'danger'
-}> = {
-  closed: { label: '健康可用', tone: 'success' },
-  open: { label: '已熔断', tone: 'danger' },
-  half_open: { label: '等待恢复探测', tone: 'warning' },
-  disabled: { label: '已禁用', tone: 'neutral' },
-  probationary: { label: '试运行', tone: 'warning' },
-}
 
 export const actorAlertEventLabels: Record<ApifyActorAlertEvent, string> = {
   actor_switched: '自动切换 Actor',

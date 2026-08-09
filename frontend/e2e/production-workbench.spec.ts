@@ -1154,7 +1154,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('Feed source overview keeps each source contiguous across supported viewports', async ({ page }) => {
+test('Feed source overview keeps each source contiguous across supported viewports', async ({ page }, testInfo) => {
   await page.goto('/feed')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   const feed = page.getByTestId('workbench-feed-scroll')
@@ -1215,6 +1215,13 @@ test('Feed source overview keeps each source contiguous across supported viewpor
   expect(sourceDraft.sourceSnapshot.items).toHaveLength(100)
   expect(JSON.stringify(sourceDraft.sourceSnapshot).length).toBeLessThanOrEqual(32_000)
   expect(JSON.stringify(sourceDraft.sourceSnapshot)).not.toContain('https://')
+
+  if (testInfo.project.name === 'desktop') {
+    await page.getByRole('button', { name: '收起 Agent 面板' }).click()
+  } else {
+    await page.keyboard.press('Escape')
+  }
+  await expect(page.locator('#live-agent-panel')).toBeHidden()
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
@@ -1469,10 +1476,11 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await expect(sourceReading).toBeVisible()
   const sourceCenteredReading = await sourceReading.boundingBox()
   await scroll.evaluate((element) => {
+    element.dispatchEvent(new WheelEvent('wheel', { bubbles: true }))
     element.scrollTop = 320
     element.dispatchEvent(new Event('scroll'))
   })
-  const sourceScrollTop = await scroll.evaluate((element) => element.scrollTop)
+  const sourceAnchorBefore = await stableTopVisibleSnapshot(page)
   await page.getByRole('button', { name: '展开信息概览' }).click()
   const sourceInsights = page.locator('#feed-insights-surface')
   await expect(sourceInsights).toBeVisible()
@@ -1487,7 +1495,9 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   expect(sourceInsightsBounds).not.toBeNull()
   expect(sourceShiftedReading!.x).toBeLessThan(sourceCenteredReading!.x)
   expect(sourceInsightsBounds!.x - (sourceShiftedReading!.x + sourceShiftedReading!.width)).toBeGreaterThanOrEqual(11)
-  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(sourceScrollTop)
+  const sourceAnchorAfter = await stableTopVisibleSnapshot(page)
+  expect(sourceAnchorAfter.name).toBe(sourceAnchorBefore.name)
+  expect(Math.abs(sourceAnchorAfter.offset - sourceAnchorBefore.offset)).toBeLessThanOrEqual(2)
   await page.getByRole('button', { name: '关闭信息概览' }).click()
   await expect(sourceInsights).toHaveCount(0)
 

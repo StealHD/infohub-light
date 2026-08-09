@@ -93,23 +93,6 @@ function notificationChannelStates({
   }
 }
 
-function emptyTelegramTransport() {
-  return {
-    schema_version: 1 as const,
-    configured: false,
-    enabled: false,
-    token_configured: false,
-    generation: 0,
-    last_test_status: null,
-    last_test_generation: null,
-    last_tested_at: null,
-    last_test_error_code: null,
-    can_enable: false,
-    ready: false,
-    updated_at: null,
-  }
-}
-
 function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
   return {
     authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'user-live', username: 'live', role: 'member', enabled: true } }),
@@ -195,27 +178,6 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
     subscribe: vi.fn().mockResolvedValue({ subscription: { reused_item_count: 0 } }),
     apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
-    apifyActorXProfileRoute: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      route: 'x/profile',
-      generation: 1,
-      status: 'ready',
-      active_candidate_id: 'scrape-badger',
-      last_switch_reason: null,
-      last_switch_at: null,
-      retry_at: null,
-      blocked_reason: null,
-      quota: {
-        currency: 'USD',
-        total_remaining_usd: 5,
-        x_allocatable_usd: 4,
-        spend_24h_usd: 0,
-        estimated_days_remaining: null,
-        as_of: null,
-      },
-      limits: { per_run_usd: 0.02, per_job_usd: 0.06, failed_spend_6h_usd: 0.08 },
-      candidates: [],
-    }),
     apifyActorRoutes: vi.fn().mockResolvedValue({
       schema_version: 1,
       generation: 1,
@@ -260,7 +222,6 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       updated_at: null,
     }),
     apifyActorAlertIncidents: vi.fn().mockResolvedValue({ schema_version: 3, incidents: [] }),
-    notificationTelegramTransport: vi.fn().mockResolvedValue(emptyTelegramTransport()),
     storageSummary: vi.fn().mockResolvedValue({
       schema_version: 1,
       policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
@@ -1966,28 +1927,6 @@ describe('App routes', () => {
       webhook_provider_options: webhookProviderOptions(),
       can_manage: true,
     })
-    const notificationEmailTransport = vi.fn().mockResolvedValue({
-      schema_version: 1,
-      configured: false,
-      provider: null,
-      sender_email: null,
-      sender_name: 'Inteliscope',
-      region: null,
-      smtp_username: null,
-      enabled: false,
-      credential_configured: false,
-      generation: 0,
-      last_test_status: null,
-      last_test_generation: null,
-      last_tested_at: null,
-      last_test_error_code: null,
-      can_enable: false,
-      ready: false,
-      connection: null,
-      providers: [],
-      updated_at: null,
-    })
-    const notificationTelegramTransport = vi.fn().mockResolvedValue(emptyTelegramTransport())
     const hiddenQueries = {
       config,
       secrets,
@@ -1995,8 +1934,6 @@ describe('App routes', () => {
       notificationSettings,
       notificationTargets,
       notificationServices,
-      notificationEmailTransport,
-      notificationTelegramTransport,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
       apifyActorRoutes: vi.fn(),
       apifyActorAlertSettings: vi.fn(),
@@ -2025,8 +1962,6 @@ describe('App routes', () => {
       expect(notificationTargets).not.toHaveBeenCalled()
       expect(notificationServices).toHaveBeenCalledOnce()
     })
-    expect(notificationEmailTransport).not.toHaveBeenCalled()
-    expect(notificationTelegramTransport).not.toHaveBeenCalled()
     expect(config).not.toHaveBeenCalled()
     expect(secrets).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
@@ -2159,28 +2094,6 @@ describe('App routes', () => {
       targets: [],
       webhook_provider_options: webhookProviderOptions(),
     })
-    const notificationEmailTransport = vi.fn().mockResolvedValue({
-      schema_version: 1,
-      configured: false,
-      provider: null,
-      sender_email: null,
-      sender_name: 'Inteliscope',
-      region: null,
-      smtp_username: null,
-      enabled: false,
-      credential_configured: false,
-      generation: 0,
-      last_test_status: null,
-      last_test_generation: null,
-      last_tested_at: null,
-      last_test_error_code: null,
-      can_enable: false,
-      ready: false,
-      connection: null,
-      providers: [],
-      updated_at: null,
-    })
-    const notificationTelegramTransport = vi.fn().mockResolvedValue(emptyTelegramTransport())
     const notificationServices = vi.fn().mockResolvedValue({
       schema_version: 1,
       services: [],
@@ -2219,8 +2132,6 @@ describe('App routes', () => {
       notificationSettings,
       notificationTargets,
       notificationServices,
-      notificationEmailTransport,
-      notificationTelegramTransport,
       storageSummary,
       storageArchives,
     } as Partial<ServiceApi>)
@@ -2241,8 +2152,6 @@ describe('App routes', () => {
     expect(notificationSettings).not.toHaveBeenCalled()
     expect(notificationTargets).not.toHaveBeenCalled()
     expect(notificationServices).not.toHaveBeenCalled()
-    expect(notificationEmailTransport).not.toHaveBeenCalled()
-    expect(notificationTelegramTransport).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
     expect(storageSummary).not.toHaveBeenCalled()
     expect(storageArchives).not.toHaveBeenCalled()

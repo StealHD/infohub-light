@@ -269,7 +269,7 @@ def test_up_latest_prefers_light_compose_and_does_not_start_scheduler_by_default
 
     assert "docker-compose.light.yml" in script
     assert 'LIGHT_SERVICES=("horizon-api" "horizon-worker")' in script
-    assert 'LIGHT_MANUAL_SERVICE="horizon"' in script
+    assert "LIGHT_MANUAL_SERVICE" not in script
     assert 'horizon-scheduler"' not in script
     assert 'docker-compose.yml"' not in script
     assert "--project-name infohub-light" in script
@@ -397,7 +397,7 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
     assert (
         f"compose --project-name infohub-light --env-file {primary}/.env "
         f"-f {linked}/docker-compose.light.yml "
-        "build --pull horizon-api horizon-worker horizon"
+        "build --pull horizon-api horizon-worker"
     ) in events
     assert "up -d --no-build --force-recreate --remove-orphans horizon-api horizon-worker" in events
     assert "horizon-scheduler" not in events
@@ -805,10 +805,10 @@ def test_up_latest_requires_every_terminal_gate(tmp_path: Path):
 def test_light_compose_uses_explicit_runtime_root_and_port_8080():
     compose = (ROOT / "docker-compose.light.yml").read_text(encoding="utf-8")
 
-    assert compose.count("${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data") == 5
-    assert compose.count("${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs") == 5
-    assert compose.count("${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro") == 5
-    assert compose.count("${HORIZON_WEB_PORT:-8080}:8080") == 2
+    assert compose.count("${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data") == 2
+    assert compose.count("${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs") == 2
+    assert compose.count("${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro") == 2
+    assert compose.count("${HORIZON_WEB_PORT:-8080}:8080") == 1
     assert "${HORIZON_WEB_PORT:-8081}:8080" not in compose
 
 
@@ -817,13 +817,9 @@ def test_light_config_template_is_safe_and_valid():
     config = Config.model_validate(payload)
 
     assert config.ai.enabled is False
-    assert config.webhook is None or config.webhook.enabled is False
-    assert config.email is None or config.email.enabled is False
     assert config.sources.apify_social.enabled is False
     assert config.sources.openbb.enabled is False
     assert config.sources.ossinsight.enabled is False
-    assert config.premium_analysis.enabled is False
-    assert config.article_graph.enabled is False
 
 
 def test_light_compose_documents_worker_hardening_defaults():
@@ -918,7 +914,8 @@ def test_production_image_excludes_runtime_data_and_uses_release_identity():
     assert "COPY data ./data" not in dockerfile
     assert "INTELISCOPE_BUILD_REVISION" in dockerfile
     assert "INTELISCOPE_BUILT_AT" in dockerfile
-    assert 'ENTRYPOINT ["/app/.venv/bin/horizon"]' in dockerfile
+    assert 'ENTRYPOINT ["/app/.venv/bin/horizon-api"]' in dockerfile
+    assert 'CMD ["--host", "0.0.0.0", "--port", "8080"]' in dockerfile
     assert 'ENTRYPOINT ["uv", "run"' not in dockerfile
     assert "\ndata/\n" in dockerignore
     for forbidden in (
@@ -945,10 +942,8 @@ def test_api_and_worker_share_one_versioned_service_image():
 
 def test_container_runtime_uses_preinstalled_venv_without_dependency_resolution():
     expected_entrypoints = {
-        "horizon-web": "/app/.venv/bin/horizon-web",
         "horizon-api": "/app/.venv/bin/horizon-api",
         "horizon-worker": "/app/.venv/bin/horizon-worker",
-        "horizon-scheduler": "/app/.venv/bin/horizon-scheduler",
     }
 
     for filename in ("docker-compose.yml", "docker-compose.light.yml"):
@@ -984,12 +979,13 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert "HORIZON_WEB_PORT 8080" in script
     assert "HORIZON_AUTH_SECURE_COOKIE false" in script
     assert "HORIZON_AUTH_SECURE_COOKIE true" in script
-    assert "stop horizon-scheduler" in script
-    assert "stop horizon-web" in script
+    assert "legacy scheduler must be stopped" in script
+    assert "stop horizon-scheduler" not in script
+    assert "stop horizon-web" not in script
     assert "up -d --no-build --force-recreate horizon-api horizon-worker" in script
     rollback = script.split("rollback_release() {", 1)[1].split("show_status()", 1)[0]
     assert "horizon-worker horizon-api" in rollback
-    assert "start horizon-web" in rollback
+    assert "start horizon-web" not in rollback
     assert "start horizon-scheduler" not in rollback
     assert "docker image prune" not in script
     assert "docker builder prune" not in script
@@ -1134,16 +1130,15 @@ def test_compose_defaults_to_api_and_worker_but_not_scheduler():
     light_compose = (ROOT / "docker-compose.light.yml").read_text(encoding="utf-8")
 
     root_worker = root_compose.split("  horizon-worker:", 1)[1]
-    light_worker = light_compose.split("  horizon-worker:", 1)[1].split("  horizon-scheduler:", 1)[0]
+    light_worker = light_compose.split("  horizon-worker:", 1)[1]
     root_api = root_compose.split("  horizon-api:", 1)[1].split("  horizon-worker:", 1)[0]
     light_api = light_compose.split("  horizon-api:", 1)[1].split("  horizon-worker:", 1)[0]
-    root_scheduler = root_compose.split("  horizon-scheduler:", 1)[1].split("  horizon-web:", 1)[0]
-    light_scheduler = light_compose.split("  horizon-scheduler:", 1)[1]
-
     assert 'profiles: ["worker"]' not in root_worker
     assert 'profiles: ["worker"]' not in light_worker
-    assert 'profiles: ["scheduler"]' in root_scheduler
-    assert 'profiles: ["scheduler"]' in light_scheduler
+    assert "horizon-scheduler:" not in root_compose
+    assert "horizon-scheduler:" not in light_compose
+    assert "horizon-web:" not in root_compose
+    assert "horizon-web:" not in light_compose
     for compose in (root_compose, light_compose):
         assert "/api/health/ready" in compose
         assert "--healthcheck" in compose
@@ -1162,7 +1157,7 @@ def test_compose_wires_user_feed_schedule_polling_without_a_new_default_service(
         }
 
         assert default_services == {"horizon-api", "horizon-worker"}
-        assert 'profiles: ["scheduler"]' in services["horizon-scheduler"]
+        assert set(services) == {"horizon-api", "horizon-worker"}
         assert (
             "HORIZON_SCHEDULE_POLL_SECONDS: "
             "${HORIZON_SCHEDULE_POLL_SECONDS:-30}"
@@ -1179,12 +1174,11 @@ def test_service_runtime_docs_require_owner_credentials_before_compose_startup()
     )
 
     assert "Service API always requires an owner login" in env_example
-    assert "HORIZON_AUTH_ENABLED only controls the legacy horizon-web service" in env_example
+    assert "HORIZON_AUTH_ENABLED" not in env_example
     assert "Default false keeps local development open" not in env_example
     assert "多人 Service API 始终要求登录" in readme
-    assert "HORIZON_AUTH_ENABLED=false" in readme
-    assert "不会让 Service API 免登录" in readme
-    deployment = readme.split("部署步骤：", 1)[1].split("手动执行与检查：", 1)[0]
+    assert "HORIZON_AUTH_ENABLED=false" not in readme
+    deployment = readme.split("## 本地 Docker 启动", 1)[1].split("## 前端开发", 1)[0]
     credential_position = min(
         position
         for marker in ("HORIZON_AUTH_PASSWORD=", "HORIZON_AUTH_PASSWORD_HASH=")

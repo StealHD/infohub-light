@@ -19,6 +19,7 @@ from scripts.test_gate import (
     format_summary,
     load_mapping,
     load_snapshot,
+    _validate_json_files,
     _reconcile_mapping_miss,
     _prepare_release_smoke_data,
 )
@@ -108,6 +109,19 @@ def test_snapshot_diff_is_task_scoped_and_detects_add_modify_delete(tmp_path):
     assert changed == ["src/added.py", "src/changed.py", "src/deleted.py"]
 
 
+def test_json_validation_ignores_deleted_tracked_json(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    removed = repo / "removed.json"
+    removed.write_text("not-json\n", encoding="utf-8")
+    (repo / "active.json").write_text('{"status":"current"}\n', encoding="utf-8")
+    subprocess.run(["git", "add", "removed.json", "active.json"], cwd=repo, check=True)
+    removed.unlink()
+
+    _validate_json_files(repo)
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
@@ -193,10 +207,7 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         ),
         (["src/ai/analyzer.py"], {"control", "python_ai_orchestrator"}, False, False),
         (["src/scrapers/rss.py"], {"control", "python_scrapers"}, False, False),
-        (["src/ui/server.py"], {"control", "python_ui"}, True, False),
         (["scripts/reset_local_service.py"], {"control", "python_scripts"}, False, False),
-        (["src/ui/static/reader.js"], {"control", "legacy_ui"}, True, False),
-        (["src/ui/static/reader.css"], {"control", "legacy_ui_contract"}, True, False),
         (
             ["frontend/src/features/feed/feedModel.ts"],
             {"control", "frontend_checks", "frontend_related"},
@@ -208,7 +219,6 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         (["docs/contracts/ui/README.md"], {"control", "frontend_full"}, True, False),
         (["tests/test_worker.py"], {"control", "python_test_files"}, False, False),
         (["tests/conftest.py"], {"control", "full"}, False, False),
-        (["tests/reading_ui_behavior.test.cjs"], {"control", "legacy_test_files"}, True, False),
         (["pyproject.toml"], {"control", "full"}, False, False),
         (["src/new_subsystem/module.py"], {"control", "full"}, False, True),
     ],
@@ -226,13 +236,11 @@ def test_deterministic_impact_mapping(
     )
     assert plan["frontend_impacted"] is (
         "full" in expected_groups
-        or any(group.startswith(("frontend_", "legacy_")) for group in expected_groups)
+        or any(group.startswith("frontend_") for group in expected_groups)
     )
     assert plan["mapping_miss"] is mapping_miss
     if "tests/test_worker.py" in changed_files:
         assert plan["python_test_targets"] == ["tests/test_worker.py"]
-    if "tests/reading_ui_behavior.test.cjs" in changed_files:
-        assert plan["legacy_test_targets"] == ["tests/reading_ui_behavior.test.cjs"]
 
 
 def test_mapping_file_rejects_unknown_group(tmp_path):
@@ -317,7 +325,8 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
         if "pytest" in spec.argv:
             assert "-W" in spec.argv
             assert "default::ResourceWarning" in spec.argv
-    assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
+    assert {"python_full", "frontend_vitest", "frontend_build"} <= full_ids
+    assert "legacy_node_full" not in full_ids
     assert {spec.domain for spec in control} == {"control"}
     assert {spec.command_id for spec in control} == {
         "markdown_controls",

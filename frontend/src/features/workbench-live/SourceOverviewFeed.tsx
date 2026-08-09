@@ -391,7 +391,15 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
       ? sectionForItem(props.sections, anchor.id)
       : props.sections.findIndex((section) => section.id === anchor.id)
     if (index < 0) return
-    virtualizer.scrollToIndex(index, { align })
+    window.cancelAnimationFrame(restoreFrame.current ?? 0)
+    const findTarget = (scroll: HTMLDivElement) => anchor.kind === 'item'
+      ? Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]')).find((candidate) => candidate.dataset.itemId === anchor.id)
+        ?.querySelector<HTMLElement>('[data-testid="workbench-card"]')
+      : Array.from(scroll.querySelectorAll<HTMLElement>('[data-source-section]'))
+        .find((section) => section.dataset.sourceSectionId === anchor.id)
+        ?.querySelector<HTMLElement>('[data-source-header]')
+    const initialScroll = scrollRef.current
+    if (!initialScroll || !findTarget(initialScroll)) virtualizer.scrollToIndex(index, { align })
     let remainingFrames = 120
     let stableFrames = 0
     const adjust = () => {
@@ -401,14 +409,7 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
       }
       remainingFrames -= 1
       const scroll = scrollRef.current
-      const target = anchor.kind === 'item'
-        ? scroll
-          ? Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]')).find((candidate) => candidate.dataset.itemId === anchor.id)
-            ?.querySelector<HTMLElement>('[data-testid="workbench-card"]')
-          : undefined
-        : Array.from(scroll?.querySelectorAll<HTMLElement>('[data-source-section]') ?? [])
-          .find((section) => section.dataset.sourceSectionId === anchor.id)
-          ?.querySelector<HTMLElement>('[data-source-header]')
+      const target = scroll ? findTarget(scroll) : undefined
       if (scroll && target) {
         const offset = target.getBoundingClientRect().top - scroll.getBoundingClientRect().top - topInset
         const correction = offset - anchor.offset
@@ -429,10 +430,14 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
   }, [props.sections, topInset, virtualizer])
 
   useEffect(() => {
-    const capture = () => captureAnchor()
+    const capture = () => {
+      captureAnchor()
+      const anchor = pendingAnchor.current
+      if (anchor) restoreAnchor(anchor)
+    }
     window.addEventListener(workbenchRefreshRequestEvent, capture)
     return () => window.removeEventListener(workbenchRefreshRequestEvent, capture)
-  }, [captureAnchor])
+  }, [captureAnchor, restoreAnchor])
 
   useLayoutEffect(() => {
     const anchor = pendingAnchor.current

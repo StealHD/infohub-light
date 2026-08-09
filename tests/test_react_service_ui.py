@@ -193,22 +193,18 @@ def test_service_transport_gzips_large_json_and_keeps_small_responses_plain(
     assert "content-encoding" not in favicon.headers
 
 
-def test_service_ui_variant_prefers_react_and_keeps_explicit_legacy_fallback(tmp_path: Path) -> None:
+def test_service_ui_uses_only_react_directory(tmp_path: Path) -> None:
     react_dir = tmp_path / "react"
-    legacy_dir = tmp_path / "legacy"
     react_dir.mkdir()
-    legacy_dir.mkdir()
     (react_dir / "index.html").write_text("react", encoding="utf-8")
-    (legacy_dir / "index.html").write_text("legacy", encoding="utf-8")
 
-    assert resolve_service_static_dir("react", react_dir=react_dir, legacy_dir=legacy_dir) == react_dir
-    assert resolve_service_static_dir("legacy", react_dir=react_dir, legacy_dir=legacy_dir) == legacy_dir
+    assert resolve_service_static_dir(react_dir=react_dir) == react_dir
 
 
-def test_service_ui_variant_falls_back_when_react_build_is_missing(tmp_path: Path) -> None:
+def test_missing_react_build_keeps_api_live_without_ui_fallback(tmp_path: Path) -> None:
     react_dir = tmp_path / "missing-react"
-    legacy_dir = tmp_path / "legacy"
-    legacy_dir.mkdir()
-    (legacy_dir / "index.html").write_text("legacy", encoding="utf-8")
+    client = TestClient(create_app(data_dir=tmp_path / "data", static_dir=react_dir))
 
-    assert resolve_service_static_dir("react", react_dir=react_dir, legacy_dir=legacy_dir) == legacy_dir
+    assert resolve_service_static_dir(react_dir=react_dir) == react_dir
+    assert client.get("/").status_code == 404
+    assert client.get("/api/health/live").status_code == 200

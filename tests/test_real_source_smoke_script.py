@@ -50,14 +50,14 @@ def test_build_report_fails_only_required_source_failures():
             },
         ],
         feed_latest={"scope": "user", "snapshot_id": "snap_1", "items": [{"id": "rss:item"}]},
-        source_quality={"sources": [{"source": "GitHub Blog", "total_items": 1}]},
+        source_health={"sources": [{"source": "GitHub Blog", "status": "healthy"}]},
     )
 
     assert report["ok"] is False
     assert report["required_failed"] == ["telegram_durov"]
     assert report["optional_degraded"] == ["reddit_localllama"]
     assert report["feed_latest"]["snapshot_id"] == "snap_1"
-    assert report["source_quality"]["sources"][0]["total_items"] == 1
+    assert report["source_health"]["sources"][0]["status"] == "healthy"
 
 
 def test_build_report_passes_when_required_sources_and_feed_snapshot_pass():
@@ -69,7 +69,7 @@ def test_build_report_passes_when_required_sources_and_feed_snapshot_pass():
             {"key": "telegram_durov", "required": True, "source_test_status": "succeeded"},
         ],
         feed_latest={"scope": "user", "snapshot_id": "snap_1", "items": [{"id": "hn:item"}]},
-        source_quality={"sources": [{"source": "Hacker News", "total_items": 3}]},
+        source_health={"sources": [{"source": "Hacker News", "status": "healthy"}]},
     )
 
     assert report["ok"] is True

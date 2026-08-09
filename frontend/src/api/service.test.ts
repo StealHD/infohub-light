@@ -61,21 +61,6 @@ describe('service api', () => {
     await api.updateNotificationService('service/1', { name: '主值班群' })
     await api.testAndEnableNotificationService('service/1')
     await api.archiveNotificationService('service/1')
-    await api.notificationEmailTransport()
-    await api.updateNotificationEmailTransport({
-      provider: 'qq',
-      sender_email: 'notice@qq.com',
-      sender_name: 'InfoHub',
-      credential: 'write-only-email-credential',
-    })
-    await api.testNotificationEmailTransport('reader@example.com')
-    await api.deleteNotificationEmailTransport()
-    await api.notificationTelegramTransport()
-    await api.updateNotificationTelegramTransport({
-      bot_token: 'write-only-telegram-token',
-    })
-    await api.testNotificationTelegramTransport('@test_channel')
-    await api.deleteNotificationTelegramTransport()
     await api.apifyActorAlertSettings()
     await api.updateApifyActorAlertSettings({
       enabled: true,
@@ -159,25 +144,6 @@ describe('service api', () => {
       '/api/admin/notification-services/service%2F1/test-and-enable',
     )
     expect(client.delete).toHaveBeenCalledWith('/api/admin/notification-services/service%2F1')
-    expect(client.get).toHaveBeenCalledWith('/api/admin/notification-email-transport', undefined)
-    expect(client.patch).toHaveBeenCalledWith('/api/admin/notification-email-transport', {
-      provider: 'qq',
-      sender_email: 'notice@qq.com',
-      sender_name: 'InfoHub',
-      credential: 'write-only-email-credential',
-    })
-    expect(client.post).toHaveBeenCalledWith('/api/admin/notification-email-transport/test', {
-      recipient_email: 'reader@example.com',
-    })
-    expect(client.delete).toHaveBeenCalledWith('/api/admin/notification-email-transport')
-    expect(client.get).toHaveBeenCalledWith('/api/admin/notification-telegram-transport', undefined)
-    expect(client.patch).toHaveBeenCalledWith('/api/admin/notification-telegram-transport', {
-      bot_token: 'write-only-telegram-token',
-    })
-    expect(client.post).toHaveBeenCalledWith('/api/admin/notification-telegram-transport/test', {
-      chat_id: '@test_channel',
-    })
-    expect(client.delete).toHaveBeenCalledWith('/api/admin/notification-telegram-transport')
     expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings', undefined)
     expect(client.patch).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings', {
       enabled: true,
@@ -236,11 +202,6 @@ describe('service api', () => {
     await api.apifyKeyPool()
     await api.reorderApifyKeyPool(['secret/1', 'secret-2'], 7)
     await api.drainApifyKey('secret/1')
-    await api.apifyActorXProfileRoute()
-    await api.reorderApifyActorXProfileRoute(['scrape/badger', 'dami'], 11)
-    await api.enableApifyActorXProfileCandidate('scrape/badger', 11)
-    await api.disableApifyActorXProfileCandidate('dami/studio', 12)
-    await api.canaryApifyActorXProfileCandidate('xquik/actor', 'source/1', 13, '确认付费试跑')
 
     expect(client.post).toHaveBeenCalledWith('/api/admin/secrets', expect.objectContaining({ value: 'write-only' }))
     expect(client.put).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/value', { value: 'new-value' })
@@ -252,26 +213,5 @@ describe('service api', () => {
       expected_generation: 7,
     })
     expect(client.post).toHaveBeenCalledWith('/api/admin/apify-key-pool/secret%2F1/drain')
-    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-routes/x/profile', undefined)
-    expect(client.put).toHaveBeenCalledWith('/api/admin/apify-actor-routes/x/profile/order', {
-      candidate_ids: ['scrape/badger', 'dami'],
-      expected_generation: 11,
-    })
-    expect(client.post).toHaveBeenCalledWith(
-      '/api/admin/apify-actor-routes/x/profile/candidates/scrape%2Fbadger/enable',
-      { expected_generation: 11 },
-    )
-    expect(client.post).toHaveBeenCalledWith(
-      '/api/admin/apify-actor-routes/x/profile/candidates/dami%2Fstudio/disable',
-      { expected_generation: 12 },
-    )
-    expect(client.post).toHaveBeenCalledWith(
-      '/api/admin/apify-actor-routes/x/profile/candidates/xquik%2Factor/canary',
-      {
-        source_id: 'source/1',
-        expected_generation: 13,
-        confirmation: '确认付费试跑',
-      },
-    )
   })
 })

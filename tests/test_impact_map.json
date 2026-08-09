@@ -32,9 +32,7 @@
   ],
   "ui_globs": [
     "docs/contracts/ui/**",
-    "src/ui/**",
-    "frontend/**",
-    "tests/*.test.cjs"
+    "frontend/**"
   ],
   "rules": [
     {
@@ -42,12 +40,9 @@
       "globs": [
         "src/logging_utils.py",
         "src/observability_context.py",
-        "src/main.py",
-        "src/services/email.py",
         "src/services/notification_telegram_transport.py",
         "src/services/operation_log.py",
         "src/services/workspace_telegram_transport.py",
-        "src/services/webhook.py",
         "scripts/check_observability_contract.py",
         "tests/test_api_operation_logging.py",
         "tests/test_logging_utils.py",
@@ -61,6 +56,7 @@
       "globs": [
         "src/api/**/*.py",
         "src/api/*.py",
+        "src/auth.py",
         "src/storage/**/*.py",
         "src/storage/*.py",
         "src/services/apify_actor_alerts.py",
@@ -182,7 +178,6 @@
         "src/services/workspace_telegram_transport.py",
         "src/services/quota.py",
         "src/services/runtime_status.py",
-        "src/services/scheduler.py",
         "src/services/source_schedule.py",
         "src/services/usage_attempt_meter.py",
         "src/services/worker.py"
@@ -192,12 +187,10 @@
     {
       "id": "Feed",
       "globs": [
-        "src/services/article_*.py",
         "src/services/canonical_content.py",
         "src/services/content_repair.py",
         "src/services/content_presentation.py",
         "src/services/feed_*.py",
-        "src/services/legacy_publisher.py",
         "src/services/maintenance.py",
         "src/services/media_cache.py",
         "src/services/network_policy.py",
@@ -214,9 +207,10 @@
       "globs": [
         "src/services/catalog_source_runner.py",
         "src/services/apify_actor_route.py",
+        "src/services/config_runtime.py",
         "src/services/source_acquisition.py",
         "src/services/source_health.py",
-        "src/services/source_update.py"
+        "src/services/source_probe.py"
       ],
       "groups": ["python_source_acquisition"]
     },
@@ -227,7 +221,6 @@
         "src/ai/*.py",
         "src/models.py",
         "src/orchestrator.py",
-        "src/source_selection.py",
         "src/tag_policy.py"
       ],
       "groups": ["python_ai_orchestrator"]
@@ -236,11 +229,6 @@
       "id": "scrapers",
       "globs": ["src/scrapers/**/*.py", "src/scrapers/*.py"],
       "groups": ["python_scrapers"]
-    },
-    {
-      "id": "Python UI",
-      "globs": ["src/ui/**/*.py", "src/ui/*.py"],
-      "groups": ["python_ui"]
     },
     {
       "id": "scripts",
@@ -253,16 +241,6 @@
         "tests/test_migrate_rsshub_sources.py"
       ],
       "groups": ["python_scripts"]
-    },
-    {
-      "id": "legacy UI behavior",
-      "globs": ["src/ui/static/*.js"],
-      "groups": ["legacy_ui"]
-    },
-    {
-      "id": "legacy UI contract",
-      "globs": ["src/ui/static/*.css", "src/ui/static/*.html"],
-      "groups": ["legacy_ui_contract"]
     },
     {
       "id": "React related",
@@ -371,6 +349,7 @@
       "tests/test_remote_mcp_subscription_http.py",
       "tests/test_openclaw_skill.py",
       "tests/test_light_runtime_scripts.py",
+      "tests/test_react_service_ui.py",
       "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_notification_channels_v15.py",
       "tests/test_migrate_notification_targets_v16.py",
@@ -384,11 +363,9 @@
       "tests/test_notification_telegram_transport.py",
       "tests/test_workspace_telegram_transport.py",
       "tests/test_preferred_source_notifications.py",
-      "tests/test_email.py",
       "tests/test_logging_utils.py",
       "tests/test_observability_contract.py",
       "tests/test_operation_log.py",
-      "tests/test_webhook.py",
       "tests/test_youtube_channel.py"
     ],
     "python_queue_worker": [
@@ -407,7 +384,6 @@
       "tests/test_apify_pool_runtime.py",
       "tests/test_job_queue.py",
       "tests/test_job_queue_reliability.py",
-      "tests/test_scheduler.py",
       "tests/test_source_health_worker.py",
       "tests/test_source_schedule.py",
       "tests/test_worker.py",
@@ -423,6 +399,7 @@
       "tests/test_feed_run_analysis_usage.py",
       "tests/test_feed_storage_v3_migration.py",
       "tests/test_feed_v2_migration.py",
+      "tests/test_legacy_data_inert.py",
       "tests/test_maintenance.py",
       "tests/test_media_cache_unit.py",
       "tests/test_multi_user_feed_e2e.py",
@@ -458,9 +435,6 @@
       "tests/test_minimax_client.py",
       "tests/test_deepseek_smoke.py",
       "tests/test_orchestrator_execute.py",
-      "tests/test_orchestrator_token_budget.py",
-      "tests/test_source_selection.py",
-      "tests/test_summarizer.py",
       "tests/test_summary_policy.py",
       "tests/test_token_usage.py"
     ],
@@ -476,11 +450,6 @@
       "tests/test_rss.py",
       "tests/test_source_registry.py",
       "tests/test_twitter.py"
-    ],
-    "python_ui": [
-      "tests/test_config_server.py",
-      "tests/test_react_service_ui.py",
-      "tests/test_static_reading_ui.py"
     ],
     "python_scripts": [
       "tests/test_bootstrap_local_sources.py",
