@@ -40,6 +40,12 @@ def _legacy_store(tmp_path, monkeypatch):
             """,
             (item_id, workspace["id"], owner["id"], now),
         )
+    conn.execute(
+        "CREATE TABLE user_item_feedback (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO user_item_feedback (id, payload) VALUES ('legacy-feedback', 'keep')"
+    )
     conn.commit()
     queue = JobQueue(store)
     queued = queue.create_job(
@@ -90,6 +96,10 @@ def test_explicit_feed_v2_migration_backs_up_resets_and_marks_database(tmp_path,
     assert store.feed_v2_migration_required() is False
     assert store.connect().execute("SELECT COUNT(*) FROM user_feed_snapshots").fetchone()[0] == 0
     assert store.connect().execute("SELECT COUNT(*) FROM user_feed_items").fetchone()[0] == 0
+    assert store.connect().execute(
+        "SELECT payload FROM user_item_feedback WHERE id = 'legacy-feedback'"
+    ).fetchone()[0] == "keep"
+    assert "deleted_feedback" not in result
     statuses = store.connect().execute(
         "SELECT DISTINCT status, error_code FROM fetch_jobs WHERE job_type IN ('source_fetch', 'user_feed_refresh')"
     ).fetchall()

@@ -163,7 +163,6 @@ def test_viewer_is_read_only_across_core_service_api(tmp_path, monkeypatch):
         client.post(f"/api/catalog/sources/{public_source_id}/subscribe"),
         client.post("/api/jobs/user-feed-refresh", json={}),
         client.patch("/api/me/items/rss:item:viewer/state", json={"is_read": True}),
-        client.post("/api/me/items/rss:item:viewer/feedback", json={"feedback_type": "not_relevant"}),
         client.post("/api/config/action", json={"action": "upsert_rss", "payload": {"name": "Viewer RSS"}}),
         client.post("/api/source/test", json={"source_id": public_source_id}),
         client.post("/api/source/update", json={"source_id": public_source_id}),
@@ -211,7 +210,6 @@ def test_global_config_actions_require_admin_role(tmp_path, monkeypatch):
         ("set_tags", {"tags": "Blocked Topic"}),
         ("set_settings_bundle", {"topics": {"topics": ["Blocked Topic"]}}),
         ("set_personal_tags", {"personal_tags": "Blocked Personal Tag"}),
-        ("set_webhook", {"enabled": False, "url_env": "WEBHOOK_URL"}),
         ("set_hackernews", {"enabled": True, "fetch_top_stories": 30, "min_score": 100}),
         ("set_apify_social_settings", {"enabled": False, "token_envs": "APIFY_TOKEN"}),
     ]

@@ -126,32 +126,6 @@ def test_user_item_state_counts_current_user_flags(tmp_path, monkeypatch):
     }
 
 
-def test_user_item_feedback_validates_types_and_records_events(tmp_path, monkeypatch):
-    store, workspace, owner, _alice = _store_with_visible_items(tmp_path, monkeypatch)
-    states = UserItemStateStore(store)
-
-    event = states.record_feedback(
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        article_id="rss:item:1",
-        feedback_type="more_like_this",
-        reason="useful source",
-        metadata={"surface": "reader"},
-    )
-
-    assert event["feedback_type"] == "more_like_this"
-    assert event["reason"] == "useful source"
-    assert event["metadata"] == {"surface": "reader"}
-
-    with pytest.raises(ValueError, match="feedback_type"):
-        states.record_feedback(
-            workspace_id=workspace["id"],
-            user_id=owner["id"],
-            article_id="rss:item:1",
-            feedback_type="bad_signal",
-        )
-
-
 def test_user_item_state_visibility_uses_user_feed_items(tmp_path, monkeypatch):
     store, workspace, owner, alice = _store_with_visible_items(tmp_path, monkeypatch)
     states = UserItemStateStore(store)

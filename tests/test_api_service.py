@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 import src.services.media_cache as media_cache_module
 from src.api.server import create_app
 from src.models import ContentItem, SourceType
-from src.services.feed_archive import FeedArchiveService
 from src.services.job_queue import JobQueue
 from src.services.notification_email_transport import (
     WorkspaceEmailTransportService,
@@ -26,19 +25,8 @@ from src.services.secret_store import SecretStore
 from src.services.subscription_mutation import SubscriptionMutationService
 from src.services.user_feed_store import UserFeedStore
 from src.services.user_item_state import UserItemStateStore
-from src.storage.article_store import ArticleStore
 from src.storage.service_store import ServiceStore
-from src.ui.site import serialize_item
-
-
-SAFE_DISABLED_GRAPH = {
-    "nodes": [],
-    "edges": [],
-    "scope": "user",
-    "capability": "disabled",
-    "degraded": True,
-    "reason": "user_scoped_graph_not_available",
-}
+from src.services.feed_payload import serialize_feed_item
 
 
 def _days_ago(days: int) -> str:
@@ -531,7 +519,7 @@ def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_
         payload={
             "schema_version": 2,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "items": [serialize_item(donor, featured_threshold=8.0)],
+            "items": [serialize_feed_item(donor, featured_threshold=8.0)],
         },
     )
     owner_feed = client.get("/api/feed/latest").json()["data"]
@@ -630,7 +618,7 @@ def test_subscription_disable_can_save_or_dismiss_existing_source_content(tmp_pa
         payload={
             "schema_version": 2,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "items": [serialize_item(lifecycle_item, featured_threshold=8.0)],
+            "items": [serialize_feed_item(lifecycle_item, featured_threshold=8.0)],
         },
     )
 
@@ -2601,14 +2589,11 @@ def test_readiness_uses_persisted_enabled_user_after_bootstrap_env_is_removed(tm
     assert ready.json()["data"]["status"] == "ready"
 
 
-def test_api_jobs_feed_and_archive_facades(tmp_path, monkeypatch):
+def test_api_jobs_and_feed_facades(tmp_path, monkeypatch):
     client, data_dir = _client(tmp_path, monkeypatch)
     _login(client)
 
     latest_payload = {"items": [{"id": "rss:item:archive", "channel": "AI"}], "generated_at": "now"}
-    graph_payload = {"nodes": [{"id": "global-article"}], "edges": []}
-    (data_dir / "site" / "radar-data.json").write_text(json.dumps(latest_payload), encoding="utf-8")
-    (data_dir / "site" / "article-graph.json").write_text(json.dumps(graph_payload), encoding="utf-8")
     store = ServiceStore(data_dir)
     store.initialize()
     workspace = store.get_default_workspace()
@@ -2672,107 +2657,6 @@ def test_api_jobs_feed_and_archive_facades(tmp_path, monkeypatch):
         "topics": [],
         "personal_tags": [],
     }
-    assert client.get("/api/archive/graph").json()["data"] == SAFE_DISABLED_GRAPH
-
-    article_store = ArticleStore(data_dir)
-    article_store.initialize()
-    item = ContentItem(
-        id="rss:item:archive",
-        source_type=SourceType.RSS,
-        title="Archive item",
-        url="https://example.com/archive",
-        published_at=datetime(2026, 7, 8, tzinfo=timezone.utc),
-    )
-    item.ai_score = 8.5
-    item.ai_channel = "AI"
-    item.ai_topics = ["Codex"]
-    article_store.upsert_articles_light([item])
-
-    trends = client.get("/api/archive/trends?group_by=channel").json()["data"]["trends"]
-    assert trends == [{"key": "AI", "count": 1}]
-
-    quality = client.get("/api/archive/source-quality").json()["data"]["sources"]
-    assert quality[0]["source"] == "rss"
-    assert quality[0]["total_items"] == 1
-
-
-def test_archive_graph_never_reads_global_graph_for_authenticated_users(tmp_path, monkeypatch):
-    client, data_dir = _client(tmp_path, monkeypatch)
-    _login(client)
-    for username, role in (("admin", "admin"), ("member", "member"), ("viewer", "viewer")):
-        created = client.post(
-            "/api/users",
-            json={"username": username, "password": f"{username}-password", "role": role},
-        )
-        assert created.status_code == 200
-    (data_dir / "site" / "article-graph.json").write_text(
-        json.dumps({"nodes": [{"id": "global-secret"}], "edges": [{"source": "global-secret"}]}),
-        encoding="utf-8",
-    )
-
-    site_reads = []
-    original_read_site_json = FeedArchiveService._read_site_json
-
-    def track_site_reads(service, name, fallback):
-        site_reads.append(name)
-        return original_read_site_json(service, name, fallback)
-
-    monkeypatch.setattr(FeedArchiveService, "_read_site_json", track_site_reads)
-    responses = [client.get("/api/archive/graph")]
-    client.post("/api/auth/logout")
-    for username in ("admin", "member", "viewer"):
-        _login_as(client, username, f"{username}-password")
-        responses.append(client.get("/api/archive/graph"))
-        client.post("/api/auth/logout")
-
-    assert "article-graph.json" not in site_reads
-    for response in responses:
-        assert response.status_code == 200
-        assert response.json() == {"ok": True, "data": SAFE_DISABLED_GRAPH}
-
-
-def test_archive_source_quality_falls_back_to_user_snapshot_without_article_store(tmp_path, monkeypatch):
-    client, data_dir = _client(tmp_path, monkeypatch)
-    _login(client)
-    store = ServiceStore(data_dir)
-    store.initialize()
-    workspace = store.get_default_workspace()
-    owner = store.get_user_by_username("owner")
-    UserFeedStore(store).save_snapshot(
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        job_id="job_snapshot_quality",
-        payload={
-            "generated_at": "2026-07-09T12:00:00+08:00",
-            "today_items": [
-                {
-                    "id": "rss:item:snapshot-quality",
-                    "source": "GitHub Blog",
-                    "channel": "其他",
-                    "topics": [],
-                    "score": 0,
-                    "signal_strength": "thin",
-                    "published_at": "2026-07-09T00:00:00+00:00",
-                }
-            ],
-        },
-    )
-
-    quality = client.get("/api/archive/source-quality").json()["data"]["sources"]
-
-    assert quality == [
-        {
-            "source": "GitHub Blog",
-            "total_items": 1,
-            "hit_rate": 0.0,
-            "other_channel_rate": 1.0,
-            "empty_topics_rate": 1.0,
-            "thin_signal_rate": 1.0,
-            "last_seen_at": "2026-07-09T00:00:00+00:00",
-        }
-    ]
-
-
 def test_api_catalog_source_fetch_queues_source_scoped_job_and_viewer_is_read_only(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
     _login(client)
@@ -3192,20 +3076,6 @@ def test_item_state_api_updates_visible_items_and_feed_returns_user_state(tmp_pa
     assert updated.json()["data"]["is_saved"] is True
     assert updated.json()["data"]["is_later"] is True
 
-    feedback = client.post(
-        "/api/me/items/rss:item:1/feedback",
-        json={"feedback_type": "more_like_this", "reason": "useful"},
-    )
-    assert feedback.status_code == 200
-    assert feedback.json()["data"]["feedback_type"] == "more_like_this"
-
-    invalid_feedback = client.post(
-        "/api/me/items/rss:item:1/feedback",
-        json={"feedback_type": "bad_signal"},
-    )
-    assert invalid_feedback.status_code == 400
-    assert invalid_feedback.json()["error"]["code"] == "invalid_feedback_type"
-
     states = client.get("/api/me/item-state?article_ids=rss:item:1,rss:item:missing")
     assert states.status_code == 200
     assert states.json()["data"]["states"]["rss:item:1"]["is_saved"] is True
@@ -3311,7 +3181,7 @@ def test_feed_latest_applies_current_user_state_filters_and_sorting(tmp_path, mo
     assert hidden_feed["today_items"] == hidden_feed["items"]
 
 
-def test_viewer_cannot_write_item_state_or_feedback(tmp_path, monkeypatch):
+def test_viewer_cannot_write_item_state(tmp_path, monkeypatch):
     client, data_dir = _client(tmp_path, monkeypatch)
     _login(client)
     viewer = client.post(
@@ -3334,12 +3204,9 @@ def test_viewer_cannot_write_item_state_or_feedback(tmp_path, monkeypatch):
     readable = client.get("/api/me/item-state?article_ids=rss:item:viewer")
     assert readable.status_code == 200
 
-    for response in [
-        client.patch("/api/me/items/rss:item:viewer/state", json={"is_read": True}),
-        client.post("/api/me/items/rss:item:viewer/feedback", json={"feedback_type": "not_relevant"}),
-    ]:
-        assert response.status_code == 403
-        assert response.json()["error"]["code"] == "forbidden"
+    response = client.patch("/api/me/items/rss:item:viewer/state", json={"is_read": True})
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden"
 
 
 def test_saved_feed_and_item_detail_survive_later_snapshots_and_are_user_isolated(
@@ -3601,163 +3468,10 @@ def test_media_api_and_catalog_avatar_enforce_user_and_source_scope(tmp_path, mo
     assert client.get("/api/media/med_content").status_code == 404
 
 
-def test_archive_api_uses_current_user_visible_articles_and_returns_facets(tmp_path, monkeypatch):
-    client, data_dir = _client(tmp_path, monkeypatch)
-    _login(client)
-    store = ServiceStore(data_dir)
-    store.initialize()
-    workspace = store.get_default_workspace()
-    owner = store.get_user_by_username("owner")
-    article_store = ArticleStore(data_dir)
-    article_store.initialize()
-    visible = ContentItem(
-        id="rss:item:visible",
-        source_type=SourceType.RSS,
-        title="Visible Codex",
-        url="https://example.com/visible",
-        published_at=datetime(2026, 7, 8, tzinfo=timezone.utc),
-        metadata={"feed_name": "Example RSS"},
-    )
-    visible.ai_score = 9.0
-    visible.ai_channel = "AI"
-    visible.ai_topics = ["Codex"]
-    visible.ai_signal_strength = "strong"
-    visible.ai_entities = ["OpenAI"]
-    hidden = ContentItem(
-        id="rss:item:hidden",
-        source_type=SourceType.RSS,
-        title="Hidden Codex",
-        url="https://example.com/hidden",
-        published_at=datetime(2026, 7, 9, tzinfo=timezone.utc),
-        metadata={"feed_name": "Example RSS"},
-    )
-    hidden.ai_score = 9.9
-    hidden.ai_channel = "AI"
-    hidden.ai_topics = ["Codex"]
-    hidden.ai_signal_strength = "strong"
-    hidden.ai_entities = ["OpenAI"]
-    article_store.upsert_articles_light([visible, hidden])
-    UserFeedStore(store).save_snapshot(
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        job_id="job_owner",
-        payload={
-            "generated_at": "2026-07-09T10:00:00+08:00",
-            "items": [
-                {
-                    "id": "rss:item:visible",
-                    "source": "Example RSS",
-                    "channel": "AI",
-                    "topics": ["Codex"],
-                    "score": 9.0,
-                    "published_at": "2026-07-08T00:00:00+00:00",
-                }
-            ],
-        },
-    )
-
-    items = client.get(
-        "/api/archive/items?channel=AI&topic=Codex&min_score=8&limit=10&offset=0&sort=score&order=desc"
-    ).json()["data"]
-    trends = client.get("/api/archive/trends?group_by=topic&bucket=none").json()["data"]["trends"]
-    facets = client.get("/api/archive/facets").json()["data"]
-    quality = client.get("/api/archive/source-quality").json()["data"]["sources"]
-
-    assert items["page"] == {"limit": 10, "offset": 0, "total": 1, "has_more": False}
-    assert [item["id"] for item in items["items"]] == ["rss:item:visible"]
-    assert items["scope"]["user_id"] == owner["id"]
-    assert trends == [{"key": "Codex", "count": 1}]
-    assert facets["channels"] == [{"key": "AI", "count": 1}]
-    assert facets["topics"] == [{"key": "Codex", "count": 1}]
-    assert facets["sources"] == [{"key": "Example RSS", "count": 1}]
-    assert quality[0]["source"] == "Example RSS"
-    assert quality[0]["total_items"] == 1
-    assert quality[0]["last_seen_at"] == "2026-07-08T00:00:00+00:00"
-
-
-def test_archive_api_rejects_invalid_query_params_with_error_envelope(tmp_path, monkeypatch):
+def test_feed_facades_require_login(tmp_path, monkeypatch):
     client, _data_dir = _client(tmp_path, monkeypatch)
-    _login(client)
 
-    invalid_sort = client.get("/api/archive/items?sort=bad")
-    invalid_dates = client.get("/api/archive/items?date_from=2026-07-10&date_to=2026-07-01")
-    invalid_group = client.get("/api/archive/trends?group_by=bad")
-
-    assert invalid_sort.status_code == 400
-    assert invalid_sort.json()["error"]["code"] == "invalid_sort"
-    assert invalid_dates.status_code == 400
-    assert invalid_dates.json()["error"]["code"] == "invalid_date_range"
-    assert invalid_group.status_code == 400
-    assert invalid_group.json()["error"]["code"] == "invalid_group_by"
-
-
-def test_archive_facets_respects_query_filters(tmp_path, monkeypatch):
-    client, data_dir = _client(tmp_path, monkeypatch)
-    _login(client)
-    store = ServiceStore(data_dir)
-    store.initialize()
-    workspace = store.get_default_workspace()
-    owner = store.get_user_by_username("owner")
-    article_store = ArticleStore(data_dir)
-    article_store.initialize()
-    ai_item = ContentItem(
-        id="rss:item:ai",
-        source_type=SourceType.RSS,
-        title="AI item",
-        url="https://example.com/ai",
-        published_at=datetime(2026, 7, 8, tzinfo=timezone.utc),
-        metadata={"feed_name": "Example RSS"},
-    )
-    ai_item.ai_score = 9.0
-    ai_item.ai_channel = "AI"
-    ai_item.ai_topics = ["Codex"]
-    finance_item = ContentItem(
-        id="rss:item:finance",
-        source_type=SourceType.RSS,
-        title="Finance item",
-        url="https://example.com/finance",
-        published_at=datetime(2026, 7, 8, tzinfo=timezone.utc),
-        metadata={"feed_name": "Example RSS"},
-    )
-    finance_item.ai_score = 8.0
-    finance_item.ai_channel = "投资"
-    finance_item.ai_topics = ["Macro"]
-    article_store.upsert_articles_light([ai_item, finance_item])
-    UserFeedStore(store).save_snapshot(
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        job_id="job_facets",
-        payload={
-            "generated_at": "2026-07-09T10:00:00+08:00",
-            "items": [
-                {"id": "rss:item:ai", "channel": "AI", "topics": ["Codex"], "source": "Example RSS"},
-                {"id": "rss:item:finance", "channel": "投资", "topics": ["Macro"], "source": "Example RSS"},
-            ],
-        },
-    )
-
-    facets = client.get("/api/archive/facets?channel=AI").json()["data"]
-
-    assert facets["channels"] == [{"key": "AI", "count": 1}]
-    assert facets["topics"] == [{"key": "Codex", "count": 1}]
-
-
-def test_feed_and_archive_facades_require_login(tmp_path, monkeypatch):
-    client, data_dir = _client(tmp_path, monkeypatch)
-    (data_dir / "site" / "radar-data.json").write_text(
-        json.dumps({"items": []}),
-        encoding="utf-8",
-    )
-    (data_dir / "site" / "history-data.json").write_text(
-        json.dumps({"items": []}),
-        encoding="utf-8",
-    )
-    (data_dir / "site" / "article-graph.json").write_text(
-        json.dumps({"nodes": [], "edges": []}),
-        encoding="utf-8",
-    )
-
-    for path in ["/api/feed/latest", "/api/feed/history", "/api/archive/graph"]:
+    for path in ["/api/feed/latest", "/api/feed/history"]:
         response = client.get(path)
         assert response.status_code == 401
         assert response.json()["ok"] is False
@@ -5302,3 +5016,26 @@ def test_concurrent_manual_feed_refresh_api_deduplicates_and_charges_once(tmp_pa
     ).fetchone()
     assert active["count"] == 1
     assert usage["total"] == 1
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/archive/graph"),
+        ("GET", "/api/archive/items"),
+        ("GET", "/api/archive/trends"),
+        ("GET", "/api/archive/facets"),
+        ("GET", "/api/archive/source-quality"),
+        ("POST", "/api/me/items/example/feedback"),
+    ],
+)
+def test_retired_api_surfaces_return_404_and_leave_openapi(method, path, tmp_path, monkeypatch):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+
+    response = client.request(method, path, json={} if method == "POST" else None)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    schema_paths = client.get("/openapi.json").json()["paths"]
+    assert path not in schema_paths

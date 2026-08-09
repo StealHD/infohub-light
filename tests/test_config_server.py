@@ -4,24 +4,21 @@ import socket
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from types import SimpleNamespace
-from pathlib import Path
 
 import httpx
 import pytest
 
 from src.services import network_policy
 
-from src.ui.server import (
+from src.config_migration import migrate_config_tag_layers
+from src.services.config_runtime import (
     _APIFY_SOCIAL_DEFAULT_ACTORS,
-    RadarWebHandler,
     apply_config_action,
     build_env_status,
-    migrate_config_tag_layers,
     normalize_config_payload,
-    run_source_test,
-    source_update_payload,
     validate_config_data,
 )
+from src.services.source_probe import run_source_test
 from src.tag_policy import (
     normalize_channel,
     normalize_signal_strength,
@@ -49,11 +46,6 @@ def _minimal_config():
             "hackernews": {"enabled": True},
         },
         "filtering": {"ai_score_threshold": 7.5, "time_window_hours": 24},
-        "webhook": {
-            "enabled": True,
-            "url_env": "HORIZON_WEBHOOK_URL",
-            "request_body": {"text": "#{summary}"},
-        },
     }
 
 
@@ -70,8 +62,6 @@ def test_validate_config_data_accepts_valid_config():
     assert validated.ai.provider.value == "openai"
     assert validated.ai.enabled is True
     assert validated.sources.rss[0].name == "Example Feed"
-    assert validated.premium_analysis.enabled is False
-    assert validated.article_graph.enabled is False
     assert validated.filtering.rss_initial_fetch_window_hours == 168
 
 
@@ -86,29 +76,6 @@ def test_validate_config_data_rejects_non_integer_rss_initial_window(value):
 
 def test_apify_social_ui_default_uses_single_item_capable_x_actor():
     assert _APIFY_SOCIAL_DEFAULT_ACTORS["x"] == "xquik/x-tweet-scraper"
-
-
-def test_validate_config_data_accepts_article_graph_config():
-    config = _minimal_config()
-    config["premium_analysis"] = {
-        "enabled": True,
-        "full_fetch_score_threshold": 8.5,
-        "max_full_fetch_per_run": 6,
-        "max_full_text_chars": 8000,
-    }
-    config["article_graph"] = {
-        "enabled": True,
-        "premium_score_threshold": 8.5,
-        "relation_top_k": 3,
-        "min_relation_score": 0.45,
-    }
-
-    validated = validate_config_data(config)
-
-    assert validated.premium_analysis.enabled is True
-    assert validated.premium_analysis.max_full_fetch_per_run == 6
-    assert validated.article_graph.enabled is True
-    assert validated.article_graph.min_relation_score == 0.45
 
 
 def test_hub_taxonomy_normalizes_channels_topics_and_signals():
@@ -145,7 +112,6 @@ def test_migrate_config_tag_layers_keeps_custom_tags_as_reading_topics():
 def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-value")
     monkeypatch.setenv("RSSHUB_ACCESS_KEY", "rsshub-master-secret")
-    monkeypatch.delenv("HORIZON_WEBHOOK_URL", raising=False)
     config = validate_config_data(_minimal_config())
 
     status = build_env_status(config)
@@ -155,11 +121,6 @@ def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
         "name": "OPENAI_API_KEY",
         "set": True,
         "used_by": ["ai.api_key_env"],
-    }
-    assert by_name["HORIZON_WEBHOOK_URL"] == {
-        "name": "HORIZON_WEBHOOK_URL",
-        "set": False,
-        "used_by": ["webhook.url_env"],
     }
     assert by_name["RSSHUB_ACCESS_KEY"] == {
         "name": "RSSHUB_ACCESS_KEY",
@@ -949,27 +910,6 @@ def test_source_test_apify_social_requires_token(monkeypatch):
         )
 
 
-def test_web_handler_serves_bundled_assets_and_generated_data(tmp_path):
-    data_dir = tmp_path / "data"
-    generated_dir = data_dir / "site"
-    static_dir = tmp_path / "static"
-    generated_dir.mkdir(parents=True)
-    static_dir.mkdir()
-    (generated_dir / "styles.css").write_text("generated", encoding="utf-8")
-    (static_dir / "styles.css").write_text("bundled", encoding="utf-8")
-    (generated_dir / "radar-data.json").write_text('{"ok": true}', encoding="utf-8")
-
-    handler = object.__new__(RadarWebHandler)
-    handler.data_dir = data_dir
-    handler.static_dir = static_dir
-
-    resolved_asset = Path(handler.translate_path("/styles.css?v=cache"))
-    resolved_data = Path(handler.translate_path("/radar-data.json?v=cache"))
-
-    assert resolved_asset.read_text(encoding="utf-8") == "bundled"
-    assert resolved_data.read_text(encoding="utf-8") == '{"ok": true}'
-
-
 def test_apply_config_action_adds_github_release():
     config = _minimal_config()
 
@@ -996,7 +936,7 @@ def test_source_payload_rejects_invalid_rss_url():
 
 def test_source_payload_parses_rss_feed(monkeypatch):
     monkeypatch.setattr(
-        "src.ui.server._fetch_text",
+        "src.services.source_probe._fetch_text",
         lambda url, headers=None: """<?xml version="1.0"?>
 <rss version="2.0">
   <channel>
@@ -1047,7 +987,7 @@ def test_managed_rsshub_source_test_uses_route_code_without_returning_it(
   </channel>
 </rss>"""
 
-    monkeypatch.setattr("src.ui.server._fetch_text", fake_fetch)
+    monkeypatch.setattr("src.services.source_probe._fetch_text", fake_fetch)
     feed_url = (
         "https://rsshub.example.com/private/"
         "bilibili/user/video/39627524/1"
@@ -1082,7 +1022,7 @@ def test_source_test_propagates_member_public_network_policy(monkeypatch):
         return """<?xml version="1.0"?>
 <rss version="2.0"><channel><item><title>Safe</title></item></channel></rss>"""
 
-    monkeypatch.setattr("src.ui.server._fetch_text", fake_fetch)
+    monkeypatch.setattr("src.services.source_probe._fetch_text", fake_fetch)
 
     run_source_test({
         "source_type": "rss",
@@ -1169,7 +1109,7 @@ def test_source_test_supports_reddit_user(monkeypatch):
             }
         }
 
-    monkeypatch.setattr("src.ui.server._fetch_json", fake_fetch_json)
+    monkeypatch.setattr("src.services.source_probe._fetch_json", fake_fetch_json)
 
     result = run_source_test(
         {"source_type": "reddit_user", "username": "spez", "sort": "new"}
@@ -1179,22 +1119,3 @@ def test_source_test_supports_reddit_user(monkeypatch):
     assert result["ok"] is True
     assert result["source_type"] == "reddit_user"
     assert result["sample_title"] == "User post"
-
-
-def test_source_update_payload_validates_hours_and_index():
-    assert source_update_payload({"source_type": "rss", "index": "2", "hours": "48"}) == (
-        "rss",
-        2,
-        48,
-    )
-    assert source_update_payload({"source_type": "hackernews", "hours": ""}) == (
-        "hackernews",
-        None,
-        24,
-    )
-
-    with pytest.raises(ValueError, match="hours"):
-        source_update_payload({"source_type": "rss", "index": 0, "hours": 721})
-
-    with pytest.raises(ValueError, match="index"):
-        source_update_payload({"source_type": "rss", "hours": 24})

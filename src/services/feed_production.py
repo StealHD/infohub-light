@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable
 
 from ..models import Config
 from ..storage.service_store import ServiceStore
-from ..ui.site import build_site_payload, normalize_feed_payload
+from .feed_payload import build_feed_payload, normalize_feed_payload
 from .feed_run import FeedRunResult, safe_issue, safe_run_diagnostics
 from .canonical_content import merge_feed_items
 from .user_feed_store import UserFeedSnapshotInput, UserFeedStore
@@ -239,7 +239,7 @@ class FeedProductionService:
     ) -> dict[str, Any]:
         if result.status == "failed":
             raise ValueError("failed run cannot create a feed snapshot")
-        current = build_site_payload(
+        current = build_feed_payload(
             all_items=list(result.items),
             date=str(result.finished_at)[:10],
             total_fetched=sum(outcome.fetched_count for outcome in result.source_outcomes),

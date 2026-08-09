@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 
 from src.models import ContentItem, SourceType
-from src.services.feed_archive import FeedArchiveService
+from src.services.feed_read import FeedReadService
 from src.services.user_content_store import UserContentStore
 from src.services.user_analysis_cache import UserAnalysisCache
 from src.services.user_feed_store import UserFeedStore
@@ -132,7 +132,7 @@ def test_source_native_title_is_internal_and_legacy_upsert_cannot_erase_it(
     monkeypatch,
 ):
     from src.services.canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
-    from src.ui.site import build_site_payload, serialize_item
+    from src.services.feed_payload import build_feed_payload, serialize_feed_item
 
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
     try:
@@ -151,7 +151,7 @@ def test_source_native_title_is_internal_and_legacy_upsert_cannot_erase_it(
             published_at=datetime(2026, 7, 24, tzinfo=timezone.utc),
             metadata={"title_zh": "Donor AI display title"},
         )
-        serialized = serialize_item(item, featured_threshold=8.0)
+        serialized = serialize_feed_item(item, featured_threshold=8.0)
         assert (
             serialized[INTERNAL_SOURCE_NATIVE_TITLE_KEY]
             == "Canonical source title"
@@ -182,7 +182,7 @@ def test_source_native_title_is_internal_and_legacy_upsert_cannot_erase_it(
         ).fetchone()
         assert stored["source_native_title"] == "Canonical source title"
         assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in stored["item_json"]
-        static_payload = build_site_payload(
+        static_payload = build_feed_payload(
             all_items=[item],
             date="2026-07-24",
             total_fetched=1,
@@ -538,9 +538,9 @@ def test_media_cache_downloads_at_most_six_images_and_rewrites_item_urls(
     assert item.metadata["avatar_url"].startswith("/api/media/med_")
     assert all((tmp_path / row["local_path"]).is_file() for row in rows)
 
-    from src.ui.site import serialize_item
+    from src.services.feed_payload import serialize_feed_item
 
-    serialized = serialize_item(item, featured_threshold=8.0)
+    serialized = serialize_feed_item(item, featured_threshold=8.0)
     assert serialized["presentation"]["media"] == {
         "images": [
             {"url": url, "alt": "Gallery"}
@@ -585,7 +585,7 @@ def test_media_cache_reuses_checksum_across_rotating_instagram_urls(
     tmp_path, monkeypatch
 ):
     from src.services.media_cache import MediaCacheService
-    from src.ui.site import serialize_item
+    from src.services.feed_payload import serialize_feed_item
 
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
     shared_bytes = b"\x89PNG\r\n\x1a\n" + b"same-instagram-image"
@@ -631,7 +631,7 @@ def test_media_cache_reuses_checksum_across_rotating_instagram_urls(
     assert rows[0]["remote_url"].endswith("sig=newer")
     assert second.metadata["media_urls"] == [first_local_url]
 
-    serialized = serialize_item(second, featured_threshold=8.0)
+    serialized = serialize_feed_item(second, featured_threshold=8.0)
     UserContentStore(store).upsert_items(
         workspace_id=workspace["id"],
         user_id=owner["id"],
@@ -1104,17 +1104,7 @@ def test_user_feed_store_isolates_snapshots_between_users(tmp_path, monkeypatch)
 
 def test_history_feed_returns_empty_schema_then_single_snapshot_metadata(tmp_path, monkeypatch):
     store, workspace, owner, alice = _store_with_users(tmp_path, monkeypatch)
-    service = FeedArchiveService(tmp_path, store=store)
-
-    def fail_global_read(*_args, **_kwargs):
-        raise AssertionError("user history must not read global site JSON")
-
-    class FailArticleStore:
-        def __init__(self, *_args, **_kwargs):
-            raise AssertionError("user history must not read ArticleStore")
-
-    monkeypatch.setattr(FeedArchiveService, "_read_site_json", fail_global_read)
-    monkeypatch.setattr("src.services.feed_archive.ArticleStore", FailArticleStore)
+    service = FeedReadService(store)
 
     empty_history = service.history_feed(
         workspace_id=workspace["id"],
@@ -1252,7 +1242,7 @@ def test_history_feed_rebuilds_filter_collections_from_final_history_items(
         ],
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1324,7 +1314,7 @@ def test_history_feed_uses_durable_index_when_v2_snapshot_payload_is_rewritten(t
         },
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1365,7 +1355,7 @@ def test_history_feed_does_not_replace_durable_index_from_rewritten_legacy_snaps
         },
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1436,7 +1426,7 @@ def test_history_feed_strips_remote_media_from_legacy_snapshots_without_rewritin
         },
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1499,7 +1489,7 @@ def test_history_feed_uses_effective_time_and_does_not_revive_repeated_items(
         ],
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1563,7 +1553,7 @@ def test_history_feed_uses_saved_featured_membership_order_and_current_user_stat
         dismissed=True,
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1600,7 +1590,7 @@ def test_history_feed_caps_items_at_200(tmp_path, monkeypatch):
         ],
     )
 
-    history = FeedArchiveService(tmp_path, store=store).history_feed(
+    history = FeedReadService(store).history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],
     )
@@ -1708,7 +1698,7 @@ def test_history_feed_queries_durable_items_before_pagination_with_full_provenan
         },
     )
 
-    service = FeedArchiveService(tmp_path, store=store)
+    service = FeedReadService(store)
     first_page = service.history_feed(
         workspace_id=workspace["id"],
         user_id=owner["id"],

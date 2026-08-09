@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from ..services.content_presentation import complete_content_presentation
-from ..services.feed_archive import FeedArchiveService
+from ..services.feed_read import FeedReadService
 from ..services.job_queue import JobQueue
 from ..services.source_health import SourceHealthService
 from ..services.user_content_store import MAX_CAPTURED_BODY_CHARS, UserContentStore
@@ -123,7 +123,7 @@ class RemoteMCPReadService:
 
     def __init__(self, store: ServiceStore) -> None:
         self.store = store
-        self.feed_archive = FeedArchiveService(store.data_dir, store=store)
+        self.feed_reader = FeedReadService(store)
         self.user_content = UserContentStore(store)
         self.health = SourceHealthService(store)
         self.jobs = JobQueue(store)
@@ -150,12 +150,12 @@ class RemoteMCPReadService:
         limit, offset = self._pagination(limit, offset)
         if collection not in {"latest", "history", "saved", "later"}:
             raise ValueError("collection must be latest, history, saved, or later")
-        latest = self.feed_archive.latest_feed(
+        latest = self.feed_reader.latest_feed(
             workspace_id=workspace_id,
             user_id=user_id,
             hide_dismissed=False,
         )
-        history = self.feed_archive.history_feed(
+        history = self.feed_reader.history_feed(
             workspace_id=workspace_id,
             user_id=user_id,
         )

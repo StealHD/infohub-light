@@ -34,7 +34,6 @@ def _inspect_database(db_path: Path) -> dict[str, Any]:
             "snapshot_count": 0,
             "item_count": 0,
             "state_count": 0,
-            "feedback_count": 0,
             "pending_feed_job_count": 0,
         }
     connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -52,11 +51,6 @@ def _inspect_database(db_path: Path) -> dict[str, Any]:
         state_count = (
             int(connection.execute("SELECT COUNT(*) FROM user_item_state").fetchone()[0])
             if _table_exists(connection, "user_item_state")
-            else 0
-        )
-        feedback_count = (
-            int(connection.execute("SELECT COUNT(*) FROM user_item_feedback").fetchone()[0])
-            if _table_exists(connection, "user_item_feedback")
             else 0
         )
         pending_feed_job_count = (
@@ -90,7 +84,6 @@ def _inspect_database(db_path: Path) -> dict[str, Any]:
                     snapshot_count,
                     item_count,
                     state_count,
-                    feedback_count,
                     pending_feed_job_count,
                 )
             )
@@ -98,7 +91,6 @@ def _inspect_database(db_path: Path) -> dict[str, Any]:
         "snapshot_count": snapshot_count,
         "item_count": item_count,
         "state_count": state_count,
-        "feedback_count": feedback_count,
         "pending_feed_job_count": pending_feed_job_count,
     }
 
@@ -160,7 +152,6 @@ def migrate_feed_v2(
         "snapshot_count": inspection["snapshot_count"],
         "item_count": inspection["item_count"],
         "state_count": inspection["state_count"],
-        "feedback_count": inspection["feedback_count"],
         "pending_feed_job_count": inspection["pending_feed_job_count"],
         "backup_path": None,
     }
@@ -198,7 +189,6 @@ def migrate_feed_v2(
             """,
             (now, now, now),
         ).rowcount
-        deleted_feedback = conn.execute("DELETE FROM user_item_feedback").rowcount
         deleted_state = conn.execute("DELETE FROM user_item_state").rowcount
         deleted_items = conn.execute("DELETE FROM user_feed_items").rowcount
         deleted_snapshots = conn.execute("DELETE FROM user_feed_snapshots").rowcount
@@ -233,7 +223,6 @@ def migrate_feed_v2(
             "migration_required": False,
             "backup_path": str(backup_path),
             "cancelled_jobs": cancelled,
-            "deleted_feedback": deleted_feedback,
             "deleted_state": deleted_state,
             "deleted_items": deleted_items,
             "deleted_snapshots": deleted_snapshots,

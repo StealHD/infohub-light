@@ -23,7 +23,7 @@ from src.services.feed_end_messages import (
 from src.services.job_queue import JobQueue
 from src.services.worker import run_worker_once
 from src.storage.service_store import ServiceStore
-from src.ui.server import apply_config_action, validate_config_data
+from src.services.config_runtime import apply_config_action, validate_config_data
 
 
 def _config_data(*, ai_enabled: bool = True, generator_enabled: bool = True):

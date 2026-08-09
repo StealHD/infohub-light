@@ -17,7 +17,6 @@ from src.storage.service_store import ServiceStore
 RESET_TABLES = (
     "user_source_health_applications",
     "user_source_health",
-    "user_item_feedback",
     "user_item_state",
     "user_feed_items",
     "user_feed_snapshots",

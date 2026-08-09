@@ -5,8 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from src.auth import verify_password_hash
 from src.storage.service_store import ServiceStore, UserActiveJobsError
-from src.ui.auth import verify_password_hash
 
 
 def test_service_store_uses_an_independent_connection_per_thread(tmp_path, monkeypatch):
@@ -527,7 +527,7 @@ def test_service_store_upsert_source_does_not_take_over_another_users_private_ke
     assert store.get_source(alice_source["id"])["owner_user_id"] == alice["id"]
 
 
-def test_service_store_initializes_user_item_behavior_tables(tmp_path, monkeypatch):
+def test_service_store_initializes_item_state_without_feedback_table(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
 
@@ -538,10 +538,6 @@ def test_service_store_initializes_user_item_behavior_tables(tmp_path, monkeypat
     state_columns = {
         row["name"]
         for row in store.connect().execute("PRAGMA table_info(user_item_state)").fetchall()
-    }
-    feedback_columns = {
-        row["name"]
-        for row in store.connect().execute("PRAGMA table_info(user_item_feedback)").fetchall()
     }
 
     assert {
@@ -554,15 +550,32 @@ def test_service_store_initializes_user_item_behavior_tables(tmp_path, monkeypat
         "dismissed_at",
         "updated_at",
     }.issubset(state_columns)
-    assert {
-        "workspace_id",
-        "user_id",
-        "article_id",
-        "feedback_type",
-        "reason",
-        "metadata_json",
-        "created_at",
-    }.issubset(feedback_columns)
+    assert store.connect().execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_item_feedback'"
+    ).fetchone() is None
+
+
+def test_service_store_initialize_preserves_legacy_feedback_rows(tmp_path, monkeypatch):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    db_path = tmp_path / "service.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "CREATE TABLE user_item_feedback (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO user_item_feedback (id, payload) VALUES ('legacy-1', 'keep')"
+    )
+    connection.commit()
+    connection.close()
+
+    store = ServiceStore(tmp_path)
+    store.initialize()
+
+    row = store.connect().execute(
+        "SELECT id, payload FROM user_item_feedback WHERE id = 'legacy-1'"
+    ).fetchone()
+    assert dict(row) == {"id": "legacy-1", "payload": "keep"}
 
 
 def test_service_store_initializes_stable_content_and_media_schema(tmp_path, monkeypatch):

@@ -33,7 +33,7 @@ from ..logging_utils import (
     error_fingerprint,
     logging_health_status,
 )
-from ..services.feed_archive import FeedArchiveService
+from ..services.feed_read import FeedReadService
 from ..services.feed_end_messages import (
     FeedEndMessagesDisabled,
     FeedEndMessagesService,
@@ -154,9 +154,16 @@ from ..storage.service_store import (
     UsernameConflictError,
 )
 from ..tag_policy import HUB_CHANNELS
-from ..ui.auth import AuthSettings, COOKIE_NAME
+from ..auth import AuthSettings, COOKIE_NAME
 from ..config_migration import migrate_config_tag_layers
-from ..ui.server import STATIC_DIR as LEGACY_STATIC_DIR, _read_json, _write_json, apply_config_action, build_env_status, validate_config_data
+from ..services.config_runtime import (
+    _read_json,
+    _write_json,
+    apply_config_action,
+    build_env_status,
+    public_config_data,
+    validate_config_data,
+)
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -173,24 +180,12 @@ _NONRETRYABLE_ACTOR_OUTPUT_FAILURES = frozenset(
 
 
 def resolve_service_static_dir(
-    variant: str | None = None,
     *,
     react_dir: Path | str = SERVICE_STATIC_DIR,
-    legacy_dir: Path | str = LEGACY_STATIC_DIR,
 ) -> Path:
-    """Resolve the Service UI without changing the legacy CLI/web asset directory."""
+    """Return the sole React UI directory, whether or not it is built yet."""
 
-    selected = str(variant or os.getenv("HORIZON_SERVICE_UI_VARIANT", "react")).strip().lower()
-    if selected not in {"react", "legacy"}:
-        raise ValueError("HORIZON_SERVICE_UI_VARIANT must be react or legacy")
-    react_path = Path(react_dir)
-    legacy_path = Path(legacy_dir)
-    if selected == "legacy":
-        return legacy_path
-    if (react_path / "index.html").exists():
-        return react_path
-    _LOGGER.warning("React Service UI build is missing; falling back to legacy assets")
-    return legacy_path
+    return Path(react_dir)
 
 
 def _normalize_frontend_path(frontend_path: str) -> str | None:
@@ -957,13 +952,6 @@ class ItemStatePatchRequest(BaseModel):
     dismissed: bool | None = None
 
 
-class ItemFeedbackRequest(BaseModel):
-    feedback_type: str
-    value: int | None = None
-    reason: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 class AgentDelegationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1256,10 +1244,6 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "account",
         "item_state_update",
     ),
-    ("POST", "/api/me/items/{article_id}/feedback"): (
-        "account",
-        "item_feedback",
-    ),
     ("POST", "/api/jobs/source-test"): ("job", "source_test_queue"),
     ("POST", "/api/jobs/source-fetch"): ("job", "source_fetch_queue"),
     ("POST", "/api/jobs/user-feed-refresh"): ("job", "feed_refresh_queue"),
@@ -1482,7 +1466,7 @@ def create_app(
     )
     feed_schedules = FeedScheduleService(store, quota=quota)
     source_schedules = SourceScheduleService(store, quota=quota)
-    feed_archive = FeedArchiveService(data_path, store=store)
+    feed_reader = FeedReadService(store)
     feed_end_messages = FeedEndMessagesService(store)
     item_state = UserItemStateStore(store)
     user_content = UserContentStore(store)
@@ -3645,7 +3629,7 @@ def create_app(
         )
         return {
             "path": str(data_path / "config.json"),
-            "config": data,
+            "config": public_config_data(data),
             "taxonomy": {
                 "channels": list(HUB_CHANNELS),
                 "topics": list(config.tags),
@@ -4098,26 +4082,6 @@ def create_app(
         if not target or target["workspace_id"] != user["workspace_id"]:
             raise ApiError("not_found", "target user not found", status_code=404)
         return target
-
-    def validate_archive_params(
-        *,
-        date_from: str | None = None,
-        date_to: str | None = None,
-        sort: str = "published_at",
-        order: str = "desc",
-        group_by: str | None = None,
-        bucket: str = "none",
-    ) -> None:
-        if sort not in {"published_at", "score", "source", "channel", "id"}:
-            raise ApiError("invalid_sort", "sort must be published_at, score, source, channel, or id", status_code=400)
-        if order not in {"asc", "desc"}:
-            raise ApiError("invalid_order", "order must be asc or desc", status_code=400)
-        if date_from and date_to and date_from > date_to:
-            raise ApiError("invalid_date_range", "date_from must be before date_to", status_code=400)
-        if group_by is not None and group_by not in {"channel", "topic", "entity", "source"}:
-            raise ApiError("invalid_group_by", "group_by must be channel, topic, entity, or source", status_code=400)
-        if bucket not in {"none", "day", "week"}:
-            raise ApiError("invalid_bucket", "bucket must be none, day, or week", status_code=400)
 
     @app.get("/api/auth/status")
     async def auth_status(request: Request) -> dict[str, Any]:
@@ -8595,29 +8559,6 @@ def create_app(
             )
         )
 
-    @app.post("/api/me/items/{article_id}/feedback")
-    async def me_item_feedback(
-        article_id: str,
-        payload: ItemFeedbackRequest,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        visible_item_or_404(article_id, user)
-        try:
-            return ok(
-                item_state.record_feedback(
-                    workspace_id=user["workspace_id"],
-                    user_id=user["id"],
-                    article_id=article_id,
-                    feedback_type=payload.feedback_type,
-                    value=payload.value,
-                    reason=payload.reason,
-                    metadata=payload.metadata,
-                )
-            )
-        except ValueError as exc:
-            raise ApiError("invalid_feedback_type", str(exc), status_code=400) from exc
-
     def create_job(payload: JobCreateRequest, job_type: str, user: dict[str, Any]) -> dict[str, Any]:
         require_mutating_member(user)
         reserved_canary_fields = {
@@ -8966,7 +8907,7 @@ def create_app(
             workspace_id=user["workspace_id"],
             user_id=None if _is_admin(user) else user["id"],
         )
-        latest = feed_archive.latest_feed(workspace_id=user["workspace_id"], user_id=user["id"])
+        latest = feed_reader.latest_feed(workspace_id=user["workspace_id"], user_id=user["id"])
         item_state_counts = item_state.count_flags(workspace_id=user["workspace_id"], user_id=user["id"])
         runtime = runtime_status.summary(workspace_id=user["workspace_id"], user_id=user["id"])
         return ok(
@@ -9001,7 +8942,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         target = target_user_for_scope(user_id, user)
-        payload = feed_archive.latest_feed(
+        payload = feed_reader.latest_feed(
             workspace_id=target["workspace_id"],
             user_id=target["id"],
             hide_dismissed=hide_dismissed,
@@ -9109,7 +9050,7 @@ def create_app(
                 status_code=400,
             )
         try:
-            result = feed_archive.search_feed(
+            result = feed_reader.search_feed(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
                 q=normalized_q,
@@ -9239,7 +9180,7 @@ def create_app(
             if normalized_source_id not in visible_source_ids:
                 raise ApiError("not_found", "source not found", status_code=404)
         return ok(
-            feed_archive.history_feed(
+            feed_reader.history_feed(
                 workspace_id=target["workspace_id"],
                 user_id=target["id"],
                 q=normalized_q or None,
@@ -9249,87 +9190,6 @@ def create_app(
                 feed_window_days=current_feed_window_days(),
             )
         )
-
-    @app.get("/api/archive/graph")
-    async def archive_graph(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok(feed_archive.article_graph())
-
-    @app.get("/api/archive/items")
-    async def archive_items(
-        user_id: str | None = None,
-        channel: str | None = None,
-        topic: str | None = None,
-        source: str | None = None,
-        date_from: str | None = None,
-        date_to: str | None = None,
-        min_score: float = 0.0,
-        limit: int = 100,
-        offset: int = 0,
-        sort: str = "published_at",
-        order: str = "desc",
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        validate_archive_params(date_from=date_from, date_to=date_to, sort=sort, order=order)
-        target = target_user_for_scope(user_id, user)
-        return ok(
-            feed_archive.archive_items(
-                user_id=target["id"],
-                channel=channel,
-                topic=topic,
-                source=source,
-                date_from=date_from,
-                date_to=date_to,
-                min_score=min_score,
-                limit=max(1, min(int(limit), 200)),
-                offset=max(int(offset), 0),
-                sort=sort,
-                order=order,
-            )
-        )
-
-    @app.get("/api/archive/trends")
-    async def archive_trends(
-        user_id: str | None = None,
-        group_by: str = "channel",
-        bucket: str = "none",
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        validate_archive_params(group_by=group_by, bucket=bucket)
-        target = target_user_for_scope(user_id, user)
-        return ok({"trends": feed_archive.archive_trends(group_by=group_by, user_id=target["id"], bucket=bucket)})
-
-    @app.get("/api/archive/facets")
-    async def archive_facets(
-        user_id: str | None = None,
-        channel: str | None = None,
-        topic: str | None = None,
-        source: str | None = None,
-        date_from: str | None = None,
-        date_to: str | None = None,
-        min_score: float = 0.0,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        validate_archive_params(date_from=date_from, date_to=date_to)
-        target = target_user_for_scope(user_id, user)
-        return ok(
-            feed_archive.archive_facets(
-                user_id=target["id"],
-                channel=channel,
-                topic=topic,
-                source=source,
-                date_from=date_from,
-                date_to=date_to,
-                min_score=min_score,
-            )
-        )
-
-    @app.get("/api/archive/source-quality")
-    async def archive_source_quality(
-        user_id: str | None = None,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        target = target_user_for_scope(user_id, user)
-        return ok({"sources": feed_archive.source_quality(user_id=target["id"])})
 
     @app.api_route(
         "/api",
@@ -9342,6 +9202,7 @@ def create_app(
     @app.api_route(
         "/api/{_path:path}",
         methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
     )
     async def api_not_found(_path: str) -> dict[str, Any]:
         raise ApiError("not_found", "API endpoint not found", status_code=404)

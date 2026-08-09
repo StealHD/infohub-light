@@ -52,25 +52,19 @@ def _item(item_id: str, url: str, *, content: str | None = None) -> ContentItem:
     )
 
 
-class _ForbiddenNotifications:
-    def __getattr__(self, name):
-        raise AssertionError(f"notification side effect invoked: {name}")
-
-
 def _forbid_legacy_side_effects(monkeypatch, orchestrator):
-    async def forbidden(*args, **kwargs):
-        raise AssertionError("legacy publisher side effect invoked")
-
-    def forbidden_factory(*args, **kwargs):
-        raise AssertionError("summary generation invoked")
-
-    monkeypatch.setattr(orchestrator, "_write_web_ui", forbidden)
-    monkeypatch.setattr(orchestrator, "_run_article_graph_pipeline", forbidden)
-    monkeypatch.setattr(orchestrator, "_generate_summary", forbidden)
-    monkeypatch.setattr("src.orchestrator.DailySummarizer", forbidden_factory)
-    monkeypatch.setattr("src.orchestrator.load_history_item_ids", forbidden_factory)
-    orchestrator.email_manager = _ForbiddenNotifications()
-    orchestrator.webhook_notifier = _ForbiddenNotifications()
+    del monkeypatch
+    for attribute in (
+        "run",
+        "run_single_source_update",
+        "fetch_all_sources",
+        "_write_web_ui",
+        "_run_article_graph_pipeline",
+        "_generate_summary",
+        "email_manager",
+        "webhook_notifier",
+    ):
+        assert not hasattr(orchestrator, attribute)
 
 
 def test_feed_run_models_are_frozen_schema_v2_values():

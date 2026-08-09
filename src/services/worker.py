@@ -22,7 +22,7 @@ from ..observability_context import (
 )
 from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
 from ..storage.manager import StorageManager
-from ..ui.server import run_source_test
+from .source_probe import run_source_test
 from .feed_schedule import FeedScheduleService, SCHEDULED_REFRESH_REASON
 from .feed_end_messages import run_due_feed_end_messages_generation
 from .job_queue import JobQueue

@@ -14,7 +14,7 @@ from src.services.feed_schedule import FeedScheduleService
 from src.services.source_schedule import SourceScheduleService
 from src.services.source_type_registry import source_key, validate_source_config
 from src.storage.service_store import ServiceStore
-from src.ui.server import _read_json, _write_json, validate_config_data
+from src.services.config_runtime import _read_json, _write_json, validate_config_data
 
 
 SECRET_DEFINITIONS = (

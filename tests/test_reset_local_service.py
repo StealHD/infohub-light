@@ -51,6 +51,16 @@ def test_reset_local_service_clears_runtime_content_but_preserves_owner_and_conf
         ),
     )
     store.connect().commit()
+    store.connect().executescript(
+        """
+        CREATE TABLE user_item_feedback (
+            id TEXT PRIMARY KEY,
+            payload TEXT NOT NULL
+        );
+        INSERT INTO user_item_feedback (id, payload) VALUES ('legacy-feedback', 'keep');
+        """
+    )
+    store.connect().commit()
     FeedScheduleService(store).update_user_schedule(
         user_id=owner["id"], workspace_id=workspace["id"], enabled=True, interval_minutes=360,
     )
@@ -67,11 +77,14 @@ def test_reset_local_service_clears_runtime_content_but_preserves_owner_and_conf
     verify.initialize()
     for table in (
         "source_catalog", "user_subscriptions", "user_feed_snapshots", "user_feed_items",
-        "user_item_state", "user_item_feedback", "user_source_health",
+        "user_item_state", "user_source_health",
         "user_source_health_applications", "fetch_jobs", "usage_events", "worker_heartbeats",
         "secret_refs",
     ):
         assert verify.connect().execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    assert verify.connect().execute(
+        "SELECT payload FROM user_item_feedback WHERE id = 'legacy-feedback'"
+    ).fetchone()[0] == "keep"
     assert verify.connect().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1
     assert verify.connect().execute("SELECT COUNT(*) FROM workspaces").fetchone()[0] == 1
     schedule = FeedScheduleService(verify).get_user_schedule(user_id=owner["id"])

@@ -135,12 +135,7 @@ def test_worker_success_and_partial_finalize_snapshot_health_and_job_without_leg
         async def execute(self, **_kwargs):
             return next(results)
 
-    class ForbiddenLegacyPublisher:
-        def __init__(self, *_args, **_kwargs):
-            raise AssertionError("service worker must not construct LegacyPublisher")
-
     monkeypatch.setattr("src.orchestrator.HorizonOrchestrator", FakeOrchestrator)
-    monkeypatch.setattr("src.orchestrator.LegacyPublisher", ForbiddenLegacyPublisher)
 
     first = run_worker_once(data_dir=str(tmp_path), worker_id="health-worker-success")
     first_health = SourceHealthService(store).get_health(subscriptions[0]["id"])

@@ -25,7 +25,7 @@ from ..security import (
     text_contains_credential,
     url_contains_credentials,
 )
-from ..ui.auth import hash_password, verify_password_hash
+from ..auth import hash_password, verify_password_hash
 
 
 DEFAULT_WORKSPACE_ID = "default"
@@ -1735,22 +1735,6 @@ class ServiceStore:
             );
             CREATE INDEX IF NOT EXISTS idx_user_item_state_user_article
                 ON user_item_state(user_id, article_id);
-
-            CREATE TABLE IF NOT EXISTS user_item_feedback (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                article_id TEXT NOT NULL,
-                feedback_type TEXT NOT NULL,
-                value INTEGER,
-                reason TEXT NOT NULL DEFAULT '',
-                metadata_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_user_item_feedback_user_article_time
-                ON user_item_feedback(user_id, article_id, created_at);
 
             CREATE TABLE IF NOT EXISTS usage_events (
                 id TEXT PRIMARY KEY,
@@ -5647,7 +5631,6 @@ class ServiceStore:
                 SELECT 1 FROM user_feed_snapshots
                 UNION ALL SELECT 1 FROM user_feed_items
                 UNION ALL SELECT 1 FROM user_item_state
-                UNION ALL SELECT 1 FROM user_item_feedback
                 UNION ALL
                     SELECT 1 FROM fetch_jobs
                     WHERE job_type IN ('source_fetch', 'user_feed_refresh')

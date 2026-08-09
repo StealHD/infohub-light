@@ -14,7 +14,7 @@ from src.models import Config
 from src.orchestrator import HorizonOrchestrator
 from src.services.secret_store import SecretStore
 from src.storage.manager import StorageManager
-from src.ui.site import serialize_item
+from src.services.feed_payload import serialize_feed_item
 
 
 REQUIRED_SOURCE_IDS = {
@@ -198,7 +198,7 @@ def run_smoke(*, data_dir: str, hours: int) -> dict[str, Any]:
         )
     )
     serialized = [
-        serialize_item(item, featured_threshold=config.filtering.featured_score_threshold)
+        serialize_feed_item(item, featured_threshold=config.filtering.featured_score_threshold)
         for item in result.items
     ]
     item_errors: dict[str, list[list[str]]] = {}

@@ -14,7 +14,7 @@ from src.services.job_queue import JobQueue
 from src.services.user_feed_store import UserFeedStore
 from src.storage.manager import StorageManager
 from src.storage.service_store import ServiceStore
-from src.ui.site import build_site_payload
+from src.services.feed_payload import build_feed_payload
 
 
 def _config() -> Config:
@@ -1346,7 +1346,7 @@ def test_full_refresh_recovers_recent_social_items_missing_from_latest_snapshot(
         source_type=SourceType.TWITTER,
         published_at=now - timedelta(hours=1),
     )
-    legacy_payload = build_site_payload(
+    legacy_payload = build_feed_payload(
         all_items=[new],
         date=now.date().isoformat(),
         total_fetched=1,

@@ -26,7 +26,7 @@ from src.services.user_config_builder import build_user_config_data
 from src.services.user_feed_store import UserFeedStore
 from src.services.worker import _source_payload_from_catalog
 from src.storage.service_store import ServiceStore
-from src.ui.site import serialize_item
+from src.services.feed_payload import serialize_feed_item
 import src.services.subscription_mutation as subscription_mutation_module
 import src.services.media_cache as media_cache_module
 
@@ -1643,7 +1643,7 @@ def test_shared_source_reuse_uses_content_item_native_title_not_donor_ai_title(
             "analysis_mode": "full",
         },
     )
-    serialized = serialize_item(donor, featured_threshold=8.0)
+    serialized = serialize_feed_item(donor, featured_threshold=8.0)
     assert serialized["title"] == "DONOR_AI_TRANSLATED_TITLE"
     assert (
         serialized[INTERNAL_SOURCE_NATIVE_TITLE_KEY]

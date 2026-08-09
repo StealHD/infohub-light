@@ -1,22 +1,12 @@
-"""User-scoped item state and feedback storage."""
+"""User-scoped item state storage."""
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from ..storage.service_store import ServiceStore
-
-
-ALLOWED_FEEDBACK_TYPES = {
-    "more_like_this",
-    "less_like_this",
-    "not_relevant",
-    "wrong_topic",
-    "quality_issue",
-}
 
 
 def _now_iso() -> str:
@@ -27,25 +17,12 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
-def _json_dumps(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-
-
-def _json_loads(value: str | None, fallback: Any) -> Any:
-    if not value:
-        return fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return fallback
-
-
 def _bool(value: Any) -> bool:
     return bool(int(value or 0))
 
 
 class UserItemStateStore:
-    """Repository for per-user read/save/later state and feedback events."""
+    """Repository for per-user read/save/later state."""
 
     def __init__(self, store: ServiceStore) -> None:
         self.store = store
@@ -192,54 +169,6 @@ class UserItemStateStore:
             )
         self.store.connect().commit()
         return self.get_state(workspace_id=workspace_id, user_id=user_id, article_id=article_id)
-
-    def record_feedback(
-        self,
-        *,
-        workspace_id: str,
-        user_id: str,
-        article_id: str,
-        feedback_type: str,
-        value: int | None = None,
-        reason: str = "",
-        metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        feedback_type = str(feedback_type or "").strip()
-        if feedback_type not in ALLOWED_FEEDBACK_TYPES:
-            raise ValueError(f"feedback_type must be one of {', '.join(sorted(ALLOWED_FEEDBACK_TYPES))}")
-        now = _now_iso()
-        event_id = _new_id("uif")
-        self.store.connect().execute(
-            """
-            INSERT INTO user_item_feedback (
-                id, workspace_id, user_id, article_id,
-                feedback_type, value, reason, metadata_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_id,
-                workspace_id,
-                user_id,
-                article_id,
-                feedback_type,
-                value,
-                str(reason or ""),
-                _json_dumps(metadata or {}),
-                now,
-            ),
-        )
-        self.store.connect().commit()
-        return {
-            "id": event_id,
-            "workspace_id": workspace_id,
-            "user_id": user_id,
-            "article_id": article_id,
-            "feedback_type": feedback_type,
-            "value": value,
-            "reason": str(reason or ""),
-            "metadata": metadata or {},
-            "created_at": now,
-        }
 
     def _row(self, *, workspace_id: str, user_id: str, article_id: str) -> Any:
         return self.store.connect().execute(

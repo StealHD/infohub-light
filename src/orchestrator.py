@@ -2,9 +2,7 @@
 
 import asyncio
 from collections import defaultdict
-from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, List, Dict
 from uuid import uuid4
 import httpx
@@ -12,11 +10,7 @@ from rich.console import Console
 
 from .models import Config, ContentItem
 from .storage.manager import StorageManager
-from .services.email import EmailManager
-from .services.webhook import WebhookNotifier
 from .services.daily_push import select_daily_push_items
-from .services.article_graph import build_article_graph_snapshot, write_article_graph_snapshot
-from .services.fulltext import FullTextFetcher
 from .services.feed_run import (
     AcquisitionUsage,
     AnalysisUsage,
@@ -25,9 +19,7 @@ from .services.feed_run import (
     SourceOutcome,
 )
 from .services.response_schema import extract_response_schema
-from .services.legacy_publisher import LegacyPublisher
 from .services.canonical_content import canonical_url_key
-from .storage.article_store import ArticleStore
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
 from .scrapers.rss import RSSScraper
@@ -35,12 +27,8 @@ from .scrapers.reddit import RedditScraper
 from .scrapers.telegram import TelegramScraper
 from .scrapers.twitter import TwitterScraper
 from .scrapers.apify_social import ApifySocialScraper
-from .scrapers.openbb import OpenBBScraper
-from .scrapers.ossinsight import OSSInsightScraper
 from .ai.client import create_ai_client
-from .ai.analysis_cache import AnalysisCache
 from .ai.analyzer import ContentAnalyzer
-from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot, token_stage
 from .ai.summary_policy import normalize_item_summary, preserve_source_summary
@@ -50,11 +38,6 @@ from .tag_policy import (
     normalize_signal_type,
     normalize_tags,
 )
-from .source_selection import SourceRef
-from .ui.site import build_site_payload, load_history_item_ids, write_static_site
-
-
-_SERVICE_EXECUTION: ContextVar[bool] = ContextVar("horizon_service_execution", default=False)
 
 
 def _is_retryable_source_exception(exc: BaseException) -> bool:
@@ -100,15 +83,9 @@ class HorizonOrchestrator:
         self._service_apify_paid_canary = False
         self._last_analysis_usage = AnalysisUsage()
         self.console = Console()
-        self.email_manager = EmailManager(config.email, console=self.console) if config.email else None
-        self.webhook_notifier = (
-            WebhookNotifier(config.webhook, console=self.console)
-            if config.webhook and config.webhook.enabled
-            else None
-        )
 
     def set_service_analysis_cache(self, cache: Any | None) -> None:
-        """Attach a user-scoped cache without changing legacy constructor callers."""
+        """Attach the user-scoped analysis cache owned by the Service store."""
         self._service_analysis_cache = cache
 
     def set_service_attempt_meter(self, meter: Any | None) -> None:
@@ -181,28 +158,21 @@ class HorizonOrchestrator:
         force_hours: int | None = None,
         *,
         enrich: bool = False,
-        legacy_sources: bool = False,
         exclude_item_ids: set[str] | None = None,
     ) -> FeedRunResult:
-        """Run the side-effect-free service pipeline without the global disk cache."""
+        """Run the Service pipeline without filesystem publishing side effects."""
         self._service_apify_actor_ops_snapshots = []
-        token = _SERVICE_EXECUTION.set(not legacy_sources)
-        try:
-            return await self._execute_structured(
-                force_hours=force_hours,
-                enrich=enrich,
-                legacy_sources=legacy_sources,
-                exclude_item_ids=exclude_item_ids,
-            )
-        finally:
-            _SERVICE_EXECUTION.reset(token)
+        return await self._execute_structured(
+            force_hours=force_hours,
+            enrich=enrich,
+            exclude_item_ids=exclude_item_ids,
+        )
 
     async def _execute_structured(
         self,
         force_hours: int | None = None,
         *,
         enrich: bool = False,
-        legacy_sources: bool = False,
         exclude_item_ids: set[str] | None = None,
     ) -> FeedRunResult:
         """Fetch content and return a fresh structured result for services."""
@@ -214,23 +184,10 @@ class HorizonOrchestrator:
         analysis_usage = AnalysisUsage()
         try:
             since = self._determine_time_window(force_hours)
-            if legacy_sources:
-                raw_items = await self.fetch_all_sources(since)
-                source_outcomes = (
-                    SourceOutcome(
-                        source_id="",
-                        subscription_id=None,
-                        source_key="legacy:all",
-                        analysis_mode="full",
-                        status="succeeded",
-                        fetched_count=len(raw_items),
-                    ),
-                )
-            else:
-                raw_items, source_outcomes = await self.fetch_service_sources(
-                    since,
-                    allow_source_window_overrides=force_hours is None,
-                )
+            raw_items, source_outcomes = await self.fetch_service_sources(
+                since,
+                allow_source_window_overrides=force_hours is None,
+            )
             fetch_issues = tuple(
                 outcome.issue
                 for outcome in source_outcomes
@@ -622,49 +579,6 @@ class HorizonOrchestrator:
             )
         return await fetch_upstream()
 
-    async def run(
-        self,
-        force_hours: int = None,
-        *,
-        send_notifications: bool = True,
-        write_summaries: bool = True,
-        incremental: bool = False,
-        enrich: bool = True,
-    ) -> None:
-        """Run the legacy CLI/scheduler path through structured execution and publishing."""
-        self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
-        publisher = LegacyPublisher(self)
-        try:
-            publisher.prepare()
-            known_ids = (
-                load_history_item_ids(self.storage.data_dir / "site")
-                if incremental
-                else set()
-            )
-            result = await self.execute(
-                force_hours=force_hours,
-                enrich=enrich,
-                legacy_sources=True,
-                exclude_item_ids=known_ids,
-            )
-            await publisher.publish(
-                result,
-                send_notifications=send_notifications,
-                write_summaries=write_summaries,
-            )
-        except Exception as exc:
-            self.console.print(f"[bold red]❌ Error: {exc}[/bold red]")
-            try:
-                await publisher.notify_failure(
-                    exc,
-                    send_notifications=send_notifications,
-                )
-            except Exception as notify_exc:
-                self.console.print(
-                    f"[yellow]⚠️  Failed to send failure notification: {notify_exc}[/yellow]"
-                )
-            raise
-
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours is not None:
             since = datetime.now(timezone.utc) - timedelta(hours=force_hours)
@@ -672,156 +586,6 @@ class HorizonOrchestrator:
             hours = self.config.filtering.time_window_hours
             since = datetime.now(timezone.utc) - timedelta(hours=hours)
         return since
-
-    async def run_single_source_update(
-        self,
-        source_ref: SourceRef,
-        force_hours: int,
-    ) -> dict[str, object]:
-        """Fetch and publish one explicitly selected source without side effects.
-
-        This path is used by the config UI/CLI for immediate source refreshes.
-        It deliberately skips notifications, summaries, enrichment, and article
-        graph/full-text work so the user only pays for the requested source.
-        """
-        self.console.print(
-            f"[bold cyan]Horizon - Updating source {source_ref.ref}...[/bold cyan]\n"
-        )
-        since = self._determine_time_window(force_hours)
-        self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-        raw_items = await self.fetch_all_sources(since)
-        merged_items = self.merge_cross_source_duplicates(raw_items)
-        skipped_existing = 0
-
-        known_ids = load_history_item_ids(self.storage.data_dir / "site")
-        if known_ids:
-            new_items = [item for item in merged_items if item.id not in known_ids]
-            skipped_existing = len(merged_items) - len(new_items)
-            merged_items = new_items
-
-        if not merged_items:
-            self.console.print("[yellow]No unpublished content found for selected source.[/yellow]")
-            return {
-                "ok": True,
-                "source_ref": source_ref.ref,
-                "hours": force_hours,
-                "fetched": len(merged_items),
-                "raw_before_merge": len(raw_items),
-                "merged": 0,
-                "skipped_existing": skipped_existing,
-                "analyzed": 0,
-                "passthrough": 0,
-                "web_ui_updated": False,
-            }
-
-        if self._ai_enabled():
-            analysis_items, passthrough_items = self.partition_analysis_items(merged_items)
-            analyzed_items = await self._analyze_content(analysis_items)
-            published_items = analyzed_items + passthrough_items
-        else:
-            analyzed_items = []
-            passthrough_items = self.publish_without_ai(merged_items)
-            published_items = passthrough_items
-            self.console.print("[dim]AI scoring disabled; publishing fetched items without model analysis.[/dim]\n")
-        web_ui_updated = await LegacyPublisher(self).write_web_ui(
-            items=published_items,
-            today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-            total_fetched=len(raw_items),
-        )
-
-        return {
-            "ok": True,
-            "source_ref": source_ref.ref,
-            "hours": force_hours,
-            "fetched": len(published_items),
-            "raw_before_merge": len(raw_items),
-            "merged": len(merged_items),
-            "skipped_existing": skipped_existing,
-            "analyzed": len(analyzed_items),
-            "passthrough": len(passthrough_items),
-            "web_ui_updated": web_ui_updated,
-        }
-
-    async def fetch_all_sources(self, since: datetime) -> List[ContentItem]:
-        """Fetch content from all configured sources.
-
-        This is a stable stage entry point for integrations such as MCP.
-
-        Args:
-            since: Fetch items published after this time
-
-        Returns:
-            List[ContentItem]: All fetched items
-        """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            tasks = []
-
-            # GitHub sources
-            if self.config.sources.github:
-                github_scraper = GitHubScraper(self.config.sources.github, client)
-                tasks.append(self._fetch_with_progress("GitHub", github_scraper, since))
-
-            # Hacker News
-            if self.config.sources.hackernews.enabled:
-                hn_scraper = HackerNewsScraper(self.config.sources.hackernews, client)
-                tasks.append(self._fetch_with_progress("Hacker News", hn_scraper, since))
-
-            # RSS feeds
-            if self.config.sources.rss:
-                rss_scraper = RSSScraper(self.config.sources.rss, client)
-                tasks.append(self._fetch_with_progress("RSS Feeds", rss_scraper, since))
-
-            # Reddit
-            if self.config.sources.reddit.enabled:
-                reddit_scraper = RedditScraper(self.config.sources.reddit, client)
-                tasks.append(self._fetch_with_progress("Reddit", reddit_scraper, since))
-
-            # Telegram
-            if self.config.sources.telegram.enabled:
-                telegram_scraper = TelegramScraper(self.config.sources.telegram, client)
-                tasks.append(self._fetch_with_progress("Telegram", telegram_scraper, since))
-
-            # Twitter
-            if self.config.sources.twitter and self.config.sources.twitter.enabled:
-                twitter_scraper = TwitterScraper(self.config.sources.twitter, client)
-                tasks.append(self._fetch_with_progress("Twitter", twitter_scraper, since))
-
-            # Unified Apify social subscriptions (X, Instagram, Facebook, Telegram)
-            if (
-                self.config.sources.apify_social
-                and self.config.sources.apify_social.enabled
-            ):
-                apify_social_scraper = ApifySocialScraper(
-                    self.config.sources.apify_social,
-                    client,
-                )
-                tasks.append(
-                    self._fetch_with_progress("Apify Social", apify_social_scraper, since)
-                )
-
-            # OpenBB (financial news / filings via the OpenBB Platform SDK)
-            if self.config.sources.openbb and self.config.sources.openbb.enabled:
-                openbb_scraper = OpenBBScraper(self.config.sources.openbb, client)
-                tasks.append(self._fetch_with_progress("OpenBB", openbb_scraper, since))
-
-            # OSS Insight trending repos
-            if self.config.sources.ossinsight and self.config.sources.ossinsight.enabled:
-                oss_scraper = OSSInsightScraper(self.config.sources.ossinsight, client)
-                tasks.append(self._fetch_with_progress("OSS Insight", oss_scraper, since))
-
-            # Fetch all concurrently
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Flatten results
-            all_items = []
-            for result in results:
-                if isinstance(result, Exception):
-                    self.console.print(f"[red]Error fetching source: {result}[/red]")
-                elif isinstance(result, list):
-                    all_items.extend(result)
-
-            return all_items
 
     async def _fetch_with_progress(self, name: str, scraper, since: datetime) -> List[ContentItem]:
         """Fetch from a scraper with progress indication.
@@ -1158,7 +922,7 @@ class HorizonOrchestrator:
 
     @classmethod
     def publish_without_ai(cls, items: List[ContentItem]) -> List[ContentItem]:
-        """Prepare fetched items for the static UI without model scoring."""
+        """Prepare fetched items for the Service Feed without model scoring."""
         published: List[ContentItem] = []
         for item in items:
             summary = item.ai_summary_zh or item.ai_summary or item.content or item.title
@@ -1200,88 +964,9 @@ class HorizonOrchestrator:
             published.append(item)
         return published
 
-    def _analysis_cache(self) -> AnalysisCache | None:
-        if self._service_analysis_cache is not None:
-            return self._service_analysis_cache
-        if _SERVICE_EXECUTION.get():
-            return None
-        return AnalysisCache(self.storage.data_dir / "cache" / "analysis-cache.jsonl")
-
-    async def _write_web_ui(
-        self,
-        all_items: List[ContentItem],
-        today: str,
-        total_fetched: int,
-    ) -> bool:
-        """Write the static private radar UI under data/site."""
-        try:
-            payload = build_site_payload(
-                all_items=all_items,
-                date=today,
-                total_fetched=total_fetched,
-                featured_threshold=self.config.filtering.featured_score_threshold,
-                daily_push_threshold=self.config.filtering.daily_push_score_threshold,
-                daily_push_limit=self.config.filtering.daily_push_limit,
-                homepage_min_score=self.config.filtering.homepage_min_score,
-                recent_item_limit=self.config.filtering.recent_item_limit,
-                tag_library=self.config.tags,
-                personal_tag_library=self.config.personal_tags,
-                ai_enabled=self._ai_enabled(),
-            )
-            data_path = write_static_site(self.storage.data_dir / "site", payload)
-            self.console.print(f"🌐 Updated web UI data: {data_path}\n")
-            return True
-        except Exception as exc:
-            self.console.print(f"[yellow]⚠️  Failed to update web UI: {exc}[/yellow]\n")
-            return False
-
-    async def _run_article_graph_pipeline(self, items: List[ContentItem]) -> None:
-        """Optionally persist light article data and build static relationship graph."""
-        if not (
-            getattr(self.config.premium_analysis, "enabled", False)
-            or getattr(self.config.article_graph, "enabled", False)
-        ):
-            return
-
-        try:
-            store = ArticleStore(self.storage.data_dir)
-            store.initialize()
-            stored = store.upsert_articles_light(items)
-            self.console.print(f"🕸️  Stored {stored} light articles for relationship analysis")
-
-            if self.config.premium_analysis.enabled:
-                fetcher = FullTextFetcher(
-                    store,
-                    score_threshold=self.config.premium_analysis.full_fetch_score_threshold,
-                    max_articles=self.config.premium_analysis.max_full_fetch_per_run,
-                    max_chars=self.config.premium_analysis.max_full_text_chars,
-                    concurrency=self.config.premium_analysis.full_fetch_concurrency,
-                )
-                fetched = await fetcher.fetch_missing()
-                self.console.print(f"   Full-text fetched for {fetched} premium articles")
-
-            if self.config.article_graph.enabled:
-                snapshot = build_article_graph_snapshot(
-                    store,
-                    premium_score_threshold=self.config.article_graph.premium_score_threshold,
-                    relation_top_k=self.config.article_graph.relation_top_k,
-                    min_relation_score=self.config.article_graph.min_relation_score,
-                    max_visible_nodes=self.config.article_graph.max_visible_nodes,
-                    max_visible_edges=self.config.article_graph.max_visible_edges,
-                )
-                graph_path = write_article_graph_snapshot(
-                    self.storage.data_dir / "site",
-                    snapshot,
-                )
-                self.console.print(
-                    "   Article graph: "
-                    f"{snapshot['stats']['nodes']} nodes, "
-                    f"{snapshot['stats']['edges']} edges → {graph_path}\n"
-                )
-        except Exception as exc:
-            self.console.print(
-                f"[yellow]⚠️  Article relationship analysis skipped: {exc}[/yellow]\n"
-            )
+    def _analysis_cache(self) -> Any | None:
+        """Return only the user-scoped Service cache supplied by the caller."""
+        return self._service_analysis_cache
 
     async def _analyze_content(self, items: List[ContentItem]) -> List[ContentItem]:
         """Analyze content items with AI.
@@ -1301,28 +986,3 @@ class HorizonOrchestrator:
         analyzed = await analyzer.analyze_batch(items)
         self._last_analysis_usage = AnalysisUsage(**analyzer.usage)
         return analyzed
-
-    async def _generate_summary(
-        self,
-        items: List[ContentItem],
-        date: str,
-        total_fetched: int,
-        language: str = "en",
-    ) -> str:
-        """Generate daily summary.
-
-        Args:
-            items: Important items to include (already enriched with background/related)
-            date: Date string
-            total_fetched: Total items fetched
-            language: Output language ("en" or "zh")
-
-        Returns:
-            str: Markdown summary
-        """
-        self.console.print("📝 Generating daily summary...")
-
-        summarizer = DailySummarizer()
-
-        with token_stage("summary"):
-            return await summarizer.generate_summary(items, date, total_fetched, language=language)

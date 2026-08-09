@@ -4,7 +4,7 @@ from copy import deepcopy
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any, Union, Literal
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, HttpUrl, Field, field_validator, model_validator
 
 from .rsshub import (
@@ -521,90 +521,6 @@ class SourcesConfig(BaseModel):
     ossinsight: OSSInsightConfig = Field(default_factory=OSSInsightConfig)
 
 
-class WebhookConfig(BaseModel):
-    """Webhook notification configuration."""
-
-    url_env: Optional[str] = (
-        None  # Environment variable name containing the webhook URL
-    )
-    request_body: Optional[Union[str, dict, list]] = (
-        None  # POST body: real JSON object or string with #{key} placeholders; if empty, will use GET
-    )
-    headers: Optional[str] = None  # Custom headers, "Key: Value" per line
-    delivery: str = "summary"  # summary, or summary_and_items
-    overview_position: str = "first"  # For summary_and_items: first, or last
-    platform: str = "generic"  # generic, feishu, lark, dingtalk, slack, discord
-    layout: str = "markdown"  # markdown, or collapsible
-    fallback_layout: str = (
-        "markdown"  # Layout to use when the requested layout is unsupported
-    )
-    languages: Optional[List[str]] = (
-        None  # Optional language filter for webhook delivery; defaults to all AI languages
-    )
-    enabled: bool = False
-
-    @field_validator("delivery")
-    @classmethod
-    def validate_delivery(cls, v: str) -> str:
-        allowed = {"summary", "summary_and_items"}
-        if v not in allowed:
-            raise ValueError(f"webhook.delivery must be one of {allowed}, got '{v}'")
-        return v
-
-    @field_validator("platform")
-    @classmethod
-    def validate_platform(cls, v: str) -> str:
-        allowed = {"generic", "feishu", "lark", "dingtalk", "slack", "discord"}
-        if v not in allowed:
-            raise ValueError(f"webhook.platform must be one of {allowed}, got '{v}'")
-        return v
-
-    @field_validator("layout")
-    @classmethod
-    def validate_layout(cls, v: str) -> str:
-        allowed = {"markdown", "collapsible"}
-        if v not in allowed:
-            raise ValueError(f"webhook.layout must be one of {allowed}, got '{v}'")
-        return v
-
-    @field_validator("fallback_layout")
-    @classmethod
-    def validate_fallback_layout(cls, v: str) -> str:
-        allowed = {"markdown", "collapsible"}
-        if v not in allowed:
-            raise ValueError(
-                f"webhook.fallback_layout must be one of {allowed}, got '{v}'"
-            )
-        return v
-
-    @field_validator("overview_position")
-    @classmethod
-    def validate_overview_position(cls, v: str) -> str:
-        allowed = {"first", "last"}
-        if v not in allowed:
-            raise ValueError(
-                f"webhook.overview_position must be one of {allowed}, got '{v}'"
-            )
-        return v
-
-
-class EmailConfig(BaseModel):
-    """Email configuration for updates/subscriptions."""
-
-    imap_server: str
-    imap_port: int = 993
-    imap_enabled: bool = True
-    smtp_server: str
-    smtp_port: int = 465
-    smtp_username: Optional[str] = None
-    email_address: str
-    password_env: str = "EMAIL_PASSWORD"
-    sender_name: str = "Horizon Daily"
-    subscribe_keyword: str = "SUBSCRIBE"
-    unsubscribe_keyword: str = "UNSUBSCRIBE"
-    enabled: bool = False
-
-
 class FilteringConfig(BaseModel):
     """Content filtering configuration."""
 
@@ -637,37 +553,6 @@ class FilteringConfig(BaseModel):
         return value
 
 
-class PremiumAnalysisConfig(BaseModel):
-    """Optional high-score article deep storage/fetch configuration."""
-
-    enabled: bool = False
-    full_fetch_score_threshold: float = Field(default=8.5, ge=0, le=10)
-    max_full_fetch_per_run: int = Field(default=10, ge=0, le=100)
-    max_full_text_chars: int = Field(default=12000, ge=1000, le=50000)
-    full_fetch_concurrency: int = Field(default=2, ge=1, le=10)
-    keep_premium_articles: int = Field(default=1000, ge=10, le=100000)
-    keep_full_text_days: int = Field(default=90, ge=1, le=3650)
-
-
-class ArticleGraphConfig(BaseModel):
-    """Optional low-cost relationship graph for premium articles."""
-
-    enabled: bool = False
-    premium_score_threshold: float = Field(default=8.5, ge=0, le=10)
-    active_window_days: int = Field(default=30, ge=1, le=3650)
-    extended_window_days: int = Field(default=90, ge=1, le=3650)
-    max_active_nodes: int = Field(default=300, ge=1, le=5000)
-    max_visible_nodes: int = Field(default=30, ge=1, le=300)
-    max_visible_edges: int = Field(default=100, ge=0, le=1000)
-    relation_top_k: int = Field(default=3, ge=1, le=20)
-    min_relation_score: float = Field(default=0.55, ge=0, le=1)
-    strong_relation_score: float = Field(default=0.75, ge=0, le=1)
-    snapshot_min_new_premium_articles: int = Field(default=3, ge=0, le=100)
-    snapshot_max_age_hours: int = Field(default=6, ge=1, le=168)
-    enable_embedding: bool = False
-    enable_ai_group_summary: bool = False
-
-
 class Config(BaseModel):
     """Main configuration model."""
 
@@ -681,10 +566,6 @@ class Config(BaseModel):
     filtering: FilteringConfig
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
-    premium_analysis: PremiumAnalysisConfig = Field(default_factory=PremiumAnalysisConfig)
-    article_graph: ArticleGraphConfig = Field(default_factory=ArticleGraphConfig)
-    email: Optional[EmailConfig] = None
-    webhook: Optional[WebhookConfig] = None
 
     @model_validator(mode="before")
     @classmethod

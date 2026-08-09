@@ -5,7 +5,7 @@ from src.services.content_presentation import (
     build_content_presentation,
     complete_content_presentation,
 )
-from src.ui.site import serialize_item
+from src.services.feed_payload import serialize_feed_item
 
 
 NOW = datetime(2026, 7, 14, 9, 30, tzinfo=timezone.utc)
@@ -287,7 +287,7 @@ def test_release_discussion_and_legacy_snapshot_formats_are_compatible() -> None
 
 
 def test_feed_serializer_includes_presentation_and_keeps_raw_content_out() -> None:
-    payload = serialize_item(_item(), featured_threshold=7.5)
+    payload = serialize_feed_item(_item(), featured_threshold=7.5)
 
     assert payload["presentation"]["version"] == 1
     assert payload["presentation"]["content"]["excerpt"] == "First paragraph. Second paragraph."
