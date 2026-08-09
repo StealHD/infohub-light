@@ -259,7 +259,7 @@ export function WorkbenchCard({
     aria-label={cardLabel}
     variant="secondary"
     className={sourceOverview
-      ? 'group/card w-full gap-0 rounded-none border-0 border-b border-separator bg-transparent p-0 shadow-none focus-within:border-border'
+      ? 'group/card w-full gap-0 rounded-none border-0 bg-transparent p-0 shadow-none'
       : 'group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none'}
     onClick={handleCardClick}
   >

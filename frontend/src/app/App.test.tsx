@@ -413,16 +413,23 @@ describe('App routes', () => {
       render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
       expect(await screen.findByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
-      expect(document.querySelector('[data-feed-mode-switch]')).toBeInTheDocument()
-      expect(document.querySelector('[data-testid="feed-view-bar"]')?.contains(document.querySelector('[data-feed-mode-switch]'))).toBe(true)
+      const modeSwitch = document.querySelector('[data-feed-mode-switch]')
+      expect(modeSwitch).toBeInTheDocument()
+      expect(modeSwitch?.querySelector('[data-slot="tabs-list-container"]')).toBeInTheDocument()
+      expect(document.querySelector('[data-testid="feed-view-bar"]')?.contains(modeSwitch)).toBe(true)
       expect(screen.queryByText('近7天 · 3 条')).not.toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: '时间流' })).toHaveAttribute('aria-selected', 'true')
+      const timelineTab = screen.getByRole('tab', { name: '时间流' })
+      const sourceOverviewTab = screen.getByRole('tab', { name: '专题速览' })
+      expect(timelineTab).toHaveAttribute('aria-selected', 'true')
+      expect(timelineTab.querySelector('[data-feed-mode-icon="timeline"]')).toBeInTheDocument()
+      expect(sourceOverviewTab.querySelector('[data-feed-mode-icon="source-overview"]')).toBeInTheDocument()
       const initialRequestCount = latestFeed.mock.calls.length
 
-      await browser.click(screen.getByRole('tab', { name: '专题速览' }))
+      await browser.click(sourceOverviewTab)
 
       const sourceFeed = await screen.findByTestId('workbench-feed-scroll')
       expect(sourceFeed).toHaveAttribute('data-feed-mode', 'source-overview')
+      expect(document.querySelector('[data-feed-mode-layer="source-overview"]')).toBeInTheDocument()
       expect(Array.from(document.querySelectorAll('[data-source-section]')).map((section) => section.getAttribute('data-source-section-id'))).toEqual(['source:source-b', 'source:source-a'])
       expect(screen.getByText('近7天 · 2 篇内容 · 2 个主题')).toBeInTheDocument()
       expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()

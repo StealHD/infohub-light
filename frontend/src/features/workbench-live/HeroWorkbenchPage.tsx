@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -56,6 +56,13 @@ import {
   workbenchSourceLabels,
   type WorkbenchKind,
 } from './workbenchModel'
+
+function FeedModeLayer({ mode, children }: { mode: FeedViewMode; children: ReactNode }) {
+  return <div
+    data-feed-mode-layer={mode}
+    className="inteliscope-content-reveal flex min-h-0 flex-1 flex-col overflow-hidden"
+  >{children}</div>
+}
 
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const { api, user, query, setQuery, activity, refresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
@@ -597,11 +604,31 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <PageFrame width="reading">
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'} className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
         <ViewBar>
-        {kind === 'feed' && <Tabs data-feed-mode-switch selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)} className="shrink-0">
-          <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="inline-flex min-h-7 gap-0.5 rounded-md bg-default/70 p-0.5">
-            <Tabs.Tab id="timeline" isDisabled={globalSearchTransition} className="type-meta relative z-[1] min-h-6 rounded px-2.5 text-muted data-[selected=true]:text-foreground">时间流<Tabs.Indicator /></Tabs.Tab>
-            <Tabs.Tab id="source-overview" isDisabled={globalSearchTransition} className="type-meta relative z-[1] min-h-6 rounded px-2.5 text-muted data-[selected=true]:text-foreground">专题速览<Tabs.Indicator /></Tabs.Tab>
-          </Tabs.List>
+        {kind === 'feed' && <Tabs data-feed-mode-switch variant="primary" selectedKey={effectiveViewMode} onSelectionChange={(key) => updateViewMode(String(key) as FeedViewMode)} className="shrink-0 gap-0">
+          <Tabs.ListContainer className="rounded-[var(--inteliscope-radius-control)] bg-default/70">
+            <Tabs.List aria-label={globalSearchTransition ? '信息流阅读模式，搜索结果固定为时间流' : '信息流阅读模式'} className="!w-auto !min-w-0 gap-0.5 p-0.5">
+              <Tabs.Tab
+                id="timeline"
+                isDisabled={globalSearchTransition}
+                aria-label="时间流"
+                className="!size-8 !min-w-8 !rounded-[var(--inteliscope-radius-compact)] !px-0 text-muted"
+              >
+                <span title="时间流"><Icons.Rows3 data-feed-mode-icon="timeline" size={15} aria-hidden="true" /></span>
+                <span className="sr-only">时间流</span>
+                <Tabs.Indicator className="!rounded-[var(--inteliscope-radius-compact)]" />
+              </Tabs.Tab>
+              <Tabs.Tab
+                id="source-overview"
+                isDisabled={globalSearchTransition}
+                aria-label="专题速览"
+                className="!size-8 !min-w-8 !rounded-[var(--inteliscope-radius-compact)] !px-0 text-muted"
+              >
+                <span title="专题速览"><Icons.Layers3 data-feed-mode-icon="source-overview" size={15} aria-hidden="true" /></span>
+                <span className="sr-only">专题速览</span>
+                <Tabs.Indicator className="!rounded-[var(--inteliscope-radius-compact)]" />
+              </Tabs.Tab>
+            </Tabs.List>
+          </Tabs.ListContainer>
           <Tabs.Panel id="timeline" className="sr-only">时间流</Tabs.Panel>
           <Tabs.Panel id="source-overview" className="sr-only">专题速览</Tabs.Panel>
         </Tabs>}
@@ -783,7 +810,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         />
       </PageFrame></div>
       : cards.length === 0 ? null
-      : effectiveViewMode === 'source-overview' ? <div key="source-overview" className="inteliscope-content-reveal min-h-0 flex-1">
+      : effectiveViewMode === 'source-overview' ? <FeedModeLayer key="source-overview" mode="source-overview">
         <SourceOverviewFeed
       topInset={feedContentInset}
       resetToTopKey={`source-overview:${preference.sortBasis}:${preference.order}`}
@@ -843,7 +870,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         }
       }}
         />
-      </div> : <div key="timeline" className="inteliscope-content-reveal min-h-0 flex-1">
+      </FeedModeLayer> : <FeedModeLayer key="timeline" mode="timeline">
         <VirtualFeed
       topInset={feedContentInset}
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
@@ -899,7 +926,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         }
       }}
         />
-      </div>}
+      </FeedModeLayer>}
     </LoadingReveal>
   </section>
 }

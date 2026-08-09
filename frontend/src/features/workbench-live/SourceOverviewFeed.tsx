@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { Button, Icons, ImageGalleryModal } from '../../design-system'
+import { Button, Card, Icons, ImageGalleryModal } from '../../design-system'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import type { WorkbenchCardModel } from './workbenchModel'
 import { cardLabelForViewer, WorkbenchCard } from './VirtualFeed'
@@ -67,7 +67,7 @@ function sectionForItem(sections: SourceOverviewSectionModel[], itemId: string):
 
 export function SourceInsight({ children }: { children?: ReactNode }) {
   if (!children) return null
-  return <div data-source-insight className="border-b border-separator py-3">{children}</div>
+  return <div data-source-insight className="border-t border-separator px-4 py-3 sm:px-5">{children}</div>
 }
 
 type SourceHeaderProps = {
@@ -79,7 +79,11 @@ type SourceHeaderProps = {
 }
 
 export function SourceHeader({ section, feedWindowDays, expanded, controlsId, onToggle }: SourceHeaderProps) {
-  return <header data-source-header className="border-b border-separator pb-4 pt-6">
+  return <header data-source-header data-expanded={expanded ? 'true' : 'false'} className="relative">
+    <span
+      aria-hidden="true"
+      className={`absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-accent transition-opacity duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'opacity-100' : 'opacity-0'}`}
+    />
     <button
       type="button"
       id={`source-section-${section.id}`}
@@ -87,28 +91,30 @@ export function SourceHeader({ section, feedWindowDays, expanded, controlsId, on
       aria-label={`${expanded ? '收起' : '展开'}专题 ${section.sourceName}`}
       aria-expanded={expanded}
       aria-controls={controlsId}
-      className="group -mx-2 flex w-[calc(100%+1rem)] flex-col rounded-lg px-2 py-1 text-left outline-none transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/55 focus-visible:bg-default/55 focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none"
+      className={`group flex min-h-[76px] w-full flex-col px-4 py-3.5 text-left outline-none transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/35 focus-visible:bg-default/35 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus motion-reduce:transition-none sm:px-5 ${expanded ? 'bg-default/30' : 'bg-transparent'}`}
       onClick={onToggle}
     >
-      <span className="flex min-w-0 items-center gap-2.5">
+      <span className="flex min-w-0 items-center gap-3">
         <SourceAvatar
           name={section.sourceName}
           avatarUrl={section.sourceAvatar}
           platform={section.platformLabel}
-          className="size-7 shrink-0"
+          className="size-8 shrink-0"
         />
         <span className="min-w-0 flex-1">
           <span role="heading" aria-level={2} className="type-page-title block truncate text-foreground">{section.sourceName}</span>
           <span className="type-meta mt-0.5 block text-muted">近{feedWindowDays}天 · {section.itemCount} 篇内容 · {section.topicCount} 个主题</span>
         </span>
-        <Icons.ChevronDown
-          size={16}
-          aria-hidden="true"
-          className={`shrink-0 text-muted transition-transform duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
-        />
+        <span className={`flex size-8 shrink-0 items-center justify-center rounded-full transition-colors duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'bg-accent/10 text-accent' : 'text-muted group-hover:bg-default/80 group-hover:text-foreground'}`}>
+          <Icons.ChevronDown
+            size={16}
+            aria-hidden="true"
+            className={`transition-transform duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+          />
+        </span>
       </span>
-      {section.topics.length > 0 && <span aria-label={`${section.sourceName} 的主题`} className="type-meta mt-3 flex flex-wrap gap-x-3 gap-y-1 text-muted">
-        {section.topics.map((topic) => <span key={topic}>#{topic}</span>)}
+      {section.topics.length > 0 && <span aria-label={`${section.sourceName} 的主题`} className="type-meta mt-2.5 flex flex-wrap gap-1.5 text-muted">
+        {section.topics.map((topic) => <span key={topic} className="rounded-full border border-separator/80 bg-background/55 px-2 py-0.5">#{topic}</span>)}
       </span>}
     </button>
   </header>
@@ -140,8 +146,13 @@ export function SourceFeed({
   onToggleSaved,
   onOpenMedia,
 }: SourceFeedProps) {
-  return <div data-source-feed>
-    {cards.map((card) => <div key={card.id} data-item-id={card.id}>
+  return <div data-source-feed className="border-t border-separator">
+    {cards.map((card, index) => <div
+      key={card.id}
+      data-item-id={card.id}
+      data-source-feed-row
+      className={`px-4 transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/20 motion-reduce:transition-none sm:px-5 ${index > 0 ? 'border-t border-separator' : ''}`}
+    >
       <WorkbenchCard
         card={card}
         variant="source-overview"
@@ -185,29 +196,36 @@ type SourceSectionProps = Pick<SourceOverviewFeedProps,
 
 export function SourceSection({ section, feedWindowDays, expanded, onToggleSource, onBeforeLayoutChange, ...feedProps }: SourceSectionProps) {
   const contentId = `source-section-content-${section.id}`
-  return <section data-source-section data-source-section-id={section.id} aria-labelledby={`source-section-${section.id}`}>
-    <SourceHeader
-      section={section}
-      feedWindowDays={feedWindowDays}
-      expanded={expanded}
-      controlsId={contentId}
-      onToggle={() => {
-        onBeforeLayoutChange()
-        onToggleSource(section.id)
-      }}
-    />
-    <div
-      id={contentId}
-      data-source-section-content
-      aria-hidden={!expanded}
-      inert={!expanded}
-      className={`grid transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+  return <section data-source-section data-source-section-id={section.id} aria-labelledby={`source-section-${section.id}`} className="pb-3">
+    <Card
+      data-source-group-card
+      data-state={expanded ? 'expanded' : 'collapsed'}
+      variant="secondary"
+      className={`w-full gap-0 overflow-hidden rounded-[var(--inteliscope-radius-card)] border bg-surface-secondary/55 p-0 shadow-none transition-[background-color,border-color] duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'border-border bg-surface-secondary/70' : 'border-separator hover:border-border'}`}
     >
-      <div className="min-h-0 overflow-hidden">
-        <SourceInsight />
-        <SourceFeed cards={section.cards} onBeforeLayoutChange={onBeforeLayoutChange} {...feedProps} />
+      <SourceHeader
+        section={section}
+        feedWindowDays={feedWindowDays}
+        expanded={expanded}
+        controlsId={contentId}
+        onToggle={() => {
+          onBeforeLayoutChange()
+          onToggleSource(section.id)
+        }}
+      />
+      <div
+        id={contentId}
+        data-source-section-content
+        aria-hidden={!expanded}
+        inert={!expanded}
+        className={`grid transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <SourceInsight />
+          <SourceFeed cards={section.cards} onBeforeLayoutChange={onBeforeLayoutChange} {...feedProps} />
+        </div>
       </div>
-    </div>
+    </Card>
   </section>
 }
 

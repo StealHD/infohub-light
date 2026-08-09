@@ -56,6 +56,8 @@ describe('SourceOverviewFeed', () => {
     const sourceB = await screen.findByRole('button', { name: '展开专题 来源 B' })
     expect(sourceB).toHaveAttribute('aria-expanded', 'false')
     expect(sourceB).toHaveAttribute('aria-controls', 'source-section-content-source:source-b')
+    expect(document.querySelectorAll('[data-source-group-card]')).toHaveLength(2)
+    expect(sourceB.closest('[data-source-group-card]')).toHaveAttribute('data-state', 'collapsed')
     expect(screen.getByText('近7天 · 1 篇内容 · 1 个主题')).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: '来源 B 的最新内容' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('source-insight')).not.toBeInTheDocument()
@@ -73,7 +75,11 @@ describe('SourceOverviewFeed', () => {
       onToggleContext={vi.fn()}
       onItemAction={vi.fn()}
     />)
-    expect(screen.getByRole('article', { name: '标题 b-new' })).toBeInTheDocument()
+    const sourceArticle = screen.getByRole('article', { name: '标题 b-new' })
+    expect(sourceArticle).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起专题 来源 B' }).closest('[data-source-group-card]')).toHaveAttribute('data-state', 'expanded')
+    expect(sourceArticle.closest('[data-source-group-card]')).toBe(screen.getByRole('button', { name: '收起专题 来源 B' }).closest('[data-source-group-card]'))
+    expect(sourceArticle.closest('[data-source-feed-row]')).toBeInTheDocument()
     expect(screen.getAllByTestId('workbench-card').every((element) => element.getAttribute('data-card-variant') === 'source-overview')).toBe(true)
   })
 

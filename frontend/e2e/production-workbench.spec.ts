@@ -147,6 +147,26 @@ async function expectFeedMarkerBelowToolbar(page: Page, marker: Locator) {
   }, { message: 'the floating toolbar must not cover Feed notices or empty states' }).toBe(true)
 }
 
+async function expectFeedCanScroll(page: Page, feed: Locator) {
+  const metrics = await feed.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+  }))
+  expect(metrics.clientHeight).toBeGreaterThan(0)
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+  await feed.hover()
+  await page.mouse.wheel(0, Math.max(320, Math.floor(metrics.clientHeight / 2)))
+  await expect.poll(() => feed.evaluate((element) => element.scrollTop), {
+    message: 'the Feed must consume wheel input in its own bounded viewport',
+  }).toBeGreaterThan(metrics.scrollTop)
+  await feed.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => feed.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(1)
+}
+
 async function expectLocatorInside(inner: Locator, outer: Locator) {
   await expect.poll(async () => {
     const [innerBounds, outerBounds] = await Promise.all([inner.boundingBox(), outer.boundingBox()])
@@ -1101,16 +1121,22 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
 test('Feed source overview keeps each source contiguous across supported viewports', async ({ page }) => {
   await page.goto('/feed')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expectFeedCanScroll(page, feed)
+  const modeSwitch = page.locator('[data-feed-mode-switch]')
+  await expect(modeSwitch.locator('[data-slot="tabs-list-container"]')).toHaveCount(1)
+  await expect(page.getByRole('tab', { name: '时间流' }).locator('[data-feed-mode-icon="timeline"]')).toHaveCount(1)
+  await expect(page.getByRole('tab', { name: '专题速览' }).locator('[data-feed-mode-icon="source-overview"]')).toHaveCount(1)
   const requestCountBeforeSwitch = await page.evaluate(() => (window as typeof window & {
     feedRequestCounts: () => Promise<{ latest: number; updates: number }>
   }).feedRequestCounts())
 
   await page.getByRole('tab', { name: '专题速览' }).click()
 
-  const feed = page.getByTestId('workbench-feed-scroll')
   await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
   const sections = page.locator('[data-source-section]')
   await expect(sections).toHaveCount(2)
+  await expect(page.locator('[data-source-group-card]')).toHaveCount(2)
   await expect(sections.nth(0)).toHaveAttribute('data-source-section-id', 'fallback:rss:openai blog')
   await expect(sections.nth(0).getByRole('heading', { name: 'OpenAI Blog' })).toBeVisible()
   await expect(sections.nth(1).getByRole('heading', { name: 'GitHub' })).toBeVisible()
@@ -1120,7 +1146,9 @@ test('Feed source overview keeps each source contiguous across supported viewpor
 
   await sections.nth(0).getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
   await expect(sections.nth(0).getByRole('button', { name: '收起专题 OpenAI Blog' })).toHaveAttribute('aria-expanded', 'true')
+  await expect(sections.nth(0).locator('[data-source-group-card]')).toHaveAttribute('data-state', 'expanded')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await expectFeedCanScroll(page, feed)
 
   const sourceItemIds = await Promise.all([0, 1].map((index) => sections.nth(index).locator('[data-item-id]').evaluateAll((items) => items.map((item) => item.getAttribute('data-item-id')))))
   expect(sourceItemIds[0]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 0)).toBe(true)
@@ -1136,6 +1164,35 @@ test('Feed source overview keeps each source contiguous across supported viewpor
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
+test('Feed mode controls and both reading layouts stay usable at the reported viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'the reported 967×889 viewport needs one dedicated desktop regression')
+  await page.setViewportSize({ width: 967, height: 889 })
+  await page.goto('/feed')
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await expectFeedCanScroll(page, feed)
+
+  const toolbar = page.getByTestId('workbench-feed-toolbar')
+  const modeSwitch = page.locator('[data-feed-mode-switch]')
+  const tabs = [page.getByRole('tab', { name: '时间流' }), page.getByRole('tab', { name: '专题速览' })]
+  await expect(modeSwitch.locator('[data-slot="tabs-list-container"]')).toHaveCount(1)
+  for (const tab of tabs) {
+    const bounds = await tab.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(Math.abs(bounds!.width - bounds!.height)).toBeLessThanOrEqual(1)
+    expect(bounds!.width).toBeGreaterThanOrEqual(30)
+    expect(bounds!.width).toBeLessThanOrEqual(34)
+  }
+  expect(await toolbar.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+
+  await tabs[1].click()
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await page.getByRole('button', { name: '展开专题 OpenAI Blog' }).click()
+  await expect(page.locator('[data-source-group-card][data-state="expanded"]')).toHaveCount(1)
+  await expectFeedCanScroll(page, feed)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('source overview restores its article anchor after global search', async ({ page }, testInfo) => {

@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将 OpenClaw 多附件的剩余信息从独立 Popover 改为原摘要容器向上拉伸，保留前两条预览、仅显示增量条目，并统一所有行右边线。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-inline-expansion",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "OpenClaw 与更新日志相关 Vitest 35 项、TypeScript、UI contract 检查通过。",
-    "完整 Test Gate 23/23 通过（250.607 秒）。",
-    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；已服务原位展开资源，代码中不再包含 context-summary-popover 或“查看全部”。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -394,6 +374,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "专题速览 Playwright 在 1440×900、1024×768、390×844 验证来源连续、手风琴、无横向溢出和 Axe；桌面信息概览避让及搜索锚点回归通过。",
     "完整 Test Gate 24/24 通过（246.281 秒）；待本地 8080 切换后补充运行态验证。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "修复 /feed 时间流与专题速览的滚动高度回归；模式切换改为 HeroUI 图标 Tabs，专题改为一来源一张分组卡片且文章保持组内紧凑行。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed-visual-scroll",
+  "unresolved": [],
+  "validation": [
+    "UI contract、TypeScript、完整 Vitest 596/596、ESLint（仅既有 Fast Refresh 警告）和生产构建通过。",
+    "Playwright 验证 1440×900、1024×768、390×844 与 967×889 下两种阅读布局拥有真实滚动范围，专题分组、锚点、信息概览避让、Reduced Motion、无横向溢出和 Axe 回归通过。",
+    "完整 Test Gate 24/24 通过（276.586 秒）。"
   ]
 }
 ```
