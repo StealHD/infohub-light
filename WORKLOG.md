@@ -460,3 +460,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "修复活动主用或备用 1 处于 probationary 时来源 Canary 被误判为审批失效的问题；保持槽位、来源、generation 与候选健康状态的安全校验不变。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-probationary-source-canary",
+  "unresolved": [],
+  "validation": [
+    "新增活动 probationary 主用完成来源 Canary 的端到端回归。",
+    "Actor Canary 9/9、Worker 与 Pool Stage 14/14 定向测试通过。",
+    "完整 Test Gate 24/24 命令通过（256.52 秒）。"
+  ]
+}
+```

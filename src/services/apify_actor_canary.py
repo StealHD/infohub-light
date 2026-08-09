@@ -713,12 +713,7 @@ class ApifyActorCanaryRunner:
         ).fetchone()
         if slot is None or state not in {"closed", "half_open", "probationary"}:
             return False
-        allowed = (
-            {"certified", "legacy_builtin"}
-            if str(slot["slot_name"]) in {"primary", "backup_1"}
-            else {"certified", "probationary", "legacy_builtin"}
-        )
-        return lifecycle in allowed
+        return lifecycle in {"certified", "probationary", "legacy_builtin"}
 
     def _staged_source_context(self, row: Any) -> dict[str, Any] | None:
         if row["source_id"] is None:
