@@ -36,4 +36,26 @@ describe('session cache isolation', () => {
     expect(window.sessionStorage.getItem('inteliscope.feed-end-messages.v1.user-a')).toBeNull()
     expect(window.sessionStorage.getItem('inteliscope.feed-end-messages.v1.user-b')).not.toBeNull()
   })
+
+  it('clears only the departing user persistent source summaries', async () => {
+    const queryClient = new QueryClient()
+    window.localStorage.setItem('inteliscope.source-summary.v1:user-a', '{"entries":{}}')
+    window.localStorage.setItem('inteliscope.source-summary.v1:user-b', '{"entries":{}}')
+    window.localStorage.setItem('inteliscope.source-summary.v2:user-a', '{"entries":{}}')
+    window.localStorage.setItem('inteliscope.source-summary.v2:user-b', '{"entries":{}}')
+    window.localStorage.setItem('inteliscope.source-summary.v3:user-a', '{"entries":{}}')
+    window.localStorage.setItem('inteliscope.source-summary.v3:user-b', '{"entries":{}}')
+
+    await clearUserCache(queryClient, 'user-a')
+
+    expect(window.localStorage.getItem('inteliscope.source-summary.v1:user-a')).toBeNull()
+    expect(window.localStorage.getItem('inteliscope.source-summary.v1:user-b')).not.toBeNull()
+    expect(window.localStorage.getItem('inteliscope.source-summary.v2:user-a')).toBeNull()
+    expect(window.localStorage.getItem('inteliscope.source-summary.v2:user-b')).not.toBeNull()
+    expect(window.localStorage.getItem('inteliscope.source-summary.v3:user-a')).toBeNull()
+    expect(window.localStorage.getItem('inteliscope.source-summary.v3:user-b')).not.toBeNull()
+    window.localStorage.removeItem('inteliscope.source-summary.v1:user-b')
+    window.localStorage.removeItem('inteliscope.source-summary.v2:user-b')
+    window.localStorage.removeItem('inteliscope.source-summary.v3:user-b')
+  })
 })

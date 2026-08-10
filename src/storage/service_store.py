@@ -294,7 +294,10 @@ def apify_actor_canary_batches_v17_schema_shapes_valid(
     validation_sql = table_sql.get("apify_actor_validations", "")
     return (
         "check(max_candidatesbetween1and3)" in batch_sql
-        and "max_total_charge_usd<=0.06" in batch_sql
+        and (
+            "max_total_charge_usd<=0.06" in batch_sql
+            or "max_total_charge_usd<=0.30" in batch_sql
+        )
         and "unique(workspace_id,approval_key_hash)" in batch_sql
         and "statusin('planned','preflight_passed','preflight_failed','queued','running','succeeded','failed','not_needed_no_charge','blocked_unknown_start')"
         in item_sql

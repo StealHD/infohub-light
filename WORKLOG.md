@@ -8,161 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "发布 OpenClaw 安全图片对话 v2.2.13：修复 Linux 订阅页视觉基线，推送不可变标签，并以本地 linux/amd64 离线镜像切换 VPS API 与 Worker。",
-  "status": "completed",
-  "task_id": "2026-08-07-openclaw-image-v2-2-13-production-release",
-  "unresolved": [],
-  "validation": [
-    "本地 release Test Gate 25/25 通过；GitHub 标签 Test Gate（impact、前后端、Linux Chrome UI、release smoke）全部通过。",
-    "生产运行 revision 8ef4c6bf6491：API/Worker healthy，readiness 返回 worker_status=ready；scheduler 未运行，公网 /feed 返回 200。",
-    "生产数据库迁移 v19、integrity/foreign key 通过且无活跃作业；发布前生成 0600 的 .env 与 service.db 备份。",
-    "本地重建流程已默认在最终健康验证成功后清理旧 inteliscope-service:local-* 镜像标签，并保留当前或仍被容器引用的镜像。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "重构正式发布流程：main 按影响域运行完整门禁并并行 UI E2E，Tag 复用精确 main SHA 且只追加隔离 smoke；新增普通 VPS 升级脚本，并行构建/传输、在线备份、失败回滚并清理本地发布镜像。",
-  "status": "completed",
-  "task_id": "2026-08-07-optimize-vps-release-flow",
-  "unresolved": [],
-  "validation": [
-    "定向 pytest：tests/test_test_gate.py、tests/test_light_runtime_scripts.py、tests/test_product_docs_gate.py 全部通过。",
-    "Changelog 定向 Vitest 5/5 通过；最终完整 Test Gate 23/23 通过（248.48 秒）。",
-    "release_vps.sh bash 语法、workflow YAML、JSON 与 git diff 检查通过；真实 VPS status 验证 v2.2.13 API/Worker healthy、worker_status=ready、scheduler 未运行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "context",
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将大型 API、架构、UI 与决策 Markdown 迁为目录型权威源，归档过期报告/运行手册，并将确定性 Markdown 控制检查纳入 Test Gate。",
-  "status": "completed",
-  "task_id": "2026-08-07-markdown-control-archive",
-  "unresolved": [],
-  "validation": [
-    "迁移验证：15 份归档 SHA-256 与 32fc41e 原文一致；合同分块与既有 132 条决策正文逐段覆盖，新增 D134。",
-    "init-pro 结构校验、WORKLOG 校验、Markdown 控制检查与完整 Test Gate 24/24 命令通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-08",
-  "result": "在独立分支完成 OpenClaw 输入区与空态建议优化：新增本地 PromptSuggestion 复合组件，composer 仅保留外层边框并扩至 80–180 px，建议项仅填充并聚焦输入框。",
-  "status": "completed",
-  "task_id": "2026-08-08-openclaw-composer-polish",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest：PromptSuggestion、OpenClaw 对话与更新日志测试通过。",
-    "完整 Test Gate 24/24 命令通过（260.07 秒）；前端构建、类型检查和 UI 合同检查通过。",
-    "本地 8080 已切换目标 revision：API/Worker healthy、readiness 返回 worker_status=ready；390、768、1440 px 与 320 px Agent 最小宽度无横向溢出，键盘建议填充和单层输入边框实测通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-08",
-  "result": "修复 OpenClaw composer 聚焦时 Textarea 叠加的内层紫色 ring；保留 PromptInput 外层单一焦点边框。",
-  "status": "completed",
-  "task_id": "2026-08-08-openclaw-composer-focus-ring",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw composer 定向 Vitest 32/32 通过。",
-    "完整 Test Gate 24/24 命令通过（295.72 秒）；UI 合同、lint、类型检查与前端构建通过。",
-    "本地 8080 切换后实测：Textarea 无内层 focus ring，外层 PromptInput 焦点边框保留。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "将 OpenClaw 输入区与空态建议优化及 textarea 内层焦点 ring 修复 fast-forward 集成到本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-09-integrate-openclaw-composer-main",
-  "unresolved": [],
-  "validation": [
-    "main 完整 Test Gate 24/24 命令通过（249.60 秒）。",
-    "本地服务运行 da1c42b：API/Worker healthy，readiness 返回 worker_status=ready。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "登录页按 Quiet Studio 重构为桌面品牌/表单双栏与移动端单列，并补齐密码显隐、自动聚焦、提交防重入、凭据清理和首屏骨架。",
-  "status": "completed",
-  "task_id": "2026-08-09-login-quiet-studio-ui",
-  "unresolved": [],
-  "validation": [
-    "登录、App 路由、设计系统、手册与更新日志定向 Vitest 共 152 项通过；TypeScript、UI contract、ESLint 和生产构建通过。",
-    "Playwright 在 1440×900、1024×768、390×844 的明暗模式生成并复验 6 张快照；布局、焦点、密码显隐、无横向溢出与 Axe 严重/致命问题为零。",
-    "完整 Test Gate 24/24 命令通过（252 秒），mapping_miss=false；git diff --check 与控制面校验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "使用登录页 Quiet Studio 任务 Worktree 重建本地 8080，API 与 Worker 已切换到 ae38d53829a0，未启动 scheduler。",
-  "status": "completed",
-  "task_id": "2026-08-09-rebuild-login-quiet-studio-8080",
-  "unresolved": [],
-  "validation": [
-    "切换前确认规范运行时挂载、无 queued/running 活动任务、Feed 自动计划 0 个、Source 自动计划 3 个，数据库迁移版本已到 v19。",
-    "./scripts/up-latest.sh 完成无缓存构建与容器重建；API/Worker 均 healthy，readiness 返回 worker_status=ready，live revision 为 ae38d53829a0。",
-    "8080 实际服务的 /assets/index-BcPiyAg-.js 包含登录页文案‘专注你真正关心的信息’。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-09",
@@ -365,6 +210,148 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "任务分支以非快进合并进入 main，无冲突；任务功能提交与本地 8080 运行验证记录均已包含。",
     "合并后 main 完整 Test Gate 24/24 通过（249.893 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "优化来源级 AI 总结：提示词聚焦近期主线、变化、去重与文章序号依据；最近成功结果按用户和精确内容指纹在浏览器安全缓存，查看缓存不重复调用 AI。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-prompt-cache",
+  "unresolved": [],
+  "validation": [
+    "后端专题总结定向测试 6/6 通过；前端缓存、专题交互、会话清理与 App 回归 121/121 通过，TypeScript 与 ESLint 通过。",
+    "手册和更新日志测试 8/8、Markdown 控制与 schema-v3 结构校验通过。",
+    "完整 Test Gate 24/24 命令通过（254.72 秒），后端、前端构建与控制检查全部绿色。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "从专题总结缓存任务分支重新构建并启动本地 8080 API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-cache-local-runtime-start",
+  "unresolved": [],
+  "validation": [
+    "./scripts/up-latest.sh 使用任务 Worktree 构建 revision 659711b5bb4b，并仅重建 horizon-api 与 horizon-worker。",
+    "API 与 Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务前端资源 index-CQUmeqMF.js。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "修复来源级 AI 总结的偶发无效输出：本地提取完整 JSON 对象并将单条 highlights 标量规范化为数组，不增加第二次模型调用，也不记录模型正文。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-output-normalization",
+  "unresolved": [],
+  "validation": [
+    "专题总结定向后端测试 7/7 通过，覆盖 JSON 外包装、前置调试对象、Markdown 围栏与单条 highlights 标量；确认只调用一次 AI。",
+    "完整 Test Gate 24/24 命令通过（320.018 秒），后端、前端构建与控制检查全部绿色。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "为来源级 AI 总结增加最终同源内容回退：模型正文不可解析时返回明确标注的代表性标题速览，不再向用户暴露 502 错误；保持一次 AI 调用、字符预算、URL 移除与无原文日志。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-deterministic-fallback",
+  "unresolved": [],
+  "validation": [
+    "专题总结后端定向测试 7/7 通过，覆盖不可解析输出的代表性内容回退、一次调用和既有边界。",
+    "手册与更新日志前端测试 8/8 通过；完整 Test Gate 24/24 命令通过（385.941 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "修复专题 AI 总结的确定性空响应：确认 DeepSeek 在 800 token 上限内将全部 completion 用于隐藏推理，专题调用改为 2048..4096 token 单次预算并记录安全完成指标；移除标题列表伪总结，升级 prompt 与浏览器缓存到 V2。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-reasoning-budget",
+  "unresolved": [],
+  "validation": [
+    "真实 20 篇输入诊断确认 input_tokens=1803、completion_tokens=800、reasoning_tokens=800、content_tokens=0、finish_reason=length、response_bytes=0。",
+    "后端专题总结 7/7、缓存与退出清理 10/10、专题 UI 1/1、Changelog 5/5、TypeScript 与 ESLint 通过。",
+    "完整 Test Gate 24/24 通过（552.619 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-readable-budget",
+  "unresolved": [],
+  "validation": [
+    "真实 20 篇页面生成已确认 2048 token 预算成功：completion_tokens=1057、reasoning_tokens=886、content_tokens=171、finish_reason=stop。",
+    "可读预算后端 7/7、V3 缓存与产品文案 15/15、专题 UI 1/1、TypeScript 通过。",
+    "最终完整 Test Gate 24/24 通过（305.553 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-runtime-schema-compatibility",
+  "unresolved": [
+    "API/Worker 在迁移保护流程中已停止；用户明确要求不重建容器，本任务未继续恢复 8080。",
+    "V3 可读要点已通过自动化门禁，但未在最终 V3 资源上再次执行真实浏览器生成与刷新缓存验证。"
+  ],
+  "validation": [
+    "真实 service.db 只读预检从 required=true 修复为 required=false，数据库 integrity_check=ok 且 foreign_key_check 无违规。",
+    "迁移兼容测试 5/5 通过；完整 Test Gate 24/24 通过（499.311 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "从专题总结任务 Worktree 按标准流程重建并启动本地 8080，仅运行 horizon-api 与 horizon-worker；当前 revision 与前端资源均已切换到任务分支。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-v3-runtime-start",
+  "unresolved": [],
+  "validation": [
+    "./scripts/up-latest.sh 完成，API liveness revision=885c7ce22556，readiness 返回 API/Worker ready。",
+    "horizon-light-api 与 horizon-light-worker 均 healthy；8080 实际服务前端资源 index-DCQ0XeSV.js。"
   ]
 }
 ```
