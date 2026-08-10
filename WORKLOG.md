@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-09",
-  "result": "使用登录页 Quiet Studio 任务 Worktree 重建本地 8080，API 与 Worker 已切换到 ae38d53829a0，未启动 scheduler。",
-  "status": "completed",
-  "task_id": "2026-08-09-rebuild-login-quiet-studio-8080",
-  "unresolved": [],
-  "validation": [
-    "切换前确认规范运行时挂载、无 queued/running 活动任务、Feed 自动计划 0 个、Source 自动计划 3 个，数据库迁移版本已到 v19。",
-    "./scripts/up-latest.sh 完成无缓存构建与容器重建；API/Worker 均 healthy，readiness 返回 worker_status=ready，live revision 为 ae38d53829a0。",
-    "8080 实际服务的 /assets/index-BcPiyAg-.js 包含登录页文案‘专注你真正关心的信息’。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
   "result": "根据登录页浏览器评审，将桌面与平板品牌区的三条能力说明收拢为带细边框的圆角实色信息块，移动端仍隐藏该低优先级列表。",
   "status": "completed",
   "task_id": "2026-08-09-login-capability-corners",
@@ -355,6 +337,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "真实 service.db 只读预检从 required=true 修复为 required=false，数据库 integrity_check=ok 且 foreign_key_check 无违规。",
     "迁移兼容测试 5/5 通过；完整 Test Gate 24/24 通过（499.311 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "从专题总结任务 Worktree 按标准流程重建并启动本地 8080，仅运行 horizon-api 与 horizon-worker；当前 revision 与前端资源均已切换到任务分支。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-v3-runtime-start",
+  "unresolved": [],
+  "validation": [
+    "./scripts/up-latest.sh 完成，API liveness revision=885c7ce22556，readiness 返回 API/Worker ready。",
+    "horizon-light-api 与 horizon-light-worker 均 healthy；8080 实际服务前端资源 index-DCQ0XeSV.js。"
   ]
 }
 ```
