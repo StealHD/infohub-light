@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "重构正式发布流程：main 按影响域运行完整门禁并并行 UI E2E，Tag 复用精确 main SHA 且只追加隔离 smoke；新增普通 VPS 升级脚本，并行构建/传输、在线备份、失败回滚并清理本地发布镜像。",
-  "status": "completed",
-  "task_id": "2026-08-07-optimize-vps-release-flow",
-  "unresolved": [],
-  "validation": [
-    "定向 pytest：tests/test_test_gate.py、tests/test_light_runtime_scripts.py、tests/test_product_docs_gate.py 全部通过。",
-    "Changelog 定向 Vitest 5/5 通过；最终完整 Test Gate 23/23 通过（248.48 秒）。",
-    "release_vps.sh bash 语法、workflow YAML、JSON 与 git diff 检查通过；真实 VPS status 验证 v2.2.13 API/Worker healthy、worker_status=ready、scheduler 未运行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "context",
     "decisions",
@@ -364,6 +344,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "后端专题总结定向测试 6/6 通过；前端缓存、专题交互、会话清理与 App 回归 121/121 通过，TypeScript 与 ESLint 通过。",
     "手册和更新日志测试 8/8、Markdown 控制与 schema-v3 结构校验通过。",
     "完整 Test Gate 24/24 命令通过（254.72 秒），后端、前端构建与控制检查全部绿色。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "从专题总结缓存任务分支重新构建并启动本地 8080 API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-cache-local-runtime-start",
+  "unresolved": [],
+  "validation": [
+    "./scripts/up-latest.sh 使用任务 Worktree 构建 revision 659711b5bb4b，并仅重建 horizon-api 与 horizon-worker。",
+    "API 与 Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务前端资源 index-CQUmeqMF.js。"
   ]
 }
 ```
