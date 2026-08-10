@@ -1600,6 +1600,7 @@ export function HeroActorOpsControlPlane({
       .slice(0, candidatesQuery.data?.required_selection_count ?? 3)
       .map((candidate) => candidate.candidate_id)
     : []
+  const hasPreferredActorUpgrades = preferredCandidateIds.length > 0
   const activeSelectedCandidateIds = selectedCandidateIds ?? preferredCandidateIds
 
   const batchQuery = useQuery({
@@ -2314,7 +2315,13 @@ export function HeroActorOpsControlPlane({
       <Modal.Backdrop isDismissable={!prepareManualPlan.isPending && !discovery.isPending} isKeyboardDismissDisabled={prepareManualPlan.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>{candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级现有 Actor' : '选择 3 个 Actor'}</Modal.Heading></Modal.Header>
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
-          <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy' ? '系统优先升级原来的 Actor；带“原 Actor”标记的候选已自动选中。若某个原 Actor 无法升级，只需为缺口选择替代项。' : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。'}</HeroNotice>
+          <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy'
+            ? hasPreferredActorUpgrades
+              ? '系统优先升级原来的 Actor；带“原 Actor”标记的候选已自动选中。若某个原 Actor 无法升级，只需为缺口选择替代项。'
+              : candidatesQuery.data
+                ? '当前候选列表还没有原 Actor 的安全新版。点击“更新候选（免费）”会优先重新检查原 Actor；只有未通过检查的位置才需要换人。'
+                : '系统会优先检查原来的 Actor；只有无法形成安全新版的位置才需要换人。'
+            : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。'}</HeroNotice>
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}
           {candidatesQuery.data && <>

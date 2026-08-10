@@ -578,7 +578,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps 后端定向回归 104/104 通过，覆盖原 Actor exact Revision、公开 Store 安全检查和 legacy 来源零 Job/零费用拦截。",
     "ActorOps 前端 Vitest 79/79、Changelog 5/5、TypeScript 与 ESLint 通过（仅仓库既有 8 条 Fast Refresh 警告）。",
-    "完整 Test Gate 24/24 命令通过（245.07 秒）。"
+    "完整 Test Gate 24/24 命令通过（246.72 秒）；共享 8080 浏览器复核后补充了无原 Actor 新版时的免费更新提示。"
   ]
 }
 ```

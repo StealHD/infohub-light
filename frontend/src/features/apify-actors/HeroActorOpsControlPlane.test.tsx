@@ -942,6 +942,9 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
 
     await browser.click(await screen.findByRole('button', { name: cta }))
     expect(await screen.findByRole('heading', { name: heading })).toBeVisible()
+    if (goal === 'upgrade_legacy') {
+      expect(screen.getByText(/当前候选列表还没有原 Actor 的安全新版/)).toBeVisible()
+    }
     const continueButton = screen.getByRole('button', { name: '继续' })
     await browser.click(screen.getByRole('checkbox', { name: /高可靠 Actor A/ }))
     await browser.click(screen.getByRole('checkbox', { name: /稳定 Actor B/ }))
