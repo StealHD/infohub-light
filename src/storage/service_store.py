@@ -48,6 +48,7 @@ APIFY_ACTOR_CANARY_BATCHES_MIGRATION_CHECKSUM = (
     "apify-actor-canary-batches-v17-two-provider-approval"
 )
 ROLES = {"owner", "admin", "member", "viewer"}
+USERNAME_MAX_LENGTH = 80
 SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
 WORKER_STATES = {"starting", "idle", "running", "stopping"}
@@ -348,6 +349,14 @@ class SecretEnvConflictError(ValueError):
     """A workspace already registered the requested secret environment name."""
 
 
+class UsernameConflictError(ValueError):
+    """A workspace already registered the requested username."""
+
+
+class UserActiveJobsError(ValueError):
+    """A user with a running job cannot be deleted safely."""
+
+
 class AgentDelegationLimitError(ValueError):
     """A user already owns the maximum number of active agent connections."""
 
@@ -584,6 +593,17 @@ def _validate_subscription_priority(value: Any) -> int:
 
 def _env_username() -> str:
     return os.getenv("HORIZON_AUTH_USER", "admin").strip() or "admin"
+
+
+def _normalize_username(value: Any) -> str:
+    username = str(value or "").strip()
+    if not username:
+        raise ValueError("username is required")
+    if len(username) > USERNAME_MAX_LENGTH:
+        raise ValueError(f"username must not exceed {USERNAME_MAX_LENGTH} characters")
+    if any(ord(character) < 32 or ord(character) == 127 for character in username):
+        raise ValueError("username must not contain control characters")
+    return username
 
 
 def _env_password_hash() -> str | None:
@@ -5790,35 +5810,40 @@ class ServiceStore:
         display_name: str | None = None,
         enabled: bool = True,
     ) -> dict[str, Any]:
-        username = str(username or "").strip()
-        if not username:
-            raise ValueError("username is required")
+        username = _normalize_username(username)
         if role not in ROLES:
             raise ValueError(f"role must be one of {', '.join(sorted(ROLES))}")
         if not password:
             raise ValueError("password is required")
         now = _now_iso()
         user_id = _new_id("usr")
-        self.connect().execute(
-            """
-            INSERT INTO users (
-                id, workspace_id, username, display_name, role,
-                password_hash, enabled, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                workspace_id,
-                username,
-                display_name or username,
-                role,
-                hash_password(password),
-                1 if enabled else 0,
-                now,
-                now,
-            ),
-        )
-        self.connect().commit()
+        try:
+            self.connect().execute(
+                """
+                INSERT INTO users (
+                    id, workspace_id, username, display_name, role,
+                    password_hash, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    workspace_id,
+                    username,
+                    display_name or username,
+                    role,
+                    hash_password(password),
+                    1 if enabled else 0,
+                    now,
+                    now,
+                ),
+            )
+            self.connect().commit()
+        except sqlite3.IntegrityError as exc:
+            if self.connect().in_transaction:
+                self.connect().rollback()
+            if self.get_user_by_username(username, workspace_id=workspace_id):
+                raise UsernameConflictError() from exc
+            raise
         user = self.get_user(user_id)
         if user is None:
             raise LookupError("created user not found")
@@ -5828,6 +5853,7 @@ class ServiceStore:
         self,
         user_id: str,
         *,
+        username: str | None = None,
         role: str | None = None,
         enabled: bool | None = None,
         display_name: str | None = None,
@@ -5843,6 +5869,20 @@ class ServiceStore:
             current = self.get_user(user_id)
             if current is None:
                 raise LookupError("user not found")
+            target_username = (
+                current["username"]
+                if username is None
+                else _normalize_username(username)
+            )
+            conflict = conn.execute(
+                """
+                SELECT 1 FROM users
+                WHERE workspace_id = ? AND username = ? AND id != ?
+                """,
+                (current["workspace_id"], target_username, user_id),
+            ).fetchone()
+            if conflict is not None:
+                raise UsernameConflictError()
             target_role = role or current["role"]
             target_enabled = bool(
                 current["enabled"] if enabled is None else enabled
@@ -5854,10 +5894,12 @@ class ServiceStore:
             conn.execute(
                 """
                 UPDATE users
-                SET role = ?, enabled = ?, display_name = ?, password_hash = ?, updated_at = ?
+                SET username = ?, role = ?, enabled = ?, display_name = ?,
+                    password_hash = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
+                    target_username,
                     target_role,
                     1 if target_enabled else 0,
                     display_name if display_name is not None else current["display_name"],
@@ -5947,6 +5989,71 @@ class ServiceStore:
         if updated is None:
             raise LookupError("updated user not found")
         return updated
+
+    def delete_user(self, user_id: str, *, reassigned_user_id: str) -> bool:
+        conn = self.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            current = self.get_user(user_id)
+            reassigned = self.get_user(reassigned_user_id)
+            if current is None:
+                raise LookupError("user not found")
+            if reassigned is None or reassigned["workspace_id"] != current["workspace_id"]:
+                raise LookupError("replacement user not found")
+            if reassigned_user_id == user_id:
+                raise ValueError("a user cannot be reassigned to itself")
+            if current["role"] == "owner":
+                raise ValueError("owner accounts cannot be deleted")
+            running_job = conn.execute(
+                "SELECT 1 FROM fetch_jobs WHERE user_id = ? AND status = 'running' LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if running_job is not None:
+                raise UserActiveJobsError()
+
+            now = _now_iso()
+            conn.execute(
+                """
+                UPDATE source_catalog
+                SET owner_user_id = NULL,
+                    display_name = 'Deleted account source',
+                    description = '',
+                    default_channel = NULL,
+                    default_topics_json = '[]',
+                    config_json = '{}',
+                    source_key = NULL,
+                    secret_env = NULL,
+                    enabled = 0,
+                    updated_at = ?
+                WHERE scope = 'private' AND owner_user_id = ?
+                """,
+                (now, user_id),
+            )
+            canary_batches_available = conn.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'apify_actor_canary_batches'
+                """
+            ).fetchone()
+            if canary_batches_available is not None:
+                conn.execute(
+                    """
+                    UPDATE apify_actor_canary_batches
+                    SET created_by_user_id = ?, updated_at = ?
+                    WHERE created_by_user_id = ?
+                    """,
+                    (reassigned_user_id, now, user_id),
+                )
+            cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            if owns_transaction:
+                conn.commit()
+            return cursor.rowcount == 1
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
 
     def authenticate_user(self, username: str, password: str) -> dict[str, Any] | None:
         user = self.get_user_by_username(username)

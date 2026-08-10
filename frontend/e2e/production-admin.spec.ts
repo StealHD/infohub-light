@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
+const managedMember = { id: 'member-1', username: 'member', display_name: '验收成员', role: 'member', enabled: true }
 const notificationWebhookProviders = [{
   provider: 'generic_event',
   label: '通用事件 JSON',
@@ -909,7 +910,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
         remaining_hard_limit_usd: 87.5,
       }
     }
-    else if (url.pathname === '/api/users') data = { users: [owner] }
+    else if (url.pathname === '/api/users') data = { users: [owner, managedMember] }
     else {
       await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: url.pathname } }) })
       return
@@ -1059,6 +1060,15 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expectHeroAdminPage(page, '账户与成员')
   await expect(page.getByRole('heading', { name: '账户安全' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '成员管理' })).toBeVisible()
+  await page.getByRole('button', { name: '修改 member 用户名' }).click()
+  await expect(page.getByRole('dialog', { name: '修改成员用户名' })).toBeVisible()
+  await page.getByRole('dialog', { name: '修改成员用户名' }).getByRole('button', { name: '取消' }).click()
+  await page.getByRole('button', { name: '删除 member 账号' }).click()
+  const deleteMemberDialog = page.getByRole('dialog', { name: '删除成员账号' })
+  await expect(deleteMemberDialog.getByRole('button', { name: '确认删除账号' })).toBeDisabled()
+  await deleteMemberDialog.getByLabel('输入用户名 member 以确认').fill('member')
+  await expect(deleteMemberDialog.getByRole('button', { name: '确认删除账号' })).toBeEnabled()
+  await deleteMemberDialog.getByRole('button', { name: '取消' }).click()
 
   await page.goto('/manual')
   await expectHeroAdminPage(page, '操作手册')

@@ -273,6 +273,7 @@ export function createServiceApi(client: ApiClient) {
     users: (signal?: AbortSignal) => client.get<ListResponse<User, 'users'>>('/api/users', signal),
     createUser: (payload: Record<string, unknown>) => client.post<User>('/api/users', payload),
     updateUser: (userId: string, patch: Record<string, unknown>) => client.patch<User>(resource('/api/users', userId), patch),
+    deleteUser: (userId: string) => client.delete<{ deleted: boolean; id: string }>(resource('/api/users', userId)),
     changePassword: (currentPassword: string, newPassword: string) => client.post<{ changed: true }>('/api/me/password', {
       current_password: currentPassword,
       new_password: newPassword,

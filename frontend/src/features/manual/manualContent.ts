@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-09',
-  change: '品牌图标与明暗主题适配',
+  reviewedAt: '2026-08-10',
+  change: '成员账号改名与删除',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -193,7 +193,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '账户安全',
-        description: '每位登录用户都可以修改自己的密码；Owner/Admin 还可以管理非 Owner 成员，服务端权限始终是最终边界。',
+        description: '每位登录用户都可以修改自己的密码；Owner/Admin 还可以管理非 Owner 成员的用户名、角色、可用状态和密码。删除账号前必须输入该成员的当前用户名确认；系统会移除其登录会话和用户数据并清空私人来源配置，运行中的任务结束前会安全阻止删除。Owner 账号和管理员自己的当前账号不能从成员表删除，服务端权限始终是最终边界。',
         href: '/users',
         linkLabel: '打开账户与成员',
       },

@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from src.storage.service_store import ServiceStore
+from src.storage.service_store import ServiceStore, UserActiveJobsError
 from src.ui.auth import verify_password_hash
 
 
@@ -675,6 +675,39 @@ def test_update_user_rolls_back_role_and_schedule_when_viewer_cleanup_fails(
     )
     assert schedule["enabled"] is True
     assert JobQueue(store).get_job(queued["id"])["status"] == "queued"
+
+
+def test_delete_user_rolls_back_while_a_job_is_running(tmp_path, monkeypatch):
+    from src.services.job_queue import JobQueue
+
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    member = store.create_user(
+        workspace_id=workspace["id"],
+        username="running-member",
+        password="member-password",
+    )
+    job, created = JobQueue(store).create_user_feed_refresh_if_absent(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        payload={"reason": "manual"},
+    )
+    assert created is True
+    store.connect().execute(
+        "UPDATE fetch_jobs SET status = 'running' WHERE id = ?",
+        (job["id"],),
+    )
+    store.connect().commit()
+
+    with pytest.raises(UserActiveJobsError):
+        store.delete_user(member["id"], reassigned_user_id=owner["id"])
+
+    assert store.get_user(member["id"]) is not None
+    assert JobQueue(store).get_job(job["id"])["status"] == "running"
 
 
 def test_update_source_rolls_back_lifecycle_when_feed_reconciliation_fails(

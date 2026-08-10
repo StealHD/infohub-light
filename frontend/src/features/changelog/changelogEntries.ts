@@ -22,6 +22,16 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-10',
+        title: '成员账号管理补齐改名与删除',
+        summary: 'Owner/Admin 现在可以在成员表直接修改非 Owner 用户名，并通过精确确认安全删除账号。',
+        items: [
+          { title: '登录名可以维护', description: '非 Owner 成员行新增修改用户名操作；同工作区重名会保留弹窗并给出可修正提示，保存后新用户名立即用于后续登录。' },
+          { title: '删除需要精确确认', description: '删除按钮会先打开确认框，只有输入该成员当前用户名后才允许提交；Owner 和管理员自己的当前账号保持受保护。' },
+          { title: '运行与私人数据安全收尾', description: '账号删除会使会话失效并移除用户作用域数据，同时清空、停用遗留私人来源配置；仍有运行中任务时服务端会要求稍后重试。' },
+        ],
+      },
+      {
         date: '2026-08-09',
         title: '专题速览与登录体验同步更新',
         summary: '信息流新增紧凑专题速览、来源级 AI 与 Agent 提问；登录页同步采用响应式 Quiet Studio 布局。',
