@@ -282,6 +282,8 @@ function poolCandidateUnavailableLabel(reason: string | null | undefined): strin
   if (reason === 'candidate_validation_in_progress') return '另一次验证正在进行'
   if (reason === 'candidate_exact_build_missing') return '尚未固定可验证版本'
   if (reason === 'candidate_not_validated') return '基础检查尚未通过'
+  if (reason === 'actor_upgrade_inspection_running') return '正在为这个当前 Actor 生成安全新版'
+  if (reason === 'actor_upgrade_revision_unavailable') return '尚未通过安全升级检查；当前兼容版本继续运行'
   return '当前不满足安全条件'
 }
 
@@ -1400,19 +1402,19 @@ const workflowPresentation: Record<string, {
     status: '待生效', tone: 'success', action: 'approve_activation', cta: '查看并确认补位生效',
   },
   legacy_discovery_required: {
-    title: '兼容模式仍在运行',
-    description: '系统会优先为原 Actor 固定新版 Build 并旁路验证；只有原 Actor 不再可用时才需要换人。第二次确认前旧线路继续服务。',
-    status: '兼容模式', tone: 'warning', action: 'start_discovery', cta: '升级现有 Actor',
+    title: '升级当前 3 个 Actor',
+    description: '先只检查上面正在使用的 3 个 Actor，为它们固定新版 Build 并旁路验证。只有某个明确无法安全升级时，才需要选替代者。',
+    status: '兼容模式', tone: 'warning', action: 'start_discovery', cta: '开始升级当前 3 个 Actor',
   },
   legacy_discovery_running: {
-    title: '正在旁路建立新版主备',
-    description: '当前兼容线路继续运行，不会停机。',
+    title: '正在升级当前 3 个 Actor',
+    description: '系统正在为上面的 Actor 生成固定 Build；当前兼容线路继续运行，不会重复创建搜索任务。',
     status: '兼容模式', tone: 'warning', action: 'none',
   },
   legacy_candidate_selection_required: {
-    title: '确认原 Actor 升级方案',
-    description: '可安全升级的原 Actor 已优先选中；只需为不可升级的位置选择替代项。第二次确认前兼容版本持续运行。',
-    status: '兼容模式', tone: 'warning', action: 'select_candidates', cta: '查看升级方案',
+    title: '确认当前 Actor 升级',
+    description: '上面的 3 个 Actor 会排在候选列表最前面并优先选中；只为明确无法升级的位置选择替代项。',
+    status: '兼容模式', tone: 'warning', action: 'select_candidates', cta: '继续升级当前 Actor',
   },
   legacy_canary_approval_required: {
     title: '新版主备候选已就绪',
@@ -2058,21 +2060,30 @@ export function HeroActorOpsControlPlane({
     ? `有 ${workflowPendingSourceCount} 个来源等待启用`
     : candidateShortfall
       ? workflow?.goal === 'upgrade_legacy'
-        ? '新版主备候选不足'
+        ? '当前 Actor 尚未全部升级'
         : workflow?.goal === 'complete_third'
           ? '第三路备用候选不足'
           : '主备候选不足'
     : next.title
   const nextDescription = candidateShortfall
-    ? `${eligibleCandidateCount !== null && requiredSuccessCount !== null
-      ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
-      : '当前符合条件的候选还不足。'}已通过的候选会保留；继续免费搜索不会启动 Actor 或产生费用。`
+    ? workflow?.goal === 'upgrade_legacy'
+      ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；只有某个明确失败时，才需要选择替代者。免费检查不会启动 Actor。'
+      : `${eligibleCandidateCount !== null && requiredSuccessCount !== null
+        ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
+        : '当前符合条件的候选还不足。'}已通过的候选会保留；继续免费搜索不会启动 Actor 或产生费用。`
     : next.description
-  const nextCta = candidateShortfall ? '继续免费搜索候选' : next.cta
+  const nextCta = candidateShortfall
+    ? workflow?.goal === 'upgrade_legacy' ? '查看当前 Actor 升级状态' : '继续免费搜索候选'
+    : next.cta
 
   function performNextAction() {
     if (actionPending) return
-    if (next.action === 'start_discovery') discovery.mutate()
+    if (candidateShortfall && workflow?.goal === 'upgrade_legacy') {
+      setSelectedCandidateIds(null)
+      setCandidateError(null)
+      setCandidatePickerOpen(true)
+    }
+    else if (next.action === 'start_discovery') discovery.mutate()
     else if (next.action === 'select_candidates') {
       setSelectedCandidateIds(null)
       setCandidateError(null)
@@ -2118,7 +2129,7 @@ export function HeroActorOpsControlPlane({
 
   return <>
     <div className="grid gap-5">
-      <div className="grid gap-3 rounded-control border border-separator bg-surface-primary p-3 shadow-sm min-[768px]:grid-cols-[minmax(0,360px)_1fr] min-[768px]:items-end">
+      <div className="grid gap-3 min-[768px]:grid-cols-[minmax(0,360px)_1fr] min-[768px]:items-end">
         <HeroSelect
           label="抓取类型"
           value={selectedProfileId}
@@ -2144,7 +2155,7 @@ export function HeroActorOpsControlPlane({
             label: routeProductNames[profile.id]?.label || profile.label,
           }))}
         />
-        {selectedSummary && <div className="flex min-h-10 items-center gap-3 rounded-control border border-separator bg-surface-primary px-3 py-2 min-[768px]:justify-end">
+        {selectedSummary && <div className="flex min-h-10 items-center gap-3 px-1 py-2 min-[768px]:justify-end">
           <StatusIndicator label={next.status} tone={next.tone} role="status" />
           <span className="type-meta text-muted">{selectedSummary.runnable_slots}/3 路可用</span>
         </div>}
@@ -2166,7 +2177,7 @@ export function HeroActorOpsControlPlane({
         }
       }}>
         <div className="sticky top-0 z-10 -mx-1 overflow-visible bg-transparent px-1 py-1 backdrop-blur-sm">
-          <Tabs.List aria-label="ActorOps 配置任务" className="grid w-full grid-cols-3 gap-1 rounded-control border border-separator bg-surface-primary/95 p-1 shadow-sm">
+          <Tabs.List aria-label="ActorOps 配置任务" className="grid w-full grid-cols-3 gap-1 bg-transparent p-0 shadow-none">
             <Tabs.Tab id="pool" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center px-2">主备配置<Tabs.Indicator /></Tabs.Tab>
             <Tabs.Tab id="sources" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center gap-1 px-2">来源启用{pendingSourceCount > 0 && <CountBadge count={pendingSourceCount} label={`${pendingSourceCount} 个来源待处理`} />}<Tabs.Indicator /></Tabs.Tab>
             <Tabs.Tab id="operations" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center px-2">运行与告警<Tabs.Indicator /></Tabs.Tab>
@@ -2313,14 +2324,14 @@ export function HeroActorOpsControlPlane({
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 候选列表</Modal.Trigger>
       <Modal.Backdrop isDismissable={!prepareManualPlan.isPending && !discovery.isPending} isKeyboardDismissDisabled={prepareManualPlan.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级现有 Actor' : '选择 3 个 Actor'}</Modal.Heading></Modal.Header>
+        <Modal.Header><Modal.Heading>{candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : '选择 3 个 Actor'}</Modal.Heading></Modal.Header>
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
           <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy'
             ? hasPreferredActorUpgrades
-              ? '系统优先升级原来的 Actor；带“原 Actor”标记的候选已自动选中。若某个原 Actor 无法升级，只需为缺口选择替代项。'
+              ? '上面的当前 Actor 已排在最前并自动选中。若某个当前 Actor 明确无法升级，只为那个缺口选替代项。'
               : candidatesQuery.data
-                ? '当前候选列表还没有原 Actor 的安全新版。点击“更新候选（免费）”会优先重新检查原 Actor；只有未通过检查的位置才需要换人。'
-                : '系统会优先检查原来的 Actor；只有无法形成安全新版的位置才需要换人。'
+                ? '上面的当前 Actor 已列在最前。点击“重新检查当前 Actor（免费）”会为它们生成安全新版；只有未通过检查的位置才需要换人。'
+                : '系统会先列出上面的当前 Actor；只有无法形成安全新版的位置才需要换人。'
             : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。'}</HeroNotice>
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}
@@ -2342,9 +2353,9 @@ export function HeroActorOpsControlPlane({
                 ].includes(failure.code)
                 return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
                   <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
-                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">原 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
+                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
                   </Checkbox>
-                  {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">不可选择：{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
+                  {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">{candidate.existing_actor_upgrade ? '当前状态：' : '不可选择：'}{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
                   {failure && <div className="mt-3 grid gap-3 rounded-control border border-warning/40 bg-default p-3">
                     <div className="type-meta">
                       <p className="type-control text-warning">{failure.code === 'apify_actor_run_timed_out'
@@ -2397,7 +2408,7 @@ export function HeroActorOpsControlPlane({
         </div></Modal.Body>
         <Modal.Footer>
           <Button variant="ghost" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
-          <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => discovery.mutate()}>{discovery.isPending ? '正在更新…' : '更新候选（免费）'}</Button>
+          <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => discovery.mutate()}>{candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : '重新检查当前 Actor（免费）' : discovery.isPending ? '正在更新…' : '更新候选（免费）'}</Button>
           <Button isDisabled={!candidateSelectionComplete || prepareManualPlan.isPending || discovery.isPending} onPress={() => prepareManualPlan.mutate()}>{prepareManualPlan.isPending ? '正在核对…' : '继续'}</Button>
         </Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>

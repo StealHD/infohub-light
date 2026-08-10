@@ -5281,6 +5281,26 @@ def create_app(
                 connection.execute("BEGIN IMMEDIATE")
             else:
                 connection.execute(f"SAVEPOINT {savepoint}")
+            active_discovery = connection.execute(
+                """
+                SELECT run_id
+                FROM apify_actor_discovery_runs
+                WHERE workspace_id = ? AND route_id = ?
+                  AND stage IN (
+                      'queued', 'searching', 'metadata', 'ranking',
+                      'static_validation', 'input_validation'
+                  )
+                ORDER BY created_at, rowid
+                LIMIT 1
+                """,
+                (str(user["workspace_id"]), route_id),
+            ).fetchone()
+            if active_discovery is not None:
+                raise ActorOpsError(
+                    "apify_actor_discovery_active",
+                    "The current Actor upgrade inspection is already running",
+                    status_code=409,
+                )
             prefer_existing = payload.goal == "upgrade_legacy"
             discovery = ops.create_discovery_run(
                 route_id,

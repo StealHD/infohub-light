@@ -1566,6 +1566,47 @@ def _run_apify_actor_discovery(
             "revision_count": 0,
             "idempotent_replay": True,
         }
+    if prefer_existing:
+        earlier_active = store.connect().execute(
+            """
+            SELECT 1
+            FROM apify_actor_discovery_runs AS earlier
+            WHERE earlier.workspace_id = ?
+              AND earlier.route_id = ?
+              AND earlier.trigger_reason = 'manual_legacy_upgrade_refresh'
+              AND earlier.stage IN (
+                  'queued', 'searching', 'metadata', 'ranking',
+                  'static_validation', 'input_validation'
+              )
+              AND earlier.rowid < (
+                  SELECT current.rowid
+                  FROM apify_actor_discovery_runs AS current
+                  WHERE current.workspace_id = ? AND current.run_id = ?
+              )
+            LIMIT 1
+            """,
+            (
+                str(job["workspace_id"]),
+                str(run["route_id"]),
+                str(job["workspace_id"]),
+                run_id,
+            ),
+        ).fetchone()
+        if earlier_active is not None:
+            superseded = ops.update_discovery_run(
+                run_id,
+                expected_stage="queued",
+                stage="failed",
+                error_code="superseded_duplicate_refresh",
+            )
+            return {
+                "ok": True,
+                "job_type": "apify_actor_discovery",
+                "run_id": run_id,
+                "stage": superseded["stage"],
+                "revision_count": 0,
+                "superseded_duplicate": True,
+            }
     settings = ops.get_discovery_settings()
     if not bool(settings["enabled"]):
         blocked = ops.update_discovery_run(

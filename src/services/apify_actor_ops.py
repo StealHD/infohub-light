@@ -3191,6 +3191,7 @@ class ApifyActorOpsService:
             SELECT run_id, stage
             FROM apify_actor_discovery_runs
             WHERE workspace_id = ? AND route_id = ?
+              AND COALESCE(error_code, '') != 'superseded_duplicate_refresh'
             ORDER BY created_at DESC, rowid DESC
             LIMIT 1
             """,
@@ -3210,13 +3211,21 @@ class ApifyActorOpsService:
             }
         active_rows = connection.execute(
             """
-            SELECT revision.actor_id, revision.lifecycle
+            SELECT slot.slot_name, revision.candidate_id,
+                   revision.actor_id, revision.lifecycle,
+                   revision.publisher, revision.pricing_json,
+                   candidate.display_name
             FROM apify_route_active_slots AS slot
             JOIN apify_actor_adapter_revisions AS revision
               ON revision.workspace_id = slot.workspace_id
              AND revision.revision_id = slot.revision_id
+            LEFT JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
             WHERE slot.workspace_id = ? AND slot.route_id = ?
               AND slot.revision_id IS NOT NULL
+            ORDER BY CASE slot.slot_name
+                WHEN 'primary' THEN 1 WHEN 'backup_1' THEN 2 ELSE 3 END
             """,
             (self.workspace_id, route_id),
         ).fetchall()
@@ -3425,6 +3434,59 @@ class ApifyActorOpsService:
                     "selectable": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
                 }
+            )
+        if goal == "upgrade_legacy":
+            discovery_running = str(latest["stage"]) in {
+                "queued", "searching", "metadata", "ranking",
+                "static_validation", "input_validation",
+            }
+            for row in active_rows:
+                if (
+                    str(row["lifecycle"]) != "legacy_builtin"
+                    or str(row["actor_id"]) in seen_actors
+                ):
+                    continue
+                candidate_id = str(row["candidate_id"] or "")
+                if not candidate_id:
+                    continue
+                candidates.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "actor_public_name": _actor_public_name(
+                            row["display_name"],
+                            row["publisher"],
+                            row["actor_id"],
+                        ),
+                        "publisher": str(row["publisher"]),
+                        "pricing": _safe_json(row["pricing_json"], {}),
+                        "max_validation_charge_usd": (
+                            VALIDATION_MAX_CHARGE_USD_LIMIT
+                        ),
+                        "validation_options": None,
+                        "last_failure": None,
+                        "requires_profile_change": False,
+                        "existing_actor_upgrade": True,
+                        "selectable": False,
+                        "unavailable_reason": (
+                            "actor_upgrade_inspection_running"
+                            if discovery_running
+                            else "actor_upgrade_revision_unavailable"
+                        ),
+                    }
+                )
+            active_candidate_order = {
+                str(row["candidate_id"]): index
+                for index, row in enumerate(active_rows)
+                if row["candidate_id"]
+            }
+            candidates.sort(
+                key=lambda item: (
+                    0 if bool(item.get("existing_actor_upgrade")) else 1,
+                    active_candidate_order.get(
+                        str(item["candidate_id"]),
+                        len(active_candidate_order),
+                    ),
+                )
             )
         blockers: list[str] = []
         if sum(bool(item["selectable"]) for item in candidates) < required_count:
@@ -5845,6 +5907,7 @@ class ApifyActorOpsService:
             SELECT run_id, stage
             FROM apify_actor_discovery_runs
             WHERE workspace_id = ? AND route_id = ?
+              AND COALESCE(error_code, '') != 'superseded_duplicate_refresh'
             ORDER BY created_at DESC, rowid DESC
             LIMIT 1
             """,
@@ -5864,7 +5927,7 @@ class ApifyActorOpsService:
             (self.workspace_id, route_id),
         ).fetchone()
         running_discovery = discovery_stage in {
-            "queued", "store_search", "metadata", "ai_generation",
+            "queued", "searching", "metadata", "ranking",
             "static_validation", "input_validation",
         }
         approval_discovery = discovery_stage in {

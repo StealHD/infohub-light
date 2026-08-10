@@ -19,6 +19,9 @@ export function humanActorError(
   if (['apify_actor_canary_approval_stale', 'apify_actor_canary_plan_conflict', 'apify_actor_route_generation_conflict', 'apify_actor_manual_candidate_stale', 'apify_actor_pool_stage_stale', 'apify_actor_pool_stage_precondition_incomplete', 'apify_actor_active_pool_incomplete'].includes(code)) {
     return { reason: '配置刚刚更新', impact: '本次选择没有应用，也没有启动新的付费验证；现有线路继续运行。', next: '页面会刷新，请重新选择 Actor。', diagnostic: code }
   }
+  if (code === 'apify_actor_discovery_active') {
+    return { reason: '当前 Actor 的升级检查已在进行', impact: '系统没有重复创建任务，不会启动 Actor 或产生费用；兼容版本继续运行。', next: '等待页面自动刷新；检查完成后，当前 Actor 会排在候选列表最前。', diagnostic: code }
+  }
   if (code === 'apify_actor_validation_profile_unchanged') {
     return { reason: '验证参数没有变化', impact: '系统已阻止原样重复启动 Actor，本次费用为 $0；现有配置保持不变。', next: '按页面建议增加等待时间或样本数；若没有有效参数可调，请更换 Actor。', diagnostic: code }
   }

@@ -1026,6 +1026,27 @@ def test_candidate_refresh_queues_one_free_discovery_atomically(
     ).fetchone()
     assert dict(job) == {"status": "queued", "max_attempts": 1}
 
+    duplicate = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates/refresh",
+        json={"expected_generation": int(route["generation"])},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "apify_actor_discovery_active"
+    assert store.connect().execute(
+        """
+        SELECT COUNT(*) FROM apify_actor_discovery_runs
+        WHERE workspace_id = ? AND route_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    ).fetchone()[0] == 1
+    assert store.connect().execute(
+        """
+        SELECT COUNT(*) FROM fetch_jobs
+        WHERE workspace_id = ? AND job_type = 'apify_actor_discovery'
+        """,
+        (DEFAULT_WORKSPACE_ID,),
+    ).fetchone()[0] == 1
+
 
 def test_candidate_refresh_job_failure_rolls_back_discovery(
     tmp_path,

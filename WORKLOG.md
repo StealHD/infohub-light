@@ -582,3 +582,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps legacy 升级始终把当前 ScrapeBadger、Dami 和 Xquik 排在候选最前，安全新版自动选中，未通过项显示状态；重复免费检查被服务端合并，顶部与页签外层方框阴影已移除。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-current-actors-visible-deduplicate",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 候选、API 与 Discovery 后端回归 97/97 通过，覆盖当前三 Actor 排序、ranking 运行态与重复 Job 零调用 supersede。",
+    "ActorOps 与 Changelog 前端 Vitest 61/61 及 TypeScript 类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（244.49 秒）。"
+  ]
+}
+```

@@ -601,6 +601,66 @@ def test_duplicate_discovery_job_is_an_idempotent_noop(
     }
 
 
+def test_duplicate_legacy_upgrade_refresh_is_superseded_before_discovery(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    store = ServiceStore(data_dir)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="duplicate-legacy-upgrade-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = next(
+        route
+        for route in ops.list_routes()
+        if route["route_key"] == "youtube/channel/items"
+    )
+    ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_legacy_upgrade_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    duplicate = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_legacy_upgrade_refresh",
+        expected_generation=int(route["generation"]),
+    )
+
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("superseded refresh must not call Store or AI")
+
+    monkeypatch.setattr("src.ai.client.create_ai_client", unexpected_call)
+    monkeypatch.setattr(
+        "src.services.apify_actor_discovery.ApifyStoreRestClient",
+        unexpected_call,
+    )
+    result = _run_apify_actor_discovery(
+        {
+            "id": "job-duplicate-legacy-upgrade",
+            "workspace_id": DEFAULT_WORKSPACE_ID,
+            "user_id": str(owner["id"]),
+            "payload_json": {
+                "run_id": str(duplicate["run_id"]),
+                "prefer_existing_legacy_actors": True,
+            },
+            "max_attempts": 1,
+        },
+        data_dir=str(data_dir),
+        store=store,
+    )
+
+    assert result["superseded_duplicate"] is True
+    superseded = ops.get_discovery_run(str(duplicate["run_id"]))
+    assert superseded["stage"] == "failed"
+    assert superseded["error_code"] == "superseded_duplicate_refresh"
+
+
 def test_worker_ready_global_ai_reaches_quota_and_discovery(
     tmp_path,
     monkeypatch,

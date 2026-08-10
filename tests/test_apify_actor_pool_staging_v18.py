@@ -249,6 +249,42 @@ def test_legacy_upgrade_accepts_new_exact_revisions_for_the_same_actors(
     }
 
 
+def test_legacy_upgrade_lists_current_actors_first_while_inspecting(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = ops.get_route(str(_route(store, "x/profile")["route_id"]))
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_legacy_upgrade_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="ranking",
+    )
+
+    listed = ops.list_pool_candidates(
+        str(route["route_id"]), goal="upgrade_legacy"
+    )
+
+    assert [
+        item["actor_public_name"] for item in listed["candidates"][:3]
+    ] == ["ScrapeBadger", "Dami", "Xquik"]
+    assert all(
+        item["existing_actor_upgrade"] is True
+        and item["selectable"] is False
+        and item["unavailable_reason"] == "actor_upgrade_inspection_running"
+        for item in listed["candidates"][:3]
+    )
+    workflow = ops.workflow_state(str(route["route_id"]))
+    assert workflow["kind"] == "legacy_discovery_running"
+    assert workflow["run_id"] == run["run_id"]
+
+
 def _discovery_with_revisions(
     store: ServiceStore,
     ops: ApifyActorOpsService,

@@ -387,6 +387,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     ['apify_actor_canary_approval_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['apify_actor_manual_candidate_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['apify_actor_pool_stage_precondition_incomplete', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
+    ['apify_actor_discovery_active', '当前 Actor 的升级检查已在进行', '没有重复创建任务', '排在候选列表最前'],
     ['systemic_empty', '运行已完成，但没有返回内容', '只会保留已终结费用', '扩大验证样本'],
     ['suspicious_empty', '运行已完成，但没有返回内容', '只会保留已终结费用', '扩大验证样本'],
     ['apify_actor_validation_profile_unchanged', '验证参数没有变化', '费用为 $0', '增加等待时间或样本数'],
@@ -420,9 +421,9 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     ['backup_2_canary_approval_required', '第三路候选已就绪', '查看并确认第三路验证'],
     ['backup_2_canary_running', '正在验证第三路备用', null],
     ['backup_2_activation_approval_required', '第三路验证通过', '查看并确认补位生效'],
-    ['legacy_discovery_required', '兼容模式仍在运行', '升级现有 Actor'],
-    ['legacy_discovery_running', '正在旁路建立新版主备', null],
-    ['legacy_candidate_selection_required', '确认原 Actor 升级方案', '查看升级方案'],
+    ['legacy_discovery_required', '升级当前 3 个 Actor', '开始升级当前 3 个 Actor'],
+    ['legacy_discovery_running', '正在升级当前 3 个 Actor', null],
+    ['legacy_candidate_selection_required', '确认当前 Actor 升级', '继续升级当前 Actor'],
     ['legacy_canary_approval_required', '新版主备候选已就绪', '查看并确认新版验证'],
     ['legacy_canary_running', '正在验证新版主备', null],
     ['legacy_activation_approval_required', '新版主备验证通过', '查看并确认切换'],
@@ -454,7 +455,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     else expect(within(nextAction).queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('turns a server-projected legacy candidate shortfall into a free search action', async () => {
+  it('keeps current legacy actors visible when safe upgrades are still incomplete', async () => {
     const browser = userEvent.setup()
     const legacyShortfall = detail({
       workflow: workflow('legacy_discovery_required', {
@@ -467,14 +468,49 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
         blockers: ['candidate_shortfall'],
       }),
     })
-    const { api } = renderControlPlane(legacyShortfall)
+    const { api } = renderControlPlane(legacyShortfall, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: legacyShortfall.route_id,
+        generation: legacyShortfall.generation,
+        goal: 'upgrade_legacy',
+        run_id: 'run-guided',
+        required_selection_count: 3,
+        blockers: ['candidate_shortfall'],
+        candidates: ([
+          ['candidate-scrapebadger', 'ScrapeBadger', 'scrape.badger', false],
+          ['candidate-dami', 'Dami', 'dami_studio', false],
+          ['candidate-xquik', 'Xquik', 'xquik', true],
+          ['candidate-replacement', '替代 Actor', 'replacement', true],
+        ] as const).map(([candidateId, name, publisher, selectable]) => ({
+          candidate_id: candidateId,
+          actor_public_name: name,
+          publisher,
+          pricing: {},
+          max_validation_charge_usd: 0.1,
+          validation_options: selectable ? validationOptions() : null,
+          existing_actor_upgrade: candidateId !== 'candidate-replacement',
+          selectable,
+          unavailable_reason: selectable ? null : 'actor_upgrade_revision_unavailable',
+        })),
+      }),
+    })
 
     const nextAction = await screen.findByTestId('actorops-next-action')
-    expect(within(nextAction).getByText('新版主备候选不足')).toBeVisible()
-    expect(within(nextAction).getByText(/当前找到 1\/3 个符合条件的候选/)).toBeVisible()
+    expect(within(nextAction).getByText('当前 Actor 尚未全部升级')).toBeVisible()
+    expect(within(nextAction).getByText(/重新检查只会尝试为这 3 个 Actor 生成安全新版/)).toBeVisible()
     expect(within(nextAction).queryByRole('button', { name: /付费验证/ })).not.toBeInTheDocument()
 
-    await browser.click(within(nextAction).getByRole('button', { name: '继续免费搜索候选' }))
+    await browser.click(within(nextAction).getByRole('button', { name: '查看当前 Actor 升级状态' }))
+    expect(await screen.findByRole('heading', { name: '升级当前 3 个 Actor' })).toBeVisible()
+    const group = await screen.findByRole('group', { name: '可选 Actor' })
+    expect(group.textContent?.indexOf('ScrapeBadger')).toBeLessThan(group.textContent?.indexOf('替代 Actor') ?? -1)
+    expect(group.textContent?.indexOf('Dami')).toBeLessThan(group.textContent?.indexOf('替代 Actor') ?? -1)
+    expect(group.textContent?.indexOf('Xquik')).toBeLessThan(group.textContent?.indexOf('替代 Actor') ?? -1)
+    expect(screen.getAllByText('当前 Actor')).toHaveLength(3)
+    expect(screen.getAllByText(/当前状态：尚未通过安全升级检查/)).toHaveLength(2)
+
+    await browser.click(screen.getByRole('button', { name: '重新检查当前 Actor（免费）' }))
     expect(api.refreshApifyActorPoolCandidates).toHaveBeenCalledWith(
       'route-x-profile',
       12,
@@ -902,7 +938,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
 
   it.each([
     ['initial_pool', 'setup_candidate_selection_required', '选择 Actor', '选择 3 个 Actor'],
-    ['upgrade_legacy', 'legacy_candidate_selection_required', '查看升级方案', '升级现有 Actor'],
+    ['upgrade_legacy', 'legacy_candidate_selection_required', '继续升级当前 Actor', '升级当前 3 个 Actor'],
   ] as const)('requires exactly three manually selected candidates for %s', async (goal, kind, cta, heading) => {
     const browser = userEvent.setup()
     const selected = detail({
@@ -943,7 +979,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     await browser.click(await screen.findByRole('button', { name: cta }))
     expect(await screen.findByRole('heading', { name: heading })).toBeVisible()
     if (goal === 'upgrade_legacy') {
-      expect(screen.getByText(/当前候选列表还没有原 Actor 的安全新版/)).toBeVisible()
+      expect(screen.getByText(/上面的当前 Actor 已列在最前/)).toBeVisible()
     }
     const continueButton = screen.getByRole('button', { name: '继续' })
     await browser.click(screen.getByRole('checkbox', { name: /高可靠 Actor A/ }))
@@ -1038,9 +1074,9 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     })
     renderControlPlane(legacy)
 
-    expect(await screen.findByText('兼容模式仍在运行')).toBeVisible()
-    expect(screen.getByText(/优先为原 Actor 固定新版 Build/)).toBeVisible()
-    expect(screen.getByRole('button', { name: '升级现有 Actor' })).toBeVisible()
+    expect(await screen.findByText('升级当前 3 个 Actor')).toBeVisible()
+    expect(screen.getByText(/先只检查上面正在使用的 3 个 Actor/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '开始升级当前 3 个 Actor' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /转正/ })).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('legacy_builtin')
   })
@@ -1194,12 +1230,13 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
 
     const selector = await screen.findByRole('button', { name: /X 用户动态.*抓取类型/ })
     expect(selector).not.toHaveAccessibleName(/Actor 主抓取/)
-    expect(screen.getByRole('tablist')).toHaveClass('shadow-sm')
+    expect(screen.getByRole('tablist')).toHaveClass('shadow-none')
+    expect(screen.getByRole('tablist')).not.toHaveClass('border')
     expect(screen.getByRole('tablist')).not.toHaveClass('bg-surface-secondary')
-    await browser.click(await screen.findByRole('button', { name: '查看升级方案' }))
-    expect(await screen.findByRole('heading', { name: '升级现有 Actor' })).toBeVisible()
+    await browser.click(await screen.findByRole('button', { name: '继续升级当前 Actor' }))
+    expect(await screen.findByRole('heading', { name: '升级当前 3 个 Actor' })).toBeVisible()
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3))
     expect(await screen.findByText('已选 3/3')).toBeVisible()
-    expect(screen.getAllByText('原 Actor')).toHaveLength(3)
+    expect(screen.getAllByText('当前 Actor')).toHaveLength(3)
   })
 })

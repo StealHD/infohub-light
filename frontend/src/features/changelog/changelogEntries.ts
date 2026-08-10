@@ -24,9 +24,10 @@ export const changelogMonths: ChangelogMonth[] = [
       {
         date: '2026-08-10',
         title: 'ActorOps 优先升级原 Actor，来源不再反复卡死',
-        summary: '兼容池默认保留原 Actor 成员并生成安全新版；旧 Revision 无法执行来源验证时会在付费前明确阻断。',
+        summary: '兼容池的三个当前 Actor 始终排在候选最前；安全新版就绪后自动选中，不会再因候选不足被隐藏。',
         items: [
-          { title: '原 Actor 自动优先', description: '系统免费核对当前三个公开 Store Actor，安全的新固定 Build 会标记并默认选中；只有无法升级的位置才需要选择替代项。' },
+          { title: '当前 Actor 始终可见', description: '系统按主用和两个备用的顺序先列出当前 Actor；安全新版自动选中，未就绪的显示明确状态，替代者只用于失败缺口。' },
+          { title: '防止重复免费检查', description: '候选排名和固定 Build 检查期间页面显示进行中，重复点击不会再创建同 Route 的 Discovery Job。' },
           { title: '来源失败前移', description: '兼容 Revision 没有固定 Build 时，来源页显示“先升级主备”并返回配置入口，不再创建注定失败的 Validation 或 Job，费用为 $0。' },
           { title: '顶部界面更轻', description: '抓取类型只显示产品名称，线路状态独立对齐；三项任务页签移除灰色底轨，改为信息流式悬浮表面。' },
         ],
