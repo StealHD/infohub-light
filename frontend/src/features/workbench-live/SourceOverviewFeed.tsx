@@ -620,7 +620,8 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
     </div>
     {newItemCount > 0 && <Button
       size="sm"
-      className="absolute left-1/2 top-4 z-10 -translate-x-1/2"
+      className="absolute left-1/2 z-10 -translate-x-1/2"
+      style={{ top: topInset + 16 }}
       aria-label={`查看 ${newItemCount} 条新内容`}
       onPress={() => {
         cancelAnchorRestore()

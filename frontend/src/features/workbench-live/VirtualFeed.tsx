@@ -883,7 +883,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
     </div>
     {newItemCount > 0 && <Button
       size="sm"
-      className={`absolute left-1/2 z-10 -translate-x-1/2 ${freshEdge === 'start' ? 'top-4' : 'bottom-4'}`}
+      className={`absolute left-1/2 z-10 -translate-x-1/2 ${freshEdge === 'start' ? '' : 'bottom-4'}`}
+      style={freshEdge === 'start' ? { top: topInset + 16 } : undefined}
       aria-label={`查看 ${newItemCount} 条新内容`}
       onPress={() => {
         releaseNavigationOwnership()

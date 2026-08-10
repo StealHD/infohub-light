@@ -1228,6 +1228,20 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'comple
             minimum_run_cap_usd: 0.02,
           },
           max_validation_charge_usd: 0.02,
+          validation_options: {
+            timeout_seconds: 300,
+            timeout_min_seconds: 180,
+            timeout_max_seconds: 900,
+            sample_items: 1,
+            allowed_sample_items: [1],
+            max_charge_usd: 0.02,
+            max_charge_limit_usd: 0.10,
+            supports_sample_items: false,
+            options_hash: `options-e2e-${item.candidate_id}`,
+            profile_hash: `profile-e2e-${item.candidate_id}`,
+          },
+          last_failure: null,
+          requires_profile_change: false,
           selectable: true,
           unavailable_reason: null,
         })),
@@ -1682,8 +1696,8 @@ for (const guidedFlow of [{
   finalNames: ['Exact Primary', 'Exact Backup', 'Exact Backup 2'],
 }, {
   goal: 'upgrade_legacy' as const,
-  select: '选择新版 Actor',
-  selectionHeading: '选择 3 个新版 Actor',
+  select: '继续升级当前 Actor',
+  selectionHeading: '升级当前 3 个 Actor',
   candidateNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
   activation: '查看并确认切换',
   activationHeading: '确认切换到新版主备',
@@ -1828,7 +1842,7 @@ test('settings key surfaces retain quota, refresh, safety locks and accessible m
   const apiState = await mockAdminApi(page)
   await page.goto('/settings/secrets')
 
-  await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '密钥', exact: true, level: 1 })).toBeVisible()
   const apifyGroup = page.getByRole('list', { name: 'Apify Key 池' })
   const aiGroup = page.locator('[data-settings-group][aria-label="已配置 AI Key"]')
   await expect(apifyGroup).toBeVisible()
@@ -1865,7 +1879,7 @@ test('successful Key creation uses a top overlay without moving settings content
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await mockAdminApi(page)
   await page.goto('/settings/secrets')
-  await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '密钥', exact: true, level: 1 })).toBeVisible()
   await page.evaluate(async () => {
     await document.fonts.ready
   })

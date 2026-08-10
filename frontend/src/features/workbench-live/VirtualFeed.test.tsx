@@ -961,7 +961,9 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    expect(await screen.findByRole('button', { name: '查看 1 条新内容' })).toHaveClass('top-4')
+    const newContent = await screen.findByRole('button', { name: '查看 1 条新内容' })
+    expect(newContent).not.toHaveClass('top-4')
+    expect(newContent).toHaveStyle({ top: '80px' })
     scroll.scrollTop = 0
     fireEvent.scroll(scroll)
     expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()

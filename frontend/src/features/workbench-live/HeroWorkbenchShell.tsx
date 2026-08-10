@@ -613,7 +613,7 @@ function AgentPanelContent({
           className="h-6 min-w-14 shrink-0 [&_[data-content-layer]]:items-center [&_[data-content-layer]]:justify-center"
           skeleton={<CalmSkeleton className="h-5 w-14 rounded-lg" />}
         ><StatusIndicator
-          className="self-center"
+          className={chat.status === 'disabled' ? 'self-center !text-foreground/75' : 'self-center'}
           label={headerStatusLabel}
           tone={headerTone}
           icon={chat.isRunning || chat.status === 'connecting' || chat.status === 'reconnecting'
@@ -634,10 +634,10 @@ function AgentPanelContent({
     >
     {chat.status === 'disabled' ? <>
       <div className="min-h-0 flex-1 overflow-hidden p-3" data-testid="agent-scroll-region">
-        <div className="type-meta mb-2 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.sourceSnapshot ? `${value.draft.sourceSnapshot.itemCount} 条快照` : `${value.draft.items.length} / 8`}</span></div>
+        <div className="type-meta mb-2 flex justify-between text-foreground/75"><span>已选上下文</span><span>{value.draft.sourceSnapshot ? `${value.draft.sourceSnapshot.itemCount} 条快照` : `${value.draft.items.length} / 8`}</span></div>
         {value.draft.sourceSnapshot && <Card data-agent-source-snapshot variant="secondary" className="mb-2 p-3">
           <Card.Title>{value.draft.sourceSnapshot.sourceName}</Card.Title>
-          <Card.Description className="mt-1">{value.draft.sourceSnapshot.windowLabel} · {value.draft.sourceSnapshot.itemCount} 条只读快照</Card.Description>
+          <Card.Description className="mt-1 text-foreground/75">{value.draft.sourceSnapshot.windowLabel} · {value.draft.sourceSnapshot.itemCount} 条只读快照</Card.Description>
         </Card>}
         {!value.draft.items.length && !value.draft.sourceSnapshot && <Card variant="transparent" className="p-3">
           <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
