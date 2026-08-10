@@ -1,0 +1,90 @@
+密钥规则：
+
+1. `secret_env` 必须是环境变量名，不得是疑似真实密钥；`secret_refs` 只保存 `name/kind/provider/env_name/version` 等元数据，`kind` 仅为 `ai|apify`。每次原地轮换必须令 `version` 原子加一。
+2. 真实值只保存在 Git/Docker 忽略的 `data/secrets.env`，由 `SecretStore` 以临时文件、`fsync`、原子替换和固定 `0600` 权限维护；Service DB、API、日志、job、Feed 和 DOM 均不得包含真实值。
+3. API 和 Worker 在需要配置或执行任务时重新加载密钥文件；新增/轮换无需重启。密钥列表及 create/rotate 响应只返回 `id/name/kind/provider/env_name/is_set/used_by` 和时间元数据，不返回 `value`。
+4. 同 workspace 的 `env_name` 唯一，重复创建返回 `409 secret_env_conflict`。被 AI 配置或 legacy catalog source 引用时删除返回 `409 secret_in_use`。池模式下 active、draining 或仍有非终态 Actor Run 的 Apify Key 轮换/删除返回 `409 apify_key_busy`，必须先安全排空；新建 Apify secret 在 secret ref 与真实值均成功后自动追加为备用，追加失败必须回滚两者。空闲 Key 成功轮换后必须清除旧额度/周期/错误状态并令 generation 加一；已有 active 时把该 Key 放到备用队尾，只有池原本无 active 时才把它激活。
+5. Apify 额度接口从 `SecretStore` 读取目标 Token，以 Authorization header 分别调用官方 `/v2/users/me` 和 `/v2/users/me/limits`，不把 Token 放入 URL。成功响应的 `data` 精确包含 `secret_id/provider/currency/cycle_start_at/cycle_end_at/checked_at/monthly_included_credits_usd/monthly_usage_usd/remaining_included_credits_usd/max_monthly_usage_usd/remaining_hard_limit_usd`；`provider=apify`、`currency=USD`，金额为非负有限数字，两个 remaining 字段最低为 `0`。Token、账户 ID、用户名、邮箱、profile、proxy、原始响应和其他套餐字段不得进入浏览器、数据库、日志或错误 envelope。
+6. 单个额度上游请求失败不得影响密钥列表。跨 workspace secret 与不存在 secret 统一 `not_found`；非 Apify 返回 `quota_not_supported`；SecretStore 中无值返回 `secret_not_configured`。保存或轮换 Key 只验证本地元数据和值格式，不得以额度上游可用性作为成功前提。
+7. additive schema v8 包含 `apify_key_pool_state`、`apify_key_pool_members` 和 `apify_actor_runs`。数据库只保存 workspace、`secret_id/version`、有序位置、安全状态/额度周期与数值、generation、内部远端 run/dataset 标识和终止状态；真实 Token 仍只来自 `SecretStore`。初始化幂等地把现有 Apify refs 加入池：被 enabled Apify source 引用次数最多者为初始 active，其余按创建时间进入 standby；同次 initialize 不改变已存在顺序或 generation。
+8. `HORIZON_APIFY_KEY_POOL_ENABLED=false` 为默认。开启后 Service Apify 来源统一使用工作区池，`source_catalog.secret_env` 仅保留回滚兼容且不再读取、展示或新增；registry 返回 `credential_mode=workspace_apify_pool`、`supports_secret_env=false`，创建或 PATCH 中只要提交 Apify `secret_env`（包括 `null`）就返回 `409 apify_key_pool_managed`。
+9. 每次 Actor Run 启动前必须在 SQLite 写事务内预留固定的 `secret_id + secret_version + pool_generation`；同一 Run 的 POST、轮询、中止和 dataset 读取始终使用该 lease 的同一 Token。新 Run 只接受最近不超过 60 秒且 `remaining_included_credits_usd > 0` 的额度快照；单次逻辑抓取对每个可用 Key 最多尝试一次，Actor route 还必须在每次新 POST 前持有独立费用预留。
+10. 只有 HTTP 402、明确 Apify 额度错误或额度快照 `remaining_included_credits_usd <= 0` 标记 `depleted`；HTTP 401 或明确无效 Token 标记 `invalid`。只有启动 POST 明确返回 401/402 且没有 remote run 标识、可以证明未开始计费时，才允许换 Key 创建新 POST。已取得 remote run 后的 poll/dataset 401/402 必须停止自动重放并进入可恢复或 blocked 状态；普通 403 只失败当前请求，429、幂等 GET 的 5xx/连接失败只在原 Key 有界重试，均不得污染整个 Key。
+11. Key 失效时池先进入 `draining`，禁止任何 Worker 预留新 Run；旧 generation 下所有已登记非终态 Run 必须经 `POST /actor-runs/{runId}/abort` 并轮询确认 `SUCCEEDED/FAILED/ABORTED/TIMED-OUT`。30 秒仍未全部确认则保持 fail closed 并返回 `apify_key_drain_pending`；只有排空完成才把 generation 加一、启用下一 standby，并让原逻辑抓取创建全新 Run，禁止复用旧 runId 或 dataset。
+12. Actor POST 的结果未知、remote run 已存在但当前无法安全恢复 dataset，或进程重启后发现无法证明是否已创建远端 Run 的 reservation，必须把池与对应 Actor route 都置为 `blocked` 并返回安全的 `apify_start_outcome_unknown`/`apify_key_pool_blocked`，由人工核对 Apify 控制台；不得猜测远端标识、把已收费 Run 标成未启动或盲目切换。Worker 启动时必须先 reconcile 已登记 Run 与 Actor attempt，再领取新 Job。
+13. 全部 Key 耗尽时返回 `apify_key_pool_exhausted`，Apify 单源任务失败，完整 Feed 可为 partial 且其他免费来源继续运行；来源 schedule 延后到已知最早 `blocked_until/cycle_end_at`。周期到期后重新查询额度，恢复的旧 Key只追加到备用队尾，不抢占 active，也不恢复历史 Run。
+14. Catalog RSS URL 禁止 `${ENV_VAR}` 占位和 URL userinfo，避免把环境值或凭据写入 catalog/API；member 拥有的 RSS 在抓取前及每次 redirect 都必须只解析到公网地址，并只连接该次已验证的字面 IP，同时保留原 Host 与 HTTPS SNI。安全请求不得使用环境代理或跨 hostname 复用连接，响应拒绝压缩且流式硬限制为 2,000,000 bytes。只有 `owner/admin` 拥有的 source 可默认访问本地/私网 RSS；确定性的本地测试例外必须由管理员通过 `HORIZON_MEMBER_RSS_HOST_ALLOWLIST` 精确列出 host，默认空。
+15. `member` 创建的 source job 必须引用可见 `source_id`；Worker 以 catalog config 为权威并忽略 job payload 对 URL/source 字段的覆盖。
+16. additive schema v13 包含 `apify_actor_routes`、`apify_actor_candidates`、`apify_actor_attempts`、`apify_actor_target_health`、`apify_actor_alert_settings`、`apify_actor_alert_incidents`、`apify_actor_alert_deliveries`，并为 `apify_actor_runs` 增加预留/实际/终态费用列。数据库可保存内部 source/job/run/dataset 关联用于恢复和核账，但所有公共 API、Job 诊断、Feed 与日志必须移除这些关联和原始错误。
+16A. additive schema v14 为 `user_notification_settings` 与 `apify_actor_alert_settings` 增加 `webhook_provider`、签名 SecretStore 变量名与摘要，并安装两表 INSERT/UPDATE 约束 trigger；只允许七类显式 Provider 和内部 `legacy_auto`，签名字段必须成对出现且只可绑定飞书/Lark V2 或钉钉。v14 不修改既有 outbox/incident/delivery payload，不读取或复制真实 URL/Secret。
+17. X/profile 候选初始顺序固定为 ScrapeBadger、Dami、Xquik。ScrapeBadger 初始 closed；Dami 在成功 Canary 前不得承接自然流量，成功后从该时刻进入 48 小时 probationary，真实帖子成功率达到 95% 才转 closed，否则 disabled；Xquik 初始 open。half-open 的 `valid_empty` 不算恢复，只有连续两次 `valid_nonempty` 才恢复 closed。
+
+AI 概括规则：
+
+1. Service 单篇分析使用 `summary_max_chars`（100..500，默认 200）、`analysis_max_output_tokens`（256..2048，默认 800）、`analysis_content_chars`（默认 1000）和 `analysis_comments_chars`（默认 1500）。
+2. Gemini 默认使用当前稳定的 `gemini-3.5-flash`；Flash 分析请求关闭额外 thinking budget，使受控输出预算用于完整 JSON。解析失败的结果不得写入 analysis cache，prompt/cache schema 变化必须 bump version。
+3. 最终 snapshot 前每篇文章都执行统一概括规范化：优先 AI 中文概括，其次来源摘要、清洗正文、标题；压缩空白并在句界或省略号处硬截断，最终长度包含省略号且绝不超过 `summary_max_chars`。AI 失败、空响应或 `personal_only` 均不得产生空概括。
+4. 新版分析提示词和 Presentation v1 不生成“为什么值得关注”/`reason` 或 `action_suggestion`；AI 只补充中文概括、评分、taxonomy 和 signal。legacy flat `reason/action_suggestion` 只为静态与历史反序列化兼容保留，不得成为 React 展示或搜索输入。
+5. Service Worker 的成功分析缓存必须按 `workspace_id + user_id + article_id + input_hash + model + prompt_version` 隔离，默认保留 30 天。`input_hash` 覆盖影响推理的标题、受控正文、作者、发布时间和来源身份；`prompt_version` 必须覆盖实际发送的完整 system prompt、经过运行上限裁剪后的完整 user prompt、model、analysis mode、运行限制和 cache version。只持久化 hash 与安全推理字段，绝不保存 prompt、原始正文、密钥、`reason` 或 `action_suggestion`，不得跨用户复用。
+6. `analysis_usage` 在既有字段之外增加非负整数 `provider_attempts`。`item_count` 是逻辑 cache-miss item 数，`provider_attempts` 是实际网络调用数；429/5xx/连接或超时重试逐次计量，命中缓存不计调用。
+
+Source catalog 规则：
+
+1. `src/services/source_type_registry.py` 是 catalog source type、config 校验、`source_key` 和 Worker payload 的统一合同入口。
+2. 当前 registry 支持 `rss`、`github_release`、`github_user`、`reddit_subreddit`、`reddit_user`、`telegram_channel`、`apify_social`、`hackernews`。
+2A. RSSHub 是 workspace runtime service，不是第九种 catalog type。受控 Bilibili row 继续保存为 `type=rss`，config 只允许 `provider=rsshub/site=bilibili/route_key=user_video/params.uid` 加既有安全 RSS 展示/保留字段；catalog URL 固定投影为公开 Bilibili profile，Worker 才用当前 `rsshub.base_url` 解析 `/bilibili/user/video/<uid>/1`。Base URL 可含管理员控制的反向代理 path prefix；若 SecretStore 存在 `RSSHUB_ACCESS_KEY`，请求只附加对应 route-scoped access code。受控请求禁用 redirect，且不经过 member 任意 URL 的公网 egress 路径。
+3. `source_key` 在同一 workspace 内唯一；导入旧配置和重复写入必须按 `source_key` 更新兼容的已有 source，而不是重复创建。旧配置导入碰到另一用户 private source 必须跳过并记录 `source_key_conflict`，不得覆盖其 metadata/config/secret_env。
+4. Telegram 源身份字段使用 config 内的 `channel`；Hub 分类频道使用 `hub_channel` 或兼容 `category`，不得混淆。
+5. 无效 source config 返回 `invalid_source_config`；疑似真实密钥返回 `invalid_secret_env`。
+6. `PATCH /api/catalog/sources/{id}` 中未出现的字段必须保持原值。显式 `default_channel: null`、`secret_env: null` 分别清空可空标量，`default_topics: []` 清空列表；`config` 仍按 source 的既有 type 通过 registry 校验，source type 不可通过 PATCH 改变，key 冲突保持 `409 source_key_conflict`。
+7. `PATCH /api/me/subscriptions/{id}` 同样区分 omission 与显式清空：`override_channel: null` 清空 override，`override_topics: []`、`personal_tags: []` 清空列表。subscription `priority` 默认 `0`，创建和更新只接受严格整数 `0..100`；显式 `null`、boolean、浮点数、字符串或越界值均为 `400 invalid_request`。additive `notify_on_new_items` 为严格 boolean，时间水位与内部 generation 只由服务端维护并按上文规则清除或推进；create 对已有订阅省略此字段也必须保持原值。
+8. API 使用 Pydantic field-set 信息，storage 使用私有 sentinel，确保 omission/null/空列表语义不会在入口到 SQLite 的传递中丢失；读取既有 subscription 时继续返回整数 priority。
+9. `GET /api/catalog/sources?include_disabled=true` 只允许 `owner/admin`；`member/viewer` 返回 `403 forbidden`。管理权限检查不得依赖来源是否 enabled，普通成员取消订阅必须使用自己的 subscription id，即使 catalog source 已停用也可完成。
+10. 启用订阅时，100 条默认上限的检查与 subscription upsert 必须处于同一个 `BEGIN IMMEDIATE`；并发请求最多一个越过最后名额。任务 retry 的重新排队、配额检查和 usage 写入也必须同事务提交或回滚。
+11. private source 提升为 workspace/public 时只改变 catalog 管理边界并把该来源的共享媒体投影为 workspace/public；不重新抓取、不批量重写历史 snapshot。新订阅者从 `user_content_items` 复用最多 200 条去重稳定内容，重写为自己的 subscription provenance 并创建自己的 Feed snapshot。
+12. 来源引用人数不得成为 catalog 列表的常驻聚合查询；客户端只在用户展开引用信息时调用 usage 接口。shared source 的最后一个普通订阅者取消订阅不软停用 catalog，只有最后一个 private owner 取消订阅时防御性软停用僵尸来源。
+13. 池模式下 Apify source 的公开 `secret_configured` 只表示当前 active 池成员在 `SecretStore` 中有值；不得从 legacy `source_catalog.secret_env` 推断。配置兼容 facade、catalog runner、`source_test`、`source_fetch` 与 `user_feed_refresh` 必须使用同一个 workspace pool coordinator。
+
+任务规则：
+
+1. 创建 job 返回 queued 状态，不在 Web 请求内执行长耗时抓取。
+2. Worker 使用 `uv run horizon-worker` 执行 runnable queued job，并写入 `succeeded/failed/partial`；claim 必须在 `BEGIN IMMEDIATE` 内原子写入 `worker_id + claim_token + locked_until`，公共 API 永不返回 `claim_token`。
+3. `source_test/source_fetch/user_feed_refresh` 计入每日 fetch job 配额。
+4. 配置页测试和立即更新按钮必须显示 queued job id，而不是同步抓取结果。
+5. 订阅控制台的“刷新我的信息流”“测试”“抓取”按钮只创建 queued job，并在 UI 中显示 job id。
+6. Worker 每次 claim 前恢复 lease 过期的 running job；只有 `failed` 且包含 retryable issue 才在 `max_attempts` 内退避重试，`partial` 是保留可用 snapshot 的终态且不自动重试。
+7. `POST /api/jobs/{id}/cancel` 只取消 queued job；SQLite MVP 不强杀 running job，running cancel 返回 `job_not_cancelable`。
+8. `POST /api/jobs/{id}/retry` 只把 failed、partial 或 cancelled job 重新排队，并重置 attempts；同一 job 的新 run 必须在最终 claim 事务内原子替换已有 snapshot payload/items，不得复用旧 partial 内容或创建第二个 snapshot。
+9. terminal job 可按 `expires_at` 清理；默认保留天数由 `HORIZON_JOB_RETENTION_DAYS` 控制。
+10. `user_feed_refresh` 成功后必须保存 `user_feed_snapshots/user_feed_items`，job result 至少包含 `snapshot_id`、`item_count` 和 `new_item_count`。
+11. `source_fetch` 带 `source_id` 时，Worker 必须从 `source_catalog + 当前用户 subscription override` 合成单源 `Config`，跳过 legacy notifications、summaries、enrichment、full-text 和 scheduler 副作用；成功后保存当前用户 feed snapshot，job result 至少包含 `snapshot_id`、`item_count`、`new_item_count`、`source_id`、`source_type` 和 `source_key`。只有 snapshot/health/job 同事务内的偏好来源 outbox 与提交后发送属于允许的 additive Service 副作用。
+12. 真实源 smoke gate 使用 `scripts/service_real_source_smoke.py` 创建/更新 catalog sources、订阅当前用户、创建 `source_test/source_fetch` job，并验证 RSS、Hacker News、GitHub Releases、Telegram public channel 的闭环；Reddit/Apify 只能作为 optional degraded 记录。
+13. Worker 每 10 秒写 heartbeat 并在任务执行中续租；heartbeat age 达到 35 秒即视为 stale。完成、失败、续租和 snapshot finalize 都必须匹配 `job_id + worker_id + claim_token + running`。
+14. schema-v2 snapshot、`user_feed_items` 和 job 终态必须在同一短事务提交；同一非空 `job_id` 最多生成一个 snapshot，同一 snapshot 内 `article_id` 唯一。
+15. `POST /api/jobs/user-feed-refresh` 的 data 增加 `deduplicated`。同一用户已有 queued/running 全量刷新时返回原 job 且 `deduplicated=true`；真正新建时为 false。手动、多标签页和自动刷新共同受同一原子去重约束。
+16. 手动全量刷新必须在同一个 `BEGIN IMMEDIATE` 事务中完成“查找/创建 active job、配额 admission、usage 记录”；只有真正新建 job 才计一次配额，配额失败同时回滚 job 和 usage。复用已有 active job 不重复计费，也不因当日配额后来耗尽而拒绝读取该 job。
+17. Worker 在 claim 普通 job 前按 `HORIZON_SCHEDULE_POLL_SECONDS` 检查到期计划，默认 30 秒。自动任务复用 `user_feed_refresh`，固定 `payload.reason=scheduled_service_refresh`、`priority=-10`，只从 `user_source_schedules.enabled=false` 或缺 row 的有效订阅合成 Config；`enabled=true` 的单源独立周期来源必须排除。自动任务仍使用用户完整 `filtering.time_window_hours`，刷新周期不替代抓取窗口。手动“更新整个信息流”继续合成全部有效订阅。
+17A. 没有 `last_success_at` 健康记录的直接 RSS 与受控 RSSHub 订阅，生产 `source_fetch/user_feed_refresh` 按单来源使用 `filtering.rss_initial_fetch_window_hours`（只允许 `168|720`，缺省 `168`）；同一次混合刷新可因此具有不同来源窗口。抓到零条的成功 outcome 同样建立成功边界，之后恢复 `filtering.time_window_hours`；失败及中间重试保持首次窗口。Job payload 或调用方显式传入的 `hours` 始终覆盖首次窗口。单来源窗口只存在于 Worker 合成的内部运行配置，必须从持久化 config 与所有公共序列化中排除；该规则只改变上游采集范围，不改变 Feed 留存，也不需要数据库迁移。
+18. 到期检查、active job 去重、usage 记录和 schedule 推进必须处于同一 SQLite 写事务；两个连接竞争同一计划最多创建一个 job。重启或长时间离线只补一个任务并把下一次推进到 `now + interval`，不追赶全部漏跑周期。全部有效来源均启用单源独立周期时，全局计划仍保持设置，但以 `no_global_subscriptions` 推进到下一周期且不创建 job；切换后遗留的 queued 自动全局任务在 claim 时以同一原因安全取消。
+19. active `source_fetch` 或 migration 未完成时计划延后 5 分钟，避免 snapshot 竞争或热循环；disabled user、无有效订阅、无跟随全局订阅或配额耗尽时不入队并推进到下一周期。`partial/failed` 不关闭计划，后续仍按已计算的下一周期继续。
+20. `user_feed_refresh` 的 `succeeded/partial` job `result_json` 必须包含 `run_id/run_status/item_count/new_item_count/source_outcomes/issues/analysis_usage`，并保留既有 `snapshot_id/snapshot_created`；`source_fetch` 的 `succeeded/partial` 结果同样包含 `new_item_count`。该字段是在 Feed 写事务内，以最终 canonical merge 与稳定 ID 去重后的 snapshot 相对紧邻上一份 snapshot 实际新增的唯一文章 ID 数：首份 snapshot 的全部唯一条目计为新增，重排或 metadata 变化不计新增，删除不抵扣，旧 Job 缺少该 additive 字段继续有效。`analysis_usage` 精确包含非负整数 `item_count/cache_hits/ai_calls/provider_attempts/fallbacks/skipped`，只用于成本与降级诊断，不包含 token 文本或原始内容。每个公开 source outcome 精确包含 `source_id/subscription_id/source_key/analysis_mode/status/fetched_count/issue`；issue 为 `null` 或精确的 `stage/code/message/retryable`，不得包含 source config。
+21. 结构化 refresh 最终 `failed` 且不生成 snapshot 时，`result_json` 仍保存同一诊断 shape，`run_status=failed`、`item_count=0`，同时保留 job 的 `failed/error_code/error_message`。可重试的中间 attempt 可以保存本次诊断，但不得提前更新 Source Health；只有 claim-guarded `fail_or_retry_job` 选定最终失败后才能原子提交健康与 job 终态。
+22. job result、Service snapshot 和 job error 中的 issue/source key 必须先使用与 Source Health 相同的单行、240 字符上限脱敏器，删除 URL userinfo/query、认证信息、secret、payload/config/stack/traceback；公共结果不得记录 source payload、真实密钥、带认证 URL 或堆栈。`fail_or_retry_job` 的可选结构化 result 不改变既有 worker/claim/lease guard 和退避决策。
+23. 停用/删除订阅、停用来源、停用用户或把用户降级为 viewer 时，相关 schedule shutdown、queued job 取消和 Feed reconciliation 必须在同一事务。失效任务终态为 `cancelled/error_code=job_invalidated`，并只附带有界 `invalidation_reason`。
+24. Worker 在 claim 后、每次网络调用前和 claim-guarded finalize 前复查统一 eligibility。自动全局任务在 claim 时还必须存在至少一个有效的跟随全局订阅。调用前失效不得访问网络；调用中失效的结果不得更新 Feed 或 Source Health。
+24A. 自动全局刷新只用本次实际抓取来源的 outcome 更新 Source Health；Feed finalizer 的 active source 集合仍必须取当前用户全部有效订阅，使局部全局刷新保留单源独立周期来源的既有内容。手动全量继续以全部有效来源更新、合并并推进参与的单源计划。
+25. 默认未知异常不可重试。只重试显式 retryable source issue、连接/超时、HTTP 429 与 5xx；每个真实 scraper/provider/AI 网络调用（包括自动重试和人工 retry）均原子计量。
+26. `HORIZON_SHARED_ACQUISITION_ENABLED=true` 时，public/workspace source 在同 workspace、相同 acquisition key 与 freshness window 内最多一次上游获取；private source 按 user 隔离。key 覆盖 source/type、规范化网络配置、adapter contract、secret-ref identity/version 和抓取窗口，不包含频道、主题、标签、优先级等用户投影字段。
+27. shared acquisition 成功必须缓存零条结果；TTL 取相关启用计划最短周期并默认夹在 5..60 分钟、无计划回退 30 分钟。并发 loser 最多等待 5 秒且不计 attempt；stale lease 可恢复，失败退避最多 5 分钟。`source_test` 绕过成功缓存且不写 content pool，但仍受同源并发和成本 admission 约束。
+28. Feed/source job result 增加精确 `acquisition_usage{cache_hits,cache_misses,upstream_attempts,waits}`；只包含非负计数。`/api/ops/runtime.operational_counts` 只聚合这些计数、`invalidated_jobs` 与 `quota_rejects`，不得输出 source/user id、配置、prompt 或 secret。
+29. terminal `source_test/source_fetch/user_feed_refresh` 的 `result_json` 可增加 `response_schemas[]`，每项精确包含 `source_id/catalog_type/capture_status/upstream/normalized`，可选 `job_truncated=true`。`capture_status` 只允许 `captured/empty/cached/unavailable`；两层结构只含 `root_type`、`fields[{path,type}]`、`truncated`，type 只允许 `object/array/string/integer/number/boolean/null/mixed`。每层最多深度 6、256 个路径、8 KiB，每个 Job 合计最多 64 KiB。结构摘要不得包含字段值、正文、source config、请求 URL、Actor input、header、token、secret 或密码；旧 Job 缺少该字段继续有效。共享缓存命中必须标记 `cached` 且不得复用旧 Job 的上游结构。
+29A. `GET /api/jobs?view=summary` 的每项精确保留 `id/user_id/source_id/subscription_id/job_type/status/error_code/error_message/created_at/started_at/finished_at` 中存在的字段；可选 `result` 只含 `message/snapshot_created/new_item_count/failed_source_count` 中合法的有界值，不返回 payload、完整 result、response schema、worker、lease 或 claim 字段。旧 result 缺少 `failed_source_count` 时可从 `source_outcomes[].status=failed` 计算；列表需要响应结构时必须再读取目标用户可见的 `GET /api/jobs/{id}`。
+30. 池模式下 Apify shared acquisition fingerprint 必须包含 reservation 时的 pool generation；缓存 owner 在发布前重新读取 generation，发生变化就放弃旧结果并禁止写入共享缓存。其他 source type 的 fingerprint 与缓存语义不变。
+31. Apify source schedule 在池 `draining/blocked/exhausted` 时只延后该来源，分别使用 30 秒 reconcile 窗口、人工解阻或最早额度恢复时间；完整 Feed 的非 Apify 来源照常获取。公开 schedule/job error 只保存有界 `apify_key_*` code 和通用安全 message，不得保存内部 pool row、远端 run/dataset 标识或上游正文。
+32. Worker 启动时在 claim 任意业务 Job 前按 workspace reconcile Apify Key ledger 与 Actor attempt。已知远端 Run 必须使用登记的旧 lease 继续 poll，并在 succeeded 时从既有 dataset 执行同一语义校验与 attempt 结算；route attempt 已成功但 Job 尚未完成时，同一 Job 只能 GET 重读该 terminal Dataset，不能新 POST。无法完成该恢复时保持 route/job blocked，绝不能让 stale Job 新 POST。只有完全没有 Key reservation，或明确 `start_rejected/cancelled`、无 remote run 且零费用，才可安全取消 attempt 并重新排队。
+33. `x/profile` 默认按管理员候选顺序串行选择健康 Actor；同一逻辑 source 最多依次调用三个不同候选，同一 Worker Job 内多个 X/profile 来源也不得并发 Actor。单 Run `maxTotalChargeUsd=$0.02`，attempt group 累计预留最多 `$0.06`；有 `job_id` 时 group 必须由 `(workspace, route, job, source)` 稳定复用，Worker/Job 重试不得生成新费用组，已有 active attempt 时不得并发第二路。已经远端启动、产生结算费用或因 route generation 冲突而作废的 `cancelled` attempt 仍占用原组预留并计入失败消费；只有可证明未 POST 的取消才可从费用组排除。所有 Key Run 的最终实际费用必须按 logical attempt 聚合，不能只记最后一把 Key。
+34. 语义校验必须先拒绝 placeholder/diagnostic/demo/mock/paywall/control/error row，再检查真实帖子的稳定 id、非空文本与可解析时间；可解析时间包括带时区 ISO 值以及 2000–2100 范围内的 Unix 秒/毫秒。混合 dataset 只保留真实帖子，只映射账号身份而缺少内容字段的元数据行不得使后续真实帖子失败；全为元数据时返回 `apify_actor_metadata_only`，全占位结果为 Actor failure，二者都永不写 Feed。Actor 明确声明 no-results 的控制行是 `valid_empty`；没有任何声明的原始空 dataset 先记为 suspicious evidence，只有在 15 分钟内命中两个此前返回过真实帖子的不同 source 才熔断 Actor，否则按该 source 的合法无新帖完成且不污染 Feed。
+35. Actor 404/410 映射为 `apify_actor_deleted`，明确 build unavailable 映射为 `apify_actor_build_unavailable`，二者与合同严重漂移一次即 open 并切下一候选；普通系统性异常必须在 15 分钟内跨两个此前 `valid_nonempty` 的不同 source 才 open。单 source 连续两次异常只暂停该来源六小时。
+36. 冷却依次为 1/3/6/24 小时；到期只转 half-open 并等待自然任务，禁止额外健康检查。全候选不可用时只延后 X 调度到最近 retry time，Feed 保留历史 X 内容并标记 partial，非 X 来源继续。
+37. 费用 admission 只在 active/standby/draining 全部可用 Key 都具有不超过 60 秒的完整额度快照时计算：X 可用额为总剩余减 `max($1, 20%)`。未知、缺失、过旧或异常未来快照全部 fail closed，Worker 启动先刷新所有此类 Key。滚动六小时 Actor failure 的最终实际费用达到 `$0.08` 立即 `budget_blocked`；准入还必须原子满足 `failed_spend + outstanding_reservations + $0.02 <= $0.08`，仅在途预留占满时只暂拒新 Run，不误触发六小时熔断。额度低于 20% 或预计不足 48 小时只产生运行告警而不重复付费探测。
+38. Actor route generation 必须进入 shared acquisition fingerprint；同次合法 failover 的成功值只有携带 route 服务签发、等于发布时最终 generation 的证明才可迁移原 acquisition claim，Key generation 同时变化或无证明则拒绝。管理员禁用、排序或其他 generation 变化后到达的旧结果只能结算已发生费用，不能增加候选成功数、写 target health、缓存或 Feed；路由服务自身的 reconcile/恢复变化必须把 attempt 采纳到最终 generation 后才可 GET-only 重放。

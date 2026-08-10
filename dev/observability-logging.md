@@ -1,6 +1,6 @@
 # 诊断日志开发手册
 
-本文件是 Inteliscope 运行日志、结构化操作事件与 OpenClaw 安全查询的开发真源。它只描述本地文件可观测性；Remote MCP 的公开工具输入输出继续以 `API_CONTRACT.md` 为准。
+本文件是 Inteliscope 运行日志、结构化操作事件与 OpenClaw 安全查询的开发真源。它只描述本地文件可观测性；Remote MCP 的公开工具输入输出继续以 `docs/contracts/api/remote-mcp.md` 为准。
 
 ## 1. 文件与保留策略
 

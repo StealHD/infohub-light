@@ -68,7 +68,7 @@
 
 - `最新` 读取当前用户最新 snapshot。
 - `历史` 从当前账号自己的近期 snapshots 构造，避免把仍在最新 Feed 的内容重复显示。
-- 历史条目会补充当前账号最新的收藏、稍后读、已读和忽略状态；精确响应与留存算法以 `API_CONTRACT.md` 为准。
+- 历史条目会补充当前账号最新的收藏、稍后读、已读和忽略状态；精确响应与留存算法以 `docs/contracts/api/feed-history-presentation-storage.md` 为准。
 
 旧 CLI 的 `data/site/history-data.json` 是全局静态发布兼容文件，与多人 Service 历史不是同一数据层；默认 Service UI 不读取它，也不按“第二天搬运文件”的规则生成历史。
 
@@ -186,7 +186,7 @@ docker compose logs -f horizon-api horizon-worker
 查看当前 release：
 
 ```bash
-./scripts/release_rc1.sh status
+./scripts/release_vps.sh status
 ```
 
 检查本机反代目标：
@@ -195,7 +195,7 @@ docker compose logs -f horizon-api horizon-worker
 curl -I http://127.0.0.1:8080/
 ```
 
-公网发布采用根目录中的 `scripts/release_rc1.sh prepare/promote/rollback/status` 分阶段流程；不得在 VPS 从脏工作区直接执行 `up-latest.sh`。
+普通公网升级从干净且与 `origin/main` 完全一致的本地 `main` 执行 `./scripts/release_vps.sh release vX.Y.Z`。它会复用该 SHA 已成功的 main Test Gate，在 CI 等待期间并行构建本地 `linux/amd64` 镜像，并行断点续传源包和镜像；main 绿灯后才推 Tag，Tag 隔离 smoke 通过后才切换 API/Worker。切换前会确认没有活跃任务、scheduler 未运行，并在线生成 `0600` 数据库和环境备份；readiness、Worker、前端资源或公网 revision 验证失败会自动回滚。含数据库迁移的版本必须先走对应迁移手册，普通发布会拒绝隐式迁移。不得在 VPS 从脏工作区执行 `up-latest.sh`，也不得在 VPS 构建项目。首次空数据库引导才使用旧的 `release_rc1.sh`。
 
 ## 10. Nginx 项目密码
 
