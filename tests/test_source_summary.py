@@ -146,6 +146,36 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     assert "方括号编号仅用于" in prompt
 
 
+def test_source_summary_recovers_wrapped_json_and_scalar_highlight_without_retry(tmp_path, monkeypatch):
+    store, owner = _store_with_items(tmp_path, monkeypatch)
+    recovered = json.dumps({
+        "overview": "近期主线是产品更新，变化方向是交付节奏加快。",
+        "highlights": "[1][2] 连续发布的内容指向同一条产品主线。",
+    }, ensure_ascii=False)
+    fake = FakeAIClient(
+        "输出如下（忽略此前调试对象）：\n"
+        '{"debug":true}\n'
+        f"```json\n{recovered}\n```\n"
+        "以上是专题速览。"
+    )
+    service = SourceSummaryService(store, client_factory=lambda *_args, **_kwargs: fake)
+
+    result = asyncio.run(service.generate(
+        workspace_id=owner["workspace_id"],
+        user_id=owner["id"],
+        article_ids=["article-1", "article-2"],
+        ai_config=_ai_config(),
+    ))
+
+    assert result == {
+        "schema_version": 1,
+        "overview": "近期主线是产品更新，变化方向是交付节奏加快。",
+        "highlights": ["[1][2] 连续发布的内容指向同一条产品主线。"],
+        "item_count": 2,
+    }
+    assert len(fake.calls) == 1
+
+
 def test_source_summary_rejects_disabled_cross_user_and_invalid_output(tmp_path, monkeypatch):
     store, owner = _store_with_items(tmp_path, monkeypatch)
     other = store.create_user(

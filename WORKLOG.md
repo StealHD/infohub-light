@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "context",
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将大型 API、架构、UI 与决策 Markdown 迁为目录型权威源，归档过期报告/运行手册，并将确定性 Markdown 控制检查纳入 Test Gate。",
-  "status": "completed",
-  "task_id": "2026-08-07-markdown-control-archive",
-  "unresolved": [],
-  "validation": [
-    "迁移验证：15 份归档 SHA-256 与 32fc41e 原文一致；合同分块与既有 132 条决策正文逐段覆盖，新增 D134。",
-    "init-pro 结构校验、WORKLOG 校验、Markdown 控制检查与完整 Test Gate 24/24 命令通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -359,6 +337,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "./scripts/up-latest.sh 使用任务 Worktree 构建 revision 659711b5bb4b，并仅重建 horizon-api 与 horizon-worker。",
     "API 与 Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务前端资源 index-CQUmeqMF.js。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "修复来源级 AI 总结的偶发无效输出：本地提取完整 JSON 对象并将单条 highlights 标量规范化为数组，不增加第二次模型调用，也不记录模型正文。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-output-normalization",
+  "unresolved": [],
+  "validation": [
+    "专题总结定向后端测试 7/7 通过，覆盖 JSON 外包装、前置调试对象、Markdown 围栏与单条 highlights 标量；确认只调用一次 AI。",
+    "完整 Test Gate 24/24 命令通过（320.018 秒），后端、前端构建与控制检查全部绿色。"
   ]
 }
 ```

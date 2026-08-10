@@ -142,37 +142,70 @@ def build_source_summary_input(items: Sequence[dict[str, str]]) -> str:
     return "\n\n".join(rendered)[:SOURCE_SUMMARY_INPUT_CHARS]
 
 
-def _parse_summary_output(raw: str, *, summary_max_chars: int) -> dict[str, Any]:
+def _json_object_candidates(raw: str) -> Sequence[str]:
+    """Return complete top-level JSON objects without retaining model output."""
+
     candidate = _JSON_FENCE_RE.sub("", str(raw or "").strip()).strip()
-    try:
-        parsed = json.loads(candidate)
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise SourceSummaryError(
-            "source_summary_invalid_output",
-            "AI 返回了无法使用的专题总结。",
-            status_code=502,
-            retryable=True,
-        ) from exc
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("highlights"), list):
-        raise SourceSummaryError(
-            "source_summary_invalid_output",
-            "AI 返回了无法使用的专题总结。",
-            status_code=502,
-            retryable=True,
-        )
+    candidates = [candidate] if candidate else []
+    start: int | None = None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, character in enumerate(candidate):
+        if depth == 0:
+            if character == "{":
+                start = index
+                depth = 1
+                in_string = False
+                escaped = False
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                fragment = candidate[start:index + 1]
+                if fragment != candidate:
+                    candidates.append(fragment)
+                start = None
+    return candidates
+
+
+def _normalized_summary_payload(
+    parsed: Any,
+    *,
+    summary_max_chars: int,
+) -> dict[str, Any] | None:
+    if not isinstance(parsed, dict):
+        return None
+    raw_highlights = parsed.get("highlights")
+    if isinstance(raw_highlights, list):
+        highlight_values = raw_highlights[:5]
+    elif isinstance(raw_highlights, str):
+        # Some OpenAI-compatible providers emit one valid point as a scalar
+        # despite JSON mode. This is safe to normalize locally and does not
+        # require a second billable completion.
+        highlight_values = [raw_highlights]
+    else:
+        return None
     highlights = [
         line
-        for value in parsed["highlights"][:5]
+        for value in highlight_values
         if (line := _single_line(value, 240))
     ]
     overview = _single_line(parsed.get("overview"), 240)
     if not overview or not highlights:
-        raise SourceSummaryError(
-            "source_summary_invalid_output",
-            "AI 返回了无法使用的专题总结。",
-            status_code=502,
-            retryable=True,
-        )
+        return None
     limit = max(100, min(500, int(summary_max_chars)))
     overview = overview[: max(40, min(140, limit // 2))].strip()
     remaining = max(16, limit - len(overview))
@@ -180,13 +213,27 @@ def _parse_summary_output(raw: str, *, summary_max_chars: int) -> dict[str, Any]
     highlights = [line[:per_highlight].strip() for line in highlights]
     highlights = [line for line in highlights if line]
     if not highlights:
-        raise SourceSummaryError(
-            "source_summary_invalid_output",
-            "AI 返回了无法使用的专题总结。",
-            status_code=502,
-            retryable=True,
-        )
+        return None
     return {"overview": overview, "highlights": highlights}
+
+
+def _parse_summary_output(raw: str, *, summary_max_chars: int) -> dict[str, Any]:
+    for candidate in _json_object_candidates(raw):
+        try:
+            parsed = json.loads(candidate)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if normalized := _normalized_summary_payload(
+            parsed,
+            summary_max_chars=summary_max_chars,
+        ):
+            return normalized
+    raise SourceSummaryError(
+        "source_summary_invalid_output",
+        "AI 返回了无法使用的专题总结。",
+        status_code=502,
+        retryable=True,
+    )
 
 
 class SourceSummaryService:
