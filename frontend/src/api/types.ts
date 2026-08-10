@@ -1140,7 +1140,22 @@ export type ApifyActorCanaryPlanItem = {
   pricing?: ApifyActorRevisionSummary['pricing']
   authorized_cap_usd: number
   already_validated?: boolean
+  validation_profile?: ApifyActorValidationProfile
 }
+
+export type ApifyActorValidationProfile = {
+  timeout_seconds: number
+  sample_items: 1 | 3 | 5
+  max_charge_usd: number
+  supports_sample_items: boolean
+  options_hash: string
+  profile_hash?: string
+}
+
+export type ApifyActorValidationProfileRequest = Pick<
+  ApifyActorValidationProfile,
+  'timeout_seconds' | 'sample_items' | 'max_charge_usd' | 'options_hash'
+> & { candidate_id: string }
 
 export type ApifyActorPoolGoal =
   | 'initial_pool'
@@ -1227,6 +1242,7 @@ export type ApifyActorCanaryBatchRequest = {
   max_candidates: number
   max_total_charge_usd: number
   candidate_ids?: string[]
+  candidate_validation_profiles?: ApifyActorValidationProfileRequest[]
   target_slot_count?: 2 | 3
 }
 
@@ -1236,6 +1252,26 @@ export type ApifyActorPoolCandidate = {
   publisher: string
   pricing?: ApifyActorRevisionSummary['pricing']
   max_validation_charge_usd: number
+  validation_options?: ApifyActorValidationProfile & {
+    timeout_min_seconds: number
+    timeout_max_seconds: number
+    allowed_sample_items: Array<1 | 3 | 5>
+    max_charge_limit_usd: number
+  }
+  last_failure?: {
+    code: string
+    duration_seconds: number | null
+    dataset_row_count: number | null
+    mapped_item_count: number | null
+    actual_cost_usd: number | null
+    cost_final: boolean
+    timeout_seconds: number
+    sample_items: 1 | 3 | 5
+    max_charge_usd: number
+    profile_hash: string
+    completed_at: string | null
+  } | null
+  requires_profile_change?: boolean
   selectable: boolean
   unavailable_reason?: string | null
 }

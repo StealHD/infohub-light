@@ -527,6 +527,7 @@ class ApifyClient:
         dataset_response_max_bytes: int = _DEFAULT_DATASET_RESPONSE_MAX_BYTES,
         expected_pool_generation: int | None = None,
         max_remote_starts: int | None = None,
+        timeout_seconds: int | None = None,
     ) -> ApifyActorRunResult:
         """Return dataset rows together with terminal Apify charge metadata."""
         build = self._optional_build_number(build_number)
@@ -552,6 +553,12 @@ class ApifyClient:
                 max_remote_starts,
                 label="max_remote_starts",
                 maximum=3,
+            )
+        if timeout_seconds is not None:
+            timeout_seconds = self._positive_limit(
+                timeout_seconds,
+                label="timeout_seconds",
+                maximum=3600,
             )
 
         while True:
@@ -583,6 +590,7 @@ class ApifyClient:
                     max_paid_dataset_items=paid_item_limit,
                     dataset_item_limit=response_item_limit,
                     dataset_response_max_bytes=response_byte_limit,
+                    timeout_seconds=timeout_seconds,
                 )
             except _RetryRunAfterDrain:
                 if (
@@ -621,6 +629,8 @@ class ApifyClient:
         *,
         dataset_item_limit: int = _DEFAULT_DATASET_ITEM_LIMIT,
         dataset_response_max_bytes: int = _DEFAULT_DATASET_RESPONSE_MAX_BYTES,
+        reserved_cost_usd: float | None = None,
+        status_wait_seconds: int = 30,
     ) -> ApifyActorRunResult:
         """Consume a durable Run without issuing another Actor POST."""
 
@@ -634,6 +644,18 @@ class ApifyClient:
             label="dataset_response_max_bytes",
             maximum=16 * 1024 * 1024,
         )
+        reconcile_wait = self._positive_limit(
+            status_wait_seconds,
+            label="status_wait_seconds",
+            maximum=300,
+        )
+        reserved_cost = (
+            _safe_nonnegative_float(reserved_cost_usd)
+            if reserved_cost_usd is not None
+            else None
+        )
+        if reserved_cost_usd is not None and reserved_cost is None:
+            raise ValueError("reserved_cost_usd must be a finite non-negative number")
 
         if self.coordinator is None:
             raise ApifyClientError(
@@ -682,7 +704,9 @@ class ApifyClient:
                 actual_charge_usd, cost_final = await self._wait_for_run(
                     lease,
                     remote_run_id,
-                    reserved_cost_usd=0.02,
+                    reserved_cost_usd=reserved_cost,
+                    timeout_seconds=reconcile_wait,
+                    abort_on_timeout=False,
                 )
         except _ApifyCredentialRejected as exc:
             await self._block_started_run(
@@ -696,8 +720,8 @@ class ApifyClient:
                 status_code=exc.status_code,
             ) from None
         except TimeoutError:
-            # _wait_for_run confirms an abort before raising its timeout.
-            await self._complete_started_run(lease)
+            # Reconciliation is a read-only check.  A still-running Run remains
+            # blocked for another explicit check and is never aborted here.
             raise
         except (httpx.HTTPError, ValueError):
             await self._block_started_run(
@@ -848,6 +872,7 @@ class ApifyClient:
         max_paid_dataset_items: int,
         dataset_item_limit: int,
         dataset_response_max_bytes: int,
+        timeout_seconds: int | None,
     ) -> ApifyActorRunResult:
         start_path = f"/acts/{self._actor_path_id(actor_id)}/runs"
         start_kwargs: dict[str, Any] = {
@@ -1015,6 +1040,7 @@ class ApifyClient:
                 lease,
                 run_id,
                 reserved_cost_usd=max_total_charge_usd,
+                timeout_seconds=timeout_seconds,
             )
         except _ApifyCredentialRejected as exc:
             await self._block_started_run(
@@ -1135,8 +1161,15 @@ class ApifyClient:
         run_id: str,
         *,
         reserved_cost_usd: float | None,
+        timeout_seconds: int | None = None,
+        abort_on_timeout: bool = True,
     ) -> tuple[float | None, bool]:
-        deadline = time.monotonic() + self.timeout_seconds
+        resolved_timeout_seconds = (
+            int(timeout_seconds)
+            if timeout_seconds is not None
+            else int(self.timeout_seconds)
+        )
+        deadline = time.monotonic() + resolved_timeout_seconds
         path = f"/actor-runs/{quote(run_id, safe='')}"
         while time.monotonic() < deadline:
             payload = await self._request_json(
@@ -1186,9 +1219,10 @@ class ApifyClient:
                 raise ValueError(f"Apify actor run ended with status {status}")
             await asyncio.sleep(self.poll_interval)
 
-        await self.abort_run(lease, run_id)
+        if abort_on_timeout:
+            await self.abort_run(lease, run_id)
         raise TimeoutError(
-            f"Apify actor run timed out after {self.timeout_seconds}s"
+            f"Apify actor run timed out after {resolved_timeout_seconds}s"
         )
 
     async def _settled_terminal_payload(

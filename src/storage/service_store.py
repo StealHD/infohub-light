@@ -59,6 +59,13 @@ APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_NAME = (
 APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_CHECKSUM = (
     "apify-actor-manual-pool-selection-v19-three-slot-guided-flow"
 )
+APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_VERSION = 22
+APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_NAME = (
+    "apify_actor_validation_tuning_v20"
+)
+APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_CHECKSUM = (
+    "apify-actor-validation-tuning-v20-bounded-repeat-guard"
+)
 ROLES = {"owner", "admin", "member", "viewer"}
 SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
@@ -305,7 +312,10 @@ def apify_actor_canary_batches_v17_schema_shapes_valid(
     validation_sql = table_sql.get("apify_actor_validations", "")
     return (
         "check(max_candidatesbetween1and3)" in batch_sql
-        and "max_total_charge_usd<=0.06" in batch_sql
+        and (
+            "max_total_charge_usd<=0.06" in batch_sql
+            or "max_total_charge_usd<=0.30" in batch_sql
+        )
         and "unique(workspace_id,approval_key_hash)" in batch_sql
         and "statusin('planned','preflight_passed','preflight_failed','queued','running','succeeded','failed','not_needed_no_charge','blocked_unknown_start')"
         in item_sql
@@ -404,6 +414,91 @@ def apify_actor_manual_pool_selection_v19_schema_shapes_valid(
         in stage_sql
         and "check(target_slot_countbetween2and3)" in stage_sql
         and "selection_modein('server','manual')" in stage_sql
+    )
+
+
+APIFY_ACTOR_VALIDATION_TUNING_V20_COLUMNS = {
+    "apify_actor_validations": {
+        "validation_timeout_seconds",
+        "validation_sample_items",
+        "validation_profile_hash",
+        "failure_fingerprint",
+        "duration_seconds",
+        "dataset_row_count",
+        "mapped_item_count",
+    },
+}
+APIFY_ACTOR_VALIDATION_TUNING_V20_TABLES = {
+    "apify_actor_pool_stage_candidate_settings",
+}
+
+
+def apify_actor_validation_tuning_v20_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate bounded validation settings and repeat protection state."""
+
+    if not apify_actor_manual_pool_selection_v19_schema_shapes_valid(connection):
+        return False
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if not APIFY_ACTOR_VALIDATION_TUNING_V20_TABLES <= tables:
+        return False
+    for table, expected in APIFY_ACTOR_VALIDATION_TUNING_V20_COLUMNS.items():
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if not expected <= columns:
+            return False
+    settings_sql = _normalized_schema_sql(
+        connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table'
+              AND name = 'apify_actor_pool_stage_candidate_settings'
+            """
+        ).fetchone()[0]
+    )
+    batch_sql = _normalized_schema_sql(
+        connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'apify_actor_canary_batches'
+            """
+        ).fetchone()[0]
+    )
+    item_sql = _normalized_schema_sql(
+        connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'apify_actor_canary_batch_items'
+            """
+        ).fetchone()[0]
+    )
+    stage_sql = _normalized_schema_sql(
+        connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'apify_actor_pool_stages'
+            """
+        ).fetchone()[0]
+    )
+    return (
+        "check(timeout_secondsbetween180and900)" in settings_sql
+        and "sample_itemsin(1,3,5)" in settings_sql
+        and "max_charge_usd<=0.10" in settings_sql
+        and "primarykey(stage_id,revision_id)" in settings_sql
+        and "max_total_charge_usd<=0.30" in batch_sql
+        and "per_candidate_cap_usd<=0.10" in batch_sql
+        and "authorized_cap_usd<=0.10" in item_sql
+        and "route_validation_cap_usd<=0.30" in stage_sql
     )
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
@@ -830,6 +925,7 @@ class ServiceStore:
         prepare_apify_discovery_limits_v16: bool = False,
         prepare_apify_actor_canary_batches_v17: bool = False,
         prepare_apify_actor_pool_staging_v18: bool = False,
+        prepare_apify_actor_validation_tuning_v20: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -1037,6 +1133,30 @@ class ServiceStore:
                     APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_CHECKSUM,
                 ),
             ).fetchone()
+        )
+        apify_actor_validation_tuning_v20_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_VERSION,
+                    APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_NAME,
+                    APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
+        )
+        apify_actor_validation_tuning_v20_upgrade_pending = bool(
+            existing_schema and not apify_actor_validation_tuning_v20_migrated
+        )
+        install_apify_actor_validation_tuning_v20 = bool(
+            not existing_schema
+            or (
+                prepare_apify_actor_validation_tuning_v20
+                and apify_actor_manual_pool_selection_v19_migrated
+            )
         )
         schema_sql = """
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -2606,6 +2726,31 @@ class ServiceStore:
                     CHECK(cost_final IN (0, 1)),
                 counts_toward_canary INTEGER NOT NULL DEFAULT 0
                     CHECK(counts_toward_canary IN (0, 1)),
+                validation_timeout_seconds INTEGER NOT NULL DEFAULT 300
+                    CHECK(validation_timeout_seconds BETWEEN 180 AND 900),
+                validation_sample_items INTEGER NOT NULL DEFAULT 1
+                    CHECK(validation_sample_items IN (1, 3, 5)),
+                validation_profile_hash TEXT CHECK(
+                    validation_profile_hash IS NULL OR (
+                        length(validation_profile_hash) = 64
+                        AND validation_profile_hash NOT GLOB '*[^0-9a-f]*'
+                    )
+                ),
+                failure_fingerprint TEXT CHECK(
+                    failure_fingerprint IS NULL OR (
+                        length(failure_fingerprint) = 64
+                        AND failure_fingerprint NOT GLOB '*[^0-9a-f]*'
+                    )
+                ),
+                duration_seconds INTEGER CHECK(
+                    duration_seconds IS NULL OR duration_seconds >= 0
+                ),
+                dataset_row_count INTEGER CHECK(
+                    dataset_row_count IS NULL OR dataset_row_count >= 0
+                ),
+                mapped_item_count INTEGER CHECK(
+                    mapped_item_count IS NULL OR mapped_item_count >= 0
+                ),
                 created_at TEXT NOT NULL,
                 completed_at TEXT,
                 FOREIGN KEY(workspace_id)
@@ -2712,12 +2857,12 @@ class ServiceStore:
                 max_total_charge_usd REAL NOT NULL
                     CHECK(
                         max_total_charge_usd > 0
-                        AND max_total_charge_usd <= 0.06
+                        AND max_total_charge_usd <= 0.30
                     ),
                 per_candidate_cap_usd REAL NOT NULL
                     CHECK(
                         per_candidate_cap_usd > 0
-                        AND per_candidate_cap_usd <= 0.02
+                        AND per_candidate_cap_usd <= 0.10
                     ),
                 goal TEXT NOT NULL DEFAULT 'initial_pool' CHECK(goal IN (
                     'initial_pool', 'complete_third', 'upgrade_legacy'
@@ -2781,7 +2926,7 @@ class ServiceStore:
                 authorized_cap_usd REAL NOT NULL
                     CHECK(
                         authorized_cap_usd > 0
-                        AND authorized_cap_usd <= 0.02
+                        AND authorized_cap_usd <= 0.10
                     ),
                 actual_cost_usd REAL
                     CHECK(actual_cost_usd IS NULL OR actual_cost_usd >= 0),
@@ -2846,7 +2991,7 @@ class ServiceStore:
                 ),
                 route_validation_cap_usd REAL NOT NULL CHECK(
                     route_validation_cap_usd > 0
-                    AND route_validation_cap_usd <= 0.06
+                    AND route_validation_cap_usd <= 0.30
                 ),
                 target_primary_revision_id TEXT,
                 target_backup_1_revision_id TEXT,
@@ -2934,6 +3079,49 @@ class ServiceStore:
                     workspace_id, stage_id, status, source_id
                 );
             -- APIFY_ACTOR_POOL_STAGING_V18_END
+
+            -- APIFY_ACTOR_VALIDATION_TUNING_V20_BEGIN
+            CREATE TABLE IF NOT EXISTS apify_actor_pool_stage_candidate_settings (
+                workspace_id TEXT NOT NULL,
+                stage_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                revision_id TEXT NOT NULL,
+                timeout_seconds INTEGER NOT NULL
+                    CHECK(timeout_seconds BETWEEN 180 AND 900),
+                sample_items INTEGER NOT NULL
+                    CHECK(sample_items IN (1, 3, 5)),
+                max_charge_usd REAL NOT NULL
+                    CHECK(max_charge_usd > 0 AND max_charge_usd <= 0.10),
+                supports_sample_items INTEGER NOT NULL DEFAULT 0
+                    CHECK(supports_sample_items IN (0, 1)),
+                profile_hash TEXT NOT NULL CHECK(
+                    length(profile_hash) = 64
+                    AND profile_hash NOT GLOB '*[^0-9a-f]*'
+                ),
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(stage_id, revision_id),
+                UNIQUE(workspace_id, stage_id, candidate_id),
+                FOREIGN KEY(workspace_id, stage_id)
+                    REFERENCES apify_actor_pool_stages(
+                        workspace_id, stage_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, candidate_id)
+                    REFERENCES apify_actor_candidates(
+                        workspace_id, id
+                    ) ON DELETE RESTRICT,
+                FOREIGN KEY(workspace_id, revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    ) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_stage_candidate_settings
+                ON apify_actor_pool_stage_candidate_settings(
+                    workspace_id, stage_id, candidate_id
+                );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_validation_failure_fingerprint
+                ON apify_actor_validations(workspace_id, failure_fingerprint)
+                WHERE failure_fingerprint IS NOT NULL;
+            -- APIFY_ACTOR_VALIDATION_TUNING_V20_END
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -3109,6 +3297,16 @@ class ServiceStore:
                 1,
             )
             schema_sql = before_staging + after_staging
+        if not install_apify_actor_validation_tuning_v20:
+            before_tuning, after_marker = schema_sql.split(
+                "-- APIFY_ACTOR_VALIDATION_TUNING_V20_BEGIN",
+                1,
+            )
+            _tuning_sql, after_tuning = after_marker.split(
+                "-- APIFY_ACTOR_VALIDATION_TUNING_V20_END",
+                1,
+            )
+            schema_sql = before_tuning + after_tuning
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -3595,6 +3793,13 @@ class ServiceStore:
             and not apify_actor_manual_pool_selection_v19_migrated
         ):
             self.mark_apify_actor_manual_pool_selection_v19_migrated(
+                commit=False
+            )
+        if (
+            install_apify_actor_validation_tuning_v20
+            and not apify_actor_validation_tuning_v20_upgrade_pending
+        ):
+            self.mark_apify_actor_validation_tuning_v20_migrated(
                 commit=False
             )
         conn.commit()
@@ -4201,6 +4406,61 @@ class ServiceStore:
         return (
             not marker
             or not apify_actor_manual_pool_selection_v19_schema_shapes_valid(
+                connection
+            )
+        )
+
+    def mark_apify_actor_validation_tuning_v20_migrated(
+        self,
+        *,
+        commit: bool = True,
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_VERSION,),
+        ).fetchone()
+        if existing is not None and str(existing["name"]) != (
+            APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 22 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_VERSION,
+                APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_NAME,
+                APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            connection.commit()
+
+    def apify_actor_validation_tuning_v20_migration_required(self) -> bool:
+        connection = self.connect()
+        marker = connection.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_VERSION,
+                APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_NAME,
+                APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone()
+        return (
+            not marker
+            or not apify_actor_validation_tuning_v20_schema_shapes_valid(
                 connection
             )
         )

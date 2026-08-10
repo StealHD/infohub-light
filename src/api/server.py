@@ -18,6 +18,7 @@ from typing import Any, Callable, Literal
 from urllib.parse import unquote, urlparse
 
 import uvicorn
+import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -73,6 +74,8 @@ from ..services.apify_actor_ops import (
     supported_route_profiles,
 )
 from ..services.apify_actor_canary import actor_canary_timeout_seconds
+from ..services.apify_pool_runtime import apify_coordinator_for_workspace
+from ..scrapers.apify_client import ApifyClient
 from ..services.apify_discovery_ai import (
     list_global_discovery_ai_options,
     resolve_global_discovery_ai,
@@ -753,6 +756,20 @@ class ApifyActorOpsCanaryRequest(BaseModel):
     max_total_charge_usd: float = Field(gt=0, le=100)
 
 
+class ApifyActorValidationProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1, max_length=128)
+    timeout_seconds: StrictInt = Field(ge=180, le=900)
+    sample_items: Literal[1, 3, 5]
+    max_charge_usd: float = Field(gt=0, le=0.10)
+    options_hash: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+
+
 class ApifyActorCanaryBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -778,6 +795,9 @@ class ApifyActorCanaryBatchRequest(BaseModel):
         min_length=1,
         max_length=3,
     )
+    candidate_validation_profiles: list[
+        ApifyActorValidationProfileRequest
+    ] | None = Field(default=None, min_length=1, max_length=3)
     target_slot_count: StrictInt | None = Field(default=None, ge=2, le=3)
 
 
@@ -788,6 +808,9 @@ class ApifyActorManualCanaryPlanRequest(BaseModel):
         "initial_pool", "complete_third", "upgrade_legacy"
     ]
     candidate_ids: list[str] = Field(min_length=1, max_length=3)
+    candidate_validation_profiles: list[
+        ApifyActorValidationProfileRequest
+    ] = Field(min_length=1, max_length=3)
     expected_generation: StrictInt = Field(ge=1)
     target_slot_count: Literal[3] = 3
 
@@ -796,6 +819,13 @@ class ApifyActorCandidateRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_generation: StrictInt = Field(ge=1)
+
+
+class ApifyActorValidationReconcileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: StrictInt = Field(ge=1)
+    candidate_id: str = Field(min_length=1, max_length=128)
 
 
 class ApifySourceBindingActivateRequest(BaseModel):
@@ -1084,6 +1114,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ): ("job", "actor_candidate_refresh"),
     (
         "POST",
+        "/api/admin/apify-routes/{route_id}/validations/reconcile",
+    ): ("source", "actor_validation_reconcile"),
+    (
+        "POST",
         "/api/admin/apify-discovery-runs/{run_id}/canary-plan",
     ): ("source", "actor_manual_plan_preview"),
     (
@@ -1348,6 +1382,18 @@ def create_app(
                 ),
             )
 
+    def require_apify_actor_validation_tuning_v20() -> None:
+        if store.apify_actor_validation_tuning_v20_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor validation tuning migration must be applied before Actor routes are used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_validation_tuning_v20.py --apply."
+                ),
+            )
+
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()
         require_apify_actor_ops_v15()
@@ -1355,6 +1401,7 @@ def create_app(
         require_apify_actor_canary_batches_v17()
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
+        require_apify_actor_validation_tuning_v20()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1373,6 +1420,7 @@ def create_app(
         require_apify_actor_canary_batches_v17()
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
+        require_apify_actor_validation_tuning_v20()
         return ApifyActorOpsService(
             store,
             workspace_id=str(workspace_id),
@@ -4086,6 +4134,7 @@ def create_app(
         require_apify_actor_canary_batches_v17()
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
+        require_apify_actor_validation_tuning_v20()
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -5270,6 +5319,125 @@ def create_app(
             }
         )
 
+    @app.post(
+        "/api/admin/apify-routes/{route_id}/validations/reconcile"
+    )
+    async def admin_apify_reconcile_validation(
+        route_id: str,
+        payload: ApifyActorValidationReconcileRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        """Read a known Run/Dataset again; this endpoint never starts Actor."""
+
+        workspace_id = str(user["workspace_id"])
+        ops = apify_actor_ops_for(workspace_id)
+        route = ops.get_route(route_id)
+        if int(route["generation"]) != int(payload.expected_generation):
+            raise ActorOpsError(
+                "apify_actor_route_generation_conflict",
+                "Actor route changed; reload before reconciling status",
+            )
+        row = store.connect().execute(
+            """
+            SELECT validation.validation_id
+            FROM apify_actor_validations AS validation
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
+            WHERE validation.workspace_id = ?
+              AND validation.route_id = ?
+              AND revision.candidate_id = ?
+              AND validation.status IN ('failed', 'cancelled')
+              AND validation.semantic_outcome IN (
+                  'apify_run_status_unavailable',
+                  'apify_actor_run_status_unavailable',
+                  'apify_run_reconcile_required'
+              )
+              AND validation.attempt_id IS NOT NULL
+            ORDER BY validation.completed_at DESC,
+                     validation.created_at DESC,
+                     validation.validation_id DESC
+            LIMIT 1
+            """,
+            (workspace_id, route_id, payload.candidate_id),
+        ).fetchone()
+        if row is None:
+            raise ActorOpsError(
+                "apify_actor_validation_reconcile_unavailable",
+                "No status-read failure is available to reconcile",
+                status_code=412,
+            )
+        coordinator = apify_coordinator_for_workspace(
+            store,
+            workspace_id=workspace_id,
+            data_dir=str(data_dir),
+        )
+        if coordinator is None:
+            raise ActorOpsError(
+                "apify_actor_validation_reconcile_unavailable",
+                "Apify Key pool is unavailable for status reconciliation",
+                status_code=503,
+            )
+        from ..services.apify_actor_canary import ApifyActorCanaryRunner
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            trust_env=False,
+        ) as http_client:
+            client = ApifyClient(
+                coordinator=coordinator,
+                http_client=http_client,
+                timeout_seconds=30,
+            )
+            result = await ApifyActorCanaryRunner(
+                store,
+                ops,
+                client,
+            ).reconcile(str(row["validation_id"]))
+        ops.reconcile_terminal_validation_costs()
+        connection = store.connect()
+        continuation_job = None
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            recovery = ops.resume_reconciled_validation(
+                str(row["validation_id"])
+            )
+            if recovery["enqueue_batch"] and recovery["batch_id"]:
+                continuation_job = queue.create_job(
+                    workspace_id=workspace_id,
+                    user_id=str(user["id"]),
+                    job_type="apify_actor_canary_batch",
+                    payload={"batch_id": str(recovery["batch_id"])},
+                    priority=100,
+                    max_attempts=1,
+                    retention_days=int(
+                        os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                    ),
+                    commit=False,
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        if continuation_job is not None:
+            request.state.operation_job_id = str(continuation_job["id"])
+        request.state.operation_changed_fields = ["validation_status"]
+        request.state.operation_outcome = (
+            "queued" if continuation_job is not None else "ok"
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "status": result.status,
+                "semantic_outcome": result.semantic_outcome,
+                "cost_usd": result.cost_usd,
+                "continued": bool(recovery["resumed"]),
+            }
+        )
+
     @app.post("/api/admin/apify-support-checks")
     async def admin_apify_support_check(
         payload: ApifySupportCheckRequest,
@@ -5832,6 +6000,10 @@ def create_app(
             run_id,
             goal=payload.goal,
             candidate_ids=payload.candidate_ids,
+            candidate_validation_profiles=[
+                item.model_dump()
+                for item in payload.candidate_validation_profiles
+            ],
             target_slot_count=int(payload.target_slot_count),
         )
         if int(plan["generation"]) != int(payload.expected_generation):
@@ -5839,8 +6011,10 @@ def create_app(
                 "apify_actor_route_generation_conflict",
                 "Actor route changed; reload before selecting candidates",
             )
-        request.state.operation_changed_fields = ["candidate_ids"]
-        request.state.operation_outcome = "previewed"
+        request.state.operation_changed_fields = [
+            "candidate_ids", "validation_profile"
+        ]
+        request.state.operation_outcome = "ok"
         response.headers["Cache-Control"] = "no-store"
         return ok(public_canary_plan(plan))
 
@@ -5930,7 +6104,7 @@ def create_app(
                     )
                 request.state.operation_job_id = str(queued["id"])
                 request.state.operation_source_id = validation.get("source_id")
-                request.state.operation_outcome = "idempotent_replay"
+                request.state.operation_outcome = "succeeded"
             else:
                 queued = queue_actor_validation(
                     validation,
@@ -5997,7 +6171,7 @@ def create_app(
                         status_code=409,
                     )
                 request.state.operation_job_id = str(queued["id"])
-                request.state.operation_outcome = "idempotent_replay"
+                request.state.operation_outcome = "succeeded"
             else:
                 queued = queue.create_job(
                     workspace_id=str(user["workspace_id"]),
@@ -6053,24 +6227,32 @@ def create_app(
             max_candidates=int(payload.max_candidates),
             max_total_charge_usd=float(payload.max_total_charge_usd),
             candidate_ids=payload.candidate_ids,
+            candidate_validation_profiles=(
+                [item.model_dump() for item in payload.candidate_validation_profiles]
+                if payload.candidate_validation_profiles is not None
+                else None
+            ),
             target_slot_count=(
                 int(payload.target_slot_count)
                 if payload.target_slot_count is not None
                 else None
             ),
         )
-        from ..services.apify_actor_canary import next_reference_fingerprint
+        if plan.get("_reference_fingerprints") is not None:
+            reference_fingerprints = dict(plan["_reference_fingerprints"])
+        else:
+            from ..services.apify_actor_canary import next_reference_fingerprint
 
-        reference_fingerprints = {
-            str(item["revision_id"]): next_reference_fingerprint(
-                store,
-                workspace_id=str(user["workspace_id"]),
-                platform=str(plan["platform"]),
-                route_id=str(plan["route_id"]),
-                revision_id=str(item["revision_id"]),
-            )
-            for item in plan["items"]
-        }
+            reference_fingerprints = {
+                str(item["revision_id"]): next_reference_fingerprint(
+                    store,
+                    workspace_id=str(user["workspace_id"]),
+                    platform=str(plan["platform"]),
+                    route_id=str(plan["route_id"]),
+                    revision_id=str(item["revision_id"]),
+                )
+                for item in plan["items"]
+            }
         batch, queued = approve_and_queue_actor_canary_batch(
             lambda: ops.create_canary_batch(
                 run_id,
@@ -6084,6 +6266,14 @@ def create_app(
                 reference_fingerprints=reference_fingerprints,
                 goal=payload.goal,
                 candidate_ids=payload.candidate_ids,
+                candidate_validation_profiles=(
+                    [
+                        item.model_dump()
+                        for item in payload.candidate_validation_profiles
+                    ]
+                    if payload.candidate_validation_profiles is not None
+                    else None
+                ),
                 target_slot_count=(
                     int(payload.target_slot_count)
                     if payload.target_slot_count is not None
@@ -6501,7 +6691,7 @@ def create_app(
         request.state.operation_source_id = source_id
         request.state.operation_changed_fields = ["validation_status", "enabled"]
         request.state.operation_outcome = (
-            "idempotent_replay" if replayed else "succeeded"
+            "succeeded"
         )
         response.headers["Cache-Control"] = "no-store"
         return ok(

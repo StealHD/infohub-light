@@ -175,7 +175,30 @@ function canaryPlan(): ApifyActorCanaryPlan {
       build_number: '2026.08.2',
       lifecycle: 'static_valid',
       authorized_cap_usd: 0.02,
+      validation_profile: {
+        timeout_seconds: 300,
+        sample_items: 1,
+        max_charge_usd: 0.02,
+        supports_sample_items: true,
+        options_hash: 'a'.repeat(64),
+        profile_hash: 'b'.repeat(64),
+      },
     }],
+  }
+}
+
+function validationOptions(seed = 'a') {
+  return {
+    timeout_seconds: 300,
+    timeout_min_seconds: 180,
+    timeout_max_seconds: 900,
+    sample_items: 1 as const,
+    allowed_sample_items: [1, 3, 5] as Array<1 | 3 | 5>,
+    max_charge_usd: 0.02,
+    max_charge_limit_usd: 0.10,
+    supports_sample_items: true,
+    options_hash: seed.repeat(64).slice(0, 64),
+    profile_hash: 'f'.repeat(64),
   }
 }
 
@@ -223,6 +246,14 @@ function manualThreePlan(goal: 'initial_pool' | 'upgrade_legacy'): ApifyActorCan
       build_number: `2026.08.${index + 10}`,
       lifecycle: 'static_valid',
       authorized_cap_usd: 0.02,
+      validation_profile: {
+        timeout_seconds: 300,
+        sample_items: 1,
+        max_charge_usd: 0.02,
+        supports_sample_items: true,
+        options_hash: String.fromCharCode(97 + index).repeat(64),
+        profile_hash: String.fromCharCode(100 + index).repeat(64),
+      },
     })),
   }
 }
@@ -284,7 +315,8 @@ function renderControlPlane(selected = detail(), initialEntry = '/?route=x%2Fpro
         actor_public_name: '备用抓取 Actor',
         publisher: 'publisher-c',
         pricing: { model: 'PAY_PER_EVENT', billing_unit: 'event', unit_price_min_usd: 0.001, unit_price_max_usd: 0.001, minimum_charge_usd: null, minimum_run_cap_usd: 0.02 },
-        max_validation_charge_usd: 0.02,
+        max_validation_charge_usd: 0.10,
+        validation_options: validationOptions(),
         selectable: true,
         unavailable_reason: null,
       }],
@@ -293,6 +325,13 @@ function renderControlPlane(selected = detail(), initialEntry = '/?route=x%2Fpro
     apifyActorCanaryPlan: vi.fn().mockResolvedValue(canaryPlan()),
     createApifyActorCanaryBatch: vi.fn().mockResolvedValue({ schema_version: 2, batch: completedBatch(), job: { id: 'job-guided', status: 'queued' } }),
     apifyActorCanaryBatch: vi.fn().mockResolvedValue(completedBatch()),
+    reconcileApifyActorValidation: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      status: 'succeeded',
+      semantic_outcome: 'valid_nonempty',
+      cost_usd: 0.001,
+      continued: true,
+    }),
     activateApifyActorRouteRecommendedPool: vi.fn().mockResolvedValue(selected),
     updateApifyActorRouteActivePool: vi.fn().mockResolvedValue(selected),
     apifyActorSourceSupport: vi.fn().mockResolvedValue({
@@ -348,11 +387,13 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     ['apify_actor_canary_approval_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['apify_actor_manual_candidate_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['apify_actor_pool_stage_precondition_incomplete', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
-    ['systemic_empty', '这个 Actor 不适合当前来源', '只会保留已终结费用', '选择另一个 Actor'],
-    ['suspicious_empty', '这个 Actor 不适合当前来源', '只会保留已终结费用', '选择另一个 Actor'],
+    ['systemic_empty', '运行已完成，但没有返回内容', '只会保留已终结费用', '扩大验证样本'],
+    ['suspicious_empty', '运行已完成，但没有返回内容', '只会保留已终结费用', '扩大验证样本'],
+    ['apify_actor_validation_profile_unchanged', '验证参数没有变化', '费用为 $0', '增加等待时间或样本数'],
     ['apify_actor_revision_unavailable', '这个 Actor 已不可用', '费用为 $0', '选择另一个 Actor'],
     ['apify_actor_pool_stage_budget_invalid', '费用条件不满足', '不会自动放宽', '运行与告警'],
     ['apify_actor_run_timed_out', 'Actor 验证超时', '不会自动重试', '费用完成对账后'],
+    ['apify_actor_validation_reconcile_required', '原运行结果还没有确认', '没有重新启动 Actor', '免费重新核对'],
     ['apify_start_outcome_unknown', '无法确认 Actor 是否已启动', '锁定新的验证', '不要重试付费请求'],
   ] as const)('maps %s to reason, impact and next-step copy without the raw message', (code, reason, impact, next) => {
     const presented = humanActorError(new ApiError(409, {
@@ -463,7 +504,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     const nextAction = await screen.findByTestId('actorops-next-action')
     expect(within(nextAction).getByText('Actor 验证超时')).toBeVisible()
     expect(within(nextAction).getByText(/本次已结算费用/)).toBeVisible()
-    expect(within(nextAction).getByText(/选择另一个候选并再次确认验证/)).toBeVisible()
+    expect(within(nextAction).getByText(/把等待时间从当前值调高后再确认/)).toBeVisible()
     expect(nextAction).not.toHaveTextContent('RAW_UPSTREAM_MESSAGE_MUST_NOT_RENDER')
   })
 
@@ -597,6 +638,13 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       {
         goal: 'complete_third',
         candidate_ids: ['candidate-backup-2'],
+        candidate_validation_profiles: [{
+          candidate_id: 'candidate-backup-2',
+          timeout_seconds: 300,
+          sample_items: 1,
+          max_charge_usd: 0.02,
+          options_hash: 'a'.repeat(64),
+        }],
         expected_generation: 12,
         target_slot_count: 3,
       },
@@ -617,7 +665,237 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       approval_id: expect.any(String),
       candidate_ids: ['candidate-backup-2'],
       target_slot_count: 3,
+      candidate_validation_profiles: [{
+        candidate_id: 'candidate-backup-2',
+        timeout_seconds: 300,
+        sample_items: 1,
+        max_charge_usd: 0.02,
+        options_hash: 'a'.repeat(64),
+      }],
     }))
+  })
+
+  it('blocks an unchanged timeout retry and submits the adjusted 600 second profile', async () => {
+    const browser = userEvent.setup()
+    const selected = detail({
+      workflow: workflow('backup_2_candidate_selection_required', {
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        progress: { eligible_candidate_count: 1, required_selection_count: 1 },
+      }),
+    })
+    const options = validationOptions('t')
+    const tunedPlan = manualThirdPlan()
+    tunedPlan.max_total_charge_usd = 0.05
+    tunedPlan.route_validation_cap_usd = 0.05
+    tunedPlan.items[0] = {
+      ...tunedPlan.items[0],
+      authorized_cap_usd: 0.05,
+      validation_profile: {
+        ...tunedPlan.items[0].validation_profile!,
+        timeout_seconds: 600,
+        max_charge_usd: 0.05,
+        options_hash: options.options_hash,
+      },
+    }
+    const { api } = renderControlPlane(selected, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: selected.route_id,
+        generation: selected.generation,
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        required_selection_count: 1,
+        blockers: [],
+        candidates: [{
+          candidate_id: 'candidate-backup-2',
+          actor_public_name: '慢启动 Actor',
+          publisher: 'publisher-c',
+          pricing: { model: 'PAY_PER_EVENT', billing_unit: 'event', unit_price_min_usd: 0.001, unit_price_max_usd: 0.001, minimum_charge_usd: null, minimum_run_cap_usd: 0.02 },
+          max_validation_charge_usd: 0.10,
+          validation_options: options,
+          last_failure: {
+            code: 'apify_actor_run_timed_out',
+            duration_seconds: 300,
+            dataset_row_count: null,
+            mapped_item_count: null,
+            actual_cost_usd: 0.01905,
+            cost_final: true,
+            timeout_seconds: 300,
+            sample_items: 1,
+            max_charge_usd: 0.02,
+            profile_hash: options.profile_hash,
+            completed_at: '2026-08-10T08:00:00Z',
+          },
+          requires_profile_change: true,
+          selectable: true,
+          unavailable_reason: null,
+        }],
+      }),
+      createApifyActorManualCanaryPlan: vi.fn().mockResolvedValue(tunedPlan),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '补充备用 Actor' }))
+    await browser.click(await screen.findByRole('checkbox', { name: /慢启动 Actor/ }))
+    expect(screen.getByRole('button', { name: '继续' })).toBeDisabled()
+    expect(screen.getByText(/必须按上面的建议修改参数/)).toBeVisible()
+    const timeout = screen.getByRole('spinbutton', { name: '等待时间（秒）' })
+    const cap = screen.getByRole('spinbutton', { name: '单次费用上限（USD）' })
+    await browser.clear(timeout)
+    await browser.type(timeout, '600')
+    await browser.clear(cap)
+    await browser.type(cap, '0.05')
+    await browser.click(screen.getByRole('button', { name: '继续' }))
+
+    await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith(
+      'run-guided',
+      expect.objectContaining({
+        candidate_validation_profiles: [{
+          candidate_id: 'candidate-backup-2',
+          timeout_seconds: 600,
+          sample_items: 1,
+          max_charge_usd: 0.05,
+          options_hash: options.options_hash,
+        }],
+      }),
+    ))
+    expect(await screen.findByText(/等待 600 秒 · 样本 1 条/)).toBeVisible()
+  })
+
+  it('explains that empty output is not fixed by waiting and requires a larger sample', async () => {
+    const browser = userEvent.setup()
+    const selected = detail({
+      workflow: workflow('backup_2_candidate_selection_required', {
+        goal: 'complete_third',
+        run_id: 'run-guided',
+      }),
+    })
+    const options = validationOptions('e')
+    const tunedPlan = manualThirdPlan()
+    tunedPlan.items[0] = {
+      ...tunedPlan.items[0],
+      validation_profile: {
+        ...tunedPlan.items[0].validation_profile!,
+        sample_items: 3,
+        options_hash: options.options_hash,
+      },
+    }
+    const { api } = renderControlPlane(selected, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: selected.route_id,
+        generation: selected.generation,
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        required_selection_count: 1,
+        blockers: [],
+        candidates: [{
+          candidate_id: 'candidate-backup-2',
+          actor_public_name: '返回空结果 Actor',
+          publisher: 'publisher-c',
+          pricing: { model: 'PAY_PER_EVENT', billing_unit: 'event', unit_price_min_usd: 0.001, unit_price_max_usd: 0.001, minimum_charge_usd: null, minimum_run_cap_usd: 0.02 },
+          max_validation_charge_usd: 0.10,
+          validation_options: options,
+          last_failure: {
+            code: 'suspicious_empty',
+            duration_seconds: 29,
+            dataset_row_count: 0,
+            mapped_item_count: 0,
+            actual_cost_usd: 0.000445,
+            cost_final: true,
+            timeout_seconds: 300,
+            sample_items: 1,
+            max_charge_usd: 0.02,
+            profile_hash: options.profile_hash,
+            completed_at: '2026-08-10T08:00:00Z',
+          },
+          requires_profile_change: true,
+          selectable: true,
+          unavailable_reason: null,
+        }],
+      }),
+      createApifyActorManualCanaryPlan: vi.fn().mockResolvedValue(tunedPlan),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '补充备用 Actor' }))
+    await browser.click(await screen.findByRole('checkbox', { name: /返回空结果 Actor/ }))
+    expect(screen.getByText('运行已完成，但返回 0 条内容')).toBeVisible()
+    expect(screen.getByText(/延长等待无效/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '继续' })).toBeDisabled()
+    expect(screen.queryByRole('spinbutton', { name: '等待时间（秒）' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: /验证样本数/ }))
+    await browser.click(await screen.findByRole('option', { name: '3 条' }))
+    await browser.click(screen.getByRole('button', { name: '继续' }))
+
+    await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith(
+      'run-guided',
+      expect.objectContaining({
+        candidate_validation_profiles: [{
+          candidate_id: 'candidate-backup-2',
+          timeout_seconds: 300,
+          sample_items: 3,
+          max_charge_usd: 0.02,
+          options_hash: options.options_hash,
+        }],
+      }),
+    ))
+  })
+
+  it('rechecks an unreadable known run for free without creating a paid plan', async () => {
+    const browser = userEvent.setup()
+    const selected = detail({
+      workflow: workflow('backup_2_candidate_selection_required', {
+        goal: 'complete_third',
+        run_id: 'run-guided',
+      }),
+    })
+    const options = validationOptions('r')
+    const { api } = renderControlPlane(selected, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: selected.route_id,
+        generation: selected.generation,
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        required_selection_count: 1,
+        blockers: [],
+        candidates: [{
+          candidate_id: 'candidate-backup-2',
+          actor_public_name: '待核对 Actor',
+          publisher: 'publisher-c',
+          pricing: { model: 'PAY_PER_EVENT', billing_unit: 'event', unit_price_min_usd: 0.001, unit_price_max_usd: 0.001, minimum_charge_usd: null, minimum_run_cap_usd: 0.02 },
+          max_validation_charge_usd: 0.10,
+          validation_options: options,
+          last_failure: {
+            code: 'apify_run_status_unavailable',
+            duration_seconds: 31,
+            dataset_row_count: null,
+            mapped_item_count: null,
+            actual_cost_usd: null,
+            cost_final: false,
+            timeout_seconds: 300,
+            sample_items: 1,
+            max_charge_usd: 0.02,
+            profile_hash: options.profile_hash,
+            completed_at: '2026-08-10T08:00:00Z',
+          },
+          requires_profile_change: true,
+          selectable: true,
+          unavailable_reason: null,
+        }],
+      }),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '补充备用 Actor' }))
+    await browser.click(await screen.findByRole('button', { name: '重新核对运行状态（免费）' }))
+
+    await waitFor(() => expect(api.reconcileApifyActorValidation).toHaveBeenCalledWith(
+      'route-x-profile',
+      12,
+      'candidate-backup-2',
+    ))
+    expect(api.createApifyActorManualCanaryPlan).not.toHaveBeenCalled()
+    expect(api.createApifyActorCanaryBatch).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -651,7 +929,8 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
           actor_public_name: name,
           publisher,
           pricing: { model: 'PAY_PER_EVENT', billing_unit: 'event', unit_price_min_usd: 0.001, unit_price_max_usd: 0.001, minimum_charge_usd: null, minimum_run_cap_usd: 0.02 },
-          max_validation_charge_usd: 0.02,
+          max_validation_charge_usd: 0.10,
+          validation_options: validationOptions(String.fromCharCode(97 + candidates.findIndex(([id]) => id === candidateId))),
           selectable: true,
           unavailable_reason: null,
         })),
@@ -674,6 +953,13 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       {
         goal,
         candidate_ids: candidates.map(([candidateId]) => candidateId),
+        candidate_validation_profiles: candidates.map(([candidateId], index) => ({
+          candidate_id: candidateId,
+          timeout_seconds: 300,
+          sample_items: 1,
+          max_charge_usd: 0.02,
+          options_hash: String.fromCharCode(97 + index).repeat(64),
+        })),
         expected_generation: 12,
         target_slot_count: 3,
       },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -290,8 +291,13 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=str(exc.code),
             )
             raise
+        timeout_seconds = int(
+            row["validation_timeout_seconds"]
+            or actor_canary_timeout_seconds()
+        )
+        sample_items = int(row["validation_sample_items"] or 1)
         runtime = ActorRuntime(
-            max_items=1,
+            max_items=sample_items,
             until_iso=datetime.now(timezone.utc).isoformat(),
         )
         actor_input = render_actor_input(manifest, target, runtime)
@@ -321,13 +327,10 @@ class ApifyActorCanaryRunner:
             route_id=str(row["route_id"]),
             route_key=str(row["route_key"]),
             route_generation=int(row["route_generation"]),
-            per_run_cap_usd=min(
-                float(row["per_run_cap_usd"]),
-                float(
-                    row["approved_max_cost_usd"]
-                    or row["cost_usd"]
-                    or row["per_run_cap_usd"]
-                ),
+            per_run_cap_usd=float(
+                row["approved_max_cost_usd"]
+                or row["cost_usd"]
+                or row["per_run_cap_usd"]
             ),
             slots=(slot,),
             source_id=(
@@ -382,6 +385,11 @@ class ApifyActorCanaryRunner:
             job_id=job_id,
         )
         actual_charge_usd: float | None = None
+        run_started = time.monotonic()
+
+        def elapsed_seconds() -> int:
+            return max(0, int(round(time.monotonic() - run_started)))
+
         try:
             run = await self.client.run_actor_detailed(
                 slot.actor_id,
@@ -389,10 +397,11 @@ class ApifyActorCanaryRunner:
                 max_total_charge_usd=snapshot.per_run_cap_usd,
                 logical_run_id=attempt_id,
                 build_number=slot.build_number,
-                max_paid_dataset_items=1,
-                dataset_item_limit=2,
+                max_paid_dataset_items=sample_items,
+                dataset_item_limit=sample_items + 1,
                 expected_pool_generation=snapshot.key_pool_generation,
                 max_remote_starts=1,
+                timeout_seconds=timeout_seconds,
             )
             actual_charge_usd = run.actual_charge_usd
             mapped = map_actor_output(manifest, run.items, target, runtime)
@@ -412,6 +421,7 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=error_code,
                 attempt_id=attempt_id,
                 cost_usd=actual_charge_usd,
+                duration_seconds=elapsed_seconds(),
             )
             raise ActorOpsError(
                 error_code,
@@ -457,6 +467,7 @@ class ApifyActorCanaryRunner:
                     cost_usd=0.0,
                     cost_final=True,
                     counts_toward_canary=False,
+                    duration_seconds=elapsed_seconds(),
                 )
                 self.ops.stop_unavailable_revision(
                     str(row["revision_id"]),
@@ -481,6 +492,7 @@ class ApifyActorCanaryRunner:
                     attempt_id=attempt_id,
                     cost_usd=actual_charge_usd,
                     cost_final=actual_charge_usd is not None,
+                    duration_seconds=elapsed_seconds(),
                 )
             raise ActorOpsError(
                 public_error_code,
@@ -504,6 +516,7 @@ class ApifyActorCanaryRunner:
                 cost_usd=0.0,
                 cost_final=True,
                 counts_toward_canary=False,
+                duration_seconds=elapsed_seconds(),
             )
             raise ActorOpsError(
                 str(exc.code),
@@ -525,6 +538,9 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=str(exc.code),
                 attempt_id=attempt_id,
                 cost_usd=actual_charge_usd,
+                duration_seconds=elapsed_seconds(),
+                dataset_row_count=(len(run.items) if "run" in locals() else None),
+                mapped_item_count=0,
             )
             if (
                 str(row["kind"]) == "route_reference"
@@ -553,6 +569,9 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=semantic,
                 attempt_id=attempt_id,
                 cost_usd=run.actual_charge_usd,
+                duration_seconds=elapsed_seconds(),
+                dataset_row_count=len(run.items),
+                mapped_item_count=0,
             )
             raise ActorOpsError(
                 "apify_actor_suspicious_empty",
@@ -571,8 +590,136 @@ class ApifyActorCanaryRunner:
             semantic_outcome=semantic,
             attempt_id=attempt_id,
             cost_usd=run.actual_charge_usd,
+            duration_seconds=elapsed_seconds(),
+            dataset_row_count=len(run.items),
+            mapped_item_count=len(mapped.items),
         )
         if str(row["kind"]) == "route_reference":
+            self._advance_revision(str(row["revision_id"]))
+        return CanaryResult(
+            validation_id=str(validation["validation_id"]),
+            revision_id=str(validation["revision_id"]),
+            status=str(validation["status"]),
+            semantic_outcome=str(validation["semantic_outcome"]),
+            cost_usd=(
+                float(validation["cost_usd"])
+                if validation["cost_usd"] is not None
+                else None
+            ),
+        )
+
+    async def reconcile(self, validation_id: str) -> CanaryResult:
+        """Read one durable Run/Dataset again without issuing an Actor POST."""
+
+        row = self.store.connect().execute(
+            """
+            SELECT validation.*, profile.platform,
+                   revision.candidate_id, revision.actor_id,
+                   revision.publisher, revision.build_id,
+                   revision.build_number, revision.manifest_json,
+                   revision.manifest_hash, revision.lifecycle,
+                   candidate.state AS candidate_state
+            FROM apify_actor_validations AS validation
+            JOIN apify_actor_route_profiles AS profile
+              ON profile.workspace_id = validation.workspace_id
+             AND profile.route_id = validation.route_id
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE validation.workspace_id = ?
+              AND validation.validation_id = ?
+            """,
+            (self.ops.workspace_id, validation_id),
+        ).fetchone()
+        if row is None:
+            raise ActorOpsError(
+                "apify_actor_validation_not_found",
+                "Actor validation was not found",
+                status_code=404,
+            )
+        if row["attempt_id"] is None or str(row["semantic_outcome"] or "") not in {
+            "apify_run_status_unavailable",
+            "apify_actor_run_status_unavailable",
+            "apify_run_reconcile_required",
+        }:
+            raise ActorOpsError(
+                "apify_actor_validation_reconcile_not_allowed",
+                "This validation does not need a free status reconciliation",
+                status_code=409,
+            )
+        manifest = parse_actor_manifest(str(row["manifest_json"]))
+        target = self._target_for(row)
+        runtime = ActorRuntime(
+            max_items=int(row["validation_sample_items"] or 1),
+            until_iso=datetime.now(timezone.utc).isoformat(),
+        )
+        durable_run = self.store.connect().execute(
+            """
+            SELECT id
+            FROM apify_actor_runs
+            WHERE workspace_id = ? AND logical_run_id = ?
+              AND remote_run_id IS NOT NULL
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (self.ops.workspace_id, str(row["attempt_id"])),
+        ).fetchone()
+        if durable_run is None:
+            raise ActorOpsError(
+                "apify_actor_validation_reconcile_unavailable",
+                "The validation has no durable Apify Run to reconcile",
+                status_code=412,
+            )
+        started = time.monotonic()
+        try:
+            run = await self.client.resume_actor_detailed(
+                str(durable_run["id"]),
+                dataset_item_limit=int(row["validation_sample_items"] or 1) + 1,
+                reserved_cost_usd=float(row["approved_max_cost_usd"]),
+            )
+            mapped = map_actor_output(manifest, run.items, target, runtime)
+            semantic = str(mapped.semantic_outcome)
+        except ActorManifestError as exc:
+            run_value = locals().get("run")
+            items = list(run_value.items) if run_value is not None else []
+            cost = run_value.actual_charge_usd if run_value is not None else None
+            validation = self.ops.reconcile_validation_result(
+                validation_id,
+                semantic_outcome=str(exc.code),
+                cost_usd=cost,
+                cost_final=bool(run_value and run_value.cost_final),
+                duration_seconds=max(0, int(round(time.monotonic() - started))),
+                dataset_row_count=len(items),
+                mapped_item_count=0,
+            )
+            raise ActorOpsError(
+                str(exc.code),
+                "Reconciled Actor output failed semantic validation",
+                status_code=422,
+            ) from None
+        except (ApifyClientError, TimeoutError, ValueError) as exc:
+            raise ActorOpsError(
+                str(getattr(exc, "code", None) or "apify_run_status_unavailable"),
+                "The existing Actor Run is still not readable",
+                retryable=True,
+                status_code=503,
+            ) from None
+        validation = self.ops.reconcile_validation_result(
+            validation_id,
+            semantic_outcome=semantic,
+            cost_usd=run.actual_charge_usd,
+            cost_final=bool(run.cost_final),
+            duration_seconds=max(0, int(round(time.monotonic() - started))),
+            dataset_row_count=len(run.items),
+            mapped_item_count=len(mapped.items),
+        )
+        if (
+            str(row["kind"]) == "route_reference"
+            and str(validation["status"]) == "succeeded"
+        ):
             self._advance_revision(str(row["revision_id"]))
         return CanaryResult(
             validation_id=str(validation["validation_id"]),

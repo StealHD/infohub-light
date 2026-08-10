@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-10',
+        title: 'Actor 验证可调参且不再原样重复付费',
+        summary: '超时、空结果和状态读取失败现在有各自有效的下一步，相同失败与参数会在启动 Actor 前以 0 费用拒绝。',
+        items: [
+          { title: '超时可直接调整', description: '错误卡显示实际耗时与费用，新计划可把等待设为 180–900 秒，单次上限最高 $0.10；只提高费用不算有效修复。' },
+          { title: '空结果不再误导', description: '运行已完成但 Dataset 为 0 时明确说明延长无效；只有 Manifest 支持时才显示 3/5 条样本，否则直接换 Actor。' },
+          { title: '状态核对不二次启动', description: 'Run 或 Dataset 状态暂时读不到时，只重读已知运行，不会生成第二个 Actor POST；成功证据可继续原审批已包含的剩余验证。' },
+          { title: '运行记录只告诉人怎么做', description: '内部成功任务继续隐藏；需要处理的失败显示原因、影响、下一步与返回 ActorOps，不提供付费通用重试。' },
+        ],
+      },
+      {
+        date: '2026-08-10',
         title: 'ActorOps 可以直接手选候选并补满三路',
         summary: '首次配置、旧版升级和第三路补位统一为候选手选、一次付费验证、一次确认生效，不再被内部流程或认证等待卡住。',
         items: [

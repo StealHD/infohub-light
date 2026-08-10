@@ -1686,17 +1686,36 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
     assert candidates_response.status_code == 200, candidates_response.text
     candidates = candidates_response.json()["data"]
     assert candidates["required_selection_count"] == 1
-    assert candidates["candidates"] == [
-        {
-            "candidate_id": candidate_id,
-            "actor_public_name": "publisher-c Actor",
-            "publisher": "publisher-c",
-            "pricing": {},
-            "max_validation_charge_usd": 0.02,
-            "selectable": True,
-            "unavailable_reason": None,
-        }
-    ]
+    assert len(candidates["candidates"]) == 1
+    candidate = candidates["candidates"][0]
+    assert {key: candidate[key] for key in (
+        "candidate_id", "actor_public_name", "publisher", "pricing",
+        "selectable", "unavailable_reason",
+    )} == {
+        "candidate_id": candidate_id,
+        "actor_public_name": "publisher-c Actor",
+        "publisher": "publisher-c",
+        "pricing": {},
+        "selectable": True,
+        "unavailable_reason": None,
+    }
+    assert candidate["max_validation_charge_usd"] == 0.10
+    assert candidate["validation_options"] == {
+        "timeout_seconds": 300,
+        "timeout_min_seconds": 180,
+        "timeout_max_seconds": 900,
+        "sample_items": 1,
+        "allowed_sample_items": [1],
+        "max_charge_usd": 0.02,
+        "max_charge_limit_usd": 0.10,
+        "supports_sample_items": False,
+        "options_hash": candidate["validation_options"]["options_hash"],
+        "profile_hash": candidate["validation_options"]["profile_hash"],
+    }
+    assert len(candidate["validation_options"]["options_hash"]) == 64
+    assert len(candidate["validation_options"]["profile_hash"]) == 64
+    assert candidate["last_failure"] is None
+    assert candidate["requires_profile_change"] is False
     assert "revision_id" not in candidates_response.text
     assert "manifest_hash" not in candidates_response.text
     assert actor_id not in candidates_response.text
@@ -1717,7 +1736,7 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
     )
     assert disabled.status_code == 200
     assert disabled.json()["data"]["candidates"][0] == {
-        **candidates["candidates"][0],
+        **candidate,
         "selectable": False,
         "unavailable_reason": "apify_actor_candidate_unavailable",
     }
@@ -1735,6 +1754,13 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
     plan_request = {
         "goal": "complete_third",
         "candidate_ids": [candidate_id],
+        "candidate_validation_profiles": [{
+            "candidate_id": candidate_id,
+            "timeout_seconds": 300,
+            "sample_items": 1,
+            "max_charge_usd": 0.02,
+            "options_hash": candidate["validation_options"]["options_hash"],
+        }],
         "expected_generation": active["generation"],
         "target_slot_count": 3,
     }
@@ -1758,6 +1784,9 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
         json={
             "goal": "complete_third",
             "candidate_ids": [candidate_id],
+            "candidate_validation_profiles": plan_request[
+                "candidate_validation_profiles"
+            ],
             "target_slot_count": 3,
             "expected_generation": active["generation"],
             "expected_plan_hash": plan["plan_hash"],

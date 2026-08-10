@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from src.scrapers.apify_client import ApifyClientError
+from src.services.apify_actor_canary import ApifyActorCanaryRunner
 from src.services.apify_actor_ops import (
     ActorOpsError,
     ApifyActorOpsService,
@@ -261,10 +265,44 @@ def _approve_manual_stage(
         )
         for revision_id in revision_ids
     ]
+    listed = ops.list_pool_candidates(
+        str(ops.get_discovery_run(run_id)["route_id"]),
+        goal=goal,
+    )
+    candidate_by_id = {
+        str(item["candidate_id"]): item for item in listed["candidates"]
+    }
+    profiles = [
+        {
+            "candidate_id": candidate_id,
+            "timeout_seconds": int(
+                candidate_by_id[candidate_id]["validation_options"][
+                    "timeout_seconds"
+                ]
+            ),
+            "sample_items": int(
+                candidate_by_id[candidate_id]["validation_options"][
+                    "sample_items"
+                ]
+            ),
+            "max_charge_usd": float(
+                candidate_by_id[candidate_id]["validation_options"][
+                    "max_charge_usd"
+                ]
+            ),
+            "options_hash": str(
+                candidate_by_id[candidate_id]["validation_options"][
+                    "options_hash"
+                ]
+            ),
+        }
+        for candidate_id in candidate_ids
+    ]
     plan = ops.get_canary_plan(
         run_id,
         goal=goal,
         candidate_ids=candidate_ids,
+        candidate_validation_profiles=profiles,
         target_slot_count=3,
     )
     assert plan["ready"] is True
@@ -278,6 +316,7 @@ def _approve_manual_stage(
         run_id,
         goal=goal,
         candidate_ids=candidate_ids,
+        candidate_validation_profiles=profiles,
         target_slot_count=3,
         expected_generation=int(plan["generation"]),
         expected_plan_hash=str(plan["plan_hash"]),
@@ -357,6 +396,71 @@ def _succeed_stage_sources(ops: ApifyActorOpsService, stage_id: str) -> list[str
         )
     ops.refresh_pool_stage_sources(stage_id)
     return validation_ids
+
+
+def _manual_third_stage(
+    store: ServiceStore,
+    ops: ApifyActorOpsService,
+    owner_id: str,
+    *,
+    suffix: str,
+    timeout_seconds: int = 300,
+    sample_items: int = 1,
+    max_charge_usd: float = 0.02,
+) -> tuple[dict, dict, dict, dict, dict]:
+    active, _base_revisions = _two_actor_pool(store, ops)
+    run, revisions = _discovery_with_revisions(
+        store,
+        ops,
+        active,
+        ((f"publisher-c/youtube-third-{suffix}", "publisher-c"),),
+        host="youtube.com",
+    )
+    candidate_id = str(
+        store.connect().execute(
+            """
+            SELECT candidate_id FROM apify_actor_adapter_revisions
+            WHERE workspace_id = ? AND revision_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID, revisions[0]),
+        ).fetchone()["candidate_id"]
+    )
+    candidate = next(
+        item for item in ops.list_pool_candidates(
+            str(active["route_id"]), goal="complete_third"
+        )["candidates"]
+        if str(item["candidate_id"]) == candidate_id
+    )
+    profile = {
+        "candidate_id": candidate_id,
+        "timeout_seconds": timeout_seconds,
+        "sample_items": sample_items,
+        "max_charge_usd": max_charge_usd,
+        "options_hash": str(candidate["validation_options"]["options_hash"]),
+    }
+    plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="complete_third",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[profile],
+        target_slot_count=3,
+    )
+    batch = ops.create_canary_batch(
+        str(run["run_id"]),
+        goal="complete_third",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[profile],
+        target_slot_count=3,
+        expected_generation=int(plan["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        approval_id=f"validation-profile-{suffix}-approval",
+        confirmation=BATCH_CANARY_CONFIRMATION,
+        max_candidates=1,
+        max_total_charge_usd=float(plan["max_total_charge_usd"]),
+        created_by_user_id=owner_id,
+        reference_fingerprints=dict(plan["_reference_fingerprints"]),
+    )
+    return active, run, candidate, profile, batch
 
 
 def test_complete_third_preserves_two_actor_pool_until_atomic_apply(tmp_path) -> None:
@@ -747,12 +851,25 @@ def test_empty_staged_target_replans_instead_of_becoming_apply_ready(
         "backup_2_candidate_selection_required",
         "backup_2_discovery_required",
     }
-    assert recovered["progress"]["last_failure"] == {
+    last_failure = recovered["progress"]["last_failure"]
+    assert {key: last_failure[key] for key in (
+        "phase", "code", "actual_cost_usd", "cost_final"
+    )} == {
         "phase": "route_validation",
         "code": "apify_actor_run_timed_out",
         "actual_cost_usd": 0.019,
         "cost_final": True,
     }
+    assert last_failure["actor_public_name"] == "publisher-c Actor"
+    assert last_failure["duration_seconds"] is None
+    assert last_failure["validation_profile"] == {
+        "timeout_seconds": 300,
+        "sample_items": 1,
+        "max_charge_usd": 0.02,
+        "supports_sample_items": True,
+        "options_hash": None,
+    }
+    assert last_failure["recommended_action"] == "adjust_timeout"
 
     with pytest.raises(ActorOpsError) as incomplete:
         ops.apply_pool_stage(
@@ -767,6 +884,475 @@ def test_empty_staged_target_replans_instead_of_becoming_apply_ready(
         slot["revision_id"]
         for slot in ops.get_route(str(active["route_id"]))["slots"]
     ] == [*base_revisions, None]
+
+
+def test_suspicious_empty_blocks_unchanged_spend_and_allows_larger_sample(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="sample-tuning-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    active, run, candidate, profile, batch = _manual_third_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        suffix="empty-sample",
+    )
+    item = batch["items"][0]
+    ops.record_validation(
+        str(item["validation_id"]),
+        status="failed",
+        semantic_outcome="suspicious_empty",
+        cost_usd=0.000445,
+        cost_final=True,
+        counts_toward_canary=True,
+        duration_seconds=29,
+        dataset_row_count=0,
+        mapped_item_count=0,
+    )
+    ops.update_canary_batch_item(
+        str(batch["batch_id"]),
+        int(item["ordinal"]),
+        status="failed",
+        semantic_outcome="suspicious_empty",
+        actual_cost_usd=0.000445,
+        cost_final=True,
+    )
+    assert ops.prepare_pool_stage_source_validations(
+        str(batch["pool_stage_id"])
+    ) == []
+    assert ops.get_pool_stage(str(batch["pool_stage_id"]))["status"] == (
+        "replan_required"
+    )
+    before_count = store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_validations"
+    ).fetchone()[0]
+
+    with pytest.raises(ActorOpsError) as unchanged:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="complete_third",
+            candidate_ids=[str(candidate["candidate_id"])],
+            candidate_validation_profiles=[profile],
+            target_slot_count=3,
+        )
+    assert unchanged.value.code == "apify_actor_validation_profile_unchanged"
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_validations"
+    ).fetchone()[0] == before_count
+
+    with pytest.raises(ActorOpsError) as cap_only:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="complete_third",
+            candidate_ids=[str(candidate["candidate_id"])],
+            candidate_validation_profiles=[{
+                **profile,
+                "max_charge_usd": 0.05,
+            }],
+            target_slot_count=3,
+        )
+    assert cap_only.value.code == "apify_actor_validation_profile_unchanged"
+
+    with pytest.raises(ActorOpsError) as timeout_only:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="complete_third",
+            candidate_ids=[str(candidate["candidate_id"])],
+            candidate_validation_profiles=[{
+                **profile,
+                "timeout_seconds": 600,
+            }],
+            target_slot_count=3,
+        )
+    assert timeout_only.value.code == "apify_actor_validation_profile_unchanged"
+
+    listed = next(
+        item for item in ops.list_pool_candidates(
+            str(active["route_id"]), goal="complete_third"
+        )["candidates"]
+        if str(item["candidate_id"]) == str(candidate["candidate_id"])
+    )
+    assert listed["requires_profile_change"] is True
+    assert listed["last_failure"] == {
+        "code": "suspicious_empty",
+        "duration_seconds": 29,
+        "dataset_row_count": 0,
+        "mapped_item_count": 0,
+        "actual_cost_usd": 0.000445,
+        "cost_final": True,
+        "timeout_seconds": 300,
+        "sample_items": 1,
+        "max_charge_usd": 0.02,
+        "profile_hash": listed["last_failure"]["profile_hash"],
+        "completed_at": FIXED_NOW.isoformat(),
+    }
+    enlarged = {**profile, "sample_items": 3}
+    replacement_plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="complete_third",
+        candidate_ids=[str(candidate["candidate_id"])],
+        candidate_validation_profiles=[enlarged],
+        target_slot_count=3,
+    )
+    assert replacement_plan["items"][0]["validation_profile"] == {
+        "timeout_seconds": 300,
+        "sample_items": 3,
+        "max_charge_usd": 0.02,
+        "supports_sample_items": True,
+        "options_hash": profile["options_hash"],
+        "profile_hash": replacement_plan["items"][0]["validation_profile"][
+            "profile_hash"
+        ],
+    }
+
+
+def test_timeout_retry_requires_more_time_not_only_more_budget(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="timeout-retry-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    active, run, candidate, profile, batch = _manual_third_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        suffix="timeout-retry",
+    )
+    item = batch["items"][0]
+    ops.record_validation(
+        str(item["validation_id"]),
+        status="failed",
+        semantic_outcome="apify_actor_run_timed_out",
+        cost_usd=0.01905,
+        cost_final=True,
+        counts_toward_canary=True,
+        duration_seconds=300,
+        dataset_row_count=0,
+        mapped_item_count=0,
+    )
+    ops.update_canary_batch_item(
+        str(batch["batch_id"]),
+        int(item["ordinal"]),
+        status="failed",
+        semantic_outcome="apify_actor_run_timed_out",
+        actual_cost_usd=0.01905,
+        cost_final=True,
+    )
+    assert ops.prepare_pool_stage_source_validations(
+        str(batch["pool_stage_id"])
+    ) == []
+
+    with pytest.raises(ActorOpsError) as cap_only:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="complete_third",
+            candidate_ids=[str(candidate["candidate_id"])],
+            candidate_validation_profiles=[{
+                **profile,
+                "max_charge_usd": 0.05,
+            }],
+            target_slot_count=3,
+        )
+    assert cap_only.value.code == "apify_actor_validation_profile_unchanged"
+
+    adjusted = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="complete_third",
+        candidate_ids=[str(candidate["candidate_id"])],
+        candidate_validation_profiles=[{
+            **profile,
+            "timeout_seconds": 600,
+            "max_charge_usd": 0.05,
+        }],
+        target_slot_count=3,
+    )
+    assert adjusted["items"][0]["validation_profile"]["timeout_seconds"] == 600
+    assert adjusted["items"][0]["validation_profile"]["max_charge_usd"] == 0.05
+    assert [
+        slot["revision_id"] for slot in ops.get_route(str(active["route_id"]))[
+            "slots"
+        ]
+    ][-1] is None
+
+
+@pytest.mark.parametrize("timeout_seconds", (600, 900))
+def test_timeout_profile_is_frozen_for_worker_and_accepts_600_to_900(
+    tmp_path,
+    timeout_seconds: int,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username=f"timeout-tuning-owner-{timeout_seconds}",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    _active, _run, _candidate, _profile, batch = _manual_third_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        suffix=f"timeout-{timeout_seconds}",
+        timeout_seconds=timeout_seconds,
+        sample_items=3,
+        max_charge_usd=0.07,
+    )
+    validation_id = str(batch["items"][0]["validation_id"])
+    captured: dict = {}
+
+    class TimeoutClient:
+        async def run_actor_detailed(self, actor_id, actor_input, **kwargs):
+            captured.update(
+                actor_id=actor_id,
+                actor_input=actor_input,
+                kwargs=kwargs,
+            )
+            raise TimeoutError("bounded test timeout")
+
+    async def run_validation() -> None:
+        await ApifyActorCanaryRunner(store, ops, TimeoutClient()).run(
+            validation_id, job_id=None, skip_preflight=True
+        )
+
+    with pytest.raises(ActorOpsError) as timed_out:
+        asyncio.run(run_validation())
+    assert timed_out.value.code == "apify_actor_run_timed_out"
+    assert captured["actor_input"]["maxItems"] == 3
+    assert captured["kwargs"]["timeout_seconds"] == timeout_seconds
+    assert captured["kwargs"]["max_paid_dataset_items"] == 3
+    assert captured["kwargs"]["dataset_item_limit"] == 4
+    assert captured["kwargs"]["max_total_charge_usd"] == pytest.approx(0.07)
+    persisted = ops.get_validation(validation_id)
+    assert persisted["validation_timeout_seconds"] == timeout_seconds
+    assert persisted["validation_sample_items"] == 3
+    assert persisted["semantic_outcome"] == "apify_actor_run_timed_out"
+    settings = store.connect().execute(
+        """
+        SELECT timeout_seconds, sample_items, max_charge_usd
+        FROM apify_actor_pool_stage_candidate_settings
+        WHERE workspace_id = ? AND stage_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, batch["pool_stage_id"]),
+    ).fetchone()
+    assert tuple(settings) == (timeout_seconds, 3, 0.07)
+
+
+def test_status_read_failure_reconciles_known_run_without_second_actor_start(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="status-reconcile-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    _active, run, candidate, profile, batch = _manual_third_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        suffix="status-reconcile",
+    )
+    item = batch["items"][0]
+    validation_id = str(item["validation_id"])
+    starts: list[str] = []
+
+    class StatusReadFailureClient:
+        async def run_actor_detailed(self, actor_id, _actor_input, **kwargs):
+            starts.append(actor_id)
+            attempt_id = str(kwargs["logical_run_id"])
+            store.connect().execute(
+                """
+                INSERT INTO apify_actor_runs (
+                    id, workspace_id, logical_run_id, secret_id,
+                    secret_version, pool_generation, remote_run_id,
+                    dataset_id, status, created_at, started_at, updated_at,
+                    charge_reserved_usd, charge_actual_usd, charge_final
+                ) VALUES (
+                    'known-status-run', ?, ?, 'secret-status', 1, 1,
+                    'remote-status-run', 'dataset-status-run', 'running',
+                    ?, ?, ?, 0.02, NULL, 0
+                )
+                """,
+                (
+                    DEFAULT_WORKSPACE_ID,
+                    attempt_id,
+                    FIXED_NOW.isoformat(),
+                    FIXED_NOW.isoformat(),
+                    FIXED_NOW.isoformat(),
+                ),
+            )
+            store.connect().commit()
+            raise ApifyClientError(
+                "apify_run_status_unavailable",
+                "status endpoint unavailable",
+                retryable=True,
+                status_code=503,
+            )
+
+    async def first_attempt() -> None:
+        await ApifyActorCanaryRunner(
+            store,
+            ops,
+            StatusReadFailureClient(),
+        ).run(validation_id, job_id=None, skip_preflight=True)
+
+    with pytest.raises(ActorOpsError) as unavailable:
+        asyncio.run(first_attempt())
+    assert unavailable.value.code == "apify_run_status_unavailable"
+    failed = ops.get_validation(validation_id)
+    assert failed["status"] == "failed"
+    assert failed["semantic_outcome"] == "apify_run_status_unavailable"
+    ops.update_canary_batch_item(
+        str(batch["batch_id"]),
+        int(item["ordinal"]),
+        status="failed",
+        semantic_outcome="apify_run_status_unavailable",
+        actual_cost_usd=None,
+        cost_final=False,
+    )
+    assert ops.prepare_pool_stage_source_validations(
+        str(batch["pool_stage_id"])
+    ) == []
+    assert ops.get_pool_stage(str(batch["pool_stage_id"]))["status"] == (
+        "replan_required"
+    )
+
+    with pytest.raises(ActorOpsError) as paid_retry:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="complete_third",
+            candidate_ids=[str(candidate["candidate_id"])],
+            candidate_validation_profiles=[{
+                **profile,
+                "timeout_seconds": 600,
+                "max_charge_usd": 0.05,
+            }],
+            target_slot_count=3,
+        )
+    assert paid_retry.value.code == "apify_actor_validation_reconcile_required"
+
+    resumed: list[tuple[str, int, float]] = []
+
+    class ReconcileOnlyClient:
+        async def resume_actor_detailed(self, reservation_id, **kwargs):
+            resumed.append((
+                reservation_id,
+                int(kwargs["dataset_item_limit"]),
+                float(kwargs["reserved_cost_usd"]),
+            ))
+            return SimpleNamespace(
+                items=[{
+                    "id": "video-1",
+                    "url": "https://www.youtube.com/watch?v=video-1",
+                    "publishedAt": "2026-08-10T00:00:00Z",
+                    "title": "Status reconciled",
+                    "sourceId": "UCBR8-60-B28hp2BmDPdntcQ",
+                }],
+                actual_charge_usd=0.001,
+                cost_final=True,
+            )
+
+    async def reconcile() -> None:
+        result = await ApifyActorCanaryRunner(
+            store,
+            ops,
+            ReconcileOnlyClient(),
+        ).reconcile(validation_id)
+        assert result.status == "succeeded"
+
+    asyncio.run(reconcile())
+    recovery = ops.resume_reconciled_validation(validation_id)
+
+    assert len(starts) == 1
+    assert resumed == [("known-status-run", 2, 0.02)]
+    assert recovery == {
+        "resumed": True,
+        "batch_id": batch["batch_id"],
+        "stage_id": batch["pool_stage_id"],
+        "enqueue_batch": True,
+    }
+    assert ops.get_validation(validation_id)["semantic_outcome"] == (
+        "valid_nonempty"
+    )
+    assert ops.get_revision(str(item["revision_id"]))["lifecycle"] == (
+        "probationary"
+    )
+    assert ops.get_canary_batch(str(batch["batch_id"]))["status"] == "queued"
+    assert ops.get_pool_stage(str(batch["pool_stage_id"]))["status"] == "queued"
+
+
+@pytest.mark.parametrize(
+    ("timeout_seconds", "sample_items", "max_charge_usd"),
+    ((179, 1, 0.02), (901, 1, 0.02), (300, 2, 0.02), (300, 1, 0.100001)),
+)
+def test_validation_profile_rejects_out_of_bounds_without_creating_spend(
+    tmp_path,
+    timeout_seconds: int,
+    sample_items: int,
+    max_charge_usd: float,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    active, _base_revisions = _two_actor_pool(store, ops)
+    run, revisions = _discovery_with_revisions(
+        store,
+        ops,
+        active,
+        (("publisher-c/youtube-third-invalid-profile", "publisher-c"),),
+        host="youtube.com",
+    )
+    candidate_id = str(
+        store.connect().execute(
+            """
+            SELECT candidate_id FROM apify_actor_adapter_revisions
+            WHERE workspace_id = ? AND revision_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID, revisions[0]),
+        ).fetchone()["candidate_id"]
+    )
+    candidate = next(
+        item for item in ops.list_pool_candidates(
+            str(active["route_id"]), goal="complete_third"
+        )["candidates"]
+        if str(item["candidate_id"]) == candidate_id
+    )
+    before = store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_validations"
+    ).fetchone()[0]
+    with pytest.raises(ActorOpsError) as invalid:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="complete_third",
+            candidate_ids=[candidate_id],
+            candidate_validation_profiles=[{
+                "candidate_id": candidate_id,
+                "timeout_seconds": timeout_seconds,
+                "sample_items": sample_items,
+                "max_charge_usd": max_charge_usd,
+                "options_hash": candidate["validation_options"]["options_hash"],
+            }],
+            target_slot_count=3,
+        )
+    assert invalid.value.code == "apify_actor_validation_profile_invalid"
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_validations"
+    ).fetchone()[0] == before
 
 
 def test_replan_workflow_projects_safe_failed_source_validation(tmp_path) -> None:
@@ -810,12 +1396,18 @@ def test_replan_workflow_projects_safe_failed_source_validation(tmp_path) -> Non
     ops.refresh_pool_stage_sources(stage_id)
 
     projected = ops.workflow_state(str(active["route_id"]))
-    assert projected["progress"]["last_failure"] == {
+    last_failure = projected["progress"]["last_failure"]
+    assert {key: last_failure[key] for key in (
+        "phase", "code", "actual_cost_usd", "cost_final"
+    )} == {
         "phase": "source_validation",
         "code": "suspicious_empty",
         "actual_cost_usd": 0.001,
         "cost_final": True,
     }
+    assert last_failure["actor_public_name"] == "publisher-c Actor"
+    assert last_failure["dataset_row_count"] is None
+    assert last_failure["recommended_action"] == "increase_sample"
 
 
 def test_new_source_replans_only_missing_proofs_before_third_slot_apply(tmp_path) -> None:
@@ -1087,6 +1679,27 @@ def test_legacy_workflow_requires_three_explicit_candidates_before_paid_confirma
         str(ready["run_id"]),
         goal="upgrade_legacy",
         candidate_ids=candidate_ids,
+        candidate_validation_profiles=[
+            {
+                "candidate_id": str(candidate["candidate_id"]),
+                "timeout_seconds": int(
+                    candidate["validation_options"]["timeout_seconds"]
+                ),
+                "sample_items": int(
+                    candidate["validation_options"]["sample_items"]
+                ),
+                "max_charge_usd": float(
+                    candidate["validation_options"]["max_charge_usd"]
+                ),
+                "options_hash": str(
+                    candidate["validation_options"]["options_hash"]
+                ),
+            }
+            for candidate in ops.list_pool_candidates(
+                str(seeded["route_id"]), goal="upgrade_legacy"
+            )["candidates"]
+            if str(candidate["candidate_id"]) in candidate_ids
+        ],
         target_slot_count=3,
     )
     assert plan["ready"] is True

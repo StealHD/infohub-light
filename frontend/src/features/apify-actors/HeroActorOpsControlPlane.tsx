@@ -21,6 +21,7 @@ import type {
   ApifyActorSlotName,
   ApifyActorSourceSupport,
   ApifyActorSupportProfile,
+  ApifyActorValidationProfileRequest,
 } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import {
@@ -177,6 +178,12 @@ type CanaryBatchApprovalTarget = {
   approvalId: string
 }
 
+type CandidateProfileDraft = {
+  timeoutSeconds: string
+  sampleItems: string
+  maxChargeUsd: string
+}
+
 function HumanActorErrorNotice({ error }: { error: HumanActorError }) {
   return <HeroNotice title={error.reason} status="danger" role="alert">
     <p><strong>影响：</strong>{error.impact}</p>
@@ -214,7 +221,9 @@ function workflowFailureNotice(
     ...presented,
     impact: `${presented.impact}${spend}`,
     next: code === 'apify_actor_run_timed_out' && costFinal
-      ? '选择另一个候选并再次确认验证；系统不会自动重试。'
+      ? '打开候选列表，把等待时间从当前值调高后再确认；系统不会自动重试。'
+      : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(code)
+        ? '打开候选列表；支持扩大样本时改为 3 或 5 条，否则更换 Actor。'
       : presented.next,
   }
 }
@@ -1525,6 +1534,7 @@ export function HeroActorOpsControlPlane({
   const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false)
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false)
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([])
+  const [candidateProfileDrafts, setCandidateProfileDrafts] = useState<Record<string, CandidateProfileDraft>>({})
   const [candidateError, setCandidateError] = useState<HumanActorError | null>(null)
   const [batchTarget, setBatchTarget] = useState<CanaryBatchApprovalTarget | null>(null)
   const [batchError, setBatchError] = useState<HumanActorError | null>(null)
@@ -1650,6 +1660,77 @@ export function HeroActorOpsControlPlane({
     if (tab !== 'operations') void detailQuery.refetch()
   }
 
+  function profileDraft(candidate: ApifyActorPoolCandidate): CandidateProfileDraft {
+    const options = candidate.validation_options ?? {
+      timeout_seconds: 300,
+      timeout_min_seconds: 180,
+      timeout_max_seconds: 900,
+      sample_items: 1 as const,
+      allowed_sample_items: [1] as Array<1 | 3 | 5>,
+      max_charge_usd: 0.02,
+      max_charge_limit_usd: 0.10,
+      supports_sample_items: false,
+      options_hash: '',
+    }
+    return candidateProfileDrafts[candidate.candidate_id] ?? {
+      timeoutSeconds: String(options?.timeout_seconds ?? 300),
+      sampleItems: String(options?.sample_items ?? 1),
+      maxChargeUsd: String(options?.max_charge_usd ?? 0.02),
+    }
+  }
+
+  function updateCandidateProfile(
+    candidateId: string,
+    field: keyof CandidateProfileDraft,
+    value: string,
+  ) {
+    const candidate = candidatesQuery.data?.candidates.find((item) => item.candidate_id === candidateId)
+    if (!candidate) return
+    setCandidateError(null)
+    setCandidateProfileDrafts((current) => ({
+      ...current,
+      [candidateId]: { ...profileDraft(candidate), [field]: value },
+    }))
+  }
+
+  function candidateProfileRequest(candidate: ApifyActorPoolCandidate): ApifyActorValidationProfileRequest | null {
+    const options = candidate.validation_options
+    if (!options) return null
+    const draft = profileDraft(candidate)
+    const timeoutSeconds = Number(draft.timeoutSeconds)
+    const sampleItems = Number(draft.sampleItems)
+    const maxChargeUsd = Number(draft.maxChargeUsd)
+    if (!Number.isInteger(timeoutSeconds)
+      || timeoutSeconds < options.timeout_min_seconds
+      || timeoutSeconds > options.timeout_max_seconds
+      || !options.allowed_sample_items.includes(sampleItems as 1 | 3 | 5)
+      || !Number.isFinite(maxChargeUsd)
+      || maxChargeUsd <= 0
+      || maxChargeUsd > options.max_charge_limit_usd) return null
+    return {
+      candidate_id: candidate.candidate_id,
+      timeout_seconds: timeoutSeconds,
+      sample_items: sampleItems as 1 | 3 | 5,
+      max_charge_usd: maxChargeUsd,
+      options_hash: options.options_hash,
+    }
+  }
+
+  function candidateHasUsefulProfileChange(candidate: ApifyActorPoolCandidate): boolean {
+    if (!candidate.requires_profile_change || !candidate.last_failure) return true
+    const profile = candidateProfileRequest(candidate)
+    if (!profile) return false
+    const failure = candidate.last_failure
+    if (failure.code === 'apify_actor_run_timed_out') {
+      return profile.timeout_seconds > failure.timeout_seconds
+    }
+    if (['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code)) {
+      return Boolean(candidate.validation_options?.supports_sample_items)
+        && profile.sample_items > failure.sample_items
+    }
+    return false
+  }
+
   const discovery = useMutation({
     mutationFn: async () => {
       if (!selectedSummary) throw new Error('route unavailable')
@@ -1672,9 +1753,15 @@ export function HeroActorOpsControlPlane({
       if (!candidates?.run_id || selectedCandidateIds.length !== candidates.required_selection_count) {
         throw new Error('candidate selection incomplete')
       }
+      const selected = selectedCandidateIds.map((candidateId) => (
+        candidates.candidates.find((candidate) => candidate.candidate_id === candidateId)
+      ))
+      const profiles = selected.map((candidate) => candidate ? candidateProfileRequest(candidate) : null)
+      if (profiles.some((profile) => profile === null)) throw new Error('candidate validation profile invalid')
       return api.createApifyActorManualCanaryPlan(candidates.run_id, {
         goal: candidates.goal,
         candidate_ids: selectedCandidateIds,
+        candidate_validation_profiles: profiles as ApifyActorValidationProfileRequest[],
         expected_generation: candidates.generation,
         target_slot_count: 3,
       })
@@ -1743,6 +1830,15 @@ export function HeroActorOpsControlPlane({
       max_total_charge_usd: target.plan.max_total_charge_usd,
       ...(target.plan.selection_mode === 'manual' ? {
         candidate_ids: target.plan.items.map((item) => item.candidate_id).filter((value): value is string => Boolean(value)),
+        candidate_validation_profiles: target.plan.items.flatMap((item) => (
+          item.candidate_id && item.validation_profile ? [{
+            candidate_id: item.candidate_id,
+            timeout_seconds: item.validation_profile.timeout_seconds,
+            sample_items: item.validation_profile.sample_items,
+            max_charge_usd: item.validation_profile.max_charge_usd,
+            options_hash: item.validation_profile.options_hash,
+          }] : []
+        )),
         target_slot_count: 3 as const,
       } : {}),
     }),
@@ -1878,8 +1974,30 @@ export function HeroActorOpsControlPlane({
     }),
   })
 
+  const reconcileValidation = useMutation({
+    mutationFn: async (candidateId: string) => {
+      if (!selectedSummary) throw new Error('route unavailable')
+      return api.reconcileApifyActorValidation(
+        selectedSummary.route_id,
+        selectedSummary.generation,
+        candidateId,
+      )
+    },
+    onSuccess: () => {
+      setCandidateError(null)
+      void candidatesQuery.refetch()
+      refreshSelected()
+      actionToast.success('已重新读取原运行状态，没有重新启动 Actor')
+    },
+    onError: (caught) => setCandidateError(humanActorError(
+      caught,
+      '稍后再次核对；系统不会重新启动 Actor，也不会新增费用。',
+    )),
+  })
+
   const actionPending = discovery.isPending || preparePlan.isPending || prepareManualPlan.isPending || canaryBatch.isPending
     || activatePool.isPending || updatePool.isPending || sourceCanary.isPending || sourceActivate.isPending
+    || reconcileValidation.isPending
   const activePoolDraft = useMemo(() => detail ? Object.fromEntries(
     detail.slots.map((slot) => [slot.slot, slot.revision_id]),
   ) as PoolDraft : null, [detail])
@@ -1896,7 +2014,15 @@ export function HeroActorOpsControlPlane({
   const routeCapChanged = Boolean(detail && routeCapValid && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9)
   const candidateRequiredCount = candidatesQuery.data?.required_selection_count
     ?? (candidateGoal === 'complete_third' ? 1 : 3)
+  const selectedCandidates = selectedCandidateIds.map((candidateId) => (
+    candidatesQuery.data?.candidates.find((candidate) => candidate.candidate_id === candidateId)
+  )).filter((candidate): candidate is ApifyActorPoolCandidate => Boolean(candidate))
   const candidateSelectionComplete = selectedCandidateIds.length === candidateRequiredCount
+    && selectedCandidates.length === selectedCandidateIds.length
+    && selectedCandidates.every((candidate) => (
+      candidateProfileRequest(candidate) !== null
+      && candidateHasUsefulProfileChange(candidate)
+    ))
   const sourceCatalog = new Map((catalogQuery.data?.sources ?? []).map((source) => [source.id, source]))
   const pendingSourceCount = detail?.source_validation_summary?.pending ?? 0
   const workflowPendingSourceCount = typeof workflow?.progress?.pending_sources === 'number'
@@ -2179,12 +2305,70 @@ export function HeroActorOpsControlPlane({
           {candidatesQuery.data && <>
             <div className="flex items-center justify-between gap-3 type-meta text-muted"><span>请选择 {candidateRequiredCount} 个</span><span aria-live="polite">已选 {selectedCandidateIds.length}/{candidateRequiredCount}</span></div>
             {candidatesQuery.data.candidates.length > 0 ? <div className="grid gap-2" role="group" aria-label="可选 Actor">
-              {candidatesQuery.data.candidates.map((candidate) => <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
-                <Checkbox isSelected={selectedCandidateIds.includes(candidate.candidate_id)} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && selectedCandidateIds.length >= candidateRequiredCount && !selectedCandidateIds.includes(candidate.candidate_id)) || prepareManualPlan.isPending} onChange={(selected) => toggleCandidate(candidate.candidate_id, selected)}>
-                  <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 本次最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
-                </Checkbox>
-                {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">不可选择：{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
-              </div>)}
+              {candidatesQuery.data.candidates.map((candidate) => {
+                const selected = selectedCandidateIds.includes(candidate.candidate_id)
+                const failure = candidate.last_failure
+                const draft = profileDraft(candidate)
+                const statusReadFailure = failure && [
+                  'apify_run_status_unavailable',
+                  'apify_actor_run_status_unavailable',
+                  'apify_run_reconcile_required',
+                ].includes(failure.code)
+                const contractFailure = failure && [
+                  'apify_actor_contract_mismatch',
+                  'apify_actor_identity_mismatch',
+                ].includes(failure.code)
+                return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
+                  <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && selectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
+                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
+                  </Checkbox>
+                  {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">不可选择：{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
+                  {failure && <div className="mt-3 grid gap-3 rounded-control border border-warning/40 bg-default p-3">
+                    <div className="type-meta">
+                      <p className="type-control text-warning">{failure.code === 'apify_actor_run_timed_out'
+                        ? `验证超过 ${Math.max(1, Math.round((failure.duration_seconds ?? failure.timeout_seconds) / 60))} 分钟`
+                        : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code)
+                          ? '运行已完成，但返回 0 条内容'
+                          : statusReadFailure
+                            ? '原运行结果还没有确认'
+                            : contractFailure
+                              ? '字段或来源身份没有匹配成功'
+                              : failure.code === 'apify_actor_metadata_only'
+                                ? '这个 Actor 只返回元数据，不能抓取内容'
+                                : '上次验证没有通过'}</p>
+                      <p className="mt-1 text-muted">耗时 {failure.duration_seconds ?? 0} 秒 · Dataset {failure.dataset_row_count ?? '未知'} 条 · {failure.cost_final ? `已结算 ${formatActorUsd(failure.actual_cost_usd, true)}` : '费用待对账'}</p>
+                      <p className="mt-1 text-muted">当前参数：等待 {failure.timeout_seconds} 秒 · 样本 {failure.sample_items} 条 · 单次上限 {formatActorUsd(failure.max_charge_usd, true)}</p>
+                      <p className="mt-2"><strong>下一步：</strong>{failure.code === 'apify_actor_run_timed_out'
+                        ? failure.timeout_seconds < 900
+                          ? '增加等待时间；如果 Actor 需要更高启动预算，再同步提高单次费用上限。'
+                          : '等待时间已经是 15 分钟上限，请选择另一个候选。'
+                        : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code)
+                          ? candidate.validation_options?.supports_sample_items
+                            ? failure.sample_items < 5
+                              ? '延长等待无效；把验证样本扩大到 3 或 5 条。'
+                              : '已经使用 5 条最大样本，延长等待无效；请选择另一个候选。'
+                            : '这个 Actor 不支持扩大样本，请选择另一个候选。'
+                          : statusReadFailure
+                            ? '免费重新读取同一个 Run 和 Dataset，不会重新启动 Actor。'
+                            : contractFailure
+                              ? '免费更新当前抓取类型的候选并重新生成字段映射；仍不匹配就换 Actor。'
+                              : '请选择另一个候选；系统不会原样重复付费。'}</p>
+                    </div>
+                    {failure.code === 'apify_actor_run_timed_out' && failure.timeout_seconds < 900 && <div className="grid gap-3 min-[640px]:grid-cols-2">
+                      <TextField fullWidth value={draft.timeoutSeconds} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'timeoutSeconds', value)} isDisabled={!selected || prepareManualPlan.isPending}>
+                        <Label>等待时间（秒）</Label><Input type="number" min={180} max={900} step={60} /><Description>只对新计划生效；范围 180–900 秒。</Description>
+                      </TextField>
+                      <TextField fullWidth value={draft.maxChargeUsd} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'maxChargeUsd', value)} isDisabled={!selected || prepareManualPlan.isPending}>
+                        <Label>单次费用上限（USD）</Label><Input type="number" min={0.000001} max={0.10} step={0.005} /><Description>不会自动放宽，最高 $0.10。</Description>
+                      </TextField>
+                    </div>}
+                    {['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code) && candidate.validation_options?.supports_sample_items && failure.sample_items < 5 && <HeroSelect label="验证样本数" value={draft.sampleItems} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'sampleItems', value)} isDisabled={!selected || prepareManualPlan.isPending} options={candidate.validation_options.allowed_sample_items.map((value) => ({ id: String(value), label: `${value} 条` }))} />}
+                    {statusReadFailure && <Button size="sm" variant="secondary" isDisabled={reconcileValidation.isPending} onPress={() => reconcileValidation.mutate(candidate.candidate_id)}>{reconcileValidation.isPending ? '正在核对…' : '重新核对运行状态（免费）'}</Button>}
+                    {contractFailure && <Button size="sm" variant="secondary" isDisabled={discovery.isPending} onPress={() => discovery.mutate()}>{discovery.isPending ? '正在更新候选与字段映射…' : '更新候选与字段映射（免费）'}</Button>}
+                    {candidate.requires_profile_change && selected && !candidateHasUsefulProfileChange(candidate) && <p className="type-meta text-danger" role="alert">必须按上面的建议修改参数，原样验证已被禁止。</p>}
+                  </div>}
+                </div>
+              })}
             </div> : <HeroNotice title="暂时没有可选 Actor" status="warning">当前没有同时满足来源能力、发布者分散和费用上限的候选。现有线路不会改变。</HeroNotice>}
           </>}
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
@@ -2203,7 +2387,7 @@ export function HeroActorOpsControlPlane({
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开付费验证确认</Modal.Trigger>
       <Modal.Backdrop isDismissable={!canaryBatch.isPending} isKeyboardDismissDisabled={canaryBatch.isPending}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>验证所选 Actor</Modal.Heading></Modal.Header>
-        <Modal.Body><div className="grid gap-3" aria-busy={canaryBatch.isPending}><HeroNotice title="严格串行，并受总费用上限保护" status="warning" role="status">这是确认 1/2。验证通过并确认生效前，当前配置不会改变；未启动或不再需要的项费用为 $0。</HeroNotice>{batchTarget && <><dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">抓取类型</dt><dd className="mt-1">{routeProductNames[routeProfileId(batchTarget.plan)]?.label || routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)}</dd></div><div><dt className="text-muted">本批总费用上限</dt><dd className="mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div><div><dt className="text-muted">来源预验证</dt><dd className="mt-1">{batchTarget.plan.source_count ?? 0} 个已启用来源 · 最多 {batchTarget.plan.source_validation_count ?? 0} 次缺失验证</dd></div><div><dt className="text-muted">验证边界</dt><dd className="mt-1">只验证你选择的 Actor；系统不会静默换人或超出总费用上限。</dd></div></dl><ol className="grid gap-2">{batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta"><p className="type-control">{item.actor_public_name || `${item.publisher} Actor`}</p><p className="mt-1 text-muted">发布者 {item.publisher} · 单次封顶 {formatActorUsd(item.authorized_cap_usd, true)}{item.already_validated ? ' · 已有成功证据可复用' : ''}</p></li>)}</ol></>}{batchError && <HumanActorErrorNotice error={batchError} />}</div></Modal.Body>
+        <Modal.Body><div className="grid gap-3" aria-busy={canaryBatch.isPending}><HeroNotice title="严格串行，并受总费用上限保护" status="warning" role="status">这是确认 1/2。验证通过并确认生效前，当前配置不会改变；未启动或不再需要的项费用为 $0。</HeroNotice>{batchTarget && <><dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">抓取类型</dt><dd className="mt-1">{routeProductNames[routeProfileId(batchTarget.plan)]?.label || routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)}</dd></div><div><dt className="text-muted">本批总费用上限</dt><dd className="mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div><div><dt className="text-muted">来源预验证</dt><dd className="mt-1">{batchTarget.plan.source_count ?? 0} 个已启用来源 · 最多 {batchTarget.plan.source_validation_count ?? 0} 次缺失验证</dd></div><div><dt className="text-muted">验证边界</dt><dd className="mt-1">只验证你选择的 Actor；系统不会静默换人或超出总费用上限。</dd></div></dl><ol className="grid gap-2">{batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta"><p className="type-control">{item.actor_public_name || `${item.publisher} Actor`}</p><p className="mt-1 text-muted">发布者 {item.publisher} · 单次封顶 {formatActorUsd(item.authorized_cap_usd, true)}{item.already_validated ? ' · 已有成功证据可复用' : ''}</p>{item.validation_profile && <p className="mt-1 text-muted">等待 {item.validation_profile.timeout_seconds} 秒 · 样本 {item.validation_profile.sample_items} 条 · 参数费用上限 {formatActorUsd(item.validation_profile.max_charge_usd, true)}</p>}</li>)}</ol></>}{batchError && <HumanActorErrorNotice error={batchError} />}</div></Modal.Body>
         <Modal.Footer><Button variant="ghost" isDisabled={canaryBatch.isPending} onPress={() => { setBatchTarget(null); setBatchError(null); restoreFocus(batchTriggerRef) }}>取消</Button><Button isDisabled={!batchTarget?.plan.ready || canaryBatch.isPending} onPress={() => batchTarget && canaryBatch.mutate(batchTarget)}>{canaryBatch.isPending ? '提交中…' : `确认验证（最高 ${formatActorUsd(batchTarget?.plan.max_total_charge_usd ?? null, true)}）`}</Button></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>

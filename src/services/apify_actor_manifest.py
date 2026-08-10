@@ -428,11 +428,11 @@ class ActorTarget(BaseModel):
 
 
 class ActorRuntime(BaseModel):
-    """Bounded runtime values; paid Actor runs intentionally request one item."""
+    """Bounded runtime values frozen by a paid Actor validation plan."""
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
-    max_items: Literal[1] = 1
+    max_items: Literal[1, 3, 5] = 1
     since_iso: str | None = None
     until_iso: str | None = None
 

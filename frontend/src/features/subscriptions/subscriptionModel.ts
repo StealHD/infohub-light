@@ -117,7 +117,13 @@ export function presentActorOpsJobIssue(job: Job): ActorOpsJobIssue {
   if (['apify_actor_canary_approval_stale', 'apify_actor_route_generation_conflict', 'apify_actor_canary_plan_conflict', 'apify_actor_manual_candidate_stale'].includes(code)) {
     return { reason: 'Actor 配置已更新', impact: '这次验证没有启动，不会收费；当前主备没有变化。', next: '返回 ActorOps，重新选择 Actor 并确认。' }
   }
-  if (['apify_actor_unexpected_empty', 'apify_actor_suspicious_empty', 'systemic_empty', 'apify_actor_contract_mismatch', 'apify_actor_metadata_only', 'apify_actor_placeholder', 'apify_actor_target_identity_mismatch', 'apify_actor_revision_output_incompatible'].includes(code)) {
+  if (code === 'apify_actor_validation_profile_unchanged') {
+    return { reason: '验证参数没有变化', impact: '系统已阻止原样重复启动，本次费用为 $0；当前主备没有变化。', next: '返回 ActorOps，按建议调整等待时间或样本数。' }
+  }
+  if (['apify_actor_unexpected_empty', 'apify_actor_suspicious_empty', 'suspicious_empty', 'systemic_empty'].includes(code)) {
+    return { reason: '运行完成但没有返回内容', impact: '它没有加入主备；已有线路继续运行。费用只保留已终结部分。', next: '返回 ActorOps，扩大验证样本或更换候选。' }
+  }
+  if (['apify_actor_contract_mismatch', 'apify_actor_metadata_only', 'apify_actor_placeholder', 'apify_actor_target_identity_mismatch', 'apify_actor_revision_output_incompatible'].includes(code)) {
     return { reason: '这个 Actor 不适合当前来源', impact: '它没有加入主备；已有线路继续运行。费用只保留已终结部分。', next: '返回 ActorOps，选择另一个候选。' }
   }
   if (['apify_actor_deleted', 'apify_actor_revision_unavailable', 'apify_actor_build_unavailable', 'apify_actor_revision_preflight_unavailable'].includes(code)) {
@@ -128,6 +134,9 @@ export function presentActorOpsJobIssue(job: Job): ActorOpsJobIssue {
   }
   if (['apify_start_outcome_unknown', 'apify_actor_start_outcome_unknown', 'apify_run_reconcile_required'].includes(code)) {
     return { reason: '无法确认 Actor 是否已启动', impact: '为避免重复扣费，后续付费验证已锁定。', next: '先在 Apify 控制台核对，再返回 ActorOps 刷新；不要重试。' }
+  }
+  if (['apify_run_status_unavailable', 'apify_actor_run_status_unavailable', 'apify_actor_validation_reconcile_required'].includes(code)) {
+    return { reason: '原运行结果还没有确认', impact: '系统不会重新启动 Actor；当前主备没有变化。', next: '返回 ActorOps，免费重新核对同一个 Run 和 Dataset。' }
   }
   if (['apify_actor_budget_blocked', 'apify_actor_pool_stage_budget_invalid', 'apify_actor_quota_unknown'].includes(code)) {
     return { reason: '费用条件不满足', impact: '验证未启动或已暂停，系统不会自动放宽上限。', next: '返回 ActorOps 选择更便宜的候选，或查看运行与告警。' }

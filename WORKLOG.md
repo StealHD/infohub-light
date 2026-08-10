@@ -541,3 +541,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps 按每个候选冻结 180–900 秒、1/3/5 条样本与最高 $0.10 单次费用；超时、空结果和状态读取失败只提供有效恢复动作，相同失败参数在 Actor 启动前以 0 费用拒绝。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-validation-tuning-repeat-guard",
+  "unresolved": [],
+  "validation": [
+    "ActorOps、Apify Client 与迁移定向回归 112/112 通过，覆盖 X 空结果、Instagram 超时、YouTube 状态免费核对、原审批费用和无 abort/二次启动。",
+    "ActorOps 前端 Vitest 83/83、Changelog 5/5、TypeScript 类型检查与 ESLint 通过（仅仓库既有 8 条 Fast Refresh 警告）。",
+    "完整 Test Gate 24/24 命令通过（600.17 秒）。"
+  ]
+}
+```

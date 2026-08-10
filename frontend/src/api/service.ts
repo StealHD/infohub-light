@@ -33,6 +33,7 @@ import type {
   ApifyActorSourceSupport,
   ApifyActorSupportCheckRequest,
   ApifyActorSupportCheckResponse,
+  ApifyActorValidationProfileRequest,
   ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
@@ -354,11 +355,26 @@ export function createServiceApi(client: ApiClient) {
       `${resource('/api/admin/apify-routes', routeId)}/pool-candidates/refresh`,
       { expected_generation: expectedGeneration },
     ),
+    reconcileApifyActorValidation: (
+      routeId: string,
+      expectedGeneration: number,
+      candidateId: string,
+    ) => client.post<{
+      schema_version: 1
+      status: string
+      semantic_outcome: string
+      cost_usd: number | null
+      continued: boolean
+    }>(
+      `${resource('/api/admin/apify-routes', routeId)}/validations/reconcile`,
+      { expected_generation: expectedGeneration, candidate_id: candidateId },
+    ),
     createApifyActorManualCanaryPlan: (
       runId: string,
       payload: {
         goal: ApifyActorPoolGoal
         candidate_ids: string[]
+        candidate_validation_profiles: ApifyActorValidationProfileRequest[]
         expected_generation: number
         target_slot_count: 3
       },

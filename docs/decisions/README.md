@@ -141,3 +141,4 @@
 | D135 | OpenClaw Composer 采用单层输入壳与本地建议组件 | 2026-08-08 | [查看](records/D126-D150.md#d135) |
 | D136 | ActorOps 以持久 Pool Stage 完成第三槽与零中断 legacy 升级 | 2026-08-09 | [查看](records/D126-D150.md#d136) |
 | D137 | ActorOps 由管理员选择安全候选且验证后立即可运行 | 2026-08-10 | [查看](records/D126-D150.md#d137) |
+| D138 | ActorOps 验证参数按失败冻结并禁止原样重复付费 | 2026-08-10 | [查看](records/D126-D150.md#d138) |

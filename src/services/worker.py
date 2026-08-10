@@ -2053,6 +2053,17 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "apify_actor_manual_pool_selection_v19",
             }
+        if store.apify_actor_validation_tuning_v20_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_validation_tuning_v20",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -2130,6 +2141,7 @@ def run_worker_once(
             and not store.apify_actor_canary_batches_v17_migration_required()
             and not store.apify_actor_pool_staging_v18_migration_required()
             and not store.apify_actor_manual_pool_selection_v19_migration_required()
+            and not store.apify_actor_validation_tuning_v20_migration_required()
         ):
             update_observability_context(stage="maintenance")
             maintenance_result = MaintenanceService(store).run_if_due()
@@ -2349,6 +2361,10 @@ def run_worker_once(
                     if store.apify_actor_manual_pool_selection_v19_migration_required():
                         raise MigrationRequiredError(
                             "Apify Actor manual pool selection migration is required before jobs can run"
+                        )
+                    if store.apify_actor_validation_tuning_v20_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify Actor validation tuning migration is required before jobs can run"
                         )
                     result = _run_job(job, data_dir=data_dir, store=store)
                     raw_cleanup = result.pop("_media_cleanup", None)

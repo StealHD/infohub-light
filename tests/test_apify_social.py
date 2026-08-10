@@ -398,6 +398,140 @@ def test_apify_client_resume_poll_parse_failure_stays_reconcilable():
     assert coordinator.blocked is True
 
 
+def test_apify_client_resume_uses_original_reserved_cost_without_actor_post():
+    lease = ApifyCredentialLease(
+        secret_id="secret-one",
+        secret_version=1,
+        pool_generation=1,
+        env_name="APIFY_TOKEN",
+        reservation_id="ledger-run",
+        token="token-one",
+    )
+
+    class _ResumeCoordinator:
+        recorded_reserved_cost = None
+        completed = False
+
+        def lease_for_run(self, _reservation_id):
+            return lease
+
+        def get_run(self, _reservation_id):
+            return {
+                "id": "ledger-run",
+                "remote_run_id": "remote-run",
+                "dataset_id": "dataset-one",
+                "status": "running",
+            }
+
+        def record_run_accounting(
+            self,
+            _lease,
+            *,
+            actual_cost_usd,
+            cost_final,
+            reserved_cost_usd,
+        ):
+            assert actual_cost_usd == 0.045
+            assert cost_final is True
+            self.recorded_reserved_cost = reserved_cost_usd
+
+        def mark_run_terminal(self, _lease, _run_id, _status):
+            return False
+
+        def complete_run_reconciliation(self, _lease):
+            self.completed = True
+
+    coordinator = _ResumeCoordinator()
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path.endswith("/actor-runs/remote-run"):
+            return httpx.Response(
+                200,
+                json={"data": {"status": "SUCCEEDED", "usageTotalUsd": 0.045}},
+            )
+        return httpx.Response(200, json=[{"id": "tweet-one"}])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            coordinator=coordinator,
+            http_client=client,
+            poll_interval=0,
+            retry_base_delay=0,
+        ).resume_actor_detailed(
+            "ledger-run",
+            reserved_cost_usd=0.07,
+        )
+    )
+    asyncio.run(client.aclose())
+
+    assert result.actual_charge_usd == 0.045
+    assert coordinator.recorded_reserved_cost == 0.07
+    assert coordinator.completed is True
+    assert requests == [
+        ("GET", "/v2/actor-runs/remote-run"),
+        ("GET", "/v2/datasets/dataset-one/items"),
+    ]
+
+
+def test_apify_client_resume_timeout_does_not_abort_known_run():
+    lease = ApifyCredentialLease(
+        secret_id="secret-one",
+        secret_version=1,
+        pool_generation=1,
+        env_name="APIFY_TOKEN",
+        reservation_id="ledger-run",
+        token="token-one",
+    )
+
+    class _ResumeCoordinator:
+        def lease_for_run(self, _reservation_id):
+            return lease
+
+        def get_run(self, _reservation_id):
+            return {
+                "id": "ledger-run",
+                "remote_run_id": "remote-run",
+                "dataset_id": "dataset-one",
+                "status": "running",
+            }
+
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        return httpx.Response(200, json={"data": {"status": "RUNNING"}})
+
+    class _ReadOnlyResumeClient(ApifyClient):
+        async def _wait_for_run(self, *_args, **kwargs):
+            assert kwargs["abort_on_timeout"] is False
+            assert kwargs["reserved_cost_usd"] == 0.07
+            raise TimeoutError("still running")
+
+        async def abort_run(self, *_args, **_kwargs):
+            raise AssertionError("status reconciliation must not abort the known Run")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            _ReadOnlyResumeClient(
+                coordinator=_ResumeCoordinator(),
+                http_client=client,
+                poll_interval=0,
+                retry_base_delay=0,
+            ).resume_actor_detailed(
+                "ledger-run",
+                reserved_cost_usd=0.07,
+                status_wait_seconds=1,
+            )
+    )
+    asyncio.run(client.aclose())
+
+    assert requests == []
+
+
 def test_apify_client_invalid_poll_response_aborts_before_any_new_post():
     requests = []
     abort_polled = False
