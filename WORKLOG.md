@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "发布 OpenClaw 安全图片对话 v2.2.13：修复 Linux 订阅页视觉基线，推送不可变标签，并以本地 linux/amd64 离线镜像切换 VPS API 与 Worker。",
-  "status": "completed",
-  "task_id": "2026-08-07-openclaw-image-v2-2-13-production-release",
-  "unresolved": [],
-  "validation": [
-    "本地 release Test Gate 25/25 通过；GitHub 标签 Test Gate（impact、前后端、Linux Chrome UI、release smoke）全部通过。",
-    "生产运行 revision 8ef4c6bf6491：API/Worker healthy，readiness 返回 worker_status=ready；scheduler 未运行，公网 /feed 返回 200。",
-    "生产数据库迁移 v19、integrity/foreign key 通过且无活跃作业；发布前生成 0600 的 .env 与 service.db 备份。",
-    "本地重建流程已默认在最终健康验证成功后清理旧 inteliscope-service:local-* 镜像标签，并保留当前或仍被容器引用的镜像。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "重构正式发布流程：main 按影响域运行完整门禁并并行 UI E2E，Tag 复用精确 main SHA 且只追加隔离 smoke；新增普通 VPS 升级脚本，并行构建/传输、在线备份、失败回滚并清理本地发布镜像。",
   "status": "completed",
   "task_id": "2026-08-07-optimize-vps-release-flow",
@@ -365,6 +344,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "任务分支以非快进合并进入 main，无冲突；任务功能提交与本地 8080 运行验证记录均已包含。",
     "合并后 main 完整 Test Gate 24/24 通过（249.893 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "优化来源级 AI 总结：提示词聚焦近期主线、变化、去重与文章序号依据；最近成功结果按用户和精确内容指纹在浏览器安全缓存，查看缓存不重复调用 AI。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-prompt-cache",
+  "unresolved": [],
+  "validation": [
+    "后端专题总结定向测试 6/6 通过；前端缓存、专题交互、会话清理与 App 回归 121/121 通过，TypeScript 与 ESLint 通过。",
+    "手册和更新日志测试 8/8、Markdown 控制与 schema-v3 结构校验通过。",
+    "完整 Test Gate 24/24 命令通过（254.72 秒），后端、前端构建与控制检查全部绿色。"
   ]
 }
 ```

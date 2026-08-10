@@ -42,6 +42,7 @@ import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
 import { readSourceOverviewViewportAnchor, SourceOverviewFeed, type SourceOverviewViewportAnchor, type SourceSummaryViewState } from './SourceOverviewFeed'
 import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './sourceOverviewModel'
+import { readCachedSourceSummaries, writeCachedSourceSummary } from './sourceSummaryCache'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
@@ -328,6 +329,31 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [allowedSourceIds, detailQuery.data, globalSearchRequested, kind, localDayReference, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceOverviewSections = useMemo(() => buildSourceOverviewSections(cards), [cards])
+  useEffect(() => {
+    if (kind !== 'feed' || sourceOverviewSections.length === 0) return undefined
+    let active = true
+    void readCachedSourceSummaries(user.id, sourceOverviewSections.map((section) => ({
+      sectionId: section.id,
+      fingerprint: section.contentFingerprint,
+    }))).then((cached) => {
+      if (!active || Object.keys(cached).length === 0) return
+      setSourceSummaryStates((states) => {
+        let next = states
+        sourceOverviewSections.forEach((section) => {
+          const data = cached[section.id]
+          if (!data || states[section.id]?.fingerprint === section.contentFingerprint) return
+          if (next === states) next = { ...states }
+          next[section.id] = {
+            fingerprint: section.contentFingerprint,
+            status: 'success',
+            data,
+          }
+        })
+        return next
+      })
+    })
+    return () => { active = false }
+  }, [kind, sourceOverviewSections, user.id])
   const selectedSourceSectionId = useMemo(() => selectedId
     ? sourceOverviewSections.find((section) => section.cards.some((card) => card.id === selectedId))?.id ?? null
     : null, [selectedId, sourceOverviewSections])
@@ -509,6 +535,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         ...states,
         [section.id]: { fingerprint: section.contentFingerprint, status: 'success', data },
       }))
+      void writeCachedSourceSummary(user.id, section.id, section.contentFingerprint, data)
     } catch (caught) {
       if (controller.signal.aborted) return
       setSourceSummaryStates((states) => ({

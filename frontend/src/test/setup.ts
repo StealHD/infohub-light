@@ -1,9 +1,18 @@
+import { webcrypto } from 'node:crypto'
+
 import '@testing-library/jest-dom/vitest'
 import { configure } from '@testing-library/dom'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
 import { toast } from '../design-system'
+
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: webcrypto as unknown as Crypto,
+  })
+}
 
 // Full-gate runs intentionally execute many jsdom suites together. Keep
 // Testing Library's element polling above its one-second default so a busy

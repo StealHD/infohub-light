@@ -10,6 +10,8 @@ from src.models import AIConfig, AIProvider
 from src.services.quota import QuotaService
 from src.services.source_summary import (
     SOURCE_SUMMARY_INPUT_CHARS,
+    SOURCE_SUMMARY_PROMPT_REVISION,
+    SOURCE_SUMMARY_SYSTEM_PROMPT,
     SourceSummaryError,
     SourceSummaryService,
     build_source_summary_input,
@@ -90,7 +92,7 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     store, owner = _store_with_items(tmp_path, monkeypatch)
     fake = FakeAIClient(json.dumps({
         "overview": "两条内容都在更新同一专题。",
-        "highlights": ["第一项发生变化", "第二项提供后续线索"],
+        "highlights": ["[1] 第一项发生变化", "[2] 第二项提供后续线索"],
     }, ensure_ascii=False))
     factory_calls = []
 
@@ -121,7 +123,7 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     assert result == {
         "schema_version": 1,
         "overview": "两条内容都在更新同一专题。",
-        "highlights": ["第一项发生变化", "第二项提供后续线索"],
+        "highlights": ["[1] 第一项发生变化", "[2] 第二项提供后续线索"],
         "item_count": 2,
     }
     assert after - before == 1
@@ -134,6 +136,14 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     assert "embedded.example.test" not in prompt
     assert "token=never-send" not in prompt
     assert "不得访问链接" in prompt
+    assert SOURCE_SUMMARY_PROMPT_REVISION == "mainline-v1"
+    assert fake.calls[0][0] == SOURCE_SUMMARY_SYSTEM_PROMPT
+    assert "最主要的内容主线及变化方向" in prompt
+    assert "合并重复内容" in prompt
+    assert "不得逐篇复述" in prompt
+    assert "[1][3]" in prompt
+    assert "样本有限" in prompt
+    assert "方括号编号仅用于" in prompt
 
 
 def test_source_summary_rejects_disabled_cross_user_and_invalid_output(tmp_path, monkeypatch):

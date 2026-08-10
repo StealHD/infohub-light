@@ -141,6 +141,55 @@ describe('SourceOverviewFeed', () => {
     expect(onAskAgent).toHaveBeenCalledWith(section)
     expect(onToggleSource).not.toHaveBeenCalled()
 
+    onRequestSummary.mockClear()
+    rerender(<SourceOverviewFeed
+      sections={[section]}
+      contextIds={[]}
+      summaryStates={{
+        [section.id]: {
+          fingerprint: section.contentFingerprint,
+          status: 'success',
+          data: { schema_version: 1, overview: '缓存概览', highlights: ['[1] 缓存要点'], item_count: 1 },
+        },
+      }}
+      onToggleSource={onToggleSource}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+      onRequestSummary={onRequestSummary}
+      onAskAgent={onAskAgent}
+    />)
+    const viewSummary = screen.getByRole('button', { name: '查看总结专题 来源 A' })
+    expect(viewSummary).toHaveTextContent('查看总结')
+    await browser.click(viewSummary)
+    expect(onToggleSource).toHaveBeenLastCalledWith(section.id)
+    expect(onRequestSummary).not.toHaveBeenCalled()
+
+    rerender(<SourceOverviewFeed
+      sections={[section]}
+      expandedSourceId={section.id}
+      contextIds={[]}
+      summaryStates={{
+        [section.id]: {
+          fingerprint: section.contentFingerprint,
+          status: 'success',
+          data: { schema_version: 1, overview: '缓存概览', highlights: ['[1] 缓存要点'], item_count: 1 },
+        },
+      }}
+      onToggleSource={onToggleSource}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+      onRequestSummary={onRequestSummary}
+      onAskAgent={onAskAgent}
+    />)
+    const regenerateSummary = screen.getByRole('button', { name: '重新总结专题 来源 A' })
+    expect(regenerateSummary).toHaveTextContent('重新总结')
+    await browser.click(regenerateSummary)
+    expect(onRequestSummary).toHaveBeenLastCalledWith(section, true)
+
     rerender(<SourceOverviewFeed
       sections={[section]}
       contextIds={[]}

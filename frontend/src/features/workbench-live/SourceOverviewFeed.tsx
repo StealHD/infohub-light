@@ -110,6 +110,11 @@ type SourceHeaderProps = {
 }
 
 export function SourceHeader({ section, feedWindowDays, expanded, controlsId, onToggle, summaryState, canSummarize = true, onRequestSummary, onAskAgent }: SourceHeaderProps) {
+  const summaryReady = summaryState?.status === 'success'
+  const summaryAction = summaryReady ? (expanded ? '重新总结' : '查看总结') : 'AI 总结'
+  const summaryActionLabel = summaryReady
+    ? `${expanded ? '重新' : '查看'}总结专题 ${section.sourceName}`
+    : `总结专题 ${section.sourceName}`
   return <header data-source-header data-expanded={expanded ? 'true' : 'false'} className="relative flex min-w-0 flex-col sm:flex-row sm:items-stretch">
     <span
       aria-hidden="true"
@@ -151,9 +156,9 @@ export function SourceHeader({ section, feedWindowDays, expanded, controlsId, on
         variant="ghost"
         className="min-w-0 justify-center whitespace-nowrap"
         isDisabled={!canSummarize || summaryState?.status === 'loading'}
-        aria-label={`${summaryState?.status === 'success' ? '重新' : ''}总结专题 ${section.sourceName}`}
+        aria-label={summaryActionLabel}
         onPress={onRequestSummary}
-      >{summaryState?.status === 'loading' ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Sparkles size={14} aria-hidden="true" />}{summaryState?.status === 'success' ? '重新总结' : 'AI 总结'}</Button>}
+      >{summaryState?.status === 'loading' ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Sparkles size={14} aria-hidden="true" />}{summaryAction}</Button>}
       {onAskAgent && <Button size="sm" variant="ghost" className="min-w-0 justify-center whitespace-nowrap" aria-label={`针对专题 ${section.sourceName} 问 Agent`} onPress={onAskAgent}>
         <Icons.MessageCircle size={14} aria-hidden="true" />问 Agent
       </Button>}
@@ -266,6 +271,10 @@ export function SourceSection({ section, feedWindowDays, expanded, onToggleSourc
         canSummarize={canSummarize}
         onRequestSummary={onRequestSummary ? () => {
           onBeforeLayoutChange()
+          if (summaryState?.status === 'success' && !expanded) {
+            onToggleSource(section.id)
+            return
+          }
           onRequestSummary(section, summaryState?.status === 'success')
         } : undefined}
         onAskAgent={onAskAgent ? () => onAskAgent(section) : undefined}

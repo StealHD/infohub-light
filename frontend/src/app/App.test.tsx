@@ -421,7 +421,7 @@ describe('App routes', () => {
     }))
 
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+      const mounted = render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
       expect(await screen.findByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
       const modeSwitch = document.querySelector('[data-feed-mode-switch]')
@@ -474,8 +474,21 @@ describe('App routes', () => {
       expect(JSON.stringify(sourceDraft.sourceSnapshot)).not.toContain('https://')
       expect(sourceDraft.question).toBe('重点关注风险')
       expect(sourceDraft.items).toEqual([])
+
+      const summaryCacheKey = 'inteliscope.source-summary.v1:user-live'
+      await waitFor(() => expect(window.localStorage.getItem(summaryCacheKey)).not.toBeNull())
+      mounted.unmount()
+      const reloadedQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(<QueryClientProvider client={reloadedQueryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      const cachedSummaryButton = await screen.findByRole('button', { name: '查看总结专题 来源 B' })
+      expect(cachedSummaryButton).toHaveTextContent('查看总结')
+      await browser.click(cachedSummaryButton)
+      expect(await screen.findByText('来源 B 最近集中发布工程进展。')).toBeInTheDocument()
+      expect(sourceSummary).toHaveBeenCalledTimes(1)
     } finally {
       window.localStorage.removeItem(viewModeKey)
+      window.localStorage.removeItem('inteliscope.source-summary.v1:user-live')
       window.sessionStorage.removeItem('inteliscope.agent-context.v6:user-live')
     }
   })
