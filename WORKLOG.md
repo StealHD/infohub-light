@@ -10,24 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "ui"
   ],
-  "recorded_on": "2026-08-08",
-  "result": "修复 OpenClaw composer 聚焦时 Textarea 叠加的内层紫色 ring；保留 PromptInput 外层单一焦点边框。",
-  "status": "completed",
-  "task_id": "2026-08-08-openclaw-composer-focus-ring",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw composer 定向 Vitest 32/32 通过。",
-    "完整 Test Gate 24/24 命令通过（295.72 秒）；UI 合同、lint、类型检查与前端构建通过。",
-    "本地 8080 切换后实测：Textarea 无内层 focus ring，外层 PromptInput 焦点边框保留。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
   "recorded_on": "2026-08-09",
   "result": "将 OpenClaw 输入区与空态建议优化及 textarea 内层焦点 ring 修复 fast-forward 集成到本地 main。",
   "status": "completed",
@@ -351,6 +333,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "专题总结后端定向测试 7/7 通过，覆盖不可解析输出的代表性内容回退、一次调用和既有边界。",
     "手册与更新日志前端测试 8/8 通过；完整 Test Gate 24/24 命令通过（385.941 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "修复专题 AI 总结的确定性空响应：确认 DeepSeek 在 800 token 上限内将全部 completion 用于隐藏推理，专题调用改为 2048..4096 token 单次预算并记录安全完成指标；移除标题列表伪总结，升级 prompt 与浏览器缓存到 V2。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-reasoning-budget",
+  "unresolved": [],
+  "validation": [
+    "真实 20 篇输入诊断确认 input_tokens=1803、completion_tokens=800、reasoning_tokens=800、content_tokens=0、finish_reason=length、response_bytes=0。",
+    "后端专题总结 7/7、缓存与退出清理 10/10、专题 UI 1/1、Changelog 5/5、TypeScript 与 ESLint 通过。",
+    "完整 Test Gate 24/24 通过（552.619 秒），mapping_miss=false。"
   ]
 }
 ```

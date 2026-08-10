@@ -475,7 +475,7 @@ describe('App routes', () => {
       expect(sourceDraft.question).toBe('重点关注风险')
       expect(sourceDraft.items).toEqual([])
 
-      const summaryCacheKey = 'inteliscope.source-summary.v1:user-live'
+      const summaryCacheKey = 'inteliscope.source-summary.v2:user-live'
       await waitFor(() => expect(window.localStorage.getItem(summaryCacheKey)).not.toBeNull())
       mounted.unmount()
       const reloadedQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -489,6 +489,7 @@ describe('App routes', () => {
     } finally {
       window.localStorage.removeItem(viewModeKey)
       window.localStorage.removeItem('inteliscope.source-summary.v1:user-live')
+      window.localStorage.removeItem('inteliscope.source-summary.v2:user-live')
       window.sessionStorage.removeItem('inteliscope.agent-context.v6:user-live')
     }
   })

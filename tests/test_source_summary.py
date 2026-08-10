@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+from src.ai.client import CompletionMetrics
 from src.api.server import create_app
 from src.models import AIConfig, AIProvider
 from src.services.quota import QuotaService
@@ -21,10 +22,15 @@ from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
 class FakeAIClient:
-    def __init__(self, result: str) -> None:
+    def __init__(
+        self,
+        result: str,
+        completion_metrics: CompletionMetrics | None = None,
+    ) -> None:
         self.result = result
         self.calls: list[tuple[str, str, float | None, int | None]] = []
         self.closed = False
+        self.last_completion_metrics = completion_metrics
 
     async def complete(self, system, user, temperature=None, max_tokens=None):
         self.calls.append((system, user, temperature, max_tokens))
@@ -136,14 +142,16 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     assert "embedded.example.test" not in prompt
     assert "token=never-send" not in prompt
     assert "不得访问链接" in prompt
-    assert SOURCE_SUMMARY_PROMPT_REVISION == "mainline-v1"
+    assert SOURCE_SUMMARY_PROMPT_REVISION == "mainline-v2"
     assert fake.calls[0][0] == SOURCE_SUMMARY_SYSTEM_PROMPT
+    assert fake.calls[0][3] == 2_048
     assert "最主要的内容主线及变化方向" in prompt
     assert "合并重复内容" in prompt
     assert "不得逐篇复述" in prompt
     assert "[1][3]" in prompt
     assert "样本有限" in prompt
     assert "方括号编号仅用于" in prompt
+    assert "不要展示分析过程" in prompt
 
 
 def test_source_summary_recovers_wrapped_json_and_scalar_highlight_without_retry(tmp_path, monkeypatch):
@@ -176,14 +184,32 @@ def test_source_summary_recovers_wrapped_json_and_scalar_highlight_without_retry
     assert len(fake.calls) == 1
 
 
-def test_source_summary_rejects_disabled_cross_user_and_falls_back_for_invalid_output(tmp_path, monkeypatch):
+def test_source_summary_rejects_disabled_cross_user_and_invalid_output(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
     store, owner = _store_with_items(tmp_path, monkeypatch)
     other = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
         username="summary-other",
         password="safe-test-password",
     )
-    service = SourceSummaryService(store, client_factory=lambda *_args, **_kwargs: FakeAIClient("{}"))
+    invalid = FakeAIClient(
+        "",
+        CompletionMetrics(
+            input_tokens=1_803,
+            completion_tokens=800,
+            reasoning_tokens=800,
+            content_tokens=0,
+            finish_reason="length",
+            response_bytes=0,
+        ),
+    )
+    service = SourceSummaryService(
+        store,
+        client_factory=lambda *_args, **_kwargs: invalid,
+    )
 
     with pytest.raises(SourceSummaryError, match="尚未启用") as disabled:
         asyncio.run(service.generate(
@@ -203,18 +229,25 @@ def test_source_summary_rejects_disabled_cross_user_and_falls_back_for_invalid_o
         ))
     assert hidden.value.status_code == 404
 
-    fallback = asyncio.run(service.generate(
-        workspace_id=owner["workspace_id"],
-        user_id=owner["id"],
-        article_ids=["article-1", "article-2"],
-        ai_config=_ai_config(),
-    ))
-    assert fallback == {
-        "schema_version": 1,
-        "overview": "AI 未返回可解析的结构；以下列出当前专题的近期代表性内容。",
-        "highlights": ["[1] 第一条标题", "[2] 第二条标题"],
-        "item_count": 2,
-    }
+    with caplog.at_level("WARNING", logger="src.services.source_summary"):
+        with pytest.raises(SourceSummaryError, match="未返回可用") as unusable:
+            asyncio.run(service.generate(
+                workspace_id=owner["workspace_id"],
+                user_id=owner["id"],
+                article_ids=["article-1", "article-2"],
+                ai_config=_ai_config(),
+            ))
+    assert unusable.value.code == "source_summary_invalid_output"
+    assert unusable.value.status_code == 502
+    assert unusable.value.retryable is True
+    assert invalid.closed is True
+    assert len(invalid.calls) == 1
+    assert "output_status=empty" in caplog.text
+    assert "max_tokens=2048" in caplog.text
+    assert "reasoning_tokens=800" in caplog.text
+    assert "content_tokens=0" in caplog.text
+    assert "finish_reason=length" in caplog.text
+    assert "response_bytes=0" in caplog.text
 
 
 def test_source_summary_maps_timeout_and_always_closes_client(tmp_path, monkeypatch):

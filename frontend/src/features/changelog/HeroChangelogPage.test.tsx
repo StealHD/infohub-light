@@ -123,7 +123,7 @@ describe('HeroChangelogPage', () => {
     expect(within(latestEntries[0] as HTMLElement).getByText('主线、变化与依据')).toBeVisible()
     expect(within(latestEntries[0] as HTMLElement).getByText('刷新后继续查看')).toBeVisible()
     expect(within(latestEntries[0] as HTMLElement).getByText('查看不会重复计费')).toBeVisible()
-    expect(within(latestEntries[0] as HTMLElement).getByText('异常输出仍可阅读')).toBeVisible()
+    expect(within(latestEntries[0] as HTMLElement).getByText('推理模型不再吞掉正文')).toBeVisible()
     expect(within(latestEntries[1] as HTMLElement).getByText('宽屏品牌与表单分区')).toBeVisible()
     expect(within(latestEntries[1] as HTMLElement).getByText('不扩大凭据存储范围')).toBeVisible()
     expect(within(latestEntries[1] as HTMLElement).getByText('按来源连续快速阅读')).toBeVisible()
