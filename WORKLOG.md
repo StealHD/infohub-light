@@ -8,164 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将订阅布局清理分支合并到本地 main，保留 OpenClaw 的同期更新，并整合来源库直接列表与两态顶部工具栏。",
-  "status": "completed",
-  "task_id": "2026-08-07-merge-subscriptions-layout-to-local-main",
-  "unresolved": [
-    "按既有约定，本次 main 合并未新增或运行 Playwright；浏览器断言与视觉快照仍留待最终发布整合阶段统一复核。"
-  ],
-  "validation": [
-    "合并后定向 Vitest：150 项通过。",
-    "main 工作树完整 Test Gate：23/23 命令通过（232.642 秒）；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "调整 OpenClaw 多附件摘要头：包含“已附带 N 条”的整段成为原位向上展开按钮，Chevron 靠右提示，最右一键清空保持独立。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-header-click-target",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript、ESLint（仅既有 Fast Refresh 警告）和产品文档检查通过。",
-    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
-    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-CevyEbnT.js 已服务。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "调整 OpenClaw 多附件摘要头的左侧顺序为“已附带 N 条 + 紧随其后的向上 Chevron”；整段继续作为原位展开点击区。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-header-left-chevron",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript 和产品文档检查通过。",
-    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
-    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-DMa1gCc_.js 已服务。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将 OpenClaw 原文主动读取、附件原位展开与一键清空、紧凑模型选择器快进合并到本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-07-merge-openclaw-context-ui-to-local-main",
-  "unresolved": [],
-  "validation": [
-    "main 工作树完整 Test Gate：23/23 命令通过。",
-    "当前 main 包含 e0b96f5；随后会以此干净工作树切换本地 API 与 Worker。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将订阅页收紧为四类固定视图：搜索移入页签工具栏，来源统计移至右上健康状态下方，来源库继续按真实频道浏览。",
-  "status": "completed",
-  "task_id": "2026-08-07-subscription-layout-cleanup",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest、三视口订阅 Playwright 与 light/dark 视觉基线通过。",
-    "完整 Test Gate：23/23 命令通过（247.228 秒）；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "取消“我的订阅”的固定视图，搜索、筛选和新增来源收为滚动固定的半透明工具栏；来源库继续按真实频道浏览。",
-  "status": "completed",
-  "task_id": "2026-08-07-subscription-toolbar-without-views",
-  "unresolved": [
-    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
-  ],
-  "validation": [
-    "定向 Vitest 152 项、TypeScript、UI 合同检查、lint 和构建通过。",
-    "完整 Test Gate：23/23 命令通过（233.256 秒）；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "移除订阅页说明，并将来源工具栏改为与来源卡对齐、随滚动收为居中半透明胶囊的两态表面；新增来源在窄屏保留完整文字。",
-  "status": "completed",
-  "task_id": "2026-08-07-subscription-scroll-adaptive-toolbar",
-  "unresolved": [
-    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
-  ],
-  "validation": [
-    "定向 Vitest 152 项、TypeScript、UI 合同检查、lint 和构建通过。",
-    "完整 Test Gate：23/23 命令通过（232.955 秒）；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "来源库取消频道导航并改为直接列表；订阅工具栏顶部态改用与来源卡一致的 12 px 内容内缩和轻量圆角表面。",
-  "status": "completed",
-  "task_id": "2026-08-07-subscription-library-without-channels",
-  "unresolved": [
-    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
-  ],
-  "validation": [
-    "定向 Vitest 150 项、TypeScript、UI 合同检查、lint 和构建通过。",
-    "完整 Test Gate：23/23 命令通过（234.661 秒）；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "interface",
     "ui"
@@ -467,7 +309,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "api",
+    "interface",
     "decisions",
     "ui"
   ],
@@ -502,7 +344,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "api",
+    "interface",
     "decisions",
     "ui"
   ],
@@ -514,6 +356,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "登录、专题速览、Changelog、设计系统与 Agent 交叉 Vitest 169/169、专题总结后端 6/6、TypeScript 通过。",
     "合并后 main 完整 Test Gate 24/24 通过（255.852 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "为成员管理补充用户名修改与账号删除，保护所有者和当前管理员，并在删除时安全清理成员数据及私有来源。",
+  "status": "completed",
+  "task_id": "2026-08-10-member-username-delete",
+  "unresolved": [],
+  "validation": [
+    "后端定向测试 8/8、前端 App 测试 107/107、Changelog 测试 5/5、Playwright 三视口 3/3、TypeScript、UI 检查与 ESLint 通过。",
+    "完整 Test Gate 24/24 通过（250.52 秒），mapping_miss=false；浏览器实页验证修改用户名与精确确认删除交互。"
   ]
 }
 ```

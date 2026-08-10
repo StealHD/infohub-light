@@ -30,10 +30,10 @@ const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').
 const messageOf = (caught: unknown, fallback: string) => caught instanceof ApiError || caught instanceof Error ? caught.message : fallback
 
 const memberColumns = [
-  { key: 'identity', label: '成员', isRowHeader: true, allowsSorting: true, className: 'min-w-[300px] w-[38%]' },
-  { key: 'role', label: '角色', allowsSorting: true, className: 'min-w-[220px] w-[28%]' },
+  { key: 'identity', label: '成员', isRowHeader: true, allowsSorting: true, className: 'min-w-[280px] w-[32%]' },
+  { key: 'role', label: '角色', allowsSorting: true, className: 'min-w-[200px] w-[25%]' },
   { key: 'status', label: '账户状态', allowsSorting: true, className: 'min-w-[130px] w-[15%]' },
-  { key: 'actions', label: '操作', allowsSorting: false, className: 'min-w-[140px] w-[19%] text-end' },
+  { key: 'actions', label: '操作', allowsSorting: false, className: 'min-w-[240px] w-[28%] text-end' },
 ] as const
 
 type MemberColumnKey = typeof memberColumns[number]['key']
@@ -129,6 +129,12 @@ export function HeroUsersPage() {
   const [createError, setCreateError] = useState('')
   const [resetTarget, setResetTarget] = useState<User | null>(null)
   const [resetError, setResetError] = useState('')
+  const [renameTarget, setRenameTarget] = useState<User | null>(null)
+  const [renameUsername, setRenameUsername] = useState('')
+  const [renameError, setRenameError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [deleteError, setDeleteError] = useState('')
   const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
     column: 'identity',
     direction: 'ascending',
@@ -149,7 +155,12 @@ export function HeroUsersPage() {
     onMutate: ({ id }) => feedback.begin('member-update', id),
     onSuccess: async (_result, { id }) => {
       feedback.clear('member-update', id)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) }),
+        id === user.id
+          ? queryClient.invalidateQueries({ queryKey: queryKeys.auth })
+          : Promise.resolve(),
+      ])
       actionToast.success('成员设置已保存')
     },
     onError: (caught, { id }) => {
@@ -177,6 +188,49 @@ export function HeroUsersPage() {
     },
   })
 
+  const renameMutation = useMutation({
+    mutationFn: ({ id, username }: { id: string; username: string }) => api.updateUser(id, { username }),
+    onMutate: ({ id }) => feedback.begin('member-rename', id),
+    onSuccess: async (_result, { id }) => {
+      feedback.clear('member-rename', id)
+      setRenameTarget(null)
+      setRenameUsername('')
+      setRenameError('')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) }),
+        id === user.id
+          ? queryClient.invalidateQueries({ queryKey: queryKeys.auth })
+          : Promise.resolve(),
+      ])
+      actionToast.success('成员用户名已修改')
+    },
+    onError: (caught, { id }) => {
+      const message = messageOf(caught, '用户名修改失败。')
+      feedback.clear('member-rename', id)
+      setRenameError(message)
+      actionToast.danger('用户名修改失败', { description: message })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: ({ id }: { id: string }) => api.deleteUser(id),
+    onMutate: ({ id }) => feedback.begin('member-delete', id),
+    onSuccess: async (_result, { id }) => {
+      feedback.clear('member-delete', id)
+      setDeleteTarget(null)
+      setDeleteConfirmation('')
+      setDeleteError('')
+      await queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) })
+      actionToast.success('成员账号已删除')
+    },
+    onError: (caught, { id }) => {
+      const message = messageOf(caught, '账号删除失败。')
+      feedback.clear('member-delete', id)
+      setDeleteError(message)
+      actionToast.danger('账号删除失败', { description: message })
+    },
+  })
+
   async function resetMemberPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!resetTarget) return
@@ -196,6 +250,22 @@ export function HeroUsersPage() {
       await resetPasswordMutation.mutateAsync({ id: resetTarget.id, password })
     } catch {
       // Mutation feedback is rendered in the dialog so the user can correct and retry.
+    }
+  }
+
+  async function renameMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!renameTarget) return
+    const username = renameUsername.trim()
+    if (!username) {
+      setRenameError('用户名不能为空。')
+      return
+    }
+    setRenameError('')
+    try {
+      await renameMutation.mutateAsync({ id: renameTarget.id, username })
+    } catch {
+      // Mutation feedback remains in the dialog so the user can correct and retry.
     }
   }
 
@@ -228,6 +298,8 @@ export function HeroUsersPage() {
   function renderMemberCell(member: User, columnKey: MemberColumnKey) {
     const pending = feedback.isPending('member-update', member.id)
       || feedback.isPending('member-password-reset', member.id)
+      || feedback.isPending('member-rename', member.id)
+      || feedback.isPending('member-delete', member.id)
 
     switch (columnKey) {
       case 'identity':
@@ -274,6 +346,21 @@ export function HeroUsersPage() {
         />
       case 'actions':
         return <div className="flex items-center justify-end gap-2">
+          {member.role !== 'owner' && <Button
+            size="sm"
+            variant="tertiary"
+            isIconOnly
+            className="size-9 rounded-full"
+            aria-label={`修改 ${member.username} 用户名`}
+            isDisabled={pending}
+            onPress={() => {
+              setRenameTarget(member)
+              setRenameUsername(member.username)
+              setRenameError('')
+            }}
+          >
+            <Icons.Pencil size={16} aria-hidden="true" />
+          </Button>}
           <Button
             size="sm"
             variant={member.enabled && member.role !== 'owner' ? 'danger-soft' : 'tertiary'}
@@ -303,6 +390,21 @@ export function HeroUsersPage() {
           >
             <Icons.KeyRound size={16} aria-hidden="true" />
           </Button>}
+          {member.role !== 'owner' && member.id !== user.id && <Button
+            size="sm"
+            variant="danger-soft"
+            isIconOnly
+            className="size-9 rounded-full"
+            aria-label={`删除 ${member.username} 账号`}
+            isDisabled={pending}
+            onPress={() => {
+              setDeleteTarget(member)
+              setDeleteConfirmation('')
+              setDeleteError('')
+            }}
+          >
+            <Icons.Trash2 size={16} aria-hidden="true" />
+          </Button>}
         </div>
     }
   }
@@ -310,7 +412,7 @@ export function HeroUsersPage() {
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username}`} />
     <AccountPasswordSection />
-    {admin && <AdminSection title="成员管理" description="创建成员，并管理角色与账户可用状态。">
+    {admin && <AdminSection title="成员管理" description="创建成员，并管理用户名、角色与账户可用状态。">
       <form className="grid gap-3 min-[760px]:grid-cols-5" onSubmit={createUser}>
         <TextField fullWidth name="username" isRequired><Label>用户名</Label><Input /></TextField>
         <TextField fullWidth name="display_name"><Label>显示名</Label><Input /></TextField>
@@ -375,6 +477,81 @@ export function HeroUsersPage() {
           <Modal.Footer>
             <Button type="button" variant="ghost" isDisabled={resetPasswordMutation.isPending} onPress={() => setResetTarget(null)}>取消</Button>
             <Button type="submit" form="member-password-reset-form" isDisabled={resetPasswordMutation.isPending}>{resetPasswordMutation.isPending ? '重置中…' : '确认重置'}</Button>
+          </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
+  </Modal>
+  <Modal isOpen={Boolean(renameTarget)} onOpenChange={(open) => {
+    if (!open && !renameMutation.isPending) {
+      setRenameTarget(null)
+      setRenameUsername('')
+      setRenameError('')
+    }
+  }}>
+    <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开修改用户名</Modal.Trigger>
+    <Modal.Backdrop isDismissable={!renameMutation.isPending} isKeyboardDismissDisabled={renameMutation.isPending}>
+      <Modal.Container size="sm">
+        <Modal.Dialog>
+          <Modal.Header><Modal.Heading>修改成员用户名</Modal.Heading></Modal.Header>
+          <Modal.Body>
+            <p className="type-body mb-4 text-muted">修改后，{renameTarget?.display_name || renameTarget?.username} 下次登录需要使用新用户名；现有登录会话保持有效。</p>
+            <form id="member-username-form" onSubmit={renameMember}>
+              <TextField fullWidth isRequired value={renameUsername} onChange={setRenameUsername}>
+                <Label>新用户名</Label>
+                <Input autoFocus autoComplete="username" maxLength={80} />
+              </TextField>
+              {renameError && <div className="mt-3"><HeroNotice title={renameError} /></div>}
+            </form>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button type="button" variant="ghost" isDisabled={renameMutation.isPending} onPress={() => {
+              setRenameTarget(null)
+              setRenameUsername('')
+              setRenameError('')
+            }}>取消</Button>
+            <Button type="submit" form="member-username-form" isDisabled={!renameUsername.trim() || renameMutation.isPending}>
+              {renameMutation.isPending ? '保存中…' : '保存用户名'}
+            </Button>
+          </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
+  </Modal>
+  <Modal isOpen={Boolean(deleteTarget)} onOpenChange={(open) => {
+    if (!open && !deleteMutation.isPending) {
+      setDeleteTarget(null)
+      setDeleteConfirmation('')
+      setDeleteError('')
+    }
+  }}>
+    <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开删除成员账号</Modal.Trigger>
+    <Modal.Backdrop isDismissable={!deleteMutation.isPending} isKeyboardDismissDisabled={deleteMutation.isPending}>
+      <Modal.Container size="sm">
+        <Modal.Dialog>
+          <Modal.Header><Modal.Heading>删除成员账号</Modal.Heading></Modal.Header>
+          <Modal.Body>
+            <p className="type-body mb-4 text-muted">删除“{deleteTarget?.display_name || deleteTarget?.username}”后，登录会话和用户数据会被移除，私人来源配置会被清除。此操作无法恢复。</p>
+            <TextField fullWidth isRequired value={deleteConfirmation} onChange={setDeleteConfirmation}>
+              <Label>输入用户名 {deleteTarget?.username ?? ''} 以确认</Label>
+              <Input autoFocus autoComplete="off" />
+            </TextField>
+            {deleteError && <div className="mt-3"><HeroNotice title={deleteError} /></div>}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button type="button" variant="ghost" isDisabled={deleteMutation.isPending} onPress={() => {
+              setDeleteTarget(null)
+              setDeleteConfirmation('')
+              setDeleteError('')
+            }}>取消</Button>
+            <Button
+              type="button"
+              variant="danger"
+              isDisabled={deleteConfirmation !== deleteTarget?.username || deleteMutation.isPending}
+              onPress={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id })}
+            >
+              {deleteMutation.isPending ? '删除中…' : '确认删除账号'}
+            </Button>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>

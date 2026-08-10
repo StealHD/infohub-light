@@ -3601,10 +3601,14 @@ describe('App routes', () => {
     await waitFor(() => expect(within(memberGrid).getAllByRole('row')[1]).toHaveTextContent('Workspace Owner'))
     expect(screen.queryByRole('button', { name: /角色 workspace-owner/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '切换 workspace-owner 状态' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '修改 workspace-owner 用户名' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '删除 workspace-owner 账号' })).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: /角色 editable/ }))
     await browser.click(await screen.findByRole('option', { name: '只读成员' }))
     expect(updateUser).toHaveBeenCalledWith('editable-member', { role: 'viewer' })
     expect(screen.getByRole('button', { name: '切换 editable 状态' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '修改 editable 用户名' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '删除 editable 账号' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '重置 editable 密码' })).toHaveTextContent('')
   })
 
@@ -3637,6 +3641,53 @@ describe('App routes', () => {
     await waitFor(() => expect(updateUser).toHaveBeenCalledWith('editable-member', { password: 'new-password' }))
     expect(screen.queryByRole('dialog', { name: '重置成员密码' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '重置 workspace-owner 密码' })).not.toBeInTheDocument()
+  })
+
+  it('renames and confirmation-deletes a non-owner member account', async () => {
+    const browser = userEvent.setup()
+    const workspaceOwner = { id: 'workspace-owner', username: 'workspace-owner', display_name: 'Workspace Owner', role: 'owner' as const, enabled: true }
+    let editableMember = { id: 'editable-member', username: 'editable', display_name: 'Editable Member', role: 'member' as const, enabled: true }
+    let members = [workspaceOwner, editableMember]
+    const users = vi.fn().mockImplementation(async () => ({ users: members }))
+    const updateUser = vi.fn().mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+      editableMember = { ...editableMember, username: String(patch.username) }
+      members = [workspaceOwner, editableMember]
+      return editableMember
+    })
+    const deleteUser = vi.fn().mockImplementation(async (id: string) => {
+      members = members.filter((member) => member.id !== id)
+      return { deleted: true, id }
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: workspaceOwner }),
+      users,
+      updateUser,
+      deleteUser,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/users']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '修改 editable 用户名' }))
+    const renameDialog = screen.getByRole('dialog', { name: '修改成员用户名' })
+    const username = within(renameDialog).getByLabelText('新用户名')
+    await browser.clear(username)
+    await browser.type(username, 'renamed')
+    await browser.click(within(renameDialog).getByRole('button', { name: '保存用户名' }))
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith('editable-member', { username: 'renamed' }))
+    expect(screen.queryByRole('dialog', { name: '修改成员用户名' })).not.toBeInTheDocument()
+
+    await browser.click(await screen.findByRole('button', { name: '删除 renamed 账号' }))
+    const deleteDialog = screen.getByRole('dialog', { name: '删除成员账号' })
+    const confirmation = within(deleteDialog).getByLabelText('输入用户名 renamed 以确认')
+    expect(within(deleteDialog).getByRole('button', { name: '确认删除账号' })).toBeDisabled()
+    await browser.type(confirmation, 'wrong')
+    expect(within(deleteDialog).getByRole('button', { name: '确认删除账号' })).toBeDisabled()
+    await browser.clear(confirmation)
+    await browser.type(confirmation, 'renamed')
+    await browser.click(within(deleteDialog).getByRole('button', { name: '确认删除账号' }))
+    await waitFor(() => expect(deleteUser).toHaveBeenCalledWith('editable-member'))
+    expect(screen.queryByRole('dialog', { name: '删除成员账号' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Editable Member')).not.toBeInTheDocument()
   })
 
   it.each(['member', 'viewer'] as const)('does not expose live member administration controls to a %s', async (actorRole) => {

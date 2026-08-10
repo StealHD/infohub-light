@@ -147,6 +147,8 @@ from ..storage.service_store import (
     SecretEnvConflictError,
     ServiceStore,
     SourceKeyConflictError,
+    UserActiveJobsError,
+    UsernameConflictError,
 )
 from ..tag_policy import HUB_CHANNELS
 from ..ui.auth import AuthSettings, COOKIE_NAME
@@ -405,6 +407,8 @@ class SourceSummaryRequest(BaseModel):
 
 
 class UserCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str
     password: str
     role: str = "member"
@@ -413,6 +417,9 @@ class UserCreateRequest(BaseModel):
 
 
 class UserPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str | None = None
     role: str | None = None
     display_name: str | None = None
     enabled: bool | None = None
@@ -1014,6 +1021,7 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("POST", "/api/users"): ("account", "member_create"),
     ("PATCH", "/api/users/{user_id}"): ("account", "member_update"),
+    ("DELETE", "/api/users/{user_id}"): ("account", "member_delete"),
     ("PATCH", "/api/admin/notification-email-transport"): (
         "notification",
         "email_transport_update",
@@ -4693,16 +4701,24 @@ def create_app(
         request: Request,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
-        if payload.role not in ROLES:
-            raise ApiError("invalid_role", "role must be owner, admin, member, or viewer")
-        created = store.create_user(
-            workspace_id=user["workspace_id"],
-            username=payload.username,
-            password=payload.password,
-            role=payload.role,
-            display_name=payload.display_name,
-            enabled=payload.enabled,
-        )
+        if payload.role not in ROLES or payload.role == "owner":
+            raise ApiError("invalid_role", "role must be admin, member, or viewer")
+        try:
+            created = store.create_user(
+                workspace_id=user["workspace_id"],
+                username=payload.username,
+                password=payload.password,
+                role=payload.role,
+                display_name=payload.display_name,
+                enabled=payload.enabled,
+            )
+        except UsernameConflictError as exc:
+            raise ApiError(
+                "username_conflict",
+                "username already exists",
+                status_code=409,
+                action="Choose another username.",
+            ) from exc
         request.state.operation_subject_user_id = str(created["id"])
         request.state.operation_changed_fields = [
             "display_name",
@@ -4718,19 +4734,80 @@ def create_app(
         user_id: str,
         payload: UserPatchRequest,
         request: Request,
-        _admin: dict[str, Any] = Depends(current_admin),
+        admin: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
-        if payload.role is not None and payload.role not in ROLES:
-            raise ApiError("invalid_role", "role must be owner, admin, member, or viewer", status_code=400)
-        updated = store.update_user(
-            user_id,
-            role=payload.role,
-            enabled=payload.enabled,
-            display_name=payload.display_name,
-            password=payload.password.strip() if payload.password and payload.password.strip() else None,
-        )
+        current = store.get_user(user_id)
+        if current is None or current["workspace_id"] != admin["workspace_id"]:
+            raise ApiError("not_found", "user not found", status_code=404)
+        if current["role"] == "owner":
+            raise ApiError(
+                "owner_protected",
+                "owner accounts cannot be changed by member administration",
+                status_code=409,
+            )
+        if payload.role is not None and (
+            payload.role not in ROLES or payload.role == "owner"
+        ):
+            raise ApiError(
+                "invalid_role",
+                "role must be admin, member, or viewer",
+                status_code=400,
+            )
+        try:
+            updated = store.update_user(
+                user_id,
+                username=payload.username,
+                role=payload.role,
+                enabled=payload.enabled,
+                display_name=payload.display_name,
+                password=payload.password.strip() if payload.password and payload.password.strip() else None,
+            )
+        except UsernameConflictError as exc:
+            raise ApiError(
+                "username_conflict",
+                "username already exists",
+                status_code=409,
+                action="Choose another username.",
+            ) from exc
+        request.state.operation_subject_user_id = user_id
         request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(_sanitize_user(updated))
+
+    @app.delete("/api/users/{user_id}")
+    async def users_delete(
+        user_id: str,
+        request: Request,
+        admin: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        current = store.get_user(user_id)
+        if current is None or current["workspace_id"] != admin["workspace_id"]:
+            raise ApiError("not_found", "user not found", status_code=404)
+        if current["role"] == "owner":
+            raise ApiError(
+                "owner_protected",
+                "owner accounts cannot be deleted",
+                status_code=409,
+            )
+        if user_id == admin["id"]:
+            raise ApiError(
+                "cannot_delete_self",
+                "administrators cannot delete their current account",
+                status_code=409,
+                action="Ask another administrator to delete this account.",
+            )
+        try:
+            deleted = store.delete_user(user_id, reassigned_user_id=str(admin["id"]))
+        except UserActiveJobsError as exc:
+            raise ApiError(
+                "user_has_active_jobs",
+                "the account still has a running job",
+                status_code=409,
+                retryable=True,
+                action="Wait for the running job to finish, then retry deletion.",
+            ) from exc
+        request.state.operation_subject_user_id = user_id
+        request.state.operation_changed_fields = ["deleted"]
+        return ok({"deleted": deleted, "id": user_id})
 
     @app.get("/api/catalog/sources")
     async def catalog_sources(

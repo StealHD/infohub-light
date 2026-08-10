@@ -1433,7 +1433,7 @@ def test_private_source_key_collision_does_not_expose_or_take_over_another_membe
     assert all(source["id"] != alice_source["id"] for source in bob_sources)
 
 
-def test_admin_can_patch_user_role_enabled_display_name_and_password(tmp_path, monkeypatch):
+def test_admin_can_patch_user_username_role_enabled_display_name_and_password(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
     _login(client)
     created = client.post(
@@ -1449,6 +1449,7 @@ def test_admin_can_patch_user_role_enabled_display_name_and_password(tmp_path, m
     patched = client.patch(
         f"/api/users/{created['id']}",
         json={
+            "username": "renamed-member",
             "role": "viewer",
             "enabled": True,
             "display_name": "Renamed Member",
@@ -1458,6 +1459,7 @@ def test_admin_can_patch_user_role_enabled_display_name_and_password(tmp_path, m
     assert patched.status_code == 200
     patched_data = patched.json()["data"]
     assert patched_data["role"] == "viewer"
+    assert patched_data["username"] == "renamed-member"
     assert patched_data["display_name"] == "Renamed Member"
     assert patched_data["enabled"] is True
     assert "password_hash" not in patched_data
@@ -1469,13 +1471,13 @@ def test_admin_can_patch_user_role_enabled_display_name_and_password(tmp_path, m
     client.post("/api/auth/logout")
     old_login = client.post(
         "/api/auth/login",
-        json={"username": "member", "password": "member-password"},
+        json={"username": "member", "password": "new-member-password"},
     )
     assert old_login.status_code == 401
     assert old_login.json()["error"]["code"] == "invalid_credentials"
     assert client.post(
         "/api/auth/login",
-        json={"username": "member", "password": "new-member-password"},
+        json={"username": "renamed-member", "password": "new-member-password"},
     ).status_code == 200
 
     client.post("/api/auth/logout")
@@ -1488,8 +1490,99 @@ def test_admin_can_patch_user_role_enabled_display_name_and_password(tmp_path, m
     client.post("/api/auth/logout")
     assert client.post(
         "/api/auth/login",
-        json={"username": "member", "password": "new-member-password"},
+        json={"username": "renamed-member", "password": "new-member-password"},
     ).status_code == 200
+
+
+def test_user_rename_conflict_and_delete_are_safe_and_structured(tmp_path, monkeypatch):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    first = client.post(
+        "/api/users",
+        json={"username": "first", "password": "first-password", "role": "member"},
+    ).json()["data"]
+    second = client.post(
+        "/api/users",
+        json={"username": "second", "password": "second-password", "role": "member"},
+    ).json()["data"]
+
+    duplicate_create = client.post(
+        "/api/users",
+        json={"username": "first", "password": "another-password", "role": "member"},
+    )
+    assert duplicate_create.status_code == 409
+    assert duplicate_create.json()["error"]["code"] == "username_conflict"
+    create_owner = client.post(
+        "/api/users",
+        json={"username": "other-owner", "password": "owner-password", "role": "owner"},
+    )
+    assert create_owner.status_code == 400
+    assert create_owner.json()["error"]["code"] == "invalid_role"
+
+    duplicate_rename = client.patch(
+        f"/api/users/{second['id']}",
+        json={"username": "first"},
+    )
+    assert duplicate_rename.status_code == 409
+    assert duplicate_rename.json()["error"]["code"] == "username_conflict"
+    promote_owner = client.patch(
+        f"/api/users/{second['id']}",
+        json={"role": "owner"},
+    )
+    assert promote_owner.status_code == 400
+    assert promote_owner.json()["error"]["code"] == "invalid_role"
+
+    client.post("/api/auth/logout")
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "first", "password": "first-password"},
+    ).status_code == 200
+    private_source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Private account source",
+            "config": {"url": "https://example.com/private-account.xml"},
+        },
+    ).json()["data"]
+
+    client.post("/api/auth/logout")
+    _login(client)
+    owner = client.get("/api/auth/status").json()["data"]["user"]
+    protected_patch = client.patch(
+        f"/api/users/{owner['id']}",
+        json={"username": "renamed-owner"},
+    )
+    assert protected_patch.status_code == 409
+    assert protected_patch.json()["error"]["code"] == "owner_protected"
+    protected = client.delete(f"/api/users/{owner['id']}")
+    assert protected.status_code == 409
+    assert protected.json()["error"]["code"] == "owner_protected"
+
+    deleted = client.delete(f"/api/users/{first['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json()["data"] == {"deleted": True, "id": first["id"]}
+    assert all(
+        user["id"] != first["id"]
+        for user in client.get("/api/users").json()["data"]["users"]
+    )
+
+    client.post("/api/auth/logout")
+    removed_login = client.post(
+        "/api/auth/login",
+        json={"username": "first", "password": "first-password"},
+    )
+    assert removed_login.status_code == 401
+
+    store = ServiceStore(data_dir)
+    store.initialize()
+    scrubbed_source = store.get_source(private_source["id"])
+    assert scrubbed_source is not None
+    assert scrubbed_source["enabled"] is False
+    assert scrubbed_source["owner_user_id"] is None
+    assert scrubbed_source["config"] == {}
+    assert scrubbed_source["source_key"] is None
 
 
 def test_api_catalog_permissions_and_subscription_flow(tmp_path, monkeypatch):
