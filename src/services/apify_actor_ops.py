@@ -113,6 +113,7 @@ _PLATFORM_OUTPUT_HOSTS = {
 }
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 _CAPABILITY_PART_RE = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
+_SAFE_ACTOROPS_ERROR_CODE_RE = re.compile(r"^[a-z0-9_]{1,128}$")
 _ACTOR_ID_RE = re.compile(
     r"^(?:[A-Za-z0-9]{8,64}|"
     r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}/"
@@ -4923,6 +4924,115 @@ class ApifyActorOpsService:
         ).fetchone()
         return self.get_pool_stage(str(row["stage_id"])) if row is not None else None
 
+    def _pool_stage_last_failure(self, stage_id: str) -> dict[str, Any] | None:
+        """Return the latest safe terminal failure for a replan projection.
+
+        A guided replan must explain why the prior bounded approval stopped, but
+        it must not expose a candidate, source target, remote run, or raw
+        upstream error.  The workflow projection therefore carries only a
+        normalized outcome code, its phase, and final-or-pending spend.
+        """
+
+        connection = self.store.connect()
+
+        def summary(
+            row: sqlite3.Row,
+            *,
+            phase: Literal["route_validation", "source_validation"],
+            code: Any,
+        ) -> dict[str, Any]:
+            normalized = str(code or "").strip().casefold()
+            if not _SAFE_ACTOROPS_ERROR_CODE_RE.fullmatch(normalized):
+                normalized = "apify_actor_validation_failed"
+            raw_cost = row["actual_cost_usd"]
+            try:
+                actual_cost = float(raw_cost) if raw_cost is not None else None
+            except (TypeError, ValueError):
+                actual_cost = None
+            if actual_cost is not None and (
+                not math.isfinite(actual_cost) or actual_cost < 0
+            ):
+                actual_cost = None
+            return {
+                "phase": phase,
+                "code": normalized,
+                "actual_cost_usd": (
+                    round(actual_cost, 6) if actual_cost is not None else None
+                ),
+                "cost_final": bool(int(row["cost_final"] or 0)),
+            }
+
+        route_failure = connection.execute(
+            """
+            SELECT item.semantic_outcome, item.actual_cost_usd, item.cost_final
+            FROM apify_actor_pool_stages AS stage
+            JOIN apify_actor_canary_batches AS batch
+              ON batch.workspace_id = stage.workspace_id
+             AND batch.batch_id = stage.initial_batch_id
+            JOIN apify_actor_canary_batch_items AS item
+              ON item.workspace_id = batch.workspace_id
+             AND item.batch_id = batch.batch_id
+            WHERE stage.workspace_id = ? AND stage.stage_id = ?
+              AND item.status IN (
+                  'failed', 'preflight_failed', 'blocked_unknown_start'
+              )
+            ORDER BY COALESCE(item.completed_at, item.updated_at) DESC,
+                     item.ordinal DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if route_failure is not None:
+            return summary(
+                route_failure,
+                phase="route_validation",
+                code=route_failure["semantic_outcome"],
+            )
+
+        source_failure = connection.execute(
+            """
+            SELECT source.last_error_code, source.updated_at,
+                   validation.status AS validation_status,
+                   validation.semantic_outcome,
+                   validation.cost_usd AS actual_cost_usd,
+                   validation.cost_final
+            FROM apify_actor_pool_stage_sources AS source
+            LEFT JOIN apify_actor_validations AS validation
+              ON validation.workspace_id = source.workspace_id
+             AND validation.validation_id IN (
+                 source.primary_validation_id,
+                 source.backup_1_validation_id,
+                 source.backup_2_validation_id
+             )
+            WHERE source.workspace_id = ? AND source.stage_id = ?
+              AND source.status = 'failed'
+            ORDER BY CASE
+                         WHEN validation.status IN (
+                             'failed', 'cancelled', 'blocked'
+                         ) THEN 0
+                         ELSE 1
+                     END,
+                     COALESCE(validation.completed_at, source.updated_at) DESC,
+                     source.source_id ASC
+            LIMIT 1
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if source_failure is None:
+            return None
+        validation_failed = str(source_failure["validation_status"] or "") in {
+            "failed", "cancelled", "blocked",
+        }
+        return summary(
+            source_failure,
+            phase="source_validation",
+            code=(
+                source_failure["semantic_outcome"]
+                if validation_failed
+                else source_failure["last_error_code"]
+            ),
+        )
+
     def workflow_state(self, route_id: str) -> dict[str, Any]:
         """Project the single authoritative action for the guided UI."""
 
@@ -5032,7 +5142,11 @@ class ApifyActorOpsService:
                     if "candidate_shortfall" in plan_blockers
                     else f"{prefix}_candidate_selection_required"
                 )
-                progress = plan_progress
+                failure = self._pool_stage_last_failure(str(stage["stage_id"]))
+                progress = {
+                    **plan_progress,
+                    **({"last_failure": failure} if failure is not None else {}),
+                }
                 blockers = plan_blockers
             else:
                 kind = f"{prefix}_canary_approval_required"

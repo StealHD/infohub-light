@@ -522,3 +522,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps 在补位验证已终态失败后保留安全失败摘要；下一步卡直接说明原因、实际已结算费用、现有线路影响和人工恢复动作。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-background-validation-failure",
+  "unresolved": [],
+  "validation": [
+    "Pool Stage 定向回归 10/10 通过，覆盖 Route 超时与来源 suspicious-empty 失败投影。",
+    "ActorOps 前端 Vitest 48/48、TypeScript 类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（251.91 秒）。"
+  ]
+}
+```

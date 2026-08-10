@@ -936,13 +936,24 @@ export type ApifyActorWorkflowKind =
   | 'budget_blocked'
   | 'complete'
 
+export type ApifyActorWorkflowFailure = {
+  phase: 'route_validation' | 'source_validation'
+  code: string
+  actual_cost_usd: number | null
+  cost_final: boolean
+}
+
+export type ApifyActorWorkflowProgress = Record<string, unknown> & {
+  last_failure?: ApifyActorWorkflowFailure
+}
+
 export type ApifyActorWorkflow = {
   kind: ApifyActorWorkflowKind | string
   goal: ApifyActorPoolGoal | null
   stage_id?: string | null
   run_id?: string | null
   plan_hash?: string | null
-  progress: Record<string, unknown>
+  progress: ApifyActorWorkflowProgress
   blockers: string[]
 }
 

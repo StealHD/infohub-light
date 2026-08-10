@@ -185,6 +185,40 @@ function HumanActorErrorNotice({ error }: { error: HumanActorError }) {
   </HeroNotice>
 }
 
+function workflowFailureNotice(
+  progress: Record<string, unknown> | undefined,
+): HumanActorError | null {
+  const rawFailure = progress?.last_failure
+  if (rawFailure === null || typeof rawFailure !== 'object' || Array.isArray(rawFailure)) return null
+  const failure = rawFailure as Record<string, unknown>
+  const code = typeof failure.code === 'string' && /^[a-z0-9_]{1,128}$/.test(failure.code)
+    ? failure.code
+    : null
+  if (!code) return null
+  const actualCost = typeof failure.actual_cost_usd === 'number'
+    && Number.isFinite(failure.actual_cost_usd)
+    && failure.actual_cost_usd >= 0
+    ? failure.actual_cost_usd
+    : null
+  const costFinal = failure.cost_final === true
+  const presented = humanActorError(
+    new ApiError(409, { code, message: '' }),
+    '刷新状态后选择另一个候选；系统不会自动重试。',
+  )
+  const spend = costFinal && actualCost !== null
+    ? ` 本次已结算费用 ${formatActorUsd(actualCost, true)}。`
+    : costFinal
+      ? ''
+      : ' 本次费用仍在对账，暂不会显示为 $0。'
+  return {
+    ...presented,
+    impact: `${presented.impact}${spend}`,
+    next: code === 'apify_actor_run_timed_out' && costFinal
+      ? '选择另一个候选并再次确认验证；系统不会自动重试。'
+      : presented.next,
+  }
+}
+
 type DiscoverySettingsDraft = {
   enabled: boolean
   aiConfigId: string
@@ -1540,6 +1574,7 @@ export function HeroActorOpsControlPlane({
   const detail = detailQuery.data
   const workflow = detail?.workflow ?? selectedSummary?.workflow
   const next = workflowPresentation[workflow?.kind || ''] ?? unknownWorkflowPresentation
+  const workflowFailure = workflowFailureNotice(workflow?.progress)
   const candidateGoal: ApifyActorPoolGoal = workflow?.goal || 'initial_pool'
   const candidatesQuery = useQuery({
     queryKey: queryKeys.apifyActorPoolCandidates(user.id, selectedRouteId, candidateGoal),
@@ -2032,6 +2067,7 @@ export function HeroActorOpsControlPlane({
                     onPress={performNextAction}
                   >{actionPending ? '处理中…' : nextCta}</Button>}
                 </div>
+                {workflowFailure && <HumanActorErrorNotice error={workflowFailure} />}
                 {workflow?.kind && /(setup|backup_2|legacy)_(discovery|candidate|canary|activation)/.test(workflow.kind) && <div className="grid gap-2 border-t border-separator pt-3 type-meta text-muted min-[640px]:grid-cols-3" aria-label="配置流程">
                   <span>1. 手选安全候选（免费）</span><span>2. 付费验证（确认 1/2）</span><span>3. 生效（确认 2/2）</span>
                 </div>}

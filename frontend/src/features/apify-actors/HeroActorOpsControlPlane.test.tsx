@@ -349,6 +349,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     ['apify_actor_manual_candidate_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['apify_actor_pool_stage_precondition_incomplete', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['systemic_empty', '这个 Actor 不适合当前来源', '只会保留已终结费用', '选择另一个 Actor'],
+    ['suspicious_empty', '这个 Actor 不适合当前来源', '只会保留已终结费用', '选择另一个 Actor'],
     ['apify_actor_revision_unavailable', '这个 Actor 已不可用', '费用为 $0', '选择另一个 Actor'],
     ['apify_actor_pool_stage_budget_invalid', '费用条件不满足', '不会自动放宽', '运行与告警'],
     ['apify_actor_run_timed_out', 'Actor 验证超时', '不会自动重试', '费用完成对账后'],
@@ -437,6 +438,33 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       'route-x-profile',
       12,
     )
+  })
+
+  it('keeps a finalized failed third-slot validation visible with a human recovery path', async () => {
+    const failedThirdSlot = detail({
+      workflow: workflow('backup_2_discovery_required', {
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        progress: {
+          eligible_candidate_count: 0,
+          required_selection_count: 1,
+          last_failure: {
+            phase: 'route_validation',
+            code: 'apify_actor_run_timed_out',
+            actual_cost_usd: 0.01905,
+            cost_final: true,
+          },
+        },
+        blockers: ['candidate_shortfall'],
+      }),
+    })
+    renderControlPlane(failedThirdSlot)
+
+    const nextAction = await screen.findByTestId('actorops-next-action')
+    expect(within(nextAction).getByText('Actor 验证超时')).toBeVisible()
+    expect(within(nextAction).getByText(/本次已结算费用/)).toBeVisible()
+    expect(within(nextAction).getByText(/选择另一个候选并再次确认验证/)).toBeVisible()
+    expect(nextAction).not.toHaveTextContent('RAW_UPSTREAM_MESSAGE_MUST_NOT_RENDER')
   })
 
   it('does not open a disabled paid modal when a stale plan is not ready', async () => {

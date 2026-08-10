@@ -747,6 +747,12 @@ def test_empty_staged_target_replans_instead_of_becoming_apply_ready(
         "backup_2_candidate_selection_required",
         "backup_2_discovery_required",
     }
+    assert recovered["progress"]["last_failure"] == {
+        "phase": "route_validation",
+        "code": "apify_actor_run_timed_out",
+        "actual_cost_usd": 0.019,
+        "cost_final": True,
+    }
 
     with pytest.raises(ActorOpsError) as incomplete:
         ops.apply_pool_stage(
@@ -761,6 +767,55 @@ def test_empty_staged_target_replans_instead_of_becoming_apply_ready(
         slot["revision_id"]
         for slot in ops.get_route(str(active["route_id"]))["slots"]
     ] == [*base_revisions, None]
+
+
+def test_replan_workflow_projects_safe_failed_source_validation(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="source-failure-projection-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    active, base_revisions = _two_actor_pool(store, ops)
+    _ready_source(store, ops, active, base_revisions, suffix="failure-projection")
+    run, _candidate_revisions = _discovery_with_revisions(
+        store,
+        ops,
+        active,
+        (("publisher-c/youtube-third-source-failure", "publisher-c"),),
+        host="youtube.com",
+    )
+    _plan, batch = _approve_stage(
+        ops,
+        str(owner["id"]),
+        str(run["run_id"]),
+        goal="complete_third",
+        approval_id="source-failure-projection-approval",
+    )
+    _succeed_route_items(store, ops, batch)
+    stage_id = str(batch["pool_stage_id"])
+    validation_ids = ops.prepare_pool_stage_source_validations(stage_id)
+    assert len(validation_ids) == 1
+    ops.record_validation(
+        validation_ids[0],
+        status="failed",
+        semantic_outcome="suspicious_empty",
+        cost_usd=0.001,
+        cost_final=True,
+        counts_toward_canary=False,
+    )
+    ops.refresh_pool_stage_sources(stage_id)
+
+    projected = ops.workflow_state(str(active["route_id"]))
+    assert projected["progress"]["last_failure"] == {
+        "phase": "source_validation",
+        "code": "suspicious_empty",
+        "actual_cost_usd": 0.001,
+        "cost_final": True,
+    }
 
 
 def test_new_source_replans_only_missing_proofs_before_third_slot_apply(tmp_path) -> None:
