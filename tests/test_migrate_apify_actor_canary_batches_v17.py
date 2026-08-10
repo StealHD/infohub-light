@@ -11,7 +11,11 @@ from src.services.apify_actor_ops import (
     ApifyActorOpsService,
     PAID_CANARY_CONFIRMATION,
 )
-from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from src.storage.service_store import (
+    DEFAULT_WORKSPACE_ID,
+    ServiceStore,
+    apify_actor_canary_batches_v17_schema_shapes_valid,
+)
 
 
 def _manifest(actor_id: str, build_number: str) -> dict:
@@ -50,6 +54,40 @@ def _remove_v17_marker_and_tables(store: ServiceStore) -> None:
     connection.execute("DROP TABLE apify_actor_canary_batches")
     connection.execute("DELETE FROM schema_migrations WHERE version = 19")
     connection.commit()
+
+
+def test_v17_schema_validation_accepts_evolved_batch_cost_cap() -> None:
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE apify_actor_validations (
+                cost_final INTEGER NOT NULL CHECK(cost_final IN (0, 1)),
+                counts_toward_canary INTEGER NOT NULL
+                    CHECK(counts_toward_canary IN (0, 1))
+            );
+            CREATE TABLE apify_actor_canary_batches (
+                max_candidates INTEGER NOT NULL
+                    CHECK(max_candidates BETWEEN 1 AND 3),
+                max_total_charge_usd REAL NOT NULL
+                    CHECK(max_total_charge_usd <= 0.30),
+                workspace_id TEXT NOT NULL,
+                approval_key_hash TEXT NOT NULL,
+                UNIQUE(workspace_id, approval_key_hash)
+            );
+            CREATE TABLE apify_actor_canary_batch_items (
+                status TEXT NOT NULL CHECK(status IN (
+                    'planned', 'preflight_passed', 'preflight_failed',
+                    'queued', 'running', 'succeeded', 'failed',
+                    'not_needed_no_charge', 'blocked_unknown_start'
+                ))
+            );
+            """
+        )
+
+        assert apify_actor_canary_batches_v17_schema_shapes_valid(connection)
+    finally:
+        connection.close()
 
 
 def test_v17_offline_migration_adds_batch_ledger_and_backup(tmp_path) -> None:

@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "登录页按 Quiet Studio 重构为桌面品牌/表单双栏与移动端单列，并补齐密码显隐、自动聚焦、提交防重入、凭据清理和首屏骨架。",
-  "status": "completed",
-  "task_id": "2026-08-09-login-quiet-studio-ui",
-  "unresolved": [],
-  "validation": [
-    "登录、App 路由、设计系统、手册与更新日志定向 Vitest 共 152 项通过；TypeScript、UI contract、ESLint 和生产构建通过。",
-    "Playwright 在 1440×900、1024×768、390×844 的明暗模式生成并复验 6 张快照；布局、焦点、密码显隐、无横向溢出与 Axe 严重/致命问题为零。",
-    "完整 Test Gate 24/24 命令通过（252 秒），mapping_miss=false；git diff --check 与控制面校验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-09",
@@ -356,6 +337,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "真实 20 篇页面生成已确认 2048 token 预算成功：completion_tokens=1057、reasoning_tokens=886、content_tokens=171、finish_reason=stop。",
     "可读预算后端 7/7、V3 缓存与产品文案 15/15、专题 UI 1/1、TypeScript 通过。",
     "最终完整 Test Gate 24/24 通过（305.553 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-runtime-schema-compatibility",
+  "unresolved": [
+    "API/Worker 在迁移保护流程中已停止；用户明确要求不重建容器，本任务未继续恢复 8080。",
+    "V3 可读要点已通过自动化门禁，但未在最终 V3 资源上再次执行真实浏览器生成与刷新缓存验证。"
+  ],
+  "validation": [
+    "真实 service.db 只读预检从 required=true 修复为 required=false，数据库 integrity_check=ok 且 foreign_key_check 无违规。",
+    "迁移兼容测试 5/5 通过；完整 Test Gate 24/24 通过（499.311 秒），mapping_miss=false。"
   ]
 }
 ```
