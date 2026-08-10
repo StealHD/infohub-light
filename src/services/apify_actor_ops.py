@@ -4929,6 +4929,17 @@ class ApifyActorOpsService:
         route = self.get_route(route_id)
         gate = self.schedule_gate(route_id)
         stage = self.active_pool_stage(route_id)
+        # A prior worker version could mark a stage with no frozen target as
+        # apply_ready when its enabled-source snapshot was empty. Repair that
+        # recoverable state on read before projecting a misleading activation
+        # action. This never starts a run or changes the active pool.
+        if (
+            stage is not None
+            and str(stage["status"]) in {"validating_sources", "apply_ready"}
+            and self._frozen_pool_stage_target(stage) is None
+        ):
+            self.refresh_pool_stage_sources(str(stage["stage_id"]))
+            stage = self.active_pool_stage(route_id)
         slots = [slot for slot in route.get("slots", []) if slot.get("revision_id")]
         lifecycles = {str(slot.get("lifecycle") or "") for slot in slots}
         source_rows = self.store.connect().execute(
@@ -5287,6 +5298,59 @@ class ApifyActorOpsService:
             return None
         return target
 
+    def _frozen_pool_stage_target(
+        self,
+        stage: Mapping[str, Any],
+    ) -> dict[str, str | None] | None:
+        """Return a persisted stage target only when all frozen proof is intact."""
+
+        target_slot_count = int(stage["target_slot_count"] or 0)
+        if target_slot_count not in {2, 3}:
+            return None
+        if (
+            str(stage["goal"]) == "complete_third"
+            and target_slot_count != 3
+        ):
+            return None
+        target = {
+            "primary": (
+                str(stage["target_primary_revision_id"])
+                if stage["target_primary_revision_id"]
+                else None
+            ),
+            "backup_1": (
+                str(stage["target_backup_1_revision_id"])
+                if stage["target_backup_1_revision_id"]
+                else None
+            ),
+            "backup_2": (
+                str(stage["target_backup_2_revision_id"])
+                if stage["target_backup_2_revision_id"]
+                else None
+            ),
+        }
+        required_slots = SLOT_NAMES[:target_slot_count]
+        if any(target[slot_name] is None for slot_name in required_slots):
+            return None
+        if any(
+            target[slot_name] is not None
+            for slot_name in SLOT_NAMES[target_slot_count:]
+        ):
+            return None
+        revision_ids = [
+            str(target[slot_name])
+            for slot_name in required_slots
+            if target[slot_name] is not None
+        ]
+        if len(set(revision_ids)) != len(revision_ids):
+            return None
+        target_hash = revision_set_hash(
+            {slot_name: target[slot_name] or "" for slot_name in SLOT_NAMES}
+        )
+        if str(stage["target_pool_hash"] or "") != target_hash:
+            return None
+        return target
+
     def pool_stage_route_ready(self, stage_id: str) -> bool:
         return self._pool_stage_target_slots(self.store.connect(), stage_id) is not None
 
@@ -5522,8 +5586,9 @@ class ApifyActorOpsService:
         totals = {"succeeded": 0, "failed": 0, "active": 0}
         stage = connection.execute(
             """
-            SELECT target_primary_revision_id, target_backup_1_revision_id,
-                   target_backup_2_revision_id
+            SELECT goal, target_slot_count, target_primary_revision_id,
+                   target_backup_1_revision_id, target_backup_2_revision_id,
+                   target_pool_hash, status
             FROM apify_actor_pool_stages
             WHERE workspace_id = ? AND stage_id = ?
             """,
@@ -5535,14 +5600,31 @@ class ApifyActorOpsService:
                 "Actor pool stage was not found",
                 status_code=404,
             )
+        stage_status = str(stage["status"])
+        if stage_status == "replan_required":
+            return totals
+        target = self._frozen_pool_stage_target(stage)
+        if target is None:
+            # A target can only be absent while Route validation is still in
+            # flight, or after it exhausted its approved candidate list. It
+            # must never be treated as an empty source set that is ready to
+            # apply. Persisted historical corruption is repaired here too.
+            if stage_status in {"validating_sources", "apply_ready"}:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stages
+                    SET status = 'replan_required',
+                        last_error_code = 'candidate_shortfall', updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ?
+                      AND status IN ('validating_sources', 'apply_ready')
+                    """,
+                    (now, self.workspace_id, stage_id),
+                )
+            return totals
         target_revision_ids = [
-            str(stage[column])
-            for column in (
-                "target_primary_revision_id",
-                "target_backup_1_revision_id",
-                "target_backup_2_revision_id",
-            )
-            if stage[column]
+            str(target[slot_name])
+            for slot_name in SLOT_NAMES
+            if target[slot_name] is not None
         ]
         rows = connection.execute(
             """
@@ -5765,6 +5847,24 @@ class ApifyActorOpsService:
                         status_code=409,
                     )
                 return self.get_route(str(stage["route_id"]))
+            target = self._frozen_pool_stage_target(stage)
+            if target is None:
+                if str(stage["status"]) in {"validating_sources", "apply_ready"}:
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_pool_stages
+                        SET status = 'replan_required',
+                            last_error_code = 'candidate_shortfall', updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ?
+                          AND status IN ('validating_sources', 'apply_ready')
+                        """,
+                        (self._now_iso(), self.workspace_id, stage_id),
+                    )
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Staged Actor target is incomplete; choose another candidate",
+                    status_code=412,
+                )
             if str(stage["status"]) != "apply_ready":
                 raise ActorOpsError(
                     "apify_actor_pool_stage_precondition_incomplete",
@@ -5896,11 +5996,6 @@ class ApifyActorOpsService:
                     "Actor pool cannot switch while an attempt is unresolved",
                     status_code=409,
                 )
-            target = {
-                "primary": stage["target_primary_revision_id"],
-                "backup_1": stage["target_backup_1_revision_id"],
-                "backup_2": stage["target_backup_2_revision_id"],
-            }
             result = self.replace_active_pool(
                 str(stage["route_id"]),
                 slots=target,

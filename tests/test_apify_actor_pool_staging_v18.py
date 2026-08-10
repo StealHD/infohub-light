@@ -669,6 +669,100 @@ def test_complete_third_uses_approved_fallback_after_first_candidate_fails(
     }
 
 
+def test_empty_staged_target_replans_instead_of_becoming_apply_ready(
+    tmp_path,
+) -> None:
+    """A failed third candidate must not turn an empty source set into apply-ready."""
+
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="empty-stage-target-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    active, base_revisions = _two_actor_pool(store, ops)
+    run, _candidate_revisions = _discovery_with_revisions(
+        store,
+        ops,
+        active,
+        (("publisher-c/youtube-third-timeout", "publisher-c"),),
+        host="youtube.com",
+    )
+    plan, batch = _approve_stage(
+        ops,
+        str(owner["id"]),
+        str(run["run_id"]),
+        goal="complete_third",
+        approval_id="empty-stage-target-approval",
+    )
+    item = batch["items"][0]
+    ops.record_validation(
+        str(item["validation_id"]),
+        status="failed",
+        semantic_outcome="apify_actor_run_timed_out",
+        cost_usd=0.019,
+        cost_final=True,
+        counts_toward_canary=False,
+    )
+    ops.update_canary_batch_item(
+        str(batch["batch_id"]),
+        int(item["ordinal"]),
+        status="failed",
+        semantic_outcome="apify_actor_run_timed_out",
+        actual_cost_usd=0.019,
+        cost_final=True,
+    )
+
+    stage_id = str(batch["pool_stage_id"])
+    assert ops.prepare_pool_stage_source_validations(stage_id) == []
+    assert ops.get_pool_stage(stage_id)["status"] == "replan_required"
+    # The Worker calls refresh unconditionally after preparation. An empty
+    # source snapshot used to make all([]) mark this failed stage apply-ready.
+    ops.refresh_pool_stage_sources(stage_id)
+    stage = ops.get_pool_stage(stage_id)
+    assert stage["status"] == "replan_required"
+    assert stage["target_slots"] == {
+        "primary": None,
+        "backup_1": None,
+        "backup_2": None,
+    }
+    assert ops.finalize_canary_batch(str(batch["batch_id"]))["status"] == "partial"
+
+    # Repair the corrupt persisted state left by the prior Worker revision.
+    store.connect().execute(
+        """
+        UPDATE apify_actor_pool_stages
+        SET status = 'apply_ready'
+        WHERE workspace_id = ? AND stage_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, stage_id),
+    )
+    store.connect().commit()
+    recovered = ops.workflow_state(str(active["route_id"]))
+    assert ops.get_pool_stage(stage_id)["status"] == "replan_required"
+    assert recovered["kind"] in {
+        "backup_2_candidate_selection_required",
+        "backup_2_discovery_required",
+    }
+
+    with pytest.raises(ActorOpsError) as incomplete:
+        ops.apply_pool_stage(
+            stage_id,
+            expected_generation=int(active["generation"]),
+            expected_plan_hash=str(plan["plan_hash"]),
+            apply_id="empty-stage-target-apply-0001",
+            confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
+        )
+    assert incomplete.value.code == "apify_actor_pool_stage_precondition_incomplete"
+    assert [
+        slot["revision_id"]
+        for slot in ops.get_route(str(active["route_id"]))["slots"]
+    ] == [*base_revisions, None]
+
+
 def test_new_source_replans_only_missing_proofs_before_third_slot_apply(tmp_path) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()

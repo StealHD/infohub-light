@@ -16,7 +16,7 @@ export function humanActorError(
     : caught instanceof TypeError
       ? 'network_error'
       : 'unknown_error'
-  if (['apify_actor_canary_approval_stale', 'apify_actor_canary_plan_conflict', 'apify_actor_route_generation_conflict', 'apify_actor_manual_candidate_stale', 'apify_actor_pool_stage_stale'].includes(code)) {
+  if (['apify_actor_canary_approval_stale', 'apify_actor_canary_plan_conflict', 'apify_actor_route_generation_conflict', 'apify_actor_manual_candidate_stale', 'apify_actor_pool_stage_stale', 'apify_actor_pool_stage_precondition_incomplete', 'apify_actor_active_pool_incomplete'].includes(code)) {
     return { reason: '配置刚刚更新', impact: '本次选择没有应用，也没有启动新的付费验证；现有线路继续运行。', next: '页面会刷新，请重新选择 Actor。', diagnostic: code }
   }
   if (['apify_actor_unexpected_empty', 'apify_actor_suspicious_empty', 'systemic_empty', 'apify_actor_contract_mismatch', 'apify_actor_metadata_only', 'apify_actor_placeholder', 'apify_actor_target_identity_mismatch', 'apify_actor_revision_output_incompatible'].includes(code)) {

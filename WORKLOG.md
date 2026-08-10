@@ -502,3 +502,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "修复第三槽候选验证失败后空目标 Stage 被错误标为可生效的问题；历史卡住状态会安全回退到重新选择候选，确认弹窗不再滞留。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-empty-stage-recovery",
+  "unresolved": [],
+  "validation": [
+    "Pool Stage 定向回归 9/9 通过，覆盖 Worker 空来源刷新、历史状态恢复与零写入 apply 拦截。",
+    "ActorOps 前端 Vitest 46/46、类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（262.63 秒）。"
+  ]
+}
+```

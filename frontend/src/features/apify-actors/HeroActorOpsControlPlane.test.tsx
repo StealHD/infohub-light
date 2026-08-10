@@ -347,6 +347,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
   it.each([
     ['apify_actor_canary_approval_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['apify_actor_manual_candidate_stale', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
+    ['apify_actor_pool_stage_precondition_incomplete', '配置刚刚更新', '没有启动新的付费验证', '重新选择 Actor'],
     ['systemic_empty', '这个 Actor 不适合当前来源', '只会保留已终结费用', '选择另一个 Actor'],
     ['apify_actor_revision_unavailable', '这个 Actor 已不可用', '费用为 $0', '选择另一个 Actor'],
     ['apify_actor_pool_stage_budget_invalid', '费用条件不满足', '不会自动放宽', '运行与告警'],
@@ -676,6 +677,31 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       expected_plan_hash: 'plan-hash-guided',
       apply_id: expect.any(String),
     })
+  })
+
+  it('closes an incomplete staged activation and refreshes instead of trapping the confirmation dialog', async () => {
+    const browser = userEvent.setup()
+    const staged = detail({
+      workflow: workflow('backup_2_activation_approval_required', {
+        goal: 'complete_third',
+        stage_id: 'stage-guided',
+        plan_hash: 'plan-hash-guided',
+      }),
+    })
+    const { api } = renderControlPlane(staged, undefined, {
+      activateApifyActorRouteRecommendedPool: vi.fn().mockRejectedValue(new ApiError(412, {
+        code: 'apify_actor_pool_stage_precondition_incomplete',
+        message: 'INTERNAL_STAGE_TARGET_MUST_NOT_RENDER',
+      })),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '查看并确认补位生效' }))
+    expect(await screen.findByRole('heading', { name: '确认补齐备用 2' })).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '确认生效' }))
+
+    await waitFor(() => expect(api.activateApifyActorRouteRecommendedPool).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '确认补齐备用 2' })).not.toBeInTheDocument())
+    expect(document.body.textContent).not.toContain('INTERNAL_STAGE_TARGET_MUST_NOT_RENDER')
   })
 
   it('explains legacy sidecar replacement without exposing a fake conversion action', async () => {

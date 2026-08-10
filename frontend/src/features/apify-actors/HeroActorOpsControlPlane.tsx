@@ -1762,6 +1762,8 @@ export function HeroActorOpsControlPlane({
         'apify_actor_route_generation_conflict',
         'apify_actor_pool_stage_stale',
         'apify_actor_pool_stage_source_validation_incomplete',
+        'apify_actor_pool_stage_precondition_incomplete',
+        'apify_actor_active_pool_incomplete',
       ].includes(caught.code)) {
         setActivationTarget(null)
         restoreFocus(activationTriggerRef)
