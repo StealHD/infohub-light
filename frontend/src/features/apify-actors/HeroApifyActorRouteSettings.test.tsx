@@ -875,6 +875,7 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(await screen.findByText('缺少 2 个 Actor')).toBeVisible()
     await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
       'discovery-run-1',
+      'initial_pool',
       expect.any(AbortSignal),
     ))
     expect(screen.getByRole('button', { name: '验证两路主备' })).toBeVisible()
@@ -1033,6 +1034,7 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(await screen.findByText('5/3 Actor · 4/2 发布者；付费验证只统计真实启动')).toBeVisible()
     await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
       'discovery-run-1',
+      'initial_pool',
       expect.any(AbortSignal),
     ))
     expect(screen.queryByText('成功试跑 Actor 仍不足两路')).not.toBeInTheDocument()
@@ -1591,6 +1593,7 @@ describe('HeroApifyActorRouteSettings', () => {
       updateApifyActorAlertSettings,
     })
 
+    await browser.click(await screen.findByRole('button', { name: '编辑告警' }))
     await browser.click(await screen.findByRole('checkbox', { name: selected.name }))
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
 
@@ -1601,6 +1604,59 @@ describe('HeroApifyActorRouteSettings', () => {
     }))
     expect(api.testApifyActorAlertSettings).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
+  })
+
+  it('loads shared notification services only after opening the alert editor', async () => {
+    const browser = userEvent.setup()
+    const notificationServices = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      services: [],
+      channel_credentials: {
+        email: { configured: false, ready: false, generation: 0, provider: null, sender_name: null, region: null, sender_email_configured: false, smtp_username_configured: false, providers: [] },
+        telegram: { configured: false, ready: false, generation: 0 },
+        webhook: { configured: false, ready: false, generation: 0 },
+      },
+      webhook_provider_options: alertSettings().webhook_provider_options,
+      can_manage: true,
+    })
+    renderFeature({ notificationServices })
+
+    const trigger = await screen.findByRole('button', { name: '编辑告警' })
+    expect(notificationServices).not.toHaveBeenCalled()
+    await browser.click(trigger)
+    await waitFor(() => expect(notificationServices).toHaveBeenCalledOnce())
+    expect(await screen.findByRole('heading', { name: '编辑运行告警' })).toBeVisible()
+  })
+
+  it('shows five recent incidents before the older-record disclosure', async () => {
+    const browser = userEvent.setup()
+    renderFeature({
+      apifyActorAlertIncidents: vi.fn().mockResolvedValue({
+        schema_version: 3,
+        incidents: Array.from({ length: 7 }, (_, index) => ({
+          id: `incident-${index + 1}`,
+          route: 'x/profile',
+          event_type: 'actor_switched',
+          severity: 'warning',
+          status: 'open',
+          actor_name: `Actor ${index + 1}`,
+          active_actor_name: null,
+          reason_code: 'placeholder_records',
+          opened_at: `2026-07-29T0${index}:00:00Z`,
+          last_seen_at: `2026-07-29T0${index}:00:00Z`,
+          resolved_at: null,
+          deliveries: [],
+          delivery_status: 'sent',
+          delivery_error_code: null,
+        })),
+      }),
+    })
+
+    expect(await screen.findByText('涉及 Actor 5')).toBeVisible()
+    expect(screen.getByText('涉及 Actor 6')).not.toBeVisible()
+    await browser.click(screen.getByRole('button', { name: /查看全部事件/ }))
+    expect(screen.getByText('涉及 Actor 6')).toBeVisible()
+    expect(screen.getByText('涉及 Actor 7')).toBeVisible()
   })
 })
 

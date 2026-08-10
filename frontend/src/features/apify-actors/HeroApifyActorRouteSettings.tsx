@@ -16,6 +16,7 @@ import type {
   WebhookProvider,
 } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
+import { SettingsDisclosure } from '../../components/settings'
 import {
   actionToast,
   Button,
@@ -50,7 +51,7 @@ import {
   formatEstimatedDays,
   safeActorActionError,
 } from './apifyActorModel'
-import { HeroActorOpsControlPlane } from './HeroActorOpsControlPlane'
+import { LegacyHeroActorOpsControlPlane } from './HeroActorOpsControlPlane'
 
 const alertEvents = Object.keys(actorAlertEventLabels) as ApifyActorAlertEvent[]
 
@@ -822,27 +823,29 @@ export function ApifyActorAlertSettingsForm({
 export function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
+  const editTriggerRef = useRef<HTMLButtonElement>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editBusy, setEditBusy] = useState(false)
   const settings = useQuery({
     queryKey: queryKeys.apifyActorAlertSettings(user.id),
     queryFn: ({ signal }) => api.apifyActorAlertSettings(signal),
     enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
     retry: false,
-    refetchInterval: queryEnabled ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
   })
   const services = useQuery({
     queryKey: queryKeys.notificationServices(user.id),
     queryFn: ({ signal }) => api.notificationServices(signal),
-    enabled: queryEnabled,
+    enabled: queryEnabled && editOpen,
     staleTime: queryStaleTime.settings,
   })
 
-  if (settings.isPending || services.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
-  if (settings.isError || services.isError || !settings.data || !services.data) return <HeroNotice title="Apify 运行告警设置读取失败" status="warning">
+  if (settings.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
+  if (settings.isError || !settings.data) return <HeroNotice title="Apify 运行告警设置读取失败" status="warning">
     <Button size="sm" variant="ghost" onPress={() => void settings.refetch()}>重试此区域</Button>
   </HeroNotice>
 
-  const sharedTargets = services.data.services.filter((service) => service.scope === 'shared')
+  const sharedTargets = services.data?.services.filter((service) => service.scope === 'shared') ?? []
   const cacheKey = [
     settings.data.enabled,
     settings.data.target_ids.join(':'),
@@ -854,25 +857,59 @@ export function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: b
   async function save(patch: ApifyActorAlertSettingsPatch) {
     const updated = await api.updateApifyActorAlertSettings(patch)
     queryClient.setQueryData(queryKeys.apifyActorAlertSettings(user.id), updated)
+    setEditOpen(false)
+    requestAnimationFrame(() => editTriggerRef.current?.focus())
     return updated
   }
 
-  return <ApifyTargetSelectionForm
-    key={cacheKey}
-    settings={settings.data}
-    targets={sharedTargets}
-    onSave={save}
-  />
+  return <>
+    <div className="flex min-w-0 flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between">
+      <dl className="grid min-w-0 grid-cols-2 gap-x-5 gap-y-2 type-meta min-[720px]:grid-cols-4">
+        <div><dt className="text-muted">状态</dt><dd className="mt-0.5 type-control">{settings.data.enabled ? '已开启' : '已关闭'}</dd></div>
+        <div><dt className="text-muted">共享服务</dt><dd className="mt-0.5 type-control tabular-nums">{settings.data.target_ids.length}</dd></div>
+        <div><dt className="text-muted">事件类型</dt><dd className="mt-0.5 type-control tabular-nums">{settings.data.events.length}</dd></div>
+        <div><dt className="text-muted">最近告警</dt><dd className="mt-0.5 type-control">{formatActorDateTime(settings.data.last_alerted_at)}</dd></div>
+      </dl>
+      <Button ref={editTriggerRef} variant="secondary" onPress={() => setEditOpen(true)}>编辑告警</Button>
+    </div>
+    <Modal isOpen={editOpen} onOpenChange={(open) => {
+      if (editBusy) return
+      setEditOpen(open)
+      if (!open) requestAnimationFrame(() => editTriggerRef.current?.focus())
+    }}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开运行告警编辑</Modal.Trigger>
+      <Modal.Backdrop isDismissable={!editBusy} isKeyboardDismissDisabled={editBusy}>
+        <Modal.Container><Modal.Dialog>
+          <Modal.Header><Modal.Heading>编辑运行告警</Modal.Heading></Modal.Header>
+          <Modal.Body>
+            {services.isPending && <LoadingState label="正在读取共享通知服务" rows={2} />}
+            {(services.isError || !services.data) && !services.isPending && <HeroNotice title="共享通知服务读取失败" status="warning">
+              <Button size="sm" variant="ghost" onPress={() => void services.refetch()}>重试此区域</Button>
+            </HeroNotice>}
+            {services.data && <ApifyTargetSelectionForm
+              key={cacheKey}
+              settings={settings.data}
+              targets={sharedTargets}
+              onSave={save}
+              onBusyChange={setEditBusy}
+            />}
+          </Modal.Body>
+        </Modal.Dialog></Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  </>
 }
 
 function ApifyTargetSelectionForm({
   settings,
   targets,
   onSave,
+  onBusyChange,
 }: {
   settings: ApifyActorAlertSettings
   targets: NotificationService[]
   onSave: (patch: ApifyActorAlertSettingsPatch) => Promise<ApifyActorAlertSettings>
+  onBusyChange?: (busy: boolean) => void
 }) {
   const [enabled, setEnabled] = useState(settings.enabled)
   const [targetIds, setTargetIds] = useState(settings.target_ids)
@@ -896,6 +933,7 @@ function ApifyTargetSelectionForm({
       return
     }
     setSaving(true)
+    onBusyChange?.(true)
     setRequestError('')
     try {
       await onSave({ enabled, target_ids: targetIds, events })
@@ -906,6 +944,7 @@ function ApifyTargetSelectionForm({
       actionToast.danger('Apify 运行告警设置保存失败', { description: message })
     } finally {
       setSaving(false)
+      onBusyChange?.(false)
     }
   }
 
@@ -1014,8 +1053,7 @@ export function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean
   const rows = incidents.data.incidents.slice(0, 20)
   if (rows.length === 0) return <p className="type-meta text-muted">尚无切换、熔断、费用保护或恢复记录。</p>
 
-  return <ol className="grid gap-2" aria-label="最近 Actor 事件">
-    {rows.map((incident) => <li
+  const renderIncident = (incident: (typeof rows)[number]) => <li
       key={incident.id}
       className="min-w-0 rounded-control border border-separator bg-surface-secondary p-3"
     >
@@ -1041,22 +1079,35 @@ export function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean
         {incident.resolved_at && <> · <time dateTime={incident.resolved_at}>恢复于 {formatActorDateTime(incident.resolved_at)}</time></>}
         {' · '}{incidentDeliveryLabel(incident.delivery_status)}
       </p>
-      {(incident.deliveries ?? []).length > 0 && <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1" aria-label="逐渠道投递状态">
-        {(incident.deliveries ?? []).map((delivery) => <li
-          key={`${delivery.event_type}:${delivery.target_id ?? delivery.channel}`}
-          className="type-meta text-muted"
-        >
-          {delivery.target_name ?? (delivery.channel === 'email' ? '邮箱' : delivery.channel === 'webhook' ? 'Webhook' : 'Telegram')}
-          {' · '}{incidentDeliveryLabel(delivery.status)}
-        </li>)}
-      </ul>}
-    </li>)}
-  </ol>
+      {(incident.deliveries ?? []).length > 0 && <SettingsDisclosure
+        title="投递详情"
+        description="逐个共享通知服务查看投递结果。"
+        className="mt-3"
+      ><ul className="grid gap-1" aria-label="逐渠道投递状态">
+          {(incident.deliveries ?? []).map((delivery) => <li
+            key={`${delivery.event_type}:${delivery.target_id ?? delivery.channel}`}
+            className="type-meta text-muted"
+          >
+            {delivery.target_name ?? (delivery.channel === 'email' ? '邮箱' : delivery.channel === 'webhook' ? 'Webhook' : 'Telegram')}
+            {' · '}{incidentDeliveryLabel(delivery.status)}
+          </li>)}
+        </ul></SettingsDisclosure>}
+    </li>
+
+  return <div className="grid gap-3">
+    <ol className="grid gap-2" aria-label="最近 Actor 事件">
+      {rows.slice(0, 5).map(renderIncident)}
+    </ol>
+    {rows.length > 5 && <SettingsDisclosure
+      title="查看全部事件"
+      description={`另有 ${rows.length - 5} 条较早记录。`}
+    ><ol className="grid gap-2" aria-label="较早 Actor 事件">{rows.slice(5).map(renderIncident)}</ol></SettingsDisclosure>}
+  </div>
 }
 
 export function HeroApifyActorRouteSettings({ queryEnabled = true }: { queryEnabled?: boolean }) {
   return <Card variant="secondary" className="min-w-0 max-w-full p-4">
-    <HeroActorOpsControlPlane queryEnabled={queryEnabled} />
+    <LegacyHeroActorOpsControlPlane queryEnabled={queryEnabled} />
     <div className="mt-6 border-t border-separator pt-5">
       <h3 className="type-page-title">故障告警</h3>
       <p className="type-meta mt-1 text-muted">从工作区共享通知服务中多选；服务只需统一配置和测试一次。</p>

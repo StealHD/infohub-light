@@ -174,13 +174,13 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
     },
     {
       revision_id: 'revision-backup-2',
-      actor_id: 'publisher-a/probationary',
-      actor_public_name: 'Publisher A Probationary',
-      publisher: 'publisher-a',
+      actor_id: 'publisher-c/backup-2',
+      actor_public_name: 'Publisher C Backup 2',
+      publisher: 'publisher-c',
       build_id: 'build-backup-2',
       build_number: '1.0.3',
       manifest_hash: 'c'.repeat(64),
-      lifecycle: 'probationary',
+      lifecycle: 'certified',
       pricing: {
         model: 'PAY_PER_EVENT',
         billing_unit: 'event',
@@ -210,11 +210,17 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
     runnable_slots: 3,
     required_slots: 3,
     min_runtime_healthy: 2,
-    publisher_count: 2,
+    publisher_count: 3,
     per_run_cap_usd: 0.02,
     discovery_run_id: null,
     blocked_reason: null,
     updated_at: '2026-07-29T08:00:00Z',
+    workflow: {
+      kind: options.includeXProfileSource ? 'source_validation_required' : 'complete',
+      goal: null,
+      progress: options.includeXProfileSource ? { pending_sources: 1 } : {},
+      blockers: [],
+    },
     slots: [
       { slot: 'primary', revision_id: actorOpsRevisions[0].revision_id, runnable: true, revision: actorOpsRevisions[0] },
       { slot: 'backup_1', revision_id: actorOpsRevisions[1].revision_id, runnable: true, revision: actorOpsRevisions[1] },
@@ -226,7 +232,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       already_active: true,
       confirmation: '确认启用 Actor 主备',
       problems: [],
-      certified_actor_count: 2,
+      certified_actor_count: 3,
       backup_2_actor_count: 3,
       runnable_actor_count: 3,
       publisher_count: 2,
@@ -237,8 +243,13 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
         { slot: 'backup_2', revision_id: actorOpsRevisions[2].revision_id, revision: actorOpsRevisions[2] },
       ],
     },
-    source_validations: [],
-    source_validation_summary: { ready: 0, pending: 0, failed: 0 },
+    source_validations: options.includeXProfileSource ? [{
+      source_id: 'source-x-profile',
+      binding_status: 'pending',
+      generation: 2,
+      slots: [],
+    }] : [],
+    source_validation_summary: { ready: 0, pending: options.includeXProfileSource ? 1 : 0, failed: 0 },
     replacement_needed: false,
   }
   const actorOpsRoutes = {
@@ -263,6 +274,45 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       discovery_run_id: null,
       blocked_reason: null,
       updated_at: actorOpsRouteDetail.updated_at,
+      workflow: actorOpsRouteDetail.workflow,
+    }, {
+      route_id: 'route-instagram-profile',
+      route_key: 'instagram/profile/items',
+      platform: 'instagram',
+      target_type: 'profile',
+      capability: 'items',
+      mode: 'primary',
+      generation: 3,
+      support_status: 'supported',
+      runtime_status: 'ready',
+      runnable_slots: 3,
+      required_slots: 3,
+      min_runtime_healthy: 2,
+      publisher_count: 2,
+      per_run_cap_usd: 0.02,
+      discovery_run_id: null,
+      blocked_reason: null,
+      updated_at: actorOpsRouteDetail.updated_at,
+      workflow: actorOpsRouteDetail.workflow,
+    }, {
+      route_id: 'route-youtube-channel',
+      route_key: 'youtube/channel/items',
+      platform: 'youtube',
+      target_type: 'channel',
+      capability: 'items',
+      mode: 'fallback',
+      generation: 2,
+      support_status: 'supported',
+      runtime_status: 'ready',
+      runnable_slots: 3,
+      required_slots: 3,
+      min_runtime_healthy: 2,
+      publisher_count: 2,
+      per_run_cap_usd: 0.02,
+      discovery_run_id: null,
+      blocked_reason: null,
+      updated_at: actorOpsRouteDetail.updated_at,
+      workflow: actorOpsRouteDetail.workflow,
     }],
   }
   let actorAlertSettings = {
@@ -783,6 +833,25 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
     }
     else if (url.pathname === '/api/admin/apify-routes') data = actorOpsRoutes
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile') data = actorOpsRouteDetail
+    else if (url.pathname === '/api/admin/sources/source-x-profile/apify-support') data = {
+      schema_version: 1,
+      source_id: 'source-x-profile',
+      route_id: actorOpsRouteDetail.route_id,
+      generation: 2,
+      binding_status: 'pending',
+      verified_revision_set_hash: null,
+      budget_cap_usd: 0.06,
+      spent_usd: 0,
+      reserved_usd: 0,
+      remaining_budget_usd: 0.06,
+      slots: actorOpsRouteDetail.slots.map((slot, index) => ({
+        slot: slot.slot,
+        revision_id: slot.revision_id,
+        status: 'pending',
+        can_canary: index === 0,
+        last_canary_at: null,
+      })),
+    }
     else if (url.pathname === '/api/admin/apify-discovery-settings') data = {
       schema_version: 4,
       generation: 1,
@@ -941,6 +1010,252 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
     youtubeCreatePayloads: () => youtubeCreatePayloads,
     actorCanaryPayloads: () => actorCanaryPayloads,
   }
+}
+
+async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'complete_third' | 'upgrade_legacy') {
+  let phase: 'selection' | 'activation' | 'complete' = 'selection'
+  let paidApprovals = 0
+  let applies = 0
+  const revision = (id: string, publisher: string, lifecycle: string, publicName: string) => ({
+    revision_id: `revision-${id}`,
+    actor_id: `${publisher}/${id}`,
+    actor_public_name: publicName,
+    publisher,
+    build_id: `build-${id}`,
+    build_number: `2026.08.${id}`,
+    manifest_hash: id.padEnd(64, id[0] || 'a').slice(0, 64),
+    lifecycle,
+    last_charge_usd: lifecycle === 'static_valid' ? null : 0.01,
+    avg_charge_24h_usd: lifecycle === 'static_valid' ? null : 0.01,
+    last_canary_at: lifecycle === 'static_valid' ? null : '2026-08-09T08:00:00Z',
+    last_canary_status: lifecycle === 'static_valid' ? null : 'valid_nonempty',
+    can_canary: lifecycle === 'static_valid',
+    can_activate: lifecycle !== 'static_valid',
+  })
+  const exactPrimary = revision('primary', 'publisher-a', 'certified', 'Exact Primary')
+  const exactBackup = revision('backup-1', 'publisher-b', 'certified', 'Exact Backup')
+  const third = revision('backup-2', 'publisher-c', 'static_valid', 'Exact Backup 2')
+  const legacyPrimary = revision('legacy-primary', 'builtin-a', 'legacy_builtin', 'Legacy Primary')
+  const legacyBackup = revision('legacy-backup', 'builtin-b', 'legacy_builtin', 'Legacy Backup')
+  const legacyBackup2 = revision('legacy-backup-2', 'builtin-a', 'legacy_builtin', 'Legacy Backup 2')
+  const initialPrimary = revision('initial-primary', 'publisher-new-a', 'static_valid', 'Selected Primary')
+  const initialBackup = revision('initial-backup', 'publisher-new-b', 'static_valid', 'Selected Backup 1')
+  const initialBackup2 = revision('initial-backup-2', 'publisher-new-a', 'static_valid', 'Selected Backup 2')
+  const replacementPrimary = revision('replacement-primary', 'publisher-new-a', 'static_valid', 'New Exact Primary')
+  const replacementBackup = revision('replacement-backup', 'publisher-new-b', 'static_valid', 'New Exact Backup')
+  const replacementBackup2 = revision('replacement-backup-2', 'publisher-new-a', 'static_valid', 'New Exact Backup 2')
+  const selectedRevisions = goal === 'complete_third'
+    ? [third]
+    : goal === 'upgrade_legacy'
+      ? [replacementPrimary, replacementBackup, replacementBackup2]
+      : [initialPrimary, initialBackup, initialBackup2]
+  const planItems = selectedRevisions.map((item, index) => ({
+    ordinal: index + 1,
+    candidate_id: `candidate-e2e-${index + 1}`,
+    revision_id: item.revision_id,
+    actor_id: item.actor_id,
+    actor_public_name: item.actor_public_name,
+    publisher: item.publisher,
+    build_id: item.build_id,
+    build_number: item.build_number,
+    lifecycle: item.lifecycle,
+    authorized_cap_usd: 0.02,
+  }))
+
+  const currentDetail = () => {
+    const applied = phase === 'complete'
+    const baseRevisions = goal === 'complete_third'
+      ? [exactPrimary, exactBackup]
+      : goal === 'upgrade_legacy'
+        ? [legacyPrimary, legacyBackup, legacyBackup2]
+        : []
+    const appliedRevisions = goal === 'complete_third'
+      ? [exactPrimary, exactBackup, { ...third, lifecycle: 'probationary', can_canary: false, can_activate: true }]
+      : selectedRevisions.map((item) => ({ ...item, lifecycle: 'probationary', can_canary: false, can_activate: true }))
+    const active = applied ? appliedRevisions : baseRevisions
+    const workflowKind = applied
+      ? 'probation_observing'
+      : `${goal === 'complete_third' ? 'backup_2' : goal === 'upgrade_legacy' ? 'legacy' : 'setup'}_${phase === 'selection' ? 'candidate_selection_required' : 'activation_approval_required'}`
+    return {
+      route_id: 'route-x-profile',
+      route_key: 'x/profile',
+      platform: 'x',
+      target_type: 'profile',
+      capability: 'items',
+      mode: 'primary',
+      generation: applied ? 13 : 12,
+      support_status: applied || goal === 'upgrade_legacy' ? 'supported' : 'degraded',
+      runtime_status: 'ready',
+      runnable_slots: active.length,
+      required_slots: 3,
+      min_runtime_healthy: 2,
+      publisher_count: new Set(active.map((item) => item.publisher)).size,
+      per_run_cap_usd: 0.02,
+      discovery_run_id: 'run-e2e',
+      blocked_reason: null,
+      updated_at: '2026-08-09T08:00:00Z',
+      workflow: {
+        kind: workflowKind,
+        goal: applied ? null : goal,
+        run_id: 'run-e2e',
+        stage_id: phase === 'activation' ? 'stage-e2e' : null,
+        plan_hash: phase === 'activation' ? 'plan-e2e' : null,
+        progress: {},
+        blockers: [],
+      },
+      slots: [
+        { slot: 'primary', revision_id: active[0]?.revision_id ?? null, runnable: Boolean(active[0]), revision: active[0] ?? null },
+        { slot: 'backup_1', revision_id: active[1]?.revision_id ?? null, runnable: Boolean(active[1]), revision: active[1] ?? null },
+        { slot: 'backup_2', revision_id: active[2]?.revision_id ?? null, runnable: Boolean(active[2]), revision: active[2] ?? null },
+      ],
+      revisions: [...baseRevisions, ...selectedRevisions],
+      source_validations: [],
+      source_validation_summary: { ready: 0, pending: 0, failed: 0 },
+      replacement_needed: goal === 'upgrade_legacy' && !applied,
+    }
+  }
+  const currentRoutes = () => {
+    const detail = currentDetail()
+    return {
+      schema_version: 1,
+      generation: 22,
+      support_profiles: [{ id: 'x/profile/items', route_key: 'x/profile', platform: 'x', target_type: 'profile', capability: 'items', mode: 'primary', label: 'X Profile' }],
+      routes: [{
+        route_id: detail.route_id,
+        route_key: detail.route_key,
+        platform: detail.platform,
+        target_type: detail.target_type,
+        capability: detail.capability,
+        mode: detail.mode,
+        generation: detail.generation,
+        support_status: detail.support_status,
+        runtime_status: detail.runtime_status,
+        runnable_slots: detail.runnable_slots,
+        required_slots: detail.required_slots,
+        min_runtime_healthy: detail.min_runtime_healthy,
+        publisher_count: detail.publisher_count,
+        per_run_cap_usd: detail.per_run_cap_usd,
+        discovery_run_id: detail.discovery_run_id,
+        blocked_reason: detail.blocked_reason,
+        updated_at: detail.updated_at,
+        workflow: detail.workflow,
+      }],
+    }
+  }
+  const plan = {
+    schema_version: 3,
+    goal,
+    selection_mode: 'manual',
+    target_slot_count: 3,
+    run_id: 'run-e2e',
+    route_id: 'route-x-profile',
+    route_key: 'x/profile',
+    platform: 'x',
+    target_type: 'profile',
+    capability: 'items',
+    mode: 'primary',
+    generation: 12,
+    status: 'ready',
+    ready: true,
+    activation_ready: false,
+    plan_hash: 'plan-e2e',
+    max_candidates: planItems.length,
+    max_total_charge_usd: planItems.length * 0.02,
+    per_candidate_cap_usd: 0.02,
+    successful_actor_count: goal === 'complete_third' ? 2 : 0,
+    successful_publisher_count: goal === 'complete_third' ? 2 : 0,
+    attempts_used: 0,
+    attempts_remaining: 5,
+    budget_remaining_usd: 0.1,
+    base_pool_hash: 'base-pool-e2e',
+    required_success_count: planItems.length,
+    route_validation_cap_usd: planItems.length * 0.02,
+    source_validation_cap_usd: 0,
+    source_count: 0,
+    source_validation_count: 0,
+    items: planItems,
+  }
+  const batch = () => ({
+    schema_version: 2,
+    batch_id: 'batch-e2e',
+    route_id: 'route-x-profile',
+    discovery_run_id: 'run-e2e',
+    approved_generation: 12,
+    plan_hash: 'plan-e2e',
+    max_candidates: planItems.length,
+    max_total_charge_usd: plan.max_total_charge_usd,
+    per_candidate_cap_usd: 0.02,
+    goal,
+    pool_stage_id: 'stage-e2e',
+    status: 'completed',
+    planned_count: planItems.length,
+    success_count: planItems.length,
+    publisher_count: planItems.length,
+    actual_cost_usd: plan.max_total_charge_usd,
+    cost_final: true,
+    stop_reason: 'goal_reached',
+    created_at: '2026-08-09T08:00:00Z',
+    completed_at: '2026-08-09T08:01:00Z',
+    updated_at: '2026-08-09T08:01:00Z',
+    items: planItems.map((item) => ({ ...item, status: 'succeeded', actual_cost_usd: 0.02, cost_final: true })),
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/admin\/apify-/, async (route) => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    let data: unknown
+    if (url.pathname === '/api/admin/apify-routes' && method === 'GET') data = currentRoutes()
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile' && method === 'GET') data = currentDetail()
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/pool-candidates' && method === 'GET') {
+      data = {
+        schema_version: 1,
+        route_id: 'route-x-profile',
+        generation: 12,
+        goal,
+        run_id: 'run-e2e',
+        required_selection_count: planItems.length,
+        blockers: [],
+        candidates: planItems.map((item) => ({
+          candidate_id: item.candidate_id,
+          actor_public_name: item.actor_public_name,
+          publisher: item.publisher,
+          pricing: {
+            model: 'PAY_PER_EVENT',
+            billing_unit: 'event',
+            unit_price_min_usd: 0.001,
+            unit_price_max_usd: 0.001,
+            minimum_charge_usd: null,
+            minimum_run_cap_usd: 0.02,
+          },
+          max_validation_charge_usd: 0.02,
+          selectable: true,
+          unavailable_reason: null,
+        })),
+      }
+    }
+    else if (url.pathname === '/api/admin/apify-support-checks' && method === 'POST') {
+      data = { schema_version: 1, kind: 'discovery', generation: 23, route_generation: 12, discovery_run_id: 'run-e2e' }
+    }
+    else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-plan' && method === 'POST') data = plan
+    else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-batches' && method === 'POST') {
+      paidApprovals += 1
+      phase = 'activation'
+      data = { schema_version: 2, batch: batch(), job: { id: 'job-e2e', status: 'queued' } }
+    }
+    else if (url.pathname === '/api/admin/apify-canary-batches/batch-e2e' && method === 'GET') data = batch()
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/active-pool/activate' && method === 'POST') {
+      applies += 1
+      phase = 'complete'
+      data = currentDetail()
+    }
+    else {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
+  })
+
+  return { paidApprovals: () => paidApprovals, applies: () => applies }
 }
 
 async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable = false } = {}) {
@@ -1297,36 +1612,155 @@ test('unified notification services stay bounded at 390, 580, 768 and 1440 pixel
   }
 })
 
-test('ActorOps route control plane stays safe and bounded across settings layouts', async ({ page }, testInfo) => {
+test('ActorOps route control plane stays safe and bounded across settings layouts', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await mockAdminApi(page, true, { includeXProfileSource: true })
   await page.goto('/settings/legacy#settings-actorops')
 
-  await expect(page).toHaveURL(/\/settings\/actorops$/)
+  await expect(page).toHaveURL(/\/settings\/actorops\?route=x%2Fprofile%2Fitems&tab=pool$/)
   await expect(page.getByRole('heading', { name: 'ActorOps', exact: true, level: 1 })).toBeVisible()
-  await expect(page.getByText('ActorOps 路由控制面', { exact: true })).toBeVisible()
-  if (testInfo.project.name === 'mobile') {
-    await expect(page.getByLabel('ActorOps 路由列表（移动端）')).toBeVisible()
-  } else {
-    await expect(page.getByRole('grid', { name: 'ActorOps 路由列表' })).toBeVisible()
-  }
-  await expect(page.getByRole('list', { name: '当前 Actor 主备方案' })).toBeVisible()
-  await expect(page.getByText('Actor Discovery AI 设置', { exact: true })).toBeVisible()
-  await expect(page.getByText('故障告警', { exact: true })).toBeVisible()
-  await expect(page.getByRole('switch', { name: '启用 Apify 运行告警' })).toBeVisible()
+  const routeSelector = page.getByRole('button', { name: /X 用户动态.*抓取类型/ })
+  await expect(routeSelector).toBeVisible()
+  await routeSelector.click()
+  await expect(page.getByRole('option', { name: /X 用户动态/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /Instagram 主页内容/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /YouTube 频道视频/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('tab', { name: '主备配置' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /来源启用/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '运行与告警' })).toBeVisible()
+  await expect(page.getByRole('list', { name: '当前 Actor 主备槽位' })).toBeVisible()
+  await expect(page.getByTestId('actorops-next-action')).toContainText('有 1 个来源等待启用')
+  await expect(page.getByText('ActorOps 路由控制面', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('grid', { name: 'ActorOps 路由列表' })).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: /来源 ID/ })).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText('activation_ready')
+  await expect(page.locator('body')).not.toContainText('legacy_builtin')
+  await expect(page.locator('body')).not.toContainText('probationary')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
-  if (testInfo.project.name !== 'mobile') {
-    const actorTableScroll = page.getByTestId('actor-ops-route-scroll')
-    expect(await actorTableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
-  } else {
-    await expect(page.getByTestId('actor-ops-route-scroll')).toBeHidden()
-  }
+  await page.getByRole('tab', { name: '运行与告警' }).click()
+  await expect(page).toHaveURL(/tab=operations/)
+  await expect(page.getByText('运行告警', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '编辑告警' })).toBeVisible()
+  await expect(page.getByText('最近事件', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '编辑告警' }).click()
+  await expect(page.getByRole('dialog', { name: '编辑运行告警' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '编辑告警' })).toBeFocused()
+
+  await page.getByRole('tab', { name: /来源启用/ }).click()
+  await expect(page.getByText('X · @thsottiaux', { exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: /来源 ID/ })).toHaveCount(0)
+  await page.getByRole('button', { name: '继续验证' }).click()
+  await expect(page).toHaveURL(/tab=sources&source=source-x-profile/)
+  await expect(page.getByRole('list', { name: '来源主备验证槽位' })).toBeVisible()
   expect(await page.locator('body').innerText()).not.toContain('not-rendered-by-actor-settings')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
+for (const guidedFlow of [{
+  goal: 'initial_pool' as const,
+  select: '选择 Actor',
+  selectionHeading: '选择 3 个 Actor',
+  candidateNames: ['Selected Primary', 'Selected Backup 1', 'Selected Backup 2'],
+  activation: '查看并确认启用',
+  activationHeading: '确认启用 Actor 主备',
+  oldNames: [],
+  finalNames: ['Selected Primary', 'Selected Backup 1', 'Selected Backup 2'],
+}, {
+  goal: 'complete_third' as const,
+  select: '补充备用 Actor',
+  selectionHeading: '选择第三个备用 Actor',
+  candidateNames: ['Exact Backup 2'],
+  activation: '查看并确认补位生效',
+  activationHeading: '确认补齐备用 2',
+  oldNames: ['Exact Primary', 'Exact Backup'],
+  finalNames: ['Exact Primary', 'Exact Backup', 'Exact Backup 2'],
+}, {
+  goal: 'upgrade_legacy' as const,
+  select: '选择新版 Actor',
+  selectionHeading: '选择 3 个新版 Actor',
+  candidateNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
+  activation: '查看并确认切换',
+  activationHeading: '确认切换到新版主备',
+  oldNames: ['Legacy Primary', 'Legacy Backup', 'Legacy Backup 2'],
+  finalNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
+}]) {
+  test(`ActorOps ${guidedFlow.goal} uses manual candidates and applies an atomic 3/3 pool`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === 'tablet', 'The complete manual flows run at desktop and mobile; tablet is covered by layout and visual acceptance.')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await mockAdminApi(page, true, { includeXProfileSource: true })
+    const state = await mockGuidedActorOpsFlow(page, guidedFlow.goal)
+    await page.goto('/settings/actorops?route=x%2Fprofile%2Fitems&tab=pool')
+
+    for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: guidedFlow.select }).click()
+    const selectionDialog = page.getByRole('dialog', { name: guidedFlow.selectionHeading })
+    await expect(selectionDialog).toBeVisible()
+    for (const name of guidedFlow.candidateNames) {
+      await selectionDialog.getByText(name, { exact: true }).click()
+    }
+    await selectionDialog.getByRole('button', { name: '继续' }).click()
+    const paidDialog = page.getByRole('dialog', { name: '验证所选 Actor' })
+    await expect(paidDialog).toBeVisible()
+    await expect(paidDialog).toContainText('当前配置不会改变')
+    await expect(page.getByRole('textbox', { name: /Actor ID/ })).toHaveCount(0)
+    await expect(page.locator('body')).not.toContainText('build-replacement')
+    expect(state.paidApprovals()).toBe(0)
+    await paidDialog.getByRole('button', { name: /确认验证（最高/ }).click()
+    await expect.poll(state.paidApprovals).toBe(1)
+
+    await expect(page.getByRole('button', { name: guidedFlow.activation })).toBeVisible()
+    for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: guidedFlow.activation }).click()
+    const activationDialog = page.getByRole('dialog', { name: guidedFlow.activationHeading })
+    await expect(activationDialog).toBeVisible()
+    await expect(activationDialog).toContainText('无停机')
+    expect(state.applies()).toBe(0)
+    await activationDialog.getByRole('button', { name: '确认生效' }).click()
+    await expect.poll(state.applies).toBe(1)
+
+    for (const name of guidedFlow.finalNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
+    await expect(page.getByText('3/3 路可用', { exact: false }).first()).toBeVisible()
+    if (guidedFlow.goal === 'upgrade_legacy') {
+      for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toHaveCount(0)
+    } else {
+      for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const accessibility = await new AxeBuilder({ page }).analyze()
+    expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  })
+}
+
+test('ActorOps guided pool matches light and dark visual baselines at every acceptance viewport', async ({ page }) => {
+  await mockAdminApi(page, true, { includeXProfileSource: true })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/settings/actorops?route=x%2Fprofile%2Fitems&tab=pool')
+
+  for (const colorMode of ['light', 'dark'] as const) {
+    await page.evaluate((mode) => {
+      window.localStorage.setItem('inteliscope.ui.theme.v1', JSON.stringify({
+        themeName: 'graphite-purple',
+        colorMode: mode,
+      }))
+    }, colorMode)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorMode)
+    await expect(page.getByRole('list', { name: '当前 Actor 主备槽位' })).toBeVisible()
+    await expect(page.getByTestId('actorops-next-action')).toContainText('有 1 个来源等待启用')
+    await page.evaluate(async () => {
+      await document.fonts.ready
+    })
+    await expect(page).toHaveScreenshot(`actorops-guided-${colorMode}.png`, {
+      animations: 'disabled',
+      caret: 'hide',
+    })
+  }
 })
 
 test('account and documentation menus open upward and expose manual, changelog, and Release destinations', async ({ page }, testInfo) => {

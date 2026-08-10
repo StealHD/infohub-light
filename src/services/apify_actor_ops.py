@@ -18,7 +18,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
-from typing import Any, Awaitable, Callable, Generic, Iterator, Literal, Mapping, TypeVar
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Generic,
+    Iterator,
+    Literal,
+    Mapping,
+    Sequence,
+    TypeVar,
+)
 
 from ..apify_actor_identity import source_target_fingerprint
 from ..storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
@@ -72,6 +82,14 @@ ROUTE_CANARY_BUDGET_USD = 0.10
 ROUTE_CANARY_ATTEMPT_LIMIT = 5
 BATCH_CANARY_MAX_CANDIDATES = 3
 BATCH_CANARY_MAX_TOTAL_USD = 0.06
+POOL_STAGE_MAX_TOTAL_USD = 6.06
+POOL_STAGE_MAX_SOURCES = 100
+VALIDATION_TIMEOUT_SECONDS_DEFAULT = 300
+VALIDATION_TIMEOUT_SECONDS_MIN = 180
+VALIDATION_TIMEOUT_SECONDS_MAX = 900
+VALIDATION_SAMPLE_ITEMS_ALLOWED = frozenset({1, 3, 5})
+VALIDATION_MAX_CHARGE_USD_DEFAULT = 0.02
+VALIDATION_MAX_CHARGE_USD_LIMIT = 0.10
 SOURCE_CANARY_BUDGET_USD = 0.06
 MEMBER_SUPPORT_CHECKS_PER_DAY = 10
 MEMBER_PENDING_DISCOVERY_ROUTES = 20
@@ -101,6 +119,7 @@ _PLATFORM_OUTPUT_HOSTS = {
 }
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 _CAPABILITY_PART_RE = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
+_SAFE_ACTOROPS_ERROR_CODE_RE = re.compile(r"^[a-z0-9_]{1,128}$")
 _ACTOR_ID_RE = re.compile(
     r"^(?:[A-Za-z0-9]{8,64}|"
     r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}/"
@@ -108,6 +127,117 @@ _ACTOR_ID_RE = re.compile(
 )
 
 T = TypeVar("T")
+
+
+def validation_profile_hash(
+    *,
+    timeout_seconds: int,
+    sample_items: int,
+    max_charge_usd: float,
+) -> str:
+    """Hash the only three browser-adjustable paid validation controls."""
+
+    payload = {
+        "timeout_seconds": int(timeout_seconds),
+        "sample_items": int(sample_items),
+        "max_charge_usd": round(float(max_charge_usd), 6),
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _manifest_supports_sample_items(manifest_json: Any) -> bool:
+    manifest = _safe_json(manifest_json, {})
+
+    def contains_runtime_max_items(value: Any) -> bool:
+        if isinstance(value, dict):
+            if value.get("$ref") == "runtime.max_items":
+                return True
+            return any(contains_runtime_max_items(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_runtime_max_items(item) for item in value)
+        return False
+
+    return contains_runtime_max_items(manifest.get("input", {}))
+
+
+def _validation_options_hash(
+    *,
+    route_id: str,
+    generation: int,
+    candidate_id: str,
+    revision_id: str,
+    build_id: str,
+    build_number: str,
+    manifest_hash: str,
+    supports_sample_items: bool,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "route_id": route_id,
+                "generation": int(generation),
+                "candidate_id": candidate_id,
+                "revision_id": revision_id,
+                "build_id": build_id,
+                "build_number": build_number,
+                "manifest_hash": manifest_hash,
+                "supports_sample_items": bool(supports_sample_items),
+                "timeout_seconds": [
+                    VALIDATION_TIMEOUT_SECONDS_MIN,
+                    VALIDATION_TIMEOUT_SECONDS_MAX,
+                ],
+                "sample_items": [1, 3, 5] if supports_sample_items else [1],
+                "max_charge_usd": [
+                    VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                    VALIDATION_MAX_CHARGE_USD_LIMIT,
+                ],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def validation_failure_fingerprint(
+    *,
+    route_id: str,
+    candidate_id: str,
+    revision_id: str,
+    build_id: str,
+    build_number: str,
+    manifest_hash: str,
+    target_fingerprint: str,
+    kind: str,
+    profile_hash: str,
+) -> str:
+    """Identify an unchanged paid attempt without persisting raw input."""
+
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "route_id": route_id,
+                "candidate_id": candidate_id,
+                "revision_id": revision_id,
+                "build_id": build_id,
+                "build_number": build_number,
+                "manifest_hash": manifest_hash,
+                "target_fingerprint": target_fingerprint,
+                "kind": kind,
+                "profile_hash": profile_hash,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 class ActorOpsError(RuntimeError):
@@ -480,8 +610,8 @@ class ApifyActorOpsService:
                         for row in selected
                     )
                     score: tuple[Any, ...] = (
-                        -current_matches,
                         lifecycle_cost,
+                        -current_matches,
                         sum(int(row["position"] or 0) for row in selected),
                         *(row_order[str(row["revision_id"])] for row in selected),
                         *(str(row["revision_id"]) for row in selected),
@@ -495,40 +625,45 @@ class ApifyActorOpsService:
         expedited_best: (
             tuple[tuple[Any, ...], tuple[sqlite3.Row, sqlite3.Row]] | None
         ) = None
-        if best is None:
-            for primary in expedited_rows:
-                for backup_1 in expedited_rows:
-                    selected_pair = (primary, backup_1)
-                    if len({str(row["actor_id"]) for row in selected_pair}) != 2:
-                        continue
-                    if len(
-                        {
-                            str(row["publisher"]).casefold()
-                            for row in selected_pair
-                        }
-                    ) < int(route["min_publishers"]):
-                        continue
-                    selected_by_slot = {
-                        "primary": primary,
-                        "backup_1": backup_1,
-                    }
-                    current_matches = sum(
-                        current.get(slot_name) == str(row["revision_id"])
-                        for slot_name, row in selected_by_slot.items()
-                    ) + int(not current.get("backup_2"))
-                    lifecycle_cost = sum(
-                        {"certified": 0, "probationary": 1}[str(row["lifecycle"])]
+        for primary in expedited_rows:
+            for backup_1 in expedited_rows:
+                selected_pair = (primary, backup_1)
+                if len({str(row["actor_id"]) for row in selected_pair}) != 2:
+                    continue
+                if len(
+                    {
+                        str(row["publisher"]).casefold()
                         for row in selected_pair
-                    )
-                    score = (
-                        -current_matches,
-                        lifecycle_cost,
-                        sum(int(row["position"] or 0) for row in selected_pair),
-                        *(row_order[str(row["revision_id"])] for row in selected_pair),
-                        *(str(row["revision_id"]) for row in selected_pair),
-                    )
-                    if expedited_best is None or score < expedited_best[0]:
-                        expedited_best = (score, selected_pair)
+                    }
+                ) < int(route["min_publishers"]):
+                    continue
+                selected_by_slot = {
+                    "primary": primary,
+                    "backup_1": backup_1,
+                }
+                current_matches = sum(
+                    current.get(slot_name) == str(row["revision_id"])
+                    for slot_name, row in selected_by_slot.items()
+                ) + int(not current.get("backup_2"))
+                lifecycle_cost = sum(
+                    {"certified": 0, "probationary": 1}[str(row["lifecycle"])]
+                    for row in selected_pair
+                )
+                score = (
+                    lifecycle_cost,
+                    -current_matches,
+                    sum(int(row["position"] or 0) for row in selected_pair),
+                    *(row_order[str(row["revision_id"])] for row in selected_pair),
+                    *(str(row["revision_id"]) for row in selected_pair),
+                )
+                if expedited_best is None or score < expedited_best[0]:
+                    expedited_best = (score, selected_pair)
+        if (
+            best is not None
+            and expedited_best is not None
+            and any(str(row["lifecycle"]) == "legacy_builtin" for row in best[1])
+        ):
+            best = None
 
         primary_actor_count = len(
             {str(row["actor_id"]) for row in primary_rows}
@@ -1038,6 +1173,20 @@ class ApifyActorOpsService:
                     status_code=422,
                 )
             _assert_manifest_route_hosts(parsed, str(candidate["platform"]))
+            if lifecycle == "static_valid" and discovery_run_id is not None:
+                # A legacy seed can carry the historical ``canary_required``
+                # marker on its Candidate.  A newly fetched exact Build and
+                # validated Manifest supersede that placeholder evidence while
+                # leaving the active legacy Revision untouched until apply.
+                connection.execute(
+                    """
+                    UPDATE apify_actor_candidates
+                    SET last_error_code = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND id = ?
+                      AND last_error_code = 'canary_required'
+                    """,
+                    (now, self.workspace_id, candidate_id),
+                )
             if discovery_run_id is not None:
                 discovery = connection.execute(
                     """
@@ -1522,6 +1671,73 @@ class ApifyActorOpsService:
             "first_success": first_reference_success,
         }
 
+    def certification_progress(self, revision_id: str) -> dict[str, Any]:
+        connection = self.store.connect()
+        revision = connection.execute(
+            """
+            SELECT lifecycle FROM apify_actor_adapter_revisions
+            WHERE workspace_id = ? AND revision_id = ?
+            """,
+            (self.workspace_id, revision_id),
+        ).fetchone()
+        if revision is None:
+            raise ActorOpsError(
+                "apify_actor_revision_not_found",
+                "Actor adapter revision was not found",
+                status_code=404,
+            )
+        evidence = self._certification_evidence(connection, revision_id)
+        first_success = evidence["first_success"]
+        eligible_at = (
+            first_success + timedelta(hours=48)
+            if first_success is not None
+            else None
+        )
+        now = _as_utc(self._now())
+        required_references = 1 if bool(evidence["active_as_backup_2"]) else 2
+        blockers: list[str] = []
+        if int(evidence["distinct_identities"]) < 2:
+            blockers.append("independent_identities_incomplete")
+        if int(evidence["distinct_reference_targets"]) < required_references:
+            blockers.append("reference_targets_incomplete")
+        if int(evidence["considered"]) < 2:
+            blockers.append("valid_samples_incomplete")
+        if float(evidence["success_rate"]) < 0.95:
+            blockers.append("success_rate_below_threshold")
+        if eligible_at is None or eligible_at > now:
+            blockers.append("observation_window_incomplete")
+        return {
+            "auto_promotes": True,
+            "lifecycle": str(revision["lifecycle"]),
+            "success_identities": {
+                "current": int(evidence["distinct_identities"]),
+                "required": 2,
+            },
+            "reference_targets": {
+                "current": int(evidence["distinct_reference_targets"]),
+                "required": required_references,
+            },
+            "valid_samples": {
+                "current": int(evidence["considered"]),
+                "successful": int(evidence["successes"]),
+                "required": 2,
+            },
+            "success_rate": {
+                "current": round(float(evidence["success_rate"]), 6),
+                "required": 0.95,
+            },
+            "observation_started_at": (
+                first_success.isoformat() if first_success is not None else None
+            ),
+            "eligible_at": eligible_at.isoformat() if eligible_at is not None else None,
+            "remaining_seconds": (
+                max(int((eligible_at - now).total_seconds()), 0)
+                if eligible_at is not None
+                else None
+            ),
+            "blockers": blockers,
+        }
+
     def promote_eligible_revisions(
         self,
         *,
@@ -1670,6 +1886,7 @@ class ApifyActorOpsService:
         expected_generation: int,
         rollback_revision_id: str | None = None,
         per_run_cap_usd: float | None = None,
+        allow_probationary_primary: bool = False,
     ) -> dict[str, Any]:
         if set(slots) != set(SLOT_NAMES):
             raise ActorOpsError(
@@ -1866,7 +2083,7 @@ class ApifyActorOpsService:
                     lifecycle = prior_lifecycle
                 allowed_lifecycle = (
                     {"certified", "probationary"}
-                    if expedited
+                    if expedited or allow_probationary_primary
                     else {"certified", "legacy_builtin"}
                     if slot_name in {"primary", "backup_1"}
                     else {"certified", "probationary", "legacy_builtin"}
@@ -2898,6 +3115,31 @@ class ApifyActorOpsService:
             )
         return dict(row)
 
+    def legacy_actor_ids(self, route_id: str) -> tuple[str, ...]:
+        """Return active compatibility Actor slugs for a server-driven upgrade.
+
+        The browser never supplies these identifiers.  Discovery uses them only
+        as preferred public Store candidates and still has to freeze a new exact
+        Build and Manifest before any paid validation can be approved.
+        """
+
+        self._require_route(self.store.connect(), route_id)
+        rows = self.store.connect().execute(
+            """
+            SELECT revision.actor_id
+            FROM apify_route_active_slots AS slot
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = slot.workspace_id
+             AND revision.revision_id = slot.revision_id
+            WHERE slot.workspace_id = ? AND slot.route_id = ?
+              AND revision.lifecycle = 'legacy_builtin'
+            ORDER BY CASE slot.slot_name
+                WHEN 'primary' THEN 1 WHEN 'backup_1' THEN 2 ELSE 3 END
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        return tuple(str(row["actor_id"]) for row in rows)
+
     def assert_source_target(
         self,
         route_id: str,
@@ -2932,7 +3174,1244 @@ class ApifyActorOpsService:
                 status_code=412,
             )
 
+    def list_pool_candidates(
+        self,
+        route_id: str,
+        *,
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy"
+        ],
+    ) -> dict[str, Any]:
+        """Return safe, current-run candidates for manual pool selection."""
+
+        connection = self.store.connect()
+        route = self._require_route(connection, route_id)
+        latest = connection.execute(
+            """
+            SELECT run_id, stage
+            FROM apify_actor_discovery_runs
+            WHERE workspace_id = ? AND route_id = ?
+              AND COALESCE(error_code, '') != 'superseded_duplicate_refresh'
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, route_id),
+        ).fetchone()
+        required_count = 1 if goal == "complete_third" else 3
+        if latest is None:
+            return {
+                "schema_version": 1,
+                "route_id": route_id,
+                "generation": int(route["generation"]),
+                "goal": goal,
+                "run_id": None,
+                "required_selection_count": required_count,
+                "candidates": [],
+                "blockers": ["candidate_refresh_required"],
+            }
+        active_rows = connection.execute(
+            """
+            SELECT slot.slot_name, revision.candidate_id,
+                   revision.actor_id, revision.lifecycle,
+                   revision.publisher, revision.pricing_json,
+                   candidate.display_name
+            FROM apify_route_active_slots AS slot
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = slot.workspace_id
+             AND revision.revision_id = slot.revision_id
+            LEFT JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE slot.workspace_id = ? AND slot.route_id = ?
+              AND slot.revision_id IS NOT NULL
+            ORDER BY CASE slot.slot_name
+                WHEN 'primary' THEN 1 WHEN 'backup_1' THEN 2 ELSE 3 END
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        active_actor_lifecycles = {
+            str(row["actor_id"]): str(row["lifecycle"])
+            for row in active_rows
+        }
+        active_actor_ids = set(active_actor_lifecycles)
+        rows = connection.execute(
+            """
+            SELECT candidate.id AS candidate_id, candidate.display_name,
+                   candidate.state AS candidate_state,
+                   candidate.last_error_code AS candidate_error_code,
+                   candidate.position, revision.revision_id,
+                   revision.actor_id, revision.publisher,
+                   revision.build_id, revision.build_number,
+                   revision.manifest_hash, revision.manifest_json,
+                   revision.pricing_json,
+                   revision.lifecycle, revision.created_at,
+                   EXISTS (
+                       SELECT 1 FROM apify_actor_validations AS validation
+                       WHERE validation.workspace_id = revision.workspace_id
+                         AND validation.revision_id = revision.revision_id
+                         AND validation.kind = 'route_reference'
+                         AND validation.status IN ('queued', 'running')
+                   ) AS validation_in_flight
+            FROM apify_actor_discovery_run_revisions AS association
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = association.workspace_id
+             AND revision.revision_id = association.revision_id
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE association.workspace_id = ?
+              AND association.run_id = ?
+              AND candidate.route_key = ?
+            ORDER BY candidate.position, revision.created_at DESC,
+                     revision.revision_id DESC
+            """,
+            (
+                self.workspace_id,
+                str(latest["run_id"]),
+                str(route["route_key"]),
+            ),
+        ).fetchall()
+        candidates: list[dict[str, Any]] = []
+        seen_candidates: set[str] = set()
+        seen_actors: set[str] = set()
+        for row in rows:
+            candidate_id = str(row["candidate_id"])
+            actor_id = str(row["actor_id"])
+            if candidate_id in seen_candidates or actor_id in seen_actors:
+                continue
+            seen_candidates.add(candidate_id)
+            seen_actors.add(actor_id)
+            unavailable_reason: str | None = None
+            existing_actor_upgrade = bool(
+                goal == "upgrade_legacy"
+                and active_actor_lifecycles.get(actor_id) == "legacy_builtin"
+                and str(row["lifecycle"]) != "legacy_builtin"
+            )
+            if actor_id in active_actor_ids and not existing_actor_upgrade:
+                unavailable_reason = "actor_already_active"
+            elif (
+                str(row["candidate_state"]) == "disabled"
+                and row["candidate_error_code"]
+            ):
+                unavailable_reason = str(row["candidate_error_code"])
+            elif str(row["lifecycle"]) not in {
+                "static_valid", "probationary", "certified"
+            }:
+                unavailable_reason = "candidate_not_validated"
+            elif (
+                not row["build_id"]
+                or not row["build_number"]
+                or not row["manifest_hash"]
+            ):
+                unavailable_reason = "candidate_exact_build_missing"
+            elif bool(row["validation_in_flight"]):
+                unavailable_reason = "candidate_validation_in_progress"
+            else:
+                unavailable_reason = self._revision_canary_block_reason(
+                    connection,
+                    route_id,
+                    str(row["revision_id"]),
+                )
+            supports_sample_items = _manifest_supports_sample_items(
+                row["manifest_json"]
+            )
+            latest_failure = connection.execute(
+                """
+                SELECT semantic_outcome, cost_usd, cost_final,
+                       validation_timeout_seconds, validation_sample_items,
+                       approved_max_cost_usd, validation_profile_hash,
+                       failure_fingerprint, duration_seconds,
+                       dataset_row_count, mapped_item_count, completed_at
+                FROM apify_actor_validations
+                WHERE workspace_id = ? AND route_id = ?
+                  AND revision_id = ?
+                  AND status = 'failed'
+                  AND failure_fingerprint IS NOT NULL
+                ORDER BY completed_at DESC, created_at DESC, validation_id DESC
+                LIMIT 1
+                """,
+                (self.workspace_id, route_id, str(row["revision_id"])),
+            ).fetchone()
+            timeout_seconds = int(
+                latest_failure["validation_timeout_seconds"]
+                if latest_failure is not None
+                else VALIDATION_TIMEOUT_SECONDS_DEFAULT
+            )
+            sample_items = int(
+                latest_failure["validation_sample_items"]
+                if latest_failure is not None
+                else 1
+            )
+            max_charge_usd = float(
+                latest_failure["approved_max_cost_usd"]
+                if latest_failure is not None
+                and latest_failure["approved_max_cost_usd"] is not None
+                else min(
+                    VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                    float(route["per_run_cap_usd"]),
+                )
+            )
+            current_profile_hash = validation_profile_hash(
+                timeout_seconds=timeout_seconds,
+                sample_items=sample_items,
+                max_charge_usd=max_charge_usd,
+            )
+            failure_summary = None
+            if latest_failure is not None:
+                code = str(latest_failure["semantic_outcome"] or "")
+                if not _SAFE_ACTOROPS_ERROR_CODE_RE.fullmatch(code):
+                    code = "apify_actor_validation_failed"
+                failure_summary = {
+                    "code": code,
+                    "duration_seconds": (
+                        int(latest_failure["duration_seconds"])
+                        if latest_failure["duration_seconds"] is not None
+                        else None
+                    ),
+                    "dataset_row_count": (
+                        int(latest_failure["dataset_row_count"])
+                        if latest_failure["dataset_row_count"] is not None
+                        else None
+                    ),
+                    "mapped_item_count": (
+                        int(latest_failure["mapped_item_count"])
+                        if latest_failure["mapped_item_count"] is not None
+                        else None
+                    ),
+                    "actual_cost_usd": (
+                        round(float(latest_failure["cost_usd"]), 6)
+                        if latest_failure["cost_usd"] is not None
+                        else None
+                    ),
+                    "cost_final": bool(latest_failure["cost_final"]),
+                    "timeout_seconds": timeout_seconds,
+                    "sample_items": sample_items,
+                    "max_charge_usd": round(max_charge_usd, 6),
+                    "profile_hash": current_profile_hash,
+                    "completed_at": str(latest_failure["completed_at"] or "")
+                    or None,
+                }
+            candidates.append(
+                {
+                    "candidate_id": candidate_id,
+                    "actor_public_name": _actor_public_name(
+                        row["display_name"],
+                        row["publisher"],
+                        row["actor_id"],
+                    ),
+                    "publisher": str(row["publisher"]),
+                    "pricing": _safe_json(row["pricing_json"], {}),
+                    "max_validation_charge_usd": VALIDATION_MAX_CHARGE_USD_LIMIT,
+                    "validation_options": {
+                        "timeout_seconds": timeout_seconds,
+                        "timeout_min_seconds": VALIDATION_TIMEOUT_SECONDS_MIN,
+                        "timeout_max_seconds": VALIDATION_TIMEOUT_SECONDS_MAX,
+                        "sample_items": sample_items,
+                        "allowed_sample_items": (
+                            [1, 3, 5] if supports_sample_items else [1]
+                        ),
+                        "max_charge_usd": round(max_charge_usd, 6),
+                        "max_charge_limit_usd": VALIDATION_MAX_CHARGE_USD_LIMIT,
+                        "supports_sample_items": supports_sample_items,
+                        "options_hash": _validation_options_hash(
+                            route_id=route_id,
+                            generation=int(route["generation"]),
+                            candidate_id=candidate_id,
+                            revision_id=str(row["revision_id"]),
+                            build_id=str(row["build_id"] or ""),
+                            build_number=str(row["build_number"] or ""),
+                            manifest_hash=str(row["manifest_hash"] or ""),
+                            supports_sample_items=supports_sample_items,
+                        ),
+                        "profile_hash": current_profile_hash,
+                    },
+                    "last_failure": failure_summary,
+                    "requires_profile_change": bool(
+                        latest_failure is not None
+                        and latest_failure["failure_fingerprint"]
+                    ),
+                    "existing_actor_upgrade": existing_actor_upgrade,
+                    "selectable": unavailable_reason is None,
+                    "unavailable_reason": unavailable_reason,
+                }
+            )
+        if goal == "upgrade_legacy":
+            discovery_running = str(latest["stage"]) in {
+                "queued", "searching", "metadata", "ranking",
+                "static_validation", "input_validation",
+            }
+            for row in active_rows:
+                if (
+                    str(row["lifecycle"]) != "legacy_builtin"
+                    or str(row["actor_id"]) in seen_actors
+                ):
+                    continue
+                candidate_id = str(row["candidate_id"] or "")
+                if not candidate_id:
+                    continue
+                candidates.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "actor_public_name": _actor_public_name(
+                            row["display_name"],
+                            row["publisher"],
+                            row["actor_id"],
+                        ),
+                        "publisher": str(row["publisher"]),
+                        "pricing": _safe_json(row["pricing_json"], {}),
+                        "max_validation_charge_usd": (
+                            VALIDATION_MAX_CHARGE_USD_LIMIT
+                        ),
+                        "validation_options": None,
+                        "last_failure": None,
+                        "requires_profile_change": False,
+                        "existing_actor_upgrade": True,
+                        "selectable": False,
+                        "unavailable_reason": (
+                            "actor_upgrade_inspection_running"
+                            if discovery_running
+                            else "actor_upgrade_revision_unavailable"
+                        ),
+                    }
+                )
+            active_candidate_order = {
+                str(row["candidate_id"]): index
+                for index, row in enumerate(active_rows)
+                if row["candidate_id"]
+            }
+            candidates.sort(
+                key=lambda item: (
+                    0 if bool(item.get("existing_actor_upgrade")) else 1,
+                    active_candidate_order.get(
+                        str(item["candidate_id"]),
+                        len(active_candidate_order),
+                    ),
+                )
+            )
+        blockers: list[str] = []
+        if sum(bool(item["selectable"]) for item in candidates) < required_count:
+            blockers.append("candidate_shortfall")
+        return {
+            "schema_version": 1,
+            "route_id": route_id,
+            "generation": int(route["generation"]),
+            "goal": goal,
+            "run_id": str(latest["run_id"]),
+            "required_selection_count": required_count,
+            "candidates": candidates,
+            "blockers": blockers,
+        }
+
     def get_canary_plan(
+        self,
+        run_id: str,
+        *,
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy"
+        ] = "initial_pool",
+        max_candidates: int = BATCH_CANARY_MAX_CANDIDATES,
+        max_total_charge_usd: float | None = None,
+        candidate_ids: Sequence[str] | None = None,
+        candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
+        target_slot_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a server-selected or administrator-selected paid plan."""
+
+        if candidate_ids is not None:
+            return self._get_pool_stage_canary_plan(
+                run_id,
+                goal=goal,
+                max_candidates=len(candidate_ids),
+                max_total_charge_usd=max_total_charge_usd,
+                candidate_ids=tuple(candidate_ids),
+                candidate_validation_profiles=candidate_validation_profiles,
+                target_slot_count=target_slot_count,
+            )
+
+        if goal == "initial_pool":
+            return self._get_initial_canary_plan(
+                run_id,
+                max_candidates=max_candidates,
+                max_total_charge_usd=(
+                    BATCH_CANARY_MAX_TOTAL_USD
+                    if max_total_charge_usd is None
+                    else max_total_charge_usd
+                ),
+            )
+        if goal not in {
+            "initial_pool", "complete_third", "upgrade_legacy"
+        }:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_goal_invalid",
+                "Actor pool workflow goal is invalid",
+                status_code=422,
+            )
+        return self._get_pool_stage_canary_plan(
+            run_id,
+            goal=goal,
+            max_candidates=max_candidates,
+            max_total_charge_usd=max_total_charge_usd,
+            candidate_ids=None,
+            candidate_validation_profiles=candidate_validation_profiles,
+            target_slot_count=target_slot_count,
+        )
+
+    def _get_pool_stage_canary_plan(
+        self,
+        run_id: str,
+        *,
+        goal: Literal["initial_pool", "complete_third", "upgrade_legacy"],
+        max_candidates: int,
+        max_total_charge_usd: float | None,
+        candidate_ids: tuple[str, ...] | None = None,
+        candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
+        target_slot_count: int | None = None,
+    ) -> dict[str, Any]:
+        if isinstance(max_candidates, bool) or not 1 <= int(max_candidates) <= 3:
+            raise ActorOpsError(
+                "apify_actor_canary_batch_limit_invalid",
+                "A staged Canary batch may contain one to three candidates",
+                status_code=422,
+            )
+        connection = self.store.connect()
+        run = connection.execute(
+            """
+            SELECT run.*, profile.route_key, profile.platform,
+                   profile.target_type, profile.capability, profile.mode,
+                   profile.generation, profile.per_run_cap_usd,
+                   profile.min_publishers
+            FROM apify_actor_discovery_runs AS run
+            JOIN apify_actor_route_profiles AS profile
+              ON profile.workspace_id = run.workspace_id
+             AND profile.route_id = run.route_id
+            WHERE run.workspace_id = ? AND run.run_id = ?
+            """,
+            (self.workspace_id, run_id),
+        ).fetchone()
+        if run is None:
+            raise ActorOpsError(
+                "apify_actor_discovery_run_not_found",
+                "Actor discovery run was not found",
+                status_code=404,
+            )
+        if str(run["stage"]) not in {
+            "awaiting_canary_approval",
+            "canary_exhausted",
+            "candidate_shortfall",
+            "activation_ready",
+            "completed",
+        }:
+            raise ActorOpsError(
+                "apify_actor_discovery_not_awaiting_approval",
+                "Actor discovery run is not ready for staged validation",
+                status_code=409,
+            )
+        active_stage = connection.execute(
+            """
+            SELECT stage_id, status
+            FROM apify_actor_pool_stages
+            WHERE workspace_id = ? AND route_id = ?
+              AND status NOT IN ('applied', 'stale', 'failed', 'cancelled')
+            LIMIT 1
+            """,
+            (self.workspace_id, str(run["route_id"])),
+        ).fetchone()
+        if active_stage is not None and str(active_stage["status"]) != (
+            "replan_required"
+        ):
+            raise ActorOpsError(
+                "apify_actor_pool_stage_active",
+                "A staged Actor pool workflow is already active",
+                status_code=409,
+            )
+        slot_rows = connection.execute(
+            """
+            SELECT slot.slot_name, slot.revision_id, revision.actor_id,
+                   revision.publisher, revision.lifecycle, revision.build_id,
+                   revision.build_number, revision.manifest_hash
+            FROM apify_route_active_slots AS slot
+            LEFT JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = slot.workspace_id
+             AND revision.revision_id = slot.revision_id
+            WHERE slot.workspace_id = ? AND slot.route_id = ?
+            """,
+            (self.workspace_id, str(run["route_id"])),
+        ).fetchall()
+        active_slots = {str(row["slot_name"]): row for row in slot_rows}
+        populated = [row for row in slot_rows if row["revision_id"] is not None]
+        manual_selection = candidate_ids is not None
+        resolved_target_slot_count = (
+            int(target_slot_count)
+            if target_slot_count is not None
+            else 3
+            if goal == "complete_third"
+            else 2
+        )
+        if resolved_target_slot_count not in {2, 3}:
+            raise ActorOpsError(
+                "apify_actor_pool_target_count_invalid",
+                "Actor pool target slot count must be two or three",
+                status_code=422,
+            )
+        if manual_selection:
+            expected_count = 1 if goal == "complete_third" else 3
+            if (
+                resolved_target_slot_count != 3
+                or len(candidate_ids or ()) != expected_count
+                or len(set(candidate_ids or ())) != expected_count
+                or any(
+                    not str(candidate_id).strip()
+                    or len(str(candidate_id)) > 128
+                    for candidate_id in candidate_ids or ()
+                )
+            ):
+                raise ActorOpsError(
+                    "apify_actor_manual_candidate_set_incomplete",
+                    "Manual Actor selection must contain the exact required candidate count",
+                    status_code=422,
+                )
+        if goal == "complete_third":
+            if (
+                len(populated) != 2
+                or active_slots.get("backup_2") is None
+                or active_slots["backup_2"]["revision_id"] is not None
+                or any(
+                    active_slots.get(name) is None
+                    or str(active_slots[name]["lifecycle"])
+                    not in {"probationary", "certified"}
+                    or not active_slots[name]["build_id"]
+                    or not active_slots[name]["build_number"]
+                    or not active_slots[name]["manifest_hash"]
+                    for name in ("primary", "backup_1")
+                )
+            ):
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Third-slot completion requires two runnable exact-Build actors",
+                    status_code=412,
+                )
+            required_successes = 1
+            required_source_slots = 3
+        elif goal == "upgrade_legacy":
+            if len(populated) < 2 or not any(
+                str(row["lifecycle"]) == "legacy_builtin" for row in populated
+            ):
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Legacy upgrade requires an active compatibility pool",
+                    status_code=412,
+                )
+            required_successes = 3 if manual_selection else 2
+            required_source_slots = resolved_target_slot_count
+        else:
+            if len(populated) >= 2:
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Initial Actor setup requires an unconfigured Route",
+                    status_code=412,
+                )
+            required_successes = 3
+            required_source_slots = 3
+
+        active_actor_ids = {
+            str(row["actor_id"]) for row in populated if row["actor_id"]
+        }
+        upgradeable_legacy_actor_ids = {
+            str(row["actor_id"])
+            for row in populated
+            if row["actor_id"] and str(row["lifecycle"]) == "legacy_builtin"
+        }
+        active_revision_ids = {
+            str(row["revision_id"]) for row in populated if row["revision_id"]
+        }
+        candidates = connection.execute(
+            """
+            SELECT candidate.id AS candidate_id,
+                   candidate.display_name AS actor_public_name,
+                   revision.revision_id, revision.actor_id,
+                   revision.publisher, revision.build_id,
+                   revision.build_number, revision.manifest_hash,
+                   revision.manifest_json,
+                   revision.pricing_json, revision.lifecycle,
+                   candidate.position, candidate.state AS candidate_state,
+                   candidate.last_error_code AS candidate_error_code,
+                   revision.created_at,
+                   EXISTS (
+                       SELECT 1
+                       FROM apify_actor_discovery_run_revisions AS current_link
+                       WHERE current_link.workspace_id = revision.workspace_id
+                         AND current_link.run_id = ?
+                         AND current_link.revision_id = revision.revision_id
+                   ) AS in_current_run,
+                   EXISTS (
+                       SELECT 1 FROM apify_actor_validations AS proof
+                       WHERE proof.workspace_id = revision.workspace_id
+                         AND proof.route_id = ?
+                         AND proof.revision_id = revision.revision_id
+                         AND proof.kind = 'route_reference'
+                         AND proof.status = 'succeeded'
+                         AND proof.cost_final = 1
+                         AND proof.semantic_outcome IN (
+                             'valid_nonempty', 'valid_empty'
+                         )
+                   ) AS already_validated
+            FROM apify_actor_adapter_revisions AS revision
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE revision.workspace_id = ?
+              AND candidate.route_key = ?
+              AND revision.lifecycle IN (
+                  'static_valid', 'probationary', 'certified'
+              )
+              AND revision.build_id IS NOT NULL
+              AND revision.build_number IS NOT NULL
+              AND revision.manifest_hash IS NOT NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM apify_actor_discovery_run_revisions AS association
+                  JOIN apify_actor_discovery_runs AS source_run
+                    ON source_run.workspace_id = association.workspace_id
+                   AND source_run.run_id = association.run_id
+                  WHERE association.workspace_id = revision.workspace_id
+                    AND association.revision_id = revision.revision_id
+                    AND source_run.route_id = ?
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM apify_actor_validations AS active_validation
+                  WHERE active_validation.workspace_id = revision.workspace_id
+                    AND active_validation.revision_id = revision.revision_id
+                    AND active_validation.kind = 'route_reference'
+                    AND active_validation.status IN ('queued', 'running')
+              )
+            ORDER BY already_validated DESC, candidate.position,
+                     revision.created_at, revision.revision_id
+            """,
+            (
+                str(run["run_id"]),
+                str(run["route_id"]),
+                self.workspace_id,
+                str(run["route_key"]),
+                str(run["route_id"]),
+            ),
+        ).fetchall()
+        candidate_rows: Sequence[sqlite3.Row]
+        if manual_selection:
+            latest_by_candidate: dict[str, sqlite3.Row] = {}
+            for row in candidates:
+                if not bool(row["in_current_run"]):
+                    continue
+                candidate_id = str(row["candidate_id"])
+                previous = latest_by_candidate.get(candidate_id)
+                if previous is None or (
+                    str(row["created_at"]),
+                    str(row["revision_id"]),
+                ) > (
+                    str(previous["created_at"]),
+                    str(previous["revision_id"]),
+                ):
+                    latest_by_candidate[candidate_id] = row
+            candidate_rows = sorted(
+                latest_by_candidate.values(),
+                key=lambda row: (
+                    int(row["position"] or 0),
+                    str(row["candidate_id"]),
+                ),
+            )
+        else:
+            candidate_rows = candidates
+
+        distinct: list[sqlite3.Row] = []
+        seen_actors = set(active_actor_ids)
+        if goal == "upgrade_legacy":
+            seen_actors.difference_update(upgradeable_legacy_actor_ids)
+        for row in candidate_rows:
+            actor_id = str(row["actor_id"])
+            if actor_id in seen_actors or str(row["revision_id"]) in active_revision_ids:
+                continue
+            if self._revision_canary_block_reason(
+                connection,
+                str(run["route_id"]),
+                str(row["revision_id"]),
+            ) is not None:
+                continue
+            if (
+                str(row["candidate_state"]) == "disabled"
+                and row["candidate_error_code"]
+            ):
+                continue
+            seen_actors.add(actor_id)
+            distinct.append(row)
+
+        selected: tuple[sqlite3.Row, ...] = ()
+        maximum = min(int(max_candidates), len(distinct))
+        if manual_selection:
+            eligible_by_id = {
+                str(row["candidate_id"]): row
+                for row in distinct
+            }
+            requested = set(candidate_ids or ())
+            if requested != set(eligible_by_id).intersection(requested):
+                raise ActorOpsError(
+                    "apify_actor_manual_candidate_stale",
+                    "One or more selected Actor candidates are no longer available",
+                    status_code=409,
+                )
+            selected = tuple(
+                sorted(
+                    (eligible_by_id[value] for value in requested),
+                    key=lambda row: (
+                        int(row["position"] or 0),
+                        str(row["candidate_id"]),
+                    ),
+                )
+            )
+            selected_publishers = {
+                str(row["publisher"]).casefold() for row in selected
+            }
+            final_publishers = selected_publishers | {
+                str(row["publisher"]).casefold()
+                for row in populated
+                if row["publisher"]
+            }
+            if (
+                goal in {"initial_pool", "upgrade_legacy"}
+                and len(selected_publishers) < int(run["min_publishers"])
+            ) or len(final_publishers) < int(run["min_publishers"]):
+                raise ActorOpsError(
+                    "apify_actor_manual_candidate_publishers_insufficient",
+                    "Selected Actors do not provide enough publisher diversity",
+                    status_code=422,
+                )
+        elif maximum >= required_successes:
+            best: tuple[Any, ...] | None = None
+            # Freeze every available fallback covered by this approval. The
+            # Worker still stops at the first safe target, but a failed first
+            # candidate must not force another paid approval when the same
+            # plan already disclosed and capped later candidates.
+            for option in combinations(distinct, maximum):
+                validated = [
+                    row for row in option if bool(row["already_validated"])
+                ]
+                publisher_count = len(
+                    {str(row["publisher"]).casefold() for row in option}
+                )
+                if goal == "upgrade_legacy" and publisher_count < 2:
+                    continue
+                score = (
+                    -len(validated),
+                    sum(int(row["position"] or 0) for row in option),
+                    *(str(row["revision_id"]) for row in option),
+                )
+                if best is None or score < best:
+                    best = score
+                    selected = option
+
+        source_rows = connection.execute(
+            """
+            SELECT binding.source_id, binding.generation,
+                   binding.target_fingerprint
+            FROM apify_source_route_bindings AS binding
+            JOIN source_catalog AS source
+              ON source.workspace_id = binding.workspace_id
+             AND source.id = binding.source_id
+            WHERE binding.workspace_id = ? AND binding.route_id = ?
+              AND source.enabled = 1
+            ORDER BY binding.source_id
+            LIMIT ?
+            """,
+            (
+                self.workspace_id,
+                str(run["route_id"]),
+                POOL_STAGE_MAX_SOURCES + 1,
+            ),
+        ).fetchall()
+        if len(source_rows) > POOL_STAGE_MAX_SOURCES:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_source_limit",
+                "Too many enabled sources are attached to this Actor route",
+                status_code=412,
+            )
+        requested_profiles: dict[str, Mapping[str, Any]] = {}
+        if candidate_validation_profiles is not None:
+            if not manual_selection:
+                raise ActorOpsError(
+                    "apify_actor_validation_profile_invalid",
+                    "Validation controls require explicit candidate selection",
+                    status_code=422,
+                )
+            for profile in candidate_validation_profiles:
+                candidate_id = str(profile.get("candidate_id") or "")
+                if not candidate_id or candidate_id in requested_profiles:
+                    raise ActorOpsError(
+                        "apify_actor_validation_profile_invalid",
+                        "Each selected candidate requires one validation profile",
+                        status_code=422,
+                    )
+                requested_profiles[candidate_id] = profile
+            if set(requested_profiles) != set(candidate_ids or ()):
+                raise ActorOpsError(
+                    "apify_actor_validation_profile_invalid",
+                    "Validation profiles do not match the selected candidates",
+                    status_code=422,
+                )
+
+        resolved_profiles: dict[str, dict[str, Any]] = {}
+        for row in selected:
+            candidate_id = str(row["candidate_id"])
+            supports_sample_items = _manifest_supports_sample_items(
+                row["manifest_json"]
+            )
+            requested = requested_profiles.get(candidate_id, {})
+            try:
+                timeout_seconds = int(
+                    requested.get(
+                        "timeout_seconds", VALIDATION_TIMEOUT_SECONDS_DEFAULT
+                    )
+                )
+                sample_items = int(requested.get("sample_items", 1))
+                max_charge = float(
+                    requested.get(
+                        "max_charge_usd",
+                        min(
+                            VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                            float(run["per_run_cap_usd"]),
+                        ),
+                    )
+                )
+            except (TypeError, ValueError):
+                raise ActorOpsError(
+                    "apify_actor_validation_profile_invalid",
+                    "Validation controls are invalid",
+                    status_code=422,
+                ) from None
+            if (
+                isinstance(requested.get("timeout_seconds"), bool)
+                or isinstance(requested.get("sample_items"), bool)
+                or timeout_seconds < VALIDATION_TIMEOUT_SECONDS_MIN
+                or timeout_seconds > VALIDATION_TIMEOUT_SECONDS_MAX
+                or sample_items not in VALIDATION_SAMPLE_ITEMS_ALLOWED
+                or (sample_items != 1 and not supports_sample_items)
+                or not math.isfinite(max_charge)
+                or max_charge <= 0
+                or max_charge > VALIDATION_MAX_CHARGE_USD_LIMIT + 1e-9
+            ):
+                raise ActorOpsError(
+                    "apify_actor_validation_profile_invalid",
+                    "Validation controls exceed their safe bounds",
+                    status_code=422,
+                )
+            expected_options_hash = _validation_options_hash(
+                route_id=str(run["route_id"]),
+                generation=int(run["generation"]),
+                candidate_id=candidate_id,
+                revision_id=str(row["revision_id"]),
+                build_id=str(row["build_id"]),
+                build_number=str(row["build_number"]),
+                manifest_hash=str(row["manifest_hash"]),
+                supports_sample_items=supports_sample_items,
+            )
+            supplied_options_hash = requested.get("options_hash")
+            if requested_profiles and str(supplied_options_hash or "") != (
+                expected_options_hash
+            ):
+                raise ActorOpsError(
+                    "apify_actor_validation_options_stale",
+                    "Candidate validation options changed; reload before continuing",
+                    status_code=409,
+                )
+            resolved_profiles[candidate_id] = {
+                "timeout_seconds": timeout_seconds,
+                "sample_items": sample_items,
+                "max_charge_usd": round(max_charge, 6),
+                "supports_sample_items": supports_sample_items,
+                "options_hash": expected_options_hash,
+                "profile_hash": validation_profile_hash(
+                    timeout_seconds=timeout_seconds,
+                    sample_items=sample_items,
+                    max_charge_usd=max_charge,
+                ),
+            }
+        plan_items = [
+            {
+                "ordinal": index,
+                "candidate_id": str(row["candidate_id"]),
+                "actor_public_name": _actor_public_name(
+                    row["actor_public_name"],
+                    row["publisher"],
+                    row["actor_id"],
+                ),
+                "revision_id": str(row["revision_id"]),
+                "actor_id": str(row["actor_id"]),
+                "publisher": str(row["publisher"]),
+                "build_id": str(row["build_id"]),
+                "build_number": str(row["build_number"]),
+                "manifest_hash": str(row["manifest_hash"]),
+                "lifecycle": str(row["lifecycle"]),
+                "pricing": _safe_json(row["pricing_json"], {}),
+                "already_validated": bool(row["already_validated"]),
+                "authorized_cap_usd": resolved_profiles[
+                    str(row["candidate_id"])
+                ]["max_charge_usd"],
+                "validation_profile": resolved_profiles[
+                    str(row["candidate_id"])
+                ],
+            }
+            for index, row in enumerate(selected, start=1)
+        ]
+        from .apify_actor_canary import next_reference_fingerprint
+
+        reference_fingerprints = {
+            str(item["revision_id"]): next_reference_fingerprint(
+                self.store,
+                workspace_id=self.workspace_id,
+                platform=str(run["platform"]),
+                route_id=str(run["route_id"]),
+                revision_id=str(item["revision_id"]),
+            )
+            for item in plan_items
+        }
+
+        def require_meaningful_retry(
+            *,
+            item: Mapping[str, Any],
+            target_fingerprint: str,
+            kind: Literal["route_reference", "source_canary"],
+        ) -> None:
+            """Reject paid retries whose changed field cannot address the failure."""
+
+            previous = connection.execute(
+                """
+                SELECT semantic_outcome, validation_timeout_seconds,
+                       validation_sample_items, failure_fingerprint
+                FROM apify_actor_validations
+                WHERE workspace_id = ? AND route_id = ?
+                  AND revision_id = ? AND target_fingerprint = ?
+                  AND kind = ? AND status = 'failed'
+                ORDER BY completed_at DESC, created_at DESC,
+                         validation_id DESC
+                LIMIT 1
+                """,
+                (
+                    self.workspace_id,
+                    str(run["route_id"]),
+                    str(item["revision_id"]),
+                    target_fingerprint,
+                    kind,
+                ),
+            ).fetchone()
+            if previous is None:
+                return
+            semantic = str(previous["semantic_outcome"] or "")
+            profile = item["validation_profile"]
+            if semantic in {
+                "apify_run_status_unavailable",
+                "apify_actor_run_status_unavailable",
+                "apify_run_reconcile_required",
+            }:
+                raise ActorOpsError(
+                    "apify_actor_validation_reconcile_required",
+                    "The existing Actor Run must be reconciled without another start",
+                    status_code=409,
+                )
+            meaningful = True
+            if semantic in {
+                "apify_actor_run_timed_out",
+                "apify_actor_canary_timeout",
+            }:
+                meaningful = int(profile["timeout_seconds"]) > int(
+                    previous["validation_timeout_seconds"] or 300
+                )
+            elif semantic in {"suspicious_empty", "apify_actor_suspicious_empty"}:
+                meaningful = bool(profile["supports_sample_items"]) and int(
+                    profile["sample_items"]
+                ) > int(previous["validation_sample_items"] or 1)
+            elif semantic in {
+                "apify_actor_contract_mismatch",
+                "apify_actor_identity_mismatch",
+                "apify_actor_target_identity_mismatch",
+                "apify_actor_metadata_only",
+                "apify_actor_placeholder",
+                "apify_actor_revision_output_incompatible",
+            }:
+                meaningful = False
+            if not meaningful:
+                raise ActorOpsError(
+                    "apify_actor_validation_profile_unchanged",
+                    "The changed validation setting cannot address the prior failure",
+                    status_code=409,
+                )
+
+        for item in plan_items:
+            if bool(item["already_validated"]):
+                continue
+            profile = dict(item["validation_profile"])
+            require_meaningful_retry(
+                item=item,
+                target_fingerprint=reference_fingerprints[
+                    str(item["revision_id"])
+                ],
+                kind="route_reference",
+            )
+            fingerprint = validation_failure_fingerprint(
+                route_id=str(run["route_id"]),
+                candidate_id=str(item["candidate_id"]),
+                revision_id=str(item["revision_id"]),
+                build_id=str(item["build_id"]),
+                build_number=str(item["build_number"]),
+                manifest_hash=str(item["manifest_hash"]),
+                target_fingerprint=reference_fingerprints[str(item["revision_id"])],
+                kind="route_reference",
+                profile_hash=str(profile["profile_hash"]),
+            )
+            repeated = connection.execute(
+                """
+                SELECT 1 FROM apify_actor_validations
+                WHERE workspace_id = ? AND failure_fingerprint = ?
+                  AND status = 'failed'
+                LIMIT 1
+                """,
+                (self.workspace_id, fingerprint),
+            ).fetchone()
+            if repeated is not None:
+                raise ActorOpsError(
+                    "apify_actor_validation_profile_unchanged",
+                    "The same Actor already failed with these validation settings",
+                    status_code=409,
+                )
+        route_cap = round(sum(float(item["authorized_cap_usd"]) for item in plan_items), 6)
+        staged_revision_ids = [str(row["revision_id"]) for row in selected]
+        if goal == "complete_third":
+            base_revision_ids = [
+                str(active_slots["primary"]["revision_id"]),
+                str(active_slots["backup_1"]["revision_id"]),
+            ]
+            possible_target_sets = [
+                [*base_revision_ids, revision_id]
+                for revision_id in staged_revision_ids
+            ]
+        elif manual_selection:
+            possible_target_sets = [staged_revision_ids]
+        else:
+            possible_target_sets = [
+                [str(primary["revision_id"]), str(backup["revision_id"])]
+                for primary, backup in combinations(selected, 2)
+                if str(primary["actor_id"]) != str(backup["actor_id"])
+                and str(primary["publisher"]).casefold()
+                != str(backup["publisher"]).casefold()
+            ]
+        source_validation_count = 0
+        source_cap = 0.0
+        item_by_revision = {
+            str(item["revision_id"]): item for item in plan_items
+        }
+        for source in source_rows:
+            missing_by_target: list[int] = []
+            cap_by_target: list[float] = []
+            for target_revision_ids in possible_target_sets:
+                missing = 0
+                missing_cap = 0.0
+                for revision_id in target_revision_ids:
+                    reusable = connection.execute(
+                        """
+                        SELECT 1 FROM apify_actor_validations
+                        WHERE workspace_id = ? AND route_id = ?
+                          AND source_id = ? AND revision_id = ?
+                          AND kind = 'source_canary'
+                          AND status = 'succeeded'
+                          AND cost_final = 1
+                          AND semantic_outcome IN (
+                              'valid_nonempty', 'valid_empty'
+                          )
+                          AND target_fingerprint = ?
+                        LIMIT 1
+                        """,
+                        (
+                            self.workspace_id,
+                            str(run["route_id"]),
+                            str(source["source_id"]),
+                            revision_id,
+                            str(source["target_fingerprint"]),
+                        ),
+                    ).fetchone()
+                    if reusable is None:
+                        missing += 1
+                        item = item_by_revision.get(revision_id)
+                        item_cap = float(
+                            item["authorized_cap_usd"]
+                            if item is not None
+                            else VALIDATION_MAX_CHARGE_USD_DEFAULT
+                        )
+                        missing_cap += item_cap
+                        if item is not None:
+                            require_meaningful_retry(
+                                item=item,
+                                target_fingerprint=str(
+                                    source["target_fingerprint"]
+                                ),
+                                kind="source_canary",
+                            )
+                            fingerprint = validation_failure_fingerprint(
+                                route_id=str(run["route_id"]),
+                                candidate_id=str(item["candidate_id"]),
+                                revision_id=revision_id,
+                                build_id=str(item["build_id"]),
+                                build_number=str(item["build_number"]),
+                                manifest_hash=str(item["manifest_hash"]),
+                                target_fingerprint=str(source["target_fingerprint"]),
+                                kind="source_canary",
+                                profile_hash=str(
+                                    item["validation_profile"]["profile_hash"]
+                                ),
+                            )
+                            repeated = connection.execute(
+                                """
+                                SELECT 1 FROM apify_actor_validations
+                                WHERE workspace_id = ?
+                                  AND failure_fingerprint = ?
+                                  AND status = 'failed'
+                                LIMIT 1
+                                """,
+                                (self.workspace_id, fingerprint),
+                            ).fetchone()
+                            if repeated is not None:
+                                raise ActorOpsError(
+                                    "apify_actor_validation_profile_unchanged",
+                                    "The same Actor and source already failed with these settings",
+                                    status_code=409,
+                                )
+                missing_by_target.append(missing)
+                cap_by_target.append(missing_cap)
+            source_validation_count += max(missing_by_target, default=0)
+            source_cap += max(cap_by_target, default=0.0)
+        source_cap = round(source_cap, 6)
+        authorized_total = round(route_cap + source_cap, 6)
+        if authorized_total <= 0:
+            authorized_total = route_cap
+        if authorized_total > POOL_STAGE_MAX_TOTAL_USD + 1e-9:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_budget_invalid",
+                "Staged Actor validation exceeds its hard total cap",
+                status_code=412,
+            )
+        if max_total_charge_usd is not None:
+            approved_total = _bounded_cost(
+                max_total_charge_usd,
+                maximum=POOL_STAGE_MAX_TOTAL_USD,
+            )
+            if abs(approved_total - authorized_total) > 1e-9:
+                raise ActorOpsError(
+                    "apify_actor_canary_plan_conflict",
+                    "Staged validation cap changed; reload before approving spend",
+                    status_code=409,
+                )
+        base_slots = {
+            name: str(active_slots[name]["revision_id"] or "")
+            for name in SLOT_NAMES
+        }
+        source_snapshot = [
+            {
+                "source_id": str(row["source_id"]),
+                "binding_generation": int(row["generation"]),
+                "target_fingerprint": str(row["target_fingerprint"]),
+            }
+            for row in source_rows
+        ]
+        plan_schema_version = 3 if manual_selection else 2
+        plan_payload = {
+            "schema_version": plan_schema_version,
+            "goal": goal,
+            "selection_mode": "manual" if manual_selection else "server",
+            "target_slot_count": resolved_target_slot_count,
+            "run_id": str(run["run_id"]),
+            "route_id": str(run["route_id"]),
+            "generation": int(run["generation"]),
+            "base_pool_hash": revision_set_hash(base_slots),
+            "base_slots": base_slots,
+            "items": [
+                {
+                    key: item[key]
+                    for key in (
+                        "ordinal", "candidate_id", "revision_id",
+                        "actor_id", "publisher",
+                        "build_id", "build_number", "manifest_hash",
+                        "already_validated", "authorized_cap_usd",
+                        "validation_profile",
+                    )
+                }
+                for item in plan_items
+            ],
+            "sources": source_snapshot,
+            "required_success_count": required_successes,
+            "required_source_slots": required_source_slots,
+            "max_total_charge_usd": authorized_total,
+        }
+        plan_hash = hashlib.sha256(
+            json.dumps(
+                plan_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        ready = len(selected) >= required_successes and (
+            goal != "upgrade_legacy"
+            or len({str(row["publisher"]).casefold() for row in selected}) >= 2
+        )
+        return {
+            "schema_version": plan_schema_version,
+            "goal": goal,
+            "selection_mode": "manual" if manual_selection else "server",
+            "target_slot_count": resolved_target_slot_count,
+            "run_id": str(run["run_id"]),
+            "route_id": str(run["route_id"]),
+            "route_key": str(run["route_key"]),
+            "platform": str(run["platform"]),
+            "target_type": str(run["target_type"]),
+            "capability": str(run["capability"]),
+            "mode": str(run["mode"]),
+            "generation": int(run["generation"]),
+            "status": "ready" if ready else "insufficient_candidates",
+            "ready": ready,
+            "activation_ready": False,
+            "plan_hash": plan_hash,
+            "base_pool_hash": revision_set_hash(base_slots),
+            "required_success_count": required_successes,
+            "max_candidates": int(max_candidates),
+            "max_total_charge_usd": authorized_total,
+            "route_validation_cap_usd": route_cap,
+            "source_validation_cap_usd": source_cap,
+            "source_count": len(source_rows),
+            "source_validation_count": source_validation_count,
+            "per_candidate_cap_usd": round(
+                max(
+                    (float(item["authorized_cap_usd"]) for item in plan_items),
+                    default=VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                ),
+                6,
+            ),
+            "successful_actor_count": sum(
+                1 for row in selected if bool(row["already_validated"])
+            ),
+            "successful_publisher_count": len(
+                {
+                    str(row["publisher"]).casefold()
+                    for row in selected
+                    if bool(row["already_validated"])
+                }
+            ),
+            "attempts_used": 0,
+            "attempts_remaining": int(max_candidates),
+            "budget_remaining_usd": round(
+                POOL_STAGE_MAX_TOTAL_USD - authorized_total, 6
+            ),
+            "items": plan_items,
+            "_eligible_candidate_count": len(distinct),
+            "_source_snapshot": source_snapshot,
+            "_reference_fingerprints": reference_fingerprints,
+        }
+
+    def _get_initial_canary_plan(
         self,
         run_id: str,
         *,
@@ -3251,6 +4730,393 @@ class ApifyActorOpsService:
         max_total_charge_usd: float,
         created_by_user_id: str,
         reference_fingerprints: Mapping[str, str],
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy"
+        ] = "initial_pool",
+        candidate_ids: Sequence[str] | None = None,
+        candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
+        target_slot_count: int | None = None,
+    ) -> dict[str, Any]:
+        if goal == "initial_pool" and candidate_ids is None:
+            return self._create_initial_canary_batch(
+                run_id,
+                expected_generation=expected_generation,
+                expected_plan_hash=expected_plan_hash,
+                approval_id=approval_id,
+                confirmation=confirmation,
+                max_candidates=max_candidates,
+                max_total_charge_usd=max_total_charge_usd,
+                created_by_user_id=created_by_user_id,
+                reference_fingerprints=reference_fingerprints,
+            )
+        if goal not in {
+            "initial_pool",
+            "complete_third",
+            "upgrade_legacy",
+        }:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_goal_invalid",
+                "Actor pool workflow goal is invalid",
+                status_code=422,
+            )
+        return self._create_pool_stage_canary_batch(
+            run_id,
+            goal=goal,
+            expected_generation=expected_generation,
+            expected_plan_hash=expected_plan_hash,
+            approval_id=approval_id,
+            confirmation=confirmation,
+            max_candidates=max_candidates,
+            max_total_charge_usd=max_total_charge_usd,
+            created_by_user_id=created_by_user_id,
+            reference_fingerprints=reference_fingerprints,
+            candidate_ids=(
+                tuple(candidate_ids) if candidate_ids is not None else None
+            ),
+            candidate_validation_profiles=candidate_validation_profiles,
+            target_slot_count=target_slot_count,
+        )
+
+    def _create_pool_stage_canary_batch(
+        self,
+        run_id: str,
+        *,
+        goal: Literal["initial_pool", "complete_third", "upgrade_legacy"],
+        expected_generation: int,
+        expected_plan_hash: str,
+        approval_id: str,
+        confirmation: str,
+        max_candidates: int,
+        max_total_charge_usd: float,
+        created_by_user_id: str,
+        reference_fingerprints: Mapping[str, str],
+        candidate_ids: tuple[str, ...] | None,
+        candidate_validation_profiles: Sequence[Mapping[str, Any]] | None,
+        target_slot_count: int | None,
+    ) -> dict[str, Any]:
+        if confirmation != BATCH_CANARY_CONFIRMATION:
+            raise ActorOpsError(
+                "apify_actor_canary_batch_confirmation_required",
+                "Paid Canary batch requires the exact confirmation phrase",
+                status_code=422,
+            )
+        if not _HEX_64_RE.fullmatch(str(expected_plan_hash)):
+            raise ActorOpsError(
+                "apify_actor_canary_plan_invalid",
+                "Canary plan hash is invalid",
+                status_code=422,
+            )
+        approval_hash = _approval_key_hash(approval_id)
+        plan = self.get_canary_plan(
+            run_id,
+            goal=goal,
+            max_candidates=max_candidates,
+            max_total_charge_usd=max_total_charge_usd,
+            candidate_ids=candidate_ids,
+            candidate_validation_profiles=candidate_validation_profiles,
+            target_slot_count=target_slot_count,
+        )
+        with self._write() as connection:
+            replay = connection.execute(
+                """
+                SELECT batch.batch_id, batch.approved_generation,
+                       batch.plan_hash, batch.max_candidates, batch.goal,
+                       batch.pool_stage_id, stage.max_total_charge_usd,
+                       stage.target_slot_count, stage.selection_mode
+                FROM apify_actor_canary_batches AS batch
+                LEFT JOIN apify_actor_pool_stages AS stage
+                  ON stage.workspace_id = batch.workspace_id
+                 AND stage.stage_id = batch.pool_stage_id
+                WHERE batch.workspace_id = ?
+                  AND batch.approval_key_hash = ?
+                """,
+                (self.workspace_id, approval_hash),
+            ).fetchone()
+            if replay is not None:
+                if (
+                    int(replay["approved_generation"]) != int(expected_generation)
+                    or str(replay["plan_hash"]) != str(expected_plan_hash)
+                    or int(replay["max_candidates"]) != int(max_candidates)
+                    or str(replay["goal"]) != goal
+                    or replay["pool_stage_id"] is None
+                    or int(replay["target_slot_count"])
+                    != int(plan["target_slot_count"])
+                    or str(replay["selection_mode"])
+                    != str(plan["selection_mode"])
+                    or abs(
+                        float(replay["max_total_charge_usd"] or 0)
+                        - float(max_total_charge_usd)
+                    ) > 1e-9
+                ):
+                    raise ActorOpsError(
+                        "apify_actor_approval_id_conflict",
+                        "Paid approval id was already used for another action",
+                        status_code=409,
+                    )
+                result = self.get_canary_batch(str(replay["batch_id"]))
+                result["_approval_replayed"] = True
+                return result
+            if int(plan["generation"]) != int(expected_generation):
+                raise ActorOpsError(
+                    "apify_actor_route_generation_conflict",
+                    "Actor route changed; reload before retrying",
+                )
+            if str(plan["plan_hash"]) != str(expected_plan_hash):
+                raise ActorOpsError(
+                    "apify_actor_canary_plan_conflict",
+                    "Canary plan changed; reload before approving spend",
+                    status_code=409,
+                )
+            if not bool(plan["ready"]):
+                raise ActorOpsError(
+                    "apify_actor_canary_batch_not_ready",
+                    "The staged candidates cannot satisfy this Actor pool goal",
+                    status_code=412,
+                )
+            revision_ids = {str(item["revision_id"]) for item in plan["items"]}
+            if set(reference_fingerprints) != revision_ids or any(
+                not _HEX_64_RE.fullmatch(str(value))
+                for value in reference_fingerprints.values()
+            ):
+                raise ActorOpsError(
+                    "apify_actor_reference_fingerprint_required",
+                    "Route Canary references do not match the frozen plan",
+                    status_code=422,
+                )
+            active = connection.execute(
+                """
+                SELECT stage_id, status
+                FROM apify_actor_pool_stages
+                WHERE workspace_id = ? AND route_id = ?
+                  AND status NOT IN ('applied', 'stale', 'failed', 'cancelled')
+                LIMIT 1
+                """,
+                (self.workspace_id, str(plan["route_id"])),
+            ).fetchone()
+            if active is not None:
+                if str(active["status"]) != "replan_required":
+                    raise ActorOpsError(
+                        "apify_actor_pool_stage_active",
+                        "A staged Actor pool workflow is already active",
+                        status_code=409,
+                    )
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stages
+                    SET status = 'stale', updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ?
+                      AND status = 'replan_required'
+                    """,
+                    (self._now_iso(), self.workspace_id, str(active["stage_id"])),
+                )
+            batch_id = f"apify-canary-batch-{uuid.uuid4().hex}"
+            stage_id = f"apify-pool-stage-{uuid.uuid4().hex}"
+            now = self._now_iso()
+            per_cap = float(plan["per_candidate_cap_usd"])
+            route_cap = float(plan["route_validation_cap_usd"])
+            connection.execute(
+                """
+                INSERT INTO apify_actor_canary_batches (
+                    batch_id, workspace_id, route_id, discovery_run_id,
+                    approval_key_hash, approved_generation, plan_hash,
+                    max_candidates, max_total_charge_usd,
+                    per_candidate_cap_usd, goal, pool_stage_id,
+                    status, planned_count, success_count, publisher_count,
+                    actual_cost_usd, cost_final, stop_reason,
+                    created_by_user_id, created_at, started_at,
+                    completed_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?,
+                    0, 0, NULL, 0, NULL, ?, ?, NULL, NULL, ?
+                )
+                """,
+                (
+                    batch_id,
+                    self.workspace_id,
+                    str(plan["route_id"]),
+                    run_id,
+                    approval_hash,
+                    expected_generation,
+                    expected_plan_hash,
+                    int(max_candidates),
+                    route_cap,
+                    per_cap,
+                    goal,
+                    stage_id,
+                    len(plan["items"]),
+                    created_by_user_id,
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO apify_actor_pool_stages (
+                    stage_id, workspace_id, route_id, discovery_run_id,
+                    initial_batch_id, goal, target_slot_count,
+                    selection_mode, base_generation,
+                    base_pool_hash, plan_hash, approval_key_hash,
+                    max_total_charge_usd, route_validation_cap_usd,
+                    status, created_by_user_id, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued',
+                    ?, ?, ?
+                )
+                """,
+                (
+                    stage_id,
+                    self.workspace_id,
+                    str(plan["route_id"]),
+                    run_id,
+                    batch_id,
+                    goal,
+                    int(plan["target_slot_count"]),
+                    str(plan["selection_mode"]),
+                    expected_generation,
+                    str(plan["base_pool_hash"]),
+                    expected_plan_hash,
+                    approval_hash,
+                    float(plan["max_total_charge_usd"]),
+                    route_cap,
+                    created_by_user_id,
+                    now,
+                    now,
+                ),
+            )
+            for source in plan.get("_source_snapshot", []):
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_pool_stage_sources (
+                        workspace_id, stage_id, source_id,
+                        binding_generation, target_fingerprint,
+                        required_count, passed_count, status,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, 'snapshotted', ?, ?)
+                    """,
+                    (
+                        self.workspace_id,
+                        stage_id,
+                        str(source["source_id"]),
+                        int(source["binding_generation"]),
+                        str(source["target_fingerprint"]),
+                        int(plan["target_slot_count"]),
+                        now,
+                        now,
+                    ),
+                )
+            for item in plan["items"]:
+                revision_id = str(item["revision_id"])
+                ordinal = int(item["ordinal"])
+                evidence_reused = bool(item.get("already_validated"))
+                item_cap = float(item["authorized_cap_usd"])
+                validation_profile = dict(item["validation_profile"])
+                validation_id = f"apify-validation-{uuid.uuid4().hex}"
+                validation_approval_hash = hashlib.sha256(
+                    f"{approval_hash}:{ordinal}:{revision_id}".encode("utf-8")
+                ).hexdigest()
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_validations (
+                        validation_id, workspace_id, route_id, source_id,
+                        revision_id, attempt_id, discovery_run_id, kind,
+                        approval_key_hash, approved_generation,
+                        approved_max_cost_usd, status, semantic_outcome,
+                        cost_usd, cost_final, counts_toward_canary,
+                        target_fingerprint, validation_timeout_seconds,
+                        validation_sample_items, validation_profile_hash,
+                        created_at, completed_at
+                    ) VALUES (
+                        ?, ?, ?, NULL, ?, NULL, ?, 'route_reference',
+                        ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?
+                    )
+                    """,
+                    (
+                        validation_id,
+                        self.workspace_id,
+                        str(plan["route_id"]),
+                        revision_id,
+                        run_id,
+                        validation_approval_hash,
+                        expected_generation,
+                        item_cap,
+                        "succeeded" if evidence_reused else "queued",
+                        "evidence_reused" if evidence_reused else None,
+                        0.0 if evidence_reused else None,
+                        int(evidence_reused),
+                        str(reference_fingerprints[revision_id]),
+                        int(validation_profile["timeout_seconds"]),
+                        int(validation_profile["sample_items"]),
+                        str(validation_profile["profile_hash"]),
+                        now,
+                        now if evidence_reused else None,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_pool_stage_candidate_settings (
+                        workspace_id, stage_id, candidate_id, revision_id,
+                        timeout_seconds, sample_items, max_charge_usd,
+                        supports_sample_items, profile_hash, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        self.workspace_id,
+                        stage_id,
+                        str(item["candidate_id"]),
+                        revision_id,
+                        int(validation_profile["timeout_seconds"]),
+                        int(validation_profile["sample_items"]),
+                        item_cap,
+                        int(bool(validation_profile["supports_sample_items"])),
+                        str(validation_profile["profile_hash"]),
+                        now,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_canary_batch_items (
+                        workspace_id, batch_id, ordinal, revision_id,
+                        validation_id, status, semantic_outcome,
+                        authorized_cap_usd, actual_cost_usd, cost_final,
+                        preflight_checked_at, started_at, completed_at,
+                        updated_at
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        NULL, ?, ?, ?
+                    )
+                    """,
+                    (
+                        self.workspace_id,
+                        batch_id,
+                        ordinal,
+                        revision_id,
+                        validation_id,
+                        "succeeded" if evidence_reused else "planned",
+                        "evidence_reused" if evidence_reused else None,
+                        item_cap,
+                        0.0 if evidence_reused else None,
+                        int(evidence_reused),
+                        now if evidence_reused else None,
+                        now if evidence_reused else None,
+                        now,
+                    ),
+                )
+        result = self.get_canary_batch(batch_id)
+        result["_approval_replayed"] = False
+        return result
+
+    def _create_initial_canary_batch(
+        self,
+        run_id: str,
+        *,
+        expected_generation: int,
+        expected_plan_hash: str,
+        approval_id: str,
+        confirmation: str,
+        max_candidates: int,
+        max_total_charge_usd: float,
+        created_by_user_id: str,
+        reference_fingerprints: Mapping[str, str],
     ) -> dict[str, Any]:
         if confirmation != BATCH_CANARY_CONFIRMATION:
             raise ActorOpsError(
@@ -3482,6 +5348,7 @@ class ApifyActorOpsService:
             SELECT batch_id, route_id, discovery_run_id,
                    approved_generation, plan_hash, max_candidates,
                    max_total_charge_usd, per_candidate_cap_usd,
+                   goal, pool_stage_id,
                    status, planned_count, success_count, publisher_count,
                    actual_cost_usd, cost_final, stop_reason,
                    created_at, started_at, completed_at, updated_at
@@ -3544,7 +5411,1542 @@ class ApifyActorOpsService:
             }
             for row in items
         ]
+        if result.get("pool_stage_id"):
+            stage = self.get_pool_stage(
+                str(result["pool_stage_id"])
+            )
+            result["route_validation_cap_usd"] = float(
+                result["max_total_charge_usd"]
+            )
+            result["max_total_charge_usd"] = float(
+                stage["max_total_charge_usd"]
+            )
+            result["pool_stage"] = stage
         return result
+
+    def get_pool_stage(self, stage_id: str) -> dict[str, Any]:
+        connection = self.store.connect()
+        row = connection.execute(
+            """
+            SELECT stage_id, route_id, discovery_run_id, initial_batch_id,
+                   goal, target_slot_count, selection_mode,
+                   base_generation, base_pool_hash, plan_hash,
+                   max_total_charge_usd, route_validation_cap_usd,
+                   target_primary_revision_id,
+                   target_backup_1_revision_id,
+                   target_backup_2_revision_id, target_pool_hash,
+                   status, applied_route_generation, last_error_code,
+                   created_at, updated_at, applied_at
+            FROM apify_actor_pool_stages
+            WHERE workspace_id = ? AND stage_id = ?
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if row is None:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_not_found",
+                "Actor pool stage was not found",
+                status_code=404,
+            )
+        counts = connection.execute(
+            """
+            SELECT COUNT(*) AS source_count,
+                   COALESCE(SUM(required_count), 0) AS required_count,
+                   COALESCE(SUM(passed_count), 0) AS passed_count,
+                   SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END)
+                       AS succeeded_sources,
+                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)
+                       AS failed_sources,
+                   SUM(CASE WHEN status IN ('queued', 'running') THEN 1 ELSE 0 END)
+                       AS active_sources
+            FROM apify_actor_pool_stage_sources
+            WHERE workspace_id = ? AND stage_id = ?
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        cost = connection.execute(
+            """
+            SELECT COALESCE(SUM(CASE
+                       WHEN validation.cost_final = 1
+                       THEN COALESCE(validation.cost_usd, 0)
+                       ELSE 0 END), 0) AS actual_cost_usd,
+                   COALESCE(SUM(CASE
+                       WHEN validation.cost_final = 0
+                            AND validation.status IN ('queued', 'running')
+                       THEN COALESCE(validation.approved_max_cost_usd, 0)
+                       ELSE 0 END), 0) AS reserved_cost_usd,
+                   COUNT(*) AS validation_count,
+                   COALESCE(SUM(validation.cost_final), 0) AS final_count
+            FROM apify_actor_pool_stage_sources AS source
+            JOIN apify_actor_validations AS validation
+              ON validation.workspace_id = source.workspace_id
+             AND validation.validation_id IN (
+                 source.primary_validation_id,
+                 source.backup_1_validation_id,
+                 source.backup_2_validation_id
+             )
+            WHERE source.workspace_id = ? AND source.stage_id = ?
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        result = dict(row)
+        result["target_slots"] = {
+            "primary": row["target_primary_revision_id"],
+            "backup_1": row["target_backup_1_revision_id"],
+            "backup_2": row["target_backup_2_revision_id"],
+        }
+        result["source_summary"] = {
+            key: int(counts[key] or 0)
+            for key in (
+                "source_count", "required_count", "passed_count",
+                "succeeded_sources", "failed_sources", "active_sources",
+            )
+        }
+        result["cost_summary"] = {
+            "actual_cost_usd": round(float(cost["actual_cost_usd"] or 0), 6),
+            "reserved_cost_usd": round(float(cost["reserved_cost_usd"] or 0), 6),
+            "validation_count": int(cost["validation_count"] or 0),
+            "cost_final": int(cost["validation_count"] or 0) == int(
+                cost["final_count"] or 0
+            ),
+        }
+        return result
+
+    def set_pool_stage_status(
+        self,
+        stage_id: str,
+        *,
+        expected_statuses: tuple[str, ...],
+        status: str,
+        error_code: str | None = None,
+    ) -> dict[str, Any]:
+        allowed = {
+            "queued", "validating_route", "validating_sources",
+            "apply_ready", "applied", "replan_required",
+            "blocked_unknown_start", "stale", "failed", "cancelled",
+        }
+        if status not in allowed or not expected_statuses or any(
+            value not in allowed for value in expected_statuses
+        ):
+            raise ActorOpsError(
+                "apify_actor_pool_stage_status_invalid",
+                "Actor pool stage status transition is invalid",
+                status_code=422,
+            )
+        placeholders = ",".join("?" for _value in expected_statuses)
+        with self._write() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE apify_actor_pool_stages
+                SET status = ?, last_error_code = ?, updated_at = ?
+                WHERE workspace_id = ? AND stage_id = ?
+                  AND status IN ({placeholders})
+                """,
+                (
+                    status,
+                    _optional_label(error_code, 128),
+                    self._now_iso(),
+                    self.workspace_id,
+                    stage_id,
+                    *expected_statuses,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_conflict",
+                    "Actor pool stage changed; reload before retrying",
+                    status_code=409,
+                )
+        return self.get_pool_stage(stage_id)
+
+    def active_pool_stage(self, route_id: str) -> dict[str, Any] | None:
+        row = self.store.connect().execute(
+            """
+            SELECT stage_id
+            FROM apify_actor_pool_stages
+            WHERE workspace_id = ? AND route_id = ?
+              AND status NOT IN ('applied', 'stale', 'failed', 'cancelled')
+            ORDER BY created_at DESC, stage_id DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, route_id),
+        ).fetchone()
+        return self.get_pool_stage(str(row["stage_id"])) if row is not None else None
+
+    def _pool_stage_last_failure(self, stage_id: str) -> dict[str, Any] | None:
+        """Return the latest safe terminal failure for a replan projection.
+
+        A guided replan must explain why the prior bounded approval stopped, but
+        it must not expose a candidate, source target, remote run, or raw
+        upstream error.  The workflow projection therefore carries only a
+        normalized outcome code, its phase, and final-or-pending spend.
+        """
+
+        connection = self.store.connect()
+
+        def summary(
+            row: sqlite3.Row,
+            *,
+            phase: Literal["route_validation", "source_validation"],
+            code: Any,
+        ) -> dict[str, Any]:
+            normalized = str(code or "").strip().casefold()
+            if not _SAFE_ACTOROPS_ERROR_CODE_RE.fullmatch(normalized):
+                normalized = "apify_actor_validation_failed"
+            raw_cost = row["actual_cost_usd"]
+            try:
+                actual_cost = float(raw_cost) if raw_cost is not None else None
+            except (TypeError, ValueError):
+                actual_cost = None
+            if actual_cost is not None and (
+                not math.isfinite(actual_cost) or actual_cost < 0
+            ):
+                actual_cost = None
+            return {
+                "phase": phase,
+                "code": normalized,
+                "actor_public_name": _actor_public_name(
+                    row["display_name"],
+                    row["publisher"],
+                    row["actor_id"],
+                ),
+                "actual_cost_usd": (
+                    round(actual_cost, 6) if actual_cost is not None else None
+                ),
+                "cost_final": bool(int(row["cost_final"] or 0)),
+                "duration_seconds": (
+                    int(row["duration_seconds"])
+                    if row["duration_seconds"] is not None
+                    else None
+                ),
+                "dataset_row_count": (
+                    int(row["dataset_row_count"])
+                    if row["dataset_row_count"] is not None
+                    else None
+                ),
+                "mapped_item_count": (
+                    int(row["mapped_item_count"])
+                    if row["mapped_item_count"] is not None
+                    else None
+                ),
+                "validation_profile": {
+                    "timeout_seconds": int(
+                        row["validation_timeout_seconds"] or 300
+                    ),
+                    "sample_items": int(row["validation_sample_items"] or 1),
+                    "max_charge_usd": round(
+                        float(row["approved_max_cost_usd"] or 0.02), 6
+                    ),
+                    "supports_sample_items": bool(
+                        row["supports_sample_items"] or 0
+                    ),
+                    "options_hash": str(row["options_hash"] or "") or None,
+                },
+                "recommended_action": (
+                    "reconcile_status"
+                    if normalized in {
+                        "apify_run_status_unavailable",
+                        "apify_run_reconcile_required",
+                    }
+                    else "adjust_timeout"
+                    if normalized == "apify_actor_run_timed_out"
+                    else "increase_sample"
+                    if normalized == "suspicious_empty"
+                    and bool(row["supports_sample_items"])
+                    and int(row["validation_sample_items"] or 1) < 5
+                    else "rematch_fields"
+                    if normalized in {
+                        "apify_actor_contract_mismatch",
+                        "apify_actor_identity_mismatch",
+                    }
+                    else "replace_candidate"
+                ),
+            }
+
+        route_failure = connection.execute(
+            """
+            SELECT item.semantic_outcome, item.actual_cost_usd, item.cost_final,
+                   validation.duration_seconds, validation.dataset_row_count,
+                   validation.mapped_item_count,
+                   validation.validation_timeout_seconds,
+                   validation.validation_sample_items,
+                   validation.approved_max_cost_usd,
+                   revision.actor_id, revision.publisher,
+                   candidate.display_name,
+                   COALESCE(settings.supports_sample_items, 0)
+                       AS supports_sample_items,
+                   NULL AS options_hash
+            FROM apify_actor_pool_stages AS stage
+            JOIN apify_actor_canary_batches AS batch
+              ON batch.workspace_id = stage.workspace_id
+             AND batch.batch_id = stage.initial_batch_id
+            JOIN apify_actor_canary_batch_items AS item
+              ON item.workspace_id = batch.workspace_id
+             AND item.batch_id = batch.batch_id
+            JOIN apify_actor_validations AS validation
+              ON validation.workspace_id = item.workspace_id
+             AND validation.validation_id = item.validation_id
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = item.workspace_id
+             AND revision.revision_id = item.revision_id
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            LEFT JOIN apify_actor_pool_stage_candidate_settings AS settings
+              ON settings.workspace_id = stage.workspace_id
+             AND settings.stage_id = stage.stage_id
+             AND settings.revision_id = item.revision_id
+            WHERE stage.workspace_id = ? AND stage.stage_id = ?
+              AND item.status IN (
+                  'failed', 'preflight_failed', 'blocked_unknown_start'
+              )
+            ORDER BY COALESCE(item.completed_at, item.updated_at) DESC,
+                     item.ordinal DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if route_failure is not None:
+            return summary(
+                route_failure,
+                phase="route_validation",
+                code=route_failure["semantic_outcome"],
+            )
+
+        source_failure = connection.execute(
+            """
+            SELECT source.last_error_code, source.updated_at,
+                   validation.status AS validation_status,
+                   validation.semantic_outcome,
+                   validation.cost_usd AS actual_cost_usd,
+                   validation.cost_final, validation.duration_seconds,
+                   validation.dataset_row_count, validation.mapped_item_count,
+                   validation.validation_timeout_seconds,
+                   validation.validation_sample_items,
+                   validation.approved_max_cost_usd,
+                   revision.actor_id, revision.publisher,
+                   candidate.display_name,
+                   COALESCE(settings.supports_sample_items, 0)
+                       AS supports_sample_items,
+                   NULL AS options_hash
+            FROM apify_actor_pool_stage_sources AS source
+            LEFT JOIN apify_actor_validations AS validation
+              ON validation.workspace_id = source.workspace_id
+             AND validation.validation_id IN (
+                 source.primary_validation_id,
+                 source.backup_1_validation_id,
+                 source.backup_2_validation_id
+             )
+            LEFT JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
+            LEFT JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            LEFT JOIN apify_actor_pool_stage_candidate_settings AS settings
+              ON settings.workspace_id = source.workspace_id
+             AND settings.stage_id = source.stage_id
+             AND settings.revision_id = validation.revision_id
+            WHERE source.workspace_id = ? AND source.stage_id = ?
+              AND source.status = 'failed'
+            ORDER BY CASE
+                         WHEN validation.status IN (
+                             'failed', 'cancelled', 'blocked'
+                         ) THEN 0
+                         ELSE 1
+                     END,
+                     COALESCE(validation.completed_at, source.updated_at) DESC,
+                     source.source_id ASC
+            LIMIT 1
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if source_failure is None:
+            return None
+        validation_failed = str(source_failure["validation_status"] or "") in {
+            "failed", "cancelled", "blocked",
+        }
+        return summary(
+            source_failure,
+            phase="source_validation",
+            code=(
+                source_failure["semantic_outcome"]
+                if validation_failed
+                else source_failure["last_error_code"]
+            ),
+        )
+
+    def workflow_state(self, route_id: str) -> dict[str, Any]:
+        """Project the single authoritative action for the guided UI."""
+
+        route = self.get_route(route_id)
+        gate = self.schedule_gate(route_id)
+        stage = self.active_pool_stage(route_id)
+        # A prior worker version could mark a stage with no frozen target as
+        # apply_ready when its enabled-source snapshot was empty. Repair that
+        # recoverable state on read before projecting a misleading activation
+        # action. This never starts a run or changes the active pool.
+        if (
+            stage is not None
+            and str(stage["status"]) in {"validating_sources", "apply_ready"}
+            and self._frozen_pool_stage_target(stage) is None
+        ):
+            self.refresh_pool_stage_sources(str(stage["stage_id"]))
+            stage = self.active_pool_stage(route_id)
+        slots = [slot for slot in route.get("slots", []) if slot.get("revision_id")]
+        lifecycles = {str(slot.get("lifecycle") or "") for slot in slots}
+        source_rows = self.store.connect().execute(
+            """
+            SELECT binding.validation_status, COUNT(*) AS count
+            FROM apify_source_route_bindings AS binding
+            JOIN source_catalog AS source
+              ON source.workspace_id = binding.workspace_id
+             AND source.id = binding.source_id
+            WHERE binding.workspace_id = ? AND binding.route_id = ?
+              AND source.enabled = 1
+            GROUP BY binding.validation_status
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        source_pending = sum(
+            int(row["count"] or 0)
+            for row in source_rows
+            if str(row["validation_status"]) not in _READY_BINDING_STATUSES
+        )
+
+        def candidate_selection_progress(
+            goal: Literal[
+                "initial_pool", "complete_third", "upgrade_legacy"
+            ],
+        ) -> tuple[dict[str, int], list[str]]:
+            result = self.list_pool_candidates(route_id, goal=goal)
+            eligible = sum(
+                bool(item.get("selectable"))
+                for item in result.get("candidates", [])
+            )
+            required = int(result["required_selection_count"])
+            return (
+                {
+                    "eligible_candidate_count": eligible,
+                    "required_selection_count": required,
+                },
+                list(result.get("blockers") or []),
+            )
+
+        if str(route.get("status")) == "blocked_unknown_start" or str(
+            gate.error_code or ""
+        ) in {
+            "start_outcome_unknown",
+            "apify_start_outcome_unknown",
+            "apify_run_reconcile_required",
+        }:
+            return {
+                "kind": "blocked_unknown_start",
+                "goal": stage.get("goal") if stage else None,
+                "stage_id": stage.get("stage_id") if stage else None,
+                "progress": stage.get("source_summary") if stage else {},
+                "blockers": ["apify_start_outcome_unknown"],
+            }
+        if str(gate.status) == "budget_blocked":
+            return {
+                "kind": "budget_blocked",
+                "goal": stage.get("goal") if stage else None,
+                "stage_id": stage.get("stage_id") if stage else None,
+                "progress": {},
+                "blockers": [str(gate.error_code or "budget_blocked")],
+            }
+        if stage is not None:
+            prefix = (
+                "setup"
+                if stage["goal"] == "initial_pool"
+                else "backup_2"
+                if stage["goal"] == "complete_third"
+                else "legacy"
+            )
+            status = str(stage["status"])
+            progress = dict(stage["source_summary"])
+            blockers = (
+                [str(stage["last_error_code"])]
+                if stage.get("last_error_code")
+                else []
+            )
+            if status in {"queued", "validating_route", "validating_sources"}:
+                kind = f"{prefix}_canary_running"
+            elif status == "apply_ready":
+                kind = f"{prefix}_activation_approval_required"
+            elif status == "blocked_unknown_start":
+                kind = "blocked_unknown_start"
+            elif status == "replan_required":
+                plan_progress, plan_blockers = candidate_selection_progress(
+                    str(stage["goal"]),
+                )
+                kind = (
+                    f"{prefix}_discovery_required"
+                    if "candidate_shortfall" in plan_blockers
+                    else f"{prefix}_candidate_selection_required"
+                )
+                failure = self._pool_stage_last_failure(str(stage["stage_id"]))
+                progress = {
+                    **plan_progress,
+                    **({"last_failure": failure} if failure is not None else {}),
+                }
+                blockers = plan_blockers
+            else:
+                kind = f"{prefix}_canary_approval_required"
+            return {
+                "kind": kind,
+                "goal": str(stage["goal"]),
+                "stage_id": str(stage["stage_id"]),
+                "run_id": str(stage["discovery_run_id"]),
+                "plan_hash": str(stage["plan_hash"]),
+                "progress": progress,
+                "blockers": blockers,
+            }
+        latest = self.store.connect().execute(
+            """
+            SELECT run_id, stage
+            FROM apify_actor_discovery_runs
+            WHERE workspace_id = ? AND route_id = ?
+              AND COALESCE(error_code, '') != 'superseded_duplicate_refresh'
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, route_id),
+        ).fetchone()
+        discovery_stage = str(latest["stage"]) if latest is not None else ""
+        active_initial_batch = self.store.connect().execute(
+            """
+            SELECT batch_id, status
+            FROM apify_actor_canary_batches
+            WHERE workspace_id = ? AND route_id = ?
+              AND goal = 'initial_pool'
+              AND status IN ('queued', 'preflighting', 'running')
+            ORDER BY created_at DESC, batch_id DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, route_id),
+        ).fetchone()
+        running_discovery = discovery_stage in {
+            "queued", "searching", "metadata", "ranking",
+            "static_validation", "input_validation",
+        }
+        approval_discovery = discovery_stage in {
+            "awaiting_canary_approval", "candidate_shortfall",
+            "canary_exhausted", "activation_ready", "completed",
+        }
+        run_id = str(latest["run_id"]) if latest is not None else None
+        if "legacy_builtin" in lifecycles:
+            plan_progress, plan_blockers = (
+                candidate_selection_progress("upgrade_legacy")
+                if approval_discovery
+                else ({}, [])
+            )
+            kind = (
+                "legacy_discovery_running"
+                if running_discovery
+                else "legacy_candidate_selection_required"
+                if approval_discovery and not plan_blockers
+                else "legacy_discovery_required"
+            )
+            return {
+                "kind": kind,
+                "goal": "upgrade_legacy",
+                "run_id": run_id,
+                "progress": plan_progress,
+                "blockers": plan_blockers,
+            }
+        if len(slots) == 2:
+            plan_progress, plan_blockers = (
+                candidate_selection_progress("complete_third")
+                if approval_discovery
+                else ({}, [])
+            )
+            kind = (
+                "backup_2_discovery_running"
+                if running_discovery
+                else "backup_2_candidate_selection_required"
+                if approval_discovery and not plan_blockers
+                else "backup_2_discovery_required"
+            )
+            return {
+                "kind": kind,
+                "goal": "complete_third",
+                "run_id": run_id,
+                "progress": plan_progress,
+                "blockers": plan_blockers,
+            }
+        if len(slots) < 2:
+            plan_progress, plan_blockers = (
+                candidate_selection_progress("initial_pool")
+                if approval_discovery
+                else ({}, [])
+            )
+            kind = (
+                "setup_canary_running"
+                if active_initial_batch is not None
+                else "setup_discovery_running"
+                if running_discovery
+                else "setup_candidate_selection_required"
+                if approval_discovery and not plan_blockers
+                else "setup_discovery_required"
+            )
+            return {
+                "kind": kind,
+                "goal": "initial_pool",
+                "run_id": run_id,
+                "progress": plan_progress,
+                "blockers": plan_blockers,
+            }
+        if source_pending:
+            return {
+                "kind": "source_validation_required",
+                "goal": None,
+                "run_id": run_id,
+                "progress": {"pending_sources": source_pending},
+                "blockers": [],
+            }
+        probationary = [
+            slot for slot in slots if str(slot.get("lifecycle")) == "probationary"
+        ]
+        if probationary:
+            return {
+                "kind": "probation_observing",
+                "goal": None,
+                "run_id": run_id,
+                "progress": {
+                    "revisions": [
+                        self.certification_progress(str(slot["revision_id"]))
+                        for slot in probationary
+                    ]
+                },
+                "blockers": [],
+            }
+        if str(route.get("runtime", {}).get("status") or "") == "degraded":
+            return {
+                "kind": "runtime_degraded_monitoring",
+                "goal": None,
+                "run_id": run_id,
+                "progress": {},
+                "blockers": [],
+            }
+        return {
+            "kind": "complete",
+            "goal": None,
+            "run_id": run_id,
+            "progress": {},
+            "blockers": [],
+        }
+
+    def _pool_stage_target_slots(
+        self,
+        connection: sqlite3.Connection,
+        stage_id: str,
+    ) -> dict[str, str | None] | None:
+        stage = connection.execute(
+            """
+            SELECT stage.*, batch.batch_id
+            FROM apify_actor_pool_stages AS stage
+            JOIN apify_actor_canary_batches AS batch
+              ON batch.workspace_id = stage.workspace_id
+             AND batch.batch_id = stage.initial_batch_id
+            WHERE stage.workspace_id = ? AND stage.stage_id = ?
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if stage is None:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_not_found",
+                "Actor pool stage was not found",
+                status_code=404,
+            )
+        base_rows = connection.execute(
+            """
+            SELECT slot_name, revision_id
+            FROM apify_route_active_slots
+            WHERE workspace_id = ? AND route_id = ?
+            """,
+            (self.workspace_id, str(stage["route_id"])),
+        ).fetchall()
+        base = {str(row["slot_name"]): str(row["revision_id"] or "") for row in base_rows}
+        if revision_set_hash(base) != str(stage["base_pool_hash"]):
+            return None
+        successful = connection.execute(
+            """
+            SELECT revision.revision_id, revision.actor_id,
+                   revision.publisher, revision.lifecycle,
+                   revision.build_id, revision.build_number,
+                   revision.manifest_hash, item.ordinal
+            FROM apify_actor_canary_batch_items AS item
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = item.workspace_id
+             AND revision.revision_id = item.revision_id
+            WHERE item.workspace_id = ? AND item.batch_id = ?
+              AND EXISTS (
+                  SELECT 1 FROM apify_actor_validations AS proof
+                  WHERE proof.workspace_id = item.workspace_id
+                    AND proof.route_id = ?
+                    AND proof.revision_id = item.revision_id
+                    AND proof.kind = 'route_reference'
+                    AND proof.status = 'succeeded'
+                    AND proof.cost_final = 1
+                    AND proof.semantic_outcome IN (
+                        'valid_nonempty', 'valid_empty'
+                    )
+              )
+              AND revision.lifecycle IN ('probationary', 'certified')
+              AND revision.build_id IS NOT NULL
+              AND revision.build_number IS NOT NULL
+              AND revision.manifest_hash IS NOT NULL
+            ORDER BY item.ordinal
+            """,
+            (
+                self.workspace_id,
+                str(stage["batch_id"]),
+                str(stage["route_id"]),
+            ),
+        ).fetchall()
+        if str(stage["goal"]) == "complete_third":
+            if len(successful) < 1:
+                return None
+            selected = successful[0]
+            target = {
+                "primary": base.get("primary") or None,
+                "backup_1": base.get("backup_1") or None,
+                "backup_2": str(selected["revision_id"]),
+            }
+        elif int(stage["target_slot_count"] or 2) == 3:
+            if len(successful) < 3:
+                return None
+            selected = successful[:3]
+            if len({str(row["actor_id"]) for row in selected}) != 3:
+                return None
+            if len(
+                {str(row["publisher"]).casefold() for row in selected}
+            ) < 2:
+                return None
+            target = {
+                slot_name: str(row["revision_id"])
+                for slot_name, row in zip(
+                    SLOT_NAMES,
+                    selected,
+                    strict=True,
+                )
+            }
+        else:
+            pair: tuple[sqlite3.Row, sqlite3.Row] | None = None
+            for primary, backup in combinations(successful, 2):
+                if str(primary["actor_id"]) == str(backup["actor_id"]):
+                    continue
+                if str(primary["publisher"]).casefold() == str(
+                    backup["publisher"]
+                ).casefold():
+                    continue
+                pair = (primary, backup)
+                break
+            if pair is None:
+                return None
+            target = {
+                "primary": str(pair[0]["revision_id"]),
+                "backup_1": str(pair[1]["revision_id"]),
+                "backup_2": None,
+            }
+        if len({value for value in target.values() if value}) != sum(
+            value is not None for value in target.values()
+        ):
+            return None
+        return target
+
+    def _frozen_pool_stage_target(
+        self,
+        stage: Mapping[str, Any],
+    ) -> dict[str, str | None] | None:
+        """Return a persisted stage target only when all frozen proof is intact."""
+
+        target_slot_count = int(stage["target_slot_count"] or 0)
+        if target_slot_count not in {2, 3}:
+            return None
+        if (
+            str(stage["goal"]) == "complete_third"
+            and target_slot_count != 3
+        ):
+            return None
+        target = {
+            "primary": (
+                str(stage["target_primary_revision_id"])
+                if stage["target_primary_revision_id"]
+                else None
+            ),
+            "backup_1": (
+                str(stage["target_backup_1_revision_id"])
+                if stage["target_backup_1_revision_id"]
+                else None
+            ),
+            "backup_2": (
+                str(stage["target_backup_2_revision_id"])
+                if stage["target_backup_2_revision_id"]
+                else None
+            ),
+        }
+        required_slots = SLOT_NAMES[:target_slot_count]
+        if any(target[slot_name] is None for slot_name in required_slots):
+            return None
+        if any(
+            target[slot_name] is not None
+            for slot_name in SLOT_NAMES[target_slot_count:]
+        ):
+            return None
+        revision_ids = [
+            str(target[slot_name])
+            for slot_name in required_slots
+            if target[slot_name] is not None
+        ]
+        if len(set(revision_ids)) != len(revision_ids):
+            return None
+        target_hash = revision_set_hash(
+            {slot_name: target[slot_name] or "" for slot_name in SLOT_NAMES}
+        )
+        if str(stage["target_pool_hash"] or "") != target_hash:
+            return None
+        return target
+
+    def pool_stage_route_ready(self, stage_id: str) -> bool:
+        return self._pool_stage_target_slots(self.store.connect(), stage_id) is not None
+
+    def prepare_pool_stage_source_validations(
+        self,
+        stage_id: str,
+    ) -> list[str]:
+        """Freeze the server-selected target and queue only missing source proofs."""
+
+        validation_ids: list[str] = []
+        with self._write() as connection:
+            stage = connection.execute(
+                """
+                SELECT stage.*
+                FROM apify_actor_pool_stages AS stage
+                JOIN apify_actor_canary_batches AS batch
+                  ON batch.workspace_id = stage.workspace_id
+                 AND batch.batch_id = stage.initial_batch_id
+                WHERE stage.workspace_id = ? AND stage.stage_id = ?
+                """,
+                (self.workspace_id, stage_id),
+            ).fetchone()
+            if stage is None:
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_not_found",
+                    "Actor pool stage was not found",
+                    status_code=404,
+                )
+            if str(stage["status"]) not in {
+                "queued", "validating_route", "validating_sources"
+            }:
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_conflict",
+                    "Actor pool stage cannot prepare source validations",
+                    status_code=409,
+                )
+            target = self._pool_stage_target_slots(connection, stage_id)
+            if target is None:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stages
+                    SET status = 'replan_required',
+                        last_error_code = 'candidate_shortfall', updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ?
+                    """,
+                    (self._now_iso(), self.workspace_id, stage_id),
+                )
+                return []
+            target_hash = revision_set_hash(
+                {name: value or "" for name, value in target.items()}
+            )
+            now = self._now_iso()
+            connection.execute(
+                """
+                UPDATE apify_actor_pool_stages
+                SET target_primary_revision_id = ?,
+                    target_backup_1_revision_id = ?,
+                    target_backup_2_revision_id = ?, target_pool_hash = ?,
+                    status = 'validating_sources', updated_at = ?
+                WHERE workspace_id = ? AND stage_id = ?
+                """,
+                (
+                    target["primary"],
+                    target["backup_1"],
+                    target["backup_2"],
+                    target_hash,
+                    now,
+                    self.workspace_id,
+                    stage_id,
+                ),
+            )
+            slot_columns = {
+                "primary": "primary_validation_id",
+                "backup_1": "backup_1_validation_id",
+                "backup_2": "backup_2_validation_id",
+            }
+            for source in connection.execute(
+                """
+                SELECT * FROM apify_actor_pool_stage_sources
+                WHERE workspace_id = ? AND stage_id = ?
+                ORDER BY source_id
+                """,
+                (self.workspace_id, stage_id),
+            ).fetchall():
+                catalog = connection.execute(
+                    """
+                    SELECT enabled FROM source_catalog
+                    WHERE workspace_id = ? AND id = ?
+                    """,
+                    (self.workspace_id, str(source["source_id"])),
+                ).fetchone()
+                if catalog is None or not bool(catalog["enabled"]):
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_pool_stage_sources
+                        SET status = 'skipped', updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ? AND source_id = ?
+                        """,
+                        (now, self.workspace_id, stage_id, str(source["source_id"])),
+                    )
+                    continue
+                binding = connection.execute(
+                    """
+                    SELECT generation, target_fingerprint
+                    FROM apify_source_route_bindings
+                    WHERE workspace_id = ? AND source_id = ? AND route_id = ?
+                    """,
+                    (
+                        self.workspace_id,
+                        str(source["source_id"]),
+                        str(stage["route_id"]),
+                    ),
+                ).fetchone()
+                if (
+                    binding is None
+                    or int(binding["generation"]) != int(source["binding_generation"])
+                    or str(binding["target_fingerprint"]) != str(source["target_fingerprint"])
+                ):
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_pool_stage_sources
+                        SET status = 'failed',
+                            last_error_code = 'source_binding_changed', updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ? AND source_id = ?
+                        """,
+                        (now, self.workspace_id, stage_id, str(source["source_id"])),
+                    )
+                    continue
+                passed = 0
+                missing = 0
+                for slot_name in SLOT_NAMES:
+                    revision_id = target[slot_name]
+                    if revision_id is None:
+                        continue
+                    proof = connection.execute(
+                        """
+                        SELECT 1 FROM apify_actor_validations
+                        WHERE workspace_id = ? AND route_id = ? AND source_id = ?
+                          AND revision_id = ? AND kind = 'source_canary'
+                          AND status = 'succeeded'
+                          AND cost_final = 1
+                          AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
+                          AND target_fingerprint = ?
+                        LIMIT 1
+                        """,
+                        (
+                            self.workspace_id,
+                            str(stage["route_id"]),
+                            str(source["source_id"]),
+                            revision_id,
+                            str(source["target_fingerprint"]),
+                        ),
+                    ).fetchone()
+                    if proof is not None:
+                        passed += 1
+                        continue
+                    missing += 1
+                    settings = connection.execute(
+                        """
+                        SELECT timeout_seconds, sample_items, max_charge_usd,
+                               profile_hash
+                        FROM apify_actor_pool_stage_candidate_settings
+                        WHERE workspace_id = ? AND stage_id = ?
+                          AND revision_id = ?
+                        """,
+                        (self.workspace_id, stage_id, revision_id),
+                    ).fetchone()
+                    timeout_seconds = int(
+                        settings["timeout_seconds"]
+                        if settings is not None
+                        else VALIDATION_TIMEOUT_SECONDS_DEFAULT
+                    )
+                    sample_items = int(
+                        settings["sample_items"]
+                        if settings is not None
+                        else 1
+                    )
+                    validation_cap = float(
+                        settings["max_charge_usd"]
+                        if settings is not None
+                        else VALIDATION_MAX_CHARGE_USD_DEFAULT
+                    )
+                    profile_hash = str(
+                        settings["profile_hash"]
+                        if settings is not None
+                        else validation_profile_hash(
+                            timeout_seconds=timeout_seconds,
+                            sample_items=sample_items,
+                            max_charge_usd=validation_cap,
+                        )
+                    )
+                    validation_id = f"apify-validation-{uuid.uuid4().hex}"
+                    approval_hash = hashlib.sha256(
+                        f"{stage['approval_key_hash']}:{source['source_id']}:{slot_name}:{revision_id}".encode("utf-8")
+                    ).hexdigest()
+                    connection.execute(
+                        """
+                        INSERT INTO apify_actor_validations (
+                            validation_id, workspace_id, route_id, source_id,
+                            revision_id, attempt_id, discovery_run_id, kind,
+                            approval_key_hash, approved_generation,
+                            approved_max_cost_usd, status, semantic_outcome,
+                            cost_usd, cost_final, counts_toward_canary,
+                            target_fingerprint, validation_timeout_seconds,
+                            validation_sample_items, validation_profile_hash,
+                            created_at, completed_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, NULL, ?, 'source_canary', ?, ?, ?,
+                            'queued', NULL, NULL, 0, 0, ?, ?, ?, ?, ?, NULL
+                        )
+                        """,
+                        (
+                            validation_id,
+                            self.workspace_id,
+                            str(stage["route_id"]),
+                            str(source["source_id"]),
+                            revision_id,
+                            str(stage["discovery_run_id"]),
+                            approval_hash,
+                            int(source["binding_generation"]),
+                            validation_cap,
+                            str(source["target_fingerprint"]),
+                            timeout_seconds,
+                            sample_items,
+                            profile_hash,
+                            now,
+                        ),
+                    )
+                    connection.execute(
+                        f"""
+                        UPDATE apify_actor_pool_stage_sources
+                        SET {slot_columns[slot_name]} = ?, updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ? AND source_id = ?
+                        """,
+                        (
+                            validation_id,
+                            now,
+                            self.workspace_id,
+                            stage_id,
+                            str(source["source_id"]),
+                        ),
+                    )
+                    validation_ids.append(validation_id)
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stage_sources
+                    SET passed_count = ?,
+                        status = CASE WHEN ? = 0 THEN 'succeeded' ELSE 'queued' END,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ? AND source_id = ?
+                    """,
+                    (
+                        passed,
+                        missing,
+                        now,
+                        self.workspace_id,
+                        stage_id,
+                        str(source["source_id"]),
+                    ),
+                )
+            if not validation_ids:
+                self._refresh_pool_stage_sources_locked(connection, stage_id)
+        return validation_ids
+
+    def _refresh_pool_stage_sources_locked(
+        self,
+        connection: sqlite3.Connection,
+        stage_id: str,
+    ) -> dict[str, int]:
+        now = self._now_iso()
+        totals = {"succeeded": 0, "failed": 0, "active": 0}
+        stage = connection.execute(
+            """
+            SELECT goal, target_slot_count, target_primary_revision_id,
+                   target_backup_1_revision_id, target_backup_2_revision_id,
+                   target_pool_hash, status
+            FROM apify_actor_pool_stages
+            WHERE workspace_id = ? AND stage_id = ?
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchone()
+        if stage is None:
+            raise ActorOpsError(
+                "apify_actor_pool_stage_not_found",
+                "Actor pool stage was not found",
+                status_code=404,
+            )
+        stage_status = str(stage["status"])
+        if stage_status == "replan_required":
+            return totals
+        target = self._frozen_pool_stage_target(stage)
+        if target is None:
+            # A target can only be absent while Route validation is still in
+            # flight, or after it exhausted its approved candidate list. It
+            # must never be treated as an empty source set that is ready to
+            # apply. Persisted historical corruption is repaired here too.
+            if stage_status in {"validating_sources", "apply_ready"}:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stages
+                    SET status = 'replan_required',
+                        last_error_code = 'candidate_shortfall', updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ?
+                      AND status IN ('validating_sources', 'apply_ready')
+                    """,
+                    (now, self.workspace_id, stage_id),
+                )
+            return totals
+        target_revision_ids = [
+            str(target[slot_name])
+            for slot_name in SLOT_NAMES
+            if target[slot_name] is not None
+        ]
+        rows = connection.execute(
+            """
+            SELECT * FROM apify_actor_pool_stage_sources
+            WHERE workspace_id = ? AND stage_id = ?
+            ORDER BY source_id
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchall()
+        for source in rows:
+            if str(source["status"]) == "skipped":
+                continue
+            validation_ids = [
+                str(source[column])
+                for column in (
+                    "primary_validation_id",
+                    "backup_1_validation_id",
+                    "backup_2_validation_id",
+                )
+                if source[column]
+            ]
+            statuses: list[sqlite3.Row] = []
+            if validation_ids:
+                placeholders = ",".join("?" for _ in validation_ids)
+                statuses = connection.execute(
+                    f"""
+                    SELECT status, semantic_outcome
+                    FROM apify_actor_validations
+                    WHERE workspace_id = ?
+                      AND validation_id IN ({placeholders})
+                    """,
+                    (self.workspace_id, *validation_ids),
+                ).fetchall()
+            passed = 0
+            if target_revision_ids:
+                placeholders = ",".join("?" for _ in target_revision_ids)
+                passed = int(
+                    connection.execute(
+                        f"""
+                        SELECT COUNT(DISTINCT revision_id)
+                        FROM apify_actor_validations
+                        WHERE workspace_id = ? AND source_id = ?
+                          AND revision_id IN ({placeholders})
+                          AND kind = 'source_canary'
+                          AND status = 'succeeded'
+                          AND cost_final = 1
+                          AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
+                          AND target_fingerprint = ?
+                        """,
+                        (
+                            self.workspace_id,
+                            str(source["source_id"]),
+                            *target_revision_ids,
+                            str(source["target_fingerprint"]),
+                        ),
+                    ).fetchone()[0]
+                )
+            failed = any(str(row["status"]) in {"failed", "cancelled"} for row in statuses)
+            active = any(str(row["status"]) in {"queued", "running"} for row in statuses)
+            status = (
+                "succeeded"
+                if passed >= int(source["required_count"])
+                else "failed"
+                if failed and not active
+                else "running"
+                if active
+                else "failed"
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_pool_stage_sources
+                SET passed_count = ?, status = ?,
+                    last_error_code = CASE WHEN ? = 'failed'
+                        THEN COALESCE(last_error_code, 'source_validation_failed')
+                        ELSE NULL END,
+                    updated_at = ?
+                WHERE workspace_id = ? AND stage_id = ? AND source_id = ?
+                """,
+                (
+                    passed,
+                    status,
+                    status,
+                    now,
+                    self.workspace_id,
+                    stage_id,
+                    str(source["source_id"]),
+                ),
+            )
+            totals["succeeded" if status == "succeeded" else "failed" if status == "failed" else "active"] += 1
+        current_sources = connection.execute(
+            """
+            SELECT binding.source_id, binding.generation,
+                   binding.target_fingerprint
+            FROM apify_actor_pool_stages AS stage
+            JOIN apify_source_route_bindings AS binding
+              ON binding.workspace_id = stage.workspace_id
+             AND binding.route_id = stage.route_id
+            JOIN source_catalog AS source
+              ON source.workspace_id = binding.workspace_id
+             AND source.id = binding.source_id
+            WHERE stage.workspace_id = ? AND stage.stage_id = ?
+              AND source.enabled = 1
+            ORDER BY binding.source_id
+            """,
+            (self.workspace_id, stage_id),
+        ).fetchall()
+        snapshot = {
+            str(row["source_id"]): (
+                int(row["binding_generation"]),
+                str(row["target_fingerprint"]),
+                str(row["status"]),
+            )
+            for row in connection.execute(
+                """
+                SELECT source_id, binding_generation, target_fingerprint, status
+                FROM apify_actor_pool_stage_sources
+                WHERE workspace_id = ? AND stage_id = ? AND status != 'skipped'
+                """,
+                (self.workspace_id, stage_id),
+            ).fetchall()
+        }
+        current = {
+            str(row["source_id"]): (
+                int(row["generation"]), str(row["target_fingerprint"])
+            )
+            for row in current_sources
+        }
+        snapshot_identity = {
+            source_id: (values[0], values[1])
+            for source_id, values in snapshot.items()
+        }
+        all_succeeded = all(values[2] == "succeeded" for values in snapshot.values())
+        next_status = (
+            "replan_required"
+            if current != snapshot_identity or totals["failed"]
+            else "apply_ready"
+            if all_succeeded and totals["active"] == 0
+            else "validating_sources"
+        )
+        connection.execute(
+            """
+            UPDATE apify_actor_pool_stages
+            SET status = ?, last_error_code = CASE
+                    WHEN ? = 'replan_required'
+                    THEN 'source_snapshot_changed_or_failed'
+                    ELSE NULL END,
+                updated_at = ?
+            WHERE workspace_id = ? AND stage_id = ?
+              AND status NOT IN ('applied', 'stale', 'cancelled')
+            """,
+            (
+                next_status,
+                next_status,
+                now,
+                self.workspace_id,
+                stage_id,
+            ),
+        )
+        return totals
+
+    def refresh_pool_stage_sources(self, stage_id: str) -> dict[str, int]:
+        with self._write() as connection:
+            return self._refresh_pool_stage_sources_locked(connection, stage_id)
+
+    def block_pool_stage_unknown_start(self, stage_id: str) -> None:
+        with self._write() as connection:
+            connection.execute(
+                """
+                UPDATE apify_actor_pool_stages
+                SET status = 'blocked_unknown_start',
+                    last_error_code = 'apify_start_outcome_unknown',
+                    updated_at = ?
+                WHERE workspace_id = ? AND stage_id = ?
+                  AND status NOT IN ('applied', 'stale', 'cancelled')
+                """,
+                (self._now_iso(), self.workspace_id, stage_id),
+            )
+
+    def apply_pool_stage(
+        self,
+        stage_id: str,
+        *,
+        expected_generation: int,
+        expected_plan_hash: str,
+        apply_id: str,
+        confirmation: str,
+    ) -> dict[str, Any]:
+        if confirmation != ROUTE_POOL_ACTIVATION_CONFIRMATION:
+            raise ActorOpsError(
+                "apify_actor_route_activation_confirmation_required",
+                "Route activation requires the exact confirmation phrase",
+                status_code=422,
+            )
+        if not _HEX_64_RE.fullmatch(str(expected_plan_hash)):
+            raise ActorOpsError(
+                "apify_actor_canary_plan_invalid",
+                "Pool stage plan hash is invalid",
+                status_code=422,
+            )
+        apply_hash = _approval_key_hash(apply_id)
+        with self._write() as connection:
+            stage = connection.execute(
+                """
+                SELECT * FROM apify_actor_pool_stages
+                WHERE workspace_id = ? AND stage_id = ?
+                """,
+                (self.workspace_id, stage_id),
+            ).fetchone()
+            if stage is None:
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_not_found",
+                    "Actor pool stage was not found",
+                    status_code=404,
+                )
+            if str(stage["status"]) == "applied":
+                if str(stage["apply_key_hash"] or "") != apply_hash:
+                    raise ActorOpsError(
+                        "apify_actor_pool_stage_apply_id_conflict",
+                        "Apply id was already used for another action",
+                        status_code=409,
+                    )
+                return self.get_route(str(stage["route_id"]))
+            target = self._frozen_pool_stage_target(stage)
+            if target is None:
+                if str(stage["status"]) in {"validating_sources", "apply_ready"}:
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_pool_stages
+                        SET status = 'replan_required',
+                            last_error_code = 'candidate_shortfall', updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ?
+                          AND status IN ('validating_sources', 'apply_ready')
+                        """,
+                        (self._now_iso(), self.workspace_id, stage_id),
+                    )
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Staged Actor target is incomplete; choose another candidate",
+                    status_code=412,
+                )
+            if str(stage["status"]) != "apply_ready":
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Staged Actor source validation is not complete",
+                    status_code=412,
+                )
+            if str(stage["plan_hash"]) != str(expected_plan_hash):
+                raise ActorOpsError(
+                    "apify_actor_canary_plan_conflict",
+                    "Pool stage plan changed; reload before applying",
+                    status_code=409,
+                )
+            settlement = connection.execute(
+                """
+                SELECT batch.status, batch.cost_final,
+                       batch.actual_cost_usd,
+                       COUNT(item.ordinal) AS item_count,
+                       COALESCE(SUM(item.cost_final), 0) AS final_item_count
+                FROM apify_actor_canary_batches AS batch
+                LEFT JOIN apify_actor_canary_batch_items AS item
+                  ON item.workspace_id = batch.workspace_id
+                 AND item.batch_id = batch.batch_id
+                WHERE batch.workspace_id = ? AND batch.batch_id = ?
+                GROUP BY batch.batch_id
+                """,
+                (self.workspace_id, str(stage["initial_batch_id"])),
+            ).fetchone()
+            if (
+                settlement is None
+                or str(settlement["status"]) != "activation_ready"
+                or not bool(settlement["cost_final"])
+                or int(settlement["final_item_count"] or 0)
+                != int(settlement["item_count"] or 0)
+            ):
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Staged Actor validation costs are not final",
+                    status_code=412,
+                )
+            source_settlement = connection.execute(
+                """
+                SELECT COUNT(validation.validation_id) AS validation_count,
+                       COALESCE(SUM(validation.cost_final), 0) AS final_count,
+                       COALESCE(SUM(CASE WHEN validation.cost_final = 1
+                           THEN COALESCE(validation.cost_usd, 0)
+                           ELSE 0 END), 0) AS actual_cost_usd
+                FROM apify_actor_pool_stage_sources AS source
+                JOIN apify_actor_validations AS validation
+                  ON validation.workspace_id = source.workspace_id
+                 AND validation.validation_id IN (
+                     source.primary_validation_id,
+                     source.backup_1_validation_id,
+                     source.backup_2_validation_id
+                 )
+                WHERE source.workspace_id = ? AND source.stage_id = ?
+                """,
+                (self.workspace_id, stage_id),
+            ).fetchone()
+            if (
+                source_settlement is None
+                or int(source_settlement["validation_count"] or 0)
+                != int(source_settlement["final_count"] or 0)
+                or float(settlement["actual_cost_usd"] or 0)
+                + float(source_settlement["actual_cost_usd"] or 0)
+                > float(stage["max_total_charge_usd"]) + 1e-9
+            ):
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_precondition_incomplete",
+                    "Staged source validation costs are not final",
+                    status_code=412,
+                )
+            route = self._require_route(connection, str(stage["route_id"]))
+            if (
+                int(route["generation"]) != int(expected_generation)
+                or int(stage["base_generation"]) != int(expected_generation)
+            ):
+                raise ActorOpsError(
+                    "apify_actor_route_generation_conflict",
+                    "Actor route changed; reload before applying",
+                )
+            active_rows = connection.execute(
+                """
+                SELECT slot_name, revision_id
+                FROM apify_route_active_slots
+                WHERE workspace_id = ? AND route_id = ?
+                """,
+                (self.workspace_id, str(stage["route_id"])),
+            ).fetchall()
+            active_hash = revision_set_hash(
+                {
+                    str(row["slot_name"]): str(row["revision_id"] or "")
+                    for row in active_rows
+                }
+            )
+            if active_hash != str(stage["base_pool_hash"]):
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_stale",
+                    "Active Actor pool changed while the replacement was staged",
+                    status_code=409,
+                )
+            self._refresh_pool_stage_sources_locked(connection, stage_id)
+            refreshed = connection.execute(
+                """
+                SELECT status FROM apify_actor_pool_stages
+                WHERE workspace_id = ? AND stage_id = ?
+                """,
+                (self.workspace_id, stage_id),
+            ).fetchone()
+            if refreshed is None or str(refreshed["status"]) != "apply_ready":
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_source_validation_incomplete",
+                    "Enabled sources changed or still require validation",
+                    status_code=412,
+                )
+            active_attempt = connection.execute(
+                """
+                SELECT 1 FROM apify_actor_attempts
+                WHERE workspace_id = ? AND route_key = ?
+                  AND status IN ('reserved', 'running', 'start_outcome_unknown')
+                LIMIT 1
+                """,
+                (self.workspace_id, str(route["route_key"])),
+            ).fetchone()
+            if active_attempt is not None or str(route["status"]) == (
+                "blocked_unknown_start"
+            ):
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_apply_inflight",
+                    "Actor pool cannot switch while an attempt is unresolved",
+                    status_code=409,
+                )
+            result = self.replace_active_pool(
+                str(stage["route_id"]),
+                slots=target,
+                expected_generation=expected_generation,
+                allow_probationary_primary=True,
+            )
+            ready_status = (
+                "ready_3of3" if target["backup_2"] is not None else "ready_2of2"
+            )
+            connection.execute(
+                """
+                UPDATE apify_source_route_bindings
+                SET validation_status = ?, verified_revision_set_hash = ?,
+                    updated_at = ?
+                WHERE workspace_id = ? AND route_id = ?
+                  AND source_id IN (
+                      SELECT stage_source.source_id
+                      FROM apify_actor_pool_stage_sources AS stage_source
+                      JOIN source_catalog AS source
+                        ON source.workspace_id = stage_source.workspace_id
+                       AND source.id = stage_source.source_id
+                      WHERE stage_source.workspace_id = ?
+                        AND stage_source.stage_id = ?
+                        AND stage_source.status = 'succeeded'
+                        AND source.enabled = 1
+                  )
+                """,
+                (
+                    ready_status,
+                    str(stage["target_pool_hash"]),
+                    self._now_iso(),
+                    self.workspace_id,
+                    str(stage["route_id"]),
+                    self.workspace_id,
+                    stage_id,
+                ),
+            )
+            applied_generation = int(result["generation"])
+            connection.execute(
+                """
+                UPDATE apify_actor_pool_stages
+                SET status = 'applied', apply_key_hash = ?,
+                    applied_route_generation = ?, applied_at = ?, updated_at = ?
+                WHERE workspace_id = ? AND stage_id = ? AND status = 'apply_ready'
+                """,
+                (
+                    apply_hash,
+                    applied_generation,
+                    self._now_iso(),
+                    self._now_iso(),
+                    self.workspace_id,
+                    stage_id,
+                ),
+            )
+        return self.get_route(str(stage["route_id"]))
 
     def set_canary_batch_status(
         self,
@@ -3628,7 +7030,10 @@ class ApifyActorOpsService:
                 status_code=422,
             )
         if actual_cost_usd is not None:
-            _bounded_actual_cost(actual_cost_usd, maximum=0.02)
+            _bounded_actual_cost(
+                actual_cost_usd,
+                maximum=VALIDATION_MAX_CHARGE_USD_LIMIT,
+            )
         if cost_final and actual_cost_usd is None:
             raise ActorOpsError(
                 "apify_actor_cost_invalid",
@@ -3743,7 +7148,42 @@ class ApifyActorOpsService:
             ).fetchone()
             actor_count = int(prior["actors"] or 0)
             publisher_count = int(prior["publishers"] or 0)
-            ready = actor_count >= 2 and publisher_count >= 2
+            source_evidence = None
+            if batch["pool_stage_id"] is not None:
+                source_evidence = connection.execute(
+                    """
+                    SELECT COALESCE(SUM(CASE
+                               WHEN validation.cost_final = 1
+                               THEN COALESCE(validation.cost_usd, 0)
+                               ELSE 0 END), 0) AS actual_cost,
+                           COUNT(validation.validation_id) AS item_count,
+                           COALESCE(SUM(validation.cost_final), 0)
+                               AS final_count
+                    FROM apify_actor_pool_stage_sources AS source
+                    LEFT JOIN apify_actor_validations AS validation
+                      ON validation.workspace_id = source.workspace_id
+                     AND validation.validation_id IN (
+                         source.primary_validation_id,
+                         source.backup_1_validation_id,
+                         source.backup_2_validation_id
+                     )
+                    WHERE source.workspace_id = ? AND source.stage_id = ?
+                    """,
+                    (self.workspace_id, str(batch["pool_stage_id"])),
+                ).fetchone()
+            if batch["pool_stage_id"] is not None:
+                pool_stage = connection.execute(
+                    """
+                    SELECT status FROM apify_actor_pool_stages
+                    WHERE workspace_id = ? AND stage_id = ?
+                    """,
+                    (self.workspace_id, str(batch["pool_stage_id"])),
+                ).fetchone()
+                ready = pool_stage is not None and str(pool_stage["status"]) == (
+                    "apply_ready"
+                )
+            else:
+                ready = actor_count >= 2 and publisher_count >= 2
             batch_status = "activation_ready" if ready else "partial"
             # Batch counters are bounded by the three-item batch schema even
             # when older Route evidence contains more historical Actors.
@@ -3752,10 +7192,18 @@ class ApifyActorOpsService:
                 publisher_count,
                 BATCH_CANARY_MAX_CANDIDATES,
             )
-            final_cost = float(evidence["actual_cost"] or 0)
+            final_cost = float(evidence["actual_cost"] or 0) + float(
+                source_evidence["actual_cost"]
+                if source_evidence is not None
+                else 0
+            )
             all_final = int(evidence["final_count"] or 0) == int(
                 evidence["item_count"] or 0
             )
+            if source_evidence is not None:
+                all_final = all_final and int(
+                    source_evidence["final_count"] or 0
+                ) == int(source_evidence["item_count"] or 0)
             connection.execute(
                 """
                 UPDATE apify_actor_canary_batches
@@ -3772,7 +7220,9 @@ class ApifyActorOpsService:
                     int(all_final),
                     _optional_label(
                         stop_reason or (
-                            "two_providers_ready"
+                            "staged_pool_apply_ready"
+                            if batch["pool_stage_id"] is not None
+                            else "two_providers_ready"
                             if ready
                             else "candidate_replenishment_required"
                         ),
@@ -4117,6 +7567,26 @@ class ApifyActorOpsService:
                     "Source Actor binding changed; reload before retrying",
                 )
             route = self._require_route(connection, str(binding["route_id"]))
+            revision = connection.execute(
+                """
+                SELECT lifecycle, build_id, build_number, manifest_hash
+                FROM apify_actor_adapter_revisions
+                WHERE workspace_id = ? AND revision_id = ?
+                """,
+                (self.workspace_id, revision_id),
+            ).fetchone()
+            if (
+                revision is None
+                or str(revision["lifecycle"]) == "legacy_builtin"
+                or not revision["build_id"]
+                or not revision["build_number"]
+                or not revision["manifest_hash"]
+            ):
+                raise ActorOpsError(
+                    "apify_actor_source_requires_pool_upgrade",
+                    "Compatibility Actor revisions must be upgraded before source validation",
+                    status_code=412,
+                )
             if cap > float(route["per_run_cap_usd"]):
                 raise ActorOpsError(
                     "apify_actor_budget_invalid",
@@ -4334,6 +7804,9 @@ class ApifyActorOpsService:
         cost_usd: float | None = None,
         cost_final: bool | None = None,
         counts_toward_canary: bool | None = None,
+        duration_seconds: int | None = None,
+        dataset_row_count: int | None = None,
+        mapped_item_count: int | None = None,
     ) -> dict[str, Any]:
         if cost_usd is not None:
             _bounded_actual_cost(
@@ -4359,13 +7832,33 @@ class ApifyActorOpsService:
             else bool(counts_toward_canary)
         )
         terminal = status in {"succeeded", "failed", "cancelled"}
+        for value in (duration_seconds, dataset_row_count, mapped_item_count):
+            if value is not None and (
+                isinstance(value, bool) or int(value) < 0
+            ):
+                raise ActorOpsError(
+                    "apify_actor_validation_metrics_invalid",
+                    "Actor validation metrics are invalid",
+                    status_code=422,
+                )
         now = self._now_iso()
         with self._write() as connection:
             current = connection.execute(
                 """
-                SELECT status, kind, discovery_run_id, route_id, revision_id
-                FROM apify_actor_validations
-                WHERE workspace_id = ? AND validation_id = ?
+                SELECT validation.status, validation.kind,
+                       validation.discovery_run_id, validation.route_id,
+                       validation.revision_id,
+                       validation.approved_max_cost_usd,
+                       validation.target_fingerprint,
+                       validation.validation_profile_hash,
+                       revision.candidate_id, revision.build_id,
+                       revision.build_number, revision.manifest_hash
+                FROM apify_actor_validations AS validation
+                JOIN apify_actor_adapter_revisions AS revision
+                  ON revision.workspace_id = validation.workspace_id
+                 AND revision.revision_id = validation.revision_id
+                WHERE validation.workspace_id = ?
+                  AND validation.validation_id = ?
                 """,
                 (self.workspace_id, validation_id),
             ).fetchone()
@@ -4379,6 +7872,16 @@ class ApifyActorOpsService:
                 raise ActorOpsError(
                     "apify_actor_validation_terminal",
                     "Actor validation is already terminal",
+                )
+            if (
+                cost_usd is not None
+                and float(cost_usd)
+                > float(current["approved_max_cost_usd"] or 0) + 1e-9
+            ):
+                raise ActorOpsError(
+                    "apify_actor_cost_invalid",
+                    "Actor validation cost exceeds its approved limit",
+                    status_code=422,
                 )
             if attempt_id is not None:
                 attempt = connection.execute(
@@ -4407,6 +7910,10 @@ class ApifyActorOpsService:
                 SET status = ?, semantic_outcome = ?, attempt_id = ?,
                     cost_usd = COALESCE(?, cost_usd),
                     cost_final = ?, counts_toward_canary = ?,
+                    duration_seconds = COALESCE(?, duration_seconds),
+                    dataset_row_count = COALESCE(?, dataset_row_count),
+                    mapped_item_count = COALESCE(?, mapped_item_count),
+                    failure_fingerprint = ?,
                     completed_at = CASE WHEN ? THEN ? ELSE NULL END
                 WHERE workspace_id = ? AND validation_id = ?
                 """,
@@ -4417,6 +7924,30 @@ class ApifyActorOpsService:
                     cost_usd,
                     int(resolved_cost_final),
                     int(resolved_counts),
+                    duration_seconds,
+                    dataset_row_count,
+                    mapped_item_count,
+                    (
+                        validation_failure_fingerprint(
+                            route_id=str(current["route_id"]),
+                            candidate_id=str(current["candidate_id"]),
+                            revision_id=str(current["revision_id"]),
+                            build_id=str(current["build_id"] or ""),
+                            build_number=str(current["build_number"] or ""),
+                            manifest_hash=str(current["manifest_hash"] or ""),
+                            target_fingerprint=str(
+                                current["target_fingerprint"] or ""
+                            ),
+                            kind=str(current["kind"]),
+                            profile_hash=str(
+                                current["validation_profile_hash"] or ""
+                            ),
+                        )
+                        if terminal
+                        and status == "failed"
+                        and current["validation_profile_hash"]
+                        else None
+                    ),
                     int(terminal),
                     now,
                     self.workspace_id,
@@ -4505,7 +8036,10 @@ class ApifyActorOpsService:
             """
             SELECT validation_id, route_id, source_id, revision_id, kind,
                    status, semantic_outcome, cost_usd, cost_final,
-                   counts_toward_canary, created_at, completed_at
+                   counts_toward_canary, validation_timeout_seconds,
+                   validation_sample_items, validation_profile_hash,
+                   duration_seconds, dataset_row_count, mapped_item_count,
+                   created_at, completed_at
             FROM apify_actor_validations
             WHERE workspace_id = ? AND validation_id = ?
             """,
@@ -4518,6 +8052,307 @@ class ApifyActorOpsService:
                 status_code=404,
             )
         return dict(row)
+
+    def reconcile_validation_result(
+        self,
+        validation_id: str,
+        *,
+        semantic_outcome: str,
+        cost_usd: float | None,
+        cost_final: bool,
+        duration_seconds: int,
+        dataset_row_count: int,
+        mapped_item_count: int,
+    ) -> dict[str, Any]:
+        """Replace only a status-read failure after a no-POST reconciliation."""
+
+        semantic = _safe_label(semantic_outcome, 128)
+        succeeded = semantic in {"valid_nonempty", "valid_empty"}
+        if succeeded and (not cost_final or cost_usd is None):
+            raise ActorOpsError(
+                "apify_run_status_unavailable",
+                "The reconciled Actor Run cost is not final yet",
+                retryable=True,
+                status_code=503,
+            )
+        if cost_final and cost_usd is None:
+            raise ActorOpsError(
+                "apify_actor_cost_invalid",
+                "Final reconciliation cost is missing",
+                status_code=422,
+            )
+        if cost_usd is not None:
+            _bounded_actual_cost(cost_usd, maximum=VALIDATION_MAX_CHARGE_USD_LIMIT)
+        now = self._now_iso()
+        with self._write() as connection:
+            row = connection.execute(
+                """
+                SELECT validation.status, validation.semantic_outcome,
+                       validation.approved_max_cost_usd,
+                       validation.attempt_id, validation.kind,
+                       validation.route_id, validation.revision_id,
+                       validation.target_fingerprint,
+                       validation.validation_profile_hash,
+                       revision.candidate_id, revision.build_id,
+                       revision.build_number, revision.manifest_hash
+                FROM apify_actor_validations AS validation
+                JOIN apify_actor_adapter_revisions AS revision
+                  ON revision.workspace_id = validation.workspace_id
+                 AND revision.revision_id = validation.revision_id
+                WHERE validation.workspace_id = ?
+                  AND validation.validation_id = ?
+                """,
+                (self.workspace_id, validation_id),
+            ).fetchone()
+            if row is None:
+                raise ActorOpsError(
+                    "apify_actor_validation_not_found",
+                    "Actor validation was not found",
+                    status_code=404,
+                )
+            if str(row["status"]) not in {"failed", "cancelled"} or str(
+                row["semantic_outcome"] or ""
+            ) not in {
+                "apify_run_status_unavailable",
+                "apify_actor_run_status_unavailable",
+                "apify_run_reconcile_required",
+            }:
+                raise ActorOpsError(
+                    "apify_actor_validation_reconcile_not_allowed",
+                    "Only an unresolved status read can be reconciled",
+                    status_code=409,
+                )
+            if row["attempt_id"] is None:
+                raise ActorOpsError(
+                    "apify_actor_validation_reconcile_unavailable",
+                    "The validation has no durable Run to reconcile",
+                    status_code=412,
+                )
+            if (
+                cost_usd is not None
+                and float(cost_usd)
+                > float(row["approved_max_cost_usd"] or 0) + 1e-9
+            ):
+                raise ActorOpsError(
+                    "apify_actor_cost_invalid",
+                    "Reconciled cost exceeds its approved limit",
+                    status_code=422,
+                )
+            failure_fingerprint = None
+            if not succeeded and row["validation_profile_hash"]:
+                failure_fingerprint = validation_failure_fingerprint(
+                    route_id=str(row["route_id"]),
+                    candidate_id=str(row["candidate_id"]),
+                    revision_id=str(row["revision_id"]),
+                    build_id=str(row["build_id"] or ""),
+                    build_number=str(row["build_number"] or ""),
+                    manifest_hash=str(row["manifest_hash"] or ""),
+                    target_fingerprint=str(row["target_fingerprint"] or ""),
+                    kind=str(row["kind"]),
+                    profile_hash=str(row["validation_profile_hash"]),
+                )
+            connection.execute(
+                """
+                UPDATE apify_actor_validations
+                SET status = ?, semantic_outcome = ?, cost_usd = ?,
+                    cost_final = ?, counts_toward_canary = 1,
+                    duration_seconds = ?, dataset_row_count = ?,
+                    mapped_item_count = ?, failure_fingerprint = ?,
+                    completed_at = ?
+                WHERE workspace_id = ? AND validation_id = ?
+                """,
+                (
+                    "succeeded" if succeeded else "failed",
+                    semantic,
+                    cost_usd,
+                    int(cost_final),
+                    max(0, int(duration_seconds)),
+                    max(0, int(dataset_row_count)),
+                    max(0, int(mapped_item_count)),
+                    failure_fingerprint,
+                    now,
+                    self.workspace_id,
+                    validation_id,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_attempts
+                SET status = ?, semantic_outcome = ?, actual_cost_usd = ?,
+                    cost_final = ?, last_error_code = ?, terminal_at = ?,
+                    updated_at = ?
+                WHERE workspace_id = ? AND id = ?
+                """,
+                (
+                    "succeeded" if semantic == "valid_nonempty" else
+                    "valid_empty" if semantic == "valid_empty" else
+                    "actor_failed",
+                    semantic,
+                    cost_usd,
+                    int(cost_final),
+                    None if succeeded else semantic,
+                    now,
+                    now,
+                    self.workspace_id,
+                    str(row["attempt_id"]),
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_canary_batch_items
+                SET status = ?, semantic_outcome = ?, actual_cost_usd = ?,
+                    cost_final = ?, completed_at = ?, updated_at = ?
+                WHERE workspace_id = ? AND validation_id = ?
+                """,
+                (
+                    "succeeded" if succeeded else "failed",
+                    semantic,
+                    cost_usd,
+                    int(cost_final),
+                    now,
+                    now,
+                    self.workspace_id,
+                    validation_id,
+                ),
+            )
+        return self.get_validation(validation_id)
+
+    def resume_reconciled_validation(
+        self,
+        validation_id: str,
+    ) -> dict[str, Any]:
+        """Resume only work already covered by the original paid approval.
+
+        Re-reading a known Run is free.  When that read proves a Route Canary
+        succeeded, the old batch may continue with its already-approved source
+        checks; the candidate Actor itself is never started again.  A source
+        read can likewise move its frozen stage to apply-ready without another
+        paid request.
+        """
+
+        with self._write() as connection:
+            row = connection.execute(
+                """
+                SELECT validation.status, validation.semantic_outcome,
+                       validation.kind, validation.cost_usd,
+                       validation.cost_final,
+                       item.batch_id, batch.pool_stage_id,
+                       source.stage_id AS source_stage_id,
+                       source_stage.initial_batch_id AS source_batch_id
+                FROM apify_actor_validations AS validation
+                LEFT JOIN apify_actor_canary_batch_items AS item
+                  ON item.workspace_id = validation.workspace_id
+                 AND item.validation_id = validation.validation_id
+                LEFT JOIN apify_actor_canary_batches AS batch
+                  ON batch.workspace_id = item.workspace_id
+                 AND batch.batch_id = item.batch_id
+                LEFT JOIN apify_actor_pool_stage_sources AS source
+                  ON source.workspace_id = validation.workspace_id
+                 AND validation.validation_id IN (
+                     source.primary_validation_id,
+                     source.backup_1_validation_id,
+                     source.backup_2_validation_id
+                 )
+                LEFT JOIN apify_actor_pool_stages AS source_stage
+                  ON source_stage.workspace_id = source.workspace_id
+                 AND source_stage.stage_id = source.stage_id
+                WHERE validation.workspace_id = ?
+                  AND validation.validation_id = ?
+                """,
+                (self.workspace_id, validation_id),
+            ).fetchone()
+            if row is None:
+                raise ActorOpsError(
+                    "apify_actor_validation_not_found",
+                    "Actor validation was not found",
+                    status_code=404,
+                )
+            if (
+                str(row["status"]) != "succeeded"
+                or str(row["semantic_outcome"] or "")
+                not in {"valid_nonempty", "valid_empty"}
+                or not bool(row["cost_final"])
+            ):
+                return {
+                    "resumed": False,
+                    "batch_id": row["batch_id"] or row["source_batch_id"],
+                    "stage_id": row["pool_stage_id"] or row["source_stage_id"],
+                    "enqueue_batch": False,
+                }
+            if str(row["kind"]) == "route_reference" and row["batch_id"]:
+                batch_id = str(row["batch_id"])
+                stage_id = (
+                    str(row["pool_stage_id"])
+                    if row["pool_stage_id"]
+                    else None
+                )
+                if stage_id is not None:
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_pool_stages
+                        SET status = 'queued', last_error_code = NULL,
+                            target_primary_revision_id = NULL,
+                            target_backup_1_revision_id = NULL,
+                            target_backup_2_revision_id = NULL,
+                            target_pool_hash = NULL, updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ?
+                          AND status = 'replan_required'
+                        """,
+                        (self._now_iso(), self.workspace_id, stage_id),
+                    )
+                connection.execute(
+                    """
+                    UPDATE apify_actor_canary_batches
+                    SET status = 'queued', stop_reason = NULL,
+                        completed_at = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND batch_id = ?
+                      AND status IN ('partial', 'failed')
+                    """,
+                    (self._now_iso(), self.workspace_id, batch_id),
+                )
+                return {
+                    "resumed": True,
+                    "batch_id": batch_id,
+                    "stage_id": stage_id,
+                    "enqueue_batch": True,
+                }
+            stage_id = (
+                str(row["source_stage_id"])
+                if row["source_stage_id"]
+                else None
+            )
+            batch_id = (
+                str(row["source_batch_id"])
+                if row["source_batch_id"]
+                else None
+            )
+            if stage_id is not None:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stages
+                    SET status = 'validating_sources', last_error_code = NULL,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ?
+                      AND status = 'replan_required'
+                    """,
+                    (self._now_iso(), self.workspace_id, stage_id),
+                )
+        if stage_id is not None:
+            self.refresh_pool_stage_sources(stage_id)
+            if batch_id is not None:
+                self.finalize_canary_batch(batch_id)
+            return {
+                "resumed": True,
+                "batch_id": batch_id,
+                "stage_id": stage_id,
+                "enqueue_batch": False,
+            }
+        return {
+            "resumed": False,
+            "batch_id": None,
+            "stage_id": None,
+            "enqueue_batch": False,
+        }
 
     def activate_binding(
         self,
@@ -7149,6 +10984,17 @@ def _safe_json(value: Any, fallback: T) -> Any | T:
     except (TypeError, json.JSONDecodeError):
         return fallback
     return decoded
+
+
+def _actor_public_name(value: Any, publisher: Any, actor_id: Any) -> str:
+    """Return a public label without falling back to the canonical Actor ID."""
+
+    name = _optional_label(value, 160) or ""
+    canonical_actor_id = str(actor_id or "").strip()
+    if name and name.casefold() != canonical_actor_id.casefold():
+        return name
+    public_publisher = _optional_label(publisher, 120) or "商城"
+    return f"{public_publisher} Actor"
 
 
 def _as_utc(value: datetime) -> datetime:

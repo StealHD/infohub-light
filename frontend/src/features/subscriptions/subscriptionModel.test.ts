@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, User } from '../../api/types'
 import * as subscriptionModel from './subscriptionModel'
-import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, presentSourceHealthStatus, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
+import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentActorOpsJobIssue, presentJob, presentSourceHealthIssue, presentSourceHealthStatus, shouldShowJob, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
 
 const user = (role: User['role'], id = 'user-1'): User => ({ id, username: role, role, enabled: true })
 const source: CatalogSource = { id: 'src-1', type: 'rss', display_name: 'RSS', scope: 'workspace', enabled: true }
@@ -170,6 +170,40 @@ describe('subscription model', () => {
   ] as const)('maps the %s job state to distinct copy, tone and icon semantics', (status, statusLabel, tone, icon) => {
     const job: Job = { id: `job-${status}`, user_id: 'user-1', job_type: 'source_test', status }
     expect(presentJob(job, new Map())).toMatchObject({ statusLabel, tone, icon })
+  })
+
+  it('hides internal ActorOps successes and presents stale paid validation as a human action', () => {
+    const succeeded: Job = {
+      id: 'actor-discovery-success',
+      user_id: 'user-1',
+      job_type: 'apify_actor_discovery',
+      status: 'succeeded',
+    }
+    const stale: Job = {
+      id: 'actor-validation-stale',
+      user_id: 'user-1',
+      job_type: 'apify_actor_validation',
+      status: 'failed',
+      retryable: true,
+      error_code: 'apify_actor_canary_approval_stale',
+      error_message: 'RAW_JOB_ERROR_SHOULD_NOT_RENDER',
+    }
+
+    expect(shouldShowJob(succeeded)).toBe(false)
+    expect(shouldShowJob(stale)).toBe(true)
+    expect(presentActorOpsJobIssue(stale)).toEqual({
+      reason: 'Actor 配置已更新',
+      impact: '这次验证没有启动，不会收费；当前主备没有变化。',
+      next: '返回 ActorOps，重新选择 Actor 并确认。',
+    })
+    expect(presentJob(stale, new Map())).toMatchObject({
+      title: '验证备用 Actor',
+      statusLabel: '需要处理',
+      resultLabel: 'Actor 配置已更新',
+      detail: '',
+      actorOpsHref: '/settings/actorops?tab=pool',
+    })
+    expect(JSON.stringify(presentJob(stale, new Map()))).not.toContain('RAW_JOB_ERROR_SHOULD_NOT_RENDER')
   })
 
   it.each([

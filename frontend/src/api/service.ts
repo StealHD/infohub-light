@@ -20,6 +20,9 @@ import type {
   ApifyActorDiscoverySettingsPatch,
   ApifyActorPaidCanaryRequest,
   ApifyActorPaidCanaryResponse,
+  ApifyActorPoolGoal,
+  ApifyActorPoolCandidateRefresh,
+  ApifyActorPoolCandidates,
   ApifyActorRecommendedPoolActivation,
   ApifyActorRoute,
   ApifyActorRouteDetail,
@@ -30,6 +33,7 @@ import type {
   ApifyActorSourceSupport,
   ApifyActorSupportCheckRequest,
   ApifyActorSupportCheckResponse,
+  ApifyActorValidationProfileRequest,
   ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
@@ -335,9 +339,56 @@ export function createServiceApi(client: ApiClient) {
       resource('/api/admin/apify-discovery-runs', runId),
       signal,
     ),
-    apifyActorCanaryPlan: (runId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryPlan>(
-      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
+    apifyActorCanaryPlan: (
+      runId: string,
+      goal: ApifyActorPoolGoal = 'initial_pool',
+      signal?: AbortSignal,
+    ) => client.get<ApifyActorCanaryPlan>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan?goal=${encodeURIComponent(goal)}`,
       signal,
+    ),
+    apifyActorPoolCandidates: (
+      routeId: string,
+      goal: ApifyActorPoolGoal,
+      signal?: AbortSignal,
+    ) => client.get<ApifyActorPoolCandidates>(
+      `${resource('/api/admin/apify-routes', routeId)}/pool-candidates?goal=${encodeURIComponent(goal)}`,
+      signal,
+    ),
+    refreshApifyActorPoolCandidates: (
+      routeId: string,
+      expectedGeneration: number,
+      goal: ApifyActorPoolGoal = 'initial_pool',
+    ) => client.post<ApifyActorPoolCandidateRefresh>(
+      `${resource('/api/admin/apify-routes', routeId)}/pool-candidates/refresh`,
+      { expected_generation: expectedGeneration, goal },
+    ),
+    reconcileApifyActorValidation: (
+      routeId: string,
+      expectedGeneration: number,
+      candidateId: string,
+    ) => client.post<{
+      schema_version: 1
+      status: string
+      semantic_outcome: string
+      cost_usd: number | null
+      continued: boolean
+    }>(
+      `${resource('/api/admin/apify-routes', routeId)}/validations/reconcile`,
+      { expected_generation: expectedGeneration, candidate_id: candidateId },
+    ),
+    createApifyActorManualCanaryPlan: (
+      runId: string,
+      payload: {
+        goal: ApifyActorPoolGoal
+        candidate_ids: string[]
+        candidate_validation_profiles: ApifyActorValidationProfileRequest[]
+        expected_generation: number
+        target_slot_count: 3
+      },
+    ) => client.post<ApifyActorCanaryPlan>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
+      payload,
     ),
     createApifyActorCanaryBatch: (
       runId: string,

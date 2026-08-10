@@ -649,6 +649,121 @@ def test_route_canary_generation_change_cancels_same_timestamp_approval(
     assert tuple(persisted) == ("cancelled", "approval_stale")
 
 
+def test_active_probationary_primary_can_complete_source_canary(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = next(
+        route for route in ops.list_routes() if route["route_key"] == "x/profile"
+    )
+    revisions: list[str] = []
+    for index, (actor_id, publisher, lifecycle) in enumerate(
+        (
+            ("publisher/reference-actor", "publisher", "probationary"),
+            ("publisher-b/reference-backup", "publisher-b", "certified"),
+        ),
+        start=1,
+    ):
+        manifest = _manifest()
+        manifest["actor_id"] = actor_id
+        manifest["build_number"] = f"1.0.{index}"
+        candidate_id = ops.ensure_candidate(
+            route["route_id"],
+            actor_id=actor_id,
+        )
+        revision_id = ops.create_adapter_revision(
+            candidate_id=candidate_id,
+            actor_id=actor_id,
+            publisher=publisher,
+            build_id=f"build-probationary-source-{index}",
+            build_number=f"1.0.{index}",
+            manifest=manifest,
+            lifecycle="static_valid",
+        )
+        store.connect().execute(
+            """
+            UPDATE apify_actor_adapter_revisions
+            SET lifecycle = ?
+            WHERE revision_id = ?
+            """,
+            (lifecycle, revision_id),
+        )
+        store.connect().commit()
+        revisions.append(revision_id)
+    ops.replace_active_pool(
+        route["route_id"],
+        slots={
+            "primary": revisions[0],
+            "backup_1": revisions[1],
+            "backup_2": None,
+        },
+        expected_generation=route["generation"],
+    )
+    source_id = store.create_source(
+        workspace_id=ops.workspace_id,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Probationary source Canary",
+        config={"profile_id": route["route_id"], "target": "@openai"},
+        enabled=False,
+    )
+    binding = ops.bind_source(
+        source_id=source_id,
+        route_id=route["route_id"],
+        target_fingerprint=source_target_fingerprint(
+            ops.workspace_id,
+            route["route_id"],
+            "@openai",
+            platform="x",
+        ),
+        mode="primary",
+    )
+    validation = ops.approve_source_canary(
+        source_id,
+        revisions[0],
+        expected_generation=binding["generation"],
+        approval_id="approval-probationary-source-canary",
+        confirmation=PAID_CANARY_CONFIRMATION,
+        max_cost_usd=0.02,
+    )
+    owner = store.create_user(
+        workspace_id=ops.workspace_id,
+        username="probationary-canary-admin",
+        password="safe-test-password",
+        role="admin",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=ops.workspace_id,
+        user_id=owner["id"],
+        job_type="apify_actor_validation",
+        payload={"validation_id": validation["validation_id"]},
+        priority=100,
+        max_attempts=1,
+    )
+
+    actor_client = _Client()
+    result = asyncio.run(
+        ApifyActorCanaryRunner(store, ops, actor_client).run(
+            validation["validation_id"],
+            job_id=job["id"],
+        )
+    )
+
+    assert result.status == "succeeded"
+    assert result.semantic_outcome == "valid_nonempty"
+    assert len(actor_client.calls) == 1
+    persisted = store.connect().execute(
+        """
+        SELECT status, semantic_outcome, cost_usd
+        FROM apify_actor_validations
+        WHERE validation_id = ?
+        """,
+        (validation["validation_id"],),
+    ).fetchone()
+    assert tuple(persisted) == ("succeeded", "valid_nonempty", 0.01)
+
+
 def test_source_canary_generation_change_cancels_same_timestamp_approval(
     tmp_path,
 ) -> None:

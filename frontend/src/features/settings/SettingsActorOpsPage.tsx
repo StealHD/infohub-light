@@ -1,12 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { useAppContext } from '../../app/AppContext'
-import {
-  SettingsGroup,
-  SettingsItem,
-  SettingsSection,
-} from '../../components/settings'
-import { Icons, PageFrame } from '../../design-system'
+import { Card, PageFrame, PageIntro } from '../../design-system'
 import { HeroActorOpsControlPlane } from '../apify-actors/HeroActorOpsControlPlane'
 import {
   ApifyActorAlertSettingsPanel,
@@ -23,27 +18,21 @@ export function SettingsActorOpsPage() {
   if (!canAdministerWorkspace(user)) return <Navigate to="/settings" state={returnState} replace />
 
   return <div data-settings-page="actorops" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
-    <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
-      <SettingsSection title="运行概览" description="查看 Route 可用度、主备池、发现和来源级验证；所有付费操作仍需单独确认。">
-        <HeroActorOpsControlPlane queryEnabled />
-      </SettingsSection>
-
-      <SettingsSection title="告警与事件" description="告警只使用已配置的工作区共享通知服务；最近事件最多保留 20 条。">
-        <SettingsGroup ariaLabel="ActorOps 告警与事件">
-          <SettingsItem
-            density="compact"
-            label="故障告警"
-            description="选择共享通知服务和需要关注的 ActorOps 事件。"
-            icon={<Icons.BellRing size={17} aria-hidden="true" />}
-          ><ApifyActorAlertSettingsPanel queryEnabled /></SettingsItem>
-          <SettingsItem
-            density="compact"
-            label="最近事件"
-            description="显示切换、熔断、费用保护与恢复记录。"
-            icon={<Icons.Activity size={17} aria-hidden="true" />}
-          ><ApifyActorIncidentList queryEnabled /></SettingsItem>
-        </SettingsGroup>
-      </SettingsSection>
+    <PageFrame width="settings" className="grid gap-5 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
+      <PageIntro description="为 X、Instagram 和 YouTube 管理 Actor 主备。系统自动选择候选；只有付费验证和切换生效需要你确认。" />
+      <HeroActorOpsControlPlane
+        queryEnabled
+        operationsContent={<>
+          <Card variant="secondary" className="grid gap-4 border border-separator p-4">
+            <div><Card.Title>运行告警</Card.Title><Card.Description className="mt-1">告警设置适用于整个工作区；任一通知服务失败不会阻断抓取。</Card.Description></div>
+            <ApifyActorAlertSettingsPanel queryEnabled />
+          </Card>
+          <Card variant="secondary" className="grid gap-4 border border-separator p-4">
+            <div><Card.Title>最近事件</Card.Title><Card.Description className="mt-1">默认查看最新切换、熔断、费用保护与恢复记录。</Card.Description></div>
+            <ApifyActorIncidentList queryEnabled />
+          </Card>
+        </>}
+      />
     </PageFrame>
   </div>
 }

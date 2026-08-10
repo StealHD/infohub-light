@@ -369,3 +369,244 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "在独立分支完成 ActorOps 引导式配置：以持久 Pool Stage 安全补齐第三槽、旁路升级 legacy 池并预验证全部已启用来源；页面收敛为抓取类型选择器、三个任务页签和服务端权威的唯一下一步。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-guided-flow",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 后端回归全部通过，覆盖 schema 20 迁移、第三槽、legacy 旁路、来源预验证、增量重计划、原子 apply、费用/CAS 与 unknown-start。",
+    "前端类型检查、定向 ESLint 与 Vitest 54/54 通过。",
+    "ActorOps Playwright 10 通过、2 个预期 tablet 跳过；1440/1024/390 三视口、明暗视觉基线、零中断流程、无横向溢出与 Axe 门槛通过。",
+    "完整 Test Gate 24/24 命令通过（254.88 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "将 ActorOps 引导流程分支切换到共享 8080，并离线安装 Pool Stage schema 20；共享运行目录继续使用主 checkout 的 .env、data 与 logs。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-guided-flow-local-cutover",
+  "unresolved": [],
+  "validation": [
+    "切换前活跃任务为 0；3 个来源自动调度保持启用，但 scheduler 容器未启动。",
+    "schema 20 迁移生成 0600 备份，integrity_check=ok 且 foreign_key_violations=0。",
+    "API/Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务 ActorOps 新任务流资源。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "修复 ActorOps legacy 候选仅 1/2 时错误打开 $0.00 禁用付费确认框的问题；服务端改为投影候选不足进度，页面提供可点击的免费继续搜索动作。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-candidate-shortfall-action",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 后端定向回归 29/29 通过。",
+    "ActorOps 前端 Vitest 32/32、TypeScript 类型检查与定向 ESLint 通过。",
+    "完整 Test Gate 24/24 命令通过（252.47 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "修复活动主用或备用 1 处于 probationary 时来源 Canary 被误判为审批失效的问题；保持槽位、来源、generation 与候选健康状态的安全校验不变。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-probationary-source-canary",
+  "unresolved": [],
+  "validation": [
+    "新增活动 probationary 主用完成来源 Canary 的端到端回归。",
+    "Actor Canary 9/9、Worker 与 Pool Stage 14/14 定向测试通过。",
+    "完整 Test Gate 24/24 命令通过（256.52 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "完成人类化 ActorOps 配置闭环：首次配置与旧版升级手选 3 个安全候选，第三槽手选 1 个；一次限额验证覆盖 Route 与已启用来源，第二次确认原子生效，后台认证不再阻塞运行。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-manual-pool-selection",
+  "unresolved": [
+    "共享 schema 21 迁移与 8080 切换等待单独授权。"
+  ],
+  "validation": [
+    "ActorOps 后端定向回归 49/49 通过，覆盖 schema 21、人工候选、最新 exact Build、原子入队、来源预验证与 apply。",
+    "前端定向 Vitest 179/179、类型检查、ESLint、UI 合同与生产构建通过。",
+    "ActorOps Playwright 12 通过、3 个预期视口跳过；初始 3/3、第三槽、legacy 3/3、明暗视觉与无障碍验收通过。",
+    "完整 Test Gate 24/24 命令通过（326.58 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "修复第三槽候选验证失败后空目标 Stage 被错误标为可生效的问题；历史卡住状态会安全回退到重新选择候选，确认弹窗不再滞留。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-empty-stage-recovery",
+  "unresolved": [],
+  "validation": [
+    "Pool Stage 定向回归 9/9 通过，覆盖 Worker 空来源刷新、历史状态恢复与零写入 apply 拦截。",
+    "ActorOps 前端 Vitest 46/46、类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（262.63 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps 在补位验证已终态失败后保留安全失败摘要；下一步卡直接说明原因、实际已结算费用、现有线路影响和人工恢复动作。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-background-validation-failure",
+  "unresolved": [],
+  "validation": [
+    "Pool Stage 定向回归 10/10 通过，覆盖 Route 超时与来源 suspicious-empty 失败投影。",
+    "ActorOps 前端 Vitest 48/48、TypeScript 类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（251.91 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps 按每个候选冻结 180–900 秒、1/3/5 条样本与最高 $0.10 单次费用；超时、空结果和状态读取失败只提供有效恢复动作，相同失败参数在 Actor 启动前以 0 费用拒绝。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-validation-tuning-repeat-guard",
+  "unresolved": [],
+  "validation": [
+    "ActorOps、Apify Client 与迁移定向回归 112/112 通过，覆盖 X 空结果、Instagram 超时、YouTube 状态免费核对、原审批费用和无 abort/二次启动。",
+    "ActorOps 前端 Vitest 83/83、Changelog 5/5、TypeScript 类型检查与 ESLint 通过（仅仓库既有 8 条 Fast Refresh 警告）。",
+    "完整 Test Gate 24/24 命令通过（600.17 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps 优先为 X 兼容池中的原 Actor 生成并验证固定 Build 新 Revision；不可升级时才要求替换。兼容来源在付费前被引导回主备升级，顶部选择器与悬浮页签同步精简。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-same-actor-upgrade-source-precheck",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 后端定向回归 104/104 通过，覆盖原 Actor exact Revision、公开 Store 安全检查和 legacy 来源零 Job/零费用拦截。",
+    "ActorOps 前端 Vitest 79/79、Changelog 5/5、TypeScript 与 ESLint 通过（仅仓库既有 8 条 Fast Refresh 警告）。",
+    "完整 Test Gate 24/24 命令通过（246.72 秒）；共享 8080 浏览器复核后补充了无原 Actor 新版时的免费更新提示。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "ActorOps legacy 升级始终把当前 ScrapeBadger、Dami 和 Xquik 排在候选最前，安全新版自动选中，未通过项显示状态；重复免费检查被服务端合并，顶部与页签外层方框阴影已移除。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-current-actors-visible-deduplicate",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 候选、API 与 Discovery 后端回归 97/97 通过，覆盖当前三 Actor 排序、ranking 运行态与重复 Job 零调用 supersede。",
+    "ActorOps 与 Changelog 前端 Vitest 61/61 及 TypeScript 类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（244.49 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "ActorOps 三个任务页签使用浅色强调底轨区分未选项，保留已选白色胶囊，不恢复外框或阴影。",
+  "status": "completed",
+  "task_id": "2026-08-11-actorops-tab-accent-rail",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 与 Changelog 前端 Vitest 61/61 及 TypeScript 类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（259.62 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "storage",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "将 codex/actorops-guided-flow-20260809 合入本地 main；保留既有登录、专题、成员更新，并将 ActorOps 决策登记为 D140–D143，避免决策编号冲突。",
+  "status": "completed",
+  "task_id": "2026-08-11-merge-actorops-guided-flow-main",
+  "unresolved": [],
+  "validation": [
+    "合并后完整 Test Gate 24/24 命令通过（265.70 秒）。",
+    "已执行 diff --check；冲突仅涉及决策索引、更新记录和 Changelog 测试，均保留两侧内容。"
+  ]
+}
+```

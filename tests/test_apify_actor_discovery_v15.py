@@ -246,6 +246,7 @@ class _Metadata:
             "publisher-b/four": 5,
             "publisher-c/five": 6,
             "publisher-a/six": 7,
+            "legacy/kept": 8,
         }[actor_id]
         return {
             "id": f"opaqueactor{number}",
@@ -600,6 +601,66 @@ def test_duplicate_discovery_job_is_an_idempotent_noop(
     }
 
 
+def test_duplicate_legacy_upgrade_refresh_is_superseded_before_discovery(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    store = ServiceStore(data_dir)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="duplicate-legacy-upgrade-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = next(
+        route
+        for route in ops.list_routes()
+        if route["route_key"] == "youtube/channel/items"
+    )
+    ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_legacy_upgrade_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    duplicate = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_legacy_upgrade_refresh",
+        expected_generation=int(route["generation"]),
+    )
+
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("superseded refresh must not call Store or AI")
+
+    monkeypatch.setattr("src.ai.client.create_ai_client", unexpected_call)
+    monkeypatch.setattr(
+        "src.services.apify_actor_discovery.ApifyStoreRestClient",
+        unexpected_call,
+    )
+    result = _run_apify_actor_discovery(
+        {
+            "id": "job-duplicate-legacy-upgrade",
+            "workspace_id": DEFAULT_WORKSPACE_ID,
+            "user_id": str(owner["id"]),
+            "payload_json": {
+                "run_id": str(duplicate["run_id"]),
+                "prefer_existing_legacy_actors": True,
+            },
+            "max_attempts": 1,
+        },
+        data_dir=str(data_dir),
+        store=store,
+    )
+
+    assert result["superseded_duplicate"] is True
+    superseded = ops.get_discovery_run(str(duplicate["run_id"]))
+    assert superseded["stage"] == "failed"
+    assert superseded["error_code"] == "superseded_duplicate_refresh"
+
+
 def test_worker_ready_global_ai_reaches_quota_and_discovery(
     tmp_path,
     monkeypatch,
@@ -831,6 +892,60 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
             "public": True,
             "store_unrunnable_actors_excluded": True,
         }
+    assert (
+        store.connect()
+        .execute(
+            """
+            SELECT COUNT(*) FROM apify_actor_validations
+            WHERE workspace_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID,),
+        )
+        .fetchone()[0]
+        == 0
+    )
+
+
+def test_discovery_prefers_existing_legacy_actor_even_when_store_search_omits_it(
+    tmp_path,
+) -> None:
+    store, ops, run = _ops(tmp_path)
+    metadata = _Metadata()
+    prompt_seen = {}
+
+    async def ai_generate(prompt):
+        prompt_seen.update(prompt)
+        return {
+            "proposals": [
+                {
+                    "actor_id": candidate["actor_id"],
+                    "build_id": candidate["build_id"],
+                    "build_number": candidate["build_number"],
+                    "manifest": _manifest(
+                        candidate["actor_id"], candidate["build_number"]
+                    ),
+                }
+                for candidate in prompt["candidates"]
+            ]
+        }
+
+    outcome = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, ai_generate).run_discovery(
+            run["run_id"],
+            queries=["youtube channel"],
+            preferred_actor_ids=["legacy/kept"],
+        )
+    )
+
+    assert outcome.stage == "awaiting_canary_approval"
+    assert prompt_seen["constraints"]["preferred_actor_ids"] == [
+        "legacy/kept"
+    ]
+    assert prompt_seen["candidates"][0]["actor_id"] == "legacy/kept"
+    assert any(
+        ops.get_revision(revision_id)["actor_id"] == "legacy/kept"
+        for revision_id in outcome.revision_ids
+    )
     assert (
         store.connect()
         .execute(

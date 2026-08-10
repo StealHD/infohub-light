@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,7 @@ from .apify_actor_ops import (
     ApifyActorOpsService,
     RouteExecutionSnapshot,
     RouteSlotSnapshot,
+    revision_set_hash,
     source_target_fingerprint,
 )
 
@@ -289,8 +291,13 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=str(exc.code),
             )
             raise
+        timeout_seconds = int(
+            row["validation_timeout_seconds"]
+            or actor_canary_timeout_seconds()
+        )
+        sample_items = int(row["validation_sample_items"] or 1)
         runtime = ActorRuntime(
-            max_items=1,
+            max_items=sample_items,
             until_iso=datetime.now(timezone.utc).isoformat(),
         )
         actor_input = render_actor_input(manifest, target, runtime)
@@ -320,13 +327,10 @@ class ApifyActorCanaryRunner:
             route_id=str(row["route_id"]),
             route_key=str(row["route_key"]),
             route_generation=int(row["route_generation"]),
-            per_run_cap_usd=min(
-                float(row["per_run_cap_usd"]),
-                float(
-                    row["approved_max_cost_usd"]
-                    or row["cost_usd"]
-                    or row["per_run_cap_usd"]
-                ),
+            per_run_cap_usd=float(
+                row["approved_max_cost_usd"]
+                or row["cost_usd"]
+                or row["per_run_cap_usd"]
             ),
             slots=(slot,),
             source_id=(
@@ -381,6 +385,11 @@ class ApifyActorCanaryRunner:
             job_id=job_id,
         )
         actual_charge_usd: float | None = None
+        run_started = time.monotonic()
+
+        def elapsed_seconds() -> int:
+            return max(0, int(round(time.monotonic() - run_started)))
+
         try:
             run = await self.client.run_actor_detailed(
                 slot.actor_id,
@@ -388,10 +397,11 @@ class ApifyActorCanaryRunner:
                 max_total_charge_usd=snapshot.per_run_cap_usd,
                 logical_run_id=attempt_id,
                 build_number=slot.build_number,
-                max_paid_dataset_items=1,
-                dataset_item_limit=2,
+                max_paid_dataset_items=sample_items,
+                dataset_item_limit=sample_items + 1,
                 expected_pool_generation=snapshot.key_pool_generation,
                 max_remote_starts=1,
+                timeout_seconds=timeout_seconds,
             )
             actual_charge_usd = run.actual_charge_usd
             mapped = map_actor_output(manifest, run.items, target, runtime)
@@ -411,6 +421,7 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=error_code,
                 attempt_id=attempt_id,
                 cost_usd=actual_charge_usd,
+                duration_seconds=elapsed_seconds(),
             )
             raise ActorOpsError(
                 error_code,
@@ -456,6 +467,7 @@ class ApifyActorCanaryRunner:
                     cost_usd=0.0,
                     cost_final=True,
                     counts_toward_canary=False,
+                    duration_seconds=elapsed_seconds(),
                 )
                 self.ops.stop_unavailable_revision(
                     str(row["revision_id"]),
@@ -480,6 +492,7 @@ class ApifyActorCanaryRunner:
                     attempt_id=attempt_id,
                     cost_usd=actual_charge_usd,
                     cost_final=actual_charge_usd is not None,
+                    duration_seconds=elapsed_seconds(),
                 )
             raise ActorOpsError(
                 public_error_code,
@@ -503,6 +516,7 @@ class ApifyActorCanaryRunner:
                 cost_usd=0.0,
                 cost_final=True,
                 counts_toward_canary=False,
+                duration_seconds=elapsed_seconds(),
             )
             raise ActorOpsError(
                 str(exc.code),
@@ -524,6 +538,9 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=str(exc.code),
                 attempt_id=attempt_id,
                 cost_usd=actual_charge_usd,
+                duration_seconds=elapsed_seconds(),
+                dataset_row_count=(len(run.items) if "run" in locals() else None),
+                mapped_item_count=0,
             )
             if (
                 str(row["kind"]) == "route_reference"
@@ -552,6 +569,9 @@ class ApifyActorCanaryRunner:
                 semantic_outcome=semantic,
                 attempt_id=attempt_id,
                 cost_usd=run.actual_charge_usd,
+                duration_seconds=elapsed_seconds(),
+                dataset_row_count=len(run.items),
+                mapped_item_count=0,
             )
             raise ActorOpsError(
                 "apify_actor_suspicious_empty",
@@ -570,8 +590,136 @@ class ApifyActorCanaryRunner:
             semantic_outcome=semantic,
             attempt_id=attempt_id,
             cost_usd=run.actual_charge_usd,
+            duration_seconds=elapsed_seconds(),
+            dataset_row_count=len(run.items),
+            mapped_item_count=len(mapped.items),
         )
         if str(row["kind"]) == "route_reference":
+            self._advance_revision(str(row["revision_id"]))
+        return CanaryResult(
+            validation_id=str(validation["validation_id"]),
+            revision_id=str(validation["revision_id"]),
+            status=str(validation["status"]),
+            semantic_outcome=str(validation["semantic_outcome"]),
+            cost_usd=(
+                float(validation["cost_usd"])
+                if validation["cost_usd"] is not None
+                else None
+            ),
+        )
+
+    async def reconcile(self, validation_id: str) -> CanaryResult:
+        """Read one durable Run/Dataset again without issuing an Actor POST."""
+
+        row = self.store.connect().execute(
+            """
+            SELECT validation.*, profile.platform,
+                   revision.candidate_id, revision.actor_id,
+                   revision.publisher, revision.build_id,
+                   revision.build_number, revision.manifest_json,
+                   revision.manifest_hash, revision.lifecycle,
+                   candidate.state AS candidate_state
+            FROM apify_actor_validations AS validation
+            JOIN apify_actor_route_profiles AS profile
+              ON profile.workspace_id = validation.workspace_id
+             AND profile.route_id = validation.route_id
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE validation.workspace_id = ?
+              AND validation.validation_id = ?
+            """,
+            (self.ops.workspace_id, validation_id),
+        ).fetchone()
+        if row is None:
+            raise ActorOpsError(
+                "apify_actor_validation_not_found",
+                "Actor validation was not found",
+                status_code=404,
+            )
+        if row["attempt_id"] is None or str(row["semantic_outcome"] or "") not in {
+            "apify_run_status_unavailable",
+            "apify_actor_run_status_unavailable",
+            "apify_run_reconcile_required",
+        }:
+            raise ActorOpsError(
+                "apify_actor_validation_reconcile_not_allowed",
+                "This validation does not need a free status reconciliation",
+                status_code=409,
+            )
+        manifest = parse_actor_manifest(str(row["manifest_json"]))
+        target = self._target_for(row)
+        runtime = ActorRuntime(
+            max_items=int(row["validation_sample_items"] or 1),
+            until_iso=datetime.now(timezone.utc).isoformat(),
+        )
+        durable_run = self.store.connect().execute(
+            """
+            SELECT id
+            FROM apify_actor_runs
+            WHERE workspace_id = ? AND logical_run_id = ?
+              AND remote_run_id IS NOT NULL
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (self.ops.workspace_id, str(row["attempt_id"])),
+        ).fetchone()
+        if durable_run is None:
+            raise ActorOpsError(
+                "apify_actor_validation_reconcile_unavailable",
+                "The validation has no durable Apify Run to reconcile",
+                status_code=412,
+            )
+        started = time.monotonic()
+        try:
+            run = await self.client.resume_actor_detailed(
+                str(durable_run["id"]),
+                dataset_item_limit=int(row["validation_sample_items"] or 1) + 1,
+                reserved_cost_usd=float(row["approved_max_cost_usd"]),
+            )
+            mapped = map_actor_output(manifest, run.items, target, runtime)
+            semantic = str(mapped.semantic_outcome)
+        except ActorManifestError as exc:
+            run_value = locals().get("run")
+            items = list(run_value.items) if run_value is not None else []
+            cost = run_value.actual_charge_usd if run_value is not None else None
+            validation = self.ops.reconcile_validation_result(
+                validation_id,
+                semantic_outcome=str(exc.code),
+                cost_usd=cost,
+                cost_final=bool(run_value and run_value.cost_final),
+                duration_seconds=max(0, int(round(time.monotonic() - started))),
+                dataset_row_count=len(items),
+                mapped_item_count=0,
+            )
+            raise ActorOpsError(
+                str(exc.code),
+                "Reconciled Actor output failed semantic validation",
+                status_code=422,
+            ) from None
+        except (ApifyClientError, TimeoutError, ValueError) as exc:
+            raise ActorOpsError(
+                str(getattr(exc, "code", None) or "apify_run_status_unavailable"),
+                "The existing Actor Run is still not readable",
+                retryable=True,
+                status_code=503,
+            ) from None
+        validation = self.ops.reconcile_validation_result(
+            validation_id,
+            semantic_outcome=semantic,
+            cost_usd=run.actual_charge_usd,
+            cost_final=bool(run.cost_final),
+            duration_seconds=max(0, int(round(time.monotonic() - started))),
+            dataset_row_count=len(run.items),
+            mapped_item_count=len(mapped.items),
+        )
+        if (
+            str(row["kind"]) == "route_reference"
+            and str(validation["status"]) == "succeeded"
+        ):
             self._advance_revision(str(row["revision_id"]))
         return CanaryResult(
             validation_id=str(validation["validation_id"]),
@@ -624,6 +772,7 @@ class ApifyActorCanaryRunner:
                 str(config.get("target") or config.get("url") or ""),
                 platform=str(row["platform"]),
             )
+            staged = self._staged_source_context(row)
             if (
                 binding is None
                 or str(binding["route_id"]) != str(row["route_id"])
@@ -632,7 +781,7 @@ class ApifyActorCanaryRunner:
                 or str(binding["target_fingerprint"]) != expected_fingerprint
                 or int(binding["generation"])
                 != int(row["approved_generation"] or -1)
-                or active is None
+                or (active is None and staged is None)
             ):
                 raise ActorOpsError(
                     "apify_actor_canary_approval_stale",
@@ -677,7 +826,10 @@ class ApifyActorCanaryRunner:
                 str(row["revision_id"]),
             ),
         ).fetchone()
-        return str(slot["slot_name"]) if slot is not None else "primary"
+        if slot is not None:
+            return str(slot["slot_name"])
+        staged = self._staged_source_context(row)
+        return str(staged["slot_name"]) if staged is not None else "primary"
 
     def _approval_still_authorized(self, row: Any) -> bool:
         lifecycle = str(row["lifecycle"])
@@ -687,6 +839,11 @@ class ApifyActorCanaryRunner:
                 lifecycle in {"static_valid", "probationary"}
                 and state != "open"
             )
+        staged = self._staged_source_context(row)
+        if staged is not None:
+            return lifecycle in {"probationary", "certified"} and state in {
+                "closed", "half_open", "probationary", "disabled"
+            }
         slot = self.store.connect().execute(
             """
             SELECT slot.slot_name
@@ -703,12 +860,84 @@ class ApifyActorCanaryRunner:
         ).fetchone()
         if slot is None or state not in {"closed", "half_open", "probationary"}:
             return False
-        allowed = (
-            {"certified", "legacy_builtin"}
-            if str(slot["slot_name"]) in {"primary", "backup_1"}
-            else {"certified", "probationary", "legacy_builtin"}
+        return lifecycle in {"certified", "probationary", "legacy_builtin"}
+
+    def _staged_source_context(self, row: Any) -> dict[str, Any] | None:
+        if row["source_id"] is None:
+            return None
+        connection = self.store.connect()
+        staged = connection.execute(
+            """
+            SELECT stage.stage_id, stage.route_id, stage.base_generation,
+                   stage.base_pool_hash, stage.status,
+                   source.binding_generation, source.target_fingerprint,
+                   CASE
+                     WHEN source.primary_validation_id = ? THEN 'primary'
+                     WHEN source.backup_1_validation_id = ? THEN 'backup_1'
+                     WHEN source.backup_2_validation_id = ? THEN 'backup_2'
+                   END AS slot_name,
+                   CASE
+                     WHEN source.primary_validation_id = ?
+                       THEN stage.target_primary_revision_id
+                     WHEN source.backup_1_validation_id = ?
+                       THEN stage.target_backup_1_revision_id
+                     WHEN source.backup_2_validation_id = ?
+                       THEN stage.target_backup_2_revision_id
+                   END AS staged_revision_id
+            FROM apify_actor_pool_stage_sources AS source
+            JOIN apify_actor_pool_stages AS stage
+              ON stage.workspace_id = source.workspace_id
+             AND stage.stage_id = source.stage_id
+            WHERE source.workspace_id = ? AND source.source_id = ?
+              AND ? IN (
+                  source.primary_validation_id,
+                  source.backup_1_validation_id,
+                  source.backup_2_validation_id
+              )
+              AND stage.status IN ('validating_sources', 'apply_ready')
+            LIMIT 1
+            """,
+            (
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                self.ops.workspace_id,
+                str(row["source_id"]),
+                str(row["validation_id"]),
+            ),
+        ).fetchone()
+        if staged is None:
+            return None
+        active_rows = connection.execute(
+            """
+            SELECT slot_name, revision_id
+            FROM apify_route_active_slots
+            WHERE workspace_id = ? AND route_id = ?
+            """,
+            (self.ops.workspace_id, str(row["route_id"])),
+        ).fetchall()
+        active_hash = revision_set_hash(
+            {
+                str(active["slot_name"]): str(active["revision_id"] or "")
+                for active in active_rows
+            }
         )
-        return lifecycle in allowed
+        if (
+            str(staged["route_id"]) != str(row["route_id"])
+            or int(staged["base_generation"]) != int(row["route_generation"])
+            or active_hash != str(staged["base_pool_hash"])
+            or int(staged["binding_generation"]) != int(row["approved_generation"])
+            or str(staged["target_fingerprint"])
+            != str(row["target_fingerprint"] or "")
+            or str(staged["staged_revision_id"] or "")
+            != str(row["revision_id"])
+            or not staged["slot_name"]
+        ):
+            return None
+        return dict(staged)
 
     def _advance_revision(self, revision_id: str) -> None:
         lifecycle = str(self.ops.get_revision(revision_id)["lifecycle"])
