@@ -602,3 +602,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "ActorOps 三个任务页签使用浅色强调底轨区分未选项，保留已选白色胶囊，不恢复外框或阴影。",
+  "status": "completed",
+  "task_id": "2026-08-11-actorops-tab-accent-rail",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 与 Changelog 前端 Vitest 61/61 及 TypeScript 类型检查通过。",
+    "完整 Test Gate 24/24 命令通过（259.62 秒）。"
+  ]
+}
+```

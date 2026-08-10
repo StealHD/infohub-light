@@ -1233,6 +1233,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(screen.getByRole('tablist')).toHaveClass('shadow-none')
     expect(screen.getByRole('tablist')).not.toHaveClass('border')
     expect(screen.getByRole('tablist')).not.toHaveClass('bg-surface-secondary')
+    expect(screen.getByRole('tablist')).toHaveClass('bg-accent/5')
     await browser.click(await screen.findByRole('button', { name: '继续升级当前 Actor' }))
     expect(await screen.findByRole('heading', { name: '升级当前 3 个 Actor' })).toBeVisible()
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3))
