@@ -73,12 +73,12 @@ export const changelogMonths: ChangelogMonth[] = [
       {
         date: '2026-08-07',
         title: 'OpenClaw 对话支持安全图片收发',
-        summary: 'v2.2.13 的 Agent 输入框可选择、粘贴和拖放图片；对话历史使用 Gateway 的短期媒体票据恢复，不把图片交给 Inteliscope 服务保存。',
+        summary: 'v2.2.13 的 Agent 输入框可选择、粘贴和拖放图片；对话历史使用 Gateway 的短期媒体票据恢复，不把图片交给 Inscope 服务保存。',
         items: [
           { title: '图片只在浏览器规范化', description: 'JPEG、PNG 和 WebP 会在当前页面重新编码、移除 EXIF 与原文件名，限制为每轮最多 4 张、单张 5 MiB、总计 12 MiB；纯图片消息不会把内部分析提示显示在对话中。' },
           { title: '只显示受信任媒体', description: '页面拒绝正文中的外链和本地文件 URL，只使用 Gateway 对会话、消息和内容块授权的 5 分钟媒体票据；刷新或重连会重新申请，图片元素不发送 Referer。' },
           { title: '兼容原版 Gateway 与云部署', description: '默认开关关闭。原版 Gateway 通过既有附件协议即可接收模型图片输入；只有安全显示 Gateway 输出/历史图片才需要 `chat.media.ticket`。云端只需配置 WSS/HTTPS Origin、共享媒体存储和票据密钥。' },
-          { title: '发布基线与本地构建清理', description: '订阅页面的桌面、平板和手机明暗基线已与当前完整列表布局同步；每次本地服务健康验证成功后，重建流程只清理旧的 Inteliscope 本地镜像标签，当前镜像和仍被容器引用的镜像不会删除。' },
+          { title: '发布基线与本地构建清理', description: '订阅页面的桌面、平板和手机明暗基线已与当前完整列表布局同步；每次本地服务健康验证成功后，重建流程只清理旧的 Inscope 本地镜像标签，当前镜像和仍被容器引用的镜像不会删除。' },
         ],
       },
       {
@@ -107,7 +107,7 @@ export const changelogMonths: ChangelogMonth[] = [
         title: 'OpenClaw 原文分析与上下文引用优化',
         summary: '附带的信息现在会主动读取原文网址；来源引用使用订阅头像，并在原有摘要容器内完整查看。',
         items: [
-          { title: '原网页读取透明降级', description: 'OpenClaw 先读取 Inteliscope 已保存内容，再访问同一条已清洗的原文网址；网页受限或不可读时会明确说明并仅分析已保存部分。' },
+          { title: '原网页读取透明降级', description: 'OpenClaw 先读取 Inscope 已保存内容，再访问同一条已清洗的原文网址；网页受限或不可读时会明确说明并仅分析已保存部分。' },
           { title: '来源更容易识别', description: '上下文引用优先显示受保护的订阅头像，缺少头像时继续使用来源图标；标题随可用空间自适应，长内容不会撑破面板。' },
           { title: '附件向上轻柔扩展', description: '向上箭头会让原有摘要容器向上拉伸，只显示未在摘要中出现的附件，保留键盘焦点、滚动和移除操作，并遵循减少动态效果设置。' },
         ],
@@ -408,7 +408,7 @@ export const changelogMonths: ChangelogMonth[] = [
       {
         date: '2026-07-29',
         title: 'OpenClaw 可按名称订阅 YouTube 频道',
-        summary: '只说频道名称即可由 OpenClaw 搜索官方主页、由 Inteliscope 验证频道身份并生成原有安全订阅预览，不再要求手工查 ID 或 RSS。',
+        summary: '只说频道名称即可由 OpenClaw 搜索官方主页、由 Inscope 验证频道身份并生成原有安全订阅预览，不再要求手工查 ID 或 RSS。',
         items: [
           { title: '通用解析入口', description: 'Remote MCP 新增一个注册表驱动的来源解析工具；首个适配器支持 YouTube，后续媒体只需增加受控适配器，不需要继续增加媒体专用 MCP 工具。' },
           { title: '名称由 Agent 发现', description: '只有名称时，OpenClaw 使用网页搜索收集最多 5 个官方 YouTube 频道主页；搜索结果视为不可信元数据，视频、播放列表、第三方和带凭据网址会在联网前被拒绝。' },
@@ -546,7 +546,7 @@ export const changelogMonths: ChangelogMonth[] = [
         title: '浏览器 OpenClaw 可完成受控订阅',
         summary: '直接对话与文章/任务交接采用不同安全模式，创建订阅不再被只读提示词误拦截。',
         items: [
-          { title: '直接请求可生成预览', description: 'Agent 面板没有附带文章或任务时，订阅请求会按用户原话交给 OpenClaw，并继续使用 Inteliscope Skill 与 MCP 的 prepare 流程。' },
+          { title: '直接请求可生成预览', description: 'Agent 面板没有附带文章或任务时，订阅请求会按用户原话交给 OpenClaw，并继续使用 Inscope Skill 与 MCP 的 prepare 流程。' },
           { title: '准确确认后才写入', description: '普通请求只展示安全预览与服务端返回的准确确认短语；只有下一条消息完全匹配该短语时才可 apply，浏览器不会替用户生成或改写。' },
           { title: '上下文交接仍只读', description: '附带文章或运行记录的分析继续只读取持久化安全证据，并禁止重试、取消、修复或其他写操作。' },
         ],
@@ -557,7 +557,7 @@ export const changelogMonths: ChangelogMonth[] = [
         summary: 'VPS 运行一套带访问控制的 RSSHub，本地与 VPS 项目可复用，并可在设置中切换到第三方实例。',
         items: [
           { title: '服务地址可切换', description: 'Owner/Admin 可在设置页维护 RSSHub Base URL；来源身份与服务地址分离，切换自建或第三方实例无需重建订阅。' },
-          { title: 'OpenClaw 自行解析账号', description: '直接提供 Bilibili 账号名称即可通过 Inteliscope MCP 查询公开候选，无需启用 Chrome 或浏览器远程调试；唯一精确同名会解析为 UID 并进入订阅预览，同名多候选必须由用户选择，不再默认要求手工查 UID。' },
+          { title: 'OpenClaw 自行解析账号', description: '直接提供 Bilibili 账号名称即可通过 Inscope MCP 查询公开候选，无需启用 Chrome 或浏览器远程调试；唯一精确同名会解析为 UID 并进入订阅预览，同名多候选必须由用户选择，不再默认要求手工查 UID。' },
           { title: '查询数据严格收口', description: '名称查询只返回最多 5 个名称、UID、官方主页和精确匹配标记，不接收账号 Cookie，也不返回签名、粉丝数、视频数或上游正文。' },
           { title: 'Skill 自动刷新', description: '重新运行本地 OpenClaw 初始化会比较已安装 Skill 与仓库版本；发现旧版时覆盖更新并重启 Gateway，新会话不会继续沿用“手填 RSSHub URL”的旧规则。' },
           { title: '鉴权公网复用', description: 'RSSHub 容器只绑定 VPS loopback，由现有 Nginx 提供 HTTPS；本地直接访问公网入口，来源测试与 Worker 抓取使用路由级 code，主密钥不进入结果、日志或 OpenClaw。' },
@@ -689,7 +689,7 @@ export const changelogMonths: ChangelogMonth[] = [
       {
         date: '2026-07-22',
         title: '更新日志上线',
-        summary: '产品内可以直接查看 Inteliscope 的重要体验变化。',
+        summary: '产品内可以直接查看 Inscope 的重要体验变化。',
         items: [
           { title: '本地版本记录', description: '更新内容与代码一同维护，按月份组织；桌面端提供右侧时间线，窄屏使用横向月份选择器。' },
         ],

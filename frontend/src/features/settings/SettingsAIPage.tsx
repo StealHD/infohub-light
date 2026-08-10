@@ -324,7 +324,7 @@ export function SettingsAIPage() {
       <SettingsSection title="助手连接" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
         <SettingsGroup ariaLabel="助手连接">
           <SettingsItem
-            label="Inteliscope 数据连接"
+            label="Inscope 数据连接"
             description="管理本地助手的连接、授权范围与一次性令牌。"
             icon={<Icons.Bot size={17} aria-hidden="true" />}
             trailing={<Button size="sm" variant="ghost" onPress={() => navigate('/agents')}>管理连接</Button>}

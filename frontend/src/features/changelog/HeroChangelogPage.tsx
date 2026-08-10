@@ -90,7 +90,7 @@ export function HeroChangelogPage() {
       <div className="mb-8 flex items-start gap-3 border-b border-separator pb-6">
         <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent"><Icons.ScrollText size={18} aria-hidden="true" /></span>
         <div>
-          <p className="type-card-title">Inteliscope 更新日志</p>
+          <p className="type-card-title">Inscope 更新日志</p>
           <p className="type-body mt-1 max-w-2xl text-muted">按时间了解重要功能、交互和可用性变化。</p>
         </div>
       </div>

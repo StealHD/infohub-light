@@ -347,7 +347,7 @@ class WorkspaceEmailTransportService:
             "configured": False,
             "provider": None,
             "sender_email": None,
-            "sender_name": "Inteliscope",
+            "sender_name": "Inscope",
             "region": None,
             "smtp_username": None,
             "enabled": False,
@@ -450,7 +450,7 @@ class WorkspaceEmailTransportService:
                 code="invalid_email_transport_sender",
             )
             target_sender_name = normalize_sender_name(
-                (current or {}).get("sender_name") or "Inteliscope"
+                (current or {}).get("sender_name") or "Inscope"
                 if sender_name is UNSET
                 else sender_name
             )

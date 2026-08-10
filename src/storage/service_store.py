@@ -1232,7 +1232,7 @@ class ServiceStore:
                         'qq', 'netease', 'gmail', 'resend', 'amazon_ses'
                     )),
                 sender_email TEXT NOT NULL,
-                sender_name TEXT NOT NULL DEFAULT 'Inteliscope',
+                sender_name TEXT NOT NULL DEFAULT 'Inscope',
                 region TEXT,
                 smtp_username TEXT,
                 enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),

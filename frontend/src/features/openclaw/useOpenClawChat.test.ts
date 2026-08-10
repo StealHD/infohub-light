@@ -354,7 +354,7 @@ describe('useOpenClawChat', () => {
       if (method === 'sessions.create') {
         creates += 1
         if (creates === 1) throw new GatewayRequestError({
-          code: 'INVALID_REQUEST', message: 'label already in use: Inteliscope',
+          code: 'INVALID_REQUEST', message: 'label already in use: Inscope',
         })
         return { key: 'session-created' }
       }
@@ -384,11 +384,11 @@ describe('useOpenClawChat', () => {
     expect(calls).toHaveLength(2)
     expect(calls[0][1]).toEqual({
       agentId: 'main',
-      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
     })
     expect(calls[1][1]).toEqual({
       agentId: 'main',
-      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
     })
     expect(calls[0][1]?.label).not.toBe(calls[1][1]?.label)
   })
@@ -401,7 +401,7 @@ describe('useOpenClawChat', () => {
       if (method === 'sessions.create') {
         creates += 1
         if (creates <= 2) throw new GatewayRequestError({
-          code: 'INVALID_REQUEST', message: 'label already in use: Inteliscope',
+          code: 'INVALID_REQUEST', message: 'label already in use: Inscope',
         })
         return { key: 'session-recovered' }
       }
@@ -556,7 +556,7 @@ describe('useOpenClawChat', () => {
 
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
     })
     expect(result.current.sessionKey).toBe('session-2')
   })
@@ -1151,7 +1151,7 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.setModel('local/quick') })
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
       parentSessionKey: 'session-1',
       fork: true,
       model: 'local/quick',
@@ -1263,7 +1263,7 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.switchToBlankConversation() })
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
       model: 'openai/gpt-5.4',
     })
     expect(result.current.sessionKey).toBe('session-fallback')

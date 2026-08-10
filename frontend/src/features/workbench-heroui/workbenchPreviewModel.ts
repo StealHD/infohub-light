@@ -119,7 +119,7 @@ export const workbenchPreviewStories: WorkbenchPreviewStory[] = markFixedPreview
   },
   {
     id: 'signal-10',
-    source: 'Inteliscope',
+    source: 'Inscope',
     age: '刚刚',
     title: '信息工作台新增两条高相关产品信号',
     summary: '新内容已完成去重与整理，等待你回到信息流底部查看。',

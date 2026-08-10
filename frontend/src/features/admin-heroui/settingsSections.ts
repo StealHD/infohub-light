@@ -7,7 +7,7 @@ export type SettingsSection = {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
-  { id: 'settings-about', label: '关于 Inteliscope' },
+  { id: 'settings-about', label: '关于 Inscope' },
   { id: 'settings-notifications', label: '消息通知' },
   { id: 'settings-ai', label: '助手与 AI' },
   { id: 'settings-ignored', label: '已忽略内容' },

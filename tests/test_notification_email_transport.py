@@ -177,6 +177,7 @@ def test_schema_v10_and_default_transport_are_additive(
     email_context: dict[str, Any],
 ) -> None:
     store = email_context["store"]
+    service = email_context["service"]
     migration = store.connect().execute(
         """
         SELECT name, checksum
@@ -195,6 +196,9 @@ def test_schema_v10_and_default_transport_are_additive(
         )
         is None
     )
+    assert service.get_public_settings(
+        workspace_id=email_context["workspace"]["id"]
+    )["sender_name"] == "Inscope"
 
 
 def test_secret_is_write_only_and_current_generation_must_test_before_enable(

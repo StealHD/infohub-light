@@ -14,8 +14,8 @@ STATIC_ASSET_VERSION = "20260713-local-ai-secrets-v2"
 def test_static_ui_exposes_reading_layout_contract():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
-    assert "<title>Inteliscope</title>" in html
-    assert "<h1>Inteliscope</h1>" in html
+    assert "<title>Inscope | Private &amp; Insights</title>" in html
+    assert "<h1>Inscope</h1>" in html
     assert 'id="readingQueue"' in html
     assert 'id="readerPanel"' in html
     assert 'id="contextPanel"' in html

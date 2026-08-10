@@ -64,7 +64,7 @@ export function EmailTransportSettingsForm({
 }) {
   const [provider, setProvider] = useState<NotificationEmailProvider>(settings.provider ?? 'qq')
   const [senderEmail, setSenderEmail] = useState(settings.sender_email ?? '')
-  const [senderName, setSenderName] = useState(settings.sender_name || 'Inteliscope')
+  const [senderName, setSenderName] = useState(settings.sender_name || 'Inscope')
   const [region, setRegion] = useState(settings.region ?? '')
   const [smtpUsername, setSmtpUsername] = useState(settings.smtp_username ?? '')
   const [credential, setCredential] = useState('')
@@ -270,7 +270,7 @@ export function EmailTransportSettingsForm({
           isInvalid={Boolean(errors.senderName)}
         >
           <Label>发件名称</Label>
-          <Input placeholder="Inteliscope" />
+          <Input placeholder="Inscope" />
           {errors.senderName && <FieldError>{errors.senderName}</FieldError>}
         </TextField>
         <TextField

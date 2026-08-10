@@ -67,13 +67,13 @@ export function HeroLoginPage({ api, onAuthenticated }: { api: ServiceApi; onAut
       >
         <section
           data-login-brand
-          aria-label="Inteliscope 产品简介"
+          aria-label="Inscope 产品简介"
           className="flex flex-col border-b border-separator bg-surface-secondary p-6 min-[768px]:min-h-[520px] min-[768px]:justify-between min-[768px]:border-b-0 min-[768px]:border-r min-[768px]:p-10"
         >
           <div>
             <div className="flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground"><Icons.InteliscopeMark size={21} aria-hidden="true" /></span>
-              <span className="type-page-title">Inteliscope</span>
+              <span className="type-page-title">Inscope</span>
             </div>
             <p className="type-section-title mt-8 max-w-xs">专注你真正关心的信息</p>
             <p className="type-body mt-3 max-w-sm text-muted">订阅、获取并留存真正需要的信息。</p>

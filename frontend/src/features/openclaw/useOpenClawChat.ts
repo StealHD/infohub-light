@@ -877,7 +877,7 @@ function setupIssue(error: unknown): OpenClawSetupIssue {
   const fingerprint = `${code} ${message}`.toLowerCase()
   if (isOpenClawSessionLabelConflict(error)) return { kind: 'session', message: 'OpenClaw 会话名称冲突，请重新连接。', requestId }
   if (fingerprint.includes('pairing_required') || fingerprint.includes('pairing required')) return { kind: 'pairing', message: '这个浏览器需要在 OpenClaw 中批准设备配对。', requestId }
-  if (fingerprint.includes('origin')) return { kind: 'origin', message: 'OpenClaw 尚未允许当前 Inteliscope 页面来源。' }
+  if (fingerprint.includes('origin')) return { kind: 'origin', message: 'OpenClaw 尚未允许当前 Inscope 页面来源。' }
   if (fingerprint.includes('protocol')) return { kind: 'protocol', message: 'OpenClaw Gateway 协议版本不兼容，请升级到 2026.7.1 或更高兼容版本。' }
   if (fingerprint.includes('scope') || fingerprint.includes('permission') || fingerprint.includes('权限')) return { kind: 'permission', message: 'OpenClaw 返回的浏览器权限不符合最小权限要求。' }
   if (fingerprint.includes('auth') || fingerprint.includes('token') || fingerprint.includes('unauthorized')) return { kind: 'auth', message: 'OpenClaw Gateway token 无效或已轮换。' }
@@ -1418,11 +1418,11 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       if (!key) {
         const created = await createOpenClawSession(client, { agentId })
         const createdKey = stringOf(created.key)
-        if (!createdKey) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
+        if (!createdKey) throw new Error('OpenClaw 无法创建 Inscope 对话。')
         key = createdKey
         await vault.save(options.userId, parsed.gatewayUrl, { ...credential, sessionKey: key })
       }
-      if (!key) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
+      if (!key) throw new Error('OpenClaw 无法创建 Inscope 对话。')
       sessionKeyRef.current = key
       setSessionKey(key)
       transcriptReadyKeyRef.current = key

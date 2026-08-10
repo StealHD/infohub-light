@@ -87,7 +87,7 @@ type EmailDraft = {
 const emptyEmailDraft: EmailDraft = {
   provider: 'qq',
   senderEmail: '',
-  senderName: 'Inteliscope',
+  senderName: 'Inscope',
   credential: '',
   region: '',
   smtpUsername: '',
@@ -233,7 +233,7 @@ export function HeroNotificationTargets({
     return {
       provider: emailCredential?.provider ?? 'qq',
       senderEmail: '',
-      senderName: emailCredential?.sender_name || 'Inteliscope',
+      senderName: emailCredential?.sender_name || 'Inscope',
       credential: '',
       region: emailCredential?.region ?? '',
       smtpUsername: '',

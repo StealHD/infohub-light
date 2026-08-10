@@ -1261,7 +1261,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           <div className={`type-page-title flex h-[52px] shrink-0 items-center gap-2 px-3 ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
             {extraWideDesktop ? sidebarExpanded ? <>
               <Icons.InteliscopeMark size={20} aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">Inteliscope</span>
+              <span className="min-w-0 flex-1 truncate">Inscope</span>
               <button
                 type="button"
                 data-sidebar-panel-toggle
@@ -1291,7 +1291,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                 <Popover.Dialog aria-label="分类导航" className="max-h-[calc(100dvh-24px)] overflow-hidden rounded-2xl border border-separator bg-surface p-0 shadow-xl">
                   <div className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
                     <Icons.InteliscopeMark size={20} aria-hidden="true" />
-                    <strong className="min-w-0 flex-1 truncate">Inteliscope</strong>
+                    <strong className="min-w-0 flex-1 truncate">Inscope</strong>
                   </div>
                   <CategorizedNavigation
                     activeQuickView={activeQuickView}

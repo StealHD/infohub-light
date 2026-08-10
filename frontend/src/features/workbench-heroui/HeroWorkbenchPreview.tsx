@@ -58,7 +58,7 @@ function initialDesktopAgentState() {
 function HeroNavigation() {
   return <aside className="hero-navigation">
     <div className="hero-navigation__brand">
-      <span className="hero-navigation__brand-full">Inteliscope</span>
+      <span className="hero-navigation__brand-full">Inscope</span>
       <span className="hero-navigation__brand-mark" aria-hidden="true">I</span>
     </div>
     <nav aria-label="工作台导航" className="hero-navigation__links">
@@ -76,11 +76,11 @@ function HeroNavigation() {
         </a>
       })}
     </nav>
-    <Button className="hero-navigation__account" variant="ghost" aria-label="账户 Inteliscope 用户">
+    <Button className="hero-navigation__account" variant="ghost" aria-label="账户 Inscope 用户">
       <Avatar size="sm" color="accent">
-        <Avatar.Fallback>IS</Avatar.Fallback>
+        <Avatar.Fallback>IN</Avatar.Fallback>
       </Avatar>
-      <span>Inteliscope 用户</span>
+      <span>Inscope 用户</span>
     </Button>
   </aside>
 }

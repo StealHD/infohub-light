@@ -1,6 +1,6 @@
 import { GatewayRequestError } from './openclawGateway'
 
-const LABEL_PREFIX = 'Inteliscope · '
+const LABEL_PREFIX = 'Inscope · '
 const RANDOM_HEX_LENGTH = 16
 const MAX_LABEL_LENGTH = 512
 

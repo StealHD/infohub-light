@@ -29,7 +29,7 @@ describe('HeroManualPage', () => {
   it('renders the source-controlled operating guide, maintenance rule, and safe release destination', () => {
     renderManual('/manual#manual-start')
 
-    expect(screen.getByText('Inteliscope 操作手册')).toBeInTheDocument()
+    expect(screen.getByText('Inscope 操作手册')).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: '快速开始' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: 'Agent 与 OpenClaw' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '查看操作结果' })).toBeInTheDocument()

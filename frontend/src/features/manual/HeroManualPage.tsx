@@ -79,7 +79,7 @@ export function HeroManualPage() {
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent"><Icons.BookOpen size={18} aria-hidden="true" /></span>
           <div>
-            <p className="type-card-title">Inteliscope 操作手册</p>
+            <p className="type-card-title">Inscope 操作手册</p>
             <p className="type-body mt-1 max-w-2xl text-muted">按实际页面路径完成订阅、阅读、Agent 连接和账户管理。</p>
             <p className="type-meta mt-2 text-muted">
               最后复核：<time dateTime={manualReview.reviewedAt}>{manualReview.reviewedAt}</time>

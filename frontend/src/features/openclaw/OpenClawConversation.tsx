@@ -899,10 +899,10 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       }}
     >
       <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
-        <span className="type-meta min-w-0 truncate text-muted">{chat.sessionKey ? 'Inteliscope 对话' : '正在准备对话'}</span>
+        <span className="type-meta min-w-0 truncate text-muted">{chat.sessionKey ? 'Inscope 对话' : '正在准备对话'}</span>
         <div className="flex shrink-0 gap-1"><Button size="sm" variant="ghost" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={() => void chat.newConversation()}><Icons.Plus size={14} />新对话</Button><Button size="sm" variant="ghost" onPress={chat.disconnect}>断开</Button></div>
       </div>
-      {chat.toolsStatus === 'missing' && <Card variant="secondary" className="mb-3 min-w-0 border-warning/40 p-3" role="status"><Card.Title>未发现 Inteliscope 工具</Card.Title><Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description><a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a></Card>}
+      {chat.toolsStatus === 'missing' && <Card variant="secondary" className="mb-3 min-w-0 border-warning/40 p-3" role="status"><Card.Title>未发现 Inscope 工具</Card.Title><Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description><a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a></Card>}
       {!chat.messages.length && !chat.streamText && !runTrace && <PromptSuggestion className="mx-auto max-w-sm py-3 text-center">
         <PromptSuggestion.Header>
           <PromptSuggestion.Title>从哪里开始？</PromptSuggestion.Title>

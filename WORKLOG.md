@@ -4,6 +4,23 @@
 
 Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not logged.
 
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "将产品可见品牌统一为 Inscope；仅 React 与 legacy static HTML 的 document title 使用 Inscope | Private & Insights，保留内部 inteliscope 标识。",
+  "status": "completed",
+  "task_id": "2026-08-10-inscope-brand-display",
+  "unresolved": [],
+  "validation": [
+    "品牌相关 Vitest 4 文件 29 项通过；静态页面与邮件默认名称 pytest 26 项通过。",
+    "前端 TypeScript、ESLint（仅既有 10 条 Fast Refresh 警告）和生产构建通过。"
+  ]
+}
+```
+
 
 ```json
 {

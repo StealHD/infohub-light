@@ -277,7 +277,7 @@ export function OpenClawBrowserSettings({
   return <>
     <AdminSection
       title="OpenClaw 对话连接"
-      description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inteliscope 服务器。`}
+      description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inscope 服务器。`}
     >
       {!enabled && <HeroNotice title="管理员尚未启用站内 OpenClaw 对话；信息流仍提供复制交接模式。" status="warning" role="status" />}
       <div className="mt-3 grid gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
@@ -514,7 +514,7 @@ export function HeroAgentsPage() {
       {!query.data.enabled && <HeroNotice title="管理员尚未启用 Remote MCP。" status="warning" role="status" />}
       {limitReached && <HeroNotice title={`已达到 ${query.data.max_active} 个有效连接上限。`} status="accent" role="status" />}
 
-      <AdminSection title="Inteliscope 数据连接" description="Remote MCP 让 OpenClaw 访问当前账户的数据。Inteliscope 服务器不运行 Agent 或模型；“最近使用”也不能代表 OpenClaw 在线。"><code className="type-body block overflow-wrap-anywhere rounded-lg bg-default p-3">{query.data.mcp_url || '功能尚未启用'}</code></AdminSection>
+      <AdminSection title="Inscope 数据连接" description="Remote MCP 让 OpenClaw 访问当前账户的数据。Inscope 服务器不运行 Agent 或模型；“最近使用”也不能代表 OpenClaw 在线。"><code className="type-body block overflow-wrap-anywhere rounded-lg bg-default p-3">{query.data.mcp_url || '功能尚未启用'}</code></AdminSection>
 
       <AdminSection title="我的连接" description={`${activeCount}/${query.data.max_active} 个有效连接`}>
         <div className="grid gap-3">

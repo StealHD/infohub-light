@@ -175,7 +175,7 @@ function BootstrapShellRelease({ user, clearSnapshot = false, children }: {
 function ServiceRoutes({ api }: { api: ServiceApi }) {
   const queryClient = useQueryClient()
   const auth = useQuery({ queryKey: queryKeys.auth, queryFn: ({ signal }) => api.authStatus(signal), retry: false })
-  if (auth.isLoading) return <span className="sr-only" role="status">正在连接 Inteliscope…</span>
+  if (auth.isLoading) return <span className="sr-only" role="status">正在连接 Inscope…</span>
   if (auth.isError) return <BootstrapShellRelease><main className="app-loading app-error" role="alert">无法连接服务，请确认 API 已启动后重试。</main></BootstrapShellRelease>
   const user = auth.data?.authenticated ? auth.data.user : null
   const login = <HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />

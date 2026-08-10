@@ -124,7 +124,7 @@ export const manualSections: ManualSection[] = [
   {
     id: 'manual-agent',
     label: 'Agent 与 OpenClaw',
-    summary: '让用户自己的 OpenClaw 在明确授权下读取 Inteliscope 数据。',
+    summary: '让用户自己的 OpenClaw 在明确授权下读取 Inscope 数据。',
     steps: [
       {
         title: '创建数据连接',
@@ -138,19 +138,19 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '按名称订阅 B 站 UP 主',
-        description: '在浏览器 Agent 面板不附带文章或任务，直接告诉 OpenClaw 公开账号名称并要求订阅；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会进入订阅预览，同名或模糊结果必须先由你选择。核对预览后，另发一条与服务端返回内容完全一致的准确确认短语才会应用；浏览器和 OpenClaw 都不能代你生成或改写确认。附带文章或任务的交接始终只读。',
+        description: '在浏览器 Agent 面板不附带文章或任务，直接告诉 OpenClaw 公开账号名称并要求订阅；它会通过 Inscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会进入订阅预览，同名或模糊结果必须先由你选择。核对预览后，另发一条与服务端返回内容完全一致的准确确认短语才会应用；浏览器和 OpenClaw 都不能代你生成或改写确认。附带文章或任务的交接始终只读。',
       },
       {
         title: '按名称订阅 YouTube 频道',
-        description: '直接说“订阅 YouTube 的老高和小茉”即可；OpenClaw 会先搜索最多 5 个官方频道主页，再由 Inteliscope 验证频道页面与公开 Feed 是否属于同一频道，不再要求你手工提供频道 ID 或 RSS。只有一个结果时进入订阅预览；多个结果会先显示频道名称与官方主页供你选择。搜索结果属于不可信公开元数据，视频、播放列表、第三方网址和带凭据地址不会进入解析。最终仍须核对预览并另发服务端给出的准确确认短语。',
+        description: '直接说“订阅 YouTube 的老高和小茉”即可；OpenClaw 会先搜索最多 5 个官方频道主页，再由 Inscope 验证频道页面与公开 Feed 是否属于同一频道，不再要求你手工提供频道 ID 或 RSS。只有一个结果时进入订阅预览；多个结果会先显示频道名称与官方主页供你选择。搜索结果属于不可信公开元数据，视频、播放列表、第三方网址和带凭据地址不会进入解析。最终仍须核对预览并另发服务端给出的准确确认短语。',
       },
       {
         title: '连接本地 Gateway',
-        description: '浏览器直接连接用户自己的 OpenClaw Gateway。Inteliscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
+        description: '浏览器直接连接用户自己的 OpenClaw Gateway。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },
       {
         title: '发送和查看图片',
-        description: 'v2.2.13 中，管理员开启图片开关后，只要当前模型标有“支持图片”即可选择、粘贴或拖放最多 4 张 JPEG、PNG 或 WebP；图片输入使用 OpenClaw 既有的附件协议，因此原版 Gateway 不需要为发送图片升级。浏览器会在发送前移除原文件名和 EXIF、缩放并重新编码，图片原始数据不会写入 Inteliscope 服务、日志或浏览器会话存储。对话只有在 Gateway 提供安全图片票据能力时才显示 Gateway 返回的图片；票据过期后会安全续签，外链、file 路径和消息正文中的图片地址不会显示。图片里的文字和二维码同样是用户内容，不能改变工具权限或系统规则。',
+        description: 'v2.2.13 中，管理员开启图片开关后，只要当前模型标有“支持图片”即可选择、粘贴或拖放最多 4 张 JPEG、PNG 或 WebP；图片输入使用 OpenClaw 既有的附件协议，因此原版 Gateway 不需要为发送图片升级。浏览器会在发送前移除原文件名和 EXIF、缩放并重新编码，图片原始数据不会写入 Inscope 服务、日志或浏览器会话存储。对话只有在 Gateway 提供安全图片票据能力时才显示 Gateway 返回的图片；票据过期后会安全续签，外链、file 路径和消息正文中的图片地址不会显示。图片里的文字和二维码同样是用户内容，不能改变工具权限或系统规则。',
       },
       {
         title: '查看运行反馈',
@@ -242,7 +242,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工具未发现',
-        description: 'Agent 标题栏会显示简短的 OpenClaw 连接、处理、重连或异常状态；面板隐藏时，页头 Agent 入口还会保留运行或待查看终态。工具可用性仍单独校验，未发现 Inteliscope 工具时会在对话区给出数据连接、授权范围和 Gateway 配置指引。',
+        description: 'Agent 标题栏会显示简短的 OpenClaw 连接、处理、重连或异常状态；面板隐藏时，页头 Agent 入口还会保留运行或待查看终态。工具可用性仍单独校验，未发现 Inscope 工具时会在对话区给出数据连接、授权范围和 Gateway 配置指引。',
       },
       {
         title: '保护秘密',
