@@ -529,6 +529,75 @@ def test_source_support_projects_independent_budget_and_inflight_canary(
     assert refreshed_data["slots"][0]["can_canary"] is False
 
 
+def test_legacy_source_support_blocks_paid_canary_before_job_creation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops = ApifyActorOpsService(store)
+    route = next(
+        item for item in ops.list_routes() if item["route_key"] == "x/profile"
+    )
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Legacy source stays private",
+        config={"platform": "x", "kind": "profile", "target": "private"},
+    )
+    binding = ops.bind_source(
+        source_id=source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint=hashlib.sha256(b"legacy-source").hexdigest(),
+        mode="primary",
+    )
+    support_url = f"/api/admin/sources/{source_id}/apify-support"
+
+    support = client.get(support_url)
+    assert support.status_code == 200, support.text
+    data = support.json()["data"]
+    assert data["schema_version"] == 2
+    assert data["next_action"] == {
+        "kind": "upgrade_pool_required",
+        "reason": "apify_actor_source_requires_pool_upgrade",
+    }
+    assert all(slot["status"] == "blocked" for slot in data["slots"])
+    assert all(slot["can_canary"] is False for slot in data["slots"])
+    assert data["activation_confirmation"] is None
+
+    counts_before = {
+        "validations": store.connect().execute(
+            "SELECT COUNT(*) FROM apify_actor_validations"
+        ).fetchone()[0],
+            "jobs": store.connect().execute(
+                "SELECT COUNT(*) FROM fetch_jobs"
+        ).fetchone()[0],
+    }
+    rejected = client.post(
+        f"/api/admin/sources/{source_id}/apify-validations/"
+        f"{data['slots'][0]['revision_id']}/canary",
+        json={
+            "expected_generation": int(binding["generation"]),
+            "approval_id": "legacy-source-blocked-approval",
+            "confirmation": "确认付费试跑",
+            "max_total_charge_usd": 0.01,
+        },
+    )
+    assert rejected.status_code == 412, rejected.text
+    assert rejected.json()["error"]["code"] == (
+        "apify_actor_source_requires_pool_upgrade"
+    )
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_validations"
+    ).fetchone()[0] == counts_before["validations"]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM fetch_jobs"
+    ).fetchone()[0] == counts_before["jobs"]
+
+
 def test_generic_actor_primary_source_rejects_uncertified_route(
     tmp_path,
     monkeypatch,

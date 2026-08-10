@@ -1173,6 +1173,20 @@ class ApifyActorOpsService:
                     status_code=422,
                 )
             _assert_manifest_route_hosts(parsed, str(candidate["platform"]))
+            if lifecycle == "static_valid" and discovery_run_id is not None:
+                # A legacy seed can carry the historical ``canary_required``
+                # marker on its Candidate.  A newly fetched exact Build and
+                # validated Manifest supersede that placeholder evidence while
+                # leaving the active legacy Revision untouched until apply.
+                connection.execute(
+                    """
+                    UPDATE apify_actor_candidates
+                    SET last_error_code = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND id = ?
+                      AND last_error_code = 'canary_required'
+                    """,
+                    (now, self.workspace_id, candidate_id),
+                )
             if discovery_run_id is not None:
                 discovery = connection.execute(
                     """
@@ -3101,6 +3115,31 @@ class ApifyActorOpsService:
             )
         return dict(row)
 
+    def legacy_actor_ids(self, route_id: str) -> tuple[str, ...]:
+        """Return active compatibility Actor slugs for a server-driven upgrade.
+
+        The browser never supplies these identifiers.  Discovery uses them only
+        as preferred public Store candidates and still has to freeze a new exact
+        Build and Manifest before any paid validation can be approved.
+        """
+
+        self._require_route(self.store.connect(), route_id)
+        rows = self.store.connect().execute(
+            """
+            SELECT revision.actor_id
+            FROM apify_route_active_slots AS slot
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = slot.workspace_id
+             AND revision.revision_id = slot.revision_id
+            WHERE slot.workspace_id = ? AND slot.route_id = ?
+              AND revision.lifecycle = 'legacy_builtin'
+            ORDER BY CASE slot.slot_name
+                WHEN 'primary' THEN 1 WHEN 'backup_1' THEN 2 ELSE 3 END
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        return tuple(str(row["actor_id"]) for row in rows)
+
     def assert_source_target(
         self,
         route_id: str,
@@ -3171,7 +3210,7 @@ class ApifyActorOpsService:
             }
         active_rows = connection.execute(
             """
-            SELECT revision.actor_id
+            SELECT revision.actor_id, revision.lifecycle
             FROM apify_route_active_slots AS slot
             JOIN apify_actor_adapter_revisions AS revision
               ON revision.workspace_id = slot.workspace_id
@@ -3181,7 +3220,11 @@ class ApifyActorOpsService:
             """,
             (self.workspace_id, route_id),
         ).fetchall()
-        active_actor_ids = {str(row["actor_id"]) for row in active_rows}
+        active_actor_lifecycles = {
+            str(row["actor_id"]): str(row["lifecycle"])
+            for row in active_rows
+        }
+        active_actor_ids = set(active_actor_lifecycles)
         rows = connection.execute(
             """
             SELECT candidate.id AS candidate_id, candidate.display_name,
@@ -3230,7 +3273,12 @@ class ApifyActorOpsService:
             seen_candidates.add(candidate_id)
             seen_actors.add(actor_id)
             unavailable_reason: str | None = None
-            if actor_id in active_actor_ids:
+            existing_actor_upgrade = bool(
+                goal == "upgrade_legacy"
+                and active_actor_lifecycles.get(actor_id) == "legacy_builtin"
+                and str(row["lifecycle"]) != "legacy_builtin"
+            )
+            if actor_id in active_actor_ids and not existing_actor_upgrade:
                 unavailable_reason = "actor_already_active"
             elif (
                 str(row["candidate_state"]) == "disabled"
@@ -3373,6 +3421,7 @@ class ApifyActorOpsService:
                         latest_failure is not None
                         and latest_failure["failure_fingerprint"]
                     ),
+                    "existing_actor_upgrade": existing_actor_upgrade,
                     "selectable": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
                 }
@@ -3605,6 +3654,11 @@ class ApifyActorOpsService:
         active_actor_ids = {
             str(row["actor_id"]) for row in populated if row["actor_id"]
         }
+        upgradeable_legacy_actor_ids = {
+            str(row["actor_id"])
+            for row in populated
+            if row["actor_id"] and str(row["lifecycle"]) == "legacy_builtin"
+        }
         active_revision_ids = {
             str(row["revision_id"]) for row in populated if row["revision_id"]
         }
@@ -3651,16 +3705,6 @@ class ApifyActorOpsService:
               AND revision.build_id IS NOT NULL
               AND revision.build_number IS NOT NULL
               AND revision.manifest_hash IS NOT NULL
-              AND revision.actor_id NOT IN (
-                  SELECT active_revision.actor_id
-                  FROM apify_route_active_slots AS active_slot
-                  JOIN apify_actor_adapter_revisions AS active_revision
-                    ON active_revision.workspace_id = active_slot.workspace_id
-                   AND active_revision.revision_id = active_slot.revision_id
-                  WHERE active_slot.workspace_id = ?
-                    AND active_slot.route_id = ?
-                    AND active_slot.revision_id IS NOT NULL
-              )
               AND EXISTS (
                   SELECT 1
                   FROM apify_actor_discovery_run_revisions AS association
@@ -3686,8 +3730,6 @@ class ApifyActorOpsService:
                 str(run["route_id"]),
                 self.workspace_id,
                 str(run["route_key"]),
-                self.workspace_id,
-                str(run["route_id"]),
                 str(run["route_id"]),
             ),
         ).fetchall()
@@ -3719,6 +3761,8 @@ class ApifyActorOpsService:
 
         distinct: list[sqlite3.Row] = []
         seen_actors = set(active_actor_ids)
+        if goal == "upgrade_legacy":
+            seen_actors.difference_update(upgradeable_legacy_actor_ids)
         for row in candidate_rows:
             actor_id = str(row["actor_id"])
             if actor_id in seen_actors or str(row["revision_id"]) in active_revision_ids:
@@ -7460,6 +7504,26 @@ class ApifyActorOpsService:
                     "Source Actor binding changed; reload before retrying",
                 )
             route = self._require_route(connection, str(binding["route_id"]))
+            revision = connection.execute(
+                """
+                SELECT lifecycle, build_id, build_number, manifest_hash
+                FROM apify_actor_adapter_revisions
+                WHERE workspace_id = ? AND revision_id = ?
+                """,
+                (self.workspace_id, revision_id),
+            ).fetchone()
+            if (
+                revision is None
+                or str(revision["lifecycle"]) == "legacy_builtin"
+                or not revision["build_id"]
+                or not revision["build_number"]
+                or not revision["manifest_hash"]
+            ):
+                raise ActorOpsError(
+                    "apify_actor_source_requires_pool_upgrade",
+                    "Compatibility Actor revisions must be upgraded before source validation",
+                    status_code=412,
+                )
             if cap > float(route["per_run_cap_usd"]):
                 raise ActorOpsError(
                     "apify_actor_budget_invalid",

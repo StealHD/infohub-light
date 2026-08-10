@@ -388,6 +388,7 @@ class ApifyActorDiscoveryService:
         run_id: str,
         *,
         queries: Sequence[str],
+        preferred_actor_ids: Sequence[str] = (),
     ) -> DiscoveryOutcome:
         run = self.ops.get_discovery_run(run_id)
         if run["stage"] != "queued":
@@ -433,7 +434,20 @@ class ApifyActorDiscoveryService:
             query_count=len(clean_queries),
         )
         route = self.ops.get_route(str(run["route_id"]))
-        store_hits: dict[str, Mapping[str, Any]] = {}
+        preferred = tuple(
+            dict.fromkeys(
+                normalized
+                for raw in preferred_actor_ids
+                if (normalized := _actor_id({"actorId": str(raw)}))
+            )
+        )
+        preferred_set = set(preferred)
+        # Active compatibility Actors are looked up directly in the public
+        # Store.  This is still discovery-only: metadata, exact Build, schema,
+        # pricing, Manifest and input validation below remain mandatory.
+        store_hits: dict[str, Mapping[str, Any]] = {
+            actor_id: {"actorId": actor_id} for actor_id in preferred
+        }
         for query in clean_queries:
             for row in await _maybe_await(self.metadata_client.search_store(query)):
                 actor_id = _actor_id(row)
@@ -468,6 +482,7 @@ class ApifyActorDiscoveryService:
         # ID sorted after metadata-only candidates.
         accepted.sort(
             key=lambda candidate: (
+                0 if candidate.actor_id in preferred_set else 1,
                 0 if _output_schema_proves_items(candidate.output_schema) else 1,
                 candidate.actor_id,
             )
@@ -521,6 +536,8 @@ class ApifyActorDiscoveryService:
                 "actor_and_build_must_match_candidates": True,
                 "code_or_templates_forbidden": True,
                 "response_must_be_exact_json_object": True,
+                "prefer_existing_actor_upgrades": bool(preferred),
+                "preferred_actor_ids": list(preferred),
             },
             "response_contract": {
                 "type": "object",
@@ -585,6 +602,7 @@ class ApifyActorDiscoveryService:
                 },
                 "notes": [
                     "Return exactly target_proposals distinct Actors.",
+                    "Include preferred_actor_ids before replacement candidates when they satisfy every contract.",
                     "Use at least two distinct candidate publishers across the proposals.",
                     "Rank proposals best-first so later entries can replace an invalid earlier entry.",
                     "Replace candidate placeholders with fetched schema paths only.",

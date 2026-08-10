@@ -1272,6 +1272,7 @@ export type ApifyActorPoolCandidate = {
     completed_at: string | null
   } | null
   requires_profile_change?: boolean
+  existing_actor_upgrade?: boolean
   selectable: boolean
   unavailable_reason?: string | null
 }
@@ -1427,7 +1428,7 @@ export type ApifyActorSourceBindingActivationResponse = {
 }
 
 export type ApifyActorSourceSupport = {
-  schema_version: 1
+  schema_version: 1 | 2
   source_id: string
   route_id: string | null
   generation: number
@@ -1438,6 +1439,11 @@ export type ApifyActorSourceSupport = {
   reserved_usd: number
   remaining_budget_usd: number
   slots: ApifyActorSourceValidationSlot[]
+  next_action?: {
+    kind: 'upgrade_pool_required' | 'validate_slot' | 'wait' | 'activate_source' | 'complete' | 'refresh'
+    slot?: ApifyActorSlotName
+    reason?: string
+  }
   activation_confirmation?: string | null
 }
 

@@ -1401,8 +1401,8 @@ const workflowPresentation: Record<string, {
   },
   legacy_discovery_required: {
     title: '兼容模式仍在运行',
-    description: '旧版 Actor 不能直接“转正式”。系统会在旁路建立新版主备，第二次确认前旧线路继续服务。',
-    status: '兼容模式', tone: 'warning', action: 'start_discovery', cta: '开始旁路升级',
+    description: '系统会优先为原 Actor 固定新版 Build 并旁路验证；只有原 Actor 不再可用时才需要换人。第二次确认前旧线路继续服务。',
+    status: '兼容模式', tone: 'warning', action: 'start_discovery', cta: '升级现有 Actor',
   },
   legacy_discovery_running: {
     title: '正在旁路建立新版主备',
@@ -1410,9 +1410,9 @@ const workflowPresentation: Record<string, {
     status: '兼容模式', tone: 'warning', action: 'none',
   },
   legacy_candidate_selection_required: {
-    title: '选择 3 个新版 Actor',
-    description: '新版方案会在旁路完成验证。第二次确认前，当前兼容版本持续运行且不会停机。',
-    status: '兼容模式', tone: 'warning', action: 'select_candidates', cta: '选择新版 Actor',
+    title: '确认原 Actor 升级方案',
+    description: '可安全升级的原 Actor 已优先选中；只需为不可升级的位置选择替代项。第二次确认前兼容版本持续运行。',
+    status: '兼容模式', tone: 'warning', action: 'select_candidates', cta: '查看升级方案',
   },
   legacy_canary_approval_required: {
     title: '新版主备候选已就绪',
@@ -1478,7 +1478,8 @@ function sourceStatusPresentation(status: string): { label: string; tone: 'neutr
   if (status === 'ready_2of2') return { label: '已启用（2/2）', tone: 'success' }
   if (status === 'ready_3of3') return { label: '已启用（3/3）', tone: 'success' }
   if (['queued', 'running'].includes(status)) return { label: '验证中', tone: 'warning' }
-  if (['pending', 'revalidation_pending', 'legacy_validation_pending'].includes(status)) return { label: '待验证', tone: 'warning' }
+  if (status === 'legacy_validation_pending') return { label: '先升级主备', tone: 'danger' }
+  if (['pending', 'revalidation_pending'].includes(status)) return { label: '待验证', tone: 'warning' }
   if (['failed', 'blocked'].includes(status)) return { label: '需要处理', tone: 'danger' }
   return { label: '尚未启用', tone: 'neutral' }
 }
@@ -1533,7 +1534,7 @@ export function HeroActorOpsControlPlane({
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false)
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false)
-  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([])
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[] | null>(null)
   const [candidateProfileDrafts, setCandidateProfileDrafts] = useState<Record<string, CandidateProfileDraft>>({})
   const [candidateError, setCandidateError] = useState<HumanActorError | null>(null)
   const [batchTarget, setBatchTarget] = useState<CanaryBatchApprovalTarget | null>(null)
@@ -1592,6 +1593,14 @@ export function HeroActorOpsControlPlane({
     enabled: queryEnabled && candidatePickerOpen && Boolean(selectedRouteId),
     retry: false,
   })
+
+  const preferredCandidateIds = candidateGoal === 'upgrade_legacy' && candidatePickerOpen
+    ? (candidatesQuery.data?.candidates ?? [])
+      .filter((candidate) => candidate.selectable && candidate.existing_actor_upgrade)
+      .slice(0, candidatesQuery.data?.required_selection_count ?? 3)
+      .map((candidate) => candidate.candidate_id)
+    : []
+  const activeSelectedCandidateIds = selectedCandidateIds ?? preferredCandidateIds
 
   const batchQuery = useQuery({
     queryKey: queryKeys.apifyActorCanaryBatch(user.id, activeBatchId),
@@ -1734,7 +1743,11 @@ export function HeroActorOpsControlPlane({
   const discovery = useMutation({
     mutationFn: async () => {
       if (!selectedSummary) throw new Error('route unavailable')
-      return api.refreshApifyActorPoolCandidates(selectedSummary.route_id, selectedSummary.generation)
+      return api.refreshApifyActorPoolCandidates(
+        selectedSummary.route_id,
+        selectedSummary.generation,
+        candidateGoal,
+      )
     },
     onSuccess: () => {
       setCandidatePickerOpen(false)
@@ -1750,17 +1763,17 @@ export function HeroActorOpsControlPlane({
   const prepareManualPlan = useMutation({
     mutationFn: async () => {
       const candidates = candidatesQuery.data
-      if (!candidates?.run_id || selectedCandidateIds.length !== candidates.required_selection_count) {
+      if (!candidates?.run_id || activeSelectedCandidateIds.length !== candidates.required_selection_count) {
         throw new Error('candidate selection incomplete')
       }
-      const selected = selectedCandidateIds.map((candidateId) => (
+      const selected = activeSelectedCandidateIds.map((candidateId) => (
         candidates.candidates.find((candidate) => candidate.candidate_id === candidateId)
       ))
       const profiles = selected.map((candidate) => candidate ? candidateProfileRequest(candidate) : null)
       if (profiles.some((profile) => profile === null)) throw new Error('candidate validation profile invalid')
       return api.createApifyActorManualCanaryPlan(candidates.run_id, {
         goal: candidates.goal,
-        candidate_ids: selectedCandidateIds,
+        candidate_ids: activeSelectedCandidateIds,
         candidate_validation_profiles: profiles as ApifyActorValidationProfileRequest[],
         expected_generation: candidates.generation,
         target_slot_count: 3,
@@ -2014,11 +2027,11 @@ export function HeroActorOpsControlPlane({
   const routeCapChanged = Boolean(detail && routeCapValid && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9)
   const candidateRequiredCount = candidatesQuery.data?.required_selection_count
     ?? (candidateGoal === 'complete_third' ? 1 : 3)
-  const selectedCandidates = selectedCandidateIds.map((candidateId) => (
+  const selectedCandidates = activeSelectedCandidateIds.map((candidateId) => (
     candidatesQuery.data?.candidates.find((candidate) => candidate.candidate_id === candidateId)
   )).filter((candidate): candidate is ApifyActorPoolCandidate => Boolean(candidate))
-  const candidateSelectionComplete = selectedCandidateIds.length === candidateRequiredCount
-    && selectedCandidates.length === selectedCandidateIds.length
+  const candidateSelectionComplete = activeSelectedCandidateIds.length === candidateRequiredCount
+    && selectedCandidates.length === activeSelectedCandidateIds.length
     && selectedCandidates.every((candidate) => (
       candidateProfileRequest(candidate) !== null
       && candidateHasUsefulProfileChange(candidate)
@@ -2060,7 +2073,7 @@ export function HeroActorOpsControlPlane({
     if (actionPending) return
     if (next.action === 'start_discovery') discovery.mutate()
     else if (next.action === 'select_candidates') {
-      setSelectedCandidateIds([])
+      setSelectedCandidateIds(null)
       setCandidateError(null)
       setCandidatePickerOpen(true)
     }
@@ -2094,16 +2107,17 @@ export function HeroActorOpsControlPlane({
   function toggleCandidate(candidateId: string, selected: boolean) {
     setCandidateError(null)
     setSelectedCandidateIds((current) => {
-      if (!selected) return current.filter((value) => value !== candidateId)
+      const currentIds = current ?? preferredCandidateIds
+      if (!selected) return currentIds.filter((value) => value !== candidateId)
       if (candidateRequiredCount === 1) return [candidateId]
-      if (current.includes(candidateId) || current.length >= candidateRequiredCount) return current
-      return [...current, candidateId]
+      if (currentIds.includes(candidateId) || currentIds.length >= candidateRequiredCount) return currentIds
+      return [...currentIds, candidateId]
     })
   }
 
   return <>
     <div className="grid gap-5">
-      <div className="grid gap-3 min-[768px]:grid-cols-[minmax(0,360px)_1fr] min-[768px]:items-end">
+      <div className="grid gap-3 rounded-control border border-separator bg-surface-primary p-3 shadow-sm min-[768px]:grid-cols-[minmax(0,360px)_1fr] min-[768px]:items-end">
         <HeroSelect
           label="抓取类型"
           value={selectedProfileId}
@@ -2127,10 +2141,9 @@ export function HeroActorOpsControlPlane({
             .map((profile) => ({
             id: profile.id,
             label: routeProductNames[profile.id]?.label || profile.label,
-            description: `${routeProductNames[profile.id]?.description || profile.mode} · ${workflowPresentation[routes.find((route) => routeProfileId(route) === profile.id)?.workflow?.kind || '']?.status || '读取中'}`,
           }))}
         />
-        {selectedSummary && <div className="flex min-h-10 items-center gap-2 min-[768px]:justify-end">
+        {selectedSummary && <div className="flex min-h-10 items-center gap-3 rounded-control border border-separator bg-surface-primary px-3 py-2 min-[768px]:justify-end">
           <StatusIndicator label={next.status} tone={next.tone} role="status" />
           <span className="type-meta text-muted">{selectedSummary.runnable_slots}/3 路可用</span>
         </div>}
@@ -2151,8 +2164,8 @@ export function HeroActorOpsControlPlane({
           replaceQuery(String(key) as ActorOpsTaskTab)
         }
       }}>
-        <div className="sticky top-0 z-10 -mx-1 overflow-hidden bg-surface-primary/95 px-1 py-1 backdrop-blur">
-          <Tabs.List aria-label="ActorOps 配置任务" className="grid w-full grid-cols-3 gap-1 rounded-control bg-surface-secondary p-1">
+        <div className="sticky top-0 z-10 -mx-1 overflow-visible bg-transparent px-1 py-1 backdrop-blur-sm">
+          <Tabs.List aria-label="ActorOps 配置任务" className="grid w-full grid-cols-3 gap-1 rounded-control border border-separator bg-surface-primary/95 p-1 shadow-sm">
             <Tabs.Tab id="pool" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center px-2">主备配置<Tabs.Indicator /></Tabs.Tab>
             <Tabs.Tab id="sources" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center gap-1 px-2">来源启用{pendingSourceCount > 0 && <CountBadge count={pendingSourceCount} label={`${pendingSourceCount} 个来源待处理`} />}<Tabs.Indicator /></Tabs.Tab>
             <Tabs.Tab id="operations" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center px-2">运行与告警<Tabs.Indicator /></Tabs.Tab>
@@ -2260,9 +2273,11 @@ export function HeroActorOpsControlPlane({
                 <div ref={sourceDetailHeadingRef} tabIndex={-1} data-testid="actorops-source-detail-heading" className="outline-none"><Card.Title>{sourceCatalog.get(selectedSourceId)?.display_name || sourceShortLabel(selectedSourceId)}</Card.Title><Card.Description className="mt-1">只显示当前主备的验证进度；真实目标保持隐藏。</Card.Description></div>
                 {sourceSupportQuery.isPending && <LoadingState label="正在读取来源验证" rows={2} />}
                 {sourceSupportQuery.data && <>
-                  <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源主备验证槽位">{sourceSupportQuery.data.slots.map((slot) => <li key={slot.slot} className="rounded-control border border-separator bg-default p-3"><p className="type-control">{slotDisplayLabels[slot.slot]}</p><p className="type-meta mt-1 text-muted">{slot.status === 'passed' ? '已通过' : ['queued', 'running'].includes(slot.status) ? '验证中' : '待验证'} · {formatActorDateTime(slot.last_canary_at ?? null)}</p></li>)}</ol>
+                  <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源主备验证槽位">{sourceSupportQuery.data.slots.map((slot) => <li key={slot.slot} className="rounded-control border border-separator bg-default p-3"><p className="type-control">{slotDisplayLabels[slot.slot]}</p><p className="type-meta mt-1 text-muted">{slot.status === 'passed' ? '已通过' : ['queued', 'running'].includes(slot.status) ? '验证中' : slot.status === 'blocked' ? '需先升级主备' : slot.status === 'failed' ? '需要处理' : '待验证'} · {formatActorDateTime(slot.last_canary_at ?? null)}</p></li>)}</ol>
                   <p className="type-meta text-muted">实际费用 {formatActorUsd(sourceSupportQuery.data.spent_usd, true)} · 已预留 {formatActorUsd(sourceSupportQuery.data.reserved_usd, true)} · 剩余 {formatActorUsd(sourceSupportQuery.data.remaining_budget_usd, true)}</p>
                   {(() => {
+                    const nextAction = sourceSupportQuery.data.next_action
+                    if (nextAction?.kind === 'upgrade_pool_required') return <HeroNotice title="先升级 Actor 主备" status="warning" role="alert"><p>当前兼容 Actor 没有固定 Build，无法安全验证这个来源；继续提交也不会成功。</p><p className="mt-1"><strong>影响：</strong>没有启动新的 Actor，现有抓取继续运行。</p><p className="mt-1"><strong>下一步：</strong>回到主备配置升级原 Actor，升级生效后再验证来源。</p><Button className="mt-3" size="sm" variant="secondary" onPress={() => replaceQuery('pool')}>前往主备配置</Button></HeroNotice>
                     const waiting = sourceSupportQuery.data.slots.some((slot) => ['queued', 'running'].includes(slot.status))
                     const nextSlot = sourceSupportQuery.data.slots.find((slot) => slot.can_canary)
                     if (waiting) return <HeroNotice title="来源验证正在运行" status="warning" role="status">完成后会自动显示下一项安全操作。</HeroNotice>
@@ -2297,16 +2312,16 @@ export function HeroActorOpsControlPlane({
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 候选列表</Modal.Trigger>
       <Modal.Backdrop isDismissable={!prepareManualPlan.isPending && !discovery.isPending} isKeyboardDismissDisabled={prepareManualPlan.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '选择 3 个新版 Actor' : '选择 3 个 Actor'}</Modal.Heading></Modal.Header>
+        <Modal.Header><Modal.Heading>{candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级现有 Actor' : '选择 3 个 Actor'}</Modal.Heading></Modal.Header>
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
-          <HeroNotice title="选择候选不会产生费用" status="default" role="status">系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。</HeroNotice>
+          <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy' ? '系统优先升级原来的 Actor；带“原 Actor”标记的候选已自动选中。若某个原 Actor 无法升级，只需为缺口选择替代项。' : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。'}</HeroNotice>
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}
           {candidatesQuery.data && <>
-            <div className="flex items-center justify-between gap-3 type-meta text-muted"><span>请选择 {candidateRequiredCount} 个</span><span aria-live="polite">已选 {selectedCandidateIds.length}/{candidateRequiredCount}</span></div>
+            <div className="flex items-center justify-between gap-3 type-meta text-muted"><span>请选择 {candidateRequiredCount} 个</span><span aria-live="polite">已选 {activeSelectedCandidateIds.length}/{candidateRequiredCount}</span></div>
             {candidatesQuery.data.candidates.length > 0 ? <div className="grid gap-2" role="group" aria-label="可选 Actor">
               {candidatesQuery.data.candidates.map((candidate) => {
-                const selected = selectedCandidateIds.includes(candidate.candidate_id)
+                const selected = activeSelectedCandidateIds.includes(candidate.candidate_id)
                 const failure = candidate.last_failure
                 const draft = profileDraft(candidate)
                 const statusReadFailure = failure && [
@@ -2319,8 +2334,8 @@ export function HeroActorOpsControlPlane({
                   'apify_actor_identity_mismatch',
                 ].includes(failure.code)
                 return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
-                  <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && selectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
-                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
+                  <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
+                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">原 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
                   </Checkbox>
                   {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">不可选择：{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
                   {failure && <div className="mt-3 grid gap-3 rounded-control border border-warning/40 bg-default p-3">

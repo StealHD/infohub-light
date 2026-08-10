@@ -420,9 +420,9 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     ['backup_2_canary_approval_required', '第三路候选已就绪', '查看并确认第三路验证'],
     ['backup_2_canary_running', '正在验证第三路备用', null],
     ['backup_2_activation_approval_required', '第三路验证通过', '查看并确认补位生效'],
-    ['legacy_discovery_required', '兼容模式仍在运行', '开始旁路升级'],
+    ['legacy_discovery_required', '兼容模式仍在运行', '升级现有 Actor'],
     ['legacy_discovery_running', '正在旁路建立新版主备', null],
-    ['legacy_candidate_selection_required', '选择 3 个新版 Actor', '选择新版 Actor'],
+    ['legacy_candidate_selection_required', '确认原 Actor 升级方案', '查看升级方案'],
     ['legacy_canary_approval_required', '新版主备候选已就绪', '查看并确认新版验证'],
     ['legacy_canary_running', '正在验证新版主备', null],
     ['legacy_activation_approval_required', '新版主备验证通过', '查看并确认切换'],
@@ -478,6 +478,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(api.refreshApifyActorPoolCandidates).toHaveBeenCalledWith(
       'route-x-profile',
       12,
+      'upgrade_legacy',
     )
   })
 
@@ -607,6 +608,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(api.refreshApifyActorPoolCandidates).toHaveBeenCalledWith(
       'route-instagram-profile',
       12,
+      'initial_pool',
     )
     expect(screen.queryByText('ActorOps 路由控制面')).not.toBeInTheDocument()
     expect(screen.queryByText('支持 Profile')).not.toBeInTheDocument()
@@ -900,7 +902,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
 
   it.each([
     ['initial_pool', 'setup_candidate_selection_required', '选择 Actor', '选择 3 个 Actor'],
-    ['upgrade_legacy', 'legacy_candidate_selection_required', '选择新版 Actor', '选择 3 个新版 Actor'],
+    ['upgrade_legacy', 'legacy_candidate_selection_required', '查看升级方案', '升级现有 Actor'],
   ] as const)('requires exactly three manually selected candidates for %s', async (goal, kind, cta, heading) => {
     const browser = userEvent.setup()
     const selected = detail({
@@ -1034,8 +1036,8 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     renderControlPlane(legacy)
 
     expect(await screen.findByText('兼容模式仍在运行')).toBeVisible()
-    expect(screen.getByText(/旁路建立新版主备/)).toBeVisible()
-    expect(screen.getByRole('button', { name: '开始旁路升级' })).toBeVisible()
+    expect(screen.getByText(/优先为原 Actor 固定新版 Build/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '升级现有 Actor' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /转正/ })).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('legacy_builtin')
   })
@@ -1100,5 +1102,101 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     await waitFor(() => expect(api.apifyActorSourceSupport).toHaveBeenCalledWith('source-safe-abcdef', expect.any(AbortSignal)))
     await waitFor(() => expect(screen.getByTestId('actorops-source-detail-heading')).toHaveFocus())
     expect(document.body.textContent).not.toContain('private-target-must-not-render')
+  })
+
+  it('blocks legacy source validation before spend and sends the user to pool upgrade', async () => {
+    const browser = userEvent.setup()
+    const sourceDetail = detail({
+      workflow: workflow('source_validation_required', {
+        progress: { pending_sources: 1 },
+      }),
+      source_validations: [{
+        source_id: 'source-safe-abcdef',
+        binding_status: 'legacy_validation_pending',
+        generation: 3,
+        slots: [],
+      }],
+      source_validation_summary: { ready: 0, pending: 1, failed: 0 },
+    })
+    const support = {
+      schema_version: 2 as const,
+      source_id: 'source-safe-abcdef',
+      route_id: sourceDetail.route_id,
+      generation: 3,
+      binding_status: 'legacy_validation_pending',
+      verified_revision_set_hash: null,
+      budget_cap_usd: 0.06,
+      spent_usd: 0,
+      reserved_usd: 0,
+      remaining_budget_usd: 0.06,
+      slots: sourceDetail.slots.map((slot) => ({
+        slot: slot.slot,
+        revision_id: slot.revision_id,
+        status: 'blocked',
+        can_canary: false,
+      })),
+      next_action: {
+        kind: 'upgrade_pool_required' as const,
+        reason: 'apify_actor_source_requires_pool_upgrade',
+      },
+      activation_confirmation: null,
+    }
+    const { api } = renderControlPlane(
+      sourceDetail,
+      '/?route=x%2Fprofile%2Fitems&tab=sources&source=source-safe-abcdef',
+      { apifyActorSourceSupport: vi.fn().mockResolvedValue(support) },
+    )
+
+    expect(await screen.findByText('先升级 Actor 主备')).toBeVisible()
+    expect(screen.getByText(/继续提交也不会成功/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: /付费验证/ })).not.toBeInTheDocument()
+    expect(api.canaryApifyActorSourceRevision).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('button', { name: '前往主备配置' }))
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?route=x%2Fprofile%2Fitems&tab=pool',
+    ))
+  })
+
+  it('uses floating tabs, omits the selector subtitle, and preselects safe same-Actor upgrades', async () => {
+    const browser = userEvent.setup()
+    const legacy = detail({
+      workflow: workflow('legacy_candidate_selection_required', {
+        goal: 'upgrade_legacy',
+        run_id: 'run-legacy-upgrade',
+      }),
+    })
+    const candidates = [0, 1, 2].map((index) => ({
+      candidate_id: `legacy-candidate-${index}`,
+      actor_public_name: `原 Actor ${index + 1}`,
+      publisher: index === 1 ? 'publisher-b' : 'publisher-a',
+      pricing: {},
+      max_validation_charge_usd: 0.1,
+      validation_options: validationOptions(),
+      existing_actor_upgrade: true,
+      selectable: true,
+      unavailable_reason: null,
+    }))
+    renderControlPlane(legacy, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: legacy.route_id,
+        generation: legacy.generation,
+        goal: 'upgrade_legacy',
+        run_id: 'run-legacy-upgrade',
+        required_selection_count: 3,
+        candidates,
+        blockers: [],
+      }),
+    })
+
+    const selector = await screen.findByRole('button', { name: /X 用户动态.*抓取类型/ })
+    expect(selector).not.toHaveAccessibleName(/Actor 主抓取/)
+    expect(screen.getByRole('tablist')).toHaveClass('shadow-sm')
+    expect(screen.getByRole('tablist')).not.toHaveClass('bg-surface-secondary')
+    await browser.click(await screen.findByRole('button', { name: '查看升级方案' }))
+    expect(await screen.findByRole('heading', { name: '升级现有 Actor' })).toBeVisible()
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3))
+    expect(await screen.findByText('已选 3/3')).toBeVisible()
+    expect(screen.getAllByText('原 Actor')).toHaveLength(3)
   })
 })

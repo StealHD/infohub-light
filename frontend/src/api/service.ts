@@ -351,9 +351,10 @@ export function createServiceApi(client: ApiClient) {
     refreshApifyActorPoolCandidates: (
       routeId: string,
       expectedGeneration: number,
+      goal: ApifyActorPoolGoal = 'initial_pool',
     ) => client.post<ApifyActorPoolCandidateRefresh>(
       `${resource('/api/admin/apify-routes', routeId)}/pool-candidates/refresh`,
-      { expected_generation: expectedGeneration },
+      { expected_generation: expectedGeneration, goal },
     ),
     reconcileApifyActorValidation: (
       routeId: string,

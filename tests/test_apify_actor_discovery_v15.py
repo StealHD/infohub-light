@@ -246,6 +246,7 @@ class _Metadata:
             "publisher-b/four": 5,
             "publisher-c/five": 6,
             "publisher-a/six": 7,
+            "legacy/kept": 8,
         }[actor_id]
         return {
             "id": f"opaqueactor{number}",
@@ -831,6 +832,60 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
             "public": True,
             "store_unrunnable_actors_excluded": True,
         }
+    assert (
+        store.connect()
+        .execute(
+            """
+            SELECT COUNT(*) FROM apify_actor_validations
+            WHERE workspace_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID,),
+        )
+        .fetchone()[0]
+        == 0
+    )
+
+
+def test_discovery_prefers_existing_legacy_actor_even_when_store_search_omits_it(
+    tmp_path,
+) -> None:
+    store, ops, run = _ops(tmp_path)
+    metadata = _Metadata()
+    prompt_seen = {}
+
+    async def ai_generate(prompt):
+        prompt_seen.update(prompt)
+        return {
+            "proposals": [
+                {
+                    "actor_id": candidate["actor_id"],
+                    "build_id": candidate["build_id"],
+                    "build_number": candidate["build_number"],
+                    "manifest": _manifest(
+                        candidate["actor_id"], candidate["build_number"]
+                    ),
+                }
+                for candidate in prompt["candidates"]
+            ]
+        }
+
+    outcome = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, ai_generate).run_discovery(
+            run["run_id"],
+            queries=["youtube channel"],
+            preferred_actor_ids=["legacy/kept"],
+        )
+    )
+
+    assert outcome.stage == "awaiting_canary_approval"
+    assert prompt_seen["constraints"]["preferred_actor_ids"] == [
+        "legacy/kept"
+    ]
+    assert prompt_seen["candidates"][0]["actor_id"] == "legacy/kept"
+    assert any(
+        ops.get_revision(revision_id)["actor_id"] == "legacy/kept"
+        for revision_id in outcome.revision_ids
+    )
     assert (
         store.connect()
         .execute(

@@ -142,3 +142,4 @@
 | D136 | ActorOps 以持久 Pool Stage 完成第三槽与零中断 legacy 升级 | 2026-08-09 | [查看](records/D126-D150.md#d136) |
 | D137 | ActorOps 由管理员选择安全候选且验证后立即可运行 | 2026-08-10 | [查看](records/D126-D150.md#d137) |
 | D138 | ActorOps 验证参数按失败冻结并禁止原样重复付费 | 2026-08-10 | [查看](records/D126-D150.md#d138) |
+| D139 | ActorOps legacy 默认升级原 Actor 且来源验证在审批前阻断不安全 Revision | 2026-08-10 | [查看](records/D126-D150.md#d139) |

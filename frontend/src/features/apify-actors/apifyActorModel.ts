@@ -87,6 +87,7 @@ const actorErrorLabels: Record<string, string> = {
   apify_actor_quota_unknown: 'Apify 额度快照已过期，刷新全部账号额度后才能发起付费调用。',
   apify_actor_candidate_unavailable: '该 Actor 当前不能执行此操作。',
   apify_actor_canary_source_required: '请先选择一个 X 账号进行试跑。',
+  apify_actor_source_requires_pool_upgrade: '当前来源仍在使用兼容版本；请先到“主备配置”升级 Actor，再回来启用来源。',
   apify_actor_canary_unavailable: '当前不能发起 Actor 试跑。',
   apify_actor_canary_active: '这个 Actor 已有一项试跑正在等待或执行。',
   apify_actor_revision_output_incompatible: '该固定 Build 已确认只返回元数据或不符合内容合同，不能重复付费试跑。',

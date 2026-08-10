@@ -1535,9 +1535,14 @@ def _run_apify_actor_discovery(
         else {}
     )
     run_id = str(payload.get("run_id") or "").strip()
+    prefer_existing = payload.get("prefer_existing_legacy_actors", False)
     if (
         not run_id
-        or set(payload) != {"run_id"}
+        or set(payload) not in (
+            {"run_id"},
+            {"run_id", "prefer_existing_legacy_actors"},
+        )
+        or not isinstance(prefer_existing, bool)
         or int(job.get("max_attempts") or 0) != 1
     ):
         raise ValueError("Actor discovery job metadata is invalid")
@@ -1732,6 +1737,11 @@ def _run_apify_actor_discovery(
                 outcome = await service.run_discovery(
                     run_id,
                     queries=queries,
+                    preferred_actor_ids=(
+                        ops.legacy_actor_ids(str(run["route_id"]))
+                        if prefer_existing
+                        else ()
+                    ),
                 )
                 return {
                     "ok": True,

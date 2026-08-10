@@ -179,6 +179,76 @@ def _ready_source(
     return source_id, ready
 
 
+def test_legacy_upgrade_accepts_new_exact_revisions_for_the_same_actors(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = ops.get_route(str(_route(store, "x/profile")["route_id"]))
+    legacy = store.connect().execute(
+        """
+        SELECT revision.actor_id, revision.publisher
+        FROM apify_route_active_slots AS slot
+        JOIN apify_actor_adapter_revisions AS revision
+          ON revision.workspace_id = slot.workspace_id
+         AND revision.revision_id = slot.revision_id
+        WHERE slot.workspace_id = ? AND slot.route_id = ?
+        ORDER BY CASE slot.slot_name
+            WHEN 'primary' THEN 1 WHEN 'backup_1' THEN 2 ELSE 3 END
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    ).fetchall()
+    assert len(legacy) == 3
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="test_same_actor_upgrade",
+        expected_generation=int(route["generation"]),
+    )
+    for index, row in enumerate(legacy, start=1):
+        _revision(
+            ops,
+            str(route["route_id"]),
+            actor_id=str(row["actor_id"]),
+            publisher=str(row["publisher"]),
+            build_number=f"22.0.{index}",
+            host="x.com",
+            discovery_run_id=str(run["run_id"]),
+        )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+
+    listed = ops.list_pool_candidates(
+        str(route["route_id"]), goal="upgrade_legacy"
+    )
+    assert len(listed["candidates"]) == 3
+    assert all(item["selectable"] for item in listed["candidates"]), [
+        (
+            item["actor_public_name"],
+            item["selectable"],
+            item["unavailable_reason"],
+            item["existing_actor_upgrade"],
+        )
+        for item in listed["candidates"]
+    ]
+    assert listed["blockers"] == [], listed["candidates"]
+    assert all(item["existing_actor_upgrade"] for item in listed["candidates"])
+
+    plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="upgrade_legacy",
+        candidate_ids=[item["candidate_id"] for item in listed["candidates"]],
+        target_slot_count=3,
+    )
+    assert plan["ready"] is True
+    assert {item["actor_id"] for item in plan["items"]} == {
+        str(row["actor_id"]) for row in legacy
+    }
+
+
 def _discovery_with_revisions(
     store: ServiceStore,
     ops: ApifyActorOpsService,

@@ -819,6 +819,9 @@ class ApifyActorCandidateRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_generation: StrictInt = Field(ge=1)
+    goal: Literal[
+        "initial_pool", "complete_third", "upgrade_legacy"
+    ] = "initial_pool"
 
 
 class ApifyActorValidationReconcileRequest(BaseModel):
@@ -5278,16 +5281,24 @@ def create_app(
                 connection.execute("BEGIN IMMEDIATE")
             else:
                 connection.execute(f"SAVEPOINT {savepoint}")
+            prefer_existing = payload.goal == "upgrade_legacy"
             discovery = ops.create_discovery_run(
                 route_id,
-                trigger_reason="manual_candidate_refresh",
+                trigger_reason=(
+                    "manual_legacy_upgrade_refresh"
+                    if prefer_existing
+                    else "manual_candidate_refresh"
+                ),
                 expected_generation=int(payload.expected_generation),
             )
             queued = queue.create_job(
                 workspace_id=str(user["workspace_id"]),
                 user_id=str(user["id"]),
                 job_type="apify_actor_discovery",
-                payload={"run_id": str(discovery["run_id"])},
+                payload={
+                    "run_id": str(discovery["run_id"]),
+                    "prefer_existing_legacy_actors": prefer_existing,
+                },
                 priority=50,
                 max_attempts=1,
                 retention_days=int(
@@ -6533,6 +6544,22 @@ def create_app(
             and str(validation["semantic_outcome"])
             in {"valid_nonempty", "valid_empty"}
         }
+        revision_by_id = {
+            str(slot.get("revision_id") or ""): slot.get("revision")
+            for slot in detail["slots"]
+            if slot.get("revision_id") is not None
+        }
+
+        def revision_requires_upgrade(revision_id: str) -> bool:
+            revision = revision_by_id.get(revision_id)
+            return bool(
+                not revision
+                or str(revision.get("lifecycle") or "") == "legacy_builtin"
+                or not revision.get("build_id")
+                or not revision.get("build_number")
+                or not revision.get("manifest_hash")
+            )
+
         pending_revision = next(
             (
                 str(slot["revision_id"])
@@ -6547,6 +6574,9 @@ def create_app(
             revision_id = str(slot.get("revision_id") or "")
             validation = latest.get(revision_id)
             passed_slot = revision_id in passed
+            requires_upgrade = bool(
+                revision_id and revision_requires_upgrade(revision_id)
+            )
             slots.append(
                 {
                     "slot": slot["slot"],
@@ -6554,6 +6584,8 @@ def create_app(
                     "status": (
                         "passed"
                         if passed_slot
+                        else "blocked"
+                        if requires_upgrade
                         else str(validation["status"])
                         if validation
                         else "pending"
@@ -6569,6 +6601,7 @@ def create_app(
                     "can_canary": bool(
                         revision_id
                         and revision_id == pending_revision
+                        and not requires_upgrade
                         and (
                             validation is None
                             or str(validation["status"])
@@ -6577,10 +6610,46 @@ def create_app(
                     ),
                 }
             )
+        waiting = any(
+            str(slot["status"]) in {"queued", "running"}
+            for slot in slots
+        )
+        blocked_upgrade = any(
+            str(slot["status"]) == "blocked" for slot in slots
+        )
+        next_slot = next(
+            (slot for slot in slots if bool(slot["can_canary"])),
+            None,
+        )
+        all_populated_passed = bool(slots) and all(
+            not slot["revision_id"] or str(slot["status"]) == "passed"
+            for slot in slots
+        )
+        binding_ready = str(binding["validation_status"]) in {
+            "ready_2of2", "ready_3of3"
+        }
+        if blocked_upgrade:
+            next_action = {
+                "kind": "upgrade_pool_required",
+                "reason": "apify_actor_source_requires_pool_upgrade",
+            }
+        elif waiting:
+            next_action = {"kind": "wait"}
+        elif next_slot is not None:
+            next_action = {
+                "kind": "validate_slot",
+                "slot": str(next_slot["slot"]),
+            }
+        elif all_populated_passed and not binding_ready:
+            next_action = {"kind": "activate_source"}
+        elif binding_ready:
+            next_action = {"kind": "complete"}
+        else:
+            next_action = {"kind": "refresh"}
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "source_id": source_id,
                 "route_id": str(binding["route_id"]),
                 "generation": int(binding["generation"]),
@@ -6593,7 +6662,12 @@ def create_app(
                 "reserved_usd": reserved_usd,
                 "remaining_budget_usd": remaining_budget_usd,
                 "slots": slots,
-                "activation_confirmation": FIRST_ACTIVATION_CONFIRMATION,
+                "next_action": next_action,
+                "activation_confirmation": (
+                    FIRST_ACTIVATION_CONFIRMATION
+                    if next_action["kind"] == "activate_source"
+                    else None
+                ),
             }
         )
 
