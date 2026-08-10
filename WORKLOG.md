@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-09",
-  "result": "根据登录页浏览器评审，将桌面与平板品牌区的三条能力说明收拢为带细边框的圆角实色信息块，移动端仍隐藏该低优先级列表。",
-  "status": "completed",
-  "task_id": "2026-08-09-login-capability-corners",
-  "unresolved": [],
-  "validation": [
-    "HeroLoginPage 定向 Vitest 3/3、TypeScript 与 ESLint 通过。",
-    "生产构建预览下强制刷新并复验 1440×900 与 1024×768 的 light/dark 视觉基线；390×844 保持隐藏能力列表。",
-    "完整 Test Gate 24/24 命令通过（250.29 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
   "result": "将登录页 Quiet Studio 分支快进整合到本地 main，并将共享 8080 的 API/Worker 切换到整合后的产品 revision 8d3cac39728e。",
   "status": "completed",
   "task_id": "2026-08-09-integrate-login-quiet-studio-main",
@@ -352,6 +334,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "./scripts/up-latest.sh 完成，API liveness revision=885c7ce22556，readiness 返回 API/Worker ready。",
     "horizon-light-api 与 horizon-light-worker 均 healthy；8080 实际服务前端资源 index-DCQ0XeSV.js。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "将专题 AI 总结与同用户同内容最近成功结果缓存分支合入本地 main；保留真实失败、完成指标日志、V3 可读要点预算和已演进 ActorOps schema 的兼容判断。",
+  "status": "completed",
+  "task_id": "2026-08-10-main-source-summary-cache-integration",
+  "unresolved": [],
+  "validation": [
+    "main 合并 commit 无冲突，产品手册、更新日志、API/UI 合同与决策记录随功能一并进入集成结果。",
+    "main 完整 Test Gate 24/24 通过（406.768 秒），mapping_miss=false。"
   ]
 }
 ```
