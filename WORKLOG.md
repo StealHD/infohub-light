@@ -13,26 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "为 v2.2.11 发布准备 OpenClaw 图片输入与订阅页整合结果；本地重建流程在最终健康检查后安全清理旧 inteliscope-service:local-* 构建，并保留当前或仍被容器引用的镜像。",
-  "status": "completed",
-  "task_id": "2026-08-07-prepare-v2.2.11-openclaw-image-release",
-  "unresolved": [],
-  "validation": [
-    "up-latest 脚本语法与运行时回归：31 项通过。",
-    "前端 typecheck 通过；受影响的 Release E2E 10 项通过、2 项按项目配置跳过。",
-    "桌面、平板与移动端明暗订阅视觉基线已重新生成并人工抽检。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "发布 OpenClaw 安全图片对话 v2.2.13：修复 Linux 订阅页视觉基线，推送不可变标签，并以本地 linux/amd64 离线镜像切换 VPS API 与 Worker。",
   "status": "completed",
   "task_id": "2026-08-07-openclaw-image-v2-2-13-production-release",
@@ -370,6 +350,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "horizon-light-api 与 horizon-light-worker 均运行镜像 inteliscope-service:local-616ec79c2ede 并保持 healthy，readiness 返回 worker_status=ready。",
     "8080 已服务 HeroUsersPage-CgP1z52m.js，资源内包含修改成员用户名、删除成员账号与精确确认交互；scheduler 未启动。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "将成员账号用户名修改与安全删除功能分支合入本地 main。",
+  "status": "completed",
+  "task_id": "2026-08-10-merge-member-actions-to-main",
+  "unresolved": [],
+  "validation": [
+    "任务分支以非快进合并进入 main，无冲突；任务功能提交与本地 8080 运行验证记录均已包含。",
+    "合并后 main 完整 Test Gate 24/24 通过（249.893 秒），mapping_miss=false。"
   ]
 }
 ```
