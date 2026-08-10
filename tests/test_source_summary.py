@@ -142,7 +142,7 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     assert "embedded.example.test" not in prompt
     assert "token=never-send" not in prompt
     assert "不得访问链接" in prompt
-    assert SOURCE_SUMMARY_PROMPT_REVISION == "mainline-v2"
+    assert SOURCE_SUMMARY_PROMPT_REVISION == "mainline-v3"
     assert fake.calls[0][0] == SOURCE_SUMMARY_SYSTEM_PROMPT
     assert fake.calls[0][3] == 2_048
     assert "最主要的内容主线及变化方向" in prompt
@@ -152,6 +152,8 @@ def test_source_summary_uses_visible_feed_text_without_urls_and_counts_one_attem
     assert "样本有限" in prompt
     assert "方括号编号仅用于" in prompt
     assert "不要展示分析过程" in prompt
+    assert "总计不超过 220 个字符" in prompt
+    assert "保证每条语义完整" in prompt
 
 
 def test_source_summary_recovers_wrapped_json_and_scalar_highlight_without_retry(tmp_path, monkeypatch):
@@ -299,6 +301,9 @@ def test_source_summary_output_respects_the_configured_character_budget(tmp_path
     ))
 
     assert len(result["overview"]) + sum(len(value) for value in result["highlights"]) <= 220
+    assert len(result["highlights"]) == 3
+    assert result["overview"].endswith("…")
+    assert all(value.endswith("…") for value in result["highlights"])
 
 
 def _api_client(tmp_path, monkeypatch):

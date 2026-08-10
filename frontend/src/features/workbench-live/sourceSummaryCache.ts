@@ -1,8 +1,11 @@
 import type { SourceSummary } from '../../api/types'
 
-const SOURCE_SUMMARY_CACHE_STORAGE_PREFIX = 'inteliscope.source-summary.v2:'
-const SOURCE_SUMMARY_CACHE_LEGACY_PREFIXES = ['inteliscope.source-summary.v1:'] as const
-const SOURCE_SUMMARY_CACHE_PROMPT_REVISION = 'mainline-v2'
+const SOURCE_SUMMARY_CACHE_STORAGE_PREFIX = 'inteliscope.source-summary.v3:'
+const SOURCE_SUMMARY_CACHE_LEGACY_PREFIXES = [
+  'inteliscope.source-summary.v1:',
+  'inteliscope.source-summary.v2:',
+] as const
+const SOURCE_SUMMARY_CACHE_PROMPT_REVISION = 'mainline-v3'
 const SOURCE_SUMMARY_CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000
 const SOURCE_SUMMARY_CACHE_MAX_ENTRIES = 100
 const sourceSummaryCacheGenerations = new Map<string, number>()
@@ -14,7 +17,7 @@ type PersistedSourceSummaryEntry = {
 }
 
 type PersistedSourceSummaryCache = {
-  version: 2
+  version: 3
   prompt_revision: typeof SOURCE_SUMMARY_CACHE_PROMPT_REVISION
   entries: Record<string, PersistedSourceSummaryEntry>
 }
@@ -71,7 +74,7 @@ function sanitizeSummary(value: unknown): SourceSummary | null {
 }
 
 function emptyCache(): PersistedSourceSummaryCache {
-  return { version: 2, prompt_revision: SOURCE_SUMMARY_CACHE_PROMPT_REVISION, entries: {} }
+  return { version: 3, prompt_revision: SOURCE_SUMMARY_CACHE_PROMPT_REVISION, entries: {} }
 }
 
 function readSanitizedCache(userId: string, now: number): PersistedSourceSummaryCache {
@@ -80,7 +83,7 @@ function readSanitizedCache(userId: string, now: number): PersistedSourceSummary
     if (!raw || typeof raw !== 'object') return emptyCache()
     const record = raw as Record<string, unknown>
     if (
-      record.version !== 2
+      record.version !== 3
       || record.prompt_revision !== SOURCE_SUMMARY_CACHE_PROMPT_REVISION
       || !record.entries
       || typeof record.entries !== 'object'
@@ -109,7 +112,7 @@ function readSanitizedCache(userId: string, now: number): PersistedSourceSummary
       })
 
     return {
-      version: 2,
+      version: 3,
       prompt_revision: SOURCE_SUMMARY_CACHE_PROMPT_REVISION,
       entries: Object.fromEntries(
         Object.entries(entries)

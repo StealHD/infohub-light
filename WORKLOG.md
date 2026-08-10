@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-09",
-  "result": "将 OpenClaw 输入区与空态建议优化及 textarea 内层焦点 ring 修复 fast-forward 集成到本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-09-integrate-openclaw-composer-main",
-  "unresolved": [],
-  "validation": [
-    "main 完整 Test Gate 24/24 命令通过（249.60 秒）。",
-    "本地服务运行 da1c42b：API/Worker healthy，readiness 返回 worker_status=ready。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -353,6 +336,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "真实 20 篇输入诊断确认 input_tokens=1803、completion_tokens=800、reasoning_tokens=800、content_tokens=0、finish_reason=length、response_bytes=0。",
     "后端专题总结 7/7、缓存与退出清理 10/10、专题 UI 1/1、Changelog 5/5、TypeScript 与 ESLint 通过。",
     "完整 Test Gate 24/24 通过（552.619 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-readable-budget",
+  "unresolved": [],
+  "validation": [
+    "真实 20 篇页面生成已确认 2048 token 预算成功：completion_tokens=1057、reasoning_tokens=886、content_tokens=171、finish_reason=stop。",
+    "可读预算后端 7/7、V3 缓存与产品文案 15/15、专题 UI 1/1、TypeScript 通过。",
+    "最终完整 Test Gate 24/24 通过（305.553 秒），mapping_miss=false。"
   ]
 }
 ```

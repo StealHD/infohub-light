@@ -34,8 +34,8 @@ describe('source summary browser cache', () => {
     await writeCachedSourceSummary('user-a', 'source:alpha', fingerprint, summary, NOW)
 
     const raw = window.localStorage.getItem(sourceSummaryCacheStorageKey('user-a')) || ''
-    expect(sourceSummaryCacheStorageKey('user-a')).toBe('inteliscope.source-summary.v2:user-a')
-    expect(JSON.parse(raw)).toMatchObject({ version: 2, prompt_revision: 'mainline-v2' })
+    expect(sourceSummaryCacheStorageKey('user-a')).toBe('inteliscope.source-summary.v3:user-a')
+    expect(JSON.parse(raw)).toMatchObject({ version: 3, prompt_revision: 'mainline-v3' })
     expect(raw).not.toContain('不能写入')
     expect(raw).not.toContain('私密正文')
     expect(raw).toMatch(/"fingerprint_sha256":"[a-f0-9]{64}"/u)
@@ -75,24 +75,31 @@ describe('source summary browser cache', () => {
     expect(window.localStorage.getItem(key)).toBeNull()
   })
 
-  it('invalidates and removes the previous prompt cache without restoring it', async () => {
-    const legacyKey = 'inteliscope.source-summary.v1:user-a'
-    window.localStorage.setItem(legacyKey, JSON.stringify({
-      version: 1,
-      prompt_revision: 'mainline-v1',
-      entries: {
-        'source:alpha': {
-          fingerprint_sha256: 'a'.repeat(64),
-          saved_at: NOW,
-          data: summary,
+  it('invalidates and removes previous prompt caches without restoring them', async () => {
+    const legacyKeys = [
+      'inteliscope.source-summary.v1:user-a',
+      'inteliscope.source-summary.v2:user-a',
+    ]
+    legacyKeys.forEach((legacyKey, index) => {
+      window.localStorage.setItem(legacyKey, JSON.stringify({
+        version: index + 1,
+        prompt_revision: `mainline-v${index + 1}`,
+        entries: {
+          'source:alpha': {
+            fingerprint_sha256: 'a'.repeat(64),
+            saved_at: NOW,
+            data: summary,
+          },
         },
-      },
-    }))
+      }))
+    })
 
     await expect(readCachedSourceSummaries('user-a', [
       { sectionId: 'source:alpha', fingerprint: 'fingerprint' },
     ], NOW)).resolves.toEqual({})
-    expect(window.localStorage.getItem(legacyKey)).toBeNull()
+    legacyKeys.forEach((legacyKey) => {
+      expect(window.localStorage.getItem(legacyKey)).toBeNull()
+    })
   })
 
   it('keeps the newest one hundred source results', async () => {
