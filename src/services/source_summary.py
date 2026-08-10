@@ -217,7 +217,7 @@ def _normalized_summary_payload(
     return {"overview": overview, "highlights": highlights}
 
 
-def _parse_summary_output(raw: str, *, summary_max_chars: int) -> dict[str, Any]:
+def _parse_summary_output(raw: str, *, summary_max_chars: int) -> dict[str, Any] | None:
     for candidate in _json_object_candidates(raw):
         try:
             parsed = json.loads(candidate)
@@ -228,12 +228,42 @@ def _parse_summary_output(raw: str, *, summary_max_chars: int) -> dict[str, Any]
             summary_max_chars=summary_max_chars,
         ):
             return normalized
-    raise SourceSummaryError(
-        "source_summary_invalid_output",
-        "AI 返回了无法使用的专题总结。",
-        status_code=502,
-        retryable=True,
+    return None
+
+
+def _fallback_summary(
+    items: Sequence[dict[str, str]],
+    *,
+    summary_max_chars: int,
+) -> dict[str, Any]:
+    """Return an honest, bounded source-text fallback after one unusable completion."""
+
+    highlights: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(items, 1):
+        title = _single_line(item.get("title"), 180)
+        summary = _single_line(item.get("summary"), 180)
+        detail = title or summary or "近期内容"
+        dedupe_key = detail.casefold()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        highlights.append(f"[{index}] {detail}")
+        if len(highlights) == 5:
+            break
+    payload = {
+        "overview": (
+            "AI 未返回可解析的结构；以下列出当前专题的近期代表性内容。"
+        ),
+        "highlights": highlights or ["[1] 当前专题内容"],
+    }
+    normalized = _normalized_summary_payload(
+        payload,
+        summary_max_chars=summary_max_chars,
     )
+    if normalized is None:  # Defensive: the locally constructed payload is always valid.
+        return {"overview": "当前专题近期内容速览。", "highlights": ["[1] 当前专题内容"]}
+    return normalized
 
 
 class SourceSummaryService:
@@ -289,15 +319,15 @@ class SourceSummaryService:
         )
         started = time.perf_counter()
         client: AIClient | None = None
+        used_fallback = False
         try:
             client = self.client_factory(
                 ai_config,
                 single_attempt=True,
                 timeout_seconds=self.timeout_seconds,
             )
-            item_input = build_source_summary_input(
-                [_item_fields(stored) for stored in stored_items]
-            )
+            summary_items = [_item_fields(stored) for stored in stored_items]
+            item_input = build_source_summary_input(summary_items)
             raw = await asyncio.wait_for(
                 client.complete(
                     SOURCE_SUMMARY_SYSTEM_PROMPT,
@@ -315,6 +345,12 @@ class SourceSummaryService:
                 raw,
                 summary_max_chars=ai_config.summary_max_chars,
             )
+            if parsed is None:
+                used_fallback = True
+                parsed = _fallback_summary(
+                    summary_items,
+                    summary_max_chars=ai_config.summary_max_chars,
+                )
         except SourceSummaryError:
             raise
         except TimeoutError as exc:
@@ -347,8 +383,10 @@ class SourceSummaryService:
                         provider,
                         ai_config.model,
                     )
-        _LOGGER.info(
-            "source summary generated provider=%s model=%s item_count=%s duration_ms=%s",
+        log = _LOGGER.warning if used_fallback else _LOGGER.info
+        log(
+            "source summary %s provider=%s model=%s item_count=%s duration_ms=%s",
+            "fell back to source text" if used_fallback else "generated",
             provider,
             ai_config.model,
             len(stored_items),

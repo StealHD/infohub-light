@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-08",
-  "result": "在独立分支完成 OpenClaw 输入区与空态建议优化：新增本地 PromptSuggestion 复合组件，composer 仅保留外层边框并扩至 80–180 px，建议项仅填充并聚焦输入框。",
-  "status": "completed",
-  "task_id": "2026-08-08-openclaw-composer-polish",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest：PromptSuggestion、OpenClaw 对话与更新日志测试通过。",
-    "完整 Test Gate 24/24 命令通过（260.07 秒）；前端构建、类型检查和 UI 合同检查通过。",
-    "本地 8080 已切换目标 revision：API/Worker healthy、readiness 返回 worker_status=ready；390、768、1440 px 与 320 px Agent 最小宽度无横向溢出，键盘建议填充和单层输入边框实测通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-08",
@@ -352,6 +332,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "专题总结定向后端测试 7/7 通过，覆盖 JSON 外包装、前置调试对象、Markdown 围栏与单条 highlights 标量；确认只调用一次 AI。",
     "完整 Test Gate 24/24 命令通过（320.018 秒），后端、前端构建与控制检查全部绿色。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "为来源级 AI 总结增加最终同源内容回退：模型正文不可解析时返回明确标注的代表性标题速览，不再向用户暴露 502 错误；保持一次 AI 调用、字符预算、URL 移除与无原文日志。",
+  "status": "completed",
+  "task_id": "2026-08-10-source-summary-deterministic-fallback",
+  "unresolved": [],
+  "validation": [
+    "专题总结后端定向测试 7/7 通过，覆盖不可解析输出的代表性内容回退、一次调用和既有边界。",
+    "手册与更新日志前端测试 8/8 通过；完整 Test Gate 24/24 命令通过（385.941 秒）。"
   ]
 }
 ```

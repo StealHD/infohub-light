@@ -176,7 +176,7 @@ def test_source_summary_recovers_wrapped_json_and_scalar_highlight_without_retry
     assert len(fake.calls) == 1
 
 
-def test_source_summary_rejects_disabled_cross_user_and_invalid_output(tmp_path, monkeypatch):
+def test_source_summary_rejects_disabled_cross_user_and_falls_back_for_invalid_output(tmp_path, monkeypatch):
     store, owner = _store_with_items(tmp_path, monkeypatch)
     other = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
@@ -203,15 +203,18 @@ def test_source_summary_rejects_disabled_cross_user_and_invalid_output(tmp_path,
         ))
     assert hidden.value.status_code == 404
 
-    with pytest.raises(SourceSummaryError) as invalid:
-        asyncio.run(service.generate(
-            workspace_id=owner["workspace_id"],
-            user_id=owner["id"],
-            article_ids=["article-1"],
-            ai_config=_ai_config(),
-        ))
-    assert invalid.value.code == "source_summary_invalid_output"
-    assert invalid.value.status_code == 502
+    fallback = asyncio.run(service.generate(
+        workspace_id=owner["workspace_id"],
+        user_id=owner["id"],
+        article_ids=["article-1", "article-2"],
+        ai_config=_ai_config(),
+    ))
+    assert fallback == {
+        "schema_version": 1,
+        "overview": "AI 未返回可解析的结构；以下列出当前专题的近期代表性内容。",
+        "highlights": ["[1] 第一条标题", "[2] 第二条标题"],
+        "item_count": 2,
+    }
 
 
 def test_source_summary_maps_timeout_and_always_closes_client(tmp_path, monkeypatch):
