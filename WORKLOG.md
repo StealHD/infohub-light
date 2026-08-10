@@ -9,26 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "capabilities",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "将 OpenClaw 图片输入与安全媒体票据兼容改动合并到本地 main；原生 Gateway 的 chat.send.attachments 可直接启用图片输入，chat.media.ticket 仅用于可选的受控图片输出与历史恢复。",
-  "status": "completed",
-  "task_id": "2026-08-07-merge-openclaw-image-io-into-local-main",
-  "unresolved": [],
-  "validation": [
-    "合并冲突已解析：保留 V5 原文抓取与头像防护，并叠加 V7 图片计数及不可信 OCR 处理。",
-    "前端 typecheck 通过；相关 Vitest 4 个文件、68 项通过；lint 无错误（8 条既有 Fast Refresh 警告）。",
-    "完整 Test Gate：23/23 命令通过（235.82 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
     "observability",
     "ui"
   ],
@@ -375,6 +355,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "后端定向测试 8/8、前端 App 测试 107/107、Changelog 测试 5/5、Playwright 三视口 3/3、TypeScript、UI 检查与 ESLint 通过。",
     "完整 Test Gate 24/24 通过（250.52 秒），mapping_miss=false；浏览器实页验证修改用户名与精确确认删除交互。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-10",
+  "result": "从成员账号改名与删除任务分支重新构建并启动本地 8080 API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-08-10-member-actions-local-runtime-restart",
+  "unresolved": [],
+  "validation": [
+    "horizon-light-api 与 horizon-light-worker 均运行镜像 inteliscope-service:local-616ec79c2ede 并保持 healthy，readiness 返回 worker_status=ready。",
+    "8080 已服务 HeroUsersPage-CgP1z52m.js，资源内包含修改成员用户名、删除成员账号与精确确认交互；scheduler 未启动。"
   ]
 }
 ```
