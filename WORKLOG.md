@@ -13,25 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-10",
-  "result": "为来源级 AI 总结增加最终同源内容回退：模型正文不可解析时返回明确标注的代表性标题速览，不再向用户暴露 502 错误；保持一次 AI 调用、字符预算、URL 移除与无原文日志。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-deterministic-fallback",
-  "unresolved": [],
-  "validation": [
-    "专题总结后端定向测试 7/7 通过，覆盖不可解析输出的代表性内容回退、一次调用和既有边界。",
-    "手册与更新日志前端测试 8/8 通过；完整 Test Gate 24/24 命令通过（385.941 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
   "result": "修复专题 AI 总结的确定性空响应：确认 DeepSeek 在 800 token 上限内将全部 completion 用于隐藏推理，专题调用改为 2048..4096 token 单次预算并记录安全完成指标；移除标题列表伪总结，升级 prompt 与浏览器缓存到 V2。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-reasoning-budget",
@@ -380,6 +361,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "版本变更 preflight 13/13 通过（287.965 秒），产品文档门禁、后端完整回归、前端检查、构建与控制检查全部通过。",
     "正式 release gate 及 main 与 v2.3.1 推送将在该提交上执行；用户明确不部署 VPS。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "优化助手连接的一次性 MCP token 保存：令牌使用带中文说明的紧凑复制图标，环境写入与 OpenClaw 配置命令都可从代码块右上角复制；写入命令仅更新 Inteliscope 令牌并保留其他环境变量。",
+  "status": "completed",
+  "task_id": "2026-08-11-fix-openclaw-copy-actions",
+  "unresolved": [],
+  "validation": [
+    "HeroAgentsPage 与更新日志定向 Vitest 21/21 通过；lint、typecheck 通过（仅仓库既有 Fast Refresh warning）。",
+    "本地开发页视觉核对两张 OpenClaw 配置卡：复制按钮位于代码块右上角，长命令仍自动换行；未创建新令牌、未写剪贴板或本机文件。",
+    "影响范围 preflight 11/11 与完整 Test Gate 15/15 通过。"
   ]
 }
 ```

@@ -1,4 +1,4 @@
-// Reviewed for the v2.3.1 release; no user-facing changelog entry is required.
+// Reviewed for the OpenClaw setup copy improvements.
 export type ChangelogItem = {
   title: string
   description: string
@@ -22,6 +22,15 @@ export const changelogMonths: ChangelogMonth[] = [
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [
+      {
+        date: '2026-08-11',
+        title: '助手连接命令可直接复制',
+        summary: '一次性令牌、环境写入和 OpenClaw 配置命令都有清晰的中文复制入口，减少手动选择长命令的步骤。',
+        items: [
+          { title: '令牌复制更紧凑', description: '一次性令牌使用带中文说明的图标按钮，节省弹窗空间；所有配置命令仍在代码块右上角提供复制。' },
+          { title: '写入环境文件只需一次粘贴', description: '复制本地写入命令后，在终端粘贴运行即可创建或更新 ~/.openclaw/.env 中的 Inteliscope 令牌，保留其他环境变量并设置目录 0700、文件 0600。浏览器不会直接运行本机命令。' },
+        ],
+      },
       {
         date: '2026-08-11',
         title: '旧 UI 与历史发布链路完成退役',
