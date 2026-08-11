@@ -9,24 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-08-10",
-  "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-runtime-schema-compatibility",
-  "unresolved": [
-    "API/Worker 在迁移保护流程中已停止；用户明确要求不重建容器，本任务未继续恢复 8080。",
-    "V3 可读要点已通过自动化门禁，但未在最终 V3 资源上再次执行真实浏览器生成与刷新缓存验证。"
-  ],
-  "validation": [
-    "真实 service.db 只读预检从 required=true 修复为 required=false，数据库 integrity_check=ok 且 foreign_key_check 无违规。",
-    "迁移兼容测试 5/5 通过；完整 Test Gate 24/24 通过（499.311 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
   "result": "从专题总结任务 Worktree 按标准流程重建并启动本地 8080，仅运行 horizon-api 与 horizon-worker；当前 revision 与前端资源均已切换到任务分支。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-v3-runtime-start",
@@ -377,6 +359,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "HeroAgentsPage 定向 Vitest 16/16、lint 与 typecheck 通过。",
     "staged preflight 11/11 与完整 Test Gate 15/15 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "一次性 MCP token 仅显示一行并省略尾部，复制保留完整值。",
+  "status": "completed",
+  "task_id": "2026-08-11-truncate-openclaw-token-display",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 16/16、preflight 11/11、完整 Test Gate 15/15 通过。"
   ]
 }
 ```

@@ -415,7 +415,7 @@ describe('HeroAgentsPage delegation access', () => {
     expect(tokenCopy.querySelector('svg')).not.toBeNull()
     expect(tokenCopy.textContent).toBe('')
     expect(tokenCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
-    expect(within(tokenDialog).getByText('ih_mcp_v1_one_time_secret')).toHaveClass('pr-14', 'break-words', 'whitespace-normal')
+    expect(within(tokenDialog).getByText('ih_mcp_v1_one_time_secret')).toHaveClass('pr-14', 'truncate')
     await browser.click(tokenCopy)
     expect(writeText).toHaveBeenLastCalledWith('ih_mcp_v1_one_time_secret')
 

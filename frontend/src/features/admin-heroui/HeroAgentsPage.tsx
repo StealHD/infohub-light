@@ -654,7 +654,7 @@ export function HeroAgentsPage() {
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开一次性令牌</Modal.Trigger>
       <DialogFrame title="保存一次性 MCP token" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); actionToast.success('一次性令牌已从页面清除') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
-        <div className="relative mt-4 min-w-0"><code className="block min-w-0 max-w-full whitespace-normal break-words rounded-lg bg-default p-3 pr-14 [overflow-wrap:anywhere]">{oneTimeCredential?.token}</code><OneTimeCopyAction label="复制令牌" onCopy={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')} /></div>
+        <div className="relative mt-4 min-w-0"><code className="block min-w-0 max-w-full truncate rounded-lg bg-default p-3 pr-14">{oneTimeCredential?.token}</code><OneTimeCopyAction label="复制令牌" onCopy={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')} /></div>
         <p className="type-meta mt-4 text-muted">复制写入命令后，在本机终端粘贴运行；它只更新 Inteliscope 令牌并保留环境文件里的其他内容。</p>
         <OneTimeSetupCommand
           label="本地令牌环境命令"
