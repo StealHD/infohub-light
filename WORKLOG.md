@@ -7,26 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "优化来源级 AI 总结：提示词聚焦近期主线、变化、去重与文章序号依据；最近成功结果按用户和精确内容指纹在浏览器安全缓存，查看缓存不重复调用 AI。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-prompt-cache",
-  "unresolved": [],
-  "validation": [
-    "后端专题总结定向测试 6/6 通过；前端缓存、专题交互、会话清理与 App 回归 121/121 通过，TypeScript 与 ESLint 通过。",
-    "手册和更新日志测试 8/8、Markdown 控制与 schema-v3 结构校验通过。",
-    "完整 Test Gate 24/24 命令通过（254.72 秒），后端、前端构建与控制检查全部绿色。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-08-10",
   "result": "从专题总结缓存任务分支重新构建并启动本地 8080 API 与 Worker。",
@@ -376,6 +356,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "现役认证、配置、Feed、API、Store、Worker、来源总结、ActorOps、通知、冷归档和 Remote MCP 定向回归通过。",
     "前端 check:ui、lint、typecheck、666 项 Vitest、production build 与 release Playwright（107 通过、55 按配置跳过）通过。",
     "组合结果 Test Gate full 与 release、Compose/API-only smoke、控制文件校验、负向引用和 diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "context",
+    "decisions",
+    "instructions",
+    "phase"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "将 preflight 验证与发布身份加固合入本地 main；解决 D144 编号冲突，将流程决策登记为 D145，保留 main 的唯一运行面决策与紧凑 Worklog 历史。",
+  "status": "completed",
+  "task_id": "2026-08-11-merge-preflight-gate-main",
+  "unresolved": [],
+  "validation": [
+    "合并范围 preflight 8/8 命令通过（37.64 秒），无 mapping miss。",
+    "合并后本地 main 完整 Test Gate 15/15 命令通过（276.95 秒）。",
+    "未安装或分发 Git hook，未推送、未打 Tag、未部署。"
   ]
 }
 ```
