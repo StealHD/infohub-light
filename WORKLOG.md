@@ -13,26 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-10",
-  "result": "修复专题 AI 总结的确定性空响应：确认 DeepSeek 在 800 token 上限内将全部 completion 用于隐藏推理，专题调用改为 2048..4096 token 单次预算并记录安全完成指标；移除标题列表伪总结，升级 prompt 与浏览器缓存到 V2。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-reasoning-budget",
-  "unresolved": [],
-  "validation": [
-    "真实 20 篇输入诊断确认 input_tokens=1803、completion_tokens=800、reasoning_tokens=800、content_tokens=0、finish_reason=length、response_bytes=0。",
-    "后端专题总结 7/7、缓存与退出清理 10/10、专题 UI 1/1、Changelog 5/5、TypeScript 与 ESLint 通过。",
-    "完整 Test Gate 24/24 通过（552.619 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
   "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-readable-budget",
@@ -381,6 +361,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "HeroAgentsPage 与更新日志定向 Vitest 21/21 通过；lint、typecheck 通过（仅仓库既有 Fast Refresh warning）。",
     "本地开发页视觉核对两张 OpenClaw 配置卡：复制按钮位于代码块右上角，长命令仍自动换行；未创建新令牌、未写剪贴板或本机文件。",
     "影响范围 preflight 11/11 与完整 Test Gate 15/15 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "将助手连接的复制改动收敛到创建流程的一次性 MCP token 弹窗：令牌、环境写入命令和 OpenClaw 配置命令均为右上角紧凑图标复制；常驻配置卡恢复原有布局。",
+  "status": "completed",
+  "task_id": "2026-08-11-correct-openclaw-creation-copy-ui",
+  "unresolved": [],
+  "validation": [
+    "创建流程图标复制定向 Vitest 16/16、前端 lint 与 typecheck 通过。",
+    "staged preflight 通过；完整 Test Gate 15/15 通过（534.685 秒）。"
   ]
 }
 ```

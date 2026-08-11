@@ -400,7 +400,7 @@ describe('HeroAgentsPage delegation access', () => {
     expect(api.createAgentDelegation).toHaveBeenCalledWith('Personal Mac', 'read', 'self')
   })
 
-  it('copies the token from a compact icon action and copies both setup commands', async () => {
+  it('uses compact icon actions for the token and both setup commands in the creation flow', async () => {
     const browser = userEvent.setup()
     const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
     renderPage()
@@ -420,11 +420,17 @@ describe('HeroAgentsPage delegation access', () => {
     const writeCommand = within(tokenDialog).getByLabelText('本地令牌环境命令').textContent || ''
     expect(writeCommand).toContain('INTELISCOPE_MCP_TOKEN=ih_mcp_v1_one_time_secret')
     expect(writeCommand).not.toContain('<一次性令牌>')
-    await browser.click(within(tokenDialog).getByRole('button', { name: '复制本地令牌写入命令' }))
+    const writeCommandCopy = within(tokenDialog).getByRole('button', { name: '复制本地令牌写入命令' })
+    expect(writeCommandCopy.querySelector('svg')).not.toBeNull()
+    expect(writeCommandCopy.textContent).toBe('')
+    await browser.click(writeCommandCopy)
     expect(writeText).toHaveBeenLastCalledWith(writeCommand)
 
     const configuration = within(tokenDialog).getByLabelText('OpenClaw 配置命令').textContent || ''
-    await browser.click(within(tokenDialog).getByRole('button', { name: '复制 OpenClaw 配置命令' }))
+    const configurationCopy = within(tokenDialog).getByRole('button', { name: '复制 OpenClaw 配置命令' })
+    expect(configurationCopy.querySelector('svg')).not.toBeNull()
+    expect(configurationCopy.textContent).toBe('')
+    await browser.click(configurationCopy)
     expect(writeText).toHaveBeenLastCalledWith(configuration)
   })
 

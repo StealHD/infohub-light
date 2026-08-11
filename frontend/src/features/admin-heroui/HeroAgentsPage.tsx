@@ -122,20 +122,16 @@ function OpenClawConfigurationCard({
   onCopy: () => void
 }) {
   return <Card variant="secondary" className="min-w-0 p-4">
-    <Card.Title>{title}</Card.Title>
+    <div className="flex items-center justify-between gap-2">
+      <Card.Title>{title}</Card.Title>
+      <Button size="sm" variant="ghost" isDisabled={copyDisabled} onPress={onCopy}><Icons.Copy size={15} />复制</Button>
+    </div>
     <Card.Description className="mt-1 min-h-10">{description}</Card.Description>
-    <CopyableCommand
-      label={configurationLabel}
-      command={configuration}
-      copyLabel={`复制${configurationLabel}`}
-      copyDisabled={copyDisabled}
-      onCopy={onCopy}
-      className="mt-3"
-    />
+    <pre aria-label={configurationLabel} tabIndex={0} className="type-meta mt-3 max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{configuration}</pre>
   </Card>
 }
 
-function CopyableCommand({
+function OneTimeSetupCommand({
   label,
   command,
   copyLabel,
@@ -151,18 +147,21 @@ function CopyableCommand({
   className?: string
 }) {
   return <div className={`relative min-w-0 ${className}`}>
-    <Button
-      size="sm"
-      variant="ghost"
-      aria-label={copyLabel}
-      className="absolute right-2 top-2 z-10"
-      isDisabled={copyDisabled}
-      onPress={onCopy}
-    >复制</Button>
+    <Tooltip delay={250}>
+      <TooltipTriggerButton
+        aria-label={copyLabel}
+        className="absolute right-2 top-2 z-10 size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
+        disabled={copyDisabled}
+        onClick={onCopy}
+      >
+        <Icons.Copy size={15} aria-hidden="true" />
+      </TooltipTriggerButton>
+      <Tooltip.Content {...topAnchoredTooltipProps}>{copyLabel}</Tooltip.Content>
+    </Tooltip>
     <pre
       aria-label={label}
       tabIndex={0}
-      className="type-meta max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 pr-16 [overflow-wrap:anywhere]"
+      className="type-meta max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 pr-14 [overflow-wrap:anywhere]"
     >
       {command}
     </pre>
@@ -644,14 +643,14 @@ export function HeroAgentsPage() {
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
         <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeCredential?.token}</code><Tooltip delay={250}><TooltipTriggerButton aria-label="复制令牌" className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11" onClick={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}><Icons.Copy size={15} aria-hidden="true" /></TooltipTriggerButton><Tooltip.Content {...topAnchoredTooltipProps}>复制令牌</Tooltip.Content></Tooltip></div>
         <p className="type-meta mt-4 text-muted">复制写入命令后，在本机终端粘贴运行；它只更新 Inteliscope 令牌并保留环境文件里的其他内容。</p>
-        <CopyableCommand
+        <OneTimeSetupCommand
           label="本地令牌环境命令"
           command={oneTimeTokenWrite}
           copyLabel="复制本地令牌写入命令"
           onCopy={() => oneTimeCredential && void copy(oneTimeTokenWrite, '写入命令已复制。')}
           className="mt-2"
         />
-        <CopyableCommand
+        <OneTimeSetupCommand
           label="OpenClaw 配置命令"
           command={oneTimeConfiguration}
           copyLabel="复制 OpenClaw 配置命令"
