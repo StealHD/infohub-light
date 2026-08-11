@@ -901,7 +901,7 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     assert prompt_seen["constraints"]["min_proposals"] == 3
     assert prompt_seen["constraints"]["target_proposals"] == 3
     assert prompt_seen["constraints"]["required_proposals"] == 3
-    assert prompt_seen["constraints"]["min_distinct_publishers"] == 2
+    assert prompt_seen["constraints"]["min_distinct_publishers"] == 1
     assert prompt_seen["response_contract"]["properties"]["proposals"][
         "min_items"
     ] == 3
@@ -910,6 +910,23 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     assert {row["reason"] for row in outcome.rejected} == {
         "actor_full_permission"
     }
+    pool = ops.list_pool_candidates(
+        str(run["route_id"]),
+        goal="initial_pool",
+    )
+    remembered = next(
+        candidate
+        for candidate in pool["candidates"]
+        if candidate["publisher"] == "bad"
+    )
+    assert remembered["selectable"] is False
+    assert remembered["unavailable_reason"] == (
+        "actor_evaluation_deterministic_failure"
+    )
+    assert remembered["evaluation_history"]["reason_code"] == (
+        "actor_full_permission"
+    )
+    assert remembered["evaluation_history"]["attempt_count"] == 1
     assert len(metadata.validations) == 3
     assert all(build.startswith("1.0.") for _, build, _ in metadata.validations)
     assert all(payload["maxItems"] == 1 for _, _, payload in metadata.validations)
@@ -973,6 +990,43 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
         .fetchone()[0]
         == 0
     )
+
+
+def test_youtube_discovery_accepts_one_safe_fallback_actor(tmp_path) -> None:
+    _store, ops, run = _ops(tmp_path)
+
+    class SingleActorMetadata(_Metadata):
+        async def search_store(self, _query: str):
+            return [{"username": "publisher-a", "name": "one"}]
+
+    prompt_seen: dict = {}
+
+    async def ai_generate(prompt):
+        prompt_seen.update(prompt)
+        candidate = prompt["candidates"][0]
+        return {
+            "proposals": [
+                {
+                    "actor_id": candidate["actor_id"],
+                    "build_id": candidate["build_id"],
+                    "build_number": candidate["build_number"],
+                    "manifest": _manifest(
+                        candidate["actor_id"], candidate["build_number"]
+                    ),
+                }
+            ]
+        }
+
+    outcome = asyncio.run(
+        ApifyActorDiscoveryService(
+            ops, SingleActorMetadata(), ai_generate
+        ).run_discovery(run["run_id"], queries=["youtube channel"])
+    )
+
+    assert outcome.stage == "awaiting_canary_approval"
+    assert len(outcome.revision_ids) == 1
+    assert prompt_seen["constraints"]["target_proposals"] == 1
+    assert prompt_seen["constraints"]["min_distinct_publishers"] == 1
 
 
 def test_legacy_override_expands_recall_to_thirty_without_changing_default(
@@ -1181,7 +1235,7 @@ def test_discovery_preserves_valid_partial_manifests_on_ai_shortfall(
         )
     )
 
-    assert outcome.stage == "candidate_shortfall"
+    assert outcome.stage == "awaiting_canary_approval"
     assert len(outcome.revision_ids) == 2
     assert sum(
         row["reason"] == "ai_proposal_shortfall"
@@ -1205,7 +1259,7 @@ def test_discovery_preserves_valid_partial_manifests_on_ai_shortfall(
     ]
     measured = ops.get_discovery_run(run["run_id"])
     assert measured["candidate_count"] == 2
-    assert measured["error_code"] == "input_validation_candidate_shortfall"
+    assert measured["error_code"] is None
 
 
 def test_discovery_requests_ranked_spares_and_uses_later_valid_manifests(
@@ -1250,6 +1304,100 @@ def test_discovery_requests_ranked_spares_and_uses_later_valid_manifests(
         row["reason"].startswith("apify_manifest_")
         for row in outcome.rejected
     ) == 2
+
+
+def test_deterministic_actor_failure_is_remembered_before_ai_and_input(
+    tmp_path,
+) -> None:
+    store, ops, run = _ops(tmp_path)
+    metadata = _Metadata(extra_good=1)
+    failed_actor = "publisher-a/one"
+
+    async def first_ai(prompt):
+        proposals = [
+            {
+                "actor_id": candidate["actor_id"],
+                "build_id": candidate["build_id"],
+                "build_number": candidate["build_number"],
+                "manifest": _manifest(
+                    candidate["actor_id"], candidate["build_number"]
+                ),
+            }
+            for candidate in prompt["candidates"]
+        ]
+        next(
+            proposal
+            for proposal in proposals
+            if proposal["actor_id"] == failed_actor
+        )["manifest"]["output"].pop("published_at")
+        return {"proposals": proposals}
+
+    first = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, first_ai).run_discovery(
+            str(run["run_id"]),
+            queries=["youtube"],
+        )
+    )
+    assert first.stage == "awaiting_canary_approval"
+    assert failed_actor not in {
+        actor_id for actor_id, _build, _input in metadata.validations
+    }
+
+    route = ops.get_route(str(run["route_id"]))
+    second_run = ops.create_discovery_run(
+        str(run["route_id"]),
+        trigger_reason="remember-deterministic-failure",
+        expected_generation=int(route["generation"]),
+    )
+    second_prompt: dict = {}
+
+    async def second_ai(prompt):
+        second_prompt.update(prompt)
+        return {
+            "proposals": [
+                {
+                    "actor_id": candidate["actor_id"],
+                    "build_id": candidate["build_id"],
+                    "build_number": candidate["build_number"],
+                    "manifest": _manifest(
+                        candidate["actor_id"], candidate["build_number"]
+                    ),
+                }
+                for candidate in prompt["candidates"]
+            ]
+        }
+
+    second = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, second_ai).run_discovery(
+            str(second_run["run_id"]),
+            queries=["youtube"],
+        )
+    )
+
+    assert second.stage == "awaiting_canary_approval"
+    assert failed_actor not in {
+        candidate["actor_id"] for candidate in second_prompt["candidates"]
+    }
+    assert {
+        (row["actor_id"], row["reason"]) for row in second.rejected
+    } >= {(failed_actor, "actor_evaluation_deterministic_failure")}
+    history = store.connect().execute(
+        """
+        SELECT outcome, deterministic, attempt_count
+        FROM apify_actor_evaluation_history AS evaluation
+        JOIN apify_actor_candidates AS candidate
+          ON candidate.workspace_id = evaluation.workspace_id
+         AND candidate.id = evaluation.candidate_id
+        WHERE evaluation.workspace_id = ? AND candidate.actor_id = ?
+          AND evaluation.stage = 'static_validation'
+        """,
+        (DEFAULT_WORKSPACE_ID, failed_actor),
+    ).fetchone()
+    assert dict(history) == {
+        "outcome": "failed",
+        "deterministic": 1,
+        "attempt_count": 1,
+    }
 
 
 def test_discovery_store_queries_target_route_content_items() -> None:

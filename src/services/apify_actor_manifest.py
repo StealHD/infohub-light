@@ -511,6 +511,8 @@ class ManifestMappingResult:
         "suspicious_empty",
     ]
     excluded_rows: int = 0
+    latest_published_at: str | None = None
+    latest_native_id: str | None = None
 
 
 def parse_actor_manifest(value: Any) -> ActorManifestV1:
@@ -670,9 +672,12 @@ def map_actor_output(
         return ManifestMappingResult((), "suspicious_empty")
 
     mapped: list[MappedActorItem] = []
+    latest_observed_item: MappedActorItem | None = None
+    latest_mapped_item: MappedActorItem | None = None
     excluded = 0
     metadata_only = 0
     explicit_empty = 0
+    window_excluded = 0
     for raw_row in rows:
         if not isinstance(raw_row, Mapping):
             raise ActorManifestError(
@@ -728,25 +733,81 @@ def map_actor_output(
                 "Actor output does not satisfy the content contract",
                 retryable=True,
             ) from None
+        validation_runtime = runtime_model.model_copy(
+            update={"since_iso": None, "until_iso": None}
+        )
         _validate_mapped_item(
             item,
             semantics=parsed.semantics,
             target=target_model,
-            runtime=runtime_model,
+            runtime=validation_runtime,
         )
+        if latest_observed_item is None or (
+            item.published_at,
+            item.native_id,
+        ) > (
+            latest_observed_item.published_at,
+            latest_observed_item.native_id,
+        ):
+            latest_observed_item = item
+        if (
+            runtime_model.since_iso
+            and item.published_at < _parse_datetime(runtime_model.since_iso)
+        ) or (
+            runtime_model.until_iso
+            and item.published_at > _parse_datetime(runtime_model.until_iso)
+        ):
+            window_excluded += 1
+            continue
         mapped.append(item)
+        if latest_mapped_item is None or (
+            item.published_at,
+            item.native_id,
+        ) > (
+            latest_mapped_item.published_at,
+            latest_mapped_item.native_id,
+        ):
+            latest_mapped_item = item
 
     if mapped:
         return ManifestMappingResult(
             tuple(mapped),
             "valid_nonempty",
-            excluded_rows=excluded + explicit_empty + metadata_only,
+            excluded_rows=(
+                excluded + explicit_empty + metadata_only + window_excluded
+            ),
+            latest_published_at=(
+                latest_mapped_item.published_at.isoformat()
+                if latest_mapped_item
+                else None
+            ),
+            latest_native_id=(
+                latest_mapped_item.native_id if latest_mapped_item else None
+            ),
         )
     if explicit_empty and explicit_empty + excluded + metadata_only == len(rows):
         return ManifestMappingResult(
             (),
             "valid_empty",
             excluded_rows=excluded + metadata_only,
+        )
+    if window_excluded and (
+        window_excluded + explicit_empty + excluded + metadata_only == len(rows)
+    ):
+        return ManifestMappingResult(
+            (),
+            "valid_empty",
+            excluded_rows=excluded + explicit_empty + metadata_only + window_excluded,
+            latest_published_at=(
+                latest_observed_item.published_at.isoformat()
+                if latest_observed_item
+                else None
+            ),
+            latest_native_id=(
+                latest_observed_item.native_id
+                if latest_observed_item
+                else None
+            ),
         )
     if excluded == len(rows):
         raise ActorManifestError(

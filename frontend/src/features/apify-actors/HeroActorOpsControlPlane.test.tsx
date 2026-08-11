@@ -61,9 +61,11 @@ function detail(overrides: Partial<ApifyActorRouteDetail> = {}): ApifyActorRoute
     generation: 12,
     support_status: 'degraded',
     runtime_status: 'ready',
+    active_slot_count: 2,
     runnable_slots: 2,
     required_slots: 3,
     min_runtime_healthy: 2,
+    admission_mode: 'standard',
     publisher_count: 2,
     per_run_cap_usd: 0.02,
     discovery_run_id: 'run-guided',
@@ -97,8 +99,9 @@ function summary(route: ApifyActorRouteDetail): ApifyActorRouteSummary {
     support_status: route.support_status,
     runtime_status: route.runtime_status,
     runnable_slots: route.runnable_slots,
-    required_slots: 3,
-    min_runtime_healthy: 2,
+    required_slots: route.required_slots,
+    min_runtime_healthy: route.min_runtime_healthy,
+    admission_mode: route.admission_mode,
     publisher_count: route.publisher_count,
     per_run_cap_usd: route.per_run_cap_usd,
     discovery_run_id: route.discovery_run_id,
@@ -116,7 +119,7 @@ function routesResponse(selected: ApifyActorRouteDetail): ApifyActorRoutesRespon
     platform: 'instagram',
     workflow: workflow('complete'),
   })
-  const youtubeDetail = detail({
+  const youtubeDetail = selected.platform === 'youtube' ? selected : detail({
     route_id: 'route-youtube-channel',
     route_key: 'youtube/channel/items',
     platform: 'youtube',
@@ -218,7 +221,10 @@ function manualThirdPlan(): ApifyActorCanaryPlan {
   }
 }
 
-function manualThreePlan(goal: 'initial_pool' | 'upgrade_legacy'): ApifyActorCanaryPlan {
+function manualPoolPlan(
+  goal: 'initial_pool' | 'upgrade_legacy',
+  targetSlotCount: 2 | 3,
+): ApifyActorCanaryPlan {
   const items = [
     { id: 'candidate-manual-a', name: '高可靠 Actor A', publisher: 'publisher-a' },
     { id: 'candidate-manual-b', name: '稳定 Actor B', publisher: 'publisher-b' },
@@ -229,13 +235,13 @@ function manualThreePlan(goal: 'initial_pool' | 'upgrade_legacy'): ApifyActorCan
     schema_version: 3,
     goal,
     selection_mode: 'manual',
-    target_slot_count: 3,
-    max_candidates: 3,
-    max_total_charge_usd: 0.18,
-    required_success_count: 3,
-    route_validation_cap_usd: 0.06,
-    source_validation_cap_usd: 0.12,
-    items: items.map((item, index) => ({
+    target_slot_count: targetSlotCount,
+    max_candidates: targetSlotCount,
+    max_total_charge_usd: targetSlotCount === 2 ? 0.12 : 0.18,
+    required_success_count: targetSlotCount,
+    route_validation_cap_usd: targetSlotCount === 2 ? 0.04 : 0.06,
+    source_validation_cap_usd: targetSlotCount === 2 ? 0.08 : 0.12,
+    items: items.slice(0, targetSlotCount).map((item, index) => ({
       ordinal: index + 1,
       candidate_id: item.id,
       revision_id: `revision-manual-${index + 1}`,
@@ -349,6 +355,84 @@ function renderControlPlane(selected = detail(), initialEntry = '/?route=x%2Fpro
     }),
     canaryApifyActorSourceRevision: vi.fn(),
     activateApifyActorSourceBinding: vi.fn(),
+    apifyActorFreshnessPlan: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      route_id: selected.route_id,
+      actor_count: 2,
+      serial_execution: true,
+      same_reference_target: true,
+      reference_target_exposed: false,
+      per_actor_cap_usd: 0.02,
+      max_total_charge_usd: 0.04,
+      actual_cost_usd: null,
+      frequency: selected.freshness,
+      requires_cost_confirmation: true,
+      requires_validation_key: true,
+    }),
+    updateApifyActorFreshnessSettings: vi.fn().mockResolvedValue(selected),
+    createApifyActorFreshnessCheck: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      check: {
+        check_id: 'freshness-guided',
+        route_id: selected.route_id,
+        trigger_kind: 'manual',
+        status: 'queued',
+        planned_count: 2,
+        completed_count: 0,
+        max_total_charge_usd: 0.04,
+        actual_cost_usd: null,
+        cost_final: false,
+        job_id: 'job-freshness-guided',
+        error_code: null,
+        created_at: '2026-08-11T08:00:00Z',
+        started_at: null,
+        completed_at: null,
+        results: [],
+      },
+      job: { id: 'job-freshness-guided', status: 'queued' },
+    }),
+    apifyActorFreshnessCheck: vi.fn().mockResolvedValue({
+      check_id: 'freshness-guided',
+      route_id: selected.route_id,
+      trigger_kind: 'manual',
+      status: 'queued',
+      planned_count: 2,
+      completed_count: 0,
+      max_total_charge_usd: 0.04,
+      actual_cost_usd: null,
+      cost_final: false,
+      job_id: 'job-freshness-guided',
+      error_code: null,
+      created_at: '2026-08-11T08:00:00Z',
+      started_at: null,
+      completed_at: null,
+      results: [],
+    }),
+    updateApifyActorSourcePreference: vi.fn().mockResolvedValue({
+      mode: 'manual',
+      preferred_candidate_id: 'candidate-primary',
+      preferred_actor_name: '主用 Actor',
+      active_candidate_id: 'candidate-primary',
+      active_actor_name: '主用 Actor',
+      preference_suspended: false,
+    }),
+    apifyActorEvents: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      events: [],
+      next_cursor: null,
+      retention_days: 30,
+    }),
+    retryApifyActorEvaluation: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      evaluation: {
+        evaluation_id: 'evaluation-guided',
+        reason_code: 'apify_actor_contract_mismatch',
+        attempt_count: 1,
+        first_seen_at: '2026-08-10T08:00:00Z',
+        last_seen_at: '2026-08-10T08:00:00Z',
+        retry_requested_at: '2026-08-11T08:00:00Z',
+      },
+    }),
     sources: vi.fn().mockResolvedValue({ sources: [{
       id: 'source-safe-abcdef',
       type: 'apify_social',
@@ -411,11 +495,11 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
   it.each([
     ['setup_discovery_required', '尚未建立 Actor 主备', '开始建立主备'],
     ['setup_discovery_running', '正在搜索可用 Actor', null],
-    ['setup_candidate_selection_required', '选择 3 个 Actor 建立完整主备', '选择 Actor'],
-    ['setup_canary_approval_required', '候选已选择，下一步验证完整主备', '查看并确认付费验证'],
+    ['setup_candidate_selection_required', '选择 2 个 Actor 建立标准主备', '选择 Actor'],
+    ['setup_canary_approval_required', '候选已选择，下一步验证标准主备', '查看并确认付费验证'],
     ['setup_canary_running', '正在验证完整主备', null],
-    ['setup_activation_approval_required', '完整主备验证通过', '查看并确认启用'],
-    ['backup_2_discovery_required', '补齐第三路备用', '开始补齐备用 2'],
+    ['setup_activation_approval_required', '标准主备验证通过', '查看并确认启用'],
+    ['backup_2_discovery_required', '可选：补充第三路备用', '主动补充备用 2'],
     ['backup_2_discovery_running', '正在寻找第三路备用', null],
     ['backup_2_candidate_selection_required', '选择第三个备用 Actor', '补充备用 Actor'],
     ['backup_2_canary_approval_required', '第三路候选已就绪', '查看并确认第三路验证'],
@@ -453,6 +537,42 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(within(nextAction).getByText(title)).toBeVisible()
     if (cta) expect(within(nextAction).getByRole('button', { name: cta })).toBeVisible()
     else expect(within(nextAction).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('uses one Actor for the YouTube fallback without implying automatic backup filling', async () => {
+    const primary = revision('youtube-primary', 'publisher-youtube')
+    const youtube = detail({
+      route_id: 'route-youtube-channel',
+      route_key: 'youtube/channel/items',
+      platform: 'youtube',
+      target_type: 'channel',
+      mode: 'fallback',
+      admission_mode: 'standard',
+      min_runtime_healthy: 1,
+      actual_min_runtime_healthy: 1,
+      actual_min_publishers: 1,
+      runnable_slots: 0,
+      active_slot_count: 0,
+      publisher_count: 0,
+      workflow: workflow('setup_candidate_selection_required', {
+        goal: 'initial_pool',
+        run_id: 'run-youtube',
+        progress: { eligible_candidate_count: 1, required_selection_count: 1 },
+      }),
+      slots: [
+        { slot: 'primary', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
+      ],
+      revisions: [primary],
+    })
+
+    renderControlPlane(youtube, '/?route=youtube%2Fchannel%2Fitems&tab=pool')
+
+    const nextAction = await screen.findByTestId('actorops-next-action')
+    expect(within(nextAction).getByText('选择 1 个 Actor 作为故障 fallback')).toBeVisible()
+    expect(within(nextAction).getByText(/不会自动追逐第二或第三路/)).toBeVisible()
+    expect(within(nextAction).queryByText(/选择 2 个 Actor/)).not.toBeInTheDocument()
   })
 
   it('keeps current legacy actors visible when safe upgrades are still incomplete', async () => {
@@ -516,6 +636,366 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       12,
       'upgrade_legacy',
     )
+  })
+
+  it('offers one-Actor compatibility after strict shortfall and preserves failure memory', async () => {
+    const browser = userEvent.setup()
+    const compatibility = detail({
+      workflow: workflow('compatibility_candidate_selection_available', {
+        goal: 'compatibility_single',
+        run_id: 'run-guided',
+        progress: {
+          eligible_candidate_count: 1,
+          required_selection_count: 1,
+          strict_blockers: ['candidate_shortfall'],
+        },
+      }),
+    })
+    const compatibilityPlan: ApifyActorCanaryPlan = {
+      ...canaryPlan(),
+      schema_version: 3,
+      goal: 'compatibility_single',
+      selection_mode: 'manual',
+      target_slot_count: 1,
+      max_candidates: 1,
+      max_total_charge_usd: 0.02,
+      required_success_count: 1,
+      items: [{
+        ...canaryPlan().items[0],
+        candidate_id: 'candidate-compatible',
+        revision_id: 'revision-compatible',
+        actor_public_name: '兼容抓取 Actor',
+        authorized_cap_usd: 0.02,
+      }],
+    }
+    const { api } = renderControlPlane(compatibility, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 2,
+        route_id: compatibility.route_id,
+        generation: compatibility.generation,
+        goal: 'compatibility_single',
+        run_id: 'run-guided',
+        required_selection_count: 1,
+        relaxed_requirements: ['actor_count', 'publisher_diversity'],
+        retained_requirements: ['public_runnable_actor', 'controlled_input'],
+        blockers: [],
+        candidates: [{
+          candidate_id: 'candidate-compatible',
+          revision_id: 'revision-compatible',
+          actor_public_name: '兼容抓取 Actor',
+          publisher: 'publisher-compatible',
+          pricing: {},
+          execution_mode: 'current',
+          already_validated: false,
+          compatibility_warnings: ['deprecated_actor', 'follows_current_build_if_unpinnable'],
+          relaxed_requirements: ['pre_canary_exact_build'],
+          validation_options: validationOptions(),
+          selectable: true,
+          unavailable_reason: null,
+        }, {
+          candidate_id: 'candidate-failed',
+          revision_id: 'revision-failed',
+          actor_public_name: '曾失败 Actor',
+          publisher: 'publisher-failed',
+          pricing: {},
+          execution_mode: 'pinned',
+          already_validated: false,
+          compatibility_warnings: [],
+          relaxed_requirements: [],
+          validation_options: validationOptions('z'),
+          evaluation_history: {
+            evaluation_id: 'evaluation-guided',
+            reason_code: 'apify_actor_contract_mismatch',
+            attempt_count: 1,
+            first_seen_at: '2026-08-10T08:00:00Z',
+            last_seen_at: '2026-08-10T08:00:00Z',
+            retry_requested_at: null,
+          },
+          selectable: false,
+          unavailable_reason: 'actor_evaluation_deterministic_failure',
+        }],
+      }),
+      createApifyActorManualCanaryPlan: vi.fn().mockResolvedValue(compatibilityPlan),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '降低要求继续' }))
+    expect(await screen.findByRole('heading', { name: '降低要求：选择 1 个兼容 Actor' })).toBeVisible()
+    expect(screen.getByText(/Actor 数量、发布者多样性/)).toBeVisible()
+    expect(screen.getByText(/兼容风险：deprecated_actor/)).toBeVisible()
+    expect(screen.getByText(/曾失败 1 次/)).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '重新尝试一次' }))
+    await waitFor(() => expect(api.retryApifyActorEvaluation).toHaveBeenCalledWith('evaluation-guided'))
+    await browser.click(screen.getByRole('checkbox', { name: /兼容抓取 Actor/ }))
+    await browser.click(screen.getByRole('button', { name: '继续' }))
+    await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith(
+      'run-guided',
+      expect.objectContaining({
+        goal: 'compatibility_single',
+        candidate_ids: ['candidate-compatible'],
+        target_slot_count: 1,
+      }),
+    ))
+    expect(await screen.findByRole('heading', { name: '验证单路兼容 Actor' })).toBeVisible()
+  })
+
+  it('requires the second confirmation before enabling a 1/3 compatibility pool', async () => {
+    const browser = userEvent.setup()
+    const compatibility = detail({
+      admission_mode: 'compatibility',
+      workflow: workflow('compatibility_activation_approval_required', {
+        goal: 'compatibility_single',
+        stage_id: 'stage-compatible',
+        plan_hash: 'plan-compatible',
+      }),
+    })
+    renderControlPlane(compatibility)
+
+    await browser.click(await screen.findByRole('button', { name: '查看兼容风险并确认启用' }))
+    expect(await screen.findByRole('heading', { name: '确认启用 1/3 兼容池' })).toBeVisible()
+    expect(screen.getByText(/只有 1 路 Actor，没有主备冗余/)).toBeVisible()
+    expect(screen.getByText(/单路兼容 1\/3/)).toBeVisible()
+  })
+
+  it('configures 6–168 hour freshness checks and shows safe diagnostics', async () => {
+    const browser = userEvent.setup()
+    const operations = detail({
+      freshness: {
+        enabled: false,
+        interval_hours: 24,
+        status: 'fresh',
+        authorized_at: null,
+        last_checked_at: '2026-08-11T07:00:00Z',
+        next_check_at: null,
+        last_actual_cost_usd: 0.002,
+        per_round_max_usd: 0.04,
+        theoretical_monthly_max_usd: 1.2,
+        validation_key: {
+          configured: true,
+          secret_id: 'validation-key-safe-id',
+          status: 'standby',
+          usable: true,
+          last_checked_at: '2026-08-11T07:00:00Z',
+          last_error_code: null,
+        },
+      },
+      slot_freshness: [{
+        slot_name: 'primary',
+        candidate_id: 'candidate-primary',
+        actor_name: '主用 Actor',
+        execution_mode: 'pinned',
+        follows_current_build: false,
+        observed_manifest: false,
+        status: 'fresh',
+        latest_published_at: '2026-08-11T06:00:00Z',
+        consecutive_fresh_count: 2,
+        consecutive_stale_count: 0,
+        reason_code: 'latest_fingerprint_matches',
+        checked_at: '2026-08-11T07:00:00Z',
+      }],
+      source_validations: [{
+        source_id: 'source-safe-abcdef',
+        binding_status: 'ready_2of2',
+        generation: 3,
+        slots: [],
+      }],
+    })
+    const { api } = renderControlPlane(
+      operations,
+      '/?route=x%2Fprofile%2Fitems&tab=operations',
+      {
+        apifyActorEvents: vi.fn().mockResolvedValue({
+          schema_version: 1,
+          events: [{
+            event_id: 'actor-event-safe',
+            route_id: operations.route_id,
+            source_id: null,
+            candidate_id: 'candidate-primary',
+            actor_public_name: '主用 Actor',
+            phase: 'freshness',
+            outcome: 'failed',
+            reason_code: 'apify_actor_stale_content_with_a_long_but_safe_reason_code',
+            occurrence_count: 2,
+            final_cost_usd: 0.002,
+            request_id: null,
+            job_id: 'job-safe-id',
+            created_at: '2026-08-11T07:00:00Z',
+          }],
+          next_cursor: null,
+          retention_days: 30,
+        }),
+      },
+    )
+
+    expect(await screen.findByTestId('actorops-freshness-panel')).toBeVisible()
+    expect(await screen.findByText(/apify_actor_stale_content_with_a_long_but_safe_reason_code/)).toHaveClass('break-words')
+    await browser.click(screen.getByRole('button', { name: /来源/ }))
+    await browser.click(await screen.findByRole('option', { name: '来源 · abcdef' }))
+    await waitFor(() => expect(api.apifyActorEvents).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        route_id: operations.route_id,
+        source_id: 'source-safe-abcdef',
+        limit: 50,
+      }),
+      expect.any(AbortSignal),
+    ))
+    await browser.click(screen.getByRole('button', { name: /全部 Actor/ }))
+    await browser.click(await screen.findByRole('option', { name: '主用 Actor' }))
+    await waitFor(() => expect(api.apifyActorEvents).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        source_id: 'source-safe-abcdef',
+        candidate_id: 'candidate-primary',
+      }),
+      expect.any(AbortSignal),
+    ))
+    expect(screen.getByRole('button', { name: /时间范围/ })).toBeVisible()
+    const interval = screen.getByRole('spinbutton', { name: '运行间隔（小时）' })
+    await browser.clear(interval)
+    await browser.type(interval, '12')
+    await browser.click(screen.getByRole('switch', { name: '自动校验已关闭' }))
+    await browser.click(screen.getByRole('button', { name: '保存并确认授权' }))
+    expect(await screen.findByRole('heading', { name: '确认站立费用授权' })).toBeVisible()
+    expect(screen.getByText(/每 12 小时运行一次/)).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '确认授权并保存' }))
+    await waitFor(() => expect(api.updateApifyActorFreshnessSettings).toHaveBeenCalledWith(
+      operations.route_id,
+      {
+        enabled: true,
+        interval_hours: 12,
+        expected_generation: 12,
+        standing_authorization_confirmed: true,
+      },
+    ))
+
+    await browser.click(screen.getByRole('button', { name: '立即校验主备' }))
+    expect(await screen.findByRole('heading', { name: '确认立即校验主备' })).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '确认费用并立即校验' }))
+    await waitFor(() => expect(api.createApifyActorFreshnessCheck).toHaveBeenCalledWith(
+      operations.route_id,
+      {
+        cost_confirmed: true,
+        expected_generation: 12,
+        max_total_charge_usd: 0.04,
+      },
+    ))
+  })
+
+  it('explains that a one-Actor fallback can check timeliness but cannot cross-validate', async () => {
+    const browser = userEvent.setup()
+    const primary = revision('youtube-primary', 'publisher-youtube')
+    const youtube = detail({
+      route_id: 'route-youtube-channel',
+      route_key: 'youtube/channel/items',
+      platform: 'youtube',
+      target_type: 'channel',
+      mode: 'fallback',
+      admission_mode: 'standard',
+      min_runtime_healthy: 1,
+      actual_min_runtime_healthy: 1,
+      actual_min_publishers: 1,
+      runnable_slots: 1,
+      active_slot_count: 1,
+      publisher_count: 1,
+      workflow: workflow('complete'),
+      slots: [
+        { slot: 'primary', revision_id: primary.revision_id, runnable: true, revision: primary },
+        { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
+      ],
+      revisions: [primary],
+      freshness: {
+        enabled: false,
+        interval_hours: 24,
+        status: 'unverified',
+        authorized_at: null,
+        last_checked_at: null,
+        next_check_at: null,
+        last_actual_cost_usd: null,
+        per_round_max_usd: 0.02,
+        theoretical_monthly_max_usd: 0,
+        validation_key: {
+          configured: true,
+          secret_id: 'validation-key-safe-id',
+          status: 'standby',
+          usable: true,
+          last_checked_at: null,
+          last_error_code: null,
+        },
+      },
+    })
+
+    renderControlPlane(youtube, '/?route=youtube%2Fchannel%2Fitems&tab=operations', {
+      apifyActorFreshnessPlan: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: youtube.route_id,
+        actor_count: 1,
+        serial_execution: true,
+        same_reference_target: true,
+        reference_target_exposed: false,
+        per_actor_cap_usd: 0.02,
+        max_total_charge_usd: 0.02,
+        actual_cost_usd: null,
+        frequency: youtube.freshness,
+        requires_cost_confirmation: true,
+        requires_validation_key: true,
+      }),
+    })
+
+    expect(await screen.findByText('Actor 新鲜度')).toBeVisible()
+    expect(screen.getByText(/单路只能验证可运行性和结果时效，无法进行主备交叉验证/)).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '立即校验 Actor' }))
+    expect(await screen.findByRole('heading', { name: '确认立即校验 Actor' })).toBeVisible()
+    expect(screen.getAllByText(/无法进行主备交叉验证/)).toHaveLength(2)
+  })
+
+  it('sets a source-level preferred Actor without exposing the source target', async () => {
+    const browser = userEvent.setup()
+    const sourceDetail = detail({
+      workflow: workflow('source_validation_required', { progress: { pending_sources: 1 } }),
+      slot_freshness: [{
+        slot_name: 'primary',
+        candidate_id: 'candidate-primary',
+        actor_name: '主用 Actor',
+        execution_mode: 'pinned',
+        follows_current_build: false,
+        observed_manifest: false,
+        status: 'fresh',
+        latest_published_at: '2026-08-11T06:00:00Z',
+        consecutive_fresh_count: 2,
+        consecutive_stale_count: 0,
+        reason_code: null,
+        checked_at: '2026-08-11T07:00:00Z',
+      }],
+      source_validations: [{
+        source_id: 'source-safe-abcdef',
+        binding_status: 'ready_2of2',
+        generation: 3,
+        actor_preference: {
+          mode: 'automatic',
+          preferred_candidate_id: null,
+          preferred_actor_name: null,
+          active_candidate_id: 'candidate-primary',
+          active_actor_name: '备用 Actor',
+          preference_suspended: false,
+        },
+        slots: [],
+      }],
+      source_validation_summary: { ready: 1, pending: 0, failed: 0 },
+    })
+    const { api } = renderControlPlane(
+      sourceDetail,
+      '/?route=x%2Fprofile%2Fitems&tab=sources&source=source-safe-abcdef',
+    )
+
+    expect(await screen.findByText('来源级 Actor 首选')).toBeVisible()
+    expect(document.body.textContent).not.toContain('private-target-must-not-render')
+    await browser.click(screen.getByRole('button', { name: /首选 Actor/ }))
+    await browser.click(await screen.findByRole('option', { name: /主用 Actor/ }))
+    await browser.click(screen.getByRole('button', { name: '保存首选' }))
+    await waitFor(() => expect(api.updateApifyActorSourcePreference).toHaveBeenCalledWith(
+      'source-safe-abcdef',
+      'candidate-primary',
+      3,
+    ))
   })
 
   it('keeps a finalized failed third-slot validation visible with a human recovery path', async () => {
@@ -937,15 +1417,15 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
   })
 
   it.each([
-    ['initial_pool', 'setup_candidate_selection_required', '选择 Actor', '选择 3 个 Actor'],
-    ['upgrade_legacy', 'legacy_candidate_selection_required', '继续升级当前 Actor', '升级当前 3 个 Actor'],
-  ] as const)('requires exactly three manually selected candidates for %s', async (goal, kind, cta, heading) => {
+    ['initial_pool', 'setup_candidate_selection_required', '选择 Actor', '选择 2 个 Actor', 2],
+    ['upgrade_legacy', 'legacy_candidate_selection_required', '继续升级当前 Actor', '升级当前 3 个 Actor', 3],
+  ] as const)('requires the configured manual candidate count for %s', async (goal, kind, cta, heading, requiredCount) => {
     const browser = userEvent.setup()
     const selected = detail({
       workflow: workflow(kind, {
         goal,
         run_id: 'run-guided',
-        progress: { eligible_candidate_count: 3, required_selection_count: 3 },
+        progress: { eligible_candidate_count: 3, required_selection_count: requiredCount },
       }),
     })
     const candidates = [
@@ -960,7 +1440,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
         generation: selected.generation,
         goal,
         run_id: 'run-guided',
-        required_selection_count: 3,
+        required_selection_count: requiredCount,
         blockers: [],
         candidates: candidates.map(([candidateId, name, publisher]) => ({
           candidate_id: candidateId,
@@ -973,7 +1453,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
           unavailable_reason: null,
         })),
       }),
-      createApifyActorManualCanaryPlan: vi.fn().mockResolvedValue(manualThreePlan(goal)),
+      createApifyActorManualCanaryPlan: vi.fn().mockResolvedValue(manualPoolPlan(goal, requiredCount)),
     })
 
     await browser.click(await screen.findByRole('button', { name: cta }))
@@ -985,18 +1465,23 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     }
     const continueButton = screen.getByRole('button', { name: '继续' })
     await browser.click(screen.getByRole('checkbox', { name: /高可靠 Actor A/ }))
-    await browser.click(screen.getByRole('checkbox', { name: /稳定 Actor B/ }))
     expect(continueButton).toBeDisabled()
-    await browser.click(screen.getByRole('checkbox', { name: /备用 Actor C/ }))
+    await browser.click(screen.getByRole('checkbox', { name: /稳定 Actor B/ }))
+    if (requiredCount === 3) {
+      expect(continueButton).toBeDisabled()
+      await browser.click(screen.getByRole('checkbox', { name: /备用 Actor C/ }))
+    }
     expect(continueButton).toBeEnabled()
     await browser.click(continueButton)
+
+    const selectedCandidates = candidates.slice(0, requiredCount)
 
     await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith(
       'run-guided',
       {
         goal,
-        candidate_ids: candidates.map(([candidateId]) => candidateId),
-        candidate_validation_profiles: candidates.map(([candidateId], index) => ({
+        candidate_ids: selectedCandidates.map(([candidateId]) => candidateId),
+        candidate_validation_profiles: selectedCandidates.map(([candidateId], index) => ({
           candidate_id: candidateId,
           timeout_seconds: 300,
           sample_items: 1,
@@ -1004,7 +1489,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
           options_hash: String.fromCharCode(97 + index).repeat(64),
         })),
         expected_generation: 12,
-        target_slot_count: 3,
+        target_slot_count: requiredCount,
       },
     ))
     expect(await screen.findByRole('heading', { name: '验证所选 Actor' })).toBeVisible()

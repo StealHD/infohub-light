@@ -360,6 +360,13 @@ def _stage_catalog_publication(
             )
         if run_result.status == "failed":
             raise FeedRunFailed(run_result)
+        publish_watermarks = getattr(
+            orchestrator,
+            "publish_service_apify_watermarks",
+            None,
+        )
+        if callable(publish_watermarks):
+            publish_watermarks(connection=publication)
 
         media_cleanup = PostCommitMediaCleanup()
         publication.execute("SAVEPOINT actor_ops_media_cache")

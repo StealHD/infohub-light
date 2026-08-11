@@ -11,6 +11,8 @@ from src.services.apify_actor_route import (
     ApifyActorRouteError,
     ApifyActorRouteService,
 )
+from src.services.apify_actor_ops import ApifyActorOpsService
+from src.services.apify_actor_resilience import ApifyActorResilienceService
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -509,6 +511,113 @@ def test_failed_charge_fuse_uses_conservative_reservation(tmp_path):
     assert state["status"] == "budget_blocked"
     assert service.schedule_gate(source_id).allowed is False
     assert any(event == "budget_blocked" for event, _payload in transitions)
+
+
+def test_failed_preferred_actor_is_suspended_until_freshness_recovery(tmp_path):
+    store, service = _route(tmp_path)
+    source_id = _source(store, "preferred-account")
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = next(row for row in ops.list_routes() if row["route_key"] == "x/profile")
+    binding = ops.bind_source(
+        source_id=source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint="a" * 64,
+        mode="primary",
+    )
+    preferred = _candidate(store, "scrape_badger")
+    resilience = ApifyActorResilienceService(store)
+    resilience.set_source_preference(
+        source_id,
+        candidate_id=str(preferred["id"]),
+        expected_generation=int(binding["generation"]),
+    )
+    lease = service.reserve_canary(
+        str(preferred["id"]),
+        source_id,
+        expected_generation=service.route_generation(),
+    )
+    service.mark_running(lease)
+
+    service.record_failure(
+        lease,
+        failure_scope="target",
+        semantic_outcome="apify_actor_target_failed",
+        error_code="apify_actor_target_failed",
+        actual_cost_usd=0.001,
+        cost_final=True,
+    )
+
+    preference = resilience.source_preference(source_id)
+    assert preference["preferred_candidate_id"] == preferred["id"]
+    assert preference["preference_suspended"] is True
+    assert preference["preference_recovery_successes"] == 0
+
+    repeated = resilience.set_source_preference(
+        source_id,
+        candidate_id=str(preferred["id"]),
+        expected_generation=int(preference["generation"]),
+    )
+    assert repeated["preference_suspended"] is True
+    assert repeated["preference_recovery_successes"] == 0
+
+
+def test_repeated_source_watermark_is_neutral_for_actor_success_metrics(tmp_path):
+    store, service = _route(tmp_path)
+    source_id = _source(store, "unchanged-account")
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = next(row for row in ops.list_routes() if row["route_key"] == "x/profile")
+    ops.bind_source(
+        source_id=source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint="b" * 64,
+        mode="primary",
+    )
+    candidate = _candidate(store, "scrape_badger")
+    before = int(candidate["success_count"])
+
+    async def same_post(_lease):
+        return ApifyActorInvocationResult(
+            value=["post"],
+            semantic_outcome="valid_nonempty",
+            actual_cost_usd=0.001,
+            cost_final=True,
+            latest_published_at="2030-01-01T07:00:00+00:00",
+            latest_item_id="stable-post",
+        )
+
+    first = asyncio.run(service.execute_x_profile(source_id, same_post))
+    assert first == ["post"]
+    ApifyActorResilienceService(store).publish_source_advance(
+        source_id,
+        candidate_id=str(first._apify_actor_candidate_id),
+        latest_published_at=str(first._apify_actor_latest_published_at),
+        latest_item_id_hash=str(first._apify_actor_latest_item_id_hash),
+    )
+    after_advance = int(_candidate(store, "scrape_badger")["success_count"])
+    assert after_advance == before + 1
+
+    assert asyncio.run(service.execute_x_profile(source_id, same_post)) == ["post"]
+    assert int(_candidate(store, "scrape_badger")["success_count"]) == after_advance
+    latest_attempt = store.connect().execute(
+        """
+        SELECT status, semantic_outcome
+        FROM apify_actor_attempts
+        WHERE source_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1
+        """,
+        (source_id,),
+    ).fetchone()
+    assert dict(latest_attempt) == {
+        "status": "valid_empty",
+        "semantic_outcome": "no_advance",
+    }
+    public_candidate = next(
+        item
+        for item in service.public_state()["candidates"]
+        if item["id"] == candidate["id"]
+    )
+    assert public_candidate["success_rate_24h"] == 1.0
 
 
 def test_half_open_requires_two_real_post_successes_without_reclaiming_primary(

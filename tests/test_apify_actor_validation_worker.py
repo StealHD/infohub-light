@@ -16,7 +16,7 @@ from src.services.worker import run_worker_once
 from src.storage.service_store import ServiceStore
 
 
-def _manifest(actor_id: str) -> dict:
+def _manifest(actor_id: str, *, host: str = "x.com") -> dict:
     return {
         "version": 1,
         "actor_id": actor_id,
@@ -44,24 +44,9 @@ def _manifest(actor_id: str) -> dict:
                 "target_ref": "target.handle",
                 "match": "handle",
             },
-            "url_host_allowlist": ["x.com"],
+            "url_host_allowlist": [host],
         },
     }
-
-
-def _batch_manifest(actor_id: str) -> dict:
-    manifest = _manifest(actor_id)
-    manifest["output"].pop("author_handle")
-    manifest["output"]["source_native_id"] = {"pointers": ["/channelId"]}
-    manifest["semantics"] = {
-        "identity": {
-            "output_field": "source_native_id",
-            "target_ref": "target.native_id",
-            "match": "exact",
-        },
-        "url_host_allowlist": ["youtube.com"],
-    }
-    return manifest
 
 
 def _queue_route_validation(store: ServiceStore, admin: dict, *, suffix: str):
@@ -118,7 +103,7 @@ def _queue_canary_batch(store: ServiceStore, admin: dict):
     route = next(
         route
         for route in ops.list_routes()
-        if route["route_key"] == "youtube/channel/items"
+        if route["route_key"] == "instagram/profile/items"
     )
     run = ops.create_discovery_run(
         str(route["route_id"]),
@@ -135,7 +120,7 @@ def _queue_canary_batch(store: ServiceStore, admin: dict):
             publisher=publisher,
             build_id=f"batch-build-{index}",
             build_number="1.0.1",
-            manifest=_batch_manifest(actor_id),
+            manifest=_manifest(actor_id, host="instagram.com"),
             lifecycle="static_valid",
             discovery_run_id=str(run["run_id"]),
         )

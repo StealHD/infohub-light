@@ -31,7 +31,11 @@ from .apify_actor_manifest import (
     parse_actor_manifest,
     render_actor_input,
 )
-from .apify_actor_ops import ActorOpsError, ApifyActorOpsService
+from .apify_actor_ops import (
+    ActorOpsError,
+    ApifyActorOpsService,
+    actor_evidence_fingerprint,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,37 @@ _FATAL_INPUT_VALIDATION_ERRORS = frozenset(
     {
         "apify_actor_metadata_authentication_failed",
         "actor_input_validation_contract_error",
+    }
+)
+_DETERMINISTIC_INPUT_FAILURES = frozenset(
+    {
+        "actor_input_validation_rejected",
+        "actor_input_validation_forbidden",
+        "actor_input_validation_target_unavailable",
+        "build_input_validation_failed",
+    }
+)
+_DETERMINISTIC_METADATA_FAILURES = frozenset(
+    {
+        "actor_metadata_identity_mismatch",
+        "actor_not_public",
+        "actor_deprecated",
+        "actor_deprecation_unverifiable",
+        "actor_not_runnable",
+        "actor_runnable_unverifiable",
+        "actor_full_permission",
+        "actor_permission_unverifiable",
+        "actor_exact_build_missing",
+        "actor_build_not_successful",
+        "actor_build_identity_mismatch",
+        "actor_schema_unverifiable",
+        "actor_input_schema_unmappable",
+        "actor_publisher_invalid",
+        "actor_pricing_unverifiable",
+        "actor_monthly_pricing",
+        "actor_pricing_invalid",
+        "actor_price_above_route_cap",
+        "actor_items_capability_unproven",
     }
 )
 T = TypeVar("T")
@@ -450,6 +485,8 @@ class ApifyActorDiscoveryService:
             query_count=len(clean_queries),
         )
         route = self.ops.get_route(str(run["route_id"]))
+        required_actors = max(1, int(route["min_runtime_healthy"]))
+        required_publishers = max(1, int(route["min_publishers"]))
         preferred = tuple(
             dict.fromkeys(
                 normalized
@@ -476,6 +513,7 @@ class ApifyActorDiscoveryService:
             query_count=len(clean_queries),
         )
         accepted: list[DiscoveryCandidate] = []
+        compatibility_candidates: list[DiscoveryCandidate] = []
         rejected: list[dict[str, str]] = []
         discovery_price_cap_usd = (
             min(
@@ -485,7 +523,14 @@ class ApifyActorDiscoveryService:
             if preferred
             else float(route["per_run_cap_usd"])
         )
+        from .apify_actor_resilience import ApifyActorResilienceService
+
+        resilience = ApifyActorResilienceService(
+            self.ops.store,
+            workspace_id=self.ops.workspace_id,
+        )
         for actor_id in sorted(store_hits):
+            evaluation_evidence: dict[str, Any] = {}
             try:
                 candidate = await self._load_candidate(
                     actor_id,
@@ -493,13 +538,97 @@ class ApifyActorDiscoveryService:
                     platform=str(route["platform"]),
                     target_type=str(route["target_type"]),
                     capability=str(route["capability"]),
+                    evaluation_evidence=evaluation_evidence,
                 )
             except ActorDiscoveryError as error:
                 if error.code == "apify_actor_metadata_authentication_failed":
                     raise
+                compatibility_error: ActorDiscoveryError | None = None
+                if str(route["platform"]) == "x":
+                    try:
+                        compatibility_candidate = await self.load_compatibility_candidate(
+                            actor_id,
+                            per_run_cap_usd=float(route["per_run_cap_usd"]),
+                        )
+                    except ActorDiscoveryError as compatibility_failure:
+                        compatibility_error = compatibility_failure
+                    else:
+                        compatibility_candidates.append(compatibility_candidate)
+                candidate_id = self.ops.ensure_candidate(
+                    str(run["route_id"]),
+                    actor_id=actor_id,
+                    display_name=actor_id,
+                )
+                evidence_fingerprint = actor_evidence_fingerprint(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    actor_id=actor_id,
+                    build_id=str(evaluation_evidence.get("build_id") or ""),
+                    build_number=str(
+                        evaluation_evidence.get("build_number") or ""
+                    ),
+                    manifest_hash=str(
+                        evaluation_evidence.get("output_schema_hash") or ""
+                    ),
+                    pricing=(
+                        evaluation_evidence.get("pricing")
+                        if isinstance(evaluation_evidence.get("pricing"), Mapping)
+                        else {}
+                    ),
+                    input_schema_hash=str(
+                        evaluation_evidence.get("input_schema_hash") or ""
+                    ),
+                    output_schema_hash=str(
+                        evaluation_evidence.get("output_schema_hash") or ""
+                    ),
+                )
+                deterministic = error.code in _DETERMINISTIC_METADATA_FAILURES
+                resilience.record_evaluation(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    revision_id=None,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage="metadata",
+                    outcome="failed",
+                    reason_code=error.code,
+                    deterministic=deterministic,
+                )
+                resilience.emit_event(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    phase="metadata",
+                    outcome="failed",
+                    reason_code=error.code,
+                )
+                if compatibility_error is not None:
+                    compatibility_reason = str(compatibility_error.code)
+                    resilience.record_evaluation(
+                        route_id=str(run["route_id"]),
+                        candidate_id=candidate_id,
+                        revision_id=None,
+                        evidence_fingerprint=evidence_fingerprint,
+                        policy_mode="compatibility",
+                        stage="metadata",
+                        outcome="failed",
+                        reason_code=compatibility_reason,
+                        deterministic=(
+                            compatibility_reason
+                            in _DETERMINISTIC_METADATA_FAILURES
+                        ),
+                    )
+                    resilience.emit_event(
+                        route_id=str(run["route_id"]),
+                        candidate_id=candidate_id,
+                        phase="compatibility_metadata",
+                        outcome="failed",
+                        reason_code=compatibility_reason,
+                    )
                 rejected.append({"actor_id": actor_id, "reason": error.code})
                 continue
             accepted.append(candidate)
+            if str(route["platform"]) == "x":
+                compatibility_candidates.append(candidate)
         # Prefer Builds whose exact Dataset schema proves a content-item
         # contract.  Store result ordering is not a quality signal and used to
         # exclude valid YouTube video Actors merely because their opaque Actor
@@ -512,7 +641,130 @@ class ApifyActorDiscoveryService:
             )
         )
         accepted = accepted[:effective_candidate_limit]
-        if len(accepted) < 3 or len({row.publisher for row in accepted}) < 2:
+        if str(route["platform"]) == "x":
+            # Keep every metadata-safe X Actor available for an explicitly
+            # confirmed controlled compatibility trial.  These placeholder
+            # revisions are not executable evidence and cannot activate on
+            # their own.
+            compatibility_candidates.sort(
+                key=lambda candidate: (
+                    0 if candidate.actor_id in preferred_set else 1,
+                    candidate.actor_id,
+                )
+            )
+            for candidate in compatibility_candidates[:effective_candidate_limit]:
+                self.ops.ensure_compatibility_trial_revision(
+                    route_id=str(run["route_id"]),
+                    discovery_run_id=run_id,
+                    actor_id=candidate.actor_id,
+                    publisher=candidate.publisher,
+                    build_id=candidate.build_id,
+                    build_number=candidate.build_number,
+                    pricing=_safe_pricing_summary(candidate.pricing),
+                    permission_level=str(
+                        candidate.actor.get("actorPermissionLevel") or "limited"
+                    ),
+                    input_schema_hash=_json_hash(candidate.input_schema),
+                    output_schema_hash=_json_hash(candidate.output_schema),
+                    deprecated=candidate.actor.get("isDeprecated") is True,
+                    permission_unverified=(
+                        str(
+                            candidate.actor.get("actorPermissionLevel") or ""
+                        ).casefold()
+                        not in {"limited_permissions", "limited"}
+                    ),
+                    input_dialect=_compatibility_input_dialect(
+                        candidate.input_schema
+                    ),
+                    input_count_field=_compatibility_count_field(
+                        candidate.input_schema
+                    ),
+                )
+        candidate_evidence: dict[str, tuple[str, str]] = {}
+        remembered: list[DiscoveryCandidate] = []
+        for candidate in accepted:
+            candidate_id = self.ops.ensure_candidate(
+                str(run["route_id"]),
+                actor_id=candidate.actor_id,
+                display_name=candidate.actor_id,
+            )
+            evidence_fingerprint = actor_evidence_fingerprint(
+                route_id=str(run["route_id"]),
+                candidate_id=candidate_id,
+                actor_id=candidate.actor_id,
+                build_id=candidate.build_id,
+                build_number=candidate.build_number,
+                manifest_hash=str(_json_hash(candidate.output_schema) or ""),
+                pricing=_safe_pricing_summary(candidate.pricing),
+                input_schema_hash=str(
+                    _json_hash(candidate.input_schema) or ""
+                ),
+                output_schema_hash=str(
+                    _json_hash(candidate.output_schema) or ""
+                ),
+            )
+            candidate_evidence[candidate.actor_id] = (
+                candidate_id,
+                evidence_fingerprint,
+            )
+            prior_metadata_failure = self.ops.store.connect().execute(
+                """
+                SELECT 1 FROM apify_actor_evaluation_history
+                WHERE workspace_id = ? AND route_id = ? AND candidate_id = ?
+                  AND evidence_fingerprint = ? AND policy_mode = 'standard'
+                  AND stage = 'metadata' AND outcome = 'failed'
+                """,
+                (
+                    self.ops.workspace_id,
+                    str(run["route_id"]),
+                    candidate_id,
+                    evidence_fingerprint,
+                ),
+            ).fetchone()
+            if prior_metadata_failure is not None:
+                resilience.record_evaluation(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    revision_id=None,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage="metadata",
+                    outcome="passed",
+                    reason_code="metadata_validation_passed",
+                    deterministic=False,
+                )
+            prior_failure = None
+            for stage in ("static_validation", "input_validation"):
+                prior_failure = resilience.deterministic_failure(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage=stage,
+                )
+                if prior_failure is not None:
+                    break
+            if prior_failure is not None:
+                rejected.append(
+                    {
+                        "actor_id": candidate.actor_id,
+                        "reason": "actor_evaluation_deterministic_failure",
+                    }
+                )
+                resilience.emit_event(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    phase="discovery_memory",
+                    outcome="skipped",
+                    reason_code=str(prior_failure["reason_code"]),
+                )
+                continue
+            remembered.append(candidate)
+        accepted = remembered
+        if (
+            len(accepted) < required_actors
+            or len({row.publisher for row in accepted}) < required_publishers
+        ):
             self.ops.update_discovery_run(
                 run_id,
                 expected_stage="metadata",
@@ -550,11 +802,11 @@ class ApifyActorDiscoveryService:
                 ),
             },
             "constraints": {
-                "min_proposals": MIN_AI_PROPOSALS,
+                "min_proposals": min(MIN_AI_PROPOSALS, proposal_target),
                 "target_proposals": proposal_target,
                 "max_proposals": proposal_target,
                 "required_proposals": proposal_target,
-                "min_distinct_publishers": 2,
+                "min_distinct_publishers": required_publishers,
                 "one_proposal_per_actor": True,
                 "proposals_ranked_best_first": True,
                 "actor_and_build_must_match_candidates": True,
@@ -627,7 +879,11 @@ class ApifyActorDiscoveryService:
                 "notes": [
                     "Return exactly target_proposals distinct Actors.",
                     "Include every preferred_actor_id that satisfies every contract; never replace a valid preferred Actor in an upgrade.",
-                    "Use at least two distinct candidate publishers across the proposals.",
+                    (
+                        "Use at least "
+                        f"{required_publishers} distinct candidate publisher(s) "
+                        "across the proposals."
+                    ),
                     "Rank proposals best-first so later entries can replace an invalid earlier entry.",
                     "Replace candidate placeholders with fetched schema paths only.",
                     "Every pointer starts at the Dataset row root. Do not invent /candidate, /item, /data or /result wrappers unless that exact root property exists in candidate.output_schema.",
@@ -754,13 +1010,48 @@ class ApifyActorDiscoveryService:
                 rejected.append(
                     {"actor_id": candidate.actor_id, "reason": error.code}
                 )
+                candidate_id, evidence_fingerprint = candidate_evidence[
+                    candidate.actor_id
+                ]
+                resilience.record_evaluation(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    revision_id=None,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage="static_validation",
+                    outcome="failed",
+                    reason_code=error.code,
+                    deterministic=True,
+                )
+                resilience.emit_event(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    phase="static_validation",
+                    outcome="failed",
+                    reason_code=error.code,
+                )
                 continue
+            candidate_id, evidence_fingerprint = candidate_evidence[
+                candidate.actor_id
+            ]
+            resilience.record_evaluation(
+                route_id=str(run["route_id"]),
+                candidate_id=candidate_id,
+                revision_id=None,
+                evidence_fingerprint=evidence_fingerprint,
+                policy_mode="standard",
+                stage="static_validation",
+                outcome="passed",
+                reason_code="static_validation_passed",
+                deterministic=False,
+            )
             validated.append((candidate, manifest))
             seen_actors.add(candidate.actor_id)
         static_publishers = {row.publisher for row, _ in validated}
         static_pool_complete = (
-            len(validated) >= MIN_AI_PROPOSALS
-            and len(static_publishers) >= 2
+            len(validated) >= required_actors
+            and len(static_publishers) >= required_publishers
         )
         self.ops.update_discovery_run(
             run_id,
@@ -796,6 +1087,27 @@ class ApifyActorDiscoveryService:
                         "reason": error.code,
                     }
                 )
+                candidate_id, evidence_fingerprint = candidate_evidence[
+                    candidate.actor_id
+                ]
+                resilience.record_evaluation(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    revision_id=None,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage="input_validation",
+                    outcome="failed",
+                    reason_code=error.code,
+                    deterministic=error.code in _DETERMINISTIC_INPUT_FAILURES,
+                )
+                resilience.emit_event(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    phase="input_validation",
+                    outcome="failed",
+                    reason_code=error.code,
+                )
                 continue
             if not is_valid:
                 rejected.append(
@@ -804,11 +1116,41 @@ class ApifyActorDiscoveryService:
                         "reason": "build_input_validation_failed",
                     }
                 )
+                candidate_id, evidence_fingerprint = candidate_evidence[
+                    candidate.actor_id
+                ]
+                resilience.record_evaluation(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    revision_id=None,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage="input_validation",
+                    outcome="failed",
+                    reason_code="build_input_validation_failed",
+                    deterministic=True,
+                )
+                resilience.emit_event(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    phase="input_validation",
+                    outcome="failed",
+                    reason_code="build_input_validation_failed",
+                )
                 continue
-            candidate_id = self.ops.ensure_candidate(
-                str(run["route_id"]),
-                actor_id=candidate.actor_id,
-                display_name=candidate.actor_id,
+            candidate_id, evidence_fingerprint = candidate_evidence[
+                candidate.actor_id
+            ]
+            resilience.record_evaluation(
+                route_id=str(run["route_id"]),
+                candidate_id=candidate_id,
+                revision_id=None,
+                evidence_fingerprint=evidence_fingerprint,
+                policy_mode="standard",
+                stage="input_validation",
+                outcome="passed",
+                reason_code="input_validation_passed",
+                deterministic=False,
             )
             revision_id = self.ops.create_adapter_revision(
                 candidate_id=candidate_id,
@@ -842,7 +1184,7 @@ class ApifyActorDiscoveryService:
             )
             revisions.append(revision_id)
             revision_publishers.add(candidate.publisher)
-        if len(revision_publishers) < 2 and revisions:
+        if len(revision_publishers) < required_publishers and revisions:
             rejected.append(
                 {
                     "actor_id": "candidate-pool",
@@ -851,13 +1193,13 @@ class ApifyActorDiscoveryService:
             )
         final_stage = (
             "awaiting_canary_approval"
-            if len(revisions) >= MIN_AI_PROPOSALS
-            and len(revision_publishers) >= 2
+            if len(revisions) >= required_actors
+            and len(revision_publishers) >= required_publishers
             else "candidate_shortfall"
         )
         shortfall_error = (
             "input_validation_candidate_shortfall"
-            if len(revisions) < MIN_AI_PROPOSALS
+            if len(revisions) < required_actors
             else "publisher_diversity_candidate_shortfall"
         )
         self.ops.update_discovery_run(
@@ -887,8 +1229,12 @@ class ApifyActorDiscoveryService:
         platform: str,
         target_type: str,
         capability: str,
+        evaluation_evidence: dict[str, Any] | None = None,
     ) -> DiscoveryCandidate:
         actor = dict(await _maybe_await(self.metadata_client.get_actor(actor_id)))
+        evidence = evaluation_evidence if evaluation_evidence is not None else {}
+        pricing = _pricing(actor)
+        evidence["pricing"] = _safe_pricing_summary(pricing)
         metadata_identities = {
             str(actor.get("id") or "").strip().replace("~", "/"),
             str(actor.get("actorId") or "").strip().replace("~", "/"),
@@ -910,8 +1256,16 @@ class ApifyActorDiscoveryService:
                 if actor.get("isDeprecated") is True
                 else "actor_deprecation_unverifiable"
             )
-        if actor.get("isRunnable") is False or actor.get("canRun") is False:
-            raise _reject("actor_not_runnable")
+        if (
+            actor.get("isRunnable") is not True
+            and actor.get("canRun") is not True
+        ):
+            raise _reject(
+                "actor_not_runnable"
+                if actor.get("isRunnable") is False
+                or actor.get("canRun") is False
+                else "actor_runnable_unverifiable"
+            )
         permission = str(actor.get("actorPermissionLevel") or "").casefold()
         if permission != "limited_permissions":
             raise _reject(
@@ -920,6 +1274,8 @@ class ApifyActorDiscoveryService:
                 else "actor_permission_unverifiable"
             )
         build_id, build_number = _tagged_build(actor)
+        evidence["build_id"] = build_id
+        evidence["build_number"] = build_number
         if not build_id or not build_number:
             raise _reject("actor_exact_build_missing")
         build = dict(await _maybe_await(self.metadata_client.get_build(build_id)))
@@ -929,12 +1285,17 @@ class ApifyActorDiscoveryService:
         if actual_number and actual_number != build_number:
             raise _reject("actor_build_identity_mismatch")
         input_schema, output_schema = _schemas(build)
+        evidence["input_schema_hash"] = (
+            _json_hash(input_schema) if input_schema else ""
+        )
+        evidence["output_schema_hash"] = (
+            _json_hash(output_schema) if output_schema else ""
+        )
         if not input_schema or not output_schema:
             raise _reject("actor_schema_unverifiable")
         input_template = _input_template_from_schema(input_schema)
         if not input_template:
             raise _reject("actor_input_schema_unmappable")
-        pricing = _pricing(actor)
         _validate_pricing(pricing, per_run_cap_usd)
         _validate_capability_pricing(
             pricing,
@@ -947,6 +1308,80 @@ class ApifyActorDiscoveryService:
         return DiscoveryCandidate(
             actor_id=actor_id,
             publisher=publisher,
+            build_id=build_id,
+            build_number=build_number,
+            actor=actor,
+            build=build,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            pricing=pricing,
+            input_template=input_template,
+        )
+
+    async def load_compatibility_candidate(
+        self,
+        actor_id: str,
+        *,
+        per_run_cap_usd: float,
+    ) -> DiscoveryCandidate:
+        """Load only evidence required before a controlled X paid trial."""
+
+        actor = dict(await _maybe_await(self.metadata_client.get_actor(actor_id)))
+        metadata_identities = {
+            str(actor.get("id") or "").strip().replace("~", "/"),
+            str(actor.get("actorId") or "").strip().replace("~", "/"),
+        }
+        username = str(
+            actor.get("username") or actor.get("userUsername") or ""
+        ).strip()
+        name = str(actor.get("name") or actor.get("actorName") or "").strip()
+        if username and name:
+            metadata_identities.add(f"{username}/{name}")
+        metadata_identities.discard("")
+        if metadata_identities and actor_id not in metadata_identities:
+            raise _reject("actor_metadata_identity_mismatch")
+        if actor.get("isPublic") is not True:
+            raise _reject("actor_not_public")
+        if (
+            actor.get("isRunnable") is not True
+            and actor.get("canRun") is not True
+        ):
+            raise _reject("actor_not_runnable")
+        permission = str(actor.get("actorPermissionLevel") or "").casefold()
+        if permission in {"full_permissions", "full", "administrator"}:
+            raise _reject("actor_full_permission")
+        pricing = _pricing(actor)
+        _validate_pricing(pricing, per_run_cap_usd)
+
+        build_id, build_number = _tagged_build(actor)
+        build: Mapping[str, Any] = {}
+        input_schema: Mapping[str, Any] = {}
+        output_schema: Mapping[str, Any] = {}
+        input_template: Mapping[str, Any] = {}
+        if build_id and build_number:
+            try:
+                fetched = dict(
+                    await _maybe_await(self.metadata_client.get_build(build_id))
+                )
+            except ActorDiscoveryError as error:
+                if error.code == "apify_actor_metadata_authentication_failed":
+                    raise
+                build_id = ""
+                build_number = ""
+            else:
+                actual_number = str(fetched.get("buildNumber") or "")
+                if str(fetched.get("status") or "").upper() == "SUCCEEDED" and (
+                    not actual_number or actual_number == build_number
+                ):
+                    build = fetched
+                    input_schema, output_schema = _schemas(build)
+                    input_template = _input_template_from_schema(input_schema)
+                else:
+                    build_id = ""
+                    build_number = ""
+        return DiscoveryCandidate(
+            actor_id=actor_id,
+            publisher=_publisher(actor_id, actor),
             build_id=build_id,
             build_number=build_number,
             actor=actor,
@@ -1055,6 +1490,54 @@ def _schemas(
         input_schema if isinstance(input_schema, Mapping) else {},
         output_schema if isinstance(output_schema, Mapping) else {},
     )
+
+
+def _compatibility_input_dialect(schema: Mapping[str, Any]) -> str:
+    """Select one value-free X input dialect from bounded schema field names."""
+
+    properties = schema.get("properties")
+    fields = properties if isinstance(properties, Mapping) else schema
+    normalized = {
+        re.sub(r"[^a-z0-9]+", "", str(name).casefold())
+        for name in list(fields)[:128]
+    }
+    if "twitterhandles" in normalized:
+        return "twitter_handles"
+    if "starturls" in normalized:
+        return "start_urls"
+    if "profileurls" in normalized:
+        return "profile_urls"
+    if "twitterhandle" in normalized:
+        return "twitter_handle"
+    if "username" in normalized:
+        return "username"
+    if "handle" in normalized:
+        return "handle"
+    if "directurls" in normalized:
+        return "direct_urls"
+    if "urls" in normalized:
+        return "urls"
+    if "url" in normalized:
+        return "url"
+    # Missing Store schemas are allowed only in explicitly confirmed
+    # compatibility trials.  Use the most portable value-free contract for an
+    # unknown Actor instead of leaking legacy, Actor-specific control fields.
+    return "start_urls"
+
+
+def _compatibility_count_field(schema: Mapping[str, Any]) -> str | None:
+    properties = schema.get("properties")
+    fields = properties if isinstance(properties, Mapping) else schema
+    allowed = (
+        "maxItems",
+        "max_items",
+        "maxResults",
+        "max_results",
+        "resultsLimit",
+        "limit",
+        "tweetsDesired",
+    )
+    return next((field for field in allowed if field in fields), None)
 
 
 def _schema_mapping(value: Any) -> Mapping[str, Any]:

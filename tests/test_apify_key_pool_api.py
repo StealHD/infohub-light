@@ -106,9 +106,12 @@ def test_admin_pool_order_lifecycle_and_safe_projection(tmp_path, monkeypatch):
     response = client.get("/api/admin/apify-key-pool")
     assert response.status_code == 200
     pool = response.json()["data"]
+    assert pool["schema_version"] == 2
     assert pool["enabled"] is True
     assert pool["status"] == "ready"
     assert pool["active_secret_id"] == primary["id"]
+    assert pool["validation_secret_id"] is None
+    assert pool["validation_key_status"] == "unassigned"
     assert [item["secret_id"] for item in pool["members"]] == [
         primary["id"],
         backup_one["id"],
@@ -117,6 +120,7 @@ def test_admin_pool_order_lifecycle_and_safe_projection(tmp_path, monkeypatch):
     for member in pool["members"]:
         assert set(member) == {
             "secret_id",
+            "role",
             "position",
             "status",
             "blocked_until",

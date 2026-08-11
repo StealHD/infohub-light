@@ -57,6 +57,10 @@ from ..services.apify_key_pool import (
     ApifyKeyPoolService,
     apify_key_pool_enabled,
 )
+from ..services.apify_actor_resilience import (
+    ActorResilienceError,
+    ApifyActorResilienceService,
+)
 from ..services.apify_actor_route import (
     ApifyActorRouteConflictError,
     ApifyActorRouteError,
@@ -650,6 +654,13 @@ class ApifyKeyPoolOrderRequest(BaseModel):
     expected_generation: StrictInt = Field(ge=1)
 
 
+class ApifyValidationKeyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    secret_id: str | None = Field(default=None, min_length=1, max_length=128)
+    expected_generation: StrictInt = Field(ge=1)
+
+
 class ApifyActorRouteOrderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -734,8 +745,8 @@ class ApifyActivePoolRequest(BaseModel):
         names = {item.slot for item in slots}
         if names != {"primary", "backup_1", "backup_2"}:
             raise ValueError("slots must contain primary, backup_1, and backup_2")
-        if sum(item.revision_id is not None for item in slots) < 2:
-            raise ValueError("slots must contain at least two revisions")
+        if sum(item.revision_id is not None for item in slots) < 1:
+            raise ValueError("slots must contain at least one revision")
         return slots
 
 
@@ -817,7 +828,8 @@ class ApifyActorCanaryBatchRequest(BaseModel):
     )
     confirmation: Literal["确认付费验证主备"]
     goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy"
+        "initial_pool", "complete_third", "upgrade_legacy",
+        "compatibility_single",
     ] = "initial_pool"
     max_candidates: StrictInt = Field(default=3, ge=1, le=3)
     max_total_charge_usd: float = Field(default=0.06, gt=0, le=6.06)
@@ -829,21 +841,22 @@ class ApifyActorCanaryBatchRequest(BaseModel):
     candidate_validation_profiles: list[
         ApifyActorValidationProfileRequest
     ] | None = Field(default=None, min_length=1, max_length=3)
-    target_slot_count: StrictInt | None = Field(default=None, ge=2, le=3)
+    target_slot_count: StrictInt | None = Field(default=None, ge=1, le=3)
 
 
 class ApifyActorManualCanaryPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy"
+        "initial_pool", "complete_third", "upgrade_legacy",
+        "compatibility_single",
     ]
     candidate_ids: list[str] = Field(min_length=1, max_length=3)
     candidate_validation_profiles: list[
         ApifyActorValidationProfileRequest
     ] = Field(min_length=1, max_length=3)
     expected_generation: StrictInt = Field(ge=1)
-    target_slot_count: Literal[3] = 3
+    target_slot_count: Literal[1, 2, 3] = 3
 
 
 class ApifyActorCandidateRefreshRequest(BaseModel):
@@ -851,8 +864,39 @@ class ApifyActorCandidateRefreshRequest(BaseModel):
 
     expected_generation: StrictInt = Field(ge=1)
     goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy"
+        "initial_pool", "complete_third", "upgrade_legacy",
+        "compatibility_single",
     ] = "initial_pool"
+
+
+class ApifyFreshnessSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool
+    interval_hours: StrictInt = Field(ge=6, le=168)
+    expected_generation: StrictInt = Field(ge=1)
+    standing_authorization_confirmed: StrictBool = False
+
+
+class ApifyFreshnessCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cost_confirmed: StrictBool
+    expected_generation: StrictInt = Field(ge=1)
+    max_total_charge_usd: float = Field(gt=0, le=0.06)
+
+
+class ApifySourcePreferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str | None = Field(default=None, min_length=1, max_length=128)
+    expected_generation: StrictInt = Field(ge=1)
+
+
+class ApifyEvaluationRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: Literal["确认重新尝试一次"]
 
 
 class ApifyActorValidationReconcileRequest(BaseModel):
@@ -1116,6 +1160,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "telegram_transport_test",
     ),
     ("PUT", "/api/admin/apify-key-pool/order"): ("secret", "pool_reorder"),
+    ("PUT", "/api/admin/apify-key-pool/validation-key"): (
+        "secret",
+        "validation_key_update",
+    ),
     ("POST", "/api/admin/apify-key-pool/{secret_id}/drain"): (
         "secret",
         "pool_drain",
@@ -1144,6 +1192,22 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-routes/{route_id}/pool-candidates/refresh",
     ): ("job", "actor_candidate_refresh"),
+    (
+        "PATCH",
+        "/api/admin/apify-routes/{route_id}/freshness-settings",
+    ): ("source", "actor_freshness_settings_update"),
+    (
+        "POST",
+        "/api/admin/apify-routes/{route_id}/freshness-checks",
+    ): ("job", "actor_freshness_check_queue"),
+    (
+        "PATCH",
+        "/api/admin/sources/{source_id}/apify-preference",
+    ): ("source", "actor_source_preference_update"),
+    (
+        "POST",
+        "/api/admin/apify-actor-evaluations/{evaluation_id}/retry",
+    ): ("source", "actor_evaluation_retry"),
     (
         "POST",
         "/api/admin/apify-routes/{route_id}/validations/reconcile",
@@ -1422,6 +1486,18 @@ def create_app(
                 ),
             )
 
+    def require_apify_actor_resilience_v21() -> None:
+        if store.apify_actor_resilience_v21_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor resilience v21 migration must be applied before Actor routes are used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_resilience_v21.py --apply."
+                ),
+            )
+
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()
         require_apify_actor_ops_v15()
@@ -1430,6 +1506,7 @@ def create_app(
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
         require_apify_actor_validation_tuning_v20()
+        require_apify_actor_resilience_v21()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1449,7 +1526,17 @@ def create_app(
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
         require_apify_actor_validation_tuning_v20()
+        require_apify_actor_resilience_v21()
         return ApifyActorOpsService(
+            store,
+            workspace_id=str(workspace_id),
+        )
+
+    def apify_actor_resilience_for(
+        workspace_id: str,
+    ) -> ApifyActorResilienceService:
+        require_apify_actor_resilience_v21()
+        return ApifyActorResilienceService(
             store,
             workspace_id=str(workspace_id),
         )
@@ -1889,6 +1976,7 @@ def create_app(
             "runnable_slots": int(gate.runnable_count),
             "required_slots": int(route["required_slots"]),
             "min_runtime_healthy": int(route["min_runtime_healthy"]),
+            "admission_mode": str(route.get("admission_mode") or "standard"),
             "publisher_count": int(
                 len(
                     {
@@ -1985,6 +2073,8 @@ def create_app(
             "build_id": revision.get("build_id"),
             "build_number": revision.get("build_number"),
             "manifest_hash": revision.get("manifest_hash"),
+            "execution_mode": str(revision.get("execution_mode") or "pinned"),
+            "observed_manifest": bool(revision.get("observed_manifest") or False),
             "lifecycle": str(revision["lifecycle"]),
             "certification_progress": revision.get("certification_progress"),
             "listed_price_usd_per_1000": (
@@ -2102,10 +2192,6 @@ def create_app(
         result = public_actor_ops_route(ops, route)
         revisions: dict[str, dict[str, Any]] = {}
         slots: list[dict[str, Any]] = []
-        populated_slot_count = sum(
-            slot.get("revision_id") is not None
-            for slot in route.get("slots", [])
-        )
         for slot in route.get("slots", []):
             revision_id = slot.get("revision_id")
             revision = (
@@ -2129,17 +2215,8 @@ def create_app(
                     "revision_id": revision_id,
                     "runnable": candidate_state
                     in {"closed", "half_open", "probationary"}
-                    and (
-                        lifecycle in {"certified", "legacy_builtin"}
-                        or (
-                            populated_slot_count == 2
-                            and lifecycle == "probationary"
-                        )
-                        or (
-                            str(slot["slot_name"]) == "backup_2"
-                            and lifecycle == "probationary"
-                        )
-                    ),
+                    and lifecycle
+                    in {"certified", "probationary", "legacy_builtin"},
                     "validation_status": lifecycle or "unconfigured",
                     "revision": (
                         revisions.get(str(revision_id))
@@ -2333,12 +2410,25 @@ def create_app(
                 }
             )
         result["revision_diffs"] = revision_diffs
-        result["replacement_needed"] = int(result["runnable_slots"]) < 3
+        result["replacement_needed"] = int(result["runnable_slots"]) < int(
+            result["min_runtime_healthy"]
+        )
         binding_rows = connection.execute(
             """
             SELECT binding.source_id, binding.validation_status,
-                   binding.generation, binding.target_fingerprint
+                   binding.generation, binding.target_fingerprint,
+                   binding.preferred_candidate_id,
+                   binding.active_candidate_id,
+                   binding.preference_suspended_at,
+                   preferred.display_name AS preferred_actor_name,
+                   active.display_name AS active_actor_name
             FROM apify_source_route_bindings AS binding
+            LEFT JOIN apify_actor_candidates AS preferred
+              ON preferred.workspace_id = binding.workspace_id
+             AND preferred.id = binding.preferred_candidate_id
+            LEFT JOIN apify_actor_candidates AS active
+              ON active.workspace_id = binding.workspace_id
+             AND active.id = binding.active_candidate_id
             WHERE binding.workspace_id = ? AND binding.route_id = ?
             ORDER BY binding.updated_at DESC, binding.source_id
             LIMIT 100
@@ -2431,7 +2521,7 @@ def create_app(
             binding_status = str(binding["validation_status"])
             bucket = (
                 "ready"
-                if binding_status in {"ready_2of2", "ready_3of3"}
+                if binding_status in {"ready_1of1", "ready_2of2", "ready_3of3"}
                 else "failed"
                 if binding_status in {"failed", "blocked"}
                 else "pending"
@@ -2442,6 +2532,24 @@ def create_app(
                     "source_id": str(binding["source_id"]),
                     "binding_status": binding_status,
                     "generation": int(binding["generation"]),
+                    "actor_preference": {
+                        "mode": (
+                            "manual"
+                            if binding["preferred_candidate_id"]
+                            else "automatic"
+                        ),
+                        "preferred_candidate_id": binding[
+                            "preferred_candidate_id"
+                        ],
+                        "preferred_actor_name": binding[
+                            "preferred_actor_name"
+                        ],
+                        "active_candidate_id": binding["active_candidate_id"],
+                        "active_actor_name": binding["active_actor_name"],
+                        "preference_suspended": bool(
+                            binding["preference_suspended_at"]
+                        ),
+                    },
                     "slots": validation_slots,
                 }
             )
@@ -2491,6 +2599,12 @@ def create_app(
         )
         result["discovery_error_code"] = (
             discovery["error_code"] if discovery is not None else None
+        )
+        result.update(
+            ApifyActorResilienceService(
+                store,
+                workspace_id=ops.workspace_id,
+            ).route_resilience(route_id)
         )
         return result
 
@@ -3313,6 +3427,25 @@ def create_app(
                     "Reload the ActorOps state before retrying."
                     if "conflict" in exc.code
                     else "Review the Route, validation, and approval state."
+                ),
+            )
+        )
+
+    @app.exception_handler(ActorResilienceError)
+    async def _apify_actor_resilience_error_handler(
+        request: Request,
+        exc: ActorResilienceError,
+    ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                action=(
+                    "Reload ActorOps before retrying."
+                    if "conflict" in exc.code
+                    else "Review the validation Key, cost authorization, and Route state."
                 ),
             )
         )
@@ -5350,6 +5483,7 @@ def create_app(
     async def admin_apify_key_pool(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
         return ok(apify_key_pool.public_state(str(user["workspace_id"])))
 
     @app.put("/api/admin/apify-key-pool/order")
@@ -5357,6 +5491,7 @@ def create_app(
         payload: ApifyKeyPoolOrderRequest,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
         try:
             state = apify_key_pool.reorder(
                 str(user["workspace_id"]),
@@ -5373,11 +5508,43 @@ def create_app(
             raise pool_api_error(exc) from exc
         return ok(state)
 
+    @app.put("/api/admin/apify-key-pool/validation-key")
+    async def admin_apify_validation_key(
+        payload: ApifyValidationKeyRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
+        try:
+            state = apify_key_pool.set_validation_key(
+                str(user["workspace_id"]),
+                secret_id=payload.secret_id,
+                expected_generation=int(payload.expected_generation),
+            )
+        except LookupError as exc:
+            raise ApiError(
+                "not_found", "Apify Key pool member not found", status_code=404
+            ) from exc
+        except ApifyKeyPoolError as exc:
+            raise pool_api_error(exc) from exc
+        resilience = apify_actor_resilience_for(str(user["workspace_id"]))
+        resilience.emit_event(
+            phase="validation_key",
+            outcome="succeeded",
+            reason_code=("assigned" if payload.secret_id else "unassigned"),
+            request_id=getattr(request.state, "operation_request_id", None),
+        )
+        request.state.operation_changed_fields = ["validation_key"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(state)
+
     @app.post("/api/admin/apify-key-pool/{secret_id}/drain")
     async def admin_apify_key_pool_drain(
         secret_id: str,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
         state = apify_key_pool.public_state(str(user["workspace_id"]))
         if secret_id not in {
             str(member["secret_id"]) for member in state["members"]
@@ -5437,7 +5604,8 @@ def create_app(
         route_id: str,
         response: Response,
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ] = Query(...),
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
@@ -5446,6 +5614,186 @@ def create_app(
         ).list_pool_candidates(route_id, goal=goal)
         response.headers["Cache-Control"] = "no-store"
         return ok(result)
+
+    @app.patch("/api/admin/apify-routes/{route_id}/freshness-settings")
+    async def admin_apify_freshness_settings(
+        route_id: str,
+        payload: ApifyFreshnessSettingsRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).update_freshness_settings(
+            route_id,
+            enabled=bool(payload.enabled),
+            interval_hours=int(payload.interval_hours),
+            expected_generation=int(payload.expected_generation),
+            actor_user_id=str(user["id"]),
+            standing_authorization_confirmed=bool(
+                payload.standing_authorization_confirmed
+            ),
+        )
+        result = public_actor_ops_detail(
+            apify_actor_ops_for(str(user["workspace_id"])),
+            route_id,
+        )
+        request.state.operation_changed_fields = [
+            "freshness_enabled",
+            "freshness_interval_hours",
+            "freshness_authorization",
+        ]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.get("/api/admin/apify-routes/{route_id}/freshness-plan")
+    async def admin_apify_freshness_plan(
+        route_id: str,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).freshness_plan(route_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.post("/api/admin/apify-routes/{route_id}/freshness-checks")
+    async def admin_apify_freshness_check(
+        route_id: str,
+        payload: ApifyFreshnessCheckRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        quota.ensure_job_allowed(
+            workspace_id=str(user["workspace_id"]),
+            user_id=str(user["id"]),
+        )
+        resilience = apify_actor_resilience_for(str(user["workspace_id"]))
+        check = resilience.create_freshness_check(
+            route_id,
+            trigger_kind="manual",
+            actor_user_id=str(user["id"]),
+            cost_confirmed=bool(payload.cost_confirmed),
+            expected_generation=int(payload.expected_generation),
+            approved_max_total_charge_usd=float(
+                payload.max_total_charge_usd
+            ),
+            request_id=getattr(request.state, "operation_request_id", None),
+        )
+        try:
+            queued = queue.create_job(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                job_type="apify_actor_freshness_check",
+                payload={"check_id": str(check["check_id"])},
+                priority=100,
+                max_attempts=1,
+                retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+            )
+            resilience.attach_freshness_job(
+                str(check["check_id"]), str(queued["id"])
+            )
+        except Exception:
+            resilience.fail_freshness_check(
+                str(check["check_id"]),
+                reason_code="job_queue_failed",
+            )
+            raise
+        request.state.operation_job_id = str(queued["id"])
+        request.state.operation_outcome = "queued"
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "check": resilience.get_freshness_check(str(check["check_id"])),
+                "job": {"id": str(queued["id"]), "status": str(queued["status"])},
+            }
+        )
+
+    @app.get("/api/admin/apify-freshness-checks/{check_id}")
+    async def admin_apify_freshness_check_detail(
+        check_id: str,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).get_freshness_check(check_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.patch("/api/admin/sources/{source_id}/apify-preference")
+    async def admin_apify_source_preference(
+        source_id: str,
+        payload: ApifySourcePreferenceRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).set_source_preference(
+            source_id,
+            candidate_id=payload.candidate_id,
+            expected_generation=int(payload.expected_generation),
+        )
+        request.state.operation_source_id = source_id
+        request.state.operation_changed_fields = ["actor_preference"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.get("/api/admin/apify-actor-events")
+    async def admin_apify_actor_events(
+        response: Response,
+        route_id: str | None = Query(default=None, max_length=128),
+        source_id: str | None = Query(default=None, max_length=128),
+        candidate_id: str | None = Query(default=None, max_length=128),
+        phase: str | None = Query(default=None, max_length=96),
+        outcome: str | None = Query(default=None, max_length=96),
+        since: datetime | None = Query(default=None),
+        until: datetime | None = Query(default=None),
+        cursor: str | None = Query(default=None, max_length=512),
+        limit: int = Query(default=50, ge=1, le=100),
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).list_events(
+            route_id=route_id,
+            source_id=source_id,
+            candidate_id=candidate_id,
+            phase=phase,
+            outcome=outcome,
+            since=since,
+            until=until,
+            cursor=cursor,
+            limit=limit,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
+
+    @app.post(
+        "/api/admin/apify-actor-evaluations/{evaluation_id}/retry"
+    )
+    async def admin_apify_actor_evaluation_retry(
+        evaluation_id: str,
+        payload: ApifyEvaluationRetryRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).retry_evaluation_once(
+            evaluation_id,
+            actor_user_id=str(user["id"]),
+        )
+        request.state.operation_changed_fields = ["evaluation_retry"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, "evaluation": result})
 
     @app.post(
         "/api/admin/apify-routes/{route_id}/pool-candidates/refresh"
@@ -5491,12 +5839,17 @@ def create_app(
                     status_code=409,
                 )
             prefer_existing = payload.goal == "upgrade_legacy"
+            compatibility_single = payload.goal == "compatibility_single"
             discovery = ops.create_discovery_run(
                 route_id,
                 trigger_reason=(
                     "manual_legacy_upgrade_refresh"
                     if prefer_existing
-                    else "manual_candidate_refresh"
+                    else (
+                        "manual_compatibility_candidate_refresh"
+                        if compatibility_single
+                        else "manual_candidate_refresh"
+                    )
                 ),
                 expected_generation=int(payload.expected_generation),
             )
@@ -5593,6 +5946,7 @@ def create_app(
             store,
             workspace_id=workspace_id,
             data_dir=str(data_dir),
+            purpose="validation",
         )
         if coordinator is None:
             raise ActorOpsError(
@@ -6177,7 +6531,8 @@ def create_app(
         run_id: str,
         response: Response,
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ] = Query(default="initial_pool"),
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
@@ -6599,6 +6954,23 @@ def create_app(
                 else []
             ),
         ]
+        try:
+            apify_actor_resilience_for(str(user["workspace_id"])).emit_event(
+                route_id=route_id,
+                phase="pool_activation",
+                outcome="succeeded",
+                reason_code=(
+                    "manual_rollback"
+                    if payload.rollback_revision_id
+                    else "manual_pool_update"
+                ),
+                occurrence_count=sum(
+                    1 for item in payload.slots if item.revision_id
+                ),
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except Exception:
+            pass
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
@@ -6619,6 +6991,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         ops = apify_actor_ops_for(str(user["workspace_id"]))
+        activation_reason = "recommended_pool"
         staged_fields = (
             payload.stage_id,
             payload.expected_plan_hash,
@@ -6640,6 +7013,11 @@ def create_app(
                     "Actor pool stage was not found for this route",
                     status_code=404,
                 )
+            activation_reason = (
+                "compatibility_single"
+                if str(stage.get("goal") or "") == "compatibility_single"
+                else "staged_pool"
+            )
             result = ops.apply_pool_stage(
                 str(payload.stage_id),
                 expected_generation=int(payload.expected_generation),
@@ -6653,6 +7031,21 @@ def create_app(
                 expected_generation=int(payload.expected_generation),
                 confirmation=payload.confirmation,
             )
+        try:
+            apify_actor_resilience_for(str(user["workspace_id"])).emit_event(
+                route_id=route_id,
+                phase="pool_activation",
+                outcome="succeeded",
+                reason_code=activation_reason,
+                occurrence_count=sum(
+                    1
+                    for slot in result.get("slots", [])
+                    if slot.get("revision_id")
+                ),
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except Exception:
+            pass
         request.state.operation_changed_fields = [
             "recommended_slots",
             "generation",
@@ -7831,7 +8224,11 @@ def create_app(
             == YOUTUBE_CHANNEL_SETUP_TYPE
         )
         source_enabled = bool(payload.enabled)
-        if actor_ops_mode == "primary":
+        if (
+            actor_ops_mode == "primary"
+            and str((actor_ops_route or {}).get("admission_mode") or "standard")
+            != "compatibility"
+        ):
             existing_source = store.get_source_by_key(
                 workspace_id=str(user["workspace_id"]),
                 source_key=key,
@@ -7849,7 +8246,7 @@ def create_app(
                 existing_source
                 and existing_binding
                 and existing_binding.get("validation_status")
-                in {"ready_2of2", "ready_3of3"}
+                in {"ready_1of1", "ready_2of2", "ready_3of3"}
                 and existing_source.get("enabled")
             )
         try:
@@ -8270,6 +8667,7 @@ def create_app(
                         status_code=409,
                     ) from exc
                 if str(binding["validation_status"]) not in {
+                    "ready_1of1",
                     "ready_2of2",
                     "ready_3of3",
                 }:

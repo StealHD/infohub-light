@@ -304,6 +304,9 @@ function ApifyMemberAlerts({ member }: { member: ApifyKeyPoolMember | null }) {
 function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: SecretRef[]; userId: string; onSecretChanged: (secretId: string, action: 'rotate' | 'delete' | 'connection') => void }) {
   const { api } = useAppContext()
   const queryClient = useQueryClient()
+  const validationTriggerRefs = useRef(new Map<string, HTMLButtonElement>())
+  const validationRestoreSecretId = useRef<string | null>(null)
+  const [validationTarget, setValidationTarget] = useState<string | null | undefined>(undefined)
   const poolQuery = useQuery({
     queryKey: queryKeys.apifyKeyPool(userId),
     queryFn: ({ signal }) => api.apifyKeyPool(signal),
@@ -336,6 +339,25 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
       actionToast.danger('安全排空失败', { description: message, onRetry: () => !drainMutation.isPending && drainMutation.mutate(secretId) })
     },
   })
+  const validationMutation = useMutation({
+    mutationFn: ({ secretId, expectedGeneration }: { secretId: string | null; expectedGeneration: number }) => api.setApifyValidationKey(secretId, expectedGeneration),
+    onSuccess: (pool) => {
+      queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
+      setValidationTarget(undefined)
+      const restoreSecretId = validationRestoreSecretId.current
+      window.requestAnimationFrame(() => {
+        if (restoreSecretId) validationTriggerRefs.current.get(restoreSecretId)?.focus()
+      })
+      actionToast.success(pool.validation_secret_id ? '专用校验 Key 已指定' : '专用校验 Key 已取消')
+    },
+    onError: (caught) => {
+      if (caught instanceof ApiError && ['apify_key_pool_generation_conflict', 'apify_key_pool_conflict'].includes(caught.code)) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(userId) })
+        setValidationTarget(undefined)
+      }
+      actionToast.danger('校验 Key 设置失败', { description: apifyPoolActionError(caught, '该 Key 可能仍在生产使用或有未终结 Run；请先安全排空。') })
+    },
+  })
   const apifySecrets = secrets.filter(isApifySecret)
   const secretsById = new Map(apifySecrets.map((secret) => [secret.id, secret]))
   const orderedMembers = [...(poolQuery.data?.members ?? [])].sort((left, right) => left.position - right.position)
@@ -351,8 +373,16 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
   const poolBusy = pool?.enabled === true && ['draining', 'blocked'].includes(pool.status)
   const unresolvedMembers = orderedMembers.some((member) => !secretsById.has(member.secret_id))
 
+  function closeValidationModal() {
+    const restoreSecretId = validationRestoreSecretId.current
+    setValidationTarget(undefined)
+    window.requestAnimationFrame(() => {
+      if (restoreSecretId) validationTriggerRefs.current.get(restoreSecretId)?.focus()
+    })
+  }
+
   function memberLocked(member: ApifyKeyPoolMember | null) {
-    return Boolean(pool?.enabled && member && (member.status === 'active' || member.status === 'draining' || member.active_run_count > 0 || pool.active_secret_id === member.secret_id))
+    return Boolean(member?.role === 'validation' || (pool?.enabled && member && (member.status === 'active' || member.status === 'draining' || member.active_run_count > 0 || pool.active_secret_id === member.secret_id)))
   }
 
   function moveMember(secretId: string, offset: -1 | 1) {
@@ -369,7 +399,7 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
 
   const status = pool ? poolStatusLabels[pool.status] ?? '状态需要检查' : '正在读取'
   const statusTone = pool?.status === 'ready' ? 'success' : ['blocked', 'exhausted'].includes(pool?.status ?? '') ? 'danger' : pool?.status === 'draining' ? 'warning' : 'neutral'
-  return <SettingsSection title="Apify Key 池" description="统一管理 Apify Key 的顺序、额度和安全轮换。">
+  return <><SettingsSection title="Apify Key 池" description="统一管理生产 Key、一个独占校验 Key、额度和安全轮换。">
     {poolQuery.isPending
       ? <LoadingState label="正在读取 Apify Key 池" rows={2} />
       : poolQuery.isError
@@ -409,11 +439,13 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center justify-end gap-1.5">
+                      {member?.role === 'validation' && <StatusBadge tone="warning">专用校验</StatusBadge>}
                       <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
                       {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
                     </div>
                   </Card.Header>
                   <Card.Content className="grid gap-2 px-4 pb-3 pt-0">
+                    <p className="type-meta text-muted">角色：{member?.role === 'validation' ? '专用校验（不参与生产）' : '生产抓取'}</p>
                     <SecretQuotaDetails secret={secret} userId={userId} />
                     <ApifyMemberAlerts member={member} />
                   </Card.Content>
@@ -422,6 +454,8 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant="ghost" isIconOnly aria-label={`上移 ${secret.name}`} isDisabled={controlsDisabled || index <= 0 || lifecycleLocked || memberLocked(previous)} onPress={() => moveMember(secret.id, -1)}><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
                       <Button size="sm" variant="ghost" isIconOnly aria-label={`下移 ${secret.name}`} isDisabled={controlsDisabled || index < 0 || index >= orderedMembers.length - 1 || lifecycleLocked || memberLocked(next)} onPress={() => moveMember(secret.id, 1)}><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
+                      {member && member.role !== 'validation' && <Button ref={(node) => { if (node) validationTriggerRefs.current.set(secret.id, node); else validationTriggerRefs.current.delete(secret.id) }} size="sm" variant="ghost" isDisabled={validationMutation.isPending || member.status !== 'standby' || member.active_run_count > 0 || pool?.active_secret_id === member.secret_id} onPress={() => { validationRestoreSecretId.current = secret.id; setValidationTarget(member.secret_id) }}>设为校验 Key</Button>}
+                      {member?.role === 'validation' && <Button ref={(node) => { if (node) validationTriggerRefs.current.set(secret.id, node); else validationTriggerRefs.current.delete(secret.id) }} size="sm" variant="ghost" isDisabled={validationMutation.isPending || member.active_run_count > 0} onPress={() => { validationRestoreSecretId.current = secret.id; setValidationTarget(null) }}>取消校验角色</Button>}
                       <SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} />
                     </div>
                   </Card.Footer>
@@ -430,6 +464,8 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
           </div>
         </>}
   </SettingsSection>
+  <Modal isOpen={validationTarget !== undefined} onOpenChange={(open) => { if (!open && !validationMutation.isPending) closeValidationModal() }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">确认校验 Key 角色</Modal.Trigger><Modal.Backdrop isDismissable={!validationMutation.isPending} isKeyboardDismissDisabled={validationMutation.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>{validationTarget ? '指定专用校验 Key' : '取消专用校验 Key'}</Modal.Heading></Modal.Header><Modal.Body><StatusNotice title={validationTarget ? '该 Key 将与生产抓取完全隔离' : '自动新鲜度校验将停止创建新任务'} status="warning">{validationTarget ? '它只用于 ActorOps Canary、兼容试跑和新鲜度比对，不进入生产排序，生产 Key 耗尽时也不会兜底。' : '现有非终态校验 Run 必须先结束；取消后普通抓取不受影响。'}</StatusNotice></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={validationMutation.isPending} onPress={closeValidationModal}>取消</Button><Button isDisabled={!pool || validationMutation.isPending} onPress={() => pool && validationMutation.mutate({ secretId: validationTarget ?? null, expectedGeneration: pool.generation })}>{validationMutation.isPending ? '保存中…' : '确认角色变更'}</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
+  </>
 }
 
 export function SettingsSecretsPage() {

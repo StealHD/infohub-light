@@ -2697,6 +2697,76 @@ describe('App routes', () => {
     expect(document.body.textContent).not.toContain('rotated-write-only')
   }, 10_000)
 
+  it('assigns one dedicated validation Key and restores focus to that Key row', async () => {
+    const browser = userEvent.setup()
+    const pool = {
+      schema_version: 2 as const,
+      enabled: true,
+      generation: 11,
+      status: 'ready' as const,
+      active_secret_id: 'apify-production',
+      draining_secret_id: null,
+      blocked_reason: null,
+      retry_at: null,
+      validation_secret_id: null,
+      validation_key_status: 'unassigned' as const,
+      members: [
+        { secret_id: 'apify-production', position: 0, role: 'acquisition' as const, status: 'active' as const, blocked_until: null, cycle_end_at: null, last_checked_at: null, last_error_code: null, active_run_count: 0 },
+        { secret_id: 'apify-validation', position: 1, role: 'acquisition' as const, status: 'standby' as const, blocked_until: null, cycle_end_at: null, last_checked_at: null, last_error_code: null, active_run_count: 0 },
+      ],
+    }
+    const assigned = {
+      ...pool,
+      generation: 12,
+      validation_secret_id: 'apify-validation',
+      validation_key_status: 'standby' as const,
+      members: [
+        pool.members[0],
+        { ...pool.members[1], role: 'validation' as const },
+      ],
+    }
+    const setApifyValidationKey = vi.fn().mockResolvedValue(assigned)
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-validation-key', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [
+        { id: 'apify-production', name: 'Production Key', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRODUCTION', is_set: true, used_by: [] },
+        { id: 'apify-validation', name: 'Validation Key', kind: 'apify', provider: 'apify', env_name: 'APIFY_VALIDATION', is_set: true, used_by: [] },
+      ] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      apifyKeyPool: vi.fn().mockResolvedValue(pool),
+      setApifyValidationKey,
+      secretQuota: vi.fn().mockResolvedValue({
+        secret_id: 'apify-validation',
+        provider: 'apify',
+        currency: 'USD',
+        cycle_start_at: '2026-08-01T00:00:00Z',
+        cycle_end_at: '2026-08-31T23:59:59Z',
+        checked_at: '2026-08-11T08:00:00Z',
+        monthly_included_credits_usd: 5,
+        monthly_usage_usd: 1,
+        remaining_included_credits_usd: 4,
+        max_monthly_usage_usd: 10,
+        remaining_hard_limit_usd: 9,
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    const validationCard = (await screen.findByText('Validation Key')).closest<HTMLElement>('[data-apify-key-card]')!
+    const trigger = within(validationCard).getByRole('button', { name: '设为校验 Key' })
+    await browser.click(trigger)
+    const dialog = await screen.findByRole('dialog', { name: '指定专用校验 Key' })
+    expect(within(dialog).getByText(/不进入生产排序/)).toBeVisible()
+    await browser.click(within(dialog).getByRole('button', { name: '确认角色变更' }))
+
+    await waitFor(() => expect(setApifyValidationKey).toHaveBeenCalledWith('apify-validation', 11))
+    expect(await within(validationCard).findByText('专用校验')).toBeVisible()
+    const cancelRole = within(validationCard).getByRole('button', { name: '取消校验角色' })
+    await waitFor(() => expect(cancelRole).toHaveFocus())
+    expect(within(validationCard).getByText('角色：专用校验（不参与生产）')).toBeVisible()
+  })
+
   it('announces deferred Apify quota retries and preserves the last trusted quota after refresh failure', async () => {
     const browser = userEvent.setup()
     const retryQuota = deferred<{

@@ -103,6 +103,10 @@ class ApifyCredentialRejectedError(ApifyKeyPoolError):
     retryable = True
 
 
+class ApifyValidationKeyRequiredError(ApifyKeyPoolError):
+    code = "apify_validation_key_required"
+
+
 class ApifyRunLeaseError(ApifyKeyPoolConflictError):
     """A caller attempted to mutate a run through the wrong pinned lease."""
 
@@ -177,12 +181,18 @@ class ApifyKeyPoolService:
         now: Callable[[], datetime] | None = None,
         quota_max_age_seconds: int = POOL_QUOTA_MAX_AGE_SECONDS,
         workspace_id: str = DEFAULT_WORKSPACE_ID,
+        run_purpose: str = "acquisition",
+        require_validation_key: bool = False,
     ) -> None:
         self.store = store
         self.secret_store = secret_store or SecretStore(store.data_dir)
         self._now = now or (lambda: datetime.now(timezone.utc))
         self.quota_max_age_seconds = max(int(quota_max_age_seconds), 1)
         self.workspace_id = str(workspace_id)
+        self.run_purpose = str(run_purpose).strip().casefold()
+        if self.run_purpose not in {"acquisition", "validation"}:
+            raise ValueError("run_purpose must be acquisition or validation")
+        self.require_validation_key = bool(require_validation_key)
 
     def _current_time(self) -> datetime:
         return _utc(self._now())
@@ -289,6 +299,7 @@ class ApifyKeyPoolService:
             f"""
             SELECT
                 member.secret_id,
+                member.role,
                 member.position,
                 member.status,
                 member.blocked_until,
@@ -305,6 +316,7 @@ class ApifyKeyPoolService:
             GROUP BY
                 member.workspace_id,
                 member.secret_id,
+                member.role,
                 member.position,
                 member.status,
                 member.blocked_until,
@@ -318,12 +330,12 @@ class ApifyKeyPoolService:
         retry_candidates = [
             value
             for row in rows
-            if row["status"] == "depleted"
+            if row["role"] == "acquisition" and row["status"] == "depleted"
             for value in (row["blocked_until"], row["cycle_end_at"])
             if value
         ]
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "enabled": apify_key_pool_enabled(),
             "generation": int(state["generation"]),
             "status": str(state["status"]),
@@ -331,9 +343,26 @@ class ApifyKeyPoolService:
             "draining_secret_id": state["draining_secret_id"],
             "blocked_reason": state["blocked_reason"],
             "retry_at": min(retry_candidates) if retry_candidates else None,
+            "validation_secret_id": next(
+                (
+                    str(row["secret_id"])
+                    for row in rows
+                    if row["role"] == "validation"
+                ),
+                None,
+            ),
+            "validation_key_status": next(
+                (
+                    str(row["status"])
+                    for row in rows
+                    if row["role"] == "validation"
+                ),
+                "unassigned",
+            ),
             "members": [
                 {
                     "secret_id": str(row["secret_id"]),
+                    "role": str(row["role"]),
                     "position": int(row["position"]),
                     "status": str(row["status"]),
                     "blocked_until": row["blocked_until"],
@@ -375,6 +404,109 @@ class ApifyKeyPoolService:
             "code": state["blocked_reason"] or ApifyKeyPoolBlockedError.code,
             "retry_at": None,
         }
+
+    def set_validation_key(
+        self,
+        workspace_id: str,
+        *,
+        secret_id: str | None,
+        expected_generation: int,
+    ) -> dict[str, Any]:
+        """Assign at most one non-production credential to validation work."""
+
+        selected = str(secret_id or "").strip() or None
+        connection = self.store.connect()
+        owns_transaction = not connection.in_transaction
+        now_iso = self._current_time().isoformat()
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            state = self._state_row(connection, workspace_id)
+            if int(state["generation"]) != int(expected_generation):
+                raise ApifyKeyPoolConflictError()
+            current = connection.execute(
+                """
+                SELECT * FROM apify_key_pool_members
+                WHERE workspace_id = ? AND role = 'validation'
+                """,
+                (workspace_id,),
+            ).fetchone()
+            if current is not None and self._nonterminal_count(
+                connection,
+                workspace_id=workspace_id,
+                secret_id=str(current["secret_id"]),
+            ):
+                raise ApifyKeyBusyError(
+                    "validation key has a non-terminal Actor run"
+                )
+            target = None
+            if selected is not None:
+                target = connection.execute(
+                    """
+                    SELECT * FROM apify_key_pool_members
+                    WHERE workspace_id = ? AND secret_id = ?
+                    """,
+                    (workspace_id, selected),
+                ).fetchone()
+                if target is None:
+                    raise LookupError("Apify key pool member not found")
+                if str(target["role"]) == "validation":
+                    if owns_transaction:
+                        connection.commit()
+                    return self.public_state(workspace_id)
+                if str(target["status"]) in {"active", "draining"} or (
+                    state["active_secret_id"] == selected
+                ):
+                    raise ApifyKeyBusyError(
+                        "active Apify key must be drained before validation assignment"
+                    )
+                if str(target["status"]) != "standby":
+                    raise ApifyKeyBusyError(
+                        "only a usable standby Apify key can validate Actors"
+                    )
+                if self._nonterminal_count(
+                    connection,
+                    workspace_id=workspace_id,
+                    secret_id=selected,
+                ):
+                    raise ApifyKeyBusyError(
+                        "validation key candidate has a non-terminal Actor run"
+                    )
+            if current is not None:
+                connection.execute(
+                    """
+                    UPDATE apify_key_pool_members
+                    SET role = 'acquisition', updated_at = ?
+                    WHERE workspace_id = ? AND secret_id = ?
+                    """,
+                    (now_iso, workspace_id, str(current["secret_id"])),
+                )
+            if selected is not None:
+                connection.execute(
+                    """
+                    UPDATE apify_key_pool_members
+                    SET role = 'validation', status = 'standby',
+                        blocked_until = NULL, last_error_code = NULL,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND secret_id = ?
+                    """,
+                    (now_iso, workspace_id, selected),
+                )
+            connection.execute(
+                """
+                UPDATE apify_key_pool_state
+                SET generation = generation + 1, updated_at = ?
+                WHERE workspace_id = ?
+                """,
+                (now_iso, workspace_id),
+            )
+            if owns_transaction:
+                connection.commit()
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
+        return self.public_state(workspace_id)
 
     def append_secret(self, secret_id: str) -> dict[str, Any]:
         """Append a configured Apify ref without ever reading its raw value."""
@@ -506,6 +638,20 @@ class ApifyKeyPoolService:
                 raise ValueError("secret_ids must contain every pool member exactly once")
             active_secret_id = state["active_secret_id"]
             if active_secret_id and requested and requested[0] != active_secret_id:
+                requested_primary = connection.execute(
+                    """
+                    SELECT role FROM apify_key_pool_members
+                    WHERE workspace_id = ? AND secret_id = ?
+                    """,
+                    (workspace_id, requested[0]),
+                ).fetchone()
+                if (
+                    requested_primary is None
+                    or str(requested_primary["role"]) != "acquisition"
+                ):
+                    raise ValueError(
+                        "the first Apify key must have the acquisition role"
+                    )
                 active_run_count = self._nonterminal_count(
                     connection,
                     workspace_id=workspace_id,
@@ -585,10 +731,15 @@ class ApifyKeyPoolService:
         workspace_id: str | None = None,
         logical_run_id: str | None = None,
         expected_pool_generation: int | None = None,
+        purpose: str | None = None,
+        require_validation_key: bool | None = None,
     ) -> ApifyCredentialLease:
         """Atomically pin one active secret and create a pre-POST reservation."""
 
         workspace_id = str(workspace_id or self.workspace_id)
+        normalized_purpose = str(purpose or self.run_purpose).strip().casefold()
+        if normalized_purpose not in {"acquisition", "validation"}:
+            raise ValueError("purpose must be acquisition or validation")
         attempted = {str(secret_id) for secret_id in attempted_secret_ids}
         connection = self.store.connect()
         owns_transaction = not connection.in_transaction
@@ -605,6 +756,93 @@ class ApifyKeyPoolService:
                 raise ApifyKeyPoolConflictError(
                     "Apify Key pool changed after the task was frozen"
                 )
+            if normalized_purpose == "validation":
+                validation_member = connection.execute(
+                    """
+                    SELECT member.*, secret.version, secret.env_name
+                    FROM apify_key_pool_members AS member
+                    JOIN secret_refs AS secret ON secret.id = member.secret_id
+                    WHERE member.workspace_id = ?
+                      AND member.role = 'validation'
+                    LIMIT 1
+                    """,
+                    (workspace_id,),
+                ).fetchone()
+                if validation_member is None:
+                    if (
+                        self.require_validation_key
+                        if require_validation_key is None
+                        else bool(require_validation_key)
+                    ):
+                        raise ApifyValidationKeyRequiredError()
+                else:
+                    secret_id = str(validation_member["secret_id"])
+                    if secret_id in attempted:
+                        raise ApifyKeyPoolExhaustedError(
+                            "validation key was already attempted"
+                        )
+                    if str(validation_member["status"]) != "standby":
+                        raise ApifyKeyPoolBlockedError(
+                            "validation key is not usable"
+                        )
+                    if self._nonterminal_count(
+                        connection,
+                        workspace_id=workspace_id,
+                        secret_id=secret_id,
+                    ):
+                        raise ApifyKeyBusyError(
+                            "validation key has an unresolved Actor run"
+                        )
+                    env_name = str(validation_member["env_name"])
+                    token = self._token_for_env(env_name)
+                    if token is None:
+                        connection.execute(
+                            """
+                            UPDATE apify_key_pool_members
+                            SET status = 'invalid',
+                                last_error_code = 'apify_secret_not_configured',
+                                updated_at = ?
+                            WHERE workspace_id = ? AND secret_id = ?
+                            """,
+                            (now_iso, workspace_id, secret_id),
+                        )
+                        if owns_transaction:
+                            connection.commit()
+                        raise ApifyKeyPoolBlockedError(
+                            "validation key value is unavailable"
+                        )
+                    reservation_id = f"apifyrun_{uuid.uuid4().hex}"
+                    connection.execute(
+                        """
+                        INSERT INTO apify_actor_runs (
+                            id, workspace_id, logical_run_id, purpose,
+                            secret_id, secret_version, pool_generation,
+                            status, created_at, updated_at
+                        ) VALUES (?, ?, ?, 'validation', ?, ?, ?,
+                                  'reserved', ?, ?)
+                        """,
+                        (
+                            reservation_id,
+                            workspace_id,
+                            str(logical_run_id) if logical_run_id else None,
+                            secret_id,
+                            int(validation_member["version"]),
+                            int(state["generation"]),
+                            now_iso,
+                            now_iso,
+                        ),
+                    )
+                    if owns_transaction:
+                        connection.commit()
+                    return ApifyCredentialLease(
+                        reservation_id=reservation_id,
+                        secret_id=secret_id,
+                        secret_version=int(validation_member["version"]),
+                        pool_generation=int(state["generation"]),
+                        env_name=env_name,
+                        token=token,
+                        quota_check_required=False,
+                    )
             if state["status"] == "draining":
                 raise ApifyKeyDrainPendingError()
             if state["status"] == "blocked":
@@ -619,7 +857,8 @@ class ApifyKeyPoolService:
             member = connection.execute(
                 """
                 SELECT * FROM apify_key_pool_members
-                WHERE workspace_id = ? AND secret_id = ? AND status = 'active'
+                WHERE workspace_id = ? AND secret_id = ?
+                  AND status = 'active' AND role = 'acquisition'
                 """,
                 (workspace_id, secret_id),
             ).fetchone()
@@ -656,6 +895,8 @@ class ApifyKeyPoolService:
                     workspace_id=workspace_id,
                     logical_run_id=logical_run_id,
                     expected_pool_generation=expected_pool_generation,
+                    purpose=normalized_purpose,
+                    require_validation_key=require_validation_key,
                 )
             env_name = str(secret["env_name"])
             token = self._token_for_env(env_name)
@@ -681,20 +922,24 @@ class ApifyKeyPoolService:
                     workspace_id=workspace_id,
                     logical_run_id=logical_run_id,
                     expected_pool_generation=expected_pool_generation,
+                    purpose=normalized_purpose,
+                    require_validation_key=require_validation_key,
                 )
 
             reservation_id = f"apifyrun_{uuid.uuid4().hex}"
             connection.execute(
                 """
                 INSERT INTO apify_actor_runs (
-                    id, workspace_id, logical_run_id, secret_id, secret_version,
-                    pool_generation, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
+                    id, workspace_id, logical_run_id, purpose,
+                    secret_id, secret_version, pool_generation,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
                 """,
                 (
                     reservation_id,
                     workspace_id,
                     str(logical_run_id) if logical_run_id else None,
+                    normalized_purpose,
                     secret_id,
                     int(secret["version"]),
                     int(state["generation"]),
@@ -755,6 +1000,29 @@ class ApifyKeyPoolService:
 
         connection = self.store.connect()
         run = self._run_for_lease(connection, lease)
+        if str(run["purpose"] or "acquisition") == "validation":
+            member = connection.execute(
+                """
+                SELECT role, status FROM apify_key_pool_members
+                WHERE workspace_id = ? AND secret_id = ?
+                """,
+                (str(run["workspace_id"]), str(run["secret_id"])),
+            ).fetchone()
+            if member is None:
+                raise ApifyKeyDrainPendingError()
+            if str(member["role"]) == "validation":
+                usable = str(member["status"]) == "standby"
+            else:
+                state = self._state_row(connection, str(run["workspace_id"]))
+                usable = (
+                    str(member["role"]) == "acquisition"
+                    and str(member["status"]) == "active"
+                    and state["status"] == "ready"
+                    and state["active_secret_id"] == run["secret_id"]
+                )
+            if run["status"] != "reserved" or not usable:
+                raise ApifyKeyDrainPendingError()
+            return
         state = self._state_row(connection, str(run["workspace_id"]))
         if (
             run["status"] != "reserved"
@@ -820,7 +1088,29 @@ class ApifyKeyPoolService:
         result = self.get_run(str(run["id"]))
         if result is None:
             raise LookupError("registered Apify run not found")
-        if (
+        if str(run["purpose"] or "acquisition") == "validation":
+            member = connection.execute(
+                """
+                SELECT role, status FROM apify_key_pool_members
+                WHERE workspace_id = ? AND secret_id = ?
+                """,
+                (str(run["workspace_id"]), str(run["secret_id"])),
+            ).fetchone()
+            dedicated_usable = bool(
+                member is not None
+                and str(member["role"]) == "validation"
+                and str(member["status"]) == "standby"
+            )
+            acquisition_fallback_usable = bool(
+                member is not None
+                and str(member["role"]) == "acquisition"
+                and str(member["status"]) == "active"
+                and state["status"] == "ready"
+                and state["active_secret_id"] == run["secret_id"]
+            )
+            if not (dedicated_usable or acquisition_fallback_usable):
+                raise ApifyKeyDrainPendingError(active_run_count=1)
+        elif (
             state["status"] != "ready"
             or state["active_secret_id"] != run["secret_id"]
         ):
@@ -893,14 +1183,15 @@ class ApifyKeyPoolService:
                 """,
                 (safe_code, now_iso, run["id"]),
             )
-            connection.execute(
-                """
-                UPDATE apify_key_pool_state
-                SET status = 'blocked', blocked_reason = ?, updated_at = ?
-                WHERE workspace_id = ?
-                """,
-                (safe_code, now_iso, run["workspace_id"]),
-            )
+            if str(run["purpose"] or "acquisition") != "validation":
+                connection.execute(
+                    """
+                    UPDATE apify_key_pool_state
+                    SET status = 'blocked', blocked_reason = ?, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (safe_code, now_iso, run["workspace_id"]),
+                )
             if owns_transaction:
                 connection.commit()
         except Exception:
@@ -1447,7 +1738,7 @@ class ApifyKeyPoolService:
                 connection.execute("BEGIN IMMEDIATE")
             member = connection.execute(
                 """
-                SELECT workspace_id FROM apify_key_pool_members
+                SELECT workspace_id, role FROM apify_key_pool_members
                 WHERE secret_id = ?
                 """,
                 (secret_id,),
@@ -1522,6 +1813,7 @@ class ApifyKeyPoolService:
                 FROM apify_key_pool_members
                 WHERE workspace_id = ?
                   AND status = 'standby'
+                  AND role = 'acquisition'
                   AND secret_id != ?
                 ORDER BY position, secret_id
                 LIMIT 1
@@ -1621,7 +1913,7 @@ class ApifyKeyPoolService:
                 connection.execute("BEGIN IMMEDIATE")
             member = connection.execute(
                 """
-                SELECT workspace_id FROM apify_key_pool_members
+                SELECT workspace_id, role FROM apify_key_pool_members
                 WHERE secret_id = ?
                 """,
                 (secret_id,),
@@ -1641,6 +1933,18 @@ class ApifyKeyPoolService:
                         """,
                         (reason, now_iso, now_iso, run["id"]),
                     )
+            if str(member["role"] or "acquisition") == "validation":
+                connection.execute(
+                    """
+                    UPDATE apify_key_pool_members
+                    SET status = ?, last_error_code = ?, updated_at = ?
+                    WHERE workspace_id = ? AND secret_id = ?
+                    """,
+                    (kind, reason, now_iso, workspace_id, secret_id),
+                )
+                if owns_transaction:
+                    connection.commit()
+                return workspace_id, False
             draining = self._begin_drain_in_transaction(
                 connection,
                 workspace_id=workspace_id,
@@ -1674,6 +1978,34 @@ class ApifyKeyPoolService:
             status_code=status_code,
             error_type=error_type,
         )
+        member = self.store.connect().execute(
+            """
+            SELECT role FROM apify_key_pool_members
+            WHERE workspace_id = ? AND secret_id = ?
+            """,
+            (workspace_id, str(lease.secret_id)),
+        ).fetchone()
+        if member is not None and str(member["role"]) == "validation":
+            try:
+                from .apify_actor_resilience import ApifyActorResilienceService
+
+                kind = str(
+                    getattr(failure_kind, "value", failure_kind)
+                ).strip().casefold()
+                ApifyActorResilienceService(
+                    self.store,
+                    workspace_id=workspace_id,
+                ).emit_event(
+                    phase="validation_key",
+                    outcome="failed",
+                    reason_code=(
+                        "apify_credits_depleted"
+                        if kind == "depleted"
+                        else "apify_token_invalid"
+                    ),
+                )
+            except Exception:
+                pass
         if not draining:
             return
         state = self._state_row(self.store.connect(), workspace_id)
@@ -1716,6 +2048,8 @@ class ApifyKeyPoolService:
         del remote_run_id, status
         run = self.get_run(str(lease.reservation_id))
         if run is None:
+            return False
+        if str(run["purpose"] or "acquisition") == "validation":
             return False
         state = self._state_row(
             self.store.connect(),
@@ -1996,6 +2330,7 @@ class ApifyKeyPoolService:
             FROM apify_key_pool_members
             WHERE workspace_id = ?
               AND status = 'depleted'
+              AND role = 'acquisition'
               AND COALESCE(blocked_until, cycle_end_at) IS NOT NULL
               AND COALESCE(blocked_until, cycle_end_at) <= ?
             ORDER BY position, secret_id
@@ -2019,6 +2354,7 @@ class ApifyKeyPoolService:
             FROM apify_key_pool_members
             WHERE workspace_id = ?
               AND status IN ('active', 'standby', 'draining', 'depleted')
+              AND role = 'acquisition'
             ORDER BY position, secret_id
             """,
             (workspace_id,),
@@ -2095,13 +2431,26 @@ class ApifyKeyPoolService:
             ):
                 raise ApifyKeyBusyError()
 
-            remains_active = state["active_secret_id"] == secret_id
+            is_validation = (
+                "role" in member.keys()
+                and str(member["role"] or "acquisition") == "validation"
+            )
+            remains_active = (
+                not is_validation and state["active_secret_id"] == secret_id
+            )
             activate = (
-                not remains_active
+                not is_validation
+                and not remains_active
                 and not state["active_secret_id"]
                 and state["status"] in {"empty", "ready", "exhausted"}
             )
-            next_status = "active" if remains_active or activate else "standby"
+            next_status = (
+                "standby"
+                if is_validation
+                else "active"
+                if remains_active or activate
+                else "standby"
+            )
             connection.execute(
                 """
                 UPDATE apify_key_pool_members
@@ -2273,6 +2622,7 @@ class ApifyKeyPoolService:
                     SELECT secret_id
                     FROM apify_key_pool_members
                     WHERE workspace_id = ? AND status = 'standby'
+                      AND role = 'acquisition'
                     ORDER BY position
                     LIMIT 1
                     """,
@@ -2287,7 +2637,11 @@ class ApifyKeyPoolService:
                         """,
                         (now_iso, workspace_id, candidate["secret_id"]),
                     )
-            member_exists = bool(rows)
+            member_exists = any(
+                "role" not in row.keys()
+                or str(row["role"] or "acquisition") == "acquisition"
+                for row in rows
+            )
             connection.execute(
                 """
                 UPDATE apify_key_pool_state

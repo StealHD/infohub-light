@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -68,6 +70,12 @@ _HARD_OUTPUT_CONTRACT_FAILURES = frozenset(
         "apify_actor_placeholder",
     }
 )
+_SAFE_CANARY_CODE = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
+
+
+def _safe_canary_code(value: Any, fallback: str) -> str:
+    code = str(value or "").strip().casefold().replace("-", "_")
+    return code if _SAFE_CANARY_CODE.fullmatch(code) else fallback
 
 
 def actor_canary_timeout_seconds() -> int:
@@ -85,6 +93,19 @@ def actor_canary_timeout_seconds() -> int:
         MIN_ACTOR_CANARY_TIMEOUT_SECONDS,
         min(value, MAX_ACTOR_CANARY_TIMEOUT_SECONDS),
     )
+
+
+def reference_target_for_slot(platform: str, slot: int) -> ActorTarget:
+    """Resolve an internal fixed reference without exposing it in admin APIs."""
+
+    references = _REFERENCE_TARGETS.get(str(platform).strip().casefold())
+    if not references or int(slot) not in range(len(references)):
+        raise ActorOpsError(
+            "apify_actor_reference_unavailable",
+            "No public reference target is configured for this Route",
+            status_code=412,
+        )
+    return references[int(slot)]
 
 
 def reference_target_fingerprint(
@@ -209,11 +230,24 @@ class ApifyActorCanaryRunner:
             SELECT validation.*, profile.route_key, profile.platform,
                    profile.generation AS route_generation,
                    profile.per_run_cap_usd, profile.status AS route_status,
+                   profile.admission_mode,
                    revision.candidate_id, revision.actor_id,
                    revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_json,
                    revision.manifest_hash, revision.lifecycle,
+                   revision.execution_mode, revision.observed_manifest,
+                   revision.security_evidence_json,
                    candidate.state AS candidate_state
+                   , EXISTS (
+                       SELECT 1
+                       FROM apify_actor_canary_batch_items AS batch_item
+                       JOIN apify_actor_canary_batches AS batch
+                         ON batch.workspace_id = batch_item.workspace_id
+                        AND batch.batch_id = batch_item.batch_id
+                       WHERE batch_item.workspace_id = validation.workspace_id
+                         AND batch_item.validation_id = validation.validation_id
+                         AND batch.goal = 'compatibility_single'
+                   ) AS compatibility_validation
             FROM apify_actor_validations AS validation
             JOIN apify_actor_route_profiles AS profile
               ON profile.route_id = validation.route_id
@@ -238,6 +272,28 @@ class ApifyActorCanaryRunner:
             raise ActorOpsError(
                 "apify_actor_validation_not_queued",
                 "Actor validation is not queued",
+            )
+        if bool(row["compatibility_validation"]):
+            if int(row["route_generation"]) != int(
+                row["approved_generation"] or -1
+            ):
+                self.ops.record_validation(
+                    validation_id,
+                    status="cancelled",
+                    semantic_outcome="approval_stale",
+                    cost_usd=0.0,
+                    cost_final=True,
+                    counts_toward_canary=False,
+                )
+                raise ActorOpsError(
+                    "apify_actor_canary_approval_stale",
+                    "Actor Route changed after compatibility approval",
+                    status_code=409,
+                )
+            return await self._run_compatibility_single(
+                row,
+                validation_id=validation_id,
+                job_id=job_id,
             )
         if (
             not row["build_id"]
@@ -601,6 +657,466 @@ class ApifyActorCanaryRunner:
             revision_id=str(validation["revision_id"]),
             status=str(validation["status"]),
             semantic_outcome=str(validation["semantic_outcome"]),
+            cost_usd=(
+                float(validation["cost_usd"])
+                if validation["cost_usd"] is not None
+                else None
+            ),
+        )
+
+    async def _run_compatibility_single(
+        self,
+        row: Any,
+        *,
+        validation_id: str,
+        job_id: str,
+    ) -> CanaryResult:
+        """Run one controlled X adapter and require a real nonempty result."""
+
+        from urllib.parse import urlparse
+
+        from ..models import (
+            ApifySocialConfig,
+            ApifySocialPlatform,
+            ApifySocialSubscriptionConfig,
+        )
+        from ..scrapers.apify_social import (
+            ApifySocialScraper,
+            ApifySocialSemanticError,
+        )
+
+        if str(row["platform"]) != "x":
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome="compatibility_route_unsupported",
+                cost_usd=0.0,
+                cost_final=True,
+                counts_toward_canary=False,
+            )
+            raise ActorOpsError(
+                "compatibility_route_unsupported",
+                "Compatibility single-Actor trial currently supports X only",
+                status_code=412,
+            )
+        security_evidence = {}
+        try:
+            parsed_security = json.loads(str(row["security_evidence_json"] or "{}"))
+            if isinstance(parsed_security, dict):
+                security_evidence = parsed_security
+        except (TypeError, ValueError, json.JSONDecodeError):
+            security_evidence = {}
+        if (
+            str(row["candidate_state"]) == "disabled"
+            and not bool(security_evidence.get("compatibility_trial_only"))
+        ):
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome="actor_disabled",
+                cost_usd=0.0,
+                cost_final=True,
+                counts_toward_canary=False,
+            )
+            raise ActorOpsError(
+                "actor_disabled",
+                "Selected Actor is disabled",
+                status_code=412,
+            )
+        from .apify_actor_discovery import (
+            ActorDiscoveryError,
+            ApifyActorDiscoveryService,
+            ApifyStoreRestClient,
+        )
+
+        try:
+            verifier = ApifyActorDiscoveryService(
+                self.ops,
+                ApifyStoreRestClient(
+                    str(self.client.token or ""),
+                    base_url=str(self.client.base_url),
+                    client=self.client.http_client,
+                ),
+                lambda _prompt: {},
+            )
+            current_candidate = await verifier.load_compatibility_candidate(
+                str(row["actor_id"]),
+                per_run_cap_usd=min(
+                    float(row["approved_max_cost_usd"] or 0.02),
+                    0.02,
+                ),
+            )
+            if row["build_id"] and (
+                str(current_candidate.build_id or "") != str(row["build_id"])
+                or str(current_candidate.build_number or "")
+                != str(row["build_number"] or "")
+            ):
+                raise ActorDiscoveryError(
+                    "compatibility_candidate_changed",
+                    "Compatibility Actor Build changed after approval",
+                    status_code=412,
+                )
+        except (ActorDiscoveryError, ValueError) as exc:
+            code = _safe_canary_code(
+                getattr(exc, "code", None),
+                "compatibility_preflight_failed",
+            )
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome=code,
+                cost_usd=0.0,
+                cost_final=True,
+                counts_toward_canary=False,
+            )
+            raise ActorOpsError(
+                code,
+                "Compatibility Actor failed the free paid-start preflight",
+                status_code=int(getattr(exc, "status_code", 412)),
+            ) from None
+        try:
+            target = self._target_for(row)
+            expected_handle = (
+                str(target.handle or "").strip().lstrip("@").casefold()
+            )
+            if not expected_handle:
+                raise ActorOpsError(
+                    "apify_actor_reference_unavailable",
+                    "Compatibility reference does not have a public handle",
+                    status_code=412,
+                )
+            sub = ApifySocialSubscriptionConfig(
+                platform=ApifySocialPlatform.X,
+                kind="profile",
+                target=expected_handle,
+                fetch_limit=1,
+                enabled=True,
+            )
+            scraper = ApifySocialScraper(
+                ApifySocialConfig(
+                    enabled=True,
+                    timeout_seconds=int(
+                        row["validation_timeout_seconds"]
+                        or actor_canary_timeout_seconds()
+                    ),
+                    subscriptions=[sub],
+                ),
+                self.client.http_client,
+                apify_coordinator=self.client.coordinator,
+                paid_canary=True,
+            )
+            actor_input = scraper._actor_input(
+                sub,
+                actor_id=str(row["actor_id"]),
+                input_dialect=str(
+                    security_evidence.get("input_dialect")
+                    or "controlled_default"
+                ),
+                input_count_field=(
+                    str(security_evidence["input_count_field"])
+                    if security_evidence.get("input_count_field")
+                    else None
+                ),
+            )
+        except (ActorOpsError, ValueError) as exc:
+            code = _safe_canary_code(
+                getattr(exc, "code", None),
+                "compatibility_input_invalid",
+            )
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome=code,
+                cost_usd=0.0,
+                cost_final=True,
+                counts_toward_canary=False,
+            )
+            if isinstance(exc, ActorOpsError):
+                raise
+            raise ActorOpsError(
+                code,
+                "Compatibility Actor input could not be built safely",
+                status_code=422,
+            ) from None
+        slot = RouteSlotSnapshot(
+            slot_name="primary",
+            candidate_id=str(row["candidate_id"]),
+            revision_id=str(row["revision_id"]),
+            actor_id=str(row["actor_id"]),
+            publisher=str(row["publisher"]),
+            build_id=(
+                str(current_candidate.build_id)
+                if current_candidate.build_id
+                else None
+            ),
+            build_number=(
+                str(current_candidate.build_number)
+                if current_candidate.build_number
+                else None
+            ),
+            manifest_hash=(
+                str(row["manifest_hash"]) if row["manifest_hash"] else None
+            ),
+            lifecycle=str(row["lifecycle"]),
+            candidate_state=str(row["candidate_state"]),
+            manifest=None,
+        )
+        key_row = self.store.connect().execute(
+            "SELECT generation FROM apify_key_pool_state WHERE workspace_id = ?",
+            (self.ops.workspace_id,),
+        ).fetchone()
+        snapshot = RouteExecutionSnapshot(
+            workspace_id=self.ops.workspace_id,
+            route_id=str(row["route_id"]),
+            route_key=str(row["route_key"]),
+            route_generation=int(row["route_generation"]),
+            per_run_cap_usd=min(
+                float(row["approved_max_cost_usd"] or 0.02), 0.02
+            ),
+            slots=(slot,),
+            target_fingerprint=str(row["target_fingerprint"] or "") or None,
+            key_pool_generation=(
+                int(key_row["generation"]) if key_row is not None else None
+            ),
+        )
+        attempt_id = self.ops.begin_validation_attempt(
+            validation_id,
+            snapshot,
+            slot,
+            job_id=job_id,
+        )
+        started = time.monotonic()
+
+        def duration() -> int:
+            return max(0, int(round(time.monotonic() - started)))
+
+        run = None
+        try:
+            run = await self.client.run_actor_detailed(
+                slot.actor_id,
+                actor_input,
+                max_total_charge_usd=snapshot.per_run_cap_usd,
+                logical_run_id=attempt_id,
+                build_number=slot.build_number,
+                max_paid_dataset_items=1,
+                dataset_item_limit=3,
+                expected_pool_generation=snapshot.key_pool_generation,
+                max_remote_starts=1,
+                timeout_seconds=int(
+                    row["validation_timeout_seconds"]
+                    or actor_canary_timeout_seconds()
+                ),
+            )
+            candidate_rows, semantic = scraper._validated_x_rows(run.items)
+            if semantic != "valid_nonempty":
+                raise ApifySocialSemanticError(
+                    "Compatibility Canary requires real nonempty X posts",
+                    code="compatibility_nonempty_required",
+                    failure_scope="actor",
+                    retryable=False,
+                )
+            identity_rows: list[dict[str, Any]] = []
+            for item in candidate_rows:
+                user_value = item.get("user") or item.get("author") or {}
+                user = user_value if isinstance(user_value, dict) else {}
+                observed = str(
+                    user.get("screen_name")
+                    or user.get("username")
+                    or user.get("userName")
+                    or user.get("handle")
+                    or item.get("user_screen_name")
+                    or item.get("user_username")
+                    or item.get("screen_name")
+                    or item.get("handle")
+                    or item.get("username")
+                    or ""
+                ).strip().lstrip("@").casefold()
+                if not observed:
+                    url = str(item.get("url") or item.get("permalink") or "")
+                    parsed = urlparse(url)
+                    parts = [part for part in parsed.path.split("/") if part]
+                    observed = parts[0].lstrip("@").casefold() if parts else ""
+                if observed == expected_handle:
+                    identity_rows.append(item)
+            if not identity_rows:
+                raise ApifySocialSemanticError(
+                    "Compatibility Canary output did not prove target identity",
+                    code="apify_actor_identity_mismatch",
+                    failure_scope="actor",
+                    retryable=False,
+                )
+            parsed_items = scraper._parse_candidate_rows(
+                identity_rows,
+                sub,
+                datetime.min.replace(tzinfo=timezone.utc),
+            )
+            valid_items = [
+                item
+                for item in parsed_items
+                if item.content.strip()
+                and item.published_at is not None
+                and str(urlparse(item.url).hostname or "").casefold()
+                in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
+            ]
+            if not valid_items:
+                raise ApifySocialSemanticError(
+                    "Compatibility Canary output failed the publication fence",
+                    code="apify_actor_contract_mismatch",
+                    failure_scope="actor",
+                    retryable=False,
+                )
+        except TimeoutError:
+            code = "apify_actor_run_timed_out"
+            cost = self.ops.finalized_actor_run_cost(attempt_id)
+            self.ops.finish_attempt(
+                attempt_id,
+                status="actor_failed",
+                semantic_outcome=code,
+                actual_cost_usd=cost,
+                error_code=code,
+            )
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome=code,
+                attempt_id=attempt_id,
+                cost_usd=cost,
+                duration_seconds=duration(),
+            )
+            raise ActorOpsError(
+                code,
+                "Compatibility Canary timed out",
+                retryable=True,
+                status_code=503,
+            ) from None
+        except (ApifyClientError, ApifyKeyPoolError) as exc:
+            code = str(exc.code)
+            unknown = code in {
+                "apify_start_outcome_unknown",
+                "apify_run_reconcile_required",
+            }
+            if unknown:
+                self.ops.finish_unknown_start(
+                    snapshot,
+                    attempt_id=attempt_id,
+                    semantic_outcome=code,
+                    error_code=code,
+                    validation_id=validation_id,
+                )
+            else:
+                cost = self.ops.finalized_actor_run_cost(attempt_id)
+                self.ops.finish_attempt(
+                    attempt_id,
+                    status="actor_failed",
+                    semantic_outcome=code,
+                    actual_cost_usd=cost,
+                    error_code=code,
+                )
+                self.ops.record_validation(
+                    validation_id,
+                    status="failed",
+                    semantic_outcome=code,
+                    attempt_id=attempt_id,
+                    cost_usd=cost,
+                    cost_final=cost is not None,
+                    duration_seconds=duration(),
+                )
+            raise ActorOpsError(
+                code,
+                "Compatibility Canary could not complete safely",
+                retryable=bool(getattr(exc, "retryable", False)),
+                status_code=503 if unknown else 422,
+            ) from None
+        except ApifySocialSemanticError as exc:
+            cost = run.actual_charge_usd if run is not None else None
+            self.ops.finish_attempt(
+                attempt_id,
+                status="actor_failed",
+                semantic_outcome=str(exc.code),
+                actual_cost_usd=cost,
+                error_code=str(exc.code),
+            )
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome=str(exc.code),
+                attempt_id=attempt_id,
+                cost_usd=cost,
+                cost_final=bool(run and run.cost_final),
+                duration_seconds=duration(),
+                dataset_row_count=len(run.items) if run is not None else None,
+                mapped_item_count=0,
+            )
+            raise ActorOpsError(
+                str(exc.code),
+                "Compatibility Canary output failed validation",
+                status_code=422,
+            ) from None
+        except Exception as exc:
+            code = _safe_canary_code(
+                getattr(exc, "code", None),
+                "compatibility_canary_failed",
+            )
+            cost = run.actual_charge_usd if run is not None else None
+            self.ops.finish_attempt(
+                attempt_id,
+                status="actor_failed",
+                semantic_outcome=code,
+                actual_cost_usd=cost,
+                error_code=code,
+            )
+            self.ops.record_validation(
+                validation_id,
+                status="failed",
+                semantic_outcome=code,
+                attempt_id=attempt_id,
+                cost_usd=cost,
+                cost_final=bool(run and run.cost_final),
+                duration_seconds=duration(),
+                dataset_row_count=len(run.items) if run is not None else None,
+                mapped_item_count=0,
+            )
+            raise ActorOpsError(
+                code,
+                "Compatibility Canary failed safely",
+                status_code=500,
+            ) from None
+        assert run is not None
+        self.ops.finish_attempt(
+            attempt_id,
+            status="succeeded",
+            semantic_outcome="valid_nonempty",
+            actual_cost_usd=run.actual_charge_usd,
+        )
+        validation = self.ops.record_validation(
+            validation_id,
+            status="succeeded",
+            semantic_outcome="valid_nonempty",
+            attempt_id=attempt_id,
+            cost_usd=run.actual_charge_usd,
+            cost_final=bool(run.cost_final),
+            duration_seconds=duration(),
+            dataset_row_count=len(run.items),
+            mapped_item_count=len(valid_items),
+        )
+        revision_id = str(validation["revision_id"])
+        if bool(validation["cost_final"]):
+            revision_id = self.ops.promote_compatibility_observation(
+                validation_id,
+                observed_fields=(
+                    "identity",
+                    "url",
+                    "published_at",
+                    "content",
+                ),
+                observed_build_id=slot.build_id,
+                observed_build_number=slot.build_number,
+            )
+        return CanaryResult(
+            validation_id=str(validation["validation_id"]),
+            revision_id=revision_id,
+            status="succeeded",
+            semantic_outcome="valid_nonempty",
             cost_usd=(
                 float(validation["cost_usd"])
                 if validation["cost_usd"] is not None
@@ -1003,4 +1519,5 @@ __all__ = [
     "CanaryResult",
     "next_reference_fingerprint",
     "reference_target_fingerprint",
+    "reference_target_for_slot",
 ]

@@ -33,6 +33,8 @@ def apify_coordinator_for_workspace(
     *,
     workspace_id: str,
     data_dir: str | None = None,
+    purpose: str = "acquisition",
+    require_validation_key: bool = False,
 ) -> ApifyKeyPoolService | None:
     """Build the one Service coordinator only while the rollout is enabled."""
 
@@ -42,6 +44,8 @@ def apify_coordinator_for_workspace(
         store,
         secret_store=SecretStore(data_dir or store.data_dir),
         workspace_id=workspace_id,
+        run_purpose=purpose,
+        require_validation_key=require_validation_key,
     )
 
 

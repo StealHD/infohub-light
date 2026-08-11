@@ -64,6 +64,7 @@ WORKER_JOB_TRACE_POLICY = {
     "content_repair": "job_lifecycle_only",
     "apify_actor_validation": "job_lifecycle_only",
     "apify_actor_canary_batch": "job_lifecycle_only",
+    "apify_actor_freshness_check": "job_lifecycle_only",
     "apify_actor_discovery": "job_lifecycle_only",
 }
 
@@ -190,6 +191,86 @@ def _reconcile_and_enqueue_actor_discoveries(
             connection.rollback()
         raise
     return {"enqueued": enqueued, "failed": failed}
+
+
+def _enqueue_due_actor_freshness_checks(
+    store: ServiceStore,
+    queue: JobQueue,
+) -> dict[str, int]:
+    """Queue only explicitly enabled standing-authorized freshness work."""
+
+    from .apify_actor_resilience import (
+        ActorResilienceError,
+        ApifyActorResilienceService,
+    )
+
+    enqueued = 0
+    blocked = 0
+    workspaces = store.connect().execute(
+        "SELECT id FROM workspaces ORDER BY created_at, id"
+    ).fetchall()
+    for workspace in workspaces:
+        workspace_id = str(workspace["id"])
+        service = ApifyActorResilienceService(
+            store,
+            workspace_id=workspace_id,
+        )
+        for route_id in service.due_routes():
+            actor = store.connect().execute(
+                """
+                SELECT id FROM users
+                WHERE workspace_id = ? AND enabled = 1
+                  AND role IN ('owner', 'admin')
+                ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END,
+                         created_at, id
+                LIMIT 1
+                """,
+                (workspace_id,),
+            ).fetchone()
+            if actor is None:
+                blocked += 1
+                continue
+            check: dict[str, Any] | None = None
+            try:
+                check = service.create_freshness_check(
+                    route_id,
+                    trigger_kind="automatic",
+                    actor_user_id=str(actor["id"]),
+                    cost_confirmed=True,
+                )
+                job = queue.create_job(
+                    workspace_id=workspace_id,
+                    user_id=str(actor["id"]),
+                    job_type="apify_actor_freshness_check",
+                    payload={"check_id": str(check["check_id"])},
+                    priority=100,
+                    max_attempts=1,
+                    retention_days=int(
+                        os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                    ),
+                )
+                service.attach_freshness_job(
+                    str(check["check_id"]), str(job["id"])
+                )
+            except ActorResilienceError as exc:
+                service.emit_event(
+                    route_id=route_id,
+                    phase="freshness_schedule",
+                    outcome="blocked",
+                    reason_code=exc.code,
+                )
+                blocked += 1
+                continue
+            except Exception:
+                if check is not None:
+                    service.fail_freshness_check(
+                        str(check["check_id"]),
+                        reason_code="freshness_job_queue_failed",
+                    )
+                blocked += 1
+                continue
+            enqueued += 1
+    return {"enqueued": enqueued, "blocked": blocked}
 
 
 def _exception_code(exc: Exception) -> str:
@@ -511,6 +592,16 @@ def _actor_canary_batch_id(job: dict[str, Any]) -> str | None:
     return batch_id or None
 
 
+def _actor_freshness_check_id(job: dict[str, Any]) -> str | None:
+    if str(job.get("job_type") or "") != "apify_actor_freshness_check":
+        return None
+    payload = job.get("payload_json")
+    if not isinstance(payload, dict) or set(payload) != {"check_id"}:
+        return None
+    check_id = str(payload.get("check_id") or "").strip()
+    return check_id or None
+
+
 def _terminalize_unstarted_actor_validation(
     store: ServiceStore,
     job: dict[str, Any],
@@ -519,6 +610,19 @@ def _terminalize_unstarted_actor_validation(
     semantic_outcome: str,
 ) -> bool:
     """Release a paid approval when its Worker job ends before an Attempt."""
+
+    freshness_check_id = _actor_freshness_check_id(job)
+    if freshness_check_id is not None:
+        from .apify_actor_resilience import ApifyActorResilienceService
+
+        ApifyActorResilienceService(
+            store,
+            workspace_id=str(job.get("workspace_id") or ""),
+        ).fail_freshness_check(
+            freshness_check_id,
+            reason_code=semantic_outcome,
+        )
+        return True
 
     batch_id = _actor_canary_batch_id(job)
     if batch_id is not None:
@@ -942,6 +1046,13 @@ def _stage_user_feed_publication(
         )
         if run_result.status == "failed":
             raise FeedRunFailed(run_result)
+        publish_watermarks = getattr(
+            orchestrator,
+            "publish_service_apify_watermarks",
+            None,
+        )
+        if callable(publish_watermarks):
+            publish_watermarks(connection=publication)
         _cache_run_media(
             job,
             data_dir=data_dir,
@@ -1050,18 +1161,23 @@ def _run_apify_actor_validation(
         store,
         workspace_id=str(job["workspace_id"]),
         data_dir=data_dir,
+        purpose="validation",
     )
     if coordinator is None:
         raise PaidCanaryUnavailableError(
             "Actor validation requires the enabled Apify Key pool"
         )
     pool_state = coordinator.public_state(str(job["workspace_id"]))
-    active_secret_id = str(pool_state.get("active_secret_id") or "")
-    if not active_secret_id:
+    validation_secret_id = str(
+        pool_state.get("validation_secret_id")
+        or pool_state.get("active_secret_id")
+        or ""
+    )
+    if not validation_secret_id:
         raise PaidCanaryUnavailableError(
             "Actor validation requires an active Apify credential"
         )
-    metadata_credential = coordinator.quota_candidate(active_secret_id)
+    metadata_credential = coordinator.quota_candidate(validation_secret_id)
 
     async def execute() -> dict[str, Any]:
         timeout = httpx.Timeout(30.0, connect=10.0)
@@ -1139,18 +1255,23 @@ def _run_apify_actor_canary_batch(
         store,
         workspace_id=str(job["workspace_id"]),
         data_dir=data_dir,
+        purpose="validation",
     )
     if coordinator is None:
         raise PaidCanaryUnavailableError(
             "Actor Canary batch requires the enabled Apify Key pool"
         )
     pool_state = coordinator.public_state(str(job["workspace_id"]))
-    active_secret_id = str(pool_state.get("active_secret_id") or "")
-    if not active_secret_id:
+    validation_secret_id = str(
+        pool_state.get("validation_secret_id")
+        or pool_state.get("active_secret_id")
+        or ""
+    )
+    if not validation_secret_id:
         raise PaidCanaryUnavailableError(
             "Actor Canary batch requires an active Apify credential"
         )
-    metadata_credential = coordinator.quota_candidate(active_secret_id)
+    metadata_credential = coordinator.quota_candidate(validation_secret_id)
     ops = ApifyActorOpsService(
         store,
         workspace_id=str(job["workspace_id"]),
@@ -1264,11 +1385,12 @@ def _run_apify_actor_canary_batch(
                 validation_id = str(item["validation_id"])
                 revision_id = str(item["revision_id"])
                 try:
-                    await client.preflight_actor_revision(
-                        str(item["actor_id"]),
-                        build_id=str(item["build_id"]),
-                        build_number=str(item["build_number"]),
-                    )
+                    if goal != "compatibility_single":
+                        await client.preflight_actor_revision(
+                            str(item["actor_id"]),
+                            build_id=str(item["build_id"]),
+                            build_number=str(item["build_number"]),
+                        )
                 except ApifyClientError as exc:
                     ops.record_validation(
                         validation_id,
@@ -1303,7 +1425,11 @@ def _run_apify_actor_canary_batch(
                     batch_id,
                     int(item["ordinal"]),
                     status="preflight_passed",
-                    semantic_outcome="preflight_available",
+                    semantic_outcome=(
+                        "compatibility_preflight_deferred"
+                        if goal == "compatibility_single"
+                        else "preflight_available"
+                    ),
                 )
                 batch_state = ops.get_canary_batch(batch_id)
                 if str(batch_state["status"]) == "preflighting":
@@ -1376,7 +1502,9 @@ def _run_apify_actor_canary_batch(
                         cost_final=bool(validation.get("cost_final")),
                     )
 
-            if stage_id is not None:
+            if stage_id is not None and goal == "compatibility_single":
+                ops.prepare_compatibility_stage_activation(stage_id)
+            elif stage_id is not None:
                 source_validation_ids = (
                     ops.prepare_pool_stage_source_validations(stage_id)
                 )
@@ -1510,6 +1638,129 @@ def _actor_discovery_queries(route: dict[str, Any]) -> tuple[str, str, str]:
     return selected
 
 
+def _run_apify_actor_freshness_check(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+) -> dict[str, Any]:
+    """Execute one manual or standing-authorized freshness round."""
+
+    import asyncio
+
+    from ..scrapers.apify_client import ApifyClient
+    from .apify_actor_canary import actor_canary_timeout_seconds
+    from .apify_actor_freshness import ApifyActorFreshnessRunner
+    from .apify_actor_ops import ApifyActorOpsService
+    from .apify_actor_resilience import ApifyActorResilienceService
+
+    check_id = _actor_freshness_check_id(job)
+    resilience = ApifyActorResilienceService(
+        store,
+        workspace_id=str(job["workspace_id"]),
+    )
+    if (
+        not check_id
+        or int(job.get("max_attempts") or 0) != 1
+        or int(job.get("priority") or 0) != 100
+    ):
+        if check_id:
+            resilience.fail_freshness_check(
+                check_id,
+                reason_code="freshness_job_authorization_invalid",
+            )
+        raise PaidCanaryAuthorizationError(
+            "Actor freshness Job authorization metadata is invalid"
+        )
+    actor = store.get_user(str(job["user_id"]))
+    if (
+        actor is None
+        or not bool(actor.get("enabled"))
+        or actor.get("role") not in {"owner", "admin"}
+    ):
+        resilience.fail_freshness_check(
+            check_id,
+            reason_code="freshness_actor_unauthorized",
+        )
+        raise PaidCanaryAuthorizationError(
+            "Actor freshness check requires an active administrator"
+        )
+    coordinator = apify_coordinator_for_workspace(
+        store,
+        workspace_id=str(job["workspace_id"]),
+        data_dir=data_dir,
+        purpose="validation",
+        require_validation_key=True,
+    )
+    if coordinator is None:
+        resilience.fail_freshness_check(
+            check_id,
+            reason_code="validation_key_unavailable",
+        )
+        raise PaidCanaryUnavailableError(
+            "Actor freshness check requires the dedicated validation Key"
+        )
+    pool_state = coordinator.public_state(str(job["workspace_id"]))
+    validation_secret_id = str(pool_state.get("validation_secret_id") or "")
+    if not validation_secret_id:
+        resilience.fail_freshness_check(
+            check_id,
+            reason_code="validation_key_unavailable",
+        )
+        raise PaidCanaryUnavailableError(
+            "Actor freshness check requires the dedicated validation Key"
+        )
+    try:
+        credential = coordinator.quota_candidate(validation_secret_id)
+    except Exception:
+        resilience.fail_freshness_check(
+            check_id,
+            reason_code="validation_key_unavailable",
+        )
+        raise
+
+    async def execute() -> dict[str, Any]:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            trust_env=False,
+        ) as http_client:
+            client = ApifyClient(
+                tokens=[(credential.env_name, credential.token)],
+                coordinator=coordinator,
+                http_client=http_client,
+                timeout_seconds=actor_canary_timeout_seconds(),
+            )
+            runner = ApifyActorFreshnessRunner(
+                store,
+                ApifyActorOpsService(
+                    store,
+                    workspace_id=str(job["workspace_id"]),
+                ),
+                client,
+            )
+            try:
+                result = await runner.run(check_id, job_id=str(job["id"]))
+            except Exception as exc:
+                runner.resilience.fail_freshness_check(
+                    check_id,
+                    reason_code=_safe_machine_code(
+                        _exception_code(exc),
+                        "freshness_job_failed",
+                    ).casefold(),
+                )
+                raise
+            return {
+                "ok": str(result["status"]) in {"succeeded", "partial"},
+                "job_type": "apify_actor_freshness_check",
+                "check_id": check_id,
+                "status": str(result["status"]),
+                "actual_cost_usd": result.get("actual_cost_usd"),
+                "cost_final": bool(result.get("cost_final")),
+            }
+
+    return asyncio.run(execute())
+
+
 def _run_apify_actor_discovery(
     job: dict[str, Any],
     *,
@@ -1555,6 +1806,10 @@ def _run_apify_actor_discovery(
         workspace_id=str(job["workspace_id"]),
     )
     run = ops.get_discovery_run(run_id)
+    expanded_compatibility = (
+        str(run.get("trigger_reason") or "")
+        == "manual_compatibility_candidate_refresh"
+    )
     if str(run["stage"]) != "queued":
         # Concurrent support checks can observe the same queued Run before one
         # Worker advances it.  A second one-shot Job must be an idempotent
@@ -1786,7 +2041,7 @@ def _run_apify_actor_discovery(
                     ),
                     candidate_limit=(
                         LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT
-                        if prefer_existing
+                        if prefer_existing or expanded_compatibility
                         else None
                     ),
                 )
@@ -1865,6 +2120,13 @@ def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict
 
     if job_type == "apify_actor_canary_batch":
         return _run_apify_actor_canary_batch(
+            job,
+            data_dir=data_dir,
+            store=store,
+        )
+
+    if job_type == "apify_actor_freshness_check":
+        return _run_apify_actor_freshness_check(
             job,
             data_dir=data_dir,
             store=store,
@@ -2121,6 +2383,17 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "apify_actor_validation_tuning_v20",
             }
+        if store.apify_actor_resilience_v21_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_resilience_v21",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -2171,6 +2444,18 @@ def run_worker_once(
                     outcome["workspace_id"],
                     cost_reconcile["validations"],
                 )
+            from .apify_actor_resilience import ApifyActorResilienceService
+
+            freshness_cost_reconcile = ApifyActorResilienceService(
+                store,
+                workspace_id=str(outcome["workspace_id"]),
+            ).reconcile_terminal_freshness_costs()
+            if freshness_cost_reconcile["checks"]:
+                logger.info(
+                    "Apify Actor freshness costs reconciled workspace_id=%s count=%s",
+                    outcome["workspace_id"],
+                    freshness_cost_reconcile["checks"],
+                )
             try:
                 sync_apify_actor_quota_alert(
                     store,
@@ -2199,6 +2484,7 @@ def run_worker_once(
             and not store.apify_actor_pool_staging_v18_migration_required()
             and not store.apify_actor_manual_pool_selection_v19_migration_required()
             and not store.apify_actor_validation_tuning_v20_migration_required()
+            and not store.apify_actor_resilience_v21_migration_required()
         ):
             update_observability_context(stage="maintenance")
             maintenance_result = MaintenanceService(store).run_if_due()
@@ -2249,6 +2535,7 @@ def run_worker_once(
                 counts={"attempts": int(recovered["attempts"])},
             )
         _reconcile_and_enqueue_actor_discoveries(store, queue)
+        _enqueue_due_actor_freshness_checks(store, queue)
         queue.prune_terminal_jobs()
         if enqueue_schedules:
             update_observability_context(stage="schedule_enqueue")
@@ -2422,6 +2709,10 @@ def run_worker_once(
                     if store.apify_actor_validation_tuning_v20_migration_required():
                         raise MigrationRequiredError(
                             "Apify Actor validation tuning migration is required before jobs can run"
+                        )
+                    if store.apify_actor_resilience_v21_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify Actor resilience migration is required before jobs can run"
                         )
                     result = _run_job(job, data_dir=data_dir, store=store)
                     raw_cleanup = result.pop("_media_cleanup", None)

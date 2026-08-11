@@ -7,26 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-readable-budget",
-  "unresolved": [],
-  "validation": [
-    "真实 20 篇页面生成已确认 2048 token 预算成功：completion_tokens=1057、reasoning_tokens=886、content_tokens=171、finish_reason=stop。",
-    "可读预算后端 7/7、V3 缓存与产品文案 15/15、专题 UI 1/1、TypeScript 通过。",
-    "最终完整 Test Gate 24/24 通过（305.553 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-08-10",
   "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
@@ -382,6 +362,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "后端定向回归 227/227、前端完整 Vitest 669/669 通过。",
     "影响 preflight 13/13 通过（247.445 秒），mapping_miss=false。",
     "完整 Test Gate 15/15 通过（247.778 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "实现 ActorOps 功能优先兼容模式、来源内容水位与软切备、可配置专用 Key 新鲜度校验、失败指纹记忆和统一安全诊断时间线；YouTube fallback 一路即可运行且不再自动追逐第三槽。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-compatibility-freshness-diagnostics",
+  "unresolved": [
+    "global schema 23 离线迁移与本地 8080 切换按计划在本提交后执行。",
+    "未指定 validation Key，未授权自动新鲜度，也未运行兼容 Canary 或任何付费 Actor；这些动作保留给用户逐项确认。"
+  ],
+  "validation": [
+    "ActorOps 后端发现、兼容、运行、水位、新鲜度、Key、API 与迁移定向回归通过。",
+    "前端完整 Vitest 74 文件/676 测试此前通过；最终 ActorOps 62/62、TypeScript 与 ESLint 零错误通过。",
+    "任务级 preflight 13/13、完整 Test Gate 15/15 通过（352.94 秒），mapping_miss=false。"
   ]
 }
 ```

@@ -94,7 +94,9 @@ SOURCE_CANARY_BUDGET_USD = 0.06
 MEMBER_SUPPORT_CHECKS_PER_DAY = 10
 MEMBER_PENDING_DISCOVERY_ROUTES = 20
 _RUNNABLE_CANDIDATE_STATES = frozenset({"closed", "half_open", "probationary"})
-_READY_BINDING_STATUSES = frozenset({"ready_2of2", "ready_3of3"})
+_READY_BINDING_STATUSES = frozenset(
+    {"ready_1of1", "ready_2of2", "ready_3of3"}
+)
 _HARD_OUTPUT_CONTRACT_FAILURES = frozenset(
     {
         "apify_actor_contract_mismatch",
@@ -240,6 +242,40 @@ def validation_failure_fingerprint(
     ).hexdigest()
 
 
+def actor_evidence_fingerprint(
+    *,
+    route_id: str,
+    candidate_id: str,
+    actor_id: str,
+    build_id: str,
+    build_number: str,
+    manifest_hash: str,
+    pricing: Mapping[str, Any] | None,
+    input_schema_hash: str = "",
+    output_schema_hash: str = "",
+) -> str:
+    """Fingerprint only evidence whose change should permit reevaluation."""
+
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "route_id": str(route_id),
+                "candidate_id": str(candidate_id),
+                "actor_id": str(actor_id),
+                "build_id": str(build_id),
+                "build_number": str(build_number),
+                "manifest_hash": str(manifest_hash),
+                "input_schema_hash": str(input_schema_hash),
+                "output_schema_hash": str(output_schema_hash),
+                "pricing": dict(pricing or {}),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 class ActorOpsError(RuntimeError):
     """Stable, safe error for Worker and admin API boundaries."""
 
@@ -270,6 +306,10 @@ class RouteSlotSnapshot:
     lifecycle: str
     candidate_state: str
     manifest: ActorManifestV1 | None
+    execution_mode: str = "pinned"
+    observed_manifest: bool = False
+    compatibility_input_dialect: str = "controlled_default"
+    compatibility_input_count_field: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +350,8 @@ class RouteInvocationResult(Generic[T]):
         "start_outcome_unknown",
     ] = "none"
     error_code: str | None = None
+    latest_published_at: str | None = None
+    latest_item_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,7 +484,9 @@ class ApifyActorOpsService:
             SELECT slot.slot_name, slot.candidate_id, slot.revision_id,
                    revision.actor_id, revision.publisher, revision.build_number,
                    revision.manifest_hash, revision.lifecycle,
+                   revision.execution_mode, revision.observed_manifest,
                    candidate.state AS candidate_state,
+                   candidate.display_name,
                    candidate.success_count, candidate.failure_count,
                    revision.canary_passed_at
             FROM apify_route_active_slots AS slot
@@ -469,6 +513,9 @@ class ApifyActorOpsService:
                 "build_number": slot["build_number"],
                 "manifest_hash": slot["manifest_hash"],
                 "lifecycle": slot["lifecycle"],
+                "execution_mode": slot["execution_mode"],
+                "observed_manifest": bool(slot["observed_manifest"] or 0),
+                "actor_public_name": slot["display_name"],
                 "candidate_state": slot["candidate_state"],
                 "success_count": int(slot["success_count"] or 0),
                 "failure_count": int(slot["failure_count"] or 0),
@@ -489,11 +536,9 @@ class ApifyActorOpsService:
         """Choose a deterministic full or expedited pool without browser IDs.
 
         A complete certified/certified/probationary 2+1 pool is always
-        preferred.  When it is unavailable, two exact-Build revisions that
-        each completed a successful Canary may be activated in degraded mode
-        if they are different Actors from different publishers.  The third
-        slot remains empty until a later, independently approved replacement
-        is ready.
+        preferred. When it is unavailable, the Route's declared runtime and
+        publisher minimums apply: X and Instagram still require two, while
+        YouTube fallback can run with one exact-Build Canary-proven Actor.
         """
 
         return self._recommend_active_pool(self.store.connect(), route_id)
@@ -664,6 +709,11 @@ class ApifyActorOpsService:
             and any(str(row["lifecycle"]) == "legacy_builtin" for row in best[1])
         ):
             best = None
+        single_best = (
+            expedited_rows[0]
+            if int(route["min_runtime_healthy"]) == 1 and expedited_rows
+            else None
+        )
 
         primary_actor_count = len(
             {str(row["actor_id"]) for row in primary_rows}
@@ -680,7 +730,7 @@ class ApifyActorOpsService:
         runnable_actor_count = len(
             {str(row["actor_id"]) for row in expedited_rows}
         )
-        if best is None and expedited_best is None:
+        if best is None and expedited_best is None and single_best is None:
             problems: list[str] = []
             if runnable_actor_count < int(route["min_runtime_healthy"]):
                 problems.append("canary_successful_candidates_incomplete")
@@ -705,12 +755,19 @@ class ApifyActorOpsService:
             selected: dict[str, sqlite3.Row | None] = dict(
                 zip(SLOT_NAMES, best[1], strict=True)
             )
-        else:
-            assert expedited_best is not None
+        elif expedited_best is not None:
             activation_mode = "expedited_2of3"
             selected = {
                 "primary": expedited_best[1][0],
                 "backup_1": expedited_best[1][1],
+                "backup_2": None,
+            }
+        else:
+            assert single_best is not None
+            activation_mode = "standard_1of1"
+            selected = {
+                "primary": single_best,
+                "backup_1": None,
                 "backup_2": None,
             }
         slots = {
@@ -785,7 +842,8 @@ class ApifyActorOpsService:
             SELECT revision_id, candidate_id, actor_id, publisher, build_id,
                    build_number, manifest_hash, input_schema_hash,
                    output_schema_hash, pricing_json, permission_level,
-                   security_evidence_json, lifecycle, ai_provider, ai_model,
+                   security_evidence_json, execution_mode, observed_manifest,
+                   lifecycle, ai_provider, ai_model,
                    prompt_version, discovery_run_id, canary_passed_at,
                    created_at, superseded_at, superseded_from_lifecycle
             FROM apify_actor_adapter_revisions
@@ -803,6 +861,237 @@ class ApifyActorOpsService:
         for name in ("pricing_json", "security_evidence_json"):
             result[name.removesuffix("_json")] = _safe_json(result.pop(name), {})
         return result
+
+    def promote_compatibility_observation(
+        self,
+        validation_id: str,
+        *,
+        observed_fields: Sequence[str],
+        observed_build_id: str | None = None,
+        observed_build_number: str | None = None,
+    ) -> str:
+        """Persist a value-free observed contract after a real paid Canary."""
+
+        with self._write() as connection:
+            row = connection.execute(
+                """
+                SELECT validation.status, validation.semantic_outcome,
+                       validation.cost_final, validation.revision_id,
+                       attempt.build_id AS observed_attempt_build_id,
+                       attempt.build_number AS observed_attempt_build_number,
+                       revision.*, candidate.state AS candidate_state
+                FROM apify_actor_validations AS validation
+                JOIN apify_actor_adapter_revisions AS revision
+                  ON revision.workspace_id = validation.workspace_id
+                 AND revision.revision_id = validation.revision_id
+                LEFT JOIN apify_actor_attempts AS attempt
+                  ON attempt.workspace_id = validation.workspace_id
+                 AND attempt.id = validation.attempt_id
+                JOIN apify_actor_candidates AS candidate
+                  ON candidate.workspace_id = revision.workspace_id
+                 AND candidate.id = revision.candidate_id
+                WHERE validation.workspace_id = ?
+                  AND validation.validation_id = ?
+                """,
+                (self.workspace_id, str(validation_id)),
+            ).fetchone()
+            if row is None:
+                raise ActorOpsError(
+                    "apify_actor_validation_not_found",
+                    "Actor validation was not found",
+                    status_code=404,
+                )
+            if (
+                str(row["status"]) != "succeeded"
+                or str(row["semantic_outcome"]) != "valid_nonempty"
+                or not bool(row["cost_final"])
+            ):
+                raise ActorOpsError(
+                    "apify_actor_cost_pending",
+                    "Compatibility evidence cannot be promoted before cost settlement",
+                    status_code=409,
+                )
+            if (
+                str(row["execution_mode"] or "") == "current"
+                and bool(row["observed_manifest"])
+            ):
+                return str(row["revision_id"])
+            if (
+                str(row["lifecycle"]) != "legacy_builtin"
+                and row["build_id"]
+                and row["build_number"]
+                and row["manifest_hash"]
+            ):
+                now = self._now_iso()
+                connection.execute(
+                    """
+                    UPDATE apify_actor_adapter_revisions
+                    SET lifecycle = CASE WHEN lifecycle = 'static_valid'
+                            THEN 'probationary' ELSE lifecycle END,
+                        canary_passed_at = COALESCE(canary_passed_at, ?)
+                    WHERE workspace_id = ? AND revision_id = ?
+                      AND lifecycle IN (
+                          'static_valid', 'probationary', 'certified'
+                      )
+                    """,
+                    (now, self.workspace_id, str(row["revision_id"])),
+                )
+                return str(row["revision_id"])
+            safe_fields = sorted(
+                {
+                    str(field)
+                    for field in observed_fields
+                    if str(field)
+                    in {"identity", "url", "published_at", "content"}
+                }
+            )
+            if safe_fields != ["content", "identity", "published_at", "url"]:
+                raise ActorOpsError(
+                    "apify_actor_observed_manifest_incomplete",
+                    "Compatibility output did not prove every required field",
+                    status_code=412,
+                )
+            manifest_payload = {
+                "schema_version": 1,
+                "kind": "observed_x_compatibility",
+                "required_fields": safe_fields,
+                "input_contract": "controlled_x_profile_v1",
+                "publication_fence": "x_profile_v1",
+            }
+            manifest_json = json.dumps(
+                manifest_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            manifest_hash = hashlib.sha256(manifest_json.encode()).hexdigest()
+            effective_build_id = (
+                observed_build_id
+                or row["observed_attempt_build_id"]
+                or row["build_id"]
+            )
+            effective_build_number = (
+                observed_build_number
+                or row["observed_attempt_build_number"]
+                or row["build_number"]
+            )
+            pinned_build = bool(effective_build_id and effective_build_number)
+            build_id = str(effective_build_id) if pinned_build else None
+            build_number = str(effective_build_number) if pinned_build else None
+            execution_mode = "pinned" if pinned_build else "current"
+            revision_id = "apify-revision-" + hashlib.sha256(
+                "\x1f".join(
+                    (
+                        self.workspace_id,
+                        str(row["candidate_id"]),
+                        "compatibility",
+                        str(build_id or "current"),
+                        str(build_number or "current"),
+                        manifest_hash,
+                    )
+                ).encode()
+            ).hexdigest()[:32]
+            now = self._now_iso()
+            prior_evidence = _safe_json(row["security_evidence_json"], {})
+            evidence = {
+                "compatibility_canary": True,
+                "controlled_input": True,
+                "nonempty_reference": True,
+                "observed_manifest": True,
+                "follows_current_build": not pinned_build,
+                "deprecated": bool(prior_evidence.get("deprecated")),
+                "permission_unverified": bool(
+                    prior_evidence.get("permission_unverified")
+                ),
+                "input_dialect": str(
+                    prior_evidence.get("input_dialect")
+                    or "controlled_default"
+                ),
+                "input_count_field": prior_evidence.get(
+                    "input_count_field"
+                ),
+            }
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO apify_actor_adapter_revisions (
+                    revision_id, workspace_id, candidate_id, actor_id,
+                    publisher, build_id, build_number, manifest_json,
+                    manifest_hash, input_schema_hash, output_schema_hash,
+                    execution_mode, observed_manifest, pricing_json,
+                    permission_level, security_evidence_json, lifecycle,
+                    ai_provider, ai_model, prompt_version, discovery_run_id,
+                    canary_passed_at, created_at, superseded_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL,
+                    ?, 1, ?, ?, ?, 'legacy_builtin',
+                    NULL, NULL, 'compatibility_observed_v1', ?, ?, ?, NULL
+                )
+                """,
+                (
+                    revision_id,
+                    self.workspace_id,
+                    str(row["candidate_id"]),
+                    str(row["actor_id"]),
+                    str(row["publisher"]),
+                    build_id,
+                    build_number,
+                    manifest_json,
+                    manifest_hash,
+                    execution_mode,
+                    row["pricing_json"],
+                    str(row["permission_level"]),
+                    json.dumps(
+                        evidence,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    row["discovery_run_id"],
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_validations
+                SET revision_id = ?
+                WHERE workspace_id = ? AND validation_id = ?
+                """,
+                (revision_id, self.workspace_id, str(validation_id)),
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_canary_batch_items
+                SET revision_id = ?, updated_at = ?
+                WHERE workspace_id = ? AND validation_id = ?
+                """,
+                (revision_id, now, self.workspace_id, str(validation_id)),
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_pool_stage_candidate_settings
+                SET revision_id = ?
+                WHERE workspace_id = ? AND revision_id = ?
+                  AND candidate_id = ?
+                """,
+                (
+                    revision_id,
+                    self.workspace_id,
+                    str(row["revision_id"]),
+                    str(row["candidate_id"]),
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_candidates
+                SET state = 'closed', recovery_successes = 0,
+                    last_error_code = NULL, last_success_at = ?,
+                    success_count = success_count + 1, updated_at = ?
+                WHERE workspace_id = ? AND id = ?
+                """,
+                (now, now, self.workspace_id, str(row["candidate_id"])),
+            )
+            return revision_id
 
     def revision_canary_block_reason(
         self,
@@ -986,8 +1275,16 @@ class ApifyActorOpsService:
             "required_slots": int(row["required_slots"]),
             "min_runtime_healthy": int(row["min_runtime_healthy"]),
             "min_publishers": int(row["min_publishers"]),
+            "admission_mode": str(row["admission_mode"]),
+            "compatibility_risk_code": row["compatibility_risk_code"],
             "per_run_cap_usd": float(row["per_run_cap_usd"]),
             "status": str(row["status"]),
+            "freshness_enabled": bool(row["freshness_enabled"]),
+            "freshness_interval_hours": int(row["freshness_interval_hours"]),
+            "freshness_status": str(row["freshness_status"]),
+            "freshness_last_checked_at": row["freshness_last_checked_at"],
+            "freshness_next_check_at": row["freshness_next_check_at"],
+            "freshness_last_cost_usd": row["freshness_last_cost_usd"],
             "metadata_check_interval_seconds": int(
                 row["metadata_check_interval_seconds"]
             ),
@@ -1021,6 +1318,27 @@ class ApifyActorOpsService:
                 status_code=404,
             )
         return row
+
+    def _require_no_active_freshness_check(
+        self,
+        connection: sqlite3.Connection,
+        route_id: str,
+    ) -> None:
+        active = connection.execute(
+            """
+            SELECT 1 FROM apify_actor_freshness_checks
+            WHERE workspace_id = ? AND route_id = ?
+              AND status IN ('queued', 'running')
+            LIMIT 1
+            """,
+            (self.workspace_id, str(route_id)),
+        ).fetchone()
+        if active is not None:
+            raise ActorOpsError(
+                "apify_actor_freshness_active",
+                "Active Actor pool cannot change during a freshness check",
+                status_code=409,
+            )
 
     def ensure_candidate(
         self,
@@ -1302,6 +1620,157 @@ class ApifyActorOpsService:
                         now,
                     ),
                 )
+        return revision_id
+
+    def ensure_compatibility_trial_revision(
+        self,
+        *,
+        route_id: str,
+        discovery_run_id: str,
+        actor_id: str,
+        publisher: str,
+        build_id: str | None,
+        build_number: str | None,
+        pricing: Mapping[str, Any] | None,
+        permission_level: str,
+        input_schema_hash: str | None,
+        output_schema_hash: str | None,
+        deprecated: bool = False,
+        permission_unverified: bool = False,
+        input_dialect: str = "controlled_default",
+        input_count_field: str | None = None,
+    ) -> str:
+        """Persist value-free metadata so X can offer a controlled trial.
+
+        This is not executable evidence and never becomes active without the
+        compatibility Canary and the second activation confirmation.
+        """
+
+        normalized_actor = _normalize_actor_id(actor_id)
+        candidate_id = self.ensure_candidate(
+            route_id,
+            actor_id=normalized_actor,
+            display_name=normalized_actor,
+        )
+        evidence_key = actor_evidence_fingerprint(
+            route_id=route_id,
+            candidate_id=candidate_id,
+            actor_id=normalized_actor,
+            build_id=str(build_id or ""),
+            build_number=str(build_number or ""),
+            manifest_hash=str(output_schema_hash or ""),
+            pricing=pricing,
+            input_schema_hash=str(input_schema_hash or ""),
+            output_schema_hash=str(output_schema_hash or ""),
+        )
+        revision_id = f"apify-revision-{evidence_key[:32]}"
+        now = self._now_iso()
+        with self._write() as connection:
+            route = self._require_route(connection, route_id)
+            if str(route["platform"]) != "x":
+                raise ActorOpsError(
+                    "compatibility_route_unsupported",
+                    "Compatibility trial metadata is supported only for X",
+                    status_code=412,
+                )
+            run = connection.execute(
+                """
+                SELECT 1 FROM apify_actor_discovery_runs
+                WHERE workspace_id = ? AND run_id = ? AND route_id = ?
+                """,
+                (self.workspace_id, discovery_run_id, route_id),
+            ).fetchone()
+            if run is None:
+                raise ActorOpsError(
+                    "apify_actor_discovery_revision_mismatch",
+                    "Compatibility trial does not belong to this discovery run",
+                    status_code=422,
+                )
+            security = _bounded_safe_json(
+                {
+                    "public": True,
+                    "compatibility_trial_only": True,
+                    "controlled_input_required": True,
+                    "nonempty_reference_required": True,
+                    "exact_build_proven": bool(build_id and build_number),
+                    "deprecated": bool(deprecated),
+                    "permission_unverified": bool(permission_unverified),
+                    "input_dialect": (
+                        str(input_dialect)
+                        if str(input_dialect)
+                        in {
+                            "controlled_default",
+                            "twitter_handles",
+                            "start_urls",
+                            "profile_urls",
+                            "handle",
+                            "username",
+                            "twitter_handle",
+                            "url",
+                            "urls",
+                            "direct_urls",
+                        }
+                        else "controlled_default"
+                    ),
+                    "input_count_field": (
+                        str(input_count_field)
+                        if str(input_count_field)
+                        in {
+                            "maxItems",
+                            "max_items",
+                            "maxResults",
+                            "max_results",
+                            "resultsLimit",
+                            "limit",
+                            "tweetsDesired",
+                        }
+                        else None
+                    ),
+                },
+                max_bytes=16 * 1024,
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO apify_actor_adapter_revisions (
+                    revision_id, workspace_id, candidate_id, actor_id,
+                    publisher, build_id, build_number, manifest_json,
+                    manifest_hash, input_schema_hash, output_schema_hash,
+                    execution_mode, observed_manifest, pricing_json,
+                    permission_level, security_evidence_json, lifecycle,
+                    ai_provider, ai_model, prompt_version, discovery_run_id,
+                    canary_passed_at, created_at, superseded_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 0, ?, ?, ?,
+                    'legacy_builtin', NULL, NULL, 'compatibility_trial_v1', ?,
+                    NULL, ?, NULL
+                )
+                """,
+                (
+                    revision_id,
+                    self.workspace_id,
+                    candidate_id,
+                    normalized_actor,
+                    _safe_label(publisher, 128),
+                    _optional_label(build_id, 256),
+                    _optional_label(build_number, 256),
+                    input_schema_hash,
+                    output_schema_hash,
+                    "pinned" if build_id and build_number else "current",
+                    _bounded_safe_json(pricing or {}, max_bytes=8 * 1024),
+                    _safe_label(permission_level, 64),
+                    security,
+                    discovery_run_id,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO apify_actor_discovery_run_revisions (
+                    workspace_id, run_id, revision_id, created_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (self.workspace_id, discovery_run_id, revision_id, now),
+            )
         return revision_id
 
     def transition_revision(
@@ -1887,6 +2356,7 @@ class ApifyActorOpsService:
         rollback_revision_id: str | None = None,
         per_run_cap_usd: float | None = None,
         allow_probationary_primary: bool = False,
+        allow_compatibility_single: bool = False,
     ) -> dict[str, Any]:
         if set(slots) != set(SLOT_NAMES):
             raise ActorOpsError(
@@ -1900,10 +2370,10 @@ class ApifyActorOpsService:
         populated_slot_names = [
             name for name in SLOT_NAMES if requested_slots[name]
         ]
-        if len(populated_slot_names) not in {2, 3}:
+        if len(populated_slot_names) not in {1, 2, 3}:
             raise ActorOpsError(
                 "apify_actor_active_pool_incomplete",
-                "Active pool requires at least two populated slots",
+                "Active pool does not contain the permitted number of slots",
                 status_code=422,
             )
         selected_cap = (
@@ -1914,11 +2384,22 @@ class ApifyActorOpsService:
         now = self._now_iso()
         with self._write() as connection:
             route = self._require_route(connection, route_id)
+            if (
+                len(populated_slot_names) == 1
+                and not allow_compatibility_single
+                and int(route["min_runtime_healthy"]) != 1
+            ):
+                raise ActorOpsError(
+                    "apify_actor_active_pool_incomplete",
+                    "Active pool does not contain the permitted number of slots",
+                    status_code=422,
+                )
             if int(route["generation"]) != int(expected_generation):
                 raise ActorOpsError(
                     "apify_actor_route_generation_conflict",
                     "Actor route changed; reload before retrying",
                 )
+            self._require_no_active_freshness_check(connection, route_id)
             old_slot_rows = connection.execute(
                 """
                 SELECT slot_name, candidate_id, revision_id
@@ -2035,7 +2516,10 @@ class ApifyActorOpsService:
                     "Active pool Actor IDs must be unique",
                     status_code=422,
                 )
-            if len(publishers) < int(route["min_publishers"]):
+            if (
+                not allow_compatibility_single
+                and len(publishers) < int(route["min_publishers"])
+            ):
                 raise ActorOpsError(
                     "apify_actor_active_pool_publishers",
                     "Active pool does not satisfy publisher diversity",
@@ -2051,6 +2535,7 @@ class ApifyActorOpsService:
                     and str(row["revision_id"]) != str(
                         rollback_revision_id or ""
                     )
+                    and not allow_compatibility_single
                 ):
                     raise ActorOpsError(
                         "apify_actor_rollback_revision_required",
@@ -2082,7 +2567,9 @@ class ApifyActorOpsService:
                         )
                     lifecycle = prior_lifecycle
                 allowed_lifecycle = (
-                    {"certified", "probationary"}
+                    {"certified", "probationary", "legacy_builtin"}
+                    if allow_compatibility_single
+                    else {"certified", "probationary"}
                     if expedited or allow_probationary_primary
                     else {"certified", "legacy_builtin"}
                     if slot_name in {"primary", "backup_1"}
@@ -2261,11 +2748,28 @@ class ApifyActorOpsService:
                         WHEN status = 'blocked_unknown_start'
                         THEN status ELSE 'ready' END,
                     per_run_cap_usd = COALESCE(?, per_run_cap_usd),
+                    admission_mode = CASE
+                        WHEN ? THEN 'compatibility' ELSE 'standard' END,
+                    min_runtime_healthy = CASE
+                        WHEN ? THEN 1
+                        WHEN route_key = 'youtube/channel/items' THEN 1
+                        ELSE 2 END,
+                    min_publishers = CASE
+                        WHEN ? THEN 1
+                        WHEN route_key = 'youtube/channel/items' THEN 1
+                        ELSE 2 END,
+                    compatibility_risk_code = CASE WHEN ?
+                        THEN 'single_actor_no_redundancy'
+                        ELSE NULL END,
                     updated_at = ?
                 WHERE workspace_id = ? AND route_id = ? AND generation = ?
                 """,
                 (
                     selected_cap,
+                    int(allow_compatibility_single),
+                    int(allow_compatibility_single),
+                    int(allow_compatibility_single),
+                    int(allow_compatibility_single),
                     now,
                     self.workspace_id,
                     route_id,
@@ -2331,6 +2835,7 @@ class ApifyActorOpsService:
                     "apify_actor_route_generation_conflict",
                     "Actor route changed; reload before retrying",
                 )
+            self._require_no_active_freshness_check(connection, route_id)
             rows = connection.execute(
                 """
                 SELECT slot.candidate_id, slot.revision_id,
@@ -2526,10 +3031,13 @@ class ApifyActorOpsService:
                     (self.workspace_id, route_id),
                 ).fetchone()[0]
             )
-            profile_status = "ready" if runnable >= 2 else "candidate_shortfall"
+            minimum = int(route["min_runtime_healthy"])
+            profile_status = (
+                "ready" if runnable >= minimum else "candidate_shortfall"
+            )
             compatibility_status = (
                 "ready" if runnable == 3
-                else "degraded" if runnable >= 2
+                else "degraded" if runnable >= minimum
                 else "exhausted"
             )
             active = connection.execute(
@@ -2569,7 +3077,7 @@ class ApifyActorOpsService:
                     str(active["candidate_id"]) if active else None,
                     "admin_enable" if enabled else "admin_disable",
                     now,
-                    None if runnable >= 2 else "candidate_shortfall",
+                    None if runnable >= minimum else "candidate_shortfall",
                     now,
                     self.workspace_id,
                     route["route_key"],
@@ -2644,7 +3152,7 @@ class ApifyActorOpsService:
         active = connection or self.store.connect()
         route = active.execute(
             """
-            SELECT status, min_publishers, min_runtime_healthy
+            SELECT status, min_publishers, min_runtime_healthy, admission_mode
             FROM apify_actor_route_profiles
             WHERE workspace_id = ? AND route_id = ?
             """,
@@ -2673,6 +3181,28 @@ class ApifyActorOpsService:
         configured = [row for row in rows if row["revision_id"]]
         if len(configured) < int(route["min_runtime_healthy"]):
             return False
+        if str(route["admission_mode"]) == "compatibility":
+            for row in configured:
+                if (
+                    str(row["candidate_state"] or "")
+                    not in _RUNNABLE_CANDIDATE_STATES
+                    or not row["actor_id"]
+                ):
+                    return False
+                proof = active.execute(
+                    """
+                    SELECT 1 FROM apify_actor_validations
+                    WHERE workspace_id = ? AND route_id = ?
+                      AND revision_id = ? AND kind = 'route_reference'
+                      AND status = 'succeeded' AND cost_final = 1
+                      AND semantic_outcome = 'valid_nonempty'
+                    LIMIT 1
+                    """,
+                    (self.workspace_id, route_id, str(row["revision_id"])),
+                ).fetchone()
+                if proof is None:
+                    return False
+            return True
         actor_ids: set[str] = set()
         publishers: set[str] = set()
         for row in configured:
@@ -2726,6 +3256,8 @@ class ApifyActorOpsService:
                    revision.actor_id, revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_hash,
                    revision.manifest_json, revision.lifecycle,
+                   revision.execution_mode, revision.observed_manifest,
+                   revision.security_evidence_json,
                    candidate.state AS candidate_state
             FROM apify_route_active_slots AS slot
             LEFT JOIN apify_actor_adapter_revisions AS revision
@@ -2754,6 +3286,7 @@ class ApifyActorOpsService:
                 if str(binding["verified_revision_set_hash"] or "") != expected_hash:
                     validation_status = "revalidation_pending"
             if validation_status not in {
+                "ready_1of1",
                 "ready_2of2",
                 "ready_3of3",
                 "legacy_validation_pending",
@@ -2791,6 +3324,24 @@ class ApifyActorOpsService:
                         if row["revision_id"]
                         and str(row["lifecycle"]) == "legacy_builtin"
                     )
+        if (
+            binding is not None
+            and binding["preferred_candidate_id"]
+            and binding["preference_suspended_at"] is None
+        ):
+            preferred_candidate_id = str(binding["preferred_candidate_id"])
+            rows = sorted(
+                rows,
+                key=lambda row: (
+                    0
+                    if str(row["candidate_id"] or "")
+                    == preferred_candidate_id
+                    else 1,
+                    {"primary": 0, "backup_1": 1, "backup_2": 2}.get(
+                        str(row["slot_name"]), 3
+                    ),
+                ),
+            )
         frozen: list[RouteSlotSnapshot] = []
         for row in rows:
             if not row["candidate_id"] or not row["revision_id"]:
@@ -2839,7 +3390,12 @@ class ApifyActorOpsService:
             manifest = (
                 None
                 if lifecycle == "legacy_builtin"
+                or str(row["execution_mode"] or "pinned") == "current"
+                or bool(row["observed_manifest"])
                 else parse_actor_manifest(str(row["manifest_json"]))
+            )
+            security_evidence = _safe_json(
+                row["security_evidence_json"], {}
             )
             if manifest is not None:
                 if (
@@ -2877,6 +3433,17 @@ class ApifyActorOpsService:
                     lifecycle=lifecycle,
                     candidate_state=str(row["candidate_state"]),
                     manifest=manifest,
+                    execution_mode=str(row["execution_mode"] or "pinned"),
+                    observed_manifest=bool(row["observed_manifest"]),
+                    compatibility_input_dialect=str(
+                        security_evidence.get("input_dialect")
+                        or "controlled_default"
+                    ),
+                    compatibility_input_count_field=(
+                        str(security_evidence["input_count_field"])
+                        if security_evidence.get("input_count_field")
+                        else None
+                    ),
                 )
             )
         if key_pool_generation is None:
@@ -2926,7 +3493,7 @@ class ApifyActorOpsService:
             if len(frozen) < int(route["min_runtime_healthy"]):
                 raise ActorOpsError(
                     "apify_actor_route_candidate_shortfall",
-                    "At least two runnable Actor revisions are required",
+                    "The route does not have its required runnable Actor revisions",
                     retryable=True,
                     status_code=503,
                 )
@@ -3032,7 +3599,30 @@ class ApifyActorOpsService:
             )
         now = self._now_iso()
         with self._write() as connection:
-            self._require_route(connection, route_id)
+            route = self._require_route(connection, route_id)
+            compatibility_ready = bool(
+                str(route["admission_mode"]) == "compatibility"
+                and self.source_capability_ready(
+                    route_id,
+                    connection=connection,
+                )
+            )
+            active_digest = None
+            if compatibility_ready:
+                active_digest = revision_set_hash(
+                    {
+                        str(row["slot_name"]): str(row["revision_id"])
+                        for row in connection.execute(
+                            """
+                            SELECT slot_name, revision_id
+                            FROM apify_route_active_slots
+                            WHERE workspace_id = ? AND route_id = ?
+                              AND revision_id IS NOT NULL
+                            """,
+                            (self.workspace_id, route_id),
+                        ).fetchall()
+                    }
+                )
             existing = connection.execute(
                 """
                 SELECT * FROM apify_source_route_bindings
@@ -3054,7 +3644,7 @@ class ApifyActorOpsService:
                         target_fingerprint, mode, validation_status,
                         verified_revision_set_hash, generation, created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending_validation', NULL, 1, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         binding_id,
@@ -3063,6 +3653,8 @@ class ApifyActorOpsService:
                         route_id,
                         target_fingerprint,
                         mode,
+                        "ready_1of1" if compatibility_ready else "pending_validation",
+                        active_digest,
                         now,
                         now,
                     ),
@@ -3080,8 +3672,8 @@ class ApifyActorOpsService:
                     """
                     UPDATE apify_source_route_bindings
                     SET route_id = ?, target_fingerprint = ?, mode = ?,
-                        validation_status = 'pending_validation',
-                        verified_revision_set_hash = NULL,
+                        validation_status = ?,
+                        verified_revision_set_hash = ?,
                         generation = generation + 1, updated_at = ?
                     WHERE workspace_id = ? AND binding_id = ? AND generation = ?
                     """,
@@ -3089,6 +3681,8 @@ class ApifyActorOpsService:
                         route_id,
                         target_fingerprint,
                         mode,
+                        "ready_1of1" if compatibility_ready else "pending_validation",
+                        active_digest,
                         now,
                         self.workspace_id,
                         binding_id,
@@ -3179,7 +3773,8 @@ class ApifyActorOpsService:
         route_id: str,
         *,
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ],
     ) -> dict[str, Any]:
         """Return safe candidates for manual pool selection.
@@ -3190,6 +3785,8 @@ class ApifyActorOpsService:
 
         connection = self.store.connect()
         route = self._require_route(connection, route_id)
+        if goal == "compatibility_single":
+            return self._list_compatibility_candidates(connection, route)
         latest = connection.execute(
             """
             SELECT run_id, stage
@@ -3201,7 +3798,13 @@ class ApifyActorOpsService:
             """,
             (self.workspace_id, route_id),
         ).fetchone()
-        required_count = 1 if goal == "complete_third" else 3
+        required_count = (
+            1
+            if goal == "complete_third"
+            else 3
+            if goal == "upgrade_legacy"
+            else int(route["min_runtime_healthy"])
+        )
         if latest is None:
             return {
                 "schema_version": 1,
@@ -3248,6 +3851,8 @@ class ApifyActorOpsService:
                        revision.actor_id, revision.publisher,
                        revision.build_id, revision.build_number,
                        revision.manifest_hash, revision.manifest_json,
+                       revision.input_schema_hash,
+                       revision.output_schema_hash,
                        revision.pricing_json,
                        revision.lifecycle, revision.created_at,
                        EXISTS (
@@ -3319,6 +3924,8 @@ class ApifyActorOpsService:
                    revision.actor_id, revision.publisher,
                    revision.build_id, revision.build_number,
                    revision.manifest_hash, revision.manifest_json,
+                   revision.input_schema_hash,
+                   revision.output_schema_hash,
                    revision.pricing_json,
                    revision.lifecycle, revision.created_at,
                    EXISTS (
@@ -3418,6 +4025,43 @@ class ApifyActorOpsService:
                 """,
                 (self.workspace_id, route_id, str(row["revision_id"])),
             ).fetchone()
+            evidence_fingerprint = actor_evidence_fingerprint(
+                route_id=route_id,
+                candidate_id=candidate_id,
+                actor_id=actor_id,
+                build_id=str(row["build_id"] or ""),
+                build_number=str(row["build_number"] or ""),
+                manifest_hash=str(row["manifest_hash"] or ""),
+                pricing=_safe_json(row["pricing_json"], {}),
+                input_schema_hash=str(row["input_schema_hash"] or ""),
+                output_schema_hash=str(row["output_schema_hash"] or ""),
+            )
+            evaluation = connection.execute(
+                """
+                SELECT evaluation_id, reason_code, deterministic,
+                       attempt_count, first_seen_at, last_seen_at,
+                       retry_requested_at
+                FROM apify_actor_evaluation_history
+                WHERE workspace_id = ? AND route_id = ? AND candidate_id = ?
+                  AND evidence_fingerprint = ?
+                  AND policy_mode = 'standard' AND outcome = 'failed'
+                ORDER BY last_seen_at DESC, evaluation_id DESC
+                LIMIT 1
+                """,
+                (
+                    self.workspace_id,
+                    route_id,
+                    candidate_id,
+                    evidence_fingerprint,
+                ),
+            ).fetchone()
+            if (
+                unavailable_reason is None
+                and evaluation is not None
+                and bool(evaluation["deterministic"])
+                and evaluation["retry_requested_at"] is None
+            ):
+                unavailable_reason = "actor_evaluation_deterministic_failure"
             failure_timeout_seconds = int(
                 latest_failure["validation_timeout_seconds"]
                 if latest_failure is not None
@@ -3567,6 +4211,9 @@ class ApifyActorOpsService:
                         "profile_hash": current_profile_hash,
                     },
                     "last_failure": failure_summary,
+                    "evaluation_history": (
+                        dict(evaluation) if evaluation is not None else None
+                    ),
                     "requires_profile_change": bool(
                         latest_failure is not None
                         and latest_failure["failure_fingerprint"]
@@ -3576,6 +4223,79 @@ class ApifyActorOpsService:
                     "unavailable_reason": unavailable_reason,
                 }
             )
+        remembered_failures = connection.execute(
+            """
+            SELECT evaluation.evaluation_id, evaluation.candidate_id,
+                   evaluation.reason_code, evaluation.attempt_count,
+                   evaluation.first_seen_at, evaluation.last_seen_at,
+                   evaluation.retry_requested_at,
+                   candidate.actor_id, candidate.display_name
+            FROM apify_actor_evaluation_history AS evaluation
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = evaluation.workspace_id
+             AND candidate.id = evaluation.candidate_id
+            WHERE evaluation.workspace_id = ? AND evaluation.route_id = ?
+              AND evaluation.policy_mode = 'standard'
+              AND evaluation.outcome = 'failed'
+              AND evaluation.deterministic = 1
+            ORDER BY evaluation.last_seen_at DESC,
+                     evaluation.evaluation_id DESC
+            LIMIT 90
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        for failure in remembered_failures:
+            candidate_id = str(failure["candidate_id"])
+            actor_id = str(failure["actor_id"])
+            if candidate_id in seen_candidates or actor_id in seen_actors:
+                continue
+            publisher = (
+                actor_id.split("/", 1)[0]
+                if "/" in actor_id
+                else "unknown"
+            )
+            candidates.append(
+                {
+                    "candidate_id": candidate_id,
+                    "actor_public_name": _actor_public_name(
+                        failure["display_name"],
+                        publisher,
+                        actor_id,
+                    ),
+                    "publisher": publisher,
+                    "pricing": {},
+                    "max_validation_charge_usd": round(
+                        min(
+                            VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                            float(route["per_run_cap_usd"]),
+                        ),
+                        6,
+                    ),
+                    "validation_options": None,
+                    "last_failure": None,
+                    "evaluation_history": {
+                        "evaluation_id": str(failure["evaluation_id"]),
+                        "reason_code": str(failure["reason_code"]),
+                        "deterministic": True,
+                        "attempt_count": int(failure["attempt_count"]),
+                        "first_seen_at": str(failure["first_seen_at"]),
+                        "last_seen_at": str(failure["last_seen_at"]),
+                        "retry_requested_at": failure[
+                            "retry_requested_at"
+                        ],
+                    },
+                    "requires_profile_change": False,
+                    "existing_actor_upgrade": actor_id in active_actor_ids,
+                    "selectable": False,
+                    "unavailable_reason": (
+                        "actor_evaluation_deterministic_failure"
+                    ),
+                }
+            )
+            seen_candidates.add(candidate_id)
+            seen_actors.add(actor_id)
+            if len(candidates) >= 30:
+                break
         if goal == "upgrade_legacy":
             discovery_running = str(latest["stage"]) in {
                 "queued", "searching", "metadata", "ranking",
@@ -3646,12 +4366,371 @@ class ApifyActorOpsService:
             "blockers": blockers,
         }
 
+    def _list_compatibility_candidates(
+        self,
+        connection: sqlite3.Connection,
+        route: sqlite3.Row,
+    ) -> dict[str, Any]:
+        """Return one-Actor trial candidates without weakening hard fences."""
+
+        route_id = str(route["route_id"])
+        latest = connection.execute(
+            """
+            SELECT run_id, stage
+            FROM apify_actor_discovery_runs
+            WHERE workspace_id = ? AND route_id = ?
+              AND COALESCE(error_code, '') != 'superseded_duplicate_refresh'
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, route_id),
+        ).fetchone()
+        if latest is None:
+            return {
+                "schema_version": 2,
+                "route_id": route_id,
+                "generation": int(route["generation"]),
+                "goal": "compatibility_single",
+                "run_id": None,
+                "required_selection_count": 1,
+                "relaxed_requirements": [
+                    "actor_count",
+                    "publisher_diversity",
+                    "store_schema_before_canary",
+                    "tagged_build_before_canary",
+                    "manifest_before_canary",
+                ],
+                "retained_requirements": [
+                    "public_runnable_actor",
+                    "controlled_input",
+                    "identity_and_publication_fence",
+                    "nonempty_reference_output",
+                    "per_run_price_cap",
+                    "explicit_paid_confirmation",
+                ],
+                "candidates": [],
+                "blockers": ["candidate_refresh_required"],
+            }
+        rows = connection.execute(
+            """
+            SELECT candidate.id AS candidate_id, candidate.display_name,
+                   candidate.state AS candidate_state,
+                   candidate.last_error_code,
+                   candidate.position, revision.revision_id,
+                   revision.actor_id, revision.publisher,
+                   revision.build_id, revision.build_number,
+                   revision.manifest_hash, revision.manifest_json,
+                   revision.input_schema_hash,
+                   revision.output_schema_hash,
+                   revision.pricing_json, revision.permission_level,
+                   revision.security_evidence_json, revision.lifecycle,
+                   revision.execution_mode, revision.observed_manifest,
+                   EXISTS (
+                       SELECT 1 FROM apify_actor_validations AS proof
+                       WHERE proof.workspace_id = revision.workspace_id
+                         AND proof.route_id = ?
+                         AND proof.revision_id = revision.revision_id
+                         AND proof.kind = 'route_reference'
+                         AND proof.status = 'succeeded'
+                         AND proof.cost_final = 1
+                         AND proof.semantic_outcome = 'valid_nonempty'
+                   ) AS already_validated,
+                   EXISTS (
+                       SELECT 1 FROM apify_actor_validations AS active
+                       WHERE active.workspace_id = revision.workspace_id
+                         AND active.revision_id = revision.revision_id
+                         AND active.status IN ('queued', 'running')
+                   ) AS validation_in_flight
+            FROM apify_actor_candidates AS candidate
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = candidate.workspace_id
+             AND revision.candidate_id = candidate.id
+            WHERE candidate.workspace_id = ?
+              AND candidate.route_key = ?
+              AND EXISTS (
+                  SELECT 1
+                  FROM apify_actor_discovery_run_revisions AS run_revision
+                  WHERE run_revision.workspace_id = revision.workspace_id
+                    AND run_revision.run_id = ?
+                    AND run_revision.revision_id = revision.revision_id
+              )
+              AND revision.created_at = (
+                  SELECT MAX(latest_revision.created_at)
+                  FROM apify_actor_adapter_revisions AS latest_revision
+                  WHERE latest_revision.workspace_id = revision.workspace_id
+                    AND latest_revision.candidate_id = revision.candidate_id
+              )
+            ORDER BY candidate.position, revision.created_at DESC,
+                     revision.revision_id DESC
+            LIMIT 30
+            """,
+            (
+                route_id,
+                self.workspace_id,
+                str(route["route_key"]),
+                str(latest["run_id"]),
+            ),
+        ).fetchall()
+        candidates: list[dict[str, Any]] = []
+        seen_candidate_ids: set[str] = set()
+        for row in rows:
+            pricing = _safe_json(row["pricing_json"], {})
+            security = _safe_json(row["security_evidence_json"], {})
+            compatibility_trial_only = bool(
+                security.get("compatibility_trial_only")
+            )
+            legacy_builtin = str(row["lifecycle"]) == "legacy_builtin"
+            price_exceeds = _pricing_exceeds_usd_cap(
+                pricing,
+                float(route["per_run_cap_usd"]),
+            )
+            full_permission = (
+                str(row["permission_level"] or "").casefold()
+                in {"full", "full_access", "administrator"}
+                or bool(security.get("requires_full_permissions"))
+            )
+            warnings: list[str] = []
+            if legacy_builtin or not row["manifest_hash"]:
+                warnings.append("observed_manifest_after_canary")
+            if not row["build_id"] or not row["build_number"]:
+                warnings.append("follows_current_build_if_unpinnable")
+            if bool(security.get("deprecated")):
+                warnings.append("deprecated_actor")
+            if str(row["candidate_state"]) == "open":
+                warnings.append("previous_runtime_failure")
+            unavailable_reason = None
+            if (
+                str(row["candidate_state"]) == "disabled"
+                and not compatibility_trial_only
+                and not (
+                    str(row["lifecycle"]) == "static_valid"
+                    and not row["last_error_code"]
+                )
+            ):
+                unavailable_reason = str(
+                    row["last_error_code"] or "actor_disabled"
+                )
+            elif full_permission:
+                unavailable_reason = "actor_requires_full_permissions"
+            elif price_exceeds:
+                unavailable_reason = "actor_price_above_route_cap"
+            elif bool(row["validation_in_flight"]):
+                unavailable_reason = "candidate_validation_in_progress"
+            profile_hash = validation_profile_hash(
+                timeout_seconds=VALIDATION_TIMEOUT_SECONDS_DEFAULT,
+                sample_items=1,
+                max_charge_usd=float(route["per_run_cap_usd"]),
+            )
+            evidence_fingerprint = actor_evidence_fingerprint(
+                route_id=route_id,
+                candidate_id=str(row["candidate_id"]),
+                actor_id=str(row["actor_id"]),
+                build_id=str(row["build_id"] or ""),
+                build_number=str(row["build_number"] or ""),
+                manifest_hash=str(row["manifest_hash"] or ""),
+                pricing=pricing,
+                input_schema_hash=str(row["input_schema_hash"] or ""),
+                output_schema_hash=str(row["output_schema_hash"] or ""),
+            )
+            failure = connection.execute(
+                """
+                SELECT evaluation_id, reason_code, deterministic,
+                       attempt_count, first_seen_at, last_seen_at,
+                       retry_requested_at
+                FROM apify_actor_evaluation_history
+                WHERE workspace_id = ? AND route_id = ? AND candidate_id = ?
+                  AND evidence_fingerprint = ?
+                  AND policy_mode = 'compatibility'
+                  AND outcome = 'failed'
+                ORDER BY last_seen_at DESC, evaluation_id DESC
+                LIMIT 1
+                """,
+                (
+                    self.workspace_id,
+                    route_id,
+                    str(row["candidate_id"]),
+                    evidence_fingerprint,
+                ),
+            ).fetchone()
+            if (
+                unavailable_reason is None
+                and failure is not None
+                and bool(failure["deterministic"])
+                and failure["retry_requested_at"] is None
+            ):
+                unavailable_reason = "actor_evaluation_deterministic_failure"
+            candidates.append(
+                {
+                    "candidate_id": str(row["candidate_id"]),
+                    "revision_id": str(row["revision_id"]),
+                    "actor_public_name": _actor_public_name(
+                        row["display_name"], row["publisher"], row["actor_id"]
+                    ),
+                    "publisher": str(row["publisher"]),
+                    "pricing": pricing,
+                    "max_validation_charge_usd": round(
+                        min(
+                            VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                            float(route["per_run_cap_usd"]),
+                        ),
+                        6,
+                    ),
+                    "execution_mode": str(row["execution_mode"]),
+                    "already_validated": bool(row["already_validated"]),
+                    "compatibility_warnings": warnings,
+                    "relaxed_requirements": [
+                        "actor_count",
+                        "publisher_diversity",
+                        "pre_canary_store_schema",
+                        "pre_canary_exact_build",
+                        "pre_canary_manifest",
+                    ],
+                    "validation_options": {
+                        "timeout_seconds": VALIDATION_TIMEOUT_SECONDS_DEFAULT,
+                        "timeout_min_seconds": VALIDATION_TIMEOUT_SECONDS_MIN,
+                        "timeout_max_seconds": VALIDATION_TIMEOUT_SECONDS_MAX,
+                        "allowed_sample_items": [1],
+                        "sample_items": 1,
+                        "max_charge_usd": round(
+                            float(route["per_run_cap_usd"]), 6
+                        ),
+                        "max_charge_limit_usd": 0.02,
+                        "supports_sample_items": True,
+                        "profile_hash": profile_hash,
+                        "options_hash": _validation_options_hash(
+                            route_id=route_id,
+                            generation=int(route["generation"]),
+                            candidate_id=str(row["candidate_id"]),
+                            revision_id=str(row["revision_id"]),
+                            build_id=str(row["build_id"] or ""),
+                            build_number=str(row["build_number"] or ""),
+                            manifest_hash=str(row["manifest_hash"] or ""),
+                            supports_sample_items=True,
+                        ),
+                    },
+                    "evaluation_history": dict(failure) if failure else None,
+                    "selectable": unavailable_reason is None,
+                    "unavailable_reason": unavailable_reason,
+                }
+            )
+            seen_candidate_ids.add(str(row["candidate_id"]))
+        remembered_failures = connection.execute(
+            """
+            SELECT evaluation.evaluation_id, evaluation.candidate_id,
+                   evaluation.reason_code, evaluation.attempt_count,
+                   evaluation.first_seen_at, evaluation.last_seen_at,
+                   evaluation.retry_requested_at,
+                   candidate.actor_id, candidate.display_name
+            FROM apify_actor_evaluation_history AS evaluation
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = evaluation.workspace_id
+             AND candidate.id = evaluation.candidate_id
+            WHERE evaluation.workspace_id = ? AND evaluation.route_id = ?
+              AND evaluation.policy_mode = 'compatibility'
+              AND evaluation.outcome = 'failed'
+              AND evaluation.deterministic = 1
+            ORDER BY evaluation.last_seen_at DESC,
+                     evaluation.evaluation_id DESC
+            LIMIT 30
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        for failure in remembered_failures:
+            candidate_id = str(failure["candidate_id"])
+            if candidate_id in seen_candidate_ids or len(candidates) >= 30:
+                continue
+            actor_id = str(failure["actor_id"])
+            publisher = (
+                actor_id.split("/", 1)[0]
+                if "/" in actor_id
+                else "unknown"
+            )
+            reason_code = str(failure["reason_code"])
+            unavailable_reason = (
+                "actor_requires_full_permissions"
+                if reason_code == "actor_full_permission"
+                else reason_code
+            )
+            candidates.append(
+                {
+                    "candidate_id": candidate_id,
+                    "actor_public_name": _actor_public_name(
+                        failure["display_name"],
+                        publisher,
+                        actor_id,
+                    ),
+                    "publisher": publisher,
+                    "pricing": {},
+                    "max_validation_charge_usd": round(
+                        min(
+                            VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                            float(route["per_run_cap_usd"]),
+                        ),
+                        6,
+                    ),
+                    "execution_mode": "current",
+                    "already_validated": False,
+                    "compatibility_warnings": [],
+                    "relaxed_requirements": [
+                        "actor_count",
+                        "publisher_diversity",
+                        "pre_canary_store_schema",
+                        "pre_canary_exact_build",
+                        "pre_canary_manifest",
+                    ],
+                    "validation_options": None,
+                    "evaluation_history": {
+                        "evaluation_id": str(failure["evaluation_id"]),
+                        "reason_code": reason_code,
+                        "deterministic": True,
+                        "attempt_count": int(failure["attempt_count"]),
+                        "first_seen_at": str(failure["first_seen_at"]),
+                        "last_seen_at": str(failure["last_seen_at"]),
+                        "retry_requested_at": failure[
+                            "retry_requested_at"
+                        ],
+                    },
+                    "selectable": False,
+                    "unavailable_reason": unavailable_reason,
+                }
+            )
+            seen_candidate_ids.add(candidate_id)
+        blockers = []
+        if not any(bool(item["selectable"]) for item in candidates):
+            blockers.append("candidate_shortfall")
+        return {
+            "schema_version": 2,
+            "route_id": route_id,
+            "generation": int(route["generation"]),
+            "goal": "compatibility_single",
+            "run_id": str(latest["run_id"]),
+            "required_selection_count": 1,
+            "relaxed_requirements": [
+                "actor_count",
+                "publisher_diversity",
+                "store_schema_before_canary",
+                "tagged_build_before_canary",
+                "manifest_before_canary",
+            ],
+            "retained_requirements": [
+                "public_runnable_actor",
+                "controlled_input",
+                "identity_and_publication_fence",
+                "nonempty_reference_output",
+                "per_run_price_cap",
+                "explicit_paid_confirmation",
+            ],
+            "candidates": candidates,
+            "blockers": blockers,
+        }
+
     def get_canary_plan(
         self,
         run_id: str,
         *,
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ] = "initial_pool",
         max_candidates: int = BATCH_CANARY_MAX_CANDIDATES,
         max_total_charge_usd: float | None = None,
@@ -3660,6 +4739,20 @@ class ApifyActorOpsService:
         target_slot_count: int | None = None,
     ) -> dict[str, Any]:
         """Return a server-selected or administrator-selected paid plan."""
+
+        if goal == "compatibility_single":
+            if candidate_ids is None:
+                raise ActorOpsError(
+                    "apify_actor_manual_candidate_set_incomplete",
+                    "Compatibility mode requires one explicitly selected Actor",
+                    status_code=422,
+                )
+            return self._get_compatibility_canary_plan(
+                run_id,
+                candidate_ids=tuple(candidate_ids),
+                max_total_charge_usd=max_total_charge_usd,
+                target_slot_count=target_slot_count,
+            )
 
         if candidate_ids is not None:
             return self._get_pool_stage_canary_plan(
@@ -3700,11 +4793,234 @@ class ApifyActorOpsService:
             target_slot_count=target_slot_count,
         )
 
+    def _get_compatibility_canary_plan(
+        self,
+        run_id: str,
+        *,
+        candidate_ids: tuple[str, ...],
+        max_total_charge_usd: float | None,
+        target_slot_count: int | None,
+    ) -> dict[str, Any]:
+        if (
+            len(candidate_ids) != 1
+            or len(set(candidate_ids)) != 1
+            or (target_slot_count is not None and int(target_slot_count) != 1)
+        ):
+            raise ActorOpsError(
+                "apify_actor_manual_candidate_set_incomplete",
+                "Compatibility mode requires exactly one Actor",
+                status_code=422,
+            )
+        connection = self.store.connect()
+        run = connection.execute(
+            """
+            SELECT run.*, profile.route_key, profile.platform,
+                   profile.target_type, profile.capability, profile.mode,
+                   profile.generation, profile.per_run_cap_usd
+            FROM apify_actor_discovery_runs AS run
+            JOIN apify_actor_route_profiles AS profile
+              ON profile.workspace_id = run.workspace_id
+             AND profile.route_id = run.route_id
+            WHERE run.workspace_id = ? AND run.run_id = ?
+            """,
+            (self.workspace_id, str(run_id)),
+        ).fetchone()
+        if run is None:
+            raise ActorOpsError(
+                "apify_actor_discovery_run_not_found",
+                "Actor discovery run was not found",
+                status_code=404,
+            )
+        if str(run["stage"]) not in {
+            "awaiting_canary_approval",
+            "canary_exhausted",
+            "candidate_shortfall",
+            "activation_ready",
+            "completed",
+        }:
+            raise ActorOpsError(
+                "apify_actor_discovery_not_awaiting_approval",
+                "Compatibility mode is available only after strict shortfall",
+                status_code=409,
+            )
+        pool = self._list_compatibility_candidates(
+            connection,
+            self._require_route(connection, str(run["route_id"])),
+        )
+        selected = next(
+            (
+                item
+                for item in pool["candidates"]
+                if str(item["candidate_id"]) == str(candidate_ids[0])
+            ),
+            None,
+        )
+        if selected is None or not bool(selected["selectable"]):
+            raise ActorOpsError(
+                "apify_actor_candidate_not_selectable",
+                "Selected Actor does not satisfy compatibility hard fences",
+                status_code=412,
+            )
+        revision = connection.execute(
+            """
+            SELECT revision.*, candidate.display_name
+            FROM apify_actor_adapter_revisions AS revision
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE revision.workspace_id = ? AND revision.revision_id = ?
+            """,
+            (self.workspace_id, str(selected["revision_id"])),
+        ).fetchone()
+        if revision is None:
+            raise ActorOpsError(
+                "apify_actor_revision_not_found",
+                "Selected Actor revision was not found",
+                status_code=404,
+            )
+        cap = min(float(run["per_run_cap_usd"]), 0.02)
+        if max_total_charge_usd is not None and not math.isclose(
+            _bounded_cost(max_total_charge_usd, maximum=0.02),
+            cap,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            raise ActorOpsError(
+                "apify_actor_canary_plan_conflict",
+                "Compatibility Canary cost cap changed; reload before approval",
+                status_code=409,
+            )
+        validation_profile = {
+            "timeout_seconds": VALIDATION_TIMEOUT_SECONDS_DEFAULT,
+            "sample_items": 1,
+            "max_charge_usd": round(cap, 6),
+            "supports_sample_items": True,
+            "profile_hash": validation_profile_hash(
+                timeout_seconds=VALIDATION_TIMEOUT_SECONDS_DEFAULT,
+                sample_items=1,
+                max_charge_usd=cap,
+            ),
+        }
+        from .apify_actor_canary import next_reference_fingerprint
+
+        reference_fingerprint = next_reference_fingerprint(
+            self.store,
+            workspace_id=self.workspace_id,
+            platform=str(run["platform"]),
+            route_id=str(run["route_id"]),
+            revision_id=str(revision["revision_id"]),
+        )
+        base_rows = connection.execute(
+            """
+            SELECT slot_name, revision_id FROM apify_route_active_slots
+            WHERE workspace_id = ? AND route_id = ?
+            """,
+            (self.workspace_id, str(run["route_id"])),
+        ).fetchall()
+        base_slots = {
+            str(row["slot_name"]): str(row["revision_id"] or "")
+            for row in base_rows
+        }
+        already_validated = bool(selected["already_validated"])
+        item = {
+            "ordinal": 1,
+            "candidate_id": str(revision["candidate_id"]),
+            "revision_id": str(revision["revision_id"]),
+            "actor_id": str(revision["actor_id"]),
+            "actor_public_name": _actor_public_name(
+                revision["display_name"],
+                revision["publisher"],
+                revision["actor_id"],
+            ),
+            "publisher": str(revision["publisher"]),
+            "build_id": str(revision["build_id"] or ""),
+            "build_number": str(revision["build_number"] or ""),
+            "manifest_hash": str(revision["manifest_hash"] or ""),
+            "execution_mode": str(revision["execution_mode"]),
+            "already_validated": already_validated,
+            "authorized_cap_usd": round(cap, 6),
+            "validation_profile": validation_profile,
+            "compatibility_warnings": list(
+                selected.get("compatibility_warnings") or []
+            ),
+        }
+        payload = {
+            "schema_version": 4,
+            "goal": "compatibility_single",
+            "selection_mode": "manual",
+            "target_slot_count": 1,
+            "run_id": str(run["run_id"]),
+            "route_id": str(run["route_id"]),
+            "generation": int(run["generation"]),
+            "base_pool_hash": revision_set_hash(base_slots),
+            "items": [
+                {
+                    key: item[key]
+                    for key in (
+                        "ordinal",
+                        "candidate_id",
+                        "revision_id",
+                        "actor_id",
+                        "publisher",
+                        "build_id",
+                        "build_number",
+                        "manifest_hash",
+                        "execution_mode",
+                        "already_validated",
+                        "authorized_cap_usd",
+                        "validation_profile",
+                    )
+                }
+            ],
+            "required_success_count": 1,
+            "required_source_slots": 0,
+            "max_total_charge_usd": round(cap, 6),
+        }
+        plan_hash = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        return {
+            **payload,
+            "route_key": str(run["route_key"]),
+            "platform": str(run["platform"]),
+            "target_type": str(run["target_type"]),
+            "capability": str(run["capability"]),
+            "mode": str(run["mode"]),
+            "status": "activation_ready" if already_validated else "ready",
+            "ready": True,
+            "activation_ready": already_validated,
+            "plan_hash": plan_hash,
+            "route_validation_cap_usd": round(cap, 6),
+            "source_validation_cap_usd": 0.0,
+            "source_count": 0,
+            "source_validation_count": 0,
+            "per_candidate_cap_usd": round(cap, 6),
+            "successful_actor_count": int(already_validated),
+            "successful_publisher_count": int(already_validated),
+            "attempts_used": 0,
+            "attempts_remaining": 1,
+            "budget_remaining_usd": 0.0,
+            "items": [item],
+            "_eligible_candidate_count": 1,
+            "_source_snapshot": [],
+            "_reference_fingerprints": {
+                str(revision["revision_id"]): reference_fingerprint
+            },
+        }
+
     def _get_pool_stage_canary_plan(
         self,
         run_id: str,
         *,
-        goal: Literal["initial_pool", "complete_third", "upgrade_legacy"],
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
+        ],
         max_candidates: int,
         max_total_charge_usd: float | None,
         candidate_ids: tuple[str, ...] | None = None,
@@ -3723,7 +5039,7 @@ class ApifyActorOpsService:
             SELECT run.*, profile.route_key, profile.platform,
                    profile.target_type, profile.capability, profile.mode,
                    profile.generation, profile.per_run_cap_usd,
-                   profile.min_publishers
+                   profile.min_publishers, profile.min_runtime_healthy
             FROM apify_actor_discovery_runs AS run
             JOIN apify_actor_route_profiles AS profile
               ON profile.workspace_id = run.workspace_id
@@ -3789,12 +5105,14 @@ class ApifyActorOpsService:
             if target_slot_count is not None
             else 3
             if goal in {"complete_third", "upgrade_legacy"}
-            else 2
+            else int(run["min_runtime_healthy"])
         )
-        if resolved_target_slot_count not in {2, 3}:
+        if resolved_target_slot_count not in {1, 2, 3} or (
+            resolved_target_slot_count == 1 and goal != "initial_pool"
+        ) or resolved_target_slot_count < int(run["min_runtime_healthy"]):
             raise ActorOpsError(
                 "apify_actor_pool_target_count_invalid",
-                "Actor pool target slot count must be two or three",
+                "Actor pool target slot count is invalid for this workflow",
                 status_code=422,
             )
         if (
@@ -3807,10 +5125,15 @@ class ApifyActorOpsService:
                 status_code=422,
             )
         if manual_selection:
-            expected_count = 1 if goal == "complete_third" else 3
+            expected_count = (
+                1
+                if goal == "complete_third"
+                else 3
+                if goal == "upgrade_legacy"
+                else resolved_target_slot_count
+            )
             if (
-                resolved_target_slot_count != 3
-                or len(candidate_ids or ()) != expected_count
+                len(candidate_ids or ()) != expected_count
                 or len(set(candidate_ids or ())) != expected_count
                 or any(
                     not str(candidate_id).strip()
@@ -3854,17 +5177,17 @@ class ApifyActorOpsService:
                     "Legacy upgrade requires the existing three-Actor compatibility pool",
                     status_code=412,
                 )
-            required_successes = 3
-            required_source_slots = 3
+            required_successes = resolved_target_slot_count
+            required_source_slots = resolved_target_slot_count
         else:
-            if len(populated) >= 2:
+            if len(populated) >= resolved_target_slot_count:
                 raise ActorOpsError(
                     "apify_actor_pool_stage_precondition_incomplete",
                     "Initial Actor setup requires an unconfigured Route",
                     status_code=412,
                 )
-            required_successes = 3
-            required_source_slots = 3
+            required_successes = resolved_target_slot_count
+            required_source_slots = resolved_target_slot_count
 
         active_actor_ids = {
             str(row["actor_id"]) for row in populated if row["actor_id"]
@@ -4012,6 +5335,15 @@ class ApifyActorOpsService:
 
         selected: tuple[sqlite3.Row, ...] = ()
         maximum = min(int(max_candidates), len(distinct))
+        if (
+            not manual_selection
+            and goal == "initial_pool"
+            and required_successes == 1
+        ):
+            # YouTube's public Atom feed is the primary path. One proven
+            # fallback Actor restores the capability; extra paid fallback
+            # trials are initiated only by an administrator.
+            maximum = min(maximum, 1)
         if manual_selection:
             eligible_by_id = {
                 str(row["candidate_id"]): row
@@ -4637,7 +5969,8 @@ class ApifyActorOpsService:
             SELECT run.*, profile.route_key, profile.platform,
                    profile.target_type, profile.capability,
                    profile.mode, profile.generation,
-                   profile.per_run_cap_usd, profile.min_publishers
+                   profile.per_run_cap_usd, profile.min_publishers,
+                   profile.min_runtime_healthy
             FROM apify_actor_discovery_runs AS run
             JOIN apify_actor_route_profiles AS profile
               ON profile.workspace_id = run.workspace_id
@@ -4663,6 +5996,8 @@ class ApifyActorOpsService:
                 "Actor discovery run is not ready for a paid validation plan",
                 status_code=409,
             )
+        required_actors = int(run["min_runtime_healthy"])
+        required_publishers = int(run["min_publishers"])
 
         successful = connection.execute(
             """
@@ -4807,7 +6142,7 @@ class ApifyActorOpsService:
             attempts_remaining,
             affordable_candidates,
         )
-        prefer_minimum = bool(proven_actors)
+        prefer_minimum = bool(proven_actors) or required_actors == 1
         best_score: tuple[Any, ...] | None = None
         for size in range(1, maximum + 1):
             for option in combinations(candidates, size):
@@ -4815,10 +6150,13 @@ class ApifyActorOpsService:
                 publishers = proven_publishers | {
                     str(row["publisher"]).casefold() for row in option
                 }
-                reaches_two = len(actors) >= 2 and len(publishers) >= 2
+                reaches_minimum = (
+                    len(actors) >= required_actors
+                    and len(publishers) >= required_publishers
+                )
                 score: tuple[Any, ...] = (
-                    0 if reaches_two else 1,
-                    size if reaches_two and prefer_minimum else -size,
+                    0 if reaches_minimum else 1,
+                    size if reaches_minimum and prefer_minimum else -size,
                     sum(int(row["position"] or 0) for row in option),
                     *(str(row["revision_id"]) for row in option),
                 )
@@ -4833,10 +6171,12 @@ class ApifyActorOpsService:
             str(row["publisher"]).casefold() for row in selected
         }
         activation_ready = (
-            len(proven_actors) >= 2 and len(proven_publishers) >= 2
+            len(proven_actors) >= required_actors
+            and len(proven_publishers) >= required_publishers
         )
         reachable = activation_ready or (
-            len(combined_actors) >= 2 and len(combined_publishers) >= 2
+            len(combined_actors) >= required_actors
+            and len(combined_publishers) >= required_publishers
         )
         plan_items = [
             {
@@ -4861,6 +6201,8 @@ class ApifyActorOpsService:
             "run_id": str(run["run_id"]),
             "route_id": str(run["route_id"]),
             "generation": int(run["generation"]),
+            "target_slot_count": required_actors,
+            "required_success_count": required_actors,
             "max_candidates": int(max_candidates),
             "max_total_charge_usd": authorized_total,
             "items": [
@@ -4898,6 +6240,8 @@ class ApifyActorOpsService:
             "capability": str(run["capability"]),
             "mode": str(run["mode"]),
             "generation": int(run["generation"]),
+            "target_slot_count": required_actors,
+            "required_success_count": required_actors,
             "status": (
                 "activation_ready"
                 if activation_ready
@@ -4932,7 +6276,8 @@ class ApifyActorOpsService:
         created_by_user_id: str,
         reference_fingerprints: Mapping[str, str],
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ] = "initial_pool",
         candidate_ids: Sequence[str] | None = None,
         candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
@@ -4954,6 +6299,7 @@ class ApifyActorOpsService:
             "initial_pool",
             "complete_third",
             "upgrade_legacy",
+            "compatibility_single",
         }:
             raise ActorOpsError(
                 "apify_actor_pool_stage_goal_invalid",
@@ -4982,7 +6328,10 @@ class ApifyActorOpsService:
         self,
         run_id: str,
         *,
-        goal: Literal["initial_pool", "complete_third", "upgrade_legacy"],
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
+        ],
         expected_generation: int,
         expected_plan_hash: str,
         approval_id: str,
@@ -5380,7 +6729,7 @@ class ApifyActorOpsService:
             if not bool(plan["ready"]):
                 raise ActorOpsError(
                     "apify_actor_canary_batch_not_ready",
-                    "The current candidates cannot produce two safe providers",
+                    "The current candidates cannot satisfy the Route minimum",
                     status_code=412,
                 )
             revision_ids = {
@@ -6017,7 +7366,8 @@ class ApifyActorOpsService:
 
         def candidate_selection_progress(
             goal: Literal[
-                "initial_pool", "complete_third", "upgrade_legacy"
+                "initial_pool", "complete_third", "upgrade_legacy",
+                "compatibility_single",
             ],
         ) -> tuple[dict[str, int], list[str]]:
             result = self.list_pool_candidates(route_id, goal=goal)
@@ -6062,6 +7412,8 @@ class ApifyActorOpsService:
                 if stage["goal"] == "initial_pool"
                 else "backup_2"
                 if stage["goal"] == "complete_third"
+                else "compatibility"
+                if stage["goal"] == "compatibility_single"
                 else "legacy"
             )
             status = str(stage["status"])
@@ -6136,12 +7488,31 @@ class ApifyActorOpsService:
             "canary_exhausted", "activation_ready", "completed",
         }
         run_id = str(latest["run_id"]) if latest is not None else None
-        if "legacy_builtin" in lifecycles:
+        compatibility_operational = (
+            str(route.get("admission_mode") or "standard") == "compatibility"
+            and len(slots) >= 1
+        )
+        if "legacy_builtin" in lifecycles and not compatibility_operational:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("upgrade_legacy")
                 if approval_discovery
                 else ({}, [])
             )
+            if approval_discovery and "candidate_shortfall" in plan_blockers:
+                compatibility_progress, compatibility_blockers = (
+                    candidate_selection_progress("compatibility_single")
+                )
+                if not compatibility_blockers:
+                    return {
+                        "kind": "compatibility_candidate_selection_available",
+                        "goal": "compatibility_single",
+                        "run_id": run_id,
+                        "progress": {
+                            **compatibility_progress,
+                            "strict_blockers": plan_blockers,
+                        },
+                        "blockers": [],
+                    }
             kind = (
                 "legacy_discovery_running"
                 if running_discovery
@@ -6156,7 +7527,39 @@ class ApifyActorOpsService:
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        if len(slots) == 2:
+        youtube_fallback_operational = (
+            str(route.get("platform") or "") == "youtube"
+            and str(route.get("mode") or "") == "fallback"
+            and len(slots) >= 1
+        )
+        if source_pending:
+            return {
+                "kind": "source_validation_required",
+                "goal": None,
+                "run_id": run_id,
+                "progress": {"pending_sources": source_pending},
+                "blockers": [],
+            }
+        if compatibility_operational:
+            plan_progress, plan_blockers = (
+                candidate_selection_progress("initial_pool")
+                if approval_discovery
+                else ({}, [])
+            )
+            return {
+                "kind": (
+                    "compatibility_standard_discovery_running"
+                    if running_discovery
+                    else "compatibility_standard_candidate_selection_required"
+                    if approval_discovery and not plan_blockers
+                    else "compatibility_operational"
+                ),
+                "goal": "initial_pool",
+                "run_id": run_id,
+                "progress": plan_progress,
+                "blockers": plan_blockers,
+            }
+        if len(slots) == 2 and not youtube_fallback_operational:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("complete_third")
                 if approval_discovery
@@ -6176,12 +7579,27 @@ class ApifyActorOpsService:
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        if len(slots) < 2:
+        if len(slots) < 2 and not compatibility_operational and not youtube_fallback_operational:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("initial_pool")
                 if approval_discovery
                 else ({}, [])
             )
+            if approval_discovery and "candidate_shortfall" in plan_blockers:
+                compatibility_progress, compatibility_blockers = (
+                    candidate_selection_progress("compatibility_single")
+                )
+                if not compatibility_blockers:
+                    return {
+                        "kind": "compatibility_candidate_selection_available",
+                        "goal": "compatibility_single",
+                        "run_id": run_id,
+                        "progress": {
+                            **compatibility_progress,
+                            "strict_blockers": plan_blockers,
+                        },
+                        "blockers": [],
+                    }
             kind = (
                 "setup_canary_running"
                 if active_initial_batch is not None
@@ -6197,14 +7615,6 @@ class ApifyActorOpsService:
                 "run_id": run_id,
                 "progress": plan_progress,
                 "blockers": plan_blockers,
-            }
-        if source_pending:
-            return {
-                "kind": "source_validation_required",
-                "goal": None,
-                "run_id": run_id,
-                "progress": {"pending_sources": source_pending},
-                "blockers": [],
             }
         probationary = [
             slot for slot in slots if str(slot.get("lifecycle")) == "probationary"
@@ -6271,6 +7681,44 @@ class ApifyActorOpsService:
         base = {str(row["slot_name"]): str(row["revision_id"] or "") for row in base_rows}
         if revision_set_hash(base) != str(stage["base_pool_hash"]):
             return None
+        if str(stage["goal"]) == "compatibility_single":
+            compatible = connection.execute(
+                """
+                SELECT item.revision_id
+                FROM apify_actor_canary_batch_items AS item
+                JOIN apify_actor_validations AS validation
+                  ON validation.workspace_id = item.workspace_id
+                 AND validation.validation_id = item.validation_id
+                WHERE item.workspace_id = ? AND item.batch_id = ?
+                  AND item.status = 'succeeded'
+                  AND validation.status = 'succeeded'
+                  AND validation.cost_final = 1
+                  AND (
+                      validation.semantic_outcome = 'valid_nonempty'
+                      OR validation.semantic_outcome = 'evidence_reused'
+                         AND EXISTS (
+                             SELECT 1 FROM apify_actor_validations AS proof
+                             WHERE proof.workspace_id = validation.workspace_id
+                               AND proof.route_id = validation.route_id
+                               AND proof.revision_id = validation.revision_id
+                               AND proof.kind = 'route_reference'
+                               AND proof.status = 'succeeded'
+                               AND proof.cost_final = 1
+                               AND proof.semantic_outcome = 'valid_nonempty'
+                         )
+                  )
+                ORDER BY item.ordinal
+                LIMIT 1
+                """,
+                (self.workspace_id, str(stage["batch_id"])),
+            ).fetchone()
+            if compatible is None:
+                return None
+            return {
+                "primary": str(compatible["revision_id"]),
+                "backup_1": None,
+                "backup_2": None,
+            }
         successful = connection.execute(
             """
             SELECT revision.revision_id, revision.actor_id,
@@ -6314,6 +7762,14 @@ class ApifyActorOpsService:
                 "primary": base.get("primary") or None,
                 "backup_1": base.get("backup_1") or None,
                 "backup_2": str(selected["revision_id"]),
+            }
+        elif int(stage["target_slot_count"] or 2) == 1:
+            if len(successful) < 1:
+                return None
+            target = {
+                "primary": str(successful[0]["revision_id"]),
+                "backup_1": None,
+                "backup_2": None,
             }
         elif int(stage["target_slot_count"] or 2) == 3:
             if len(successful) < 3:
@@ -6364,7 +7820,7 @@ class ApifyActorOpsService:
         """Return a persisted stage target only when all frozen proof is intact."""
 
         target_slot_count = int(stage["target_slot_count"] or 0)
-        if target_slot_count not in {2, 3}:
+        if target_slot_count not in {1, 2, 3}:
             return None
         if (
             str(stage["goal"]) == "complete_third"
@@ -6412,6 +7868,105 @@ class ApifyActorOpsService:
 
     def pool_stage_route_ready(self, stage_id: str) -> bool:
         return self._pool_stage_target_slots(self.store.connect(), stage_id) is not None
+
+    def prepare_compatibility_stage_activation(self, stage_id: str) -> dict[str, Any]:
+        """Freeze one nonempty compatibility proof for final human activation."""
+
+        with self._write() as connection:
+            stage = connection.execute(
+                """
+                SELECT * FROM apify_actor_pool_stages
+                WHERE workspace_id = ? AND stage_id = ?
+                """,
+                (self.workspace_id, str(stage_id)),
+            ).fetchone()
+            if stage is None:
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_not_found",
+                    "Actor pool stage was not found",
+                    status_code=404,
+                )
+            if str(stage["goal"]) != "compatibility_single":
+                raise ActorOpsError(
+                    "apify_actor_pool_stage_goal_invalid",
+                    "Actor pool stage is not a compatibility workflow",
+                    status_code=422,
+                )
+            target = self._pool_stage_target_slots(connection, stage_id)
+            if target is None:
+                pending_cost = connection.execute(
+                    """
+                    SELECT 1
+                    FROM apify_actor_canary_batch_items AS item
+                    JOIN apify_actor_canary_batches AS batch
+                      ON batch.workspace_id = item.workspace_id
+                     AND batch.batch_id = item.batch_id
+                    JOIN apify_actor_validations AS validation
+                      ON validation.workspace_id = item.workspace_id
+                     AND validation.validation_id = item.validation_id
+                    WHERE item.workspace_id = ?
+                      AND batch.pool_stage_id = ?
+                      AND batch.goal = 'compatibility_single'
+                      AND item.status = 'succeeded'
+                      AND validation.status = 'succeeded'
+                      AND validation.semantic_outcome = 'valid_nonempty'
+                      AND validation.cost_final = 0
+                    LIMIT 1
+                    """,
+                    (self.workspace_id, str(stage_id)),
+                ).fetchone()
+                if pending_cost is not None:
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_pool_stages
+                        SET status = 'validating_route',
+                            last_error_code =
+                                'apify_actor_cost_reconciliation_required',
+                            updated_at = ?
+                        WHERE workspace_id = ? AND stage_id = ?
+                          AND status IN (
+                              'queued', 'validating_route', 'replan_required'
+                          )
+                        """,
+                        (self._now_iso(), self.workspace_id, str(stage_id)),
+                    )
+                    return self.get_pool_stage(stage_id)
+                connection.execute(
+                    """
+                    UPDATE apify_actor_pool_stages
+                    SET status = 'replan_required',
+                        last_error_code = 'compatibility_canary_failed',
+                        updated_at = ?
+                    WHERE workspace_id = ? AND stage_id = ?
+                    """,
+                    (self._now_iso(), self.workspace_id, str(stage_id)),
+                )
+                return self.get_pool_stage(stage_id)
+            target_hash = revision_set_hash(
+                {name: str(target.get(name) or "") for name in SLOT_NAMES}
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_pool_stages
+                SET target_primary_revision_id = ?,
+                    target_backup_1_revision_id = NULL,
+                    target_backup_2_revision_id = NULL,
+                    target_pool_hash = ?, status = 'apply_ready',
+                    last_error_code = NULL, updated_at = ?
+                WHERE workspace_id = ? AND stage_id = ?
+                  AND status IN (
+                      'queued', 'validating_route', 'replan_required'
+                  )
+                """,
+                (
+                    target["primary"],
+                    target_hash,
+                    self._now_iso(),
+                    self.workspace_id,
+                    str(stage_id),
+                ),
+            )
+        return self.get_pool_stage(stage_id)
 
     def prepare_pool_stage_source_validations(
         self,
@@ -7062,20 +8617,22 @@ class ApifyActorOpsService:
                     "Active Actor pool changed while the replacement was staged",
                     status_code=409,
                 )
-            self._refresh_pool_stage_sources_locked(connection, stage_id)
-            refreshed = connection.execute(
-                """
-                SELECT status FROM apify_actor_pool_stages
-                WHERE workspace_id = ? AND stage_id = ?
-                """,
-                (self.workspace_id, stage_id),
-            ).fetchone()
-            if refreshed is None or str(refreshed["status"]) != "apply_ready":
-                raise ActorOpsError(
-                    "apify_actor_pool_stage_source_validation_incomplete",
-                    "Enabled sources changed or still require validation",
-                    status_code=412,
-                )
+            compatibility_single = str(stage["goal"]) == "compatibility_single"
+            if not compatibility_single:
+                self._refresh_pool_stage_sources_locked(connection, stage_id)
+                refreshed = connection.execute(
+                    """
+                    SELECT status FROM apify_actor_pool_stages
+                    WHERE workspace_id = ? AND stage_id = ?
+                    """,
+                    (self.workspace_id, stage_id),
+                ).fetchone()
+                if refreshed is None or str(refreshed["status"]) != "apply_ready":
+                    raise ActorOpsError(
+                        "apify_actor_pool_stage_source_validation_incomplete",
+                        "Enabled sources changed or still require validation",
+                        status_code=412,
+                    )
             active_attempt = connection.execute(
                 """
                 SELECT 1 FROM apify_actor_attempts
@@ -7098,38 +8655,62 @@ class ApifyActorOpsService:
                 slots=target,
                 expected_generation=expected_generation,
                 allow_probationary_primary=True,
+                allow_compatibility_single=compatibility_single,
+            )
+            populated_target_count = sum(
+                revision_id is not None for revision_id in target.values()
             )
             ready_status = (
-                "ready_3of3" if target["backup_2"] is not None else "ready_2of2"
+                "ready_1of1"
+                if populated_target_count == 1
+                else "ready_3of3"
+                if populated_target_count == 3
+                else "ready_2of2"
             )
-            connection.execute(
-                """
-                UPDATE apify_source_route_bindings
-                SET validation_status = ?, verified_revision_set_hash = ?,
-                    updated_at = ?
-                WHERE workspace_id = ? AND route_id = ?
-                  AND source_id IN (
-                      SELECT stage_source.source_id
-                      FROM apify_actor_pool_stage_sources AS stage_source
-                      JOIN source_catalog AS source
-                        ON source.workspace_id = stage_source.workspace_id
-                       AND source.id = stage_source.source_id
-                      WHERE stage_source.workspace_id = ?
-                        AND stage_source.stage_id = ?
-                        AND stage_source.status = 'succeeded'
-                        AND source.enabled = 1
-                  )
-                """,
-                (
-                    ready_status,
-                    str(stage["target_pool_hash"]),
-                    self._now_iso(),
-                    self.workspace_id,
-                    str(stage["route_id"]),
-                    self.workspace_id,
-                    stage_id,
-                ),
-            )
+            if compatibility_single:
+                connection.execute(
+                    """
+                    UPDATE apify_source_route_bindings
+                    SET validation_status = 'ready_1of1',
+                        verified_revision_set_hash = ?, updated_at = ?
+                    WHERE workspace_id = ? AND route_id = ?
+                    """,
+                    (
+                        str(stage["target_pool_hash"]),
+                        self._now_iso(),
+                        self.workspace_id,
+                        str(stage["route_id"]),
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE apify_source_route_bindings
+                    SET validation_status = ?, verified_revision_set_hash = ?,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND route_id = ?
+                      AND source_id IN (
+                          SELECT stage_source.source_id
+                          FROM apify_actor_pool_stage_sources AS stage_source
+                          JOIN source_catalog AS source
+                            ON source.workspace_id = stage_source.workspace_id
+                           AND source.id = stage_source.source_id
+                          WHERE stage_source.workspace_id = ?
+                            AND stage_source.stage_id = ?
+                            AND stage_source.status = 'succeeded'
+                            AND source.enabled = 1
+                      )
+                    """,
+                    (
+                        ready_status,
+                        str(stage["target_pool_hash"]),
+                        self._now_iso(),
+                        self.workspace_id,
+                        str(stage["route_id"]),
+                        self.workspace_id,
+                        stage_id,
+                    ),
+                )
             applied_generation = int(result["generation"])
             connection.execute(
                 """
@@ -7310,6 +8891,20 @@ class ApifyActorOpsService:
                     "Actor Canary batch was not found",
                     status_code=404,
                 )
+            route_minimum = connection.execute(
+                """
+                SELECT min_runtime_healthy, min_publishers
+                FROM apify_actor_route_profiles
+                WHERE workspace_id = ? AND route_id = ?
+                """,
+                (self.workspace_id, str(batch["route_id"])),
+            ).fetchone()
+            if route_minimum is None:
+                raise ActorOpsError(
+                    "apify_actor_route_not_found",
+                    "Actor route was not found",
+                    status_code=404,
+                )
             evidence = connection.execute(
                 """
                 SELECT COUNT(DISTINCT CASE WHEN item.status = 'succeeded'
@@ -7384,7 +8979,10 @@ class ApifyActorOpsService:
                     "apply_ready"
                 )
             else:
-                ready = actor_count >= 2 and publisher_count >= 2
+                ready = (
+                    actor_count >= int(route_minimum["min_runtime_healthy"])
+                    and publisher_count >= int(route_minimum["min_publishers"])
+                )
             batch_status = "activation_ready" if ready else "partial"
             # Batch counters are bounded by the three-item batch schema even
             # when older Route evidence contains more historical Actors.
@@ -7423,7 +9021,7 @@ class ApifyActorOpsService:
                         stop_reason or (
                             "staged_pool_apply_ready"
                             if batch["pool_stage_id"] is not None
-                            else "two_providers_ready"
+                            else "route_minimum_ready"
                             if ready
                             else "candidate_replenishment_required"
                         ),
@@ -8052,12 +9650,29 @@ class ApifyActorOpsService:
                        validation.approved_max_cost_usd,
                        validation.target_fingerprint,
                        validation.validation_profile_hash,
-                       revision.candidate_id, revision.build_id,
-                       revision.build_number, revision.manifest_hash
+                       revision.candidate_id, revision.actor_id,
+                       revision.build_id, revision.build_number,
+                       revision.manifest_hash, revision.input_schema_hash,
+                       revision.output_schema_hash, revision.pricing_json,
+                       profile.admission_mode, profile.min_runtime_healthy,
+                       profile.min_publishers,
+                       EXISTS (
+                           SELECT 1
+                           FROM apify_actor_canary_batch_items AS batch_item
+                           JOIN apify_actor_canary_batches AS batch
+                             ON batch.workspace_id = batch_item.workspace_id
+                            AND batch.batch_id = batch_item.batch_id
+                           WHERE batch_item.workspace_id = validation.workspace_id
+                             AND batch_item.validation_id = validation.validation_id
+                             AND batch.goal = 'compatibility_single'
+                       ) AS compatibility_trial
                 FROM apify_actor_validations AS validation
                 JOIN apify_actor_adapter_revisions AS revision
                   ON revision.workspace_id = validation.workspace_id
                  AND revision.revision_id = validation.revision_id
+                JOIN apify_actor_route_profiles AS profile
+                  ON profile.workspace_id = validation.workspace_id
+                 AND profile.route_id = validation.route_id
                 WHERE validation.workspace_id = ?
                   AND validation.validation_id = ?
                 """,
@@ -8185,8 +9800,10 @@ class ApifyActorOpsService:
                 ).fetchone()
                 if (
                     cycle is not None
-                    and int(cycle["succeeded_actors"] or 0) >= 2
-                    and int(cycle["succeeded_publishers"] or 0) >= 2
+                    and int(cycle["succeeded_actors"] or 0)
+                    >= int(current["min_runtime_healthy"])
+                    and int(cycle["succeeded_publishers"] or 0)
+                    >= int(current["min_publishers"])
                 ):
                     connection.execute(
                         """
@@ -8210,8 +9827,10 @@ class ApifyActorOpsService:
                     and int(cycle["attempts"] or 0)
                     >= ROUTE_CANARY_ATTEMPT_LIMIT
                     and (
-                        int(cycle["succeeded_actors"] or 0) < 2
-                        or int(cycle["succeeded_publishers"] or 0) < 2
+                        int(cycle["succeeded_actors"] or 0)
+                        < int(current["min_runtime_healthy"])
+                        or int(cycle["succeeded_publishers"] or 0)
+                        < int(current["min_publishers"])
                     )
                 ):
                     connection.execute(
@@ -8230,7 +9849,69 @@ class ApifyActorOpsService:
                             str(current["discovery_run_id"]),
                         ),
                     )
-        return self.get_validation(validation_id)
+        result = self.get_validation(validation_id)
+        if terminal:
+            try:
+                from .apify_actor_resilience import ApifyActorResilienceService
+
+                reason = str(semantic_outcome or status)
+                deterministic = status == "failed" and reason in {
+                    "apify_actor_contract_mismatch",
+                    "apify_actor_identity_mismatch",
+                    "apify_actor_target_identity_mismatch",
+                    "apify_actor_metadata_only",
+                    "apify_actor_input_schema_unmappable",
+                    "apify_manifest_output_pointer_unverifiable",
+                    "apify_manifest_item_identity_invalid",
+                    "apify_manifest_source_identity_invalid",
+                    "actor_requires_full_permissions",
+                }
+                resilience = ApifyActorResilienceService(
+                    self.store,
+                    workspace_id=self.workspace_id,
+                )
+                resilience.record_evaluation(
+                    route_id=str(current["route_id"]),
+                    candidate_id=str(current["candidate_id"]),
+                    revision_id=str(current["revision_id"]),
+                    evidence_fingerprint=actor_evidence_fingerprint(
+                        route_id=str(current["route_id"]),
+                        candidate_id=str(current["candidate_id"]),
+                        actor_id=str(current["actor_id"]),
+                        build_id=str(current["build_id"] or ""),
+                        build_number=str(current["build_number"] or ""),
+                        manifest_hash=str(current["manifest_hash"] or ""),
+                        pricing=_safe_json(current["pricing_json"], {}),
+                        input_schema_hash=str(
+                            current["input_schema_hash"] or ""
+                        ),
+                        output_schema_hash=str(
+                            current["output_schema_hash"] or ""
+                        ),
+                    ),
+                    policy_mode=(
+                        "compatibility"
+                        if bool(current["compatibility_trial"])
+                        or str(current["admission_mode"]) == "compatibility"
+                        else "standard"
+                    ),
+                    stage="canary",
+                    outcome="passed" if status == "succeeded" else "failed",
+                    reason_code=reason,
+                    deterministic=deterministic,
+                )
+                resilience.emit_event(
+                    route_id=str(current["route_id"]),
+                    candidate_id=str(current["candidate_id"]),
+                    phase="canary",
+                    outcome="succeeded" if status == "succeeded" else "failed",
+                    reason_code=reason,
+                    final_cost_usd=cost_usd if resolved_cost_final else None,
+                )
+            except Exception:
+                # Diagnostics and failure memory are explicitly best effort.
+                pass
+        return result
 
     def get_validation(self, validation_id: str) -> dict[str, Any]:
         row = self.store.connect().execute(
@@ -8595,7 +10276,7 @@ class ApifyActorOpsService:
             if len(revision_ids) < int(route["min_runtime_healthy"]):
                 raise ActorOpsError(
                     "apify_actor_source_validation_incomplete",
-                    "At least two active Actor revisions are required",
+                    "The route does not have its required active Actor revisions",
                     status_code=412,
                 )
             succeeded = {
@@ -8616,6 +10297,20 @@ class ApifyActorOpsService:
                     ),
                 ).fetchall()
             }
+            if str(route["admission_mode"]) == "compatibility":
+                succeeded = {
+                    str(row["revision_id"])
+                    for row in connection.execute(
+                        """
+                        SELECT revision_id FROM apify_actor_validations
+                        WHERE workspace_id = ? AND route_id = ?
+                          AND kind = 'route_reference'
+                          AND status = 'succeeded' AND cost_final = 1
+                          AND semantic_outcome = 'valid_nonempty'
+                        """,
+                        (self.workspace_id, binding["route_id"]),
+                    ).fetchall()
+                }
             if not revision_ids <= succeeded:
                 raise ActorOpsError(
                     "apify_actor_source_validation_incomplete",
@@ -8637,7 +10332,11 @@ class ApifyActorOpsService:
                 }
             )
             ready_status = (
-                "ready_3of3" if len(revision_ids) == 3 else "ready_2of2"
+                "ready_1of1"
+                if len(revision_ids) == 1
+                else "ready_3of3"
+                if len(revision_ids) == 3
+                else "ready_2of2"
             )
             if str(binding["validation_status"]) in _READY_BINDING_STATUSES:
                 if str(binding["verified_revision_set_hash"] or "") != digest:
@@ -8978,7 +10677,22 @@ class ApifyActorOpsService:
                     now,
                 ),
             )
-        return self.get_discovery_run(run_id)
+        result = self.get_discovery_run(run_id)
+        try:
+            from .apify_actor_resilience import ApifyActorResilienceService
+
+            ApifyActorResilienceService(
+                self.store,
+                workspace_id=self.workspace_id,
+            ).emit_event(
+                route_id=str(result["route_id"]),
+                phase="discovery",
+                outcome="queued",
+                reason_code=reason,
+            )
+        except Exception:
+            pass
+        return result
 
     def create_discovery_measurements(
         self,
@@ -9586,7 +11300,33 @@ class ApifyActorOpsService:
                     "apify_actor_discovery_generation_conflict",
                     "Actor discovery run changed; reload before retrying",
                 )
-        return self.get_discovery_run(run_id)
+        result = self.get_discovery_run(run_id)
+        try:
+            from .apify_actor_resilience import ApifyActorResilienceService
+
+            terminal_failure = stage in {
+                "candidate_shortfall",
+                "blocked_ai_unavailable",
+                "canary_exhausted",
+                "failed",
+            }
+            ApifyActorResilienceService(
+                self.store,
+                workspace_id=self.workspace_id,
+            ).emit_event(
+                route_id=str(result["route_id"]),
+                phase=(
+                    stage
+                    if stage in {"static_validation", "input_validation"}
+                    else "discovery"
+                ),
+                outcome="failed" if terminal_failure else "succeeded",
+                reason_code=safe_error or stage,
+                occurrence_count=max(int(candidate_count or 1), 1),
+            )
+        except Exception:
+            pass
+        return result
 
     def get_discovery_settings(self) -> dict[str, Any]:
         row = self.store.connect().execute(
@@ -10007,7 +11747,8 @@ class ApifyActorOpsService:
             for batch_id in batches:
                 batch = connection.execute(
                     """
-                    SELECT batch.route_id,
+                    SELECT batch.route_id, profile.min_runtime_healthy,
+                           profile.min_publishers,
                            COALESCE(SUM(CASE WHEN item.cost_final = 1
                                THEN COALESCE(item.actual_cost_usd, 0)
                                ELSE 0 END), 0) AS actual_cost,
@@ -10017,8 +11758,12 @@ class ApifyActorOpsService:
                     JOIN apify_actor_canary_batch_items AS item
                       ON item.workspace_id = batch.workspace_id
                      AND item.batch_id = batch.batch_id
+                    JOIN apify_actor_route_profiles AS profile
+                      ON profile.workspace_id = batch.workspace_id
+                     AND profile.route_id = batch.route_id
                     WHERE batch.workspace_id = ? AND batch.batch_id = ?
-                    GROUP BY batch.route_id
+                    GROUP BY batch.route_id, profile.min_runtime_healthy,
+                             profile.min_publishers
                     """,
                     (self.workspace_id, batch_id),
                 ).fetchone()
@@ -10043,8 +11788,10 @@ class ApifyActorOpsService:
                     (self.workspace_id, str(batch["route_id"])),
                 ).fetchone()
                 ready = (
-                    int(proof["actors"] or 0) >= 2
-                    and int(proof["publishers"] or 0) >= 2
+                    int(proof["actors"] or 0)
+                    >= int(batch["min_runtime_healthy"])
+                    and int(proof["publishers"] or 0)
+                    >= int(batch["min_publishers"])
                 )
                 connection.execute(
                     """
@@ -10072,6 +11819,20 @@ class ApifyActorOpsService:
                 )
 
             for run_id in discovery_runs:
+                run_minimum = connection.execute(
+                    """
+                    SELECT profile.min_runtime_healthy,
+                           profile.min_publishers
+                    FROM apify_actor_discovery_runs AS run
+                    JOIN apify_actor_route_profiles AS profile
+                      ON profile.workspace_id = run.workspace_id
+                     AND profile.route_id = run.route_id
+                    WHERE run.workspace_id = ? AND run.run_id = ?
+                    """,
+                    (self.workspace_id, run_id),
+                ).fetchone()
+                if run_minimum is None:
+                    continue
                 proof = connection.execute(
                     """
                     SELECT COUNT(DISTINCT revision.actor_id) AS actors,
@@ -10091,8 +11852,10 @@ class ApifyActorOpsService:
                     (self.workspace_id, run_id),
                 ).fetchone()
                 ready = (
-                    int(proof["actors"] or 0) >= 2
-                    and int(proof["publishers"] or 0) >= 2
+                    int(proof["actors"] or 0)
+                    >= int(run_minimum["min_runtime_healthy"])
+                    and int(proof["publishers"] or 0)
+                    >= int(run_minimum["min_publishers"])
                 )
                 connection.execute(
                     """
@@ -10164,6 +11927,96 @@ class ApifyActorOpsService:
             "routes": len(routes),
         }
 
+    def _resume_finalized_compatibility_stages(self, *, limit: int = 50) -> int:
+        """Promote already-paid compatibility proof without another Actor POST."""
+
+        rows = self.store.connect().execute(
+            """
+            SELECT validation.validation_id, batch.batch_id,
+                   batch.pool_stage_id
+            FROM apify_actor_validations AS validation
+            JOIN apify_actor_canary_batch_items AS item
+              ON item.workspace_id = validation.workspace_id
+             AND item.validation_id = validation.validation_id
+            JOIN apify_actor_canary_batches AS batch
+              ON batch.workspace_id = item.workspace_id
+             AND batch.batch_id = item.batch_id
+            JOIN apify_actor_pool_stages AS stage
+              ON stage.workspace_id = batch.workspace_id
+             AND stage.stage_id = batch.pool_stage_id
+            WHERE validation.workspace_id = ?
+              AND batch.goal = 'compatibility_single'
+              AND validation.status = 'succeeded'
+              AND validation.semantic_outcome = 'valid_nonempty'
+              AND validation.cost_final = 1
+              AND stage.status IN (
+                  'queued', 'validating_route', 'replan_required'
+              )
+            ORDER BY validation.completed_at, validation.validation_id
+            LIMIT ?
+            """,
+            (self.workspace_id, min(max(int(limit), 1), 100)),
+        ).fetchall()
+        resumed = 0
+        for row in rows:
+            validation_id = str(row["validation_id"])
+            batch_id = str(row["batch_id"])
+            stage_id = str(row["pool_stage_id"])
+            try:
+                with self._write() as connection:
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_canary_batch_items
+                        SET status = 'succeeded',
+                            semantic_outcome = 'valid_nonempty',
+                            cost_final = 1, updated_at = ?
+                        WHERE workspace_id = ? AND batch_id = ?
+                          AND validation_id = ?
+                        """,
+                        (
+                            self._now_iso(),
+                            self.workspace_id,
+                            batch_id,
+                            validation_id,
+                        ),
+                    )
+                self.promote_compatibility_observation(
+                    validation_id,
+                    observed_fields=(
+                        "identity",
+                        "url",
+                        "published_at",
+                        "content",
+                    ),
+                )
+                stage = self.prepare_compatibility_stage_activation(stage_id)
+                if str(stage["status"]) == "apply_ready":
+                    self.finalize_canary_batch(
+                        batch_id,
+                        stop_reason="staged_pool_apply_ready",
+                    )
+                    resumed += 1
+            except Exception as exc:
+                try:
+                    from .apify_actor_resilience import (
+                        ApifyActorResilienceService,
+                    )
+
+                    ApifyActorResilienceService(
+                        self.store,
+                        workspace_id=self.workspace_id,
+                    ).emit_event(
+                        phase="cost_reconciliation",
+                        outcome="failed",
+                        reason_code=str(
+                            getattr(exc, "code", None)
+                            or "compatibility_promotion_failed"
+                        ),
+                    )
+                except Exception:
+                    pass
+        return resumed
+
     def reconcile_terminal_validation_costs(self) -> dict[str, int]:
         """Copy final remote charges into the attempt and validation ledgers.
 
@@ -10175,13 +12028,16 @@ class ApifyActorOpsService:
         validations = 0
         batch_items = 0
         batch_ids: set[str] = set()
+        cost_events: list[dict[str, Any]] = []
         cycles = 0
         now = self._now_iso()
         with self._write() as connection:
             rows = connection.execute(
                 """
-                SELECT attempt.id AS attempt_id,
-                       validation.validation_id,
+                SELECT attempt.id AS attempt_id, attempt.candidate_id,
+                       attempt.source_id AS attempt_source_id, attempt.job_id,
+                       validation.validation_id, validation.route_id,
+                       validation.source_id AS validation_source_id,
                        run.charge_actual_usd
                 FROM apify_actor_attempts AS attempt
                 JOIN apify_actor_validations AS validation
@@ -10236,6 +12092,24 @@ class ApifyActorOpsService:
                 )
                 attempts += int(attempt_cursor.rowcount)
                 validations += int(validation_cursor.rowcount)
+                if int(validation_cursor.rowcount) == 1:
+                    cost_events.append(
+                        {
+                            "route_id": str(row["route_id"]),
+                            "source_id": (
+                                str(row["validation_source_id"])
+                                if row["validation_source_id"]
+                                else str(row["attempt_source_id"])
+                                if row["attempt_source_id"]
+                                else None
+                            ),
+                            "candidate_id": str(row["candidate_id"]),
+                            "job_id": (
+                                str(row["job_id"]) if row["job_id"] else None
+                            ),
+                            "final_cost_usd": actual,
+                        }
+                    )
                 item_rows = connection.execute(
                     """
                     SELECT batch_id
@@ -10305,6 +12179,12 @@ class ApifyActorOpsService:
                       JOIN apify_actor_adapter_revisions AS revision
                         ON revision.workspace_id = validation.workspace_id
                        AND revision.revision_id = validation.revision_id
+                      JOIN apify_actor_discovery_runs AS run
+                        ON run.workspace_id = validation.workspace_id
+                       AND run.run_id = validation.discovery_run_id
+                      JOIN apify_actor_route_profiles AS profile
+                        ON profile.workspace_id = run.workspace_id
+                       AND profile.route_id = run.route_id
                       WHERE validation.workspace_id = ?
                         AND validation.kind = 'route_reference'
                         AND validation.discovery_run_id IS NOT NULL
@@ -10312,9 +12192,13 @@ class ApifyActorOpsService:
                         AND validation.semantic_outcome IN (
                             'valid_nonempty', 'valid_empty'
                         )
-                      GROUP BY validation.discovery_run_id
-                      HAVING COUNT(DISTINCT revision.actor_id) >= 2
-                         AND COUNT(DISTINCT lower(revision.publisher)) >= 2
+                      GROUP BY validation.discovery_run_id,
+                               profile.min_runtime_healthy,
+                               profile.min_publishers
+                      HAVING COUNT(DISTINCT revision.actor_id)
+                                 >= profile.min_runtime_healthy
+                         AND COUNT(DISTINCT lower(revision.publisher))
+                                 >= profile.min_publishers
                   )
                 """,
                 (now, self.workspace_id, self.workspace_id),
@@ -10336,10 +12220,18 @@ class ApifyActorOpsService:
                       JOIN apify_actor_adapter_revisions AS revision
                         ON revision.workspace_id = validation.workspace_id
                        AND revision.revision_id = validation.revision_id
+                      JOIN apify_actor_discovery_runs AS run
+                        ON run.workspace_id = validation.workspace_id
+                       AND run.run_id = validation.discovery_run_id
+                      JOIN apify_actor_route_profiles AS profile
+                        ON profile.workspace_id = run.workspace_id
+                       AND profile.route_id = run.route_id
                       WHERE validation.workspace_id = ?
                         AND validation.kind = 'route_reference'
                         AND validation.discovery_run_id IS NOT NULL
-                      GROUP BY validation.discovery_run_id
+                      GROUP BY validation.discovery_run_id,
+                               profile.min_runtime_healthy,
+                               profile.min_publishers
                       HAVING SUM(validation.counts_toward_canary) >= ?
                          AND (
                            COUNT(DISTINCT CASE
@@ -10347,13 +12239,15 @@ class ApifyActorOpsService:
                               AND validation.semantic_outcome IN (
                                   'valid_nonempty', 'valid_empty'
                               )
-                             THEN revision.actor_id END) < 2
+                             THEN revision.actor_id END)
+                               < profile.min_runtime_healthy
                            OR COUNT(DISTINCT CASE
                              WHEN validation.status = 'succeeded'
                               AND validation.semantic_outcome IN (
                                   'valid_nonempty', 'valid_empty'
                               )
-                             THEN lower(revision.publisher) END) < 2
+                             THEN lower(revision.publisher) END)
+                               < profile.min_publishers
                          )
                   )
                 """,
@@ -10367,6 +12261,25 @@ class ApifyActorOpsService:
             cycles = int(ready_cursor.rowcount) + int(
                 exhausted_cursor.rowcount
             )
+        if cost_events:
+            try:
+                from .apify_actor_resilience import ApifyActorResilienceService
+
+                resilience = ApifyActorResilienceService(
+                    self.store,
+                    workspace_id=self.workspace_id,
+                )
+                for event in cost_events:
+                    resilience.emit_event(
+                        phase="cost_reconciliation",
+                        outcome="succeeded",
+                        reason_code="validation_cost_finalized",
+                        **event,
+                    )
+            except Exception:
+                # Cost settlement is authoritative; diagnostics are best effort.
+                pass
+        cycles += self._resume_finalized_compatibility_stages()
         return {
             "attempts": attempts,
             "validations": validations,
@@ -10417,6 +12330,30 @@ class ApifyActorOpsService:
         group_id = f"apify-group-{uuid.uuid4().hex}"
         attempt_ids: list[str] = []
         last_semantic = "actor_failed"
+
+        def publication_value(
+            value: T | None,
+            *,
+            slot: RouteSlotSnapshot,
+            outcome: str,
+            latest_published_at: str | None,
+            latest_item_id: str | None,
+        ) -> T | None:
+            if not isinstance(value, list):
+                return value
+            from .apify_actor_route import ApifyActorRoutedList
+
+            return ApifyActorRoutedList(
+                value,
+                route_generation=snapshot.route_generation,
+                workspace_id=self.workspace_id,
+                source_id=source_id,
+                candidate_id=slot.candidate_id,
+                latest_published_at=latest_published_at,
+                latest_item_id=latest_item_id,
+                semantic_outcome=outcome,
+            )  # type: ignore[return-value]
+
         for index, slot in enumerate(snapshot.slots, start=1):
             attempt_id = self.begin_attempt(
                 snapshot,
@@ -10442,7 +12379,11 @@ class ApifyActorOpsService:
                     semantic_outcome="actor_exception",
                     error_code="apify_actor_invoke_failed",
                 )
-                self._record_actor_failure(slot, "apify_actor_invoke_failed")
+                self._record_actor_failure(
+                    slot,
+                    "apify_actor_invoke_failed",
+                    source_id=source_id,
+                )
                 last_semantic = "actor_exception"
                 continue
             except Exception:
@@ -10452,7 +12393,11 @@ class ApifyActorOpsService:
                     semantic_outcome="actor_exception",
                     error_code="apify_actor_invoke_failed",
                 )
-                self._record_actor_failure(slot, "apify_actor_invoke_failed")
+                self._record_actor_failure(
+                    slot,
+                    "apify_actor_invoke_failed",
+                    source_id=source_id,
+                )
                 last_semantic = "actor_exception"
                 continue
 
@@ -10516,8 +12461,62 @@ class ApifyActorOpsService:
                 self._record_actor_failure(
                     slot,
                     result.error_code or "apify_actor_failed",
+                    source_id=source_id,
                 )
                 continue
+            freshness_outcome = semantic
+            if source_id is not None:
+                from .apify_actor_resilience import ApifyActorResilienceService
+
+                freshness_outcome = ApifyActorResilienceService(
+                    self.store,
+                    workspace_id=self.workspace_id,
+                ).classify_source_result(
+                    source_id,
+                    candidate_id=slot.candidate_id,
+                    latest_published_at=result.latest_published_at,
+                    latest_item_id=result.latest_item_id,
+                    semantic_outcome=semantic,
+                    defer_publication=True,
+                )
+            if freshness_outcome == "stale_regression":
+                self.finish_attempt(
+                    attempt_id,
+                    status="actor_failed",
+                    semantic_outcome="stale_regression",
+                    actual_cost_usd=result.cost_usd,
+                    error_code="apify_actor_stale_regression",
+                )
+                self._record_actor_failure(
+                    slot,
+                    "apify_actor_stale_regression",
+                    source_id=source_id,
+                )
+                last_semantic = "stale_regression"
+                continue
+            if freshness_outcome == "no_advance":
+                self.finish_attempt(
+                    attempt_id,
+                    status="valid_empty",
+                    semantic_outcome="no_advance",
+                    actual_cost_usd=result.cost_usd,
+                )
+                self.assert_publishable(snapshot)
+                return RouteExecutionResult(
+                    value=publication_value(
+                        result.value,
+                        slot=slot,
+                        outcome="no_advance",
+                        latest_published_at=result.latest_published_at,
+                        latest_item_id=result.latest_item_id,
+                    ),
+                    semantic_outcome="no_advance",
+                    slot_name=slot.slot_name,
+                    attempt_ids=tuple(attempt_ids),
+                )
+            if freshness_outcome == "advanced":
+                semantic = "valid_nonempty"
+                last_semantic = semantic
             if semantic == "suspicious_empty":
                 self.finish_attempt(
                     attempt_id,
@@ -10536,7 +12535,11 @@ class ApifyActorOpsService:
                     actual_cost_usd=result.cost_usd,
                     error_code="apify_actor_semantic_invalid",
                 )
-                self._record_actor_failure(slot, "apify_actor_semantic_invalid")
+                self._record_actor_failure(
+                    slot,
+                    "apify_actor_semantic_invalid",
+                    source_id=source_id,
+                )
                 continue
             self.finish_attempt(
                 attempt_id,
@@ -10548,7 +12551,13 @@ class ApifyActorOpsService:
             self._record_target_success(snapshot, slot, semantic)
             self.assert_publishable(snapshot)
             return RouteExecutionResult(
-                value=result.value,
+                value=publication_value(
+                    result.value,
+                    slot=slot,
+                    outcome=freshness_outcome,
+                    latest_published_at=result.latest_published_at,
+                    latest_item_id=result.latest_item_id,
+                ),
                 semantic_outcome=semantic,
                 slot_name=slot.slot_name,
                 attempt_ids=tuple(attempt_ids),
@@ -10717,6 +12726,8 @@ class ApifyActorOpsService:
         self,
         slot: RouteSlotSnapshot,
         error_code: str,
+        *,
+        source_id: str | None = None,
     ) -> None:
         now = self._now_iso()
         with self._write() as connection:
@@ -10739,6 +12750,26 @@ class ApifyActorOpsService:
                     slot.candidate_id,
                 ),
             )
+            if source_id:
+                connection.execute(
+                    """
+                    UPDATE apify_source_route_bindings
+                    SET preference_suspended_at = COALESCE(
+                            preference_suspended_at, ?
+                        ),
+                        preference_recovery_successes = 0,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND source_id = ?
+                      AND preferred_candidate_id = ?
+                    """,
+                    (
+                        now,
+                        now,
+                        self.workspace_id,
+                        str(source_id),
+                        slot.candidate_id,
+                    ),
+                )
             self._ensure_discovery_proposal(
                 connection,
                 slot,
@@ -11245,6 +13276,8 @@ def _coerce_invocation_result(
             "cost_usd": value.cost_usd,
             "failure_scope": value.failure_scope,
             "error_code": value.error_code,
+            "latest_published_at": value.latest_published_at,
+            "latest_item_id": value.latest_item_id,
         }
     elif isinstance(value, Mapping):
         raw = value
@@ -11288,6 +13321,14 @@ def _coerce_invocation_result(
         failure_scope=scope,  # type: ignore[arg-type]
         error_code=(
             str(raw["error_code"]) if raw.get("error_code") is not None else None
+        ),
+        latest_published_at=(
+            str(raw["latest_published_at"])
+            if raw.get("latest_published_at")
+            else None
+        ),
+        latest_item_id=(
+            str(raw["latest_item_id"]) if raw.get("latest_item_id") else None
         ),
     )
 
