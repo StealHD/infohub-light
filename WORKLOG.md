@@ -9,21 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-08-10",
-  "result": "从专题总结缓存任务分支重新构建并启动本地 8080 API 与 Worker。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-cache-local-runtime-start",
-  "unresolved": [],
-  "validation": [
-    "./scripts/up-latest.sh 使用任务 Worktree 构建 revision 659711b5bb4b，并仅重建 horizon-api 与 horizon-worker。",
-    "API 与 Worker 均 healthy，readiness 返回 worker_status=ready；8080 已服务前端资源 index-CQUmeqMF.js。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
   "result": "修复来源级 AI 总结的偶发无效输出：本地提取完整 JSON 对象并将单条 highlights 标量规范化为数组，不增加第二次模型调用，也不记录模型正文。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-output-normalization",
@@ -377,6 +362,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并范围 preflight 8/8 命令通过（37.64 秒），无 mapping miss。",
     "合并后本地 main 完整 Test Gate 15/15 命令通过（276.95 秒）。",
     "未安装或分发 Git hook，未推送、未打 Tag、未部署。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-11",
+  "result": "从本地 main revision a878b715c2b1 切换 8080 API 与 Worker，并安全清理旧本地构建镜像与过期构建缓存；未启动 scheduler。",
+  "status": "completed",
+  "task_id": "2026-08-11-main-local-runtime-cutover-preflight-gate",
+  "unresolved": [],
+  "validation": [
+    "./scripts/up-latest.sh 在 main Worktree 构建并仅重建 horizon-api 与 horizon-worker；运行前确认活跃 fetch job=0、Feed schedule=0、无新增数据库迁移且无 scheduler 容器。",
+    "API 与 Worker 均为 healthy；/api/health/live 返回 revision=a878b715c2b1，/api/health/ready 返回 worker_status=ready；前端资源 index-CgdKDeP4.js 已服务。",
+    "当前仅保留 inteliscope-service:local-a878b715c2b1；旧 local 镜像标签 2 个已删除。"
   ]
 }
 ```
