@@ -26,7 +26,7 @@
 2. 只对免费公共来源启用 shared acquisition，观察自然周期和用户隔离。
 3. 经独立授权后再做 Key pool、Actor/AI 或真实通知的有界 canary。
 4. 维持 Feed/History、用户隔离、通知 outbox、存储预演/恢复和三视口 UI 回归。
-5. 继续记录 `test_gate` 的十个独立 CI 提交观察；观察期结束前完成门禁仍使用 full。
+5. 后续十个独立 CI 提交记录 preflight 提前拦截数、full/CI/release 失败根因和 mapping miss；验收要求已知问题进入 full/release 为 0、同一根因重复为 0、VPS 上传前代码类失败为 0。观察期结束前完成门禁仍使用 full。
 
 ## 范围与非目标
 
@@ -36,10 +36,11 @@
 
 ## 验证门禁
 
-1. 日常先跑任务相关测试；任务完成、合并前和观察期使用 `python scripts/test_gate.py run --mode full`。
-2. 文档-only 变更只运行 control scope；UI 合同目录仍触发 frontend full。未知可执行改动 fail closed。
-3. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。VPS 只 `docker load`，不得构建本仓库。
-4. 控制面变更必须运行 Markdown 控制检查、schema-v3 validator、worklog validator、JSON 校验和 `git diff --check`。
+1. 每个任务按 `snapshot → 主动审查任务 diff → 修复已知问题 → preflight → 完整门禁` 推进；失败先定向修复和复验，禁止把 full/CI/部署当成首次发现明显问题的步骤。
+2. `preflight` 接受 snapshot、staged 或 base/head 范围，运行产品文档、控制、语法和受影响测试；未知可执行改动 fail closed 到无 Docker/Playwright 的全量代码检查。
+3. 任务完成、合并前和十提交观察期仍使用 `python scripts/test_gate.py run --mode full`；preflight/targeted 只负责快速反馈，不降低完成标准。
+4. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。VPS 只 `docker load`，不得构建本仓库。
+5. 控制面变更必须运行 Markdown 控制检查、schema-v3 validator、worklog validator、JSON 校验和 `git diff --check`。
 
 ## 历史入口
 

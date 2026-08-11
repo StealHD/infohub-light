@@ -9,7 +9,6 @@ PLATFORM="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"
 CI_TIMEOUT_SECONDS="${INTELISCOPE_RELEASE_CI_TIMEOUT_SECONDS:-1800}"
 PYTHON_BIN="${INTELISCOPE_RELEASE_PYTHON:-$ROOT_DIR/.venv/bin/python}"
 RELEASE_TMP_DIR=""
-PREFLIGHT_IMPACT_PLAN=""
 LOCAL_RELEASE_IMAGE=""
 TAG_CREATED=false
 TAG_PUSHED=false
@@ -26,9 +25,6 @@ fail() {
 cleanup() {
   if [[ -n "$RELEASE_TMP_DIR" && -d "$RELEASE_TMP_DIR" ]]; then
     rm -rf "$RELEASE_TMP_DIR"
-  fi
-  if [[ -n "$PREFLIGHT_IMPACT_PLAN" ]]; then
-    rm -f "$PREFLIGHT_IMPACT_PLAN"
   fi
   if [[ -n "$LOCAL_RELEASE_IMAGE" ]]; then
     docker image rm "$LOCAL_RELEASE_IMAGE" >/dev/null 2>&1 || true
@@ -98,15 +94,9 @@ run_quick_preflight() {
   require_release_identity
   base_ref="$(release_base_ref)"
   reject_implicit_migrations "$base_ref"
-  PREFLIGHT_IMPACT_PLAN="$(mktemp -t inteliscope-impact.XXXXXX.json)"
   cd "$ROOT_DIR"
-  "$PYTHON_BIN" scripts/check_product_docs.py --base "$base_ref" --head HEAD
-  "$PYTHON_BIN" scripts/test_gate.py plan \
-    --base "$base_ref" --head HEAD --json --output "$PREFLIGHT_IMPACT_PLAN"
-  "$PYTHON_BIN" scripts/test_gate.py run \
-    --mode targeted --scope control --impact-plan "$PREFLIGHT_IMPACT_PLAN"
-  rm -f "$PREFLIGHT_IMPACT_PLAN"
-  PREFLIGHT_IMPACT_PLAN=""
+  "$PYTHON_BIN" scripts/test_gate.py preflight \
+    --base "$base_ref" --head HEAD
   echo "Preflight passed for $RELEASE_TAG against $base_ref"
 }
 

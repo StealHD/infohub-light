@@ -13,8 +13,10 @@ from scripts.test_gate import (
     build_command_specs,
     build_plan,
     build_snapshot,
+    _check_snapshot_diff,
     changed_files_from_git,
     changed_files_from_snapshot,
+    changed_files_from_staged,
     execute_specs,
     format_summary,
     load_mapping,
@@ -304,6 +306,68 @@ def test_snapshot_and_git_range_produce_same_changed_file_set(tmp_path):
     assert changed_files_from_snapshot(repo, snapshot) == changed_files_from_git(repo, base, head)
 
 
+def test_staged_selector_detects_add_delete_and_rename(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    for relative in ("src/deleted.py", "src/old.py"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "src" / "deleted.py").unlink()
+    (repo / "src" / "old.py").rename(repo / "src" / "renamed.py")
+    (repo / "src" / "added.py").write_text("ADDED = True\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+
+    assert changed_files_from_staged(repo) == [
+        "src/added.py",
+        "src/deleted.py",
+        "src/old.py",
+        "src/renamed.py",
+    ]
+
+
+def test_snapshot_diff_check_includes_untracked_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    (repo / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "new.txt").write_text("bad trailing whitespace   \n", encoding="utf-8")
+
+    with pytest.raises(GateConfigError, match="untracked diff check failed"):
+        _check_snapshot_diff(repo, ["new.txt"])
+
+
 def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     mapping = load_mapping(MAPPING)
     plan = build_plan(
@@ -355,6 +419,35 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
         for name, value in smoke.env.items()
         if any(marker in name for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
     )
+
+
+def test_preflight_fail_closed_runs_full_code_checks_without_docker_or_playwright():
+    mapping = load_mapping(MAPPING)
+    plan = build_plan(["src/new_subsystem/module.py"], mapping)
+
+    specs = build_command_specs(ROOT, plan, mapping, mode="preflight")
+    ids = {spec.command_id for spec in specs}
+
+    assert plan["mapping_miss"] is True
+    assert "product_docs_preflight" in ids
+    assert "python_full" in ids
+    assert "frontend_vitest" in ids
+    assert not any(command_id.startswith("compose_") for command_id in ids)
+    assert "release_playwright" not in ids
+    assert "release_api_docker_smoke" not in ids
+    command_text = "\n".join(" ".join(spec.argv).lower() for spec in specs)
+    for forbidden in ("service_stack_smoke", "horizon-worker", "scheduler", "vps-tokyo"):
+        assert forbidden not in command_text
+
+
+def test_preflight_checks_changed_shell_syntax():
+    mapping = load_mapping(MAPPING)
+    plan = build_plan(["scripts/release_vps.sh"], mapping)
+
+    specs = build_command_specs(ROOT, plan, mapping, mode="preflight")
+    shell = next(spec for spec in specs if spec.command_id == "shell_changed_syntax")
+
+    assert shell.argv == ("bash", "-n", "scripts/release_vps.sh")
 
 
 def test_deleted_frontend_source_escalates_to_complete_frontend_gate(tmp_path):
@@ -601,6 +694,7 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
         *PROTECTED_RUNTIME_FILES,
         "scripts/check_observability_contract.py",
         "scripts/check_markdown_controls.py",
+        "scripts/check_product_docs.py",
         "AGENTS.md",
         "PLAN.md",
     ):
@@ -610,6 +704,20 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     for relative in ("docs/contracts", "docs/decisions"):
         shutil.copytree(ROOT / relative, repo / relative)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
     snapshot = tmp_path / "snapshot.json"
     plan_output = tmp_path / "plan.json"
     result_root = tmp_path / "results"
@@ -621,6 +729,7 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
         text=True,
     )
     (repo / "WORKLOG.md").write_text("after\n", encoding="utf-8")
+    subprocess.run(["git", "add", "WORKLOG.md"], cwd=repo, check=True)
 
     planned = subprocess.run(
         [
@@ -661,9 +770,28 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
         capture_output=True,
         text=True,
     )
+    preflight = subprocess.run(
+        [
+            sys.executable,
+            script,
+            "--root",
+            str(repo),
+            "preflight",
+            "--staged",
+            "--mapping",
+            str(MAPPING),
+            "--result-root",
+            str(result_root),
+            "--run-id",
+            "cli-preflight",
+        ],
+        capture_output=True,
+        text=True,
+    )
 
     assert planned.returncode == 0, planned.stderr
     assert run.returncode == 0, run.stderr
+    assert preflight.returncode == 0, preflight.stderr
     assert len(planned.stdout.encode("utf-8")) <= 2048
     assert len(run.stdout.encode("utf-8")) <= 2048
     plan = json.loads(plan_output.read_text(encoding="utf-8"))
@@ -675,6 +803,11 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     assert result["status"] == "passed"
     assert result["changed_files"] == plan["changed_files"]
     assert result["selected_groups"] == plan["selected_groups"]
+    preflight_result = json.loads(
+        (result_root / "cli-preflight" / "result.json").read_text(encoding="utf-8")
+    )
+    assert preflight_result["mode"] == "preflight"
+    assert preflight_result["changed_files"] == ["WORKLOG.md"]
 
 
 def test_plan_cli_without_snapshot_or_git_range_returns_configuration_error(tmp_path):
