@@ -492,7 +492,10 @@ export function SettingsSecretsPage() {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
-        ...(submitted.kind === 'apify' ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })] : []),
+        ...(submitted.kind === 'apify' ? [
+          queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.sourceTypes(user.id) }),
+        ] : []),
       ])
     } catch (caught) {
       const message = secretCreateErrorMessage(caught)
@@ -510,7 +513,10 @@ export function SettingsSecretsPage() {
         ...(action === 'connection' ? [queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) })] : []),
         queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) }),
-        ...(apifySecret ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })] : []),
+        ...(apifySecret ? [
+          queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.sourceTypes(user.id) }),
+        ] : []),
       ])
       return
     }
@@ -518,7 +524,10 @@ export function SettingsSecretsPage() {
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
-      ...(apifySecret ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })] : []),
+      ...(apifySecret ? [
+        queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourceTypes(user.id) }),
+      ] : []),
     ])
   }
 

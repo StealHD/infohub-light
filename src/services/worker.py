@@ -1525,6 +1525,7 @@ def _run_apify_actor_discovery(
         ActorDiscoveryError,
         ApifyActorDiscoveryService,
         ApifyStoreRestClient,
+        LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT,
     )
     from .apify_actor_ops import ApifyActorOpsService
     from .apify_discovery_ai import resolve_global_discovery_ai
@@ -1782,6 +1783,11 @@ def _run_apify_actor_discovery(
                         ops.legacy_actor_ids(str(run["route_id"]))
                         if prefer_existing
                         else ()
+                    ),
+                    candidate_limit=(
+                        LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT
+                        if prefer_existing
+                        else None
                     ),
                 )
                 return {

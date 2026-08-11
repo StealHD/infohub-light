@@ -979,7 +979,9 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     await browser.click(await screen.findByRole('button', { name: cta }))
     expect(await screen.findByRole('heading', { name: heading })).toBeVisible()
     if (goal === 'upgrade_legacy') {
-      expect(screen.getByText(/上面的当前 Actor 已列在最前/)).toBeVisible()
+      expect(screen.getByText(/上面的 3 个当前 Actor 已列出/)).toBeVisible()
+      expect(screen.getByText('可扩大召回')).toBeVisible()
+      expect(screen.getByText('不可放宽底线')).toBeVisible()
     }
     const continueButton = screen.getByRole('button', { name: '继续' })
     await browser.click(screen.getByRole('checkbox', { name: /高可靠 Actor A/ }))
@@ -1075,7 +1077,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     renderControlPlane(legacy)
 
     expect(await screen.findByText('升级当前 3 个 Actor')).toBeVisible()
-    expect(screen.getByText(/先只检查上面正在使用的 3 个 Actor/)).toBeVisible()
+    expect(screen.getByText(/只检查上面正在使用的 3 个 Actor/)).toBeVisible()
     expect(screen.getByRole('button', { name: '开始升级当前 3 个 Actor' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /转正/ })).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('legacy_builtin')

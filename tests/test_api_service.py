@@ -1851,12 +1851,31 @@ def test_catalog_source_types_endpoint_and_validated_source_writes(tmp_path, mon
     _login(client)
     source_types = client.get("/api/catalog/source-types")
     assert source_types.status_code == 200
+    source_type_data = source_types.json()["data"]
+    assert source_type_data["schema_version"] == 1
+    assert isinstance(source_type_data["generation"], int)
     type_map = {
         item["type"]: item
-        for item in source_types.json()["data"]["source_types"]
+        for item in source_type_data["source_types"]
     }
     assert "github_release" in type_map
+    assert "apify_social" not in type_map
+    assert {"x_profile", "instagram_profile", "youtube_channel"}.issubset(
+        type_map
+    )
     assert type_map["youtube_channel"]["catalog_source_type"] == "rss"
+    for platform_type in ("x_profile", "instagram_profile"):
+        assert type_map[platform_type]["availability"] == (
+            "temporarily_unavailable"
+        )
+        assert type_map[platform_type]["unavailable_reason"] in {
+            "platform_setup_pending",
+            "workspace_credential_unavailable",
+        }
+        assert "catalog_source_type" not in type_map[platform_type]
+        assert [
+            field["name"] for field in type_map[platform_type]["fields"]
+        ] == ["target", "fetch_limit", "analysis_mode"]
 
     invalid_config = client.post(
         "/api/catalog/sources",

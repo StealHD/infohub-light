@@ -585,8 +585,16 @@ export type SourceTypeDefinition = {
   catalog_source_type?: string
   label?: string
   display_name?: string
-  credential_mode?: 'source_secret' | 'workspace_apify_pool'
+  credential_mode?: 'none' | 'source_secret' | 'workspace_apify_pool'
+  availability?: 'ready' | 'temporarily_unavailable'
+  unavailable_reason?: 'platform_setup_pending' | 'workspace_credential_unavailable' | null
   fields: CatalogField[]
+}
+
+export type SourceTypesResponse = {
+  schema_version: 1
+  generation: number
+  source_types: SourceTypeDefinition[]
 }
 
 export type ApifyActorSourceCapability = {

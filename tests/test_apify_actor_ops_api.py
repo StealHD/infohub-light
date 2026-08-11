@@ -312,6 +312,177 @@ def test_youtube_fallback_capability_uses_native_source_fields(
     ]
 
 
+def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, _revisions = _ready_route(store, route_key="x/profile")
+
+    before_key = client.get("/api/catalog/source-types")
+    assert before_key.status_code == 200, before_key.text
+    before_x = next(
+        item
+        for item in before_key.json()["data"]["source_types"]
+        if item["type"] == "x_profile"
+    )
+    assert before_x["availability"] == "temporarily_unavailable"
+    assert before_x["unavailable_reason"] == "workspace_credential_unavailable"
+
+    secret = client.post(
+        "/api/admin/secrets",
+        json={
+            "name": "Workspace social connection",
+            "kind": "apify",
+            "provider": "apify",
+            "env_name": "APIFY_PLATFORM_ALIAS_TEST",
+            "value": "private-test-token",
+        },
+    )
+    assert secret.status_code == 200, secret.text
+
+    catalog = client.get("/api/catalog/source-types")
+    assert catalog.status_code == 200, catalog.text
+    x_definition = next(
+        item
+        for item in catalog.json()["data"]["source_types"]
+        if item["type"] == "x_profile"
+    )
+    assert x_definition["availability"] == "ready"
+    assert x_definition["unavailable_reason"] is None
+    assert "catalog_source_type" not in x_definition
+    serialized_definition = json.dumps(x_definition).casefold()
+    for forbidden in ("apify", "actor", "route", "profile_id"):
+        assert forbidden not in serialized_definition
+
+    rejected_internal = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "workspace",
+            "type": "x_profile",
+            "display_name": "Invalid X",
+            "config": {
+                "target": "openai",
+                "profile_id": route["route_id"],
+            },
+        },
+    )
+    assert rejected_internal.status_code == 400
+    assert rejected_internal.json()["error"]["code"] == "invalid_source_config"
+
+    created = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "workspace",
+            "type": "x_profile",
+            "display_name": "OpenAI X",
+            "description": "Public updates",
+            "config": {
+                "target": "@OpenAI",
+                "fetch_limit": 3,
+                "analysis_mode": "full",
+            },
+            "enabled": True,
+        },
+    )
+    assert created.status_code == 200, created.text
+    public_source = created.json()["data"]
+    assert public_source["type"] == "apify_social"
+    assert public_source["setup_type"] == "x_profile"
+    assert public_source["enabled"] is False
+    assert public_source["config"] == {
+        "target": "@OpenAI",
+        "fetch_limit": 3,
+        "analysis_mode": "full",
+    }
+    for forbidden in ("profile_id", "platform", "kind", "secret_env"):
+        assert forbidden not in public_source.get("config", {})
+        assert forbidden not in public_source
+    assert public_source["source_key"].startswith("apify_social:")
+
+    stored = store.get_source(public_source["id"])
+    assert stored["config"]["profile_id"] == route["route_id"]
+    assert "platform" not in stored["config"]
+    assert "kind" not in stored["config"]
+    binding = ApifyActorOpsService(store).get_source_binding(public_source["id"])
+    assert binding["route_id"] == route["route_id"]
+    assert binding["validation_status"] == "pending_validation"
+
+    partial_config_patch = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"config": {"target": "@OpenAI"}},
+    )
+    assert partial_config_patch.status_code == 200, partial_config_patch.text
+    assert partial_config_patch.json()["data"]["config"] == public_source["config"]
+    partial_stored = store.get_source(public_source["id"])
+    assert partial_stored["config"]["profile_id"] == route["route_id"]
+    assert partial_stored["config"]["fetch_limit"] == 3
+    assert partial_stored["config"]["analysis_mode"] == "full"
+
+    connection = store.connect()
+    connection.execute(
+        """
+        UPDATE apify_actor_route_profiles
+        SET status = 'blocked'
+        WHERE workspace_id = ? AND route_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    )
+    connection.commit()
+    metadata_patch = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"display_name": "OpenAI on X", "description": "Renamed safely"},
+    )
+    assert metadata_patch.status_code == 200, metadata_patch.text
+    assert metadata_patch.json()["data"]["display_name"] == "OpenAI on X"
+    assert metadata_patch.json()["data"]["config"] == public_source["config"]
+
+    changed_target = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={
+            "config": {
+                "target": "another-account",
+                "fetch_limit": 3,
+                "analysis_mode": "full",
+            }
+        },
+    )
+    assert changed_target.status_code == 409
+    assert changed_target.json()["error"]["code"] == "apify_actor_route_not_ready"
+
+    legacy_changed_target = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={
+            "config": {
+                "profile_id": route["route_id"],
+                "target": "another-account",
+                "fetch_limit": 3,
+                "analysis_mode": "full",
+            }
+        },
+    )
+    assert legacy_changed_target.status_code == 409
+    assert legacy_changed_target.json()["error"]["code"] == (
+        "apify_actor_route_not_ready"
+    )
+
+    changed_fetch_limit = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"config": {"fetch_limit": 4}},
+    )
+    assert changed_fetch_limit.status_code == 409
+    assert changed_fetch_limit.json()["error"]["code"] == "apify_actor_route_not_ready"
+
+    changed_enabled = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"enabled": True},
+    )
+    assert changed_enabled.status_code == 409
+    assert changed_enabled.json()["error"]["code"] == "apify_actor_route_not_ready"
+
+
 def test_route_detail_projects_newer_exact_build_revision_diff(
     tmp_path,
     monkeypatch,
@@ -342,7 +513,7 @@ def test_route_detail_projects_newer_exact_build_revision_diff(
     ]
 
 
-def test_member_support_check_uses_generation_and_viewer_is_denied(
+def test_support_catalog_and_checks_are_owner_admin_only(
     tmp_path,
     monkeypatch,
 ):
@@ -364,8 +535,6 @@ def test_member_support_check_uses_generation_and_viewer_is_denied(
             "role": "viewer",
         },
     )
-    client.post("/api/auth/logout")
-    _login(client, "member", "member-password")
     catalog = client.get("/api/catalog/source-capabilities").json()["data"]
 
     created = client.post(
@@ -416,7 +585,21 @@ def test_member_support_check_uses_generation_and_viewer_is_denied(
             "force_discovery": True,
         },
     )
-    assert forced.status_code == 403
+    assert forced.status_code == 200, forced.text
+
+    client.post("/api/auth/logout")
+    _login(client, "member", "member-password")
+    assert client.get("/api/catalog/source-capabilities").status_code == 403
+    member_denied = client.post(
+        "/api/admin/apify-support-checks",
+        json={
+            "platform": "x",
+            "target_type": "profile",
+            "capability": "items",
+            "expected_generation": catalog["generation"],
+        },
+    )
+    assert member_denied.status_code == 403
 
     client.post("/api/auth/logout")
     _login(client, "viewer", "viewer-password")
@@ -682,7 +865,7 @@ def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
 ) -> None:
     client, store = _client(tmp_path, monkeypatch)
     _login(client)
-    _ready_route(store, route_key="x/profile")
+    _ops, route, _revisions = _ready_route(store, route_key="x/profile")
 
     response = client.post(
         "/api/catalog/sources",
@@ -701,12 +884,40 @@ def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
     assert response.status_code == 200, response.text
     source = response.json()["data"]
     assert source["enabled"] is False
-    assert source["config"]["profile_id"]
+    assert source["setup_type"] == "x_profile"
+    assert source["config"] == {
+        "target": "openai",
+        "fetch_limit": 20,
+        "analysis_mode": "full",
+    }
+    assert "profile_id" not in source["config"]
+    stored = store.get_source(source["id"])
+    assert stored["config"]["profile_id"] == route["route_id"]
     assert "platform" not in source["config"]
     assert "kind" not in source["config"]
     binding = ApifyActorOpsService(store).get_source_binding(source["id"])
     assert binding["validation_status"] == "pending_validation"
-    assert binding["route_id"] == source["config"]["profile_id"]
+    assert binding["route_id"] == stored["config"]["profile_id"]
+
+    legacy_patch = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={
+            "config": {
+                "profile_id": route["route_id"],
+                "target": "openai",
+                "fetch_limit": 25,
+                "analysis_mode": "personal_only",
+            }
+        },
+    )
+    assert legacy_patch.status_code == 200, legacy_patch.text
+    assert legacy_patch.json()["data"]["setup_type"] == "x_profile"
+    assert legacy_patch.json()["data"]["config"] == {
+        "target": "openai",
+        "fetch_limit": 25,
+        "analysis_mode": "personal_only",
+    }
+    assert store.get_source(source["id"])["config"]["profile_id"] == route["route_id"]
 
 
 def test_discovery_settings_use_global_ai_and_are_cas_guarded(tmp_path, monkeypatch):

@@ -6,7 +6,6 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import type {
-  ApifyActorSourceCapability,
   CatalogSource,
   FeedSchedule,
   Job,
@@ -39,6 +38,7 @@ import {
   canMutateSubscriptions,
   effectiveSourceType,
   healthMatches,
+  isActorOpsJob,
   isPublicSubscriptionScope,
   presentJob,
   shouldShowJob,
@@ -64,43 +64,6 @@ import { HeroDialog, SourceForm, SubscriptionForm } from './HeroSubscriptionDial
 const adminRole = (role: string) => role === 'owner' || role === 'admin'
 type JobsResponse = { jobs: Job[] }
 
-function actorOpsSourceDefinition(
-  definition: SourceTypeDefinition,
-  capabilities: ApifyActorSourceCapability[],
-  currentProfileId = '',
-): SourceTypeDefinition {
-  const actorCapabilities = capabilities.filter((item) => (
-    item.storage_type === 'apify_social' && item.mode === 'primary'
-  ))
-  const options = actorCapabilities.map((item) => ({
-    value: item.profile_id,
-    label: `${item.platform.toUpperCase()} · ${item.target_type} · ${item.capability}`,
-  }))
-  if (
-    currentProfileId
-    && !options.some((option) => option.value === currentProfileId)
-  ) {
-    options.push({
-      value: currentProfileId,
-      label: `当前 Route · ${currentProfileId}`,
-    })
-  }
-  return {
-    ...definition,
-    fields: definition.fields
-      .filter((field) => !['platform', 'kind'].includes(field.name))
-      .map((field) => field.name === 'profile_id'
-        ? {
-            ...field,
-            required: true,
-            default: currentProfileId || options[0]?.value || '',
-            options,
-            help: '只显示已认证且当前可运行的 Actor Route。',
-          }
-        : field),
-  }
-}
-
 const isFeedJob = (job: Job) => (
   job.job_type === 'user_feed_refresh' || job.job_type === 'source_fetch'
 )
@@ -117,6 +80,23 @@ const formatCompactTime = (value?: string | null) => {
   return Number.isNaN(parsed.getTime())
     ? '时间未知'
     : parsed.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function unavailableSourceCopy(definition: SourceTypeDefinition) {
+  if (definition.unavailable_reason === 'workspace_credential_unavailable') {
+    return {
+      title: `${definition.label || sourceTypeLabel(definition.type)}暂不可用`,
+      description: '工作区的平台连接当前不可用。现有来源和历史内容不会受到影响。',
+      settingsLabel: '打开工作区密钥设置',
+      settingsHref: '/settings/secrets',
+    }
+  }
+  return {
+    title: `${definition.label || sourceTypeLabel(definition.type)}正在准备中`,
+    description: '管理员完成平台配置后即可新增；现有来源和历史内容不会受到影响。',
+    settingsLabel: '打开平台设置',
+    settingsHref: '/settings/actorops',
+  }
 }
 
 
@@ -214,7 +194,6 @@ export function HeroSubscriptionsPage() {
   const [editingSource, setEditingSource] = useState<CatalogSource | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createType, setCreateType] = useState('')
-  const [supportProfileId, setSupportProfileId] = useState('x/profile/items')
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
   const [toolbarState, setToolbarState] = useState<'expanded' | 'floating'>('expanded')
   const pageScrollerRef = useRef<HTMLDivElement>(null)
@@ -260,41 +239,19 @@ export function HeroSubscriptionsPage() {
 
   const sourcesQuery = useQuery({ queryKey: queryKeys.sources(user.id), queryFn: ({ signal }) => api.sources(isAdmin, signal), staleTime: queryStaleTime.catalog })
   const typesQuery = useQuery({ queryKey: queryKeys.sourceTypes(user.id), queryFn: ({ signal }) => api.sourceTypes(signal), staleTime: queryStaleTime.sourceTypes })
-  const capabilitiesQuery = useQuery({
-    queryKey: queryKeys.sourceCapabilities(user.id),
-    queryFn: ({ signal }) => api.sourceCapabilities(signal),
-    staleTime: queryStaleTime.catalog,
-  })
-  const supportProfiles = capabilitiesQuery.data?.support_profiles ?? []
-  const selectedSupportProfile = supportProfiles.find(
-    (profile) => profile.id === supportProfileId,
-  ) ?? supportProfiles[0]
-  const definitions = useMemo(() => {
-    const rawDefinitions = typesQuery.data?.source_types ?? []
-    const actorCapabilities = capabilitiesQuery.data?.capabilities ?? []
-    return rawDefinitions
-      .filter((definition) => (
-        definition.type !== 'apify_social'
-        || Boolean(editingSource)
-        || actorCapabilities.some((capability) => (
-          capability.storage_type === 'apify_social'
-          && capability.mode === 'primary'
-        ))
-      ))
-      .map((definition) => {
-        if (definition.type !== 'apify_social') return definition
-        const currentProfileId = String(
-          editingSource?.config?.profile_id ?? '',
-        ).trim()
-        if (editingSource && !currentProfileId) return definition
-        return actorOpsSourceDefinition(
-          definition,
-          actorCapabilities,
-          currentProfileId,
-        )
-      })
-  }, [capabilitiesQuery.data, editingSource, typesQuery.data])
-  const activeDefinition = definitions.find((definition) => definition.type === (editingSource ? effectiveSourceType(editingSource) : createType))
+  const definitions = typesQuery.data?.source_types ?? []
+  const activeSetupType = editingSource ? effectiveSourceType(editingSource) : createType
+  const activeDefinition = definitions.find((definition) => definition.type === activeSetupType)
+    ?? (editingSource?.type === 'apify_social'
+      ? {
+          type: 'apify_social',
+          label: '旧社交来源',
+          availability: 'temporarily_unavailable' as const,
+          unavailable_reason: 'platform_setup_pending' as const,
+          fields: [],
+        }
+      : undefined)
+  const activeDefinitionUnavailable = activeDefinition?.availability === 'temporarily_unavailable'
   const subscriptionsQuery = useQuery({ queryKey: queryKeys.subscriptions(user.id), queryFn: ({ signal }) => api.subscriptions(signal), staleTime: queryStaleTime.catalog })
   const healthQuery = useQuery({ queryKey: queryKeys.sourceHealth(user.id), queryFn: ({ signal }) => api.sourceHealth(signal), staleTime: queryStaleTime.catalog })
   const scheduleQuery = useQuery({ queryKey: queryKeys.feedSchedule(user.id), queryFn: ({ signal }) => api.feedSchedule(signal), staleTime: queryStaleTime.catalog })
@@ -369,28 +326,6 @@ export function HeroSubscriptionsPage() {
     }) : previous)
   }
   const mutationError = (caught: unknown) => caught instanceof ApiError || caught instanceof Error ? caught.message : '操作失败，请稍后重试。'
-  const supportCheckMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedSupportProfile) throw new Error('没有可用的 Actor Route Profile')
-      return api.requestApifyActorSupportCheck({
-        platform: selectedSupportProfile.platform,
-        target_type: selectedSupportProfile.target_type,
-        capability: selectedSupportProfile.capability,
-        expected_generation: capabilitiesQuery.data?.generation ?? 0,
-      })
-    },
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.sourceCapabilities(user.id),
-      })
-      actionToast.success(
-        result.discovery_run_id ? 'Actor 支持检查已提交' : '该来源类型已经可用',
-      )
-    },
-    onError: (caught) => actionToast.danger('Actor 支持检查提交失败', {
-      description: mutationError(caught),
-    }),
-  })
   const scheduleMutation = useMutation({
     mutationFn: (patch: { enabled: boolean; interval_minutes: number }) => api.updateFeedSchedule(patch),
     onMutate: () => feedback.begin('feed-schedule', 'global'),
@@ -497,8 +432,12 @@ export function HeroSubscriptionsPage() {
   const taxonomy: TaxonomyOptions = configQuery.data?.taxonomy ?? { channels: [], topics: Array.isArray(configQuery.data?.config.tags) ? configQuery.data.config.tags.filter((topic): topic is string => typeof topic === 'string') : [] }
   const sourceMap = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources])
   const visibleJobs = useMemo(() => (
-    (jobsQuery.data?.jobs ?? []).filter((job) => job.user_id === user.id && shouldShowJob(job))
-  ), [jobsQuery.data, user.id])
+    (jobsQuery.data?.jobs ?? []).filter((job) => (
+      job.user_id === user.id
+      && shouldShowJob(job)
+      && (isAdmin || !isActorOpsJob(job))
+    ))
+  ), [isAdmin, jobsQuery.data, user.id])
   const scheduleCoverage = useMemo(() => subscriptions.reduce(
     (counts, subscription) => {
       const source = sourceForSubscription(
@@ -536,7 +475,9 @@ export function HeroSubscriptionsPage() {
           : activeJob?.status === 'queued' || phase === 'queued'
             ? '已排队'
             : '立即获取'
-      const canEdit = Boolean(definitions.find((definition) => definition.type === effectiveSourceType(entry.source))) && canEditSource(user, entry.source)
+      const hasSafeEditor = Boolean(definitions.find((definition) => definition.type === effectiveSourceType(entry.source)))
+        || entry.source.type === 'apify_social'
+      const canEdit = hasSafeEditor && canEditSource(user, entry.source)
       return {
         ...entry,
         fetchLabel,
@@ -558,7 +499,7 @@ export function HeroSubscriptionsPage() {
     }
   })
   const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || configQuery.error
-  const loading = sourcesQuery.isLoading || typesQuery.isLoading || capabilitiesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
+  const loading = sourcesQuery.isLoading || typesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
   const schedulePending = feedback.isPending('feed-schedule', 'global')
   useEffect(() => {
     const jobs = feedJobsQuery.data?.jobs ?? []
@@ -697,9 +638,6 @@ export function HeroSubscriptionsPage() {
 
   return <div ref={pageScrollerRef} className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
-    {capabilitiesQuery.isError && <HeroNotice title="Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。" status="warning">
-      <Button size="sm" variant="ghost" onPress={() => void capabilitiesQuery.refetch()}>重试能力目录</Button>
-    </HeroNotice>}
     <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key))}>
       <div data-subscription-tabs-toolbar className="sticky top-0 z-20 px-2 py-2">
           <ScrollAdaptiveViewBar state={toolbarState} className={`min-w-0 ${tab === 'jobs' ? 'justify-start' : 'grid gap-2 min-[640px]:grid-cols-[auto_minmax(0,1fr)_auto_auto] min-[640px]:items-center'}`}>
@@ -762,7 +700,7 @@ export function HeroSubscriptionsPage() {
             />}
       </Tabs.Panel>
       <Tabs.Panel id="jobs" className="grid gap-3 pt-5">
-        <p className="type-body text-muted">这里只展示你需要关心的运行结果；Actor 内部调度成功记录会自动隐藏。</p>
+        <p className="type-body text-muted">{isAdmin ? '这里只展示你需要关心的运行结果；平台内部调度成功记录会自动隐藏。' : '这里只展示与你的订阅直接相关的运行结果。'}</p>
         {jobsQuery.isLoading && <LoadingState label="正在读取运行记录" rows={2} />}
         {jobsQuery.isError && <HeroNotice title="运行记录读取失败" status="warning">
           <span>订阅和来源仍可继续使用。</span>
@@ -848,53 +786,40 @@ export function HeroSubscriptionsPage() {
           ? <HeroNotice title="可用 Key 读取失败" status="warning">
               <Button size="sm" variant="ghost" className="ml-2" onPress={() => void secretsQuery.refetch()}>重试</Button>
             </HeroNotice>
-          : <SourceForm
-              definition={activeDefinition}
-              source={editingSource}
-              secrets={secretsQuery.data?.secrets ?? []}
-              allowSecret={isAdmin && sourceUsesSecret(activeDefinition)}
-              scopes={sourceScopesForUser(user)}
-              taxonomy={taxonomy}
-              submitLabel="保存来源"
-              onSubmit={async (payload) => {
-                await api.updateSource(editingSource.id, payload)
-                await refreshCatalogAndContent()
-                closeEditingSource()
-                actionToast.success('来源设置已保存')
-              }}
-            />
+          : <div className="grid gap-4">
+              {activeDefinitionUnavailable && <HeroNotice title="平台连接字段暂时锁定" status="warning">
+                <p>仍可修改来源名称、说明、默认频道和主题；目标与启用状态保持不变。</p>
+                {isAdmin && <Button size="sm" variant="ghost" className="mt-2" onPress={() => navigate(unavailableSourceCopy(activeDefinition).settingsHref)}>{unavailableSourceCopy(activeDefinition).settingsLabel}</Button>}
+              </HeroNotice>}
+              <SourceForm
+                definition={activeDefinition}
+                source={editingSource}
+                secrets={secretsQuery.data?.secrets ?? []}
+                allowSecret={isAdmin && sourceUsesSecret(activeDefinition)}
+                scopes={sourceScopesForUser(user)}
+                taxonomy={taxonomy}
+                submitLabel="保存来源"
+                configLocked={activeDefinitionUnavailable}
+                onSubmit={async (payload) => {
+                  await api.updateSource(editingSource.id, payload)
+                  await refreshCatalogAndContent()
+                  closeEditingSource()
+                  actionToast.success('来源设置已保存')
+                }}
+              />
+            </div>
     )}
   </HeroDialog>
   <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setCreateType('') }} title="新增来源">
     <div className="grid gap-4">
-      <HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type) }))]} />
-      <Card variant="secondary" className="grid gap-3 p-3">
-        <div>
-          <Card.Title>找不到需要的社交来源？</Card.Title>
-          <Card.Description className="mt-1">提交公开 Actor Route 支持检查；系统只生成候选提案，付费试跑仍需管理员逐次确认。</Card.Description>
-        </div>
-        <div className="grid gap-3 min-[560px]:grid-cols-[minmax(0,1fr)_auto] min-[560px]:items-end">
-          <HeroSelect
-            label="待检查 Profile"
-            value={selectedSupportProfile?.id ?? ''}
-            onChange={setSupportProfileId}
-            isDisabled={supportCheckMutation.isPending || capabilitiesQuery.isError}
-            options={supportProfiles.map((profile) => ({
-              id: profile.id,
-              label: profile.label,
-              description: `${profile.platform}/${profile.target_type}/${profile.capability} · ${profile.mode}`,
-            }))}
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            isDisabled={supportCheckMutation.isPending || !selectedSupportProfile}
-            onPress={() => supportCheckMutation.mutate()}
-          >{supportCheckMutation.isPending ? '提交中…' : '请求支持检查'}</Button>
-        </div>
-      </Card>
+      <HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type), description: definition.availability === 'temporarily_unavailable' ? '暂不可用' : undefined }))]} />
       {activeDefinition && (
-        sourceDialogNeedsSecret && secretsQuery.isLoading
+        activeDefinitionUnavailable
+          ? <HeroNotice title={unavailableSourceCopy(activeDefinition).title} status="warning">
+              <p>{unavailableSourceCopy(activeDefinition).description}</p>
+              {isAdmin && <Button size="sm" variant="ghost" className="mt-2" onPress={() => navigate(unavailableSourceCopy(activeDefinition).settingsHref)}>{unavailableSourceCopy(activeDefinition).settingsLabel}</Button>}
+            </HeroNotice>
+          : sourceDialogNeedsSecret && secretsQuery.isLoading
           ? <LoadingState label="正在读取可用 Key" rows={2} />
           : sourceDialogNeedsSecret && secretsQuery.isError
             ? <HeroNotice title="可用 Key 读取失败" status="warning">

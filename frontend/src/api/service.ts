@@ -62,7 +62,7 @@ import type {
   SourceHealthResponse,
   SourceSummary,
   SourceShareResult,
-  SourceTypeDefinition,
+  SourceTypesResponse,
   SourceUsage,
   StorageArchives,
   StorageOperation,
@@ -151,7 +151,7 @@ export function createServiceApi(client: ApiClient) {
       includeDisabled ? '/api/catalog/sources?include_disabled=true' : '/api/catalog/sources',
       signal,
     ),
-    sourceTypes: (signal?: AbortSignal) => client.get<ListResponse<SourceTypeDefinition, 'source_types'>>('/api/catalog/source-types', signal),
+    sourceTypes: (signal?: AbortSignal) => client.get<SourceTypesResponse>('/api/catalog/source-types', signal),
     sourceCapabilities: (signal?: AbortSignal) => client.get<ApifyActorSourceCapabilitiesResponse>(
       '/api/catalog/source-capabilities',
       signal,

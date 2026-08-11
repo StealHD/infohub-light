@@ -89,14 +89,18 @@ export const manualSections: ManualSection[] = [
         description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。普通视频、Shorts、公开直播及回放都沿用频道 Feed 收录；“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
       },
       {
+        title: '新增 X 或 Instagram 账号',
+        description: '新增来源时直接选择“X 账号”或“Instagram 账号”，只需填写公开用户名或主页链接、每次获取条数和分析模式。页面不会要求选择 Apify、Actor、Route 或 Key，也不显示高级 JSON；平台线路由工作区管理员统一维护。若平台显示“正在准备中”或“暂不可用”，现有来源和历史内容不受影响；此时不能新建或更换账号目标，但仍可编辑既有来源的名称、说明、默认频道和主题。来源卡、筛选和编辑都使用平台名称，不再显示“社交平台”。',
+      },
+      {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 付费回退由“设置 → ActorOps”统一管理。先选抓取类型，再按“主备配置 / 来源启用 / 运行与告警”完成任务；页面只显示当前主备和一个明确下一步，不要求理解 Discovery、Job、Revision 或机器状态。首次配置从安全候选列表选 3 个 Actor，补备用 2 选 1 个；升级旧配置时，候选列表永远先按主用、备用 1、备用 2 显示上面的三个当前 Actor，安全新版已就绪的会自动选中，其他会显示正在检查或未通过的原因；只有某个当前 Actor 已下架或不兼容才需要为该缺口换人。免费检查正在进行时不会重复创建任务。没有粘贴 Actor ID 入口，精确 Build 和槽位顺序由服务端固定。正常流程只需“确认验证（最高 $X）”和“确认生效”两次确认；旧版池或现有两路在预验证期间继续运行。旧兼容 Actor 没有固定 Build 时，来源页会直接提示先升级主备，不会再创建必然失败的付费试跑。Actor 通过验证后已是“已验证，可运行”；48 小时、参考来源和 95% 成功率由后台继续认证，不卡配置。失败卡会明确显示耗时、返回条数、已结算或待对账费用和当前参数：超时可把新计划等待调为 180–900 秒并在必要时把单次上限调到最高 $0.10；返回 0 条时延长无效，只在 Actor 确实支持时把样本改为 3 或 5 条；状态读取失败只免费重读原 Run/Dataset，不再启动 Actor。同一失败与同一参数会在付费前被拒绝，只提高费用也不能绕过空结果或超时建议。YouTube 仍先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。首次配置仍从安全候选列表选择 3 个，补备用 2 选择 1 个；升级旧 X 配置时只检查当前主用、备用 1 和备用 2，不自动换成其他 Actor。免费扩展检查会直接核对这三者、保留早先已通过的部分结果，并把有效候选检查上限扩大到 30；公开可运行、精确成功 Build、输入与 Dataset Schema、Manifest 路径、每次 $0.02 上限和至少两个发布者等安全底线不会放宽。三者任一未通过就保持原兼容池并停止。只有三者都安全时才展示逐项和总费用上限，确认后才开始付费验证；全部 Route 与现有来源通过后，还需第二次确认才原子切换。可信空结果只可把样本从 1 扩大到 3，样本 3 仍失败即停止，不改为 5、不提价、不延时、不换 Actor。费用待对账或启动结果未知时只核对原运行，不会重复启动。YouTube 始终先使用免费公开 Atom Feed，Actor 回退由后端决定，不影响频道创建。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
       {
         title: '按内容类型发现 Actor',
-        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。YouTube 的 channelId/channelIds 输入使用已验证的 UC Channel ID；输出字段从 Dataset row 根映射，不会凭空增加 candidate/item/data 包装。定价事件和 Manifest 都只能证明频道资料、统计或主页身份时会在付费前淘汰；精确 Build Schema 已同时证明视频 ID、URL、发布时间和正文时，不会再被模糊的计费事件名称误杀。某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。模型按当前有界目标返回 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低公开性、固定 Build、官方输入校验或每 Run 0.02 美元默认上限。生产至少需要两个不同发布者且各自成功试跑的 Actor。',
+        description: '普通 Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，默认最多检查 12 个有效候选；旧 X 池升级例外使用最多 30 个的扩展召回，但最终只接受当前三个 Actor。YouTube 的 channelId/channelIds 输入使用已验证的 UC Channel ID；输出字段从 Dataset row 根映射，不会凭空增加 candidate/item/data 包装。定价事件和 Manifest 都只能证明频道资料、统计或主页身份时会在付费前淘汰；精确 Build Schema 已同时证明视频 ID、URL、发布时间和正文时，不会再被模糊的计费事件名称误杀。某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。少返回或单个 Manifest 不合格只记录安全原因，不会降低公开性、固定 Build、官方输入校验、Schema、Manifest、发布者多样性或费用门槛。',
       },
       {
         title: '全局与单源自动更新',

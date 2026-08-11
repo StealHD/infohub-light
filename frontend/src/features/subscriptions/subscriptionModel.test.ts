@@ -118,6 +118,8 @@ describe('subscription model', () => {
     expect(sourceUsesSecret({ type: 'apify_social', fields: [] })).toBe(true)
     expect(sourceUsesSecret({ type: 'apify_social', fields: [], credential_mode: 'source_secret' })).toBe(true)
     expect(sourceUsesSecret({ type: 'apify_social', fields: [], credential_mode: 'workspace_apify_pool' })).toBe(false)
+    expect(sourceUsesSecret({ type: 'x_profile', fields: [] })).toBe(false)
+    expect(sourceUsesSecret({ type: 'instagram_profile', fields: [] })).toBe(false)
     expect(sourceUsesSecret({ type: 'rss', fields: [] })).toBe(false)
     expect(sourceUsesSecret({ type: 'github_release', fields: [] })).toBe(false)
   })
@@ -149,6 +151,8 @@ describe('subscription model', () => {
     const failed: Job = { id: 'job-2', user_id: 'user-1', job_type: 'source_fetch', source_id: 'src-1', status: 'failed', error_message: '连接超时' }
 
     expect(sourceTypeLabel('github_release')).toBe('GitHub 发布')
+    expect(sourceTypeLabel('x_profile')).toBe('X 账号')
+    expect(sourceTypeLabel('instagram_profile')).toBe('Instagram 账号')
     expect(sourceTypeLabel('youtube_channel')).toBe('YouTube 频道')
     expect(subscriptionModel.effectiveSourceType({
       ...source,

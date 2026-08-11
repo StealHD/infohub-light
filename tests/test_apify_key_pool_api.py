@@ -349,9 +349,18 @@ def test_pool_managed_sources_reject_secret_env_and_hide_legacy_reference(
     registry = client.get("/api/catalog/source-types").json()["data"][
         "source_types"
     ]
-    apify = next(item for item in registry if item["type"] == "apify_social")
-    assert apify["credential_mode"] == "workspace_apify_pool"
-    assert apify["supports_secret_env"] is False
+    assert all(item["type"] != "apify_social" for item in registry)
+    platform_profiles = [
+        item
+        for item in registry
+        if item["type"] in {"x_profile", "instagram_profile"}
+    ]
+    assert {item["type"] for item in platform_profiles} == {
+        "x_profile",
+        "instagram_profile",
+    }
+    assert all(item["credential_mode"] == "none" for item in platform_profiles)
+    assert all(item["supports_secret_env"] is False for item in platform_profiles)
 
 
 def test_pool_routes_require_admin_and_are_workspace_isolated(tmp_path, monkeypatch):

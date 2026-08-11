@@ -449,7 +449,7 @@ def test_batch_worker_stops_after_two_publishers_and_finalizes_unused_as_free(
     assert tuple(unused) == (0.0, 1, 0)
 
 
-def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_old_pool(
+def test_legacy_stage_worker_validates_all_three_current_actors_without_switching_pool(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -486,8 +486,10 @@ def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_
         expected_generation=int(route["generation"]),
     )
     revision_ids: list[str] = []
-    for index, publisher in enumerate(("stage-a", "stage-b"), start=1):
-        actor_id = f"{publisher}/exact-x"
+    current_slots = ops.get_route(str(route["route_id"]))["slots"]
+    for index, slot in enumerate(current_slots, start=1):
+        publisher = str(slot["publisher"])
+        actor_id = str(slot["actor_id"])
         candidate_id = ops.ensure_candidate(str(route["route_id"]), actor_id=actor_id)
         revision_ids.append(
             ops.create_adapter_revision(
@@ -508,7 +510,7 @@ def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_
     )
     plan = ops.get_canary_plan(str(run["run_id"]), goal="upgrade_legacy")
     assert plan["source_count"] == 1
-    assert plan["source_validation_count"] == 2
+    assert plan["source_validation_count"] == 3
     batch = ops.create_canary_batch(
         str(run["run_id"]),
         goal="upgrade_legacy",
@@ -609,7 +611,7 @@ def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_
 
     assert result["id"] == job["id"]
     assert result["status"] == "succeeded"
-    assert [kind for kind, _value in calls].count("run") == 4
+    assert [kind for kind, _value in calls].count("run") == 6
     verification_store = ServiceStore(tmp_path)
     verification_store.initialize()
     verification_ops = ApifyActorOpsService(verification_store)
@@ -620,11 +622,12 @@ def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_
         slot["revision_id"]
         for slot in verification_ops.get_route(str(route["route_id"]))["slots"]
     ] == old_slots
-    assert persisted["success_count"] == 2
-    assert persisted["publisher_count"] == 2
-    assert persisted["actual_cost_usd"] == 0.004
+    assert persisted["success_count"] == 3
+    assert persisted["publisher_count"] >= 2
+    assert persisted["actual_cost_usd"] == 0.006
     assert persisted["cost_final"] is True
     assert [item["status"] for item in persisted["items"]] == [
+        "succeeded",
         "succeeded",
         "succeeded",
     ]
@@ -640,11 +643,12 @@ def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_
     assert [tuple(row) for row in source_validations] == [
         ("succeeded", 1),
         ("succeeded", 1),
+        ("succeeded", 1),
     ]
     assert persisted["pool_stage"]["source_summary"] == {
         "source_count": 1,
-        "required_count": 2,
-        "passed_count": 2,
+        "required_count": 3,
+        "passed_count": 3,
         "succeeded_sources": 1,
         "failed_sources": 0,
         "active_sources": 0,

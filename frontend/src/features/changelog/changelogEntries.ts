@@ -24,6 +24,18 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-11',
+        title: '新增来源改为直接选择平台',
+        summary: 'X、Instagram 和 YouTube 与其他来源同级展示；普通用户不再需要理解 Apify、Actor 或 Route，旧 X 池升级也只扩大安全检查范围。',
+        items: [
+          { title: '平台表单更直接', description: '新增来源可直接选择“X 账号”“Instagram 账号”或“YouTube 频道”。X 与 Instagram 只填写账号、获取条数和分析模式；页面移除 Actor Route、支持检查、Apify Key 和高级 JSON。' },
+          { title: '暂不可用不会误导创建', description: '平台尚未就绪时仍可看到业务说明和管理员设置入口，但不会显示创建按钮；既有来源仍可维护名称、说明、频道和主题，目标与启用状态保持不变。' },
+          { title: '旧来源保持兼容', description: '现有 X、Instagram 和 YouTube 来源不迁移、不改写也不停用；卡片、筛选和编辑统一显示平台名称。YouTube 始终优先使用公开 Atom Feed。' },
+          { title: 'X 只升级当前三路', description: '免费检查直接核对当前三个 Actor，并把有效候选检查范围扩大到 30；安全、Schema、价格和发布者门槛不变。任一当前 Actor 不合格就保持原池，不自动换人或进入付费步骤。' },
+          { title: '付费与生效继续分开确认', description: '只有当前三路都得到安全固定版本时才会显示逐项与总费用上限；付费验证和最终生效仍各自需要明确确认，未知启动只核对原运行。' },
+        ],
+      },
+      {
+        date: '2026-08-11',
         title: '订阅统计可以直接查询对应内容',
         summary: '订阅卡右上角的今日、近 N 天和历史数量都会带你到该来源的对应结果，不必再手动设置来源筛选。',
         items: [

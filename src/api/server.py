@@ -66,8 +66,6 @@ from ..services.apify_actor_ops import (
     ActorOpsError,
     ApifyActorOpsService,
     FIRST_ACTIVATION_CONFIRMATION,
-    MEMBER_PENDING_DISCOVERY_ROUTES,
-    MEMBER_SUPPORT_CHECKS_PER_DAY,
     ROUTE_CANARY_ATTEMPT_LIMIT,
     SOURCE_CANARY_BUDGET_USD,
     source_target_fingerprint,
@@ -129,10 +127,16 @@ from ..services.workspace_telegram_transport import (
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
+    INSTAGRAM_PROFILE_SETUP_TYPE,
+    PLATFORM_PROFILE_SETUP_TYPES,
     SourceConfigError,
+    X_PROFILE_SETUP_TYPE,
     YOUTUBE_CHANNEL_SETUP_TYPE,
     catalog_source_setup_type,
     list_source_setup_types,
+    normalize_platform_profile_setup_config,
+    platform_for_profile_setup_type,
+    project_catalog_source_config_for_web,
     source_key as build_source_key,
     validate_secret_env_name,
     validate_source_config,
@@ -1676,13 +1680,110 @@ def create_app(
         base_url = normalize_ai_secret_base_url(payload.base_url) if kind == "ai" else ""
         return name, kind, provider, env_name, base_url
 
+    def primary_actor_route_for_platform(
+        ops: ApifyActorOpsService,
+        platform: str,
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                route
+                for route in ops.list_routes()
+                if str(route["platform"]) == platform
+                and str(route["target_type"]) == "profile"
+                and str(route["capability"]) == "items"
+                and str(route["mode"]) == "primary"
+            ),
+            None,
+        )
+
+    def workspace_apify_credential_ready(workspace_id: str) -> bool:
+        if not apify_key_pool_enabled():
+            return False
+        state = apify_key_pool.public_state(workspace_id)
+        active_secret_id = state.get("active_secret_id")
+        if state.get("status") != "ready" or not active_secret_id:
+            return False
+        secret = store.get_secret_ref(str(active_secret_id))
+        return bool(
+            secret
+            and secret_values.status(str(secret["env_name"]))["is_set"]
+        )
+
+    def source_setup_availability(
+        workspace_id: str,
+    ) -> tuple[int, dict[str, tuple[str, str | None]]]:
+        ops = apify_actor_ops_for(workspace_id)
+        credential_ready = workspace_apify_credential_ready(workspace_id)
+        statuses: dict[str, tuple[str, str | None]] = {}
+        for setup_type, platform in (
+            (X_PROFILE_SETUP_TYPE, "x"),
+            (INSTAGRAM_PROFILE_SETUP_TYPE, "instagram"),
+        ):
+            route = primary_actor_route_for_platform(ops, platform)
+            if route is None or not ops.source_capability_ready(
+                str(route["route_id"])
+            ):
+                statuses[setup_type] = (
+                    "temporarily_unavailable",
+                    "platform_setup_pending",
+                )
+            elif not credential_ready:
+                statuses[setup_type] = (
+                    "temporarily_unavailable",
+                    "workspace_credential_unavailable",
+                )
+            else:
+                statuses[setup_type] = ("ready", None)
+        return ops.catalog_generation(), statuses
+
+    def workspace_catalog_source_setup_type(
+        workspace_id: str,
+        source_type: str,
+        config: Any,
+    ) -> str:
+        setup_type = catalog_source_setup_type(source_type, config)
+        if (
+            setup_type != "apify_social"
+            or not isinstance(config, dict)
+            or not config.get("profile_id")
+        ):
+            return setup_type
+        try:
+            route = apify_actor_ops_for(workspace_id).get_route(
+                str(config["profile_id"])
+            )
+        except ActorOpsError:
+            return setup_type
+        identity = (
+            str(route.get("platform") or ""),
+            str(route.get("target_type") or ""),
+            str(route.get("capability") or ""),
+            str(route.get("mode") or ""),
+        )
+        if identity == ("x", "profile", "items", "primary"):
+            return X_PROFILE_SETUP_TYPE
+        if identity == ("instagram", "profile", "items", "primary"):
+            return INSTAGRAM_PROFILE_SETUP_TYPE
+        return setup_type
+
     def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         item = dict(source)
         item.pop("enforce_public_network", None)
-        item["setup_type"] = catalog_source_setup_type(
+        item["setup_type"] = workspace_catalog_source_setup_type(
+            str(source["workspace_id"]),
             str(source.get("type") or ""),
             source.get("config"),
         )
+        if (
+            item["setup_type"] in PLATFORM_PROFILE_SETUP_TYPES
+            or str(source.get("type") or "") == "apify_social"
+        ):
+            item["config"] = project_catalog_source_config_for_web(
+                str(source.get("type") or ""),
+                source.get("config"),
+                setup_type=str(item["setup_type"]),
+            )
+            item.pop("secret_env", None)
         avatar = media_cache.avatar_for_source(
             workspace_id=str(source["workspace_id"]),
             source_id=str(source["id"]),
@@ -1705,11 +1806,11 @@ def create_app(
             )
             item.pop("secret_env", None)
         else:
-            env_name = item.get("secret_env")
+            env_name = source.get("secret_env")
             item["secret_configured"] = bool(
                 env_name and secret_values.status(str(env_name))["is_set"]
             )
-            if not _is_admin(user):
+            if not _is_admin(user) or item["setup_type"] in PLATFORM_PROFILE_SETUP_TYPES:
                 item.pop("secret_env", None)
         return item
 
@@ -3757,6 +3858,23 @@ def create_app(
         source_type: str,
         config: dict[str, Any],
     ) -> tuple[str, dict[str, Any], str]:
+        if source_type in PLATFORM_PROFILE_SETUP_TYPES:
+            try:
+                normalized = normalize_platform_profile_setup_config(
+                    source_type,
+                    config,
+                )
+            except SourceConfigError as exc:
+                raise ApiError(
+                    "invalid_source_config",
+                    str(exc),
+                    status_code=400,
+                ) from exc
+            return (
+                "apify_social",
+                normalized,
+                build_source_key("apify_social", normalized),
+            )
         if source_type != YOUTUBE_CHANNEL_SETUP_TYPE:
             normalized, key = validate_catalog_source_config(source_type, config)
             return source_type, normalized, key
@@ -5545,15 +5663,8 @@ def create_app(
         payload: ApifySupportCheckRequest,
         request: Request,
         response: Response,
-        user: dict[str, Any] = Depends(current_user),
+        user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
-        require_mutating_member(user)
-        if payload.force_discovery and not _is_admin(user):
-            raise ApiError(
-                "admin_required",
-                "Manual Actor rediscovery requires an administrator",
-                status_code=403,
-            )
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         result = ops.request_support_check(
             platform=payload.platform,
@@ -5563,20 +5674,10 @@ def create_app(
                 "admin_rediscovery"
                 if payload.force_discovery
                 else "admin_support_check"
-                if _is_admin(user)
-                else "member_support_check"
             ),
             expected_generation=int(payload.expected_generation),
-            max_recent_runs=(
-                None
-                if _is_admin(user)
-                else MEMBER_SUPPORT_CHECKS_PER_DAY
-            ),
-            max_pending_routes=(
-                None
-                if _is_admin(user)
-                else MEMBER_PENDING_DISCOVERY_ROUTES
-            ),
+            max_recent_runs=None,
+            max_pending_routes=None,
             force_discovery=bool(payload.force_discovery),
         )
         discovery_job = None
@@ -7501,13 +7602,28 @@ def create_app(
         return ok({"deleted": True, "id": secret_id})
 
     @app.get("/api/catalog/source-types")
-    async def catalog_source_types(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok({"source_types": list_source_setup_types()})
+    async def catalog_source_types(
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        generation, availability = source_setup_availability(
+            str(user["workspace_id"])
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "generation": generation,
+                "source_types": list_source_setup_types(
+                    availability=availability
+                ),
+            }
+        )
 
     @app.get("/api/catalog/source-capabilities")
     async def catalog_source_capabilities(
         response: Response,
-        user: dict[str, Any] = Depends(current_user),
+        user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         capabilities = []
@@ -7598,12 +7714,15 @@ def create_app(
         if scope != "private" and not _is_admin(user):
             raise ApiError("forbidden", "only admins can create public or workspace sources", status_code=403)
         if (
-            payload.type == YOUTUBE_CHANNEL_SETUP_TYPE
+            payload.type in (
+                YOUTUBE_CHANNEL_SETUP_TYPE,
+                *PLATFORM_PROFILE_SETUP_TYPES,
+            )
             and payload.secret_env is not None
         ):
             raise ApiError(
                 "invalid_source_config",
-                "YouTube channel subscriptions do not accept credentials.",
+                "This source setup does not accept per-source credentials.",
                 status_code=400,
             )
         catalog_type, normalized_config, key = await resolve_catalog_source_config(
@@ -7626,15 +7745,9 @@ def create_app(
             legacy_platform = str(
                 normalized_config["platform"]
             ).casefold()
-            actor_ops_route = next(
-                (
-                    route
-                    for route in actor_ops.list_routes()
-                    if str(route["platform"]) == legacy_platform
-                    and str(route["target_type"]) == "profile"
-                    and str(route["capability"]) == "items"
-                ),
-                None,
+            actor_ops_route = primary_actor_route_for_platform(
+                actor_ops,
+                legacy_platform,
             )
             if (
                 actor_ops_route is None
@@ -7646,6 +7759,18 @@ def create_app(
                     "apify_actor_route_not_ready",
                     "The selected Actor Route is not certified for new sources",
                     status_code=409,
+                )
+            if (
+                payload.type in PLATFORM_PROFILE_SETUP_TYPES
+                and not workspace_apify_credential_ready(
+                    str(user["workspace_id"])
+                )
+            ):
+                raise ApiError(
+                    "workspace_credential_unavailable",
+                    "The workspace credential for this platform is unavailable",
+                    status_code=409,
+                    action="Ask an administrator to configure the platform connection.",
                 )
             normalized_config = {
                 key: value
@@ -7829,18 +7954,48 @@ def create_app(
             str,
             Literal["primary", "fallback"],
         ] | None = None
-        setup_type = catalog_source_setup_type(
+        setup_type = workspace_catalog_source_setup_type(
+            str(user["workspace_id"]),
             str(source["type"]),
             source.get("config"),
         )
+        platform_availability: tuple[str, str | None] | None = None
+        if setup_type in PLATFORM_PROFILE_SETUP_TYPES:
+            _generation, platform_statuses = source_setup_availability(
+                str(user["workspace_id"])
+            )
+            platform_availability = platform_statuses.get(setup_type)
+
+        def reject_locked_platform_mutation() -> None:
+            reason = (
+                platform_availability[1]
+                if platform_availability is not None
+                else "platform_setup_pending"
+            )
+            if reason == "workspace_credential_unavailable":
+                raise ApiError(
+                    "workspace_credential_unavailable",
+                    "The workspace credential for this platform is unavailable",
+                    status_code=409,
+                    action="Ask an administrator to configure the platform connection.",
+                )
+            raise ApiError(
+                "apify_actor_route_not_ready",
+                "The selected Actor Route is not certified for this source",
+                status_code=409,
+            )
+
         if (
             "secret_env" in provided
-            and setup_type == YOUTUBE_CHANNEL_SETUP_TYPE
+            and setup_type in (
+                YOUTUBE_CHANNEL_SETUP_TYPE,
+                *PLATFORM_PROFILE_SETUP_TYPES,
+            )
             and payload.secret_env is not None
         ):
             raise ApiError(
                 "invalid_source_config",
-                "YouTube channel subscriptions do not accept credentials.",
+                "This source setup does not accept per-source credentials.",
                 status_code=400,
             )
         updates: dict[str, Any] = {}
@@ -7853,9 +8008,35 @@ def create_app(
         if "default_topics" in provided and payload.default_topics is not None:
             updates["default_topics"] = payload.default_topics
         if "config" in provided and payload.config is not None:
+            current_config = (
+                source["config"]
+                if isinstance(source.get("config"), dict)
+                else {}
+            )
+            legacy_apify_request = (
+                source["type"] == "apify_social"
+                and any(
+                    field_name in payload.config
+                    for field_name in ("profile_id", "platform", "kind")
+                )
+            )
+            request_setup_type = (
+                "apify_social" if legacy_apify_request else setup_type
+            )
+            request_config = payload.config
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and not legacy_apify_request
+            ):
+                request_config = {
+                    field_name: current_config[field_name]
+                    for field_name in ("target", "fetch_limit", "analysis_mode")
+                    if field_name in current_config
+                }
+                request_config.update(payload.config)
             catalog_type, normalized_config, key = await resolve_catalog_source_config(
-                setup_type,
-                payload.config,
+                request_setup_type,
+                request_config,
             )
             if catalog_type != source["type"]:
                 raise ApiError(
@@ -7863,14 +8044,123 @@ def create_app(
                     "source storage type cannot be changed",
                     status_code=400,
                 )
-            updates["config"] = normalized_config
-            updates["source_key"] = key
-            current_config = (
-                source["config"]
-                if isinstance(source.get("config"), dict)
-                else {}
-            )
-            if source["type"] == "apify_social":
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and legacy_apify_request
+                and platform_availability is not None
+                and platform_availability[1] == "platform_setup_pending"
+            ):
+                current_profile_id = str(
+                    current_config.get("profile_id") or ""
+                ).strip()
+                next_profile_id = str(
+                    normalized_config.get("profile_id") or ""
+                ).strip()
+                legacy_config_changed = any(
+                    current_config.get(field_name)
+                    != normalized_config.get(field_name)
+                    for field_name in ("target", "fetch_limit", "analysis_mode")
+                )
+                if current_profile_id:
+                    legacy_config_changed = (
+                        legacy_config_changed
+                        or next_profile_id != current_profile_id
+                    )
+                else:
+                    legacy_config_changed = legacy_config_changed or any(
+                        str(current_config.get(field_name) or "").casefold()
+                        != str(normalized_config.get(field_name) or "").casefold()
+                        for field_name in ("profile_id", "platform", "kind")
+                    )
+                if legacy_config_changed:
+                    reject_locked_platform_mutation()
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and not legacy_apify_request
+            ):
+                merged_config = dict(current_config)
+                for field_name in ("target", "fetch_limit", "analysis_mode"):
+                    if field_name in payload.config:
+                        merged_config[field_name] = normalized_config[field_name]
+                current_profile_id = str(
+                    current_config.get("profile_id") or ""
+                ).strip()
+                target_changed = (
+                    str(current_config.get("target") or "").strip().casefold()
+                    != str(merged_config.get("target") or "")
+                    .strip()
+                    .casefold()
+                )
+                config_changed = any(
+                    current_config.get(field_name) != merged_config.get(field_name)
+                    for field_name in ("target", "fetch_limit", "analysis_mode")
+                    if field_name in payload.config
+                )
+                if (
+                    config_changed
+                    and platform_availability is not None
+                    and platform_availability[0] != "ready"
+                ):
+                    reject_locked_platform_mutation()
+                if target_changed:
+                    actor_ops = apify_actor_ops_for(
+                        str(user["workspace_id"])
+                    )
+                    platform = platform_for_profile_setup_type(setup_type)
+                    route = (
+                        primary_actor_route_for_platform(actor_ops, platform)
+                        if platform is not None
+                        else None
+                    )
+                    if route is None or not actor_ops.source_capability_ready(
+                        str(route["route_id"])
+                    ):
+                        raise ApiError(
+                            "apify_actor_route_not_ready",
+                            "The selected Actor Route is not certified for this source",
+                            status_code=409,
+                        )
+                    if not workspace_apify_credential_ready(
+                        str(user["workspace_id"])
+                    ):
+                        raise ApiError(
+                            "workspace_credential_unavailable",
+                            "The workspace credential for this platform is unavailable",
+                            status_code=409,
+                            action="Ask an administrator to configure the platform connection.",
+                        )
+                    validate_actor_ops_source_target(
+                        route,
+                        str(merged_config["target"]),
+                        primary=True,
+                    )
+                    merged_config.pop("platform", None)
+                    merged_config.pop("kind", None)
+                    merged_config["profile_id"] = str(route["route_id"])
+                    actor_binding_plan = (
+                        route,
+                        str(merged_config["target"]),
+                        "primary",
+                    )
+                    updates["enabled"] = False
+                elif current_profile_id:
+                    merged_config.pop("platform", None)
+                    merged_config.pop("kind", None)
+                    merged_config["profile_id"] = current_profile_id
+                else:
+                    merged_config["platform"] = str(
+                        current_config.get("platform")
+                        or platform_for_profile_setup_type(setup_type)
+                        or ""
+                    )
+                    merged_config["kind"] = str(
+                        current_config.get("kind") or "profile"
+                    )
+                normalized_config, key = validate_catalog_source_config(
+                    "apify_social",
+                    merged_config,
+                )
+            elif source["type"] == "apify_social":
                 current_profile_id = str(
                     current_config.get("profile_id") or ""
                 ).strip()
@@ -7915,6 +8205,8 @@ def create_app(
                         "primary",
                     )
                     updates["enabled"] = False
+            updates["config"] = normalized_config
+            updates["source_key"] = key
             if (
                 source["type"] == "rss"
                 and catalog_source_setup_type(catalog_type, normalized_config)
@@ -7951,6 +8243,13 @@ def create_app(
         if "secret_env" in provided:
             updates["secret_env"] = _validate_secret_env(payload.secret_env)
         if "enabled" in provided:
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and bool(payload.enabled) != bool(source.get("enabled"))
+                and platform_availability is not None
+                and platform_availability[0] != "ready"
+            ):
+                reject_locked_platform_mutation()
             effective_config = (
                 updates["config"]
                 if isinstance(updates.get("config"), dict)

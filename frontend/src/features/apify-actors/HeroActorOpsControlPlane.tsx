@@ -194,6 +194,7 @@ function HumanActorErrorNotice({ error }: { error: HumanActorError }) {
 
 function workflowFailureNotice(
   progress: Record<string, unknown> | undefined,
+  goal: ApifyActorPoolGoal | undefined,
 ): HumanActorError | null {
   const rawFailure = progress?.last_failure
   if (rawFailure === null || typeof rawFailure !== 'object' || Array.isArray(rawFailure)) return null
@@ -221,10 +222,14 @@ function workflowFailureNotice(
     ...presented,
     impact: `${presented.impact}${spend}`,
     next: code === 'apify_actor_run_timed_out' && costFinal
-      ? '打开候选列表，把等待时间从当前值调高后再确认；系统不会自动重试。'
+      ? goal === 'upgrade_legacy'
+        ? '当前 Actor 的升级已停止；保持兼容池，不提价、不延时、不选择替补。'
+        : '打开候选列表，把等待时间从当前值调高后再确认；系统不会自动重试。'
       : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(code)
-        ? '打开候选列表；支持扩大样本时改为 3 或 5 条，否则更换 Actor。'
-      : presented.next,
+        ? goal === 'upgrade_legacy'
+          ? '打开当前 Actor 状态；样本为 1 时只可扩大到 3，样本 3 仍失败就停止升级。'
+          : '打开候选列表；支持扩大样本时改为 3 或 5 条，否则更换 Actor。'
+        : presented.next,
   }
 }
 
@@ -284,6 +289,8 @@ function poolCandidateUnavailableLabel(reason: string | null | undefined): strin
   if (reason === 'candidate_not_validated') return '基础检查尚未通过'
   if (reason === 'actor_upgrade_inspection_running') return '正在为这个当前 Actor 生成安全新版'
   if (reason === 'actor_upgrade_revision_unavailable') return '尚未通过安全升级检查；当前兼容版本继续运行'
+  if (reason === 'actor_validation_sample_limit_reached') return '3 条样本仍未通过，升级已停止'
+  if (reason === 'actor_validation_retry_not_permitted') return '上次失败不允许通过提价、换 Actor 或重复付费绕过'
   return '当前不满足安全条件'
 }
 
@@ -1403,7 +1410,7 @@ const workflowPresentation: Record<string, {
   },
   legacy_discovery_required: {
     title: '升级当前 3 个 Actor',
-    description: '先只检查上面正在使用的 3 个 Actor，为它们固定新版 Build 并旁路验证。只有某个明确无法安全升级时，才需要选替代者。',
+    description: '只检查上面正在使用的 3 个 Actor，为它们固定新版 Build 并旁路验证。任一 Actor 无法安全升级就停止，不选择替补。',
     status: '兼容模式', tone: 'warning', action: 'start_discovery', cta: '开始升级当前 3 个 Actor',
   },
   legacy_discovery_running: {
@@ -1413,7 +1420,7 @@ const workflowPresentation: Record<string, {
   },
   legacy_candidate_selection_required: {
     title: '确认当前 Actor 升级',
-    description: '上面的 3 个 Actor 会排在候选列表最前面并优先选中；只为明确无法升级的位置选择替代项。',
+    description: '只允许上面的 3 个当前 Actor 进入新版方案；三者必须全部通过，并覆盖至少两个发布者。',
     status: '兼容模式', tone: 'warning', action: 'select_candidates', cta: '继续升级当前 Actor',
   },
   legacy_canary_approval_required: {
@@ -1587,8 +1594,8 @@ export function HeroActorOpsControlPlane({
   const detail = detailQuery.data
   const workflow = detail?.workflow ?? selectedSummary?.workflow
   const next = workflowPresentation[workflow?.kind || ''] ?? unknownWorkflowPresentation
-  const workflowFailure = workflowFailureNotice(workflow?.progress)
   const candidateGoal: ApifyActorPoolGoal = workflow?.goal || 'initial_pool'
+  const workflowFailure = workflowFailureNotice(workflow?.progress, candidateGoal)
   const candidatesQuery = useQuery({
     queryKey: queryKeys.apifyActorPoolCandidates(user.id, selectedRouteId, candidateGoal),
     queryFn: ({ signal }) => api.apifyActorPoolCandidates(selectedRouteId, candidateGoal, signal),
@@ -1898,6 +1905,7 @@ export function HeroActorOpsControlPlane({
       queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, updated.route_id), updated)
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourceCapabilities(user.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourceTypes(user.id) })
       setActivationTarget(null)
       setActivationError(null)
       restoreFocus(activationTriggerRef)
@@ -2067,7 +2075,7 @@ export function HeroActorOpsControlPlane({
     : next.title
   const nextDescription = candidateShortfall
     ? workflow?.goal === 'upgrade_legacy'
-      ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；只有某个明确失败时，才需要选择替代者。免费检查不会启动 Actor。'
+      ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；任一 Actor 未通过就停止，不选择替补。免费检查不会启动 Actor。'
       : `${eligibleCandidateCount !== null && requiredSuccessCount !== null
         ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
         : '当前符合条件的候选还不足。'}已通过的候选会保留；继续免费搜索不会启动 Actor 或产生费用。`
@@ -2328,11 +2336,15 @@ export function HeroActorOpsControlPlane({
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
           <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy'
             ? hasPreferredActorUpgrades
-              ? '上面的当前 Actor 已排在最前并自动选中。若某个当前 Actor 明确无法升级，只为那个缺口选替代项。'
+              ? '可安全升级的当前 Actor 已自动选中。只允许这 3 个当前 Actor；任一未通过就停止。'
               : candidatesQuery.data
-                ? '上面的当前 Actor 已列在最前。点击“重新检查当前 Actor（免费）”会为它们生成安全新版；只有未通过检查的位置才需要换人。'
-                : '系统会先列出上面的当前 Actor；只有无法形成安全新版的位置才需要换人。'
+                ? '上面的 3 个当前 Actor 已列出。点击“重新检查当前 Actor（免费）”只会生成它们的安全新版，不会寻找替补。'
+                : '系统只检查上面的 3 个当前 Actor；无法形成安全新版时保持兼容池并停止。'
             : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。'}</HeroNotice>
+          {candidateGoal === 'upgrade_legacy' && <dl className="grid gap-3 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+            <div><dt className="type-control">可扩大召回</dt><dd className="mt-1 text-muted">直接检查当前 Primary、Backup 1、Backup 2；最多 3 个内容导向查询；有效候选检查上限 30；可信空结果样本只允许从 1 扩到 3。</dd></div>
+            <div><dt className="type-control">不可放宽底线</dt><dd className="mt-1 text-muted">必须公开可运行、精确成功 Build、输入与 Dataset Schema 可验证、Manifest 路径真实、单次不超过 $0.02；3 个 Actor 必须唯一且至少两个发布者，付费 Canary 必须返回有效内容或可信空结果。</dd></div>
+          </dl>}
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}
           {candidatesQuery.data && <>
@@ -2353,7 +2365,7 @@ export function HeroActorOpsControlPlane({
                 ].includes(failure.code)
                 return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
                   <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
-                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
+                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · {candidateGoal === 'upgrade_legacy' ? '固定单次上限' : '可调单次上限最高'} {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
                   </Checkbox>
                   {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">{candidate.existing_actor_upgrade ? '当前状态：' : '不可选择：'}{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
                   {failure && <div className="mt-3 grid gap-3 rounded-control border border-warning/40 bg-default p-3">
@@ -2372,22 +2384,32 @@ export function HeroActorOpsControlPlane({
                       <p className="mt-1 text-muted">耗时 {failure.duration_seconds ?? 0} 秒 · Dataset {failure.dataset_row_count ?? '未知'} 条 · {failure.cost_final ? `已结算 ${formatActorUsd(failure.actual_cost_usd, true)}` : '费用待对账'}</p>
                       <p className="mt-1 text-muted">当前参数：等待 {failure.timeout_seconds} 秒 · 样本 {failure.sample_items} 条 · 单次上限 {formatActorUsd(failure.max_charge_usd, true)}</p>
                       <p className="mt-2"><strong>下一步：</strong>{failure.code === 'apify_actor_run_timed_out'
-                        ? failure.timeout_seconds < 900
+                        ? candidateGoal === 'upgrade_legacy'
+                          ? '当前 Actor 的升级在这里停止；不能通过提价、延长等待或更换 Actor 绕过。'
+                          : failure.timeout_seconds < 900
                           ? '增加等待时间；如果 Actor 需要更高启动预算，再同步提高单次费用上限。'
                           : '等待时间已经是 15 分钟上限，请选择另一个候选。'
                         : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code)
-                          ? candidate.validation_options?.supports_sample_items
-                            ? failure.sample_items < 5
+                          ? candidateGoal === 'upgrade_legacy'
+                            ? candidate.validation_options?.supports_sample_items && failure.sample_items < 3
+                              ? '保持 300 秒等待和 $0.02 上限，只把验证样本从 1 扩大到 3。'
+                              : '3 条样本仍未通过，当前 Actor 的升级停止；不扩大到 5、不换 Actor。'
+                            : candidate.validation_options?.supports_sample_items
+                              ? failure.sample_items < 5
                               ? '延长等待无效；把验证样本扩大到 3 或 5 条。'
                               : '已经使用 5 条最大样本，延长等待无效；请选择另一个候选。'
-                            : '这个 Actor 不支持扩大样本，请选择另一个候选。'
+                              : '这个 Actor 不支持扩大样本，请选择另一个候选。'
                           : statusReadFailure
                             ? '免费重新读取同一个 Run 和 Dataset，不会重新启动 Actor。'
                             : contractFailure
-                              ? '免费更新当前抓取类型的候选并重新生成字段映射；仍不匹配就换 Actor。'
-                              : '请选择另一个候选；系统不会原样重复付费。'}</p>
+                              ? candidateGoal === 'upgrade_legacy'
+                                ? '可免费重新检查同一个当前 Actor；仍不匹配就停止升级，不换 Actor。'
+                                : '免费更新当前抓取类型的候选并重新生成字段映射；仍不匹配就换 Actor。'
+                              : candidateGoal === 'upgrade_legacy'
+                                ? '当前 Actor 的升级停止；系统不会原样重复付费或换 Actor。'
+                                : '请选择另一个候选；系统不会原样重复付费。'}</p>
                     </div>
-                    {failure.code === 'apify_actor_run_timed_out' && failure.timeout_seconds < 900 && <div className="grid gap-3 min-[640px]:grid-cols-2">
+                    {candidateGoal !== 'upgrade_legacy' && failure.code === 'apify_actor_run_timed_out' && failure.timeout_seconds < 900 && <div className="grid gap-3 min-[640px]:grid-cols-2">
                       <TextField fullWidth value={draft.timeoutSeconds} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'timeoutSeconds', value)} isDisabled={!selected || prepareManualPlan.isPending}>
                         <Label>等待时间（秒）</Label><Input type="number" min={180} max={900} step={60} /><Description>只对新计划生效；范围 180–900 秒。</Description>
                       </TextField>
@@ -2395,14 +2417,14 @@ export function HeroActorOpsControlPlane({
                         <Label>单次费用上限（USD）</Label><Input type="number" min={0.000001} max={0.10} step={0.005} /><Description>不会自动放宽，最高 $0.10。</Description>
                       </TextField>
                     </div>}
-                    {['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code) && candidate.validation_options?.supports_sample_items && failure.sample_items < 5 && <HeroSelect label="验证样本数" value={draft.sampleItems} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'sampleItems', value)} isDisabled={!selected || prepareManualPlan.isPending} options={candidate.validation_options.allowed_sample_items.map((value) => ({ id: String(value), label: `${value} 条` }))} />}
+                    {['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code) && candidate.validation_options?.supports_sample_items && (candidateGoal === 'upgrade_legacy' ? failure.sample_items < 3 : failure.sample_items < 5) && <HeroSelect label="验证样本数" value={draft.sampleItems} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'sampleItems', value)} isDisabled={!selected || prepareManualPlan.isPending} options={candidate.validation_options.allowed_sample_items.map((value) => ({ id: String(value), label: `${value} 条` }))} />}
                     {statusReadFailure && <Button size="sm" variant="secondary" isDisabled={reconcileValidation.isPending} onPress={() => reconcileValidation.mutate(candidate.candidate_id)}>{reconcileValidation.isPending ? '正在核对…' : '重新核对运行状态（免费）'}</Button>}
                     {contractFailure && <Button size="sm" variant="secondary" isDisabled={discovery.isPending} onPress={() => discovery.mutate()}>{discovery.isPending ? '正在更新候选与字段映射…' : '更新候选与字段映射（免费）'}</Button>}
                     {candidate.requires_profile_change && selected && !candidateHasUsefulProfileChange(candidate) && <p className="type-meta text-danger" role="alert">必须按上面的建议修改参数，原样验证已被禁止。</p>}
                   </div>}
                 </div>
               })}
-            </div> : <HeroNotice title="暂时没有可选 Actor" status="warning">当前没有同时满足来源能力、发布者分散和费用上限的候选。现有线路不会改变。</HeroNotice>}
+            </div> : <HeroNotice title="暂时没有可选 Actor" status="warning">{candidateGoal === 'upgrade_legacy' ? '当前 3 个 Actor 尚未全部满足安全升级条件。升级已停止，现有兼容池不会改变。' : '当前没有同时满足来源能力、发布者分散和费用上限的候选。现有线路不会改变。'}</HeroNotice>}
           </>}
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
         </div></Modal.Body>

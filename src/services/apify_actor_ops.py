@@ -3118,9 +3118,9 @@ class ApifyActorOpsService:
     def legacy_actor_ids(self, route_id: str) -> tuple[str, ...]:
         """Return active compatibility Actor slugs for a server-driven upgrade.
 
-        The browser never supplies these identifiers.  Discovery uses them only
-        as preferred public Store candidates and still has to freeze a new exact
-        Build and Manifest before any paid validation can be approved.
+        The browser never supplies these identifiers. Discovery looks them up
+        directly and still has to freeze a new exact Build and Manifest before
+        any paid validation can be approved; another Actor cannot replace one.
         """
 
         self._require_route(self.store.connect(), route_id)
@@ -3182,7 +3182,11 @@ class ApifyActorOpsService:
             "initial_pool", "complete_third", "upgrade_legacy"
         ],
     ) -> dict[str, Any]:
-        """Return safe, current-run candidates for manual pool selection."""
+        """Return safe candidates for manual pool selection.
+
+        Legacy upgrades may reuse exact safe Revisions from earlier runs, but
+        only for the three Actors already occupying the compatibility pool.
+        """
 
         connection = self.store.connect()
         route = self._require_route(connection, route_id)
@@ -3234,8 +3238,80 @@ class ApifyActorOpsService:
             for row in active_rows
         }
         active_actor_ids = set(active_actor_lifecycles)
-        rows = connection.execute(
-            """
+        if goal == "upgrade_legacy":
+            rows = connection.execute(
+                """
+                SELECT candidate.id AS candidate_id, candidate.display_name,
+                       candidate.state AS candidate_state,
+                       candidate.last_error_code AS candidate_error_code,
+                       candidate.position, revision.revision_id,
+                       revision.actor_id, revision.publisher,
+                       revision.build_id, revision.build_number,
+                       revision.manifest_hash, revision.manifest_json,
+                       revision.pricing_json,
+                       revision.lifecycle, revision.created_at,
+                       EXISTS (
+                           SELECT 1 FROM apify_actor_validations AS validation
+                           WHERE validation.workspace_id = revision.workspace_id
+                             AND validation.revision_id = revision.revision_id
+                             AND validation.kind = 'route_reference'
+                             AND validation.status IN ('queued', 'running')
+                       ) AS validation_in_flight,
+                       EXISTS (
+                           SELECT 1 FROM apify_actor_validations AS proof
+                           WHERE proof.workspace_id = revision.workspace_id
+                             AND proof.route_id = ?
+                             AND proof.revision_id = revision.revision_id
+                             AND proof.kind = 'route_reference'
+                             AND proof.status = 'succeeded'
+                             AND proof.cost_final = 1
+                             AND proof.semantic_outcome IN (
+                                 'valid_nonempty', 'valid_empty'
+                             )
+                       ) AS already_validated,
+                       EXISTS (
+                           SELECT 1
+                           FROM apify_actor_discovery_run_revisions AS current_link
+                           WHERE current_link.workspace_id = revision.workspace_id
+                             AND current_link.run_id = ?
+                             AND current_link.revision_id = revision.revision_id
+                       ) AS in_current_run
+                FROM apify_actor_adapter_revisions AS revision
+                JOIN apify_actor_candidates AS candidate
+                  ON candidate.workspace_id = revision.workspace_id
+                 AND candidate.id = revision.candidate_id
+                WHERE revision.workspace_id = ?
+                  AND candidate.route_key = ?
+                  AND revision.lifecycle IN (
+                      'static_valid', 'probationary', 'certified'
+                  )
+                  AND revision.build_id IS NOT NULL
+                  AND revision.build_number IS NOT NULL
+                  AND revision.manifest_hash IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM apify_actor_discovery_run_revisions AS association
+                      JOIN apify_actor_discovery_runs AS source_run
+                        ON source_run.workspace_id = association.workspace_id
+                       AND source_run.run_id = association.run_id
+                      WHERE association.workspace_id = revision.workspace_id
+                        AND association.revision_id = revision.revision_id
+                        AND source_run.route_id = ?
+                  )
+                ORDER BY already_validated DESC, in_current_run DESC,
+                         revision.created_at DESC, revision.revision_id DESC
+                """,
+                (
+                    route_id,
+                    str(latest["run_id"]),
+                    self.workspace_id,
+                    str(route["route_key"]),
+                    route_id,
+                ),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
             SELECT candidate.id AS candidate_id, candidate.display_name,
                    candidate.state AS candidate_state,
                    candidate.last_error_code AS candidate_error_code,
@@ -3270,13 +3346,15 @@ class ApifyActorOpsService:
                 str(latest["run_id"]),
                 str(route["route_key"]),
             ),
-        ).fetchall()
+            ).fetchall()
         candidates: list[dict[str, Any]] = []
         seen_candidates: set[str] = set()
         seen_actors: set[str] = set()
         for row in rows:
             candidate_id = str(row["candidate_id"])
             actor_id = str(row["actor_id"])
+            if goal == "upgrade_legacy" and actor_id not in active_actor_ids:
+                continue
             if candidate_id in seen_candidates or actor_id in seen_actors:
                 continue
             seen_candidates.add(candidate_id)
@@ -3306,6 +3384,14 @@ class ApifyActorOpsService:
                 unavailable_reason = "candidate_exact_build_missing"
             elif bool(row["validation_in_flight"]):
                 unavailable_reason = "candidate_validation_in_progress"
+            elif (
+                goal == "upgrade_legacy"
+                and _pricing_exceeds_usd_cap(
+                    _safe_json(row["pricing_json"], {}),
+                    VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                )
+            ):
+                unavailable_reason = "actor_price_above_route_cap"
             else:
                 unavailable_reason = self._revision_canary_block_reason(
                     connection,
@@ -3332,10 +3418,15 @@ class ApifyActorOpsService:
                 """,
                 (self.workspace_id, route_id, str(row["revision_id"])),
             ).fetchone()
-            timeout_seconds = int(
+            failure_timeout_seconds = int(
                 latest_failure["validation_timeout_seconds"]
                 if latest_failure is not None
                 else VALIDATION_TIMEOUT_SECONDS_DEFAULT
+            )
+            timeout_seconds = (
+                VALIDATION_TIMEOUT_SECONDS_DEFAULT
+                if goal == "upgrade_legacy"
+                else failure_timeout_seconds
             )
             sample_items = int(
                 latest_failure["validation_sample_items"]
@@ -3351,16 +3442,59 @@ class ApifyActorOpsService:
                     float(route["per_run_cap_usd"]),
                 )
             )
+            if goal == "upgrade_legacy":
+                max_charge_usd = min(
+                    max_charge_usd,
+                    VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                    float(route["per_run_cap_usd"]),
+                )
             current_profile_hash = validation_profile_hash(
                 timeout_seconds=timeout_seconds,
                 sample_items=sample_items,
                 max_charge_usd=max_charge_usd,
             )
             failure_summary = None
+            allowed_sample_items = (
+                [1, 3]
+                if goal == "upgrade_legacy" and supports_sample_items
+                else [1, 3, 5]
+                if supports_sample_items
+                else [1]
+            )
+            validation_charge_limit = (
+                min(
+                    max_charge_usd,
+                    VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                    float(route["per_run_cap_usd"]),
+                )
+                if goal == "upgrade_legacy"
+                else VALIDATION_MAX_CHARGE_USD_LIMIT
+            )
             if latest_failure is not None:
                 code = str(latest_failure["semantic_outcome"] or "")
                 if not _SAFE_ACTOROPS_ERROR_CODE_RE.fullmatch(code):
                     code = "apify_actor_validation_failed"
+                if (
+                    goal == "upgrade_legacy"
+                    and not bool(row["already_validated"])
+                ):
+                    if code in {
+                        "suspicious_empty",
+                        "apify_actor_suspicious_empty",
+                    }:
+                        allowed_sample_items = (
+                            [1, 3]
+                            if supports_sample_items and sample_items < 3
+                            else [sample_items]
+                        )
+                        if sample_items >= 3 or not supports_sample_items:
+                            unavailable_reason = (
+                                "actor_validation_sample_limit_reached"
+                            )
+                    else:
+                        unavailable_reason = (
+                            "actor_validation_retry_not_permitted"
+                        )
                 failure_summary = {
                     "code": code,
                     "duration_seconds": (
@@ -3384,7 +3518,7 @@ class ApifyActorOpsService:
                         else None
                     ),
                     "cost_final": bool(latest_failure["cost_final"]),
-                    "timeout_seconds": timeout_seconds,
+                    "timeout_seconds": failure_timeout_seconds,
                     "sample_items": sample_items,
                     "max_charge_usd": round(max_charge_usd, 6),
                     "profile_hash": current_profile_hash,
@@ -3401,17 +3535,24 @@ class ApifyActorOpsService:
                     ),
                     "publisher": str(row["publisher"]),
                     "pricing": _safe_json(row["pricing_json"], {}),
-                    "max_validation_charge_usd": VALIDATION_MAX_CHARGE_USD_LIMIT,
+                    "max_validation_charge_usd": round(
+                        validation_charge_limit,
+                        6,
+                    ),
                     "validation_options": {
                         "timeout_seconds": timeout_seconds,
                         "timeout_min_seconds": VALIDATION_TIMEOUT_SECONDS_MIN,
                         "timeout_max_seconds": VALIDATION_TIMEOUT_SECONDS_MAX,
                         "sample_items": sample_items,
-                        "allowed_sample_items": (
-                            [1, 3, 5] if supports_sample_items else [1]
+                        "allowed_sample_items": allowed_sample_items,
+                        "max_charge_usd": round(
+                            max_charge_usd,
+                            6,
                         ),
-                        "max_charge_usd": round(max_charge_usd, 6),
-                        "max_charge_limit_usd": VALIDATION_MAX_CHARGE_USD_LIMIT,
+                        "max_charge_limit_usd": round(
+                            validation_charge_limit,
+                            6,
+                        ),
                         "supports_sample_items": supports_sample_items,
                         "options_hash": _validation_options_hash(
                             route_id=route_id,
@@ -3460,7 +3601,10 @@ class ApifyActorOpsService:
                         "publisher": str(row["publisher"]),
                         "pricing": _safe_json(row["pricing_json"], {}),
                         "max_validation_charge_usd": (
-                            VALIDATION_MAX_CHARGE_USD_LIMIT
+                            min(
+                                VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                                float(route["per_run_cap_usd"]),
+                            )
                         ),
                         "validation_options": None,
                         "last_failure": None,
@@ -3644,13 +3788,22 @@ class ApifyActorOpsService:
             int(target_slot_count)
             if target_slot_count is not None
             else 3
-            if goal == "complete_third"
+            if goal in {"complete_third", "upgrade_legacy"}
             else 2
         )
         if resolved_target_slot_count not in {2, 3}:
             raise ActorOpsError(
                 "apify_actor_pool_target_count_invalid",
                 "Actor pool target slot count must be two or three",
+                status_code=422,
+            )
+        if (
+            goal in {"complete_third", "upgrade_legacy"}
+            and resolved_target_slot_count != 3
+        ):
+            raise ActorOpsError(
+                "apify_actor_pool_target_count_invalid",
+                "This Actor pool workflow requires all three slots",
                 status_code=422,
             )
         if manual_selection:
@@ -3693,16 +3846,16 @@ class ApifyActorOpsService:
             required_successes = 1
             required_source_slots = 3
         elif goal == "upgrade_legacy":
-            if len(populated) < 2 or not any(
+            if len(populated) != 3 or not all(
                 str(row["lifecycle"]) == "legacy_builtin" for row in populated
             ):
                 raise ActorOpsError(
                     "apify_actor_pool_stage_precondition_incomplete",
-                    "Legacy upgrade requires an active compatibility pool",
+                    "Legacy upgrade requires the existing three-Actor compatibility pool",
                     status_code=412,
                 )
-            required_successes = 3 if manual_selection else 2
-            required_source_slots = resolved_target_slot_count
+            required_successes = 3
+            required_source_slots = 3
         else:
             if len(populated) >= 2:
                 raise ActorOpsError(
@@ -3799,14 +3952,18 @@ class ApifyActorOpsService:
         if manual_selection:
             latest_by_candidate: dict[str, sqlite3.Row] = {}
             for row in candidates:
-                if not bool(row["in_current_run"]):
+                if goal != "upgrade_legacy" and not bool(row["in_current_run"]):
                     continue
                 candidate_id = str(row["candidate_id"])
                 previous = latest_by_candidate.get(candidate_id)
                 if previous is None or (
+                    int(bool(row["already_validated"])),
+                    int(bool(row["in_current_run"])),
                     str(row["created_at"]),
                     str(row["revision_id"]),
                 ) > (
+                    int(bool(previous["already_validated"])),
+                    int(bool(previous["in_current_run"])),
                     str(previous["created_at"]),
                     str(previous["revision_id"]),
                 ):
@@ -3827,7 +3984,17 @@ class ApifyActorOpsService:
             seen_actors.difference_update(upgradeable_legacy_actor_ids)
         for row in candidate_rows:
             actor_id = str(row["actor_id"])
+            if goal == "upgrade_legacy" and actor_id not in active_actor_ids:
+                continue
             if actor_id in seen_actors or str(row["revision_id"]) in active_revision_ids:
+                continue
+            if (
+                goal == "upgrade_legacy"
+                and _pricing_exceeds_usd_cap(
+                    _safe_json(row["pricing_json"], {}),
+                    VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                )
+            ):
                 continue
             if self._revision_canary_block_reason(
                 connection,
@@ -3866,6 +4033,14 @@ class ApifyActorOpsService:
                     ),
                 )
             )
+            if goal == "upgrade_legacy" and {
+                str(row["actor_id"]) for row in selected
+            } != active_actor_ids:
+                raise ActorOpsError(
+                    "apify_actor_legacy_upgrade_actor_set_incomplete",
+                    "Legacy upgrade must keep the existing three Actors",
+                    status_code=422,
+                )
             selected_publishers = {
                 str(row["publisher"]).casefold() for row in selected
             }
@@ -3957,6 +4132,10 @@ class ApifyActorOpsService:
                 )
 
         resolved_profiles: dict[str, dict[str, Any]] = {}
+        legacy_upgrade_charge_limit = min(
+            VALIDATION_MAX_CHARGE_USD_DEFAULT,
+            float(run["per_run_cap_usd"]),
+        )
         for row in selected:
             candidate_id = str(row["candidate_id"])
             supports_sample_items = _manifest_supports_sample_items(
@@ -3990,11 +4169,23 @@ class ApifyActorOpsService:
                 or isinstance(requested.get("sample_items"), bool)
                 or timeout_seconds < VALIDATION_TIMEOUT_SECONDS_MIN
                 or timeout_seconds > VALIDATION_TIMEOUT_SECONDS_MAX
+                or (
+                    goal == "upgrade_legacy"
+                    and timeout_seconds != VALIDATION_TIMEOUT_SECONDS_DEFAULT
+                )
                 or sample_items not in VALIDATION_SAMPLE_ITEMS_ALLOWED
+                or (
+                    goal == "upgrade_legacy"
+                    and sample_items not in {1, 3}
+                )
                 or (sample_items != 1 and not supports_sample_items)
                 or not math.isfinite(max_charge)
                 or max_charge <= 0
                 or max_charge > VALIDATION_MAX_CHARGE_USD_LIMIT + 1e-9
+                or (
+                    goal == "upgrade_legacy"
+                    and max_charge > legacy_upgrade_charge_limit + 1e-9
+                )
             ):
                 raise ActorOpsError(
                     "apify_actor_validation_profile_invalid",
@@ -4115,7 +4306,15 @@ class ApifyActorOpsService:
                     status_code=409,
                 )
             meaningful = True
-            if semantic in {
+            if goal == "upgrade_legacy":
+                meaningful = (
+                    semantic
+                    in {"suspicious_empty", "apify_actor_suspicious_empty"}
+                    and bool(profile["supports_sample_items"])
+                    and int(previous["validation_sample_items"] or 1) < 3
+                    and int(profile["sample_items"]) == 3
+                )
+            elif semantic in {
                 "apify_actor_run_timed_out",
                 "apify_actor_canary_timeout",
             }:
@@ -4190,6 +4389,8 @@ class ApifyActorOpsService:
                 [*base_revision_ids, revision_id]
                 for revision_id in staged_revision_ids
             ]
+        elif goal == "upgrade_legacy":
+            possible_target_sets = [staged_revision_ids]
         elif manual_selection:
             possible_target_sets = [staged_revision_ids]
         else:
@@ -10976,6 +11177,28 @@ def _bounded_safe_json(value: Mapping[str, Any], *, max_bytes: int) -> str:
             status_code=422,
         )
     return encoded
+
+
+def _pricing_exceeds_usd_cap(value: Any, cap_usd: float) -> bool:
+    """Fail closed when immutable pricing contains an unsafe USD scalar."""
+
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if isinstance(child, (Mapping, list, tuple)):
+                if _pricing_exceeds_usd_cap(child, cap_usd):
+                    return True
+                continue
+            if not str(key).casefold().endswith("usd") or child is None:
+                continue
+            if isinstance(child, bool) or not isinstance(child, (int, float)):
+                return True
+            numeric = float(child)
+            if not math.isfinite(numeric) or numeric < 0 or numeric > cap_usd:
+                return True
+        return False
+    if isinstance(value, (list, tuple)):
+        return any(_pricing_exceeds_usd_cap(child, cap_usd) for child in value)
+    return False
 
 
 def _safe_json(value: Any, fallback: T) -> Any | T:

@@ -65,13 +65,15 @@ export function effectiveSubscriptionChannel(subscription: Subscription, source:
 
 const sourceTypeLabels: Record<string, string> = {
   rss: 'RSS / Atom',
+  x_profile: 'X 账号',
+  instagram_profile: 'Instagram 账号',
   youtube_channel: 'YouTube 频道',
   github_release: 'GitHub 发布',
   github_user: 'GitHub 动态',
   reddit_subreddit: 'Reddit 社区',
   reddit_user: 'Reddit 用户',
   telegram_channel: 'Telegram 频道',
-  apify_social: '社交平台',
+  apify_social: '旧社交来源',
   hackernews: 'Hacker News',
 }
 
@@ -266,10 +268,11 @@ export function sourceMutationPayload({ source, allowSecret, metadata, config }:
   source?: CatalogSource
   allowSecret: boolean
   metadata: Record<string, unknown>
-  config: Record<string, unknown>
+  config?: Record<string, unknown>
 }): Record<string, unknown> {
   const keys = ['display_name', 'description', 'default_channel', 'default_topics', 'enabled'] as const
-  const payload: Record<string, unknown> = { config }
+  const payload: Record<string, unknown> = {}
+  if (config !== undefined) payload.config = config
   for (const key of keys) if (metadata[key] !== undefined) payload[key] = metadata[key]
   if (!source) {
     payload.type = metadata.type

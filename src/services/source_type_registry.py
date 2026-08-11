@@ -11,7 +11,7 @@ import ipaddress
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 
 from ..rsshub import (
@@ -55,6 +55,15 @@ _OPAQUE_CATALOG_PUBLIC_TARGET = "web_setup_required"
 _SUPPORTED_REDDIT_SORTS = {"hot", "new", "top", "rising", "controversial"}
 _SUPPORTED_REDDIT_TIME_FILTERS = {"hour", "day", "week", "month", "year", "all"}
 YOUTUBE_CHANNEL_SETUP_TYPE = "youtube_channel"
+X_PROFILE_SETUP_TYPE = "x_profile"
+INSTAGRAM_PROFILE_SETUP_TYPE = "instagram_profile"
+PLATFORM_PROFILE_SETUP_TYPES = frozenset(
+    {X_PROFILE_SETUP_TYPE, INSTAGRAM_PROFILE_SETUP_TYPE}
+)
+_PROFILE_SETUP_PLATFORMS = {
+    X_PROFILE_SETUP_TYPE: "x",
+    INSTAGRAM_PROFILE_SETUP_TYPE: "instagram",
+}
 _APIFY_KINDS = {
     "x": {"profile", "keyword"},
     "instagram": {"profile", "hashtag"},
@@ -563,6 +572,81 @@ _YOUTUBE_CHANNEL_SETUP_DEFINITION = SourceTypeDefinition(
             "boolean",
             default=True,
             help="时间窗口为空时仅保留频道最近一条公开视频。",
+        ),
+    ),
+)
+
+_PLATFORM_PROFILE_SETUP_DEFINITIONS = (
+    SourceTypeDefinition(
+        type=X_PROFILE_SETUP_TYPE,
+        label="X 账号",
+        description="Public posts from one X account.",
+        required_fields=("target",),
+        template={"target": "openai", "fetch_limit": 20},
+        fields=(
+            _field(
+                "target",
+                "X 用户名或主页链接",
+                "text",
+                required=True,
+                help="输入公开 X 用户名、@handle 或主页链接。",
+            ),
+            _field(
+                "fetch_limit",
+                "每次获取条数",
+                "number",
+                default=20,
+                minimum=1,
+                maximum=100,
+                help="每次最多获取的公开动态数量。",
+            ),
+            _field(
+                "analysis_mode",
+                "分析模式",
+                "select",
+                default="full",
+                options=(
+                    {"value": "full", "label": "完整分析"},
+                    {"value": "personal_only", "label": "仅收集"},
+                ),
+                help="选择完整分析或仅收集到个人信息流。",
+            ),
+        ),
+    ),
+    SourceTypeDefinition(
+        type=INSTAGRAM_PROFILE_SETUP_TYPE,
+        label="Instagram 账号",
+        description="Public posts from one Instagram account.",
+        required_fields=("target",),
+        template={"target": "instagram", "fetch_limit": 20},
+        fields=(
+            _field(
+                "target",
+                "Instagram 用户名或主页链接",
+                "text",
+                required=True,
+                help="输入公开 Instagram 用户名、@handle 或主页链接。",
+            ),
+            _field(
+                "fetch_limit",
+                "每次获取条数",
+                "number",
+                default=20,
+                minimum=1,
+                maximum=100,
+                help="每次最多获取的公开内容数量。",
+            ),
+            _field(
+                "analysis_mode",
+                "分析模式",
+                "select",
+                default="full",
+                options=(
+                    {"value": "full", "label": "完整分析"},
+                    {"value": "personal_only", "label": "仅收集"},
+                ),
+                help="选择完整分析或仅收集到个人信息流。",
+            ),
         ),
     ),
 )
@@ -1117,18 +1201,50 @@ def list_source_types() -> list[dict[str, Any]]:
     return definitions
 
 
-def list_source_setup_types() -> list[dict[str, Any]]:
+def list_source_setup_types(
+    *,
+    availability: Mapping[str, tuple[str, str | None]] | None = None,
+) -> list[dict[str, Any]]:
     """Return Web setup choices while preserving catalog storage types."""
 
-    definitions = []
-    for definition in list_source_types():
+    statuses = availability or {}
+    definitions: list[dict[str, Any]] = []
+
+    def append(
+        definition: dict[str, Any],
+        catalog_source_type: str,
+        *,
+        expose_catalog_type: bool = True,
+    ) -> None:
         item = dict(definition)
-        item["catalog_source_type"] = item["type"]
+        if expose_catalog_type:
+            item["catalog_source_type"] = catalog_source_type
+        status, reason = statuses.get(item["type"], ("ready", None))
+        if status not in {"ready", "temporarily_unavailable"}:
+            raise ValueError("invalid source setup availability")
+        if reason not in {
+            None,
+            "platform_setup_pending",
+            "workspace_credential_unavailable",
+        }:
+            raise ValueError("invalid source setup unavailable reason")
+        item["availability"] = status
+        item["unavailable_reason"] = reason
         definitions.append(item)
-        if item["type"] == "rss":
+
+    for definition in list_source_types():
+        if definition["type"] == "apify_social":
+            for platform_definition in _PLATFORM_PROFILE_SETUP_DEFINITIONS:
+                append(
+                    platform_definition.as_dict(),
+                    "apify_social",
+                    expose_catalog_type=False,
+                )
+            continue
+        append(definition, str(definition["type"]))
+        if definition["type"] == "rss":
             youtube = _YOUTUBE_CHANNEL_SETUP_DEFINITION.as_dict()
-            youtube["catalog_source_type"] = "rss"
-            definitions.append(youtube)
+            append(youtube, "rss")
     return definitions
 
 
@@ -1540,7 +1656,89 @@ def catalog_source_setup_type(source_type: str, config: Any) -> str:
     normalized_type = str(source_type or "")
     if normalized_type == "rss" and is_youtube_channel_config(config):
         return YOUTUBE_CHANNEL_SETUP_TYPE
+    if normalized_type == "apify_social" and isinstance(config, dict):
+        profile_id = str(config.get("profile_id") or "").strip()
+        platform = str(config.get("platform") or "").strip().casefold()
+        kind = str(config.get("kind") or "").strip().casefold()
+        if profile_id == "x/profile/items" or (
+            platform == "x" and kind == "profile"
+        ):
+            return X_PROFILE_SETUP_TYPE
+        if profile_id == "instagram/profile/items" or (
+            platform == "instagram" and kind == "profile"
+        ):
+            return INSTAGRAM_PROFILE_SETUP_TYPE
     return normalized_type
+
+
+def platform_for_profile_setup_type(source_type: str) -> str | None:
+    """Return the fixed platform behind one safe Web profile alias."""
+
+    return _PROFILE_SETUP_PLATFORMS.get(str(source_type or "").strip())
+
+
+def normalize_platform_profile_setup_config(
+    source_type: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize a platform-first Web form into legacy-compatible storage input.
+
+    Actor, Route and platform implementation fields are deliberately rejected
+    here.  The API resolves the fixed platform to a ready Route after this
+    registry-owned validation step.
+    """
+
+    platform = platform_for_profile_setup_type(source_type)
+    if platform is None:
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    if not isinstance(config, dict):
+        raise SourceConfigError("config must be an object")
+    allowed = {"target", "fetch_limit", "analysis_mode"}
+    unknown = set(config) - allowed
+    if unknown:
+        raise SourceConfigError(
+            "unsupported fields: " + ", ".join(sorted(unknown))
+        )
+    if _contains_secret_shape(config):
+        raise SourceConfigError(_CREDENTIAL_ERROR)
+    return validate_source_config(
+        "apify_social",
+        {
+            **config,
+            "platform": platform,
+            "kind": "profile",
+        },
+    )
+
+
+def project_catalog_source_config_for_web(
+    source_type: str,
+    config: Any,
+    *,
+    setup_type: str | None = None,
+) -> dict[str, Any]:
+    """Hide provider-owned config fields from ordinary catalog responses."""
+
+    if not isinstance(config, dict):
+        return {}
+    effective_setup_type = setup_type or catalog_source_setup_type(
+        source_type,
+        config,
+    )
+    if (
+        effective_setup_type not in PLATFORM_PROFILE_SETUP_TYPES
+        and str(source_type or "") != "apify_social"
+    ):
+        return dict(config)
+    try:
+        normalized = validate_source_config(source_type, config)
+    except SourceConfigError:
+        normalized = dict(config)
+    return {
+        key: normalized[key]
+        for key in ("target", "fetch_limit", "analysis_mode")
+        if key in normalized
+    }
 
 
 def _normalize_agent_aliases(source_type: str, config: dict[str, Any]) -> dict[str, Any]:

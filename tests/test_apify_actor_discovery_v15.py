@@ -316,6 +316,73 @@ class _Metadata:
         return True
 
 
+class _ManySafeMetadata:
+    def __init__(
+        self,
+        count: int = 30,
+        *,
+        minimum_charges: dict[str, float] | None = None,
+    ) -> None:
+        self.count = count
+        self.minimum_charges = minimum_charges or {}
+
+    async def search_store(self, _query: str):
+        return [
+            {"actorId": f"publisher-{index % 3}/safe-{index:02d}"}
+            for index in range(self.count)
+        ]
+
+    async def get_actor(self, actor_id: str):
+        index = int(actor_id.rsplit("-", 1)[1])
+        return {
+            "id": f"safeopaqueactor{index:02d}",
+            "isPublic": True,
+            "isRunnable": True,
+            "isDeprecated": False,
+            "actorPermissionLevel": "LIMITED_PERMISSIONS",
+            "username": actor_id.split("/", 1)[0],
+            "name": actor_id.split("/", 1)[1],
+            "taggedBuilds": {
+                "latest": {
+                    "buildId": f"safe-build-{index}",
+                    "buildNumber": f"2.0.{index}",
+                }
+            },
+            "pricingInfos": [{
+                "startedAt": "2020-01-01T00:00:00Z",
+                "pricingModel": "PAY_PER_EVENT",
+                "minimalMaxTotalChargeUsd": self.minimum_charges.get(
+                    actor_id,
+                    0.01,
+                ),
+                "pricingPerEvent": {
+                    "actorChargeEvents": {
+                        "item": {"eventPriceUsd": 0.001},
+                    }
+                },
+            }],
+        }
+
+    async def get_build(self, build_id: str):
+        index = int(build_id.rsplit("-", 1)[1])
+        return {
+            "status": "SUCCEEDED",
+            "buildNumber": f"2.0.{index}",
+            "inputSchema": json.dumps(INPUT_SCHEMA),
+            "actorDefinition": {
+                "storages": {
+                    "dataset": {
+                        "actorSpecification": 1,
+                        "fields": OUTPUT_SCHEMA,
+                    }
+                }
+            },
+        }
+
+    async def validate_input(self, _actor_id, _build_number, _actor_input):
+        return True
+
+
 def _ops(tmp_path):
     store = ServiceStore(tmp_path)
     store.initialize()
@@ -848,6 +915,8 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     assert all(payload["maxItems"] == 1 for _, _, payload in metadata.validations)
     serialized_prompt = json.dumps(prompt_seen)
     assert "README" not in serialized_prompt
+
+
     assert "malicious" not in serialized_prompt
     assert "private.example" not in serialized_prompt
     first_summary = prompt_seen["candidates"][0]
@@ -904,6 +973,129 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
         .fetchone()[0]
         == 0
     )
+
+
+def test_legacy_override_expands_recall_to_thirty_without_changing_default(
+    tmp_path,
+) -> None:
+    _store, ops, first_run = _ops(tmp_path)
+    metadata = _ManySafeMetadata()
+    prompt_candidate_counts: list[int] = []
+
+    async def ai_generate(prompt):
+        prompt_candidate_counts.append(len(prompt["candidates"]))
+        by_publisher: dict[str, list[dict]] = {}
+        for candidate in prompt["candidates"]:
+            by_publisher.setdefault(candidate["publisher"], []).append(candidate)
+        selected = [
+            candidate
+            for publisher in sorted(by_publisher)
+            for candidate in by_publisher[publisher][:2]
+        ]
+        return {
+            "proposals": [
+                {
+                    "actor_id": candidate["actor_id"],
+                    "build_id": candidate["build_id"],
+                    "build_number": candidate["build_number"],
+                    "manifest": _manifest(
+                        candidate["actor_id"],
+                        candidate["build_number"],
+                    ),
+                }
+                for candidate in selected
+            ]
+        }
+
+    service = ApifyActorDiscoveryService(ops, metadata, ai_generate)
+    first = asyncio.run(
+        service.run_discovery(first_run["run_id"], queries=["youtube videos"])
+    )
+    assert first.stage == "awaiting_canary_approval"
+    assert ops.get_discovery_settings()["max_candidates"] == 12
+    assert prompt_candidate_counts == [12]
+
+    route = ops.get_route(str(first_run["route_id"]))
+    second_run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="legacy-expanded-recall-test",
+        expected_generation=int(route["generation"]),
+    )
+    second = asyncio.run(
+        service.run_discovery(
+            second_run["run_id"],
+            queries=["youtube videos"],
+            candidate_limit=30,
+        )
+    )
+    assert second.stage == "awaiting_canary_approval"
+    assert prompt_candidate_counts == [12, 30]
+
+    third_run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="invalid-expanded-recall-test",
+        expected_generation=int(route["generation"]),
+    )
+    with pytest.raises(ActorDiscoveryError) as invalid:
+        asyncio.run(
+            service.run_discovery(
+                third_run["run_id"],
+                queries=["youtube videos"],
+                candidate_limit=31,
+            )
+        )
+    assert invalid.value.code == "apify_actor_discovery_candidate_limit_invalid"
+
+
+def test_legacy_direct_lookup_keeps_the_fixed_two_cent_price_gate(
+    tmp_path,
+) -> None:
+    store, ops, run = _ops(tmp_path)
+    route_id = str(run["route_id"])
+    store.connect().execute(
+        """
+        UPDATE apify_actor_route_profiles
+        SET per_run_cap_usd = 0.10
+        WHERE workspace_id = ? AND route_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, route_id),
+    )
+    store.connect().commit()
+    expensive_current = "publisher-0/safe-00"
+    metadata = _ManySafeMetadata(
+        count=4,
+        minimum_charges={expensive_current: 0.03},
+    )
+
+    async def ai_generate(prompt):
+        return {
+            "proposals": [
+                {
+                    "actor_id": candidate["actor_id"],
+                    "build_id": candidate["build_id"],
+                    "build_number": candidate["build_number"],
+                    "manifest": _manifest(
+                        candidate["actor_id"],
+                        candidate["build_number"],
+                    ),
+                }
+                for candidate in prompt["candidates"]
+            ]
+        }
+
+    outcome = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, ai_generate).run_discovery(
+            str(run["run_id"]),
+            queries=["youtube videos"],
+            preferred_actor_ids=[expensive_current],
+            candidate_limit=30,
+        )
+    )
+
+    assert outcome.stage == "awaiting_canary_approval"
+    assert {
+        (item["actor_id"], item["reason"]) for item in outcome.rejected
+    } >= {(expensive_current, "actor_price_above_route_cap")}
 
 
 def test_discovery_prefers_existing_legacy_actor_even_when_store_search_omits_it(

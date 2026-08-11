@@ -40,6 +40,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 MAX_DISCOVERY_QUERIES = 3
 MAX_STORE_RESULTS_PER_QUERY = 20
+MAX_DISCOVERY_CANDIDATES = 30
+LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT = 30
+LEGACY_UPGRADE_PRICE_CAP_USD = 0.02
 MIN_AI_PROPOSALS = 3
 MAX_AI_PROPOSALS = 6
 MAX_METADATA_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -389,6 +392,7 @@ class ApifyActorDiscoveryService:
         *,
         queries: Sequence[str],
         preferred_actor_ids: Sequence[str] = (),
+        candidate_limit: int | None = None,
     ) -> DiscoveryOutcome:
         run = self.ops.get_discovery_run(run_id)
         if run["stage"] != "queued":
@@ -397,6 +401,18 @@ class ApifyActorDiscoveryService:
                 "Actor discovery run is not queued",
             )
         settings = self.ops.get_discovery_settings()
+        effective_candidate_limit = int(settings["max_candidates"])
+        if candidate_limit is not None:
+            if (
+                isinstance(candidate_limit, bool)
+                or not 3 <= int(candidate_limit) <= MAX_DISCOVERY_CANDIDATES
+            ):
+                raise ActorDiscoveryError(
+                    "apify_actor_discovery_candidate_limit_invalid",
+                    "Actor discovery candidate limit must be between 3 and 30",
+                    status_code=422,
+                )
+            effective_candidate_limit = int(candidate_limit)
         if not settings["enabled"]:
             self.ops.update_discovery_run(
                 run_id,
@@ -461,11 +477,19 @@ class ApifyActorDiscoveryService:
         )
         accepted: list[DiscoveryCandidate] = []
         rejected: list[dict[str, str]] = []
+        discovery_price_cap_usd = (
+            min(
+                float(route["per_run_cap_usd"]),
+                LEGACY_UPGRADE_PRICE_CAP_USD,
+            )
+            if preferred
+            else float(route["per_run_cap_usd"])
+        )
         for actor_id in sorted(store_hits):
             try:
                 candidate = await self._load_candidate(
                     actor_id,
-                    per_run_cap_usd=float(route["per_run_cap_usd"]),
+                    per_run_cap_usd=discovery_price_cap_usd,
                     platform=str(route["platform"]),
                     target_type=str(route["target_type"]),
                     capability=str(route["capability"]),
@@ -487,7 +511,7 @@ class ApifyActorDiscoveryService:
                 candidate.actor_id,
             )
         )
-        accepted = accepted[: int(settings["max_candidates"])]
+        accepted = accepted[:effective_candidate_limit]
         if len(accepted) < 3 or len({row.publisher for row in accepted}) < 2:
             self.ops.update_discovery_run(
                 run_id,
@@ -602,7 +626,7 @@ class ApifyActorDiscoveryService:
                 },
                 "notes": [
                     "Return exactly target_proposals distinct Actors.",
-                    "Include preferred_actor_ids before replacement candidates when they satisfy every contract.",
+                    "Include every preferred_actor_id that satisfies every contract; never replace a valid preferred Actor in an upgrade.",
                     "Use at least two distinct candidate publishers across the proposals.",
                     "Rank proposals best-first so later entries can replace an invalid earlier entry.",
                     "Replace candidate placeholders with fetched schema paths only.",
