@@ -788,6 +788,47 @@ describe('App routes', () => {
     }
   })
 
+  it('applies a source today quick-query deep link before rendering the Feed', async () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-live', JSON.stringify({
+      unreadFirst: true,
+      source: 'previous-source',
+      channel: '旧频道',
+      topic: '旧主题',
+      dateScope: 'all',
+      subscriptionScope: 'private',
+    }))
+    const api = liveApi({ latestFeed: vi.fn().mockResolvedValue({
+      schema_version: 2,
+      items: [
+        { ...basicFeedItem('quick-today', '快捷查询的今日内容'), source: '快捷来源', source_id: 'quick-source', timeline_bucket: 'today' },
+        { ...basicFeedItem('quick-window', '快捷来源的近7天内容'), source: '快捷来源', source_id: 'quick-source', timeline_bucket: 'feed' },
+        { ...basicFeedItem('other-today', '其他来源的今日内容'), source: '其他来源', source_id: 'other-source', timeline_bucket: 'today' },
+      ],
+    }) })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?source_id=quick-source&date_scope=today']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('article', { name: '快捷查询的今日内容' })).toBeInTheDocument()
+      expect(screen.queryByRole('article', { name: '快捷来源的近7天内容' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('article', { name: '其他来源的今日内容' })).not.toBeInTheDocument()
+      expect(screen.getByText('来源：快捷来源')).toBeInTheDocument()
+      expect(screen.getByText('仅今天')).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByRole('status', { name: '当前位置' })).toHaveTextContent('/feed'))
+      expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:user-live') || '{}')).toMatchObject({
+        unreadFirst: false,
+        source: 'quick-source',
+        channel: '',
+        topic: '',
+        dateScope: 'today',
+        subscriptionScope: 'all',
+      })
+    } finally {
+      window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
+    }
+  })
+
   it('renders the subscriptions route in the HeroUI shell with an available Agent panel', async () => {
     const source = {
       id: 'source-live', type: 'rss', display_name: '覆盖频道来源', scope: 'private' as const,

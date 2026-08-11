@@ -32,6 +32,7 @@ import {
   FEED_PREFERENCE_CHANGED_EVENT,
   readFeedPreference,
   writeFeedPreference,
+  type FeedDateScope,
   type FeedPreference,
 } from '../feed/feedPreference'
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
@@ -85,14 +86,30 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const [sourceOverviewExpandedSourceId, setSourceOverviewExpandedSourceId] = useState<string | null>(null)
   const [sourceSummaryStates, setSourceSummaryStates] = useState<Record<string, SourceSummaryViewState | undefined>>({})
   const sourceSummaryRequests = useRef(new Map<string, AbortController>())
+  const appliedQuickFeedQueryRef = useRef('')
   const [feedToolbarInset, setFeedToolbarInset] = useState(64)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
-  const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
+  const storedPreference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
+  const quickFeedSourceId = kind === 'feed' ? params.get('source_id')?.trim() || '' : ''
+  const quickFeedDateScope: FeedDateScope = params.get('date_scope') === 'today' ? 'today' : 'all'
+  const quickFeedPreference = useMemo<FeedPreference | null>(() => quickFeedSourceId
+    ? {
+        ...storedPreference,
+        unreadFirst: false,
+        source: quickFeedSourceId,
+        channel: '',
+        topic: '',
+        minScore: undefined,
+        dateScope: quickFeedDateScope,
+        subscriptionScope: 'all' as const,
+      }
+    : null, [quickFeedDateScope, quickFeedSourceId, storedPreference])
+  const preference = quickFeedPreference ?? storedPreference
   const storedViewMode = viewModeState.userId === user.id ? viewModeState.value : readFeedViewMode(user.id)
   const selectedId = params.get('item') ?? undefined
   const historySourceId = kind === 'history' ? params.get('source_id')?.trim() || '' : ''
-  const searchValue = kind === 'history' ? params.get('q') ?? '' : query
+  const searchValue = kind === 'history' ? params.get('q') ?? '' : quickFeedPreference ? '' : query
   const debouncedHistoryQuery = useDebouncedValue(searchValue.trim(), 300)
   const debouncedGlobalQuery = useDebouncedValue(searchValue.trim(), 300)
   const normalizedSearchValue = searchValue.trim()
@@ -270,6 +287,23 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     if (!params.has('mode')) return
     navigate({ pathname: location.pathname, search: cleanLegacyModeSearch(location.search) }, { replace: true })
   }, [location.pathname, location.search, navigate, params])
+
+  useEffect(() => {
+    if (!quickFeedPreference) {
+      appliedQuickFeedQueryRef.current = ''
+      return
+    }
+    const quickQueryKey = `${quickFeedSourceId}:${quickFeedDateScope}`
+    if (appliedQuickFeedQueryRef.current === quickQueryKey) return
+    appliedQuickFeedQueryRef.current = quickQueryKey
+    setPreferenceState({ userId: user.id, value: quickFeedPreference })
+    writeFeedPreference(user.id, quickFeedPreference)
+    setQuery('')
+    const next = new URLSearchParams(params)
+    next.delete('source_id')
+    next.delete('date_scope')
+    setParams(next, { replace: true })
+  }, [params, quickFeedDateScope, quickFeedPreference, quickFeedSourceId, setParams, setQuery, user.id])
 
   useEffect(() => {
     const syncPreference = (event: Event) => {

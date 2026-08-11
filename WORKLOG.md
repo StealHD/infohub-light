@@ -13,25 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-10",
-  "result": "为来源级 AI 总结增加最终同源内容回退：模型正文不可解析时返回明确标注的代表性标题速览，不再向用户暴露 502 错误；保持一次 AI 调用、字符预算、URL 移除与无原文日志。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-deterministic-fallback",
-  "unresolved": [],
-  "validation": [
-    "专题总结后端定向测试 7/7 通过，覆盖不可解析输出的代表性内容回退、一次调用和既有边界。",
-    "手册与更新日志前端测试 8/8 通过；完整 Test Gate 24/24 命令通过（385.941 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
   "result": "修复专题 AI 总结的确定性空响应：确认 DeepSeek 在 800 token 上限内将全部 completion 用于隐藏推理，专题调用改为 2048..4096 token 单次预算并记录安全完成指标；移除标题列表伪总结，升级 prompt 与浏览器缓存到 V2。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-reasoning-budget",
@@ -380,6 +361,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "版本变更 preflight 13/13 通过（287.965 秒），产品文档门禁、后端完整回归、前端检查、构建与控制检查全部通过。",
     "正式 release gate 及 main 与 v2.3.1 推送将在该提交上执行；用户明确不部署 VPS。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "为订阅来源卡的非零今日、近 N 天和历史统计补齐对应快捷查询：今日与近 N 天直达带来源及时间范围的 Feed，历史保留现有历史查询。",
+  "status": "completed",
+  "task_id": "2026-08-11-subscription-stats-quick-query",
+  "unresolved": [],
+  "validation": [
+    "订阅页、Feed 深链、手册和更新日志定向测试及 TypeScript/ESLint/UI 合同检查通过。",
+    "完整 Test Gate 15/15 命令通过（285 秒）。",
+    "./scripts/up-latest.sh 完成；API/Worker healthy、readiness 为 ready，8080 实际订阅页确认今日与近 7 天链接。"
   ]
 }
 ```

@@ -357,10 +357,24 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
             <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
             <dl data-source-counts className="flex min-w-0 items-center justify-end gap-2 text-muted">
               <div className="type-meta flex items-baseline gap-1 whitespace-nowrap">
-                <dt>今日</dt><dd className="type-label text-foreground">{health?.today_item_count ?? 0}</dd>
+                <dt>今日</dt>
+                <dd>{(health?.today_item_count ?? 0) > 0
+                  ? <Link
+                    to={`/feed?source_id=${encodeURIComponent(source.id)}&date_scope=today`}
+                    aria-label={`查看 ${source.display_name} 的 ${health?.today_item_count ?? 0} 条今日内容`}
+                    className="type-label rounded text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+                  >{health?.today_item_count ?? 0}</Link>
+                  : <span className="type-label text-foreground">0</span>}</dd>
               </div>
               <div className="type-meta flex items-baseline gap-1 whitespace-nowrap">
-                <dt>近{feedWindowDays}天</dt><dd className="type-label text-foreground">{health?.feed_item_count ?? health?.current_item_count ?? 0}</dd>
+                <dt>近{feedWindowDays}天</dt>
+                <dd>{(health?.feed_item_count ?? health?.current_item_count ?? 0) > 0
+                  ? <Link
+                    to={`/feed?source_id=${encodeURIComponent(source.id)}&date_scope=all`}
+                    aria-label={`查看 ${source.display_name} 的 ${health?.feed_item_count ?? health?.current_item_count ?? 0} 条近${feedWindowDays}天内容`}
+                    className="type-label rounded text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+                  >{health?.feed_item_count ?? health?.current_item_count ?? 0}</Link>
+                  : <span className="type-label text-foreground">0</span>}</dd>
               </div>
               <div className="type-meta flex items-baseline gap-1 whitespace-nowrap">
                 <dt>历史</dt>

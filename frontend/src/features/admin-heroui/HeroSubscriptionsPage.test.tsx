@@ -298,6 +298,14 @@ describe('subscription source card notifications', () => {
     expect(counts?.closest('[data-source-update-metadata]')).toBeNull()
     expect(screen.getByLabelText('最近更新 尚未完成，上次抓取 2 条')).toBeInTheDocument()
     expect(screen.queryByText('上次抓取 2 条')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看 通知来源 的 1 条今日内容' })).toHaveAttribute(
+      'href',
+      '/feed?source_id=source-1&date_scope=today',
+    )
+    expect(screen.getByRole('link', { name: '查看 通知来源 的 4 条近7天内容' })).toHaveAttribute(
+      'href',
+      '/feed?source_id=source-1&date_scope=all',
+    )
     expect(screen.getByRole('link', { name: '查看 通知来源 的 2 条历史内容' })).toHaveAttribute(
       'href',
       '/history?source_id=source-1',

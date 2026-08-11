@@ -1,4 +1,4 @@
-// Reviewed for the v2.3.1 release; no user-facing changelog entry is required.
+// User-facing changes are recorded in the version-controlled entries below.
 export type ChangelogItem = {
   title: string
   description: string
@@ -22,6 +22,15 @@ export const changelogMonths: ChangelogMonth[] = [
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [
+      {
+        date: '2026-08-11',
+        title: '订阅统计可以直接查询对应内容',
+        summary: '订阅卡右上角的今日、近 N 天和历史数量都会带你到该来源的对应结果，不必再手动设置来源筛选。',
+        items: [
+          { title: '今日与近 N 天直达信息流', description: '有内容时，点击今日会打开该来源的今日信息流，点击近 N 天会打开该来源当前 Feed 窗口内的内容；现有搜索和冲突筛选会被清除。' },
+          { title: '历史入口保持不变', description: '历史数量继续直达该来源的历史列表，结果页会显示可清除的来源条件。' },
+        ],
+      },
       {
         date: '2026-08-11',
         title: '旧 UI 与历史发布链路完成退役',
