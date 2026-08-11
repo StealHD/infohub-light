@@ -1,3 +1,4 @@
+// Reviewed for the v2.3.1 release; no user-facing changelog entry is required.
 export type ChangelogItem = {
   title: string
   description: string

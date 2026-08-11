@@ -7,21 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "修复来源级 AI 总结的偶发无效输出：本地提取完整 JSON 对象并将单条 highlights 标量规范化为数组，不增加第二次模型调用，也不记录模型正文。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-output-normalization",
-  "unresolved": [],
-  "validation": [
-    "专题总结定向后端测试 7/7 通过，覆盖 JSON 外包装、前置调试对象、Markdown 围栏与单条 highlights 标量；确认只调用一次 AI。",
-    "完整 Test Gate 24/24 命令通过（320.018 秒），后端、前端构建与控制检查全部绿色。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "decisions",
     "interface",
@@ -378,6 +363,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "./scripts/up-latest.sh 在 main Worktree 构建并仅重建 horizon-api 与 horizon-worker；运行前确认活跃 fetch job=0、Feed schedule=0、无新增数据库迁移且无 scheduler 容器。",
     "API 与 Worker 均为 healthy；/api/health/live 返回 revision=a878b715c2b1，/api/health/ready 返回 worker_status=ready；前端资源 index-CgdKDeP4.js 已服务。",
     "当前仅保留 inteliscope-service:local-a878b715c2b1；旧 local 镜像标签 2 个已删除。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "将本地 main 的项目版本升级为 v2.3.1；手册和更新日志完成发布审阅并保留无用户可见条目的记录。",
+  "status": "completed",
+  "task_id": "2026-08-11-release-v2.3.1-git-publish",
+  "unresolved": [],
+  "validation": [
+    "版本变更 preflight 13/13 通过（287.965 秒），产品文档门禁、后端完整回归、前端检查、构建与控制检查全部通过。",
+    "正式 release gate 及 main 与 v2.3.1 推送将在该提交上执行；用户明确不部署 VPS。"
   ]
 }
 ```

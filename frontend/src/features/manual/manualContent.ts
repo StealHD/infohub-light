@@ -1,3 +1,4 @@
+// Reviewed for the v2.3.1 release; no user-facing manual change is required.
 export type ManualStep = {
   title: string
   description: string
