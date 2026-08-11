@@ -414,6 +414,8 @@ describe('HeroAgentsPage delegation access', () => {
     const tokenCopy = within(tokenDialog).getByRole('button', { name: '复制令牌' })
     expect(tokenCopy.querySelector('svg')).not.toBeNull()
     expect(tokenCopy.textContent).toBe('')
+    expect(tokenCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
+    expect(within(tokenDialog).getByText('ih_mcp_v1_one_time_secret')).toHaveClass('pr-14', 'break-words', 'whitespace-normal')
     await browser.click(tokenCopy)
     expect(writeText).toHaveBeenLastCalledWith('ih_mcp_v1_one_time_secret')
 
@@ -423,6 +425,7 @@ describe('HeroAgentsPage delegation access', () => {
     const writeCommandCopy = within(tokenDialog).getByRole('button', { name: '复制本地令牌写入命令' })
     expect(writeCommandCopy.querySelector('svg')).not.toBeNull()
     expect(writeCommandCopy.textContent).toBe('')
+    expect(writeCommandCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
     await browser.click(writeCommandCopy)
     expect(writeText).toHaveBeenLastCalledWith(writeCommand)
 
@@ -430,6 +433,7 @@ describe('HeroAgentsPage delegation access', () => {
     const configurationCopy = within(tokenDialog).getByRole('button', { name: '复制 OpenClaw 配置命令' })
     expect(configurationCopy.querySelector('svg')).not.toBeNull()
     expect(configurationCopy.textContent).toBe('')
+    expect(configurationCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
     await browser.click(configurationCopy)
     expect(writeText).toHaveBeenLastCalledWith(configuration)
   })

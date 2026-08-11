@@ -41,6 +41,7 @@ import {
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 
 const TOKEN_REFERENCE = '${INTELISCOPE_MCP_TOKEN}'
+const oneTimeCopyIconClass = 'absolute right-2 top-2 z-10 size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11'
 export const READ_TOOL_FILTER = [
   'get_my_feed',
   'get_item',
@@ -131,6 +132,28 @@ function OpenClawConfigurationCard({
   </Card>
 }
 
+function OneTimeCopyAction({
+  label,
+  disabled = false,
+  onCopy,
+}: {
+  label: string
+  disabled?: boolean
+  onCopy: () => void
+}) {
+  return <Tooltip delay={250}>
+    <TooltipTriggerButton
+      aria-label={label}
+      className={oneTimeCopyIconClass}
+      disabled={disabled}
+      onClick={onCopy}
+    >
+      <Icons.Copy size={15} aria-hidden="true" />
+    </TooltipTriggerButton>
+    <Tooltip.Content {...topAnchoredTooltipProps}>{label}</Tooltip.Content>
+  </Tooltip>
+}
+
 function OneTimeSetupCommand({
   label,
   command,
@@ -147,17 +170,7 @@ function OneTimeSetupCommand({
   className?: string
 }) {
   return <div className={`relative min-w-0 ${className}`}>
-    <Tooltip delay={250}>
-      <TooltipTriggerButton
-        aria-label={copyLabel}
-        className="absolute right-2 top-2 z-10 size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
-        disabled={copyDisabled}
-        onClick={onCopy}
-      >
-        <Icons.Copy size={15} aria-hidden="true" />
-      </TooltipTriggerButton>
-      <Tooltip.Content {...topAnchoredTooltipProps}>{copyLabel}</Tooltip.Content>
-    </Tooltip>
+    <OneTimeCopyAction label={copyLabel} disabled={copyDisabled} onCopy={onCopy} />
     <pre
       aria-label={label}
       tabIndex={0}
@@ -641,7 +654,7 @@ export function HeroAgentsPage() {
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开一次性令牌</Modal.Trigger>
       <DialogFrame title="保存一次性 MCP token" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); actionToast.success('一次性令牌已从页面清除') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
-        <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeCredential?.token}</code><Tooltip delay={250}><TooltipTriggerButton aria-label="复制令牌" className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11" onClick={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}><Icons.Copy size={15} aria-hidden="true" /></TooltipTriggerButton><Tooltip.Content {...topAnchoredTooltipProps}>复制令牌</Tooltip.Content></Tooltip></div>
+        <div className="relative mt-4 min-w-0"><code className="block min-w-0 max-w-full whitespace-normal break-words rounded-lg bg-default p-3 pr-14 [overflow-wrap:anywhere]">{oneTimeCredential?.token}</code><OneTimeCopyAction label="复制令牌" onCopy={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')} /></div>
         <p className="type-meta mt-4 text-muted">复制写入命令后，在本机终端粘贴运行；它只更新 Inteliscope 令牌并保留环境文件里的其他内容。</p>
         <OneTimeSetupCommand
           label="本地令牌环境命令"

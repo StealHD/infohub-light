@@ -7,26 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-readable-budget",
-  "unresolved": [],
-  "validation": [
-    "真实 20 篇页面生成已确认 2048 token 预算成功：completion_tokens=1057、reasoning_tokens=886、content_tokens=171、finish_reason=stop。",
-    "可读预算后端 7/7、V3 缓存与产品文案 15/15、专题 UI 1/1、TypeScript 通过。",
-    "最终完整 Test Gate 24/24 通过（305.553 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-08-10",
   "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
@@ -379,6 +359,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "创建流程图标复制定向 Vitest 16/16、前端 lint 与 typecheck 通过。",
     "staged preflight 通过；完整 Test Gate 15/15 通过（534.685 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "修复创建连接的一次性 MCP token 弹窗横向溢出：令牌改为全宽任意位置换行，令牌与两段命令的复制图标复用同一右上角定位。",
+  "status": "completed",
+  "task_id": "2026-08-11-fix-openclaw-token-dialog-overflow",
+  "unresolved": [],
+  "validation": [
+    "HeroAgentsPage 定向 Vitest 16/16、lint 与 typecheck 通过。",
+    "staged preflight 11/11 与完整 Test Gate 15/15 通过。"
   ]
 }
 ```
