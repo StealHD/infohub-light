@@ -13,26 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-10",
-  "result": "修复专题 AI 总结的确定性空响应：确认 DeepSeek 在 800 token 上限内将全部 completion 用于隐藏推理，专题调用改为 2048..4096 token 单次预算并记录安全完成指标；移除标题列表伪总结，升级 prompt 与浏览器缓存到 V2。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-reasoning-budget",
-  "unresolved": [],
-  "validation": [
-    "真实 20 篇输入诊断确认 input_tokens=1803、completion_tokens=800、reasoning_tokens=800、content_tokens=0、finish_reason=length、response_bytes=0。",
-    "后端专题总结 7/7、缓存与退出清理 10/10、专题 UI 1/1、Changelog 5/5、TypeScript 与 ESLint 通过。",
-    "完整 Test Gate 24/24 通过（552.619 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
   "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-readable-budget",
@@ -380,6 +360,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "订阅页、Feed 深链、手册和更新日志定向测试及 TypeScript/ESLint/UI 合同检查通过。",
     "完整 Test Gate 15/15 命令通过（285 秒）。",
     "./scripts/up-latest.sh 完成；API/Worker healthy、readiness 为 ready，8080 实际订阅页确认今日与近 7 天链接。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "合并助手连接创建流程的一次性 MCP token 复制体验：令牌单行省略并完整复制，环境写入与 OpenClaw 配置命令均使用右上角图标复制。",
+  "status": "completed",
+  "task_id": "2026-08-11-merge-openclaw-copy-ui",
+  "unresolved": [],
+  "validation": [
+    "任务分支定向 Vitest 16/16、preflight 11/11 与完整 Test Gate 15/15 通过。",
+    "合并后的产品更新日志同时保留订阅统计快捷查询和助手连接复制说明。"
   ]
 }
 ```

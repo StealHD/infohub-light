@@ -41,6 +41,7 @@ import {
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 
 const TOKEN_REFERENCE = '${INTELISCOPE_MCP_TOKEN}'
+const oneTimeCopyIconClass = 'absolute right-2 top-2 z-10 size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11'
 export const READ_TOOL_FILTER = [
   'get_my_feed',
   'get_item',
@@ -75,6 +76,20 @@ export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess
     toolFilter: { include: access === 'subscriptions_write' ? SUBSCRIPTION_WRITE_TOOL_FILTER : READ_TOOL_FILTER },
   })
   return [`openclaw mcp set inteliscope '${config}'`, 'openclaw mcp doctor inteliscope --probe', 'openclaw mcp status --verbose', 'openclaw dashboard'].join('\n')
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`
+}
+
+export function oneTimeTokenWriteCommand(token: string): string {
+  const tokenLine = shellQuote(`INTELISCOPE_MCP_TOKEN=${token}`)
+  return [
+    'mkdir -p ~/.openclaw',
+    'chmod 700 ~/.openclaw',
+    `(umask 077; { test -f ~/.openclaw/.env && grep -v '^INTELISCOPE_MCP_TOKEN=' ~/.openclaw/.env || true; printf '%s\\n' ${tokenLine}; } > ~/.openclaw/.env.tmp && mv ~/.openclaw/.env.tmp ~/.openclaw/.env)`,
+    'chmod 600 ~/.openclaw/.env',
+  ].join(' && ')
 }
 
 function dateTime(value: string) {
@@ -113,14 +128,57 @@ function OpenClawConfigurationCard({
       <Button size="sm" variant="ghost" isDisabled={copyDisabled} onPress={onCopy}><Icons.Copy size={15} />复制</Button>
     </div>
     <Card.Description className="mt-1 min-h-10">{description}</Card.Description>
-    <pre
-      aria-label={configurationLabel}
-      tabIndex={0}
-      className="type-meta mt-3 max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]"
-    >
-      {configuration}
-    </pre>
+    <pre aria-label={configurationLabel} tabIndex={0} className="type-meta mt-3 max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{configuration}</pre>
   </Card>
+}
+
+function OneTimeCopyAction({
+  label,
+  disabled = false,
+  onCopy,
+}: {
+  label: string
+  disabled?: boolean
+  onCopy: () => void
+}) {
+  return <Tooltip delay={250}>
+    <TooltipTriggerButton
+      aria-label={label}
+      className={oneTimeCopyIconClass}
+      disabled={disabled}
+      onClick={onCopy}
+    >
+      <Icons.Copy size={15} aria-hidden="true" />
+    </TooltipTriggerButton>
+    <Tooltip.Content {...topAnchoredTooltipProps}>{label}</Tooltip.Content>
+  </Tooltip>
+}
+
+function OneTimeSetupCommand({
+  label,
+  command,
+  copyLabel,
+  copyDisabled = false,
+  onCopy,
+  className = '',
+}: {
+  label: string
+  command: string
+  copyLabel: string
+  copyDisabled?: boolean
+  onCopy: () => void
+  className?: string
+}) {
+  return <div className={`relative min-w-0 ${className}`}>
+    <OneTimeCopyAction label={copyLabel} disabled={copyDisabled} onCopy={onCopy} />
+    <pre
+      aria-label={label}
+      tabIndex={0}
+      className="type-meta max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 pr-14 [overflow-wrap:anywhere]"
+    >
+      {command}
+    </pre>
+  </div>
 }
 
 function DialogFrame({ title, children, footer, dismissable = true, testId }: {
@@ -367,6 +425,7 @@ export function HeroAgentsPage() {
   const readConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'read'), [query.data?.mcp_url])
   const writeConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'subscriptions_write'), [query.data?.mcp_url])
   const oneTimeConfiguration = oneTimeCredential?.access === 'subscriptions_write' ? writeConfiguration : readConfiguration
+  const oneTimeTokenWrite = oneTimeCredential ? oneTimeTokenWriteCommand(oneTimeCredential.token) : ''
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.agentDelegations(user.id) })
 
   function restoreConnectionActionFocus() {
@@ -595,9 +654,22 @@ export function HeroAgentsPage() {
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开一次性令牌</Modal.Trigger>
       <DialogFrame title="保存一次性 MCP token" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); actionToast.success('一次性令牌已从页面清除') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
-        <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeCredential?.token}</code><Button variant="ghost" onPress={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}><Icons.Copy size={15} />复制令牌</Button></div>
-        <pre aria-label="本地令牌环境命令" className="type-meta mt-4 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
-        <pre aria-label="OpenClaw 配置命令" className="type-meta mt-3 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{oneTimeConfiguration}</pre>
+        <div className="relative mt-4 min-w-0"><code className="block min-w-0 max-w-full truncate rounded-lg bg-default p-3 pr-14">{oneTimeCredential?.token}</code><OneTimeCopyAction label="复制令牌" onCopy={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')} /></div>
+        <p className="type-meta mt-4 text-muted">复制写入命令后，在本机终端粘贴运行；它只更新 Inteliscope 令牌并保留环境文件里的其他内容。</p>
+        <OneTimeSetupCommand
+          label="本地令牌环境命令"
+          command={oneTimeTokenWrite}
+          copyLabel="复制本地令牌写入命令"
+          onCopy={() => oneTimeCredential && void copy(oneTimeTokenWrite, '写入命令已复制。')}
+          className="mt-2"
+        />
+        <OneTimeSetupCommand
+          label="OpenClaw 配置命令"
+          command={oneTimeConfiguration}
+          copyLabel="复制 OpenClaw 配置命令"
+          onCopy={() => void copy(oneTimeConfiguration, 'OpenClaw 配置已复制。')}
+          className="mt-3"
+        />
       </DialogFrame>
     </Modal>
 

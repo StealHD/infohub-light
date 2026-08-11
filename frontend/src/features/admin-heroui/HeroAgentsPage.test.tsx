@@ -12,7 +12,11 @@ import { DesignSystemProvider } from '../../design-system'
 import type { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
 import { OpenClawPairingUpgradeRequiredError } from '../openclaw/openclawDevice'
 import { OPENCLAW_CURRENT_SCOPES } from '../openclaw/openclawGateway'
-import { HeroAgentsPage, OpenClawBrowserSettings } from './HeroAgentsPage'
+import {
+  HeroAgentsPage,
+  oneTimeTokenWriteCommand,
+  OpenClawBrowserSettings,
+} from './HeroAgentsPage'
 
 const member: User = {
   id: 'member-1',
@@ -115,6 +119,19 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
   )
   return { api, client, ...rendered }
 }
+
+describe('one-time token write command', () => {
+  it('updates only the Inteliscope token with restrictive file permissions', () => {
+    const command = oneTimeTokenWriteCommand('ih_mcp_v1_one_time_secret')
+
+    expect(command).toContain('mkdir -p ~/.openclaw')
+    expect(command).toContain('chmod 700 ~/.openclaw')
+    expect(command).toContain("grep -v '^INTELISCOPE_MCP_TOKEN=' ~/.openclaw/.env || true")
+    expect(command).toContain("printf '%s\\n' 'INTELISCOPE_MCP_TOKEN=ih_mcp_v1_one_time_secret'")
+    expect(command).toContain('mv ~/.openclaw/.env.tmp ~/.openclaw/.env')
+    expect(command).toContain('chmod 600 ~/.openclaw/.env')
+  })
+})
 
 function pairedBrowserVault() {
   return {
@@ -381,6 +398,44 @@ describe('HeroAgentsPage delegation access', () => {
     expect(JSON.stringify(client.getQueryData(queryKeys.agentDelegations(member.id)))).not.toContain('ih_mcp_v1_one_time_secret')
     expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain('ih_mcp_v1_one_time_secret')
     expect(api.createAgentDelegation).toHaveBeenCalledWith('Personal Mac', 'read', 'self')
+  })
+
+  it('uses compact icon actions for the token and both setup commands in the creation flow', async () => {
+    const browser = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    renderPage()
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const createDialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.type(within(createDialog).getByRole('textbox', { name: '连接名称' }), 'Copy Mac')
+    await browser.click(within(createDialog).getByRole('button', { name: '生成一次性令牌' }))
+
+    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
+    const tokenCopy = within(tokenDialog).getByRole('button', { name: '复制令牌' })
+    expect(tokenCopy.querySelector('svg')).not.toBeNull()
+    expect(tokenCopy.textContent).toBe('')
+    expect(tokenCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
+    expect(within(tokenDialog).getByText('ih_mcp_v1_one_time_secret')).toHaveClass('pr-14', 'truncate')
+    await browser.click(tokenCopy)
+    expect(writeText).toHaveBeenLastCalledWith('ih_mcp_v1_one_time_secret')
+
+    const writeCommand = within(tokenDialog).getByLabelText('本地令牌环境命令').textContent || ''
+    expect(writeCommand).toContain('INTELISCOPE_MCP_TOKEN=ih_mcp_v1_one_time_secret')
+    expect(writeCommand).not.toContain('<一次性令牌>')
+    const writeCommandCopy = within(tokenDialog).getByRole('button', { name: '复制本地令牌写入命令' })
+    expect(writeCommandCopy.querySelector('svg')).not.toBeNull()
+    expect(writeCommandCopy.textContent).toBe('')
+    expect(writeCommandCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
+    await browser.click(writeCommandCopy)
+    expect(writeText).toHaveBeenLastCalledWith(writeCommand)
+
+    const configuration = within(tokenDialog).getByLabelText('OpenClaw 配置命令').textContent || ''
+    const configurationCopy = within(tokenDialog).getByRole('button', { name: '复制 OpenClaw 配置命令' })
+    expect(configurationCopy.querySelector('svg')).not.toBeNull()
+    expect(configurationCopy.textContent).toBe('')
+    expect(configurationCopy).toHaveClass('absolute', 'right-2', 'top-2', 'size-8')
+    await browser.click(configurationCopy)
+    expect(writeText).toHaveBeenLastCalledWith(configuration)
   })
 
   it('supports rename, revoke, refresh and connection creation limits', async () => {
