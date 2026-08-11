@@ -12,12 +12,12 @@
 ## 2. 默认分层
 当前默认分层：
 
-1. API / CLI / event 入口层：`src/main.py`, `src/ui/server.py`, `src/api/server.py`, MCP adapter。只负责参数接收、校验和薄编排。
-2. Service 层：`src/orchestrator.py`, `src/services/**`。当前 Service 路径负责抓取、去重、可选分析、用户 Feed finalization 与留存；全局发布、全文和关系图只属于 legacy publisher 路径。
-3. Domain 层：`src/models.py`, `src/tag_policy.py`, `src/source_selection.py`。负责标准模型、taxonomy、source ref、状态和规则输入输出。
-4. Adapter / Integration 层：`src/scrapers/**`, `src/ai/**`, webhook/email/openbb/apify client。隔离外部系统字段、协议和失败模式。
-5. Storage 层：Service 状态与用户 Feed 位于 `data/service.db`；`data/site/**` 与 `data/horizon.db` 是 legacy optional 存储。两条路径共享部分 storage 模块，但 Service Feed 读取不得回退到 legacy 存储。
-6. Output / Reporting 层：`src/ui/site.py`, `src/ui/static/**`, summaries, webhook rendering。负责输出组装和渲染，不直接采集数据。
+1. API / event 入口层：`src/api/server.py`、Remote MCP HTTP 与 Worker job handler。只负责参数接收、认证、校验和薄编排。
+2. Service 层：`src/orchestrator.py`, `src/services/**`。负责抓取、去重、可选分析、用户 Feed finalization、读取与留存；配置运行时、来源探测、Feed payload/read 都归中性 Service 模块。
+3. Domain 层：`src/models.py`, `src/tag_policy.py`。负责标准模型、taxonomy、source ref、状态和规则输入输出。
+4. Adapter / Integration 层：`src/scrapers/**`, `src/ai/**` 与当前 notification/OpenBB/Apify client。隔离外部系统字段、协议和失败模式。
+5. Storage 层：Service 状态与用户 Feed 位于 `data/service.db`，当前冷归档位于受治理的 `data/archives/**`。`data/site/**`、`data/horizon.db`、旧摘要和本地 MCP run 是 inert operator-owned artifact，任何运行路径都不得读写、迁移或删除。
+6. Presentation 层：`src/services/feed_payload.py` 生成 wire payload，`frontend/` 负责 React 展示；两者均不直接采集数据或访问旧文件产物。
 
 <!-- init-pro:section name=boundaries -->
 ## 3. 关键边界
@@ -44,7 +44,7 @@ Service AI cache 归 `src/services/user_analysis_cache.py` 所有，必须按 wo
 ### 3.4 Service Frontend Boundary
 默认 Service UI 位于 `frontend/`，由 React + TypeScript 构建到独立 `src/ui/service_static` 产物，只通过 `/api/*` 消费数据；不得直接调用 scraper、AI client 或 storage，也不依赖 `data/site/*.json` 或 `data/config.json` 源列表的内部文件结构。登录、外壳、Feed、收藏与历史属于首屏主链路；订阅、Agent、设置、用户、手册与更新日志必须保持路由级动态加载，生产构建检查首屏 JavaScript Brotli 合计不超过 250 KiB。阅读、收藏与历史只调用 `/api/feed/*`；条目提供站内查看已抓正文/图片、打开原文、显式已读/未读、复制摘要、收藏、稍后读和忽略，不提供网页全文代理/iframe、偏好 feedback 或 Graph。订阅控制台通过 catalog、subscriptions、jobs、schedule、source-health 和 users API 管理信息获取，并通过 subscription 字段逐源选择新内容通知；首页“获取新内容”创建 `user_feed_refresh`，不得退化为只重新 GET snapshot。`/settings/*` 由独立 Settings Workspace 外壳承载，导航与 UI primitives 分别归 `frontend/src/features/settings/` 和 `frontend/src/components/settings/`；原生页面为 Overview、Appearance、Notifications、AI、fetching/topic、ignored-content、secrets、ActorOps 与 storage/archive。AI payload/diff 纯函数归 `settingsAiModel.ts`，获取 payload/diff/主题规范化归 `settingsFetchingModel.ts`，密钥校验、状态展示和错误映射归 `settingsSecretsModel.ts`。`/settings/fetching` 独占 config Query 与 `set_settings_bundle` mutation；`/settings/actorops` 仅组合既有 ActorOps route、alert 与 incident Query/mutation，控制面业务实现继续归 `frontend/src/features/apify-actors/`；`/settings/storage` 独占现有 storage summary/archive Query 与 preview/apply mutation。原生页只重组视图，不复制业务逻辑；`/settings/legacy` 只作历史链接重定向，不保留 Settings 业务 UI。原生密钥页独占 SecretStore、额度与 Apify Key 池的前端查询/mutation 所有权。
 
-React Query 的所有用户数据 key 必须包含当前 `user_id`；logout、401 或身份切换必须先取消旧请求并删除旧用户缓存。Vite 的 hashed `/assets/*` 可 immutable cache，`index.html` 必须 no-cache；BrowserRouter 深链接由 FastAPI 回退到 React index。`HORIZON_SERVICE_UI_VARIANT=legacy` 只作为一个发布周期的回滚入口，`src/ui/static` 继续服务 legacy CLI/horizon-web，不得重新成为默认 Service 数据路径。
+React Query 的所有用户数据 key 必须包含当前 `user_id`；logout、401 或身份切换必须先取消旧请求并删除旧用户缓存。Vite 的 hashed `/assets/*` 可 immutable cache，`index.html` 必须 no-cache；BrowserRouter 深链接由 FastAPI 回退到 React index。React 是唯一 UI；构建产物缺失时 API 与 Remote MCP 仍可启动，非 API/MCP 页面统一 404，不存在环境开关或旧静态 UI fallback。
 
 React 视觉系统、组件所有权、响应式布局和视觉验收以 `docs/contracts/ui/` 为唯一真源。HeroUI provider、设计 token 与通用语义组件归 `frontend/src/design-system/**` 所有；Settings 专用组合 primitives 归 `frontend/src/components/settings/**`，Feature 层不得绕过这些边界私造 palette、shape、shadow 或受控交互组件。Feed 列表优先消费 API 的 `presentation.version=1`，按需详情优先消费 `presentation.version=2`；旧 flat 字段只作为一个兼容周期的缺失兜底；React 不显示或搜索 legacy `reason`。当前迁移覆盖 App Shell、共享 Feed workspace、订阅/来源 workspace 与独立 Settings Workspace；legacy settings bridge 只保留历史 URL 重定向。
 
@@ -54,6 +54,6 @@ Service UI 在小团体服务模式下必须先完成登录门禁，再加载用
 
 | 任务 | 模块 |
 | --- | --- |
-| Feed、archive、存储与租户/用户隔离 | [Feed、存储与租户](feed-storage-tenancy.md) |
+| Feed、冷归档、存储与租户/用户隔离 | [Feed、存储与租户](feed-storage-tenancy.md) |
 | OpenClaw、MCP、日志、Key pool 与 ActorOps | [Agent、可观测性与 ActorOps](agent-observability-actorops.md) |
 | Job、周期、通知、运行时、迁移、repair 与 AI | [Job、通知、运行时与迁移](jobs-notifications-runtime-migrations.md) |

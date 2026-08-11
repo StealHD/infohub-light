@@ -5,909 +5,158 @@ title: Configuration Guide
 
 # Configuration Guide
 
-Horizon is configured through two files: a `.env` file for API keys and a `data/config.json` file for sources, AI provider, and filtering options.
+Inteliscope has one current runtime: React served by FastAPI, a Worker, and optional Remote MCP on the FastAPI `/mcp` route. Configuration comes from environment variables, `data/config.json`, Service DB state, and the write-only SecretStore.
 
-## Service acquisition, quotas, and retention
+## Runtime topology
 
-Service jobs remain user-scoped, but production acquisition can reuse neutral content for a public/workspace source within one freshness window. Private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared. Rollout flags default to `false`:
+The only console entry points are:
 
 ```bash
-HORIZON_APIFY_KEY_POOL_ENABLED=false
+uv run horizon-api
+uv run horizon-worker
+```
+
+Docker Compose contains only `horizon-api` and `horizon-worker`. Feed and per-source schedules are evaluated by the Worker; there is no scheduler profile, CLI publisher, static-site writer, local stdio MCP, or UI-variant switch.
+
+React is the only UI. When `src/ui/service_static/index.html` is absent, the API and `/mcp` still start and non-API pages return 404.
+
+## Bootstrap authentication
+
+A fresh database needs an initial Owner:
+
+```bash
+HORIZON_AUTH_USER=admin
+HORIZON_AUTH_PASSWORD=replace-me
+# or
+HORIZON_AUTH_PASSWORD_HASH='pbkdf2_sha256$...'
+```
+
+Generate a hash without storing the password in shell history:
+
+```bash
+uv run python -m src.auth hash-password
+```
+
+Current session controls are:
+
+```bash
+HORIZON_AUTH_SECURE_COOKIE=true
+HORIZON_AUTH_SESSION_TTL_SECONDS=604800
+```
+
+Service authentication is always enabled. Once an enabled database user exists, readiness no longer depends on bootstrap password variables.
+
+## SecretStore
+
+Real AI, Apify, Email, Webhook, and Telegram credentials are write-only and belong in ignored `data/secrets.env` through the administrative APIs. The file is atomically replaced with mode `0600`; SQLite stores only references, hashes, generations, and safe provider metadata.
+
+Never put real keys, destination URLs, tokens, SMTP passwords, or chat IDs in `data/config.json`, source configs, logs, or Job payloads.
+
+## `data/config.json`
+
+Current global input includes:
+
+- `ai`: provider/model selection, safe limits, and SecretStore references.
+- `filtering`: acquisition and Feed windows plus thresholds still used by current production.
+- `rsshub`: credential-free Base URL and controlled routing settings.
+- `tags`: workspace taxonomy choices.
+- `sources`: import input; after import, `source_catalog` and `user_subscriptions` are authoritative.
+
+The config runtime is owned by `src/services/config_runtime.py`. `GET /api/config` never projects retired top-level blocks `email`, `webhook`, `premium_analysis`, or `article_graph`. If an existing operator file contains those blocks, they remain untouched on disk but are not executed, returned, or rewritten by current config actions.
+
+## Source acquisition and limits
+
+Service jobs are user-scoped. Optional shared acquisition may reuse neutral content for a public/workspace source within a freshness window; private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared.
+
+```bash
 HORIZON_SHARED_ACQUISITION_ENABLED=false
 HORIZON_SHARED_ACQUISITION_MIN_TTL_MINUTES=5
 HORIZON_SHARED_ACQUISITION_MAX_TTL_MINUTES=60
 HORIZON_SHARED_ACQUISITION_FALLBACK_TTL_MINUTES=30
-HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=false
 ```
 
-`HORIZON_APIFY_KEY_POOL_ENABLED` is an independent Service-only rollout gate.
-When enabled, every Apify catalog source uses the workspace's ordered Key pool;
-source-level `secret_env` values remain stored only for rollback compatibility
-and are not read by Service jobs. Keep the flag disabled until Workers are
-stopped, existing remote runs are confirmed terminal, and the database is
-backed up.
+Daily guardrails use the `INFOHUB_*` limits documented in `.env.example`, including per-user fetch/subscription limits and workspace/provider AI/fetch attempt limits. Network retries consume attempts; cache hits do not.
 
-The shared TTL uses the shortest enabled source/Feed schedule and clamps it to the configured minimum/maximum. `source_test` always bypasses successful production content and does not publish into the shared pool, while still serializing same-source tests and charging a real upstream attempt.
+Source tests are always bounded and run through `src/services/source_probe.py`; they do not publish a Feed snapshot. Paid Actor tests require their dedicated confirmation and budget contracts.
 
-Default daily limits are 100 fetch jobs per user, 100 enabled subscriptions per user, 1,000 logical AI cache-miss items per user, 1,000 AI provider attempts per workspace, 100 fetch attempts per workspace, and 100 fetch attempts per provider/workspace. Network retries consume another attempt; cache hits do not.
+## AI
+
+AI settings refer to a SecretStore Key; they never contain the real value. `analysis_mode=personal_only` content enters history and personal Feed but skips AI, featured selection, and notification delivery.
+
+The Service uses current source data only and applies bounded input/output limits. A model failure falls back to captured source summary/body/title according to the API contract; no old daily-summary publisher runs.
+
+## Notifications
+
+Current notifications are Service DB features, not the retired notifier chain:
+
+- Workspace Email and Telegram transport credentials are managed by Owner/Admin.
+- Notification services bind a single Email, Webhook, or Telegram destination.
+- Users opt in globally, select visible services, and opt in per subscription.
+- The Worker stages delivery only after a committed Feed result and sends outside the Feed transaction.
+
+Legacy `data/config.json.email` and `.webhook` blocks are inert and are never used as fallback transport configuration.
+
+## Worker schedules
+
+The Worker evaluates both user Feed schedules and subscription source schedules:
 
 ```bash
-INFOHUB_MAX_FETCH_JOBS_PER_DAY=100
-INFOHUB_MAX_SOURCES_PER_USER=100
-INFOHUB_MAX_AI_ITEMS_PER_DAY=1000
-INFOHUB_MAX_WORKSPACE_AI_ATTEMPTS_PER_DAY=1000
-INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY=100
-INFOHUB_MAX_PROVIDER_FETCH_ATTEMPTS_PER_DAY=100
+HORIZON_SCHEDULE_POLL_SECONDS=30
 ```
 
-The Worker runs retention at most hourly. Defaults are 90 days and at most 100 Feed snapshots per user, 7 days of source content, 30 days of AI cache, 90 days of usage events, and 14 days of terminal jobs; expired sessions are removed. The latest Feed snapshot per user and source snapshot per acquisition key are always preserved.
+Schedules create ordinary `user_feed_refresh` or `source_fetch` Jobs and reuse queue de-duplication, quota, Source Health, Feed finalization, and notification outbox rules. They never start another process or read legacy files.
+
+## Feed storage and retention
+
+`data/service.db` is the current data store. `FeedReadService` requires a `ServiceStore` and provides latest/history/search without a filesystem fallback. Snapshot readers retain compatibility with existing Service DB storage-v1/full payloads and storage-v2 compact payloads.
+
+Compact writes require both the flag and the Feed storage v3 marker:
 
 ```bash
-HORIZON_MAINTENANCE_INTERVAL_SECONDS=3600
-HORIZON_FEED_SNAPSHOT_RETENTION_DAYS=90
-HORIZON_MAX_FEED_SNAPSHOTS_PER_USER=100
-HORIZON_SOURCE_CONTENT_RETENTION_DAYS=7
-HORIZON_ANALYSIS_CACHE_RETENTION_DAYS=30
-HORIZON_USAGE_RETENTION_DAYS=90
-HORIZON_JOB_RETENTION_DAYS=14
-```
-
-Before enabling compact writes on an existing database, stop the Worker and inspect/apply Feed storage v3. The flag alone is not sufficient: while an existing database still requires v3, writers keep producing legacy storage-v1 snapshots and Worker retention stays deferred. A genuinely empty new database records the v3 marker during initialization. Apply creates a UTC-named `0600` SQLite backup, backfills hashes without rewriting legacy payload bodies, applies retention, and verifies integrity and foreign keys:
-
-```bash
+HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true
 uv run python scripts/migrate_feed_storage_v3.py --dry-run --data-dir data
 uv run python scripts/migrate_feed_storage_v3.py --apply --data-dir data --backup-dir data/backups
 ```
 
-## AI Providers
+Explicit migrations require stopped API/Worker where their runbook says so, a `0600` SQLite backup, and integrity/foreign-key checks. Application startup does not perform destructive migrations.
 
-Configure which AI model scores and summarizes your content.
+Fresh databases do not create a feedback table. Existing feedback tables and rows are excluded from initialization, Feed v2 migration, and local reset operations.
 
-`api_key_env` is always an environment variable name, not the API key value.
-Store secrets in `.env` or your shell environment, then point `api_key_env` at
-that variable:
+## Current cold archives
 
-```bash
-OPENAI_API_KEY=sk-your-key
-GOOGLE_API_KEY=your-gemini-key
-XIAOMI_API_KEY=your-xiaomi-mimo-token-plan-key
-```
+Current cold storage is owned by `StorageGovernanceService` and lives under private `data/archives/**`. Owner/Admin operations use preview/apply plans and checksummed archives; Feed search can match retained cold metadata. This feature is unrelated to the retired `/api/archive/*` analytics routes.
 
-When Horizon starts, environment variables have priority because
-`data/config.json` does not store the secret. For local VS Code runs, create
-`.env` in the repository root and launch Horizon from that same root directory.
-
-Common API key variable names:
-
-| Provider | `api_key_env` value |
-| --- | --- |
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Azure OpenAI | `AZURE_OPENAI_API_KEY` |
-| Gemini | `GOOGLE_API_KEY` |
-| Xiaomi MiMo Token Plan | `XIAOMI_API_KEY` |
-| MiniMax | `MINIMAX_API_KEY` |
-| Aliyun DashScope | `DASHSCOPE_API_KEY` |
-| Doubao | `DOUBAO_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-
-**Anthropic Claude**:
-
-```json
-{
-  "ai": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4.5-20250929",
-    "api_key_env": "ANTHROPIC_API_KEY",
-    "throttle_sec": 0
-  }
-}
-```
-
-**OpenAI**:
-
-```json
-{
-  "ai": {
-    "provider": "openai",
-    "model": "gpt-4",
-    "api_key_env": "OPENAI_API_KEY",
-    "throttle_sec": 0
-  }
-}
-```
-
-**Gemini**:
-
-```json
-{
-  "ai": {
-    "provider": "gemini",
-    "model": "gemini-3.5-flash",
-    "api_key_env": "GOOGLE_API_KEY",
-    "throttle_sec": 0
-  }
-}
-```
-
-Use a Google AI Studio / Gemini API key in `.env`:
+## Remote MCP and OpenClaw
 
 ```bash
-GOOGLE_API_KEY=your-gemini-key
+HORIZON_REMOTE_MCP_ENABLED=false
+HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
+HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_OPENCLAW_CHAT_ENABLED=false
+HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 ```
 
-For the native `gemini` provider, leave `base_url` empty. If you instead route
-Gemini through an OpenAI-compatible gateway, use provider `openai` with that
-gateway's `base_url`.
+`/mcp` is the only MCP server. It uses delegation tokens and the same ServiceStore boundaries as REST. The repository does not ship `horizon-mcp`, a local run store, or legacy fetch/AI/config tools.
 
-**Xiaomi MiMo Token Plan** (OpenAI-compatible):
+## Retired-data boundary
 
-```json
-{
-  "ai": {
-    "provider": "xiaomi",
-    "model": "mimo-v2.5-pro",
-    "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
-    "api_key_env": "XIAOMI_API_KEY",
-    "throttle_sec": 0
-  }
-}
-```
+The current runtime does not read, migrate, rewrite, or delete:
 
-The Xiaomi MiMo Token Plan endpoint uses the OpenAI-compatible Chat Completions
-API with an `api-key` header. Horizon sends that provider-specific header
-automatically when `provider` is `xiaomi`.
+- `data/site/**`
+- `data/horizon.db`
+- old summaries
+- old local MCP runs
+- existing legacy feedback rows
 
-**Azure OpenAI**:
+These are operator-owned inert artifacts. Removing them from disk is a separate, explicitly authorized data-retention task. `.gitignore` and `.dockerignore` may continue protecting those paths.
 
-```json
-{
-  "ai": {
-    "provider": "azure",
-    "model": "gpt-4o-production",
-    "api_key_env": "AZURE_OPENAI_API_KEY",
-    "azure_endpoint_env": "AZURE_OPENAI_ENDPOINT",
-    "api_version": "2024-10-21",
-    "throttle_sec": 0
-  }
-}
-```
+## Verification
 
-Set `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT` in your `.env`. The `model` field should be your Azure deployment name, not just the base model family name.
-
-**MiniMax**:
-
-```json
-{
-  "ai": {
-    "provider": "minimax",
-    "model": "MiniMax-M3",
-    "api_key_env": "MINIMAX_API_KEY",
-    "throttle_sec": 0
-  }
-}
-```
-
-Available models: `MiniMax-M3`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`
-
-**Aliyun DashScope** (OpenAI-compatible):
-
-```json
-{
-  "ai": {
-    "provider": "ali",
-    "model": "qwen-plus",
-    "api_key_env": "DASHSCOPE_API_KEY",
-    "throttle_sec": 0
-  }
-}
-```
-
-Use the [DashScope compatible-mode](https://help.aliyun.com/zh/dashscope/developer-reference/use-dashscope-by-calling-openai-api) endpoint. Set `DASHSCOPE_API_KEY` in your `.env`. Optional: set `base_url` to override the default `https://dashscope.aliyuncs.com/compatible-mode/v1`.
-
-### AI throttling
-
-If your model has a strict per-minute request cap, you can slow the scorer down in `data/config.json`:
-
-```json
-{
-  "ai": {
-    "throttle_sec": 4.5
-  }
-}
-```
-
-- `throttle_sec`: Pause between scored items in seconds. Default is `0`.
-- `4.5` is a reasonable starting point for free-tier models capped around 15 requests per minute.
-- Set it back to `0` if you have enough throughput headroom and want maximum speed.
-
-### AI Concurrency
-
-By default, AI scoring and enrichment run one item at a time. If your API endpoint supports concurrent requests, you can increase throughput:
-
-```json
-{
-  "ai": {
-    "analysis_concurrency": 4,
-    "enrichment_concurrency": 2
-  }
-}
-```
-
-- `analysis_concurrency`: Number of items scored in parallel. Default is `1`.
-- `enrichment_concurrency`: Number of high-scoring items enriched in parallel. Default is `1`.
-- Both values are clamped to a minimum of `1`.
-- Preserve the existing retry behavior per item.
-- Result ordering is preserved regardless of concurrency.
-- If you also use `throttle_sec`, each concurrent task sleeps independently after finishing an item.
-
-**Custom Base URL** (for proxies):
-
-```json
-{
-  "ai": {
-    "provider": "anthropic",
-    "base_url": "https://your-proxy.com/v1",
-    ...
-  }
-}
-```
-
-For OpenAI-compatible gateways, Horizon sends `temperature` by default. If a newer reasoning-style model rejects that parameter with an error such as `temperature is deprecated for this model`, Horizon retries once without it and remembers that capability for later requests.
-
-## Information Sources
-
-All sources are configured under the top-level `sources` key in `config.json`.
-
-### Tags
-
-Horizon uses a controlled tag taxonomy for the private radar. The top-level
-`tags` library and optional per-source `tags` must resolve to one of these
-fixed categories:
-
-`AI Agent`, `AI 编程`, `模型发布`, `RAG/MCP`, `AI Infra`, `开源模型`,
-`推理框架`, `产品创业`, `研究论文`, `安全治理`, `行业动态`.
-
-Common aliases such as `Codex`, `Claude Code`, `tool use`, `RAG`, `MCP`,
-`OpenAI`, or `Python` are normalized to the closest fixed category. Unknown
-tags entered in the Web UI are rejected before saving, and AI/feed output is
-sanitized before it reaches the browser data files.
-
-```json
-{
-  "tags": ["AI Agent", "AI 编程", "RAG/MCP", "模型发布"],
-  "sources": {
-    "rss": [
-      {
-        "name": "Simon Willison",
-        "url": "https://simonwillison.net/atom/everything/",
-        "enabled": true,
-        "category": "ai-tools",
-        "tags": ["AI 编程", "RAG/MCP"]
-      }
-    ]
-  }
-}
-```
-
-In the local Web UI, open the **Config** tab to maintain source tags through
-validated forms. Use the fixed categories above; do not create vendor-specific
-or one-off event tags.
-
-### GitHub
-
-```json
-{
-  "sources": {
-    "github": [
-      {
-        "type": "user_events",
-        "username": "gvanrossum",
-        "enabled": true
-      },
-      {
-        "type": "repo_releases",
-        "owner": "python",
-        "repo": "cpython",
-        "enabled": true
-      }
-    ]
-  }
-}
-```
-
-### Hacker News
-
-```json
-{
-  "sources": {
-    "hackernews": {
-      "enabled": true,
-      "fetch_top_stories": 30,
-      "min_score": 100
-    }
-  }
-}
-```
-
-### RSS Feeds
-
-```json
-{
-  "sources": {
-    "rss": [
-      {
-        "name": "Blog Name",
-        "url": "https://example.com/feed.xml",
-        "enabled": true,
-        "category": "ai-ml"
-      }
-    ]
-  }
-}
-```
-
-### Reddit
-
-```json
-{
-  "sources": {
-    "reddit": {
-      "enabled": true,
-      "fetch_comments": 5,
-      "subreddits": [
-        {
-          "subreddit": "MachineLearning",
-          "sort": "hot",
-          "fetch_limit": 25,
-          "min_score": 10
-        }
-      ],
-      "users": [
-        {
-          "username": "spez",
-          "sort": "new",
-          "fetch_limit": 10
-        }
-      ]
-    }
-  }
-}
-```
-
-### Telegram
-
-Telegram scraping uses the public web preview at `https://t.me/s/<channel>`, so no API key is required. Only public channels are supported.
-
-```json
-{
-  "sources": {
-    "telegram": {
-      "enabled": true,
-      "channels": [
-        {
-          "channel": "zaihuapd",
-          "enabled": true,
-          "fetch_limit": 20
-        }
-      ]
-    }
-  }
-}
-```
-
-- `enabled` — enable or disable Telegram fetching globally
-- `channels` — list of public Telegram channels to monitor
-- `channel` — Telegram channel username only, without `@` or the full `https://t.me/` URL
-- `fetch_limit` — maximum number of recent messages to inspect per channel per run (default: `20`)
-
-### Twitter (legacy compatibility)
-
-Requires an [Apify](https://apify.com) account. Set `APIFY_TOKEN` in your `.env` file. The free tier includes $5/month of credit, enough for roughly 20,000 tweets.
-
-This `sources.twitter` adapter belongs to the legacy CLI path and is disabled while building a user-scoped Service run. New Service/catalog X subscriptions must use `sources.apify_social` below.
-
-```json
-{
-  "sources": {
-    "twitter": {
-      "enabled": true,
-      "users": ["karpathy", "ylecun"],
-      "fetch_limit": 10,
-      "fetch_reply_text": false,
-      "max_replies_per_tweet": 3,
-      "max_tweets_to_expand": 10,
-      "reply_min_likes": 5
-    }
-  }
-}
-```
-
-- `users` — Twitter screen names to monitor, without the `@` prefix
-- `fetch_limit` — maximum tweets retained by Inteliscope per subscription. Scweet requires an upstream request of at least 100 tweets, so smaller values are enforced locally after the Actor returns; Apify cost can still reflect the upstream run.
-- `fetch_reply_text` — when `true`, fetch actual reply bodies for important tweets and append them under `--- Top Comments ---` so the AI can factor in community discussion. Disabled by default.
-- `max_replies_per_tweet` — maximum reply lines to append per tweet (default: 3)
-- `max_tweets_to_expand` — cap on how many tweets get reply expansion per run, to control Apify credit usage (default: 10)
-- `reply_min_likes` — only include replies with at least this many likes (default: 0)
-
-The scraper uses the `altimis/scweet` actor by default. You can override it with `actor_id` if needed.
-
-### Apify Social Subscriptions
-
-Use `sources.apify_social` when you want one UI-managed source list for public X, Instagram, Facebook, and Telegram targets. Set `APIFY_TOKEN` in `.env`; `data/config.json` only stores the environment variable name.
-
-```json
-{
-  "sources": {
-    "apify_social": {
-      "enabled": true,
-      "token_env": "APIFY_TOKEN",
-      "timeout_seconds": 180,
-      "actors": {
-        "x": { "actor_id": "xquik/x-tweet-scraper" },
-        "instagram": { "actor_id": "apify/instagram-api-scraper" },
-        "facebook": { "actor_id": "whoareyouanas/facebook-group-scraper" },
-        "telegram": { "actor_id": "thescrapelab/apify-telegram-scraper" }
-      },
-      "subscriptions": [
-        {
-          "platform": "x",
-          "kind": "profile",
-          "target": "OpenAI",
-          "fetch_limit": 20,
-          "enabled": true,
-          "tags": ["AI Agent", "行业动态"]
-        },
-        {
-          "platform": "instagram",
-          "kind": "hashtag",
-          "target": "#aiagents",
-          "fetch_limit": 20,
-          "enabled": true,
-          "tags": ["AI Agent"]
-        },
-        {
-          "platform": "facebook",
-          "kind": "page",
-          "target": "https://www.facebook.com/openai",
-          "fetch_limit": 20,
-          "enabled": true,
-          "tags": ["模型发布"]
-        },
-        {
-          "platform": "telegram",
-          "kind": "channel",
-          "target": "zaihuapd",
-          "fetch_limit": 20,
-          "enabled": true,
-          "tags": ["行业动态"]
-        }
-      ]
-    }
-  }
-}
-```
-
-For Service-managed X subscriptions, `fetch_limit` is sent to the default Actor as the exact upstream `maxItems` value and is also enforced while parsing the dataset. A subscription with `fetch_limit: 1` therefore requests and retains at most one item. Per-source `secret_env` takes precedence over the global token list, so a catalog source can be pinned to a named backup Key without exposing its value.
-
-- `platform` — one of `x`, `instagram`, `facebook`, or `telegram`
-- `kind` — `x`: `profile` or `keyword`; `instagram`: `profile` or `hashtag`; `facebook`: `page`, `group`, or `post`; `telegram`: `channel`
-- `target` — public handle, keyword, hashtag, URL, or channel name according to the selected kind
-- `fetch_limit` — maximum recent items to ask the Actor for in one run
-
-Only public content is supported. Do not store account passwords, cookies, private channel sessions, or friends-feed credentials in this configuration.
-
-### OpenBB Financial News
-
-OpenBB is useful when you want equity or macro news from providers such as yfinance, Benzinga, FMP, Intrinio, Tiingo, SEC, or Federal Reserve through one SDK.
-
-Install the optional dependency before enabling the source:
+After configuration or runtime changes:
 
 ```bash
-uv sync --extra openbb
+python scripts/test_gate.py run --mode full
+python scripts/test_gate.py run --mode release
 ```
 
-If your platform struggles to build transitive dependencies, prefer:
-
-```bash
-uv pip install --only-binary=:all: openbb openbb-benzinga
-```
-
-```json
-{
-  "sources": {
-    "openbb": {
-      "enabled": true,
-      "watchlists": [
-        {
-          "name": "megacaps",
-          "enabled": true,
-          "provider": "yfinance",
-          "fetch_limit": 20,
-          "category": "equities",
-          "symbols": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
-        }
-      ]
-    }
-  }
-}
-```
-
-- `enabled` — enable or disable the OpenBB source globally
-- `watchlists` — list of named ticker groups; each watchlist becomes one `news.company()` call per run
-- `name` — label shown in Horizon metadata and selection breakdowns
-- `provider` — OpenBB provider name such as `yfinance` or `benzinga`
-- `fetch_limit` — maximum news rows requested for that watchlist
-- `category` — optional tag stored on fetched items
-- `symbols` — ticker symbols to fetch together; group symbols by provider to keep requests efficient
-
-OpenBB provider credentials are handled by the OpenBB SDK itself, using its own environment variables or user settings. Horizon does not pass those secrets through `data/config.json`.
-
-### OSS Insight (Trending GitHub Repos)
-
-Pulls top star-gain repositories from the [OSS Insight](https://ossinsight.io) public API, which aggregates GitHub WatchEvents. Useful for surfacing repos that are gaining stars right now without needing to scrape GitHub Trending or query BigQuery.
-
-```json
-{
-  "sources": {
-    "ossinsight": {
-      "enabled": true,
-      "period": "past_24_hours",
-      "languages": ["All", "Python", "TypeScript"],
-      "keywords": [],
-      "min_stars": 10,
-      "max_items": 30
-    }
-  }
-}
-```
-
-- `period` — time window for star-gain ranking. Supported: `past_24_hours`, `past_28_days`. (`past_7_days` is currently broken upstream.)
-- `languages` — primary language buckets to query. Use `"All"` for the full ranking, or any GitHub language label such as `"Python"`, `"TypeScript"`, `"Rust"`, `"Jupyter Notebook"`. The scraper fans out one request per language and merges results.
-- `keywords` — optional case-insensitive substrings matched against `description`, `collection_names`, and `repo_name`. Only repos containing at least one keyword pass through. Leave empty to ingest everything trending.
-- `min_stars` — drop repos with fewer than this many stars gained in the period.
-- `max_items` — final cap after merging and sorting by `stars_gained` descending.
-
-No API key is required.
-
-## Filtering
-
-Content is scored 0-10:
-
-- **9-10**: Groundbreaking - Major breakthroughs, paradigm shifts
-- **7-8**: High Value - Important developments, deep technical content
-- **5-6**: Interesting - Worth knowing but not urgent
-- **3-4**: Low Priority - Generic or routine content
-- **0-2**: Noise - Spam, off-topic, or trivial
-
-```json
-{
-  "filtering": {
-    "ai_score_threshold": 7.5,
-    "featured_score_threshold": 7.5,
-    "daily_push_score_threshold": 8.5,
-    "daily_push_limit": 10,
-    "homepage_min_score": 6.0,
-    "time_window_hours": 24,
-    "recent_item_limit": 20
-  }
-}
-```
-
-- `ai_score_threshold`: Backward-compatible score threshold. In the private radar config this is set to `7.5`.
-- `featured_score_threshold`: Items scoring >= this value enter the featured feed and daily summary.
-- `daily_push_score_threshold`: Items scoring >= this value are eligible for webhook daily push.
-- `daily_push_limit`: Maximum number of high-scoring items sent in the daily push.
-- `homepage_min_score`: Items below this score stay in "All Items" and are hidden from featured home views.
-- `time_window_hours`: Fetch content from last N hours
-- `recent_item_limit`: Number of newest items kept in the current web UI payload. Older items are retained in history.
-
-## Premium Article Graph
-
-The article relationship graph is optional and disabled by default. It writes a small SQLite index to `data/horizon.db` and a static snapshot to `data/site/article-graph.json`. The browser reads only this static JSON; clicking the graph button does not call the backend or an AI model.
-
-```json
-{
-  "premium_analysis": {
-    "enabled": false,
-    "full_fetch_score_threshold": 8.5,
-    "max_full_fetch_per_run": 10,
-    "max_full_text_chars": 12000,
-    "full_fetch_concurrency": 2
-  },
-  "article_graph": {
-    "enabled": false,
-    "premium_score_threshold": 8.5,
-    "max_visible_nodes": 30,
-    "max_visible_edges": 100,
-    "relation_top_k": 3,
-    "min_relation_score": 0.55
-  }
-}
-```
-
-- `premium_analysis.enabled`: Enables high-score article full-text fetching and premium row storage. Failures are logged as warnings and do not stop the main pipeline.
-- `full_fetch_score_threshold`: Only articles at or above this score are eligible for full-text fetching.
-- `max_full_fetch_per_run`: Caps network fetches per run to keep small VPS deployments stable.
-- `article_graph.enabled`: Enables deterministic relationship edge generation and writes `article-graph.json`.
-- `premium_score_threshold`: Only articles at or above this score enter the graph.
-- `relation_top_k`: Maximum relations retained per article.
-- `min_relation_score`: Minimum deterministic overlap score for a relation edge.
-
-## Environment Variable Substitution
-
-Any string value in `data/config.json` supports `${VAR_NAME}` syntax. Variables are expanded at runtime from the environment (including values loaded from `.env`). This lets you keep secrets, tenant-specific endpoints, and private URLs out of the checked-in JSON file.
-
-Example:
-
-```json
-{
-  "ai": {
-    "base_url": "${HORIZON_AI_BASE_URL}"
-  },
-  "sources": {
-    "rss": [
-      {
-        "name": "LWN.net",
-        "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
-        "enabled": true
-      }
-    ]
-  },
-  "webhook": {
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "headers": "Authorization: Bearer ${HORIZON_WEBHOOK_TOKEN}"
-  }
-}
-```
-
-- `${NAME}` is replaced only when `NAME` is a valid identifier like `LWN_KEY` or `HORIZON_AI_BASE_URL`.
-- Unset variables are left as `${NAME}` instead of becoming an empty string, so configuration mistakes fail loudly downstream.
-- Expansion is recursive through dicts, lists, and tuples; non-string values are left unchanged.
-
-## Email Subscription
-
-Email delivery is optional and disabled unless `email.enabled` is `true`. Horizon uses SMTP to send daily summaries and IMAP to check subscribe/unsubscribe requests.
-
-```json
-{
-  "email": {
-    "enabled": true,
-    "smtp_server": "smtp.qq.com",
-    "smtp_port": 465,
-    "smtp_username": null,
-    "imap_enabled": true,
-    "imap_server": "imap.qq.com",
-    "imap_port": 993,
-    "email_address": "xxx@qq.com",
-    "password_env": "EMAIL_PASSWORD",
-    "sender_name": "Horizon Daily",
-    "subscribe_keyword": "SUBSCRIBE",
-    "unsubscribe_keyword": "UNSUBSCRIBE"
-  }
-}
-```
-
-- `enabled`: Turns email subscription handling and daily email delivery on or off.
-- `smtp_server` / `smtp_port`: SMTP server used to send emails.
-- `smtp_username`: Optional SMTP login username. If omitted, Horizon uses `email_address`.
-- `imap_enabled`: Turns IMAP subscribe/unsubscribe checks on or off. Set it to `false` for send-only SMTP providers.
-- `imap_server` / `imap_port`: IMAP server used to scan incoming subscription requests when `imap_enabled` is `true`.
-- `email_address`: Sender account and mailbox checked for subscription requests.
-- `password_env`: Environment variable containing the email password or app password. Defaults to `EMAIL_PASSWORD`.
-- `sender_name`: Display name shown in sent emails.
-- `subscribe_keyword` / `unsubscribe_keyword`: Keywords Horizon looks for in incoming email subjects.
-
-Resend SMTP example:
-
-```json
-{
-  "email": {
-    "enabled": true,
-    "smtp_server": "smtp.resend.com",
-    "smtp_port": 465,
-    "smtp_username": "resend",
-    "password_env": "RESEND_API_KEY",
-    "imap_enabled": false,
-    "imap_server": "",
-    "imap_port": 993,
-    "email_address": "noreply@example.com",
-    "sender_name": "Horizon Daily"
-  }
-}
-```
-
-Set `RESEND_API_KEY` in `.env`. Recipients are loaded from `data/subscribers.json`.
-
-## Webhook Notification
-
-Webhook notification is optional and disabled unless `webhook.enabled` is `true`. Horizon can call Feishu/Lark, DingTalk, Slack, Discord, or any custom webhook endpoint when the pipeline succeeds or fails.
-
-```json
-{
-  "webhook": {
-    "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "delivery": "summary",
-    "overview_position": "first",
-    "platform": "generic",
-    "layout": "markdown",
-    "fallback_layout": "markdown",
-    "languages": null,
-    "request_body": {
-      "text": "#{message_title}\n#{summary}"
-    },
-    "headers": ""
-  }
-}
-```
-
-- `enabled`: Turns webhook delivery on or off. The default is `false`.
-- `url_env`: Environment variable that contains the webhook URL. For example, set `HORIZON_WEBHOOK_URL=https://...` in `.env`.
-- `delivery`: Controls how messages are sent. Use `summary` for one full message, or `summary_and_items` for one overview message followed by one message per selected item.
-- `overview_position`: Controls where the overview is sent in `summary_and_items` mode. Use `first` for the traditional order, or `last` to send item details in reverse and keep the overview as the newest chat message.
-- `platform`: Optional webhook platform hint. Use `generic` by default, or `feishu` / `lark` to enable platform-specific card rendering.
-- `layout`: Controls the message layout. Use `markdown` for templated Markdown delivery, or `collapsible` with `platform: "feishu"` / `"lark"` for a single Feishu Card JSON 2.0 message with each item in a collapsed panel.
-- `fallback_layout`: Reserved fallback layout for unsupported platform/layout combinations. The current safe fallback is `markdown`.
-- `languages`: Optional webhook-only language filter. Use `["zh"]` or `["en"]` to send only selected languages; use `null` or omit it to send all configured `ai.languages`.
-- `request_body`: Optional request body. If empty, Horizon sends a `GET` request. If provided, Horizon sends a `POST` request.
-- `headers`: Optional custom headers, one `Key: Value` pair per line.
-
-When `request_body` is a JSON object or array, Horizon renders placeholders and serializes it as JSON. When it is a string, Horizon renders it directly and detects JSON if the rendered string is valid JSON.
-
-### Delivery Modes And Layouts
-
-`delivery` controls how many webhook messages Horizon sends:
-
-- `summary`: Sends one message containing the full daily summary. This is simple, but some chat platforms may reject long messages.
-- `summary_and_items`: Sends one overview message plus one message per selected item. In each item message, `#{summary}` contains only that item's Markdown body. This is useful for platforms that reject or truncate long messages.
-
-`layout` controls how each message is rendered:
-
-- `markdown`: Uses your `request_body` template for each message. This is the default and works with generic webhooks, DingTalk, Slack, Discord, Feishu, and Lark.
-- `collapsible`: Currently supported for `platform: "feishu"` or `"lark"`. Horizon ignores `request_body` and builds one Feishu/Lark Card JSON 2.0 message with each item in a collapsed panel.
-
-For platforms without a platform-specific layout, keep `layout: "markdown"` and choose the message count with `delivery`.
-
-Example `summary_and_items` Markdown delivery config:
-
-```json
-{
-  "webhook": {
-    "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "delivery": "summary_and_items",
-    "overview_position": "last",
-    "platform": "generic",
-    "layout": "markdown",
-    "request_body": {
-      "text": "#{message_title}\n\n#{summary?limit=3000&split=---}"
-    }
-  }
-}
-```
-
-With `summary_and_items`, Horizon sends one overview plus one message per selected item. `overview_position: "last"` sends item messages first and keeps the overview as the newest chat message; omit it or set `"first"` to send the overview first.
-
-### Webhook Templates
-
-Available variables:
-
-| Variable | Description |
-|----------|-------------|
-| `#{date}` | Report date, for example `2026-04-24` |
-| `#{language}` | Language code, such as `en` or `zh` |
-| `#{important_items}` | Number of items that passed the score threshold |
-| `#{all_items}` | Total number of fetched items |
-| `#{result}` | `success` or `failed` |
-| `#{timestamp}` | Unix timestamp |
-| `#{message_title}` | Message title, such as the daily title, overview title, or item title |
-| `#{message_kind}` | Message kind: `summary`, `overview`, `item`, `failure`, or `manual` |
-| `#{summary}` | Message Markdown. In `summary_and_items` mode this is the overview or one item body, depending on the message |
-
-When `delivery` is `summary_and_items`, item messages also include:
-
-| Variable | Description |
-|----------|-------------|
-| `#{item_index}` | 1-based item number |
-| `#{item_count}` | Total number of item messages |
-| `#{item_title}` | Current item title |
-| `#{item_url}` | Current item URL |
-| `#{item_score}` | Current item AI score |
-
-For webhook delivery, Horizon flattens HTML disclosure blocks such as `<details><summary>...</summary>` in `#{summary}` into plain Markdown link lists. This makes the generated summary easier to render in chat products. Saved Markdown files, GitHub Pages, and email content are unchanged.
-
-Use `#{key?limit=N&split=DELIM}` to truncate long values by splitting on `DELIM` and keeping segments until the total character count reaches `N`.
-
-```text
-#{summary?limit=3000&split=---}
-```
-
-### DingTalk
-
-In DingTalk, create a custom group robot and use a custom keyword such as `Horizon`. The keyword must appear in the body content.
-
-```json
-{
-  "msgtype": "markdown",
-  "markdown": {
-    "title": "Horizon #{date} Daily",
-    "text": "Horizon result: #{result}\n\nHorizon important items: #{important_items}/#{all_items}\n\n#{summary}"
-  }
-}
-```
-
-### Feishu / Lark
-
-In Feishu or Lark, create a custom group robot and use a custom keyword such as `Horizon`. The keyword must appear in the body content.
-
-Use Card JSON 2.0 for Markdown rendering. The card must include `"schema": "2.0"` and put rich-text Markdown components under `card.body.elements`.
-
-To keep the group chat compact while still allowing readers to browse the full briefing inside Feishu, use the collapsible layout:
-
-```json
-{
-  "webhook": {
-    "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "platform": "feishu",
-    "layout": "collapsible",
-    "fallback_layout": "markdown",
-    "languages": ["zh"]
-  }
-}
-```
-
-With this layout, Horizon sends one interactive card containing the overview and one collapsed panel per selected item. Each panel can be expanded in Feishu to read the full item detail. The regular `request_body` template is ignored for this rendered card.
-
-```json
-{
-  "msg_type": "interactive",
-  "card": {
-    "schema": "2.0",
-    "config": {
-      "wide_screen_mode": true
-    },
-    "header": {
-      "title": {
-        "tag": "plain_text",
-        "content": "#{message_title}"
-      },
-      "template": "blue"
-    },
-    "body": {
-      "elements": [
-        {
-          "tag": "markdown",
-          "content": "Horizon result: #{result}\nHorizon important items: #{important_items}/#{all_items}"
-        },
-        {
-          "tag": "hr"
-        },
-        {
-          "tag": "markdown",
-          "content": "#{summary}"
-        }
-      ]
-    }
-  }
-}
-```
-
-## Static Site
-
-Horizon writes generated summaries to `data/summaries/` and copies publishable Markdown into `docs/` for the GitHub Pages site. The repository includes a ready-to-use workflow at `.github/workflows/daily-summary.yml`.
-
-To use GitHub Pages, enable Pages for the repository and run the scheduled workflow or trigger it manually. The generated site is built from the `docs/` directory.
-
-## MCP Server
-
-Horizon includes an MCP server for AI assistants and MCP-compatible clients.
-
-```bash
-uv run horizon-mcp
-```
-
-Available tools include `hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, and `hz_run_pipeline`.
-
-See [`src/mcp/README.md`](../src/mcp/README.md) for the full tool reference and [`src/mcp/integration.md`](../src/mcp/integration.md) for client setup.
+The gates do not run real sources, AI, paid Actors, notification sends, or a scheduler.

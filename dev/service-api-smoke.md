@@ -25,25 +25,11 @@
   --json-output logs/service-api-smoke-latest.json
 ```
 
-`--mutating` 会创建或复用一个 `member-ui-smoke` 成员并 PATCH 启用状态/角色，创建或复用一个 private RSS smoke source、订阅它、创建 `source_test` queued job；如果当前 feed 有 item，会验证 item state 和 compatibility-only feedback API。后者不是默认 UI 能力。报告不得包含密码或 `password_hash`。
-
-## 静态 UI smoke
-
-启动 API 后运行：
-
-```bash
-./.venv/bin/python scripts/service_ui_smoke.py \
-  --base-url http://127.0.0.1:8080 \
-  --username "$HORIZON_AUTH_USER" \
-  --password "$HORIZON_AUTH_PASSWORD" \
-  --json-output logs/service-ui-smoke-latest.json
-```
-
-UI smoke 会登录 API、读取 `/` 和静态 JS/CSS 资源、确认页面包含阅读/订阅/配置入口，并检查静态 JS 不再请求本地 `radar-data.json`、`history-data.json` 或 `article-graph.json`。需要验证 UI 写路径时可增加 `--mutating`，它只创建本地 smoke private RSS source 和 queued `source_test` job，不访问外网。
+`--mutating` 会创建或复用一个 `member-ui-smoke` 成员并 PATCH 启用状态/角色，创建或复用一个 private RSS smoke source、订阅它、创建 `source_test` queued job；如果当前 feed 有 item，会验证当前 item state。报告不得包含密码或 `password_hash`。
 
 ## Docker 组合验收
 
-默认启动 Docker API + Worker，并验证 readiness 和无外网依赖的核心 API smoke；scheduler 不启动：
+默认启动 Docker API + Worker，并验证 readiness 和无外网依赖的核心 API smoke；不存在 scheduler 或旧 UI smoke：
 
 ```bash
 ./.venv/bin/python scripts/service_stack_smoke.py \
@@ -52,19 +38,6 @@ UI smoke 会登录 API、读取 `/` 和静态 JS/CSS 资源、确认页面包含
   --username "$HORIZON_AUTH_USER" \
   --password "$HORIZON_AUTH_PASSWORD" \
   --api-only \
-  --json-output logs/service-stack-smoke-latest.json
-```
-
-需要同时跑静态 UI smoke 时增加 `--include-ui-smoke`：
-
-```bash
-./.venv/bin/python scripts/service_stack_smoke.py \
-  --compose-file docker-compose.light.yml \
-  --base-url http://127.0.0.1:8080 \
-  --username "$HORIZON_AUTH_USER" \
-  --password "$HORIZON_AUTH_PASSWORD" \
-  --api-only \
-  --include-ui-smoke \
   --json-output logs/service-stack-smoke-latest.json
 ```
 
@@ -81,7 +54,7 @@ UI smoke 会登录 API、读取 `/` 和静态 JS/CSS 资源、确认页面包含
   --json-output logs/service-stack-smoke-latest.json
 ```
 
-组合报告只汇总 `compose_up`、`api_health`、`api_smoke`、`ui_smoke`、`real_source_smoke` 等步骤状态和子报告路径；核心 API、UI 和真实源 smoke 仍各自写入独立 JSON 报告。默认 `--api-only` 不访问外网，不启动 scheduler，不触发通知或 webhook。
+组合报告只汇总 `compose_up`、`api_health`、`api_smoke`、`real_source_smoke` 等步骤状态和子报告路径；核心 API 和真实源 smoke 各自写入独立 JSON 报告。默认 `--api-only` 不访问外网，不触发通知、Webhook、AI 或付费 Actor。
 
 ## 浏览器手动验收
 
@@ -105,7 +78,7 @@ Docker API 启动后打开 `http://127.0.0.1:8080/`：
   --backup-dir data/backups
 ```
 
-真实迁移必须先停止 API、Worker 和 scheduler，再显式增加 `--apply`。脚本先生成权限为 `0600` 的 UTC 时间戳备份；已迁移数据库重复执行会返回 `already_migrated`，不会再次清空数据。
+真实迁移必须先停止 API 与 Worker，再显式增加 `--apply`。脚本先生成权限为 `0600` 的 UTC 时间戳备份；已迁移数据库重复执行会返回 `already_migrated`，不会再次清空数据。既有 feedback 表和行不参与检查，也不得由迁移读取、清空或改写。
 
 ## curl 最小流程
 

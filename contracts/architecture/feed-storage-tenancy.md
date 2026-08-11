@@ -3,8 +3,8 @@
 
 稳定内容默认全部保留；普通自动 retention 只能删除紧凑 snapshot、任务、缓存、使用记录、过期 session/proposal 与孤立媒体，不得删除 `user_content_items`。收藏、稍后读和按需详情同样使用稳定索引，不依赖 item 仍存在于最新 snapshot。v4 负责稳定内容表，v11 负责 `effective_at/search_text` 与用户 FTS5 trigram 索引；任一显式迁移都必须先以 SQLite backup API 创建权限 `0600` 的独立副本，再校验 integrity 与 foreign keys。
 
-### 3.5A Legacy Archive Compatibility Boundary
-`ArticleStore`、`data/horizon.db`、archive items/trends/facets/source-quality、feedback 表/API 和旧静态 history/graph 只为兼容保留，不是当前产品 UI 或后续建设目标。默认 Service UI 不依赖或调用这些接口；`/api/archive/graph` 固定返回 disabled 安全空响应。保留 compatibility surface 不得被解释为 Service Feed 的架构依赖。
+### 3.5A Retired Artifact Boundary
+`data/site/**`、`data/horizon.db`、旧 summaries、本地 MCP run 与既有 feedback 表/行均为 inert operator-owned artifact。API、Worker、React、Remote MCP、初始化和迁移不得读取、写入、投影、迁移或物理删除它们；`/api/archive/*` 与 feedback POST 不在 OpenAPI 中并返回统一 404。`data/archives/**` 属于下述现役冷归档，不受本边界影响。
 
 ### 3.5B Storage Governance Boundary
 `src/services/storage_governance.py::StorageGovernanceService` 独占当前工作区的存储概览、两阶段候选计划、标准清理、90 天冷归档、恢复和归档永久删除。API 只负责 owner/admin 鉴权、请求 shape 与安全 envelope；入口层不得拼任意 SQL、接受原始路径、运行在线 `VACUUM` 或直接删除文件。每个计划绑定 actor/workspace、十分钟有效期和候选指纹；apply 在写事务内复算候选，变化即 fail closed。
@@ -15,7 +15,7 @@
 小团体 MVP 使用单 workspace。用户、角色、公共/私有 source catalog、订阅配置、job queue、usage event 和 secret ref 归 `src/storage/service_store.py` 管理。入口层不得直接拼 SQL 或绕过 `ServiceStore`/service helper 读写这些状态。
 
 ### 3.6A User Behavior Boundary
-用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。旧 feedback 写入路径只兼容保留，不进入默认 UI，也不改变 Feed 过滤、排序或推荐。
+用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。Fresh DB 不创建 feedback 表；旧表与行只按 3.5A 原样保留，不进入任何行为路径。
 
 ### 3.6B Source Catalog Boundary
 `src/services/source_type_registry.py` 是 Service API source type 元数据、Web setup alias、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`youtube_channel` 只是一等 Web setup alias，必须规范化并存储为 catalog `rss`；既有规范 YouTube channel RSS 由 registry 派生相同 setup type，不增加数据库 enum 或 scraper。`src/services/youtube_channel.py` 独占公开 channel ID/链接/handle 解析，只能从固定 YouTube 主机执行一次有界、无重定向的公共 HTML 读取；API、Worker 和前端不得自行解析 handle 或接受任意解析 URL。`src/rsshub.py` 只拥有 workspace RSSHub Base URL、受控站点/route allowlist、语义 source key、runtime feed URL 与 route-scoped access code 解析；RSSHub 不得成为独立 catalog type。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action、Remote MCP 和 Worker 都必须复用这些边界，避免在路由、前端、Skill 或任务执行层散落 source 类型与 RSSHub path 规则。
@@ -25,9 +25,9 @@
 Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_runner.py` 管理。该 runner 只能读取 catalog source、当前用户 subscription override 和全局非 source 配置来生成单源 `Config`；不得把 UI payload 当作权威抓取配置，也不得在 Worker 中绕过用户作用域 snapshot 写入。
 
 ### 3.6C Structured Feed Production Boundary
-`HorizonOrchestrator.execute()` 只负责抓取、跨源去重、可选分析并返回不可变 `FeedRunResult`；来源级成功/失败必须由 `SourceOutcome` 显式表达，抓取异常不得折叠为空列表。跨源 URL 去重必须保留完整 `source_ids/subscription_ids/source_keys` provenance，且 query identifier 属于 URL 身份。`FeedProductionService` 是全量刷新、单源合并、失败来源旧内容保留、窗口清理和排序的唯一 finalizer；partial 保留判断使用 provenance 与 failed active source 的交集，不能只看 primary `source_id`。Service Worker 与 catalog runner 必须共用该 finalizer，不得执行全局历史增量去重或写全局静态文件、摘要、legacy 通知和图谱；偏好来源事件只可交给 3.8C 的 Service outbox。
+`HorizonOrchestrator.execute()` 只负责抓取、跨源去重、可选分析并返回不可变 `FeedRunResult`；来源级成功/失败必须由 `SourceOutcome` 显式表达，抓取异常不得折叠为空列表。跨源 URL 去重必须保留完整 `source_ids/subscription_ids/source_keys` provenance，且 query identifier 属于 URL 身份。`FeedProductionService` 是全量刷新、单源合并、失败来源旧内容保留、窗口清理和排序的唯一 finalizer；partial 保留判断使用 provenance 与 failed active source 的交集，不能只看 primary `source_id`。Service Worker 与 catalog runner 必须共用该 finalizer，不得写全局静态文件、摘要、旧通知或图谱；偏好来源事件只可交给 3.8C 的 Service outbox。
 
-旧 CLI/scheduler 的 `run()` 先调用结构化 `execute(legacy_sources=True)`，再由 `src/services/legacy_publisher.py::LegacyPublisher` 独占全局静态站、`history-data`、摘要、通知、`ArticleStore` archive 和 graph 发布；单源 CLI 静态写入也必须通过该 publisher。该路径可以保留 legacy optional 的全局 archive/graph，但不得被 Service API/Worker 调用，也不得成为 Service UI 的读取兜底。
+`src/services/feed_payload.py` 独占 Feed wire 序列化与 snapshot payload 规范化；`src/services/feed_read.py::FeedReadService` 必须显式接收 `ServiceStore` 并只从 Service DB 提供 latest/history/search。两者不得接受 `data_dir/site_dir`、导入 UI 模块、复制静态资源或查询 `ArticleStore`。
 
 ### 3.6D Shared Acquisition Boundary
 

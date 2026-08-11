@@ -1,274 +1,126 @@
 # Inteliscope 使用说明
 
-这份说明面向日常使用和小范围分享。当前部署入口为：
+这份说明面向日常使用和小范围分享。当前部署入口为 `https://rb.jiefs.top/`，本地默认入口为 `http://127.0.0.1:8080/`。
 
-- 公网入口：`https://rb.jiefs.top/`
-- 服务器目录：`/opt/inteliscope`
-- Docker Web 端口：`127.0.0.1:8080`
+## 1. 登录与角色
 
-## 1. 登录访问
+Service API 始终要求应用账号登录。角色分为 `owner/admin/member/viewer`：
 
-多人 Service API 始终要求应用账号登录。如果 Nginx 另行开启 Basic Auth，首次访问还会先弹出浏览器原生登录框。
+- Owner/Admin 管理成员、工作区来源、AI/Apify Key、通知服务、ActorOps 与存储治理。
+- Member 管理自己的 private 来源、订阅、Feed 状态和允许的 Agent 连接。
+- Viewer 可阅读自己的 Feed、历史、来源和运行记录，但不能执行写操作。
 
-- 应用账号由管理员创建，角色分为 `owner/admin/member/viewer`。
-- Nginx Basic Auth 是可选的站点外层密码，与应用账号和 AI API Key 都不同。
-- 浏览器会缓存 Basic Auth 登录状态；要退出通常需要关闭浏览器，或清理站点登录缓存。
+Nginx Basic Auth 只能作为可选外层门禁，不能替代应用登录和角色权限。
 
-注意：Nginx Basic Auth 不能替代应用登录和角色权限；`viewer` 只读，成员管理与全局配置需要 `owner/admin`。
+## 2. Feed、收藏与历史
 
-## 2. 信息流页面
+主要页面为：
 
-顶部标签用于切换阅读视图：
+- `/feed`：当前用户时间窗口内的 Feed，支持时间流和来源概览。
+- `/saved`：收藏与稍后读集合；历史 `/later` 会重定向到这里。
+- `/history`：当前 Feed 窗口之前的稳定内容。
+- `/subscriptions`：我的订阅、来源库和运行记录。
+- `/agents`：Remote MCP delegation 与浏览器 OpenClaw 连接。
+- `/settings/*`：通知、AI、获取、忽略、密钥、ActorOps 和存储治理。
 
-- `精选`：今天达到精选阈值的内容，适合默认扫读。
-- `全部`：今天进入信息流的所有内容。
-- `稍后读`：当前账号标记为稍后读的条目，状态保存在 Service DB。
-- `历史`：从当前用户最近 snapshot 留存中回看已经离开最新 Feed 的条目。
-- `日报`：达到每日推送阈值的内容。
-- `订阅`：管理公共源市场、我的订阅、私有源、刷新任务和成员（按角色显示）。
-- `配置`：维护信源、标签、AI 模型、阈值和推送设置。
+选中或打开条目不会自动标记已读。收藏、稍后读、忽略和已读/未读只修改当前用户的 item state。Feed 搜索覆盖当前窗口、在线历史和现役冷归档元数据，但不会把旧内容移回 Feed。
 
-左侧筛选支持：
+右上角“重新载入”只读取最新投影；“获取新内容”创建或复用 `user_feed_refresh` Job。任务完成后页面重新读取 Feed，同一账号重复提交不会创建并发刷新。
 
-- 关键词搜索：匹配标题、摘要、理由、标签。
-- 最低分：按 AI 分数过滤。
-- 频道/主题：按 Hub taxonomy 筛选。
-- 来源：按具体信源过滤。
-- 只看收藏：只显示当前账号收藏的内容。
-- 隐藏已忽略、未读优先：使用当前账号的 item state。
+## 3. 来源与计划
 
-条目按钮：
+来源可见范围为 public、workspace 或 private。创建来源后可订阅；订阅 shared 来源不会改变其他用户，最后一个 private owner 取消订阅时会软停用无人引用来源。
 
-- `打开原文`：跳到原始链接。
-- `标记已读`：记录当前账号已阅读该条目。
-- `复制摘要`：复制条目的摘要内容。
-- `收藏`：保存或取消当前账号的收藏状态。
-- `稍后读`：保存或取消当前账号的稍后读状态。
-- `忽略`：把条目标为已忽略，可配合“隐藏已忽略”筛选。
+自动计划全部由现有 Worker 执行：
 
-选中首篇、切换条目或重新加载页面都不会自动标记已读；只有用户点击一次 `标记已读` 才 PATCH Service API。已读后按钮显示 `已读` 并禁用，不会再次点击取消。
+- 每用户 Feed 周期：1/3/6/12/24 小时，默认关闭。
+- 每订阅单源周期：30 分钟或 1/3/6/12/24 小时，默认跟随全局。
 
-右上角 `获取新内容` 会创建 `user_feed_refresh`，不是只重新读取旧 snapshot。任务 queued/running 时按钮会禁用并轮询；完成后页面自动加载新 Feed，同一账号重复提交会复用已有任务。
+它们创建普通 `user_feed_refresh` 或 `source_fetch` Job，共用去重、配额、Source Health、Feed finalization 和通知规则。没有 scheduler 服务或 profile。
 
-### 2.1 自动更新信息流
+## 4. 通知服务
 
-在 `订阅` 页顶部使用“自动更新信息流”卡片：
+`/settings/notifications` 使用统一“通知服务”界面：
 
-- 每个用户独立设置，默认关闭；viewer 只能查看。
-- 周期固定为 1、3、6、12 或 24 小时，默认 6 小时。周期只决定何时刷新，不缩短配置中的内容抓取时间窗口。
-- 首次开启会在下一个 Worker 调度 tick 创建任务；关闭后不再创建新任务，已经 running 的任务会继续完成。
-- 卡片显示上次自动刷新、任务状态、产出条数、`partial` 的问题摘要、下次刷新和 Worker 状态。Worker missing/stale、配额耗尽、无有效订阅或 source fetch 冲突会显示明确状态。
-- `立即刷新` 始终保留，并与自动任务共用去重、轮询、配额和 Feed 更新逻辑。
+- Owner/Admin 创建和维护 workspace Email、Webhook、Telegram 服务。
+- 目的地和凭据只在写请求中出现，提交后不回显。
+- `保存并测试` 只发送一次明确的模拟消息；成功后启用该 service generation。
+- 用户在“个人新内容通知”中选择服务，并在订阅卡片上逐源 opt-in。
 
-默认 UI 不提供站内原文预览、偏好反馈、Archive 分析或 Graph 入口；订阅控制台也不请求 archive/source-quality。
+首份 snapshot、历史复用内容、通知关闭期间发现的内容都不补发。通知失败不会改变 Feed 或重跑来源获取。
 
-## 3. 今日与历史规则
+## 5. 设置与密钥
 
-多人 Service 使用 `data/service.db` 中当前用户的 Feed snapshots：
+Owner/Admin 可在原生设置页管理：
 
-- `最新` 读取当前用户最新 snapshot。
-- `历史` 从当前账号自己的近期 snapshots 构造，避免把仍在最新 Feed 的内容重复显示。
-- 历史条目会补充当前账号最新的收藏、稍后读、已读和忽略状态；精确响应与留存算法以 `docs/contracts/api/feed-history-presentation-storage.md` 为准。
+- AI Key、Provider/Model 和安全输入输出上限。
+- RSSHub Base URL、获取窗口与主题库。
+- Apify Key Pool、ActorOps、发现与付费 Canary 审批。
+- 存储概览、标准清理、冷归档与恢复。
 
-旧 CLI 的 `data/site/history-data.json` 是全局静态发布兼容文件，与多人 Service 历史不是同一数据层；默认 Service UI 不读取它，也不按“第二天搬运文件”的规则生成历史。
+真实 Key、Token、Webhook URL、SMTP 密码和 Chat ID 只写入 `data/secrets.env`，权限为 `0600`；页面、API、日志、Job 和数据库只保存安全引用/摘要。
 
-## 4. 配置页面
+## 6. OpenClaw 与 Remote MCP
 
-配置页用于维护项目行为，不建议随便改。
+`/agents` 可创建当前用户自己的 delegation。Read 连接只访问该用户的安全 Feed、来源、健康、Job 和脱敏诊断；受控订阅写入需要单独选择权限、服务端开关和实时角色校验。
 
-常用区域：
+浏览器 OpenClaw 对话是另一条 opt-in 连接，浏览器直接连接用户自己的 Gateway；Inteliscope 不代理 Gateway，也不保存 bootstrap token。Remote MCP 的唯一服务端入口是 `/mcp`，仓库不再提供本地 stdio MCP。
 
-- 密钥管理：owner/admin 可新增或轮换 AI/Apify Key；真实值提交后永不回显。
-- AI 模型：配置 provider、model、Key 引用、单篇概括字数和输出 token 上限。
-- AI 固定大类：用于评分 Prompt 和精选逻辑，建议保持稳定。
-- 个人标签：自由添加个人偏好标签，只用于关注和筛选。
-- 评分阈值：控制精选、每日推送和首页最低分。
-- 信源配置：新增 RSS、GitHub、Reddit、Telegram、Apify 社交订阅等。
-- Webhook：配置每日推送目标。
+## 7. 数据边界
 
-保存规则：
+当前 latest/history/search 真源是 `data/service.db`。Service DB 继续双读既有完整 snapshot 与 compact snapshot；现役冷归档位于 `data/archives/**`，由 `/api/admin/storage/*` 管理。
 
-- SQLite 与配置 JSON 只保存密钥引用，不保存真实值。
-- 网页写入的真实值只进入本地 `data/secrets.env`，文件权限固定为 `0600`，页面以后只显示名称和“已设置”。
-- `data/secrets.env` 已被 Git 和 Docker 构建忽略；API 与 Worker 会在任务前热加载，轮换后无需重启。
-- 后台会校验 URL、标签、环境变量名和订阅类型。
-- 保存失败时页面会返回原因。
+以下历史数据已经停止读写，但本次退役不会物理删除：
 
-## 5. Apify 社交订阅
+- `data/site/**`
+- `data/horizon.db`
+- 旧 summaries
+- 旧本地 MCP run
+- 既有 feedback 表和行
 
-当前 Apify 用于抓公开社交平台内容，例如：
+Fresh DB 不再创建 feedback 表。旧 `/api/archive/{graph,items,trends,facets,source-quality}` 与 feedback POST 已删除，访问时返回统一 404，OpenAPI 不再列出。
 
-- X 公开账号或关键词。
-- Instagram 公开主页或 hashtag。
-- Facebook 公开 Page、公开 Group、公开帖子 URL。
-- Telegram 公开频道。
+`data/config.json` 中历史 `email/webhook/premium_analysis/article_graph` 块会原样保留在磁盘，但 API 不返回、现役代码不执行、配置 action 不改写。
 
-限制：
+## 8. 管理员运维
 
-- 不抓私密频道、私密群组、好友流。
-- 不使用 cookie、账号密码或 session。
-- Apify 会消耗额度，测试订阅也会消耗少量额度。
-
-如果额度紧张：
-
-- 只保留必要订阅。
-- 把个人兴趣类内容设置为 `个人关注（跳过 AI）`。
-- 降低每个订阅的抓取数量。
-
-## 6. AI 模型用途
-
-AI Key 主要用于：
-
-- 给内容打 0-10 分。
-- 生成中文摘要。
-- 生成内容判断理由。
-- 归类到固定大类。
-- 判断是否进入精选和每日推送。
-
-默认单篇只发送最多 1000 字正文和 1500 字评论，模型输出最多 800 token；最终概括硬限制为 200 字。模型失败、空响应或“仅收集”模式会回退到来源摘要、正文片段或标题，Feed 不会出现空概括。
-
-个人标签不会进入行业评分 Prompt；它只表达个人偏好和筛选需求。
-
-## 7. Service 与旧 CLI 数据边界
-
-当前多人 Service 的产品边界是信息获取和 Feed 留存：
-
-- Service UI/API 只以用户 `service.db` snapshot 作为 latest/history 数据源。
-- Archive analytics、source-quality、偏好 feedback 和 Graph 仅保留兼容接口，不驱动默认 UI、Feed 排序或个性化推荐。
-- `/api/archive/graph` 固定返回 disabled 安全空响应，Service 页面没有 Graph 入口。
-
-旧 CLI/scheduler 可选继续生成全局 `data/site/history-data.json`、`data/horizon.db` 和 `data/site/article-graph.json`。这些是 legacy compatibility 输出，只由旧 publisher 使用，不会被多人 Service UI/API 当作兜底数据源。
-
-## 8. 每日推送
-
-以下是旧 CLI/scheduler 的可选分发规则，不属于默认 Service 信息获取与 Feed 留存链路：
-
-- 时区：`Asia/Shanghai`
-- 每天 `08:30` 生成每日推送。
-- 分数高于每日推送阈值的内容进入推送。
-- 增量轮询期间只更新 Web 页面，不重复发每日推送。
-
-手动测试：
-
-```bash
-cd /opt/inteliscope
-docker compose run --rm horizon --hours 24
-```
-
-查看日志：
-
-```bash
-cd /opt/inteliscope
-docker compose logs -f horizon-scheduler
-```
-
-## 9. 管理员运维
-
-进入服务器：
+查看服务与日志：
 
 ```bash
 ssh vps-tokyo
 cd /opt/inteliscope/current
-```
-
-查看服务：
-
-```bash
 docker compose ps
-```
-
-查看日志：
-
-```bash
 docker compose logs -f horizon-api horizon-worker
 ```
 
-查看当前 release：
+正常发布从本地、干净且与 `origin/main` 一致的 `main` 执行：
 
 ```bash
+./scripts/release_vps.sh preflight vX.Y.Z
+./scripts/release_vps.sh release vX.Y.Z
 ./scripts/release_vps.sh status
+./scripts/release_vps.sh rollback [release-id]
 ```
 
-检查本机反代目标：
+镜像必须在本地构建并验证 `linux/amd64`，VPS 只执行 `docker load`。切换前脚本检查活跃 Job，并在发现残留历史 scheduler 容器时阻断。普通发布失败回滚到上一不可变 API/Worker release；包含数据库迁移的版本必须走独立 runbook。
+
+首次空数据库只使用 `scripts/release_rc1.sh`。失败时停止新 API/Worker 并保留诊断数据，不恢复旧 Web。
+
+## 9. 本地启动与验证
 
 ```bash
-curl -I http://127.0.0.1:8080/
+cp .env.example .env
+./scripts/up-latest.sh
+curl http://127.0.0.1:8080/api/health/live
+curl http://127.0.0.1:8080/api/health/ready
 ```
 
-普通公网升级从干净且与 `origin/main` 完全一致的本地 `main` 执行 `./scripts/release_vps.sh release vX.Y.Z`。它会复用该 SHA 已成功的 main Test Gate，在 CI 等待期间并行构建本地 `linux/amd64` 镜像，并行断点续传源包和镜像；main 绿灯后才推 Tag，Tag 隔离 smoke 通过后才切换 API/Worker。切换前会确认没有活跃任务、scheduler 未运行，并在线生成 `0600` 数据库和环境备份；readiness、Worker、前端资源或公网 revision 验证失败会自动回滚。含数据库迁移的版本必须先走对应迁移手册，普通发布会拒绝隐式迁移。不得在 VPS 从脏工作区执行 `up-latest.sh`，也不得在 VPS 构建项目。首次空数据库引导才使用旧的 `release_rc1.sh`。
-
-## 10. Nginx 项目密码
-
-只给 Inteliscope 这个项目加密码时，把 Basic Auth 放到反代 `127.0.0.1:8080` 的 `location /` 中。
-
-核心配置：
-
-```nginx
-location / {
-    auth_basic "Inteliscope";
-    auth_basic_user_file /etc/nginx/.htpasswd_inteliscope;
-
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 300s;
-    proxy_send_timeout 300s;
-}
-```
-
-生成密码文件：
+全量验证：
 
 ```bash
-sudo apt install -y apache2-utils
-sudo htpasswd -c /etc/nginx/.htpasswd_inteliscope friend
-sudo nginx -t
-sudo systemctl reload nginx
+python scripts/test_gate.py run --mode full
+python scripts/test_gate.py run --mode release
+git diff --check
 ```
 
-验证：
-
-```bash
-curl -I https://rb.jiefs.top/
-curl -I -u friend:你的密码 https://rb.jiefs.top/
-```
-
-预期：
-
-- 不带账号密码返回 `401`。
-- 带账号密码返回 `200`。
-
-## 11. 常见问题
-
-页面看不到内容：
-
-- 点右上角清除筛选按钮。
-- 检查最低分是否过高。
-- 切到 `全部` 或 `历史` 视图。
-- 确认订阅已启用，并在「订阅」页刷新当前用户 Feed。
-- 查看 `docker compose logs -f horizon-api horizon-worker`。
-
-readiness 返回 `migration_required`：
-
-- 这表示当前访问的数据库尚未完成 Feed v2 迁移；迁移不会随应用启动自动执行，应以 migration marker/readiness 为准。
-- 在停服和备份后显式运行 `scripts/migrate_user_feed_v2.py --apply`，再检查外键与首次刷新。当前部署已于 2026-07-11 完成该流程，但其他数据库仍需分别执行。
-
-配置保存失败：
-
-- 检查 URL 格式。
-- 检查标签是否在固定大类或个人标签库中。
-- 检查 `.env` 是否有对应环境变量。
-
-社交源抓不到：
-
-- 确认目标是公开内容。
-- 确认 `APIFY_TOKEN` 已设置。
-- 降低抓取数量后再测试。
-
-AI 摘要没有生成：
-
-- 在配置页确认所选 AI Key 显示“已设置”。
-- 检查 `ai.provider`、`ai.model`、`ai.base_url` 是否匹配。
-- 查看 Worker 日志中的模型请求错误；Gemini 限流时会保留受长度限制的来源概括，并在后续刷新重试 AI。
+门禁不会运行真实来源、AI、付费 Actor、通知发送或 scheduler。
