@@ -967,6 +967,7 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     script = (ROOT / "scripts" / "release_rc1.sh").read_text(encoding="utf-8")
 
     assert "git status --porcelain" in script
+    assert 'revision="$(git -C "$ROOT_DIR" rev-parse HEAD)"' in script
     assert "archive --format=tar.gz" in script
     assert "docker buildx build" in script
     assert 'platform="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"' in script
@@ -994,6 +995,7 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert "docker image prune" not in script
     assert "docker builder prune" not in script
     local_gates = script.split("run_local_gates() {", 1)[1].split("validate_database_artifact()", 1)[0]
+    assert "scripts/test_gate.py preflight" in local_gates
     assert "scripts/test_gate.py run --mode release" in local_gates
     assert "pytest -q" not in local_gates
     assert "node --test" not in local_gates
@@ -1004,9 +1006,9 @@ def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
 
     assert "git fetch --prune origin main --tags" in script
     assert "local main must exactly match origin/main" in script
-    assert "scripts/check_product_docs.py" in script
-    assert "scripts/test_gate.py run" in script
-    assert "--mode targeted --scope control" in script
+    assert "scripts/test_gate.py preflight" in script
+    assert '--base "$base_ref" --head HEAD' in script
+    assert "--mode targeted --scope control" not in script
     assert "test-gate.yml" in script
     assert 'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"' in script
     assert "release-tag.yml" in script

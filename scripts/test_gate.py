@@ -200,6 +200,32 @@ def changed_files_from_git(root: Path, base: str, head: str) -> list[str]:
     return sorted(set(changed))
 
 
+def changed_files_from_staged(root: Path) -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-status", "-z", "-M", "--"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise GateConfigError(f"unable to inspect staged changes: {detail[:300]}")
+    fields = result.stdout.decode("utf-8", errors="surrogateescape").split("\0")
+    changed: list[str] = []
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index]
+        index += 1
+        path_count = 2 if status.startswith(("R", "C")) else 1
+        if index + path_count > len(fields):
+            raise GateConfigError("malformed staged Git name-status output")
+        for relative in fields[index : index + path_count]:
+            if _is_safe_relative_path(relative):
+                changed.append(relative)
+        index += path_count
+    return sorted(set(changed))
+
+
 def _matches(relative: str, patterns: list[str]) -> bool:
     return any(fnmatchcase(relative, pattern) for pattern in patterns)
 
@@ -341,7 +367,11 @@ def _spec(
     return CommandSpec(command_id, tuple(str(item) for item in argv), cwd, env, domain)
 
 
-def _control_specs(root: Path) -> list[CommandSpec]:
+def _control_specs(
+    root: Path,
+    *,
+    diff_check_argv: list[str] | tuple[str, ...] | None = None,
+) -> list[CommandSpec]:
     python = _python(root)
     return [
         _spec(
@@ -364,11 +394,44 @@ def _control_specs(root: Path) -> list[CommandSpec]:
         ),
         _spec(
             "diff_check",
-            ["git", "diff", "--check"],
+            diff_check_argv or ["git", "diff", "--check"],
             root,
             domain="control",
         ),
     ]
+
+
+def _product_docs_spec(root: Path, changed_files: list[str]) -> CommandSpec | None:
+    if not changed_files:
+        return None
+    python = _python(root)
+    return _spec(
+        "product_docs_preflight",
+        [
+            python,
+            "scripts/check_product_docs.py",
+            *[f"--changed-file={relative}" for relative in changed_files],
+        ],
+        root,
+        domain="control",
+    )
+
+
+def _changed_shell_spec(root: Path, changed_files: list[str]) -> CommandSpec | None:
+    shell_files = [
+        relative
+        for relative in changed_files
+        if (relative.endswith(".sh") or relative.startswith(".githooks/"))
+        and (root / relative).is_file()
+    ]
+    if not shell_files:
+        return None
+    return _spec(
+        "shell_changed_syntax",
+        ["bash", "-n", *shell_files],
+        root,
+        domain="control",
+    )
 
 
 def _full_backend_specs(root: Path) -> list[CommandSpec]:
@@ -598,13 +661,29 @@ def build_command_specs(
     *,
     mode: str,
     scope: str = "all",
+    diff_check_argv: list[str] | tuple[str, ...] | None = None,
 ) -> list[CommandSpec]:
-    if mode not in {"targeted", "full", "release"}:
+    if mode not in {"preflight", "targeted", "full", "release"}:
         raise GateConfigError(f"unsupported run mode: {mode}")
     if scope not in {"all", "control", "backend", "frontend", "e2e", "smoke"}:
         raise GateConfigError(f"unsupported run scope: {scope}")
-    specs = _control_specs(root)
-    if mode == "targeted" and "full" not in set(plan["selected_groups"]):
+    specs = _control_specs(root, diff_check_argv=diff_check_argv)
+    if mode == "preflight":
+        product_docs = _product_docs_spec(root, plan["changed_files"])
+        if product_docs is not None:
+            specs.append(product_docs)
+        shell_syntax = _changed_shell_spec(root, plan["changed_files"])
+        if shell_syntax is not None:
+            specs.append(shell_syntax)
+        if "full" in set(plan["selected_groups"]):
+            specs.extend(
+                spec
+                for spec in [*_full_backend_specs(root), *_full_frontend_specs(root)]
+                if not spec.command_id.startswith("compose_")
+            )
+        else:
+            specs.extend(_targeted_specs(root, plan, mapping))
+    elif mode == "targeted" and "full" not in set(plan["selected_groups"]):
         specs.extend(_targeted_specs(root, plan, mapping))
     else:
         specs.extend(_full_backend_specs(root))
@@ -938,15 +1017,82 @@ def _selector_changed_files(args: argparse.Namespace, root: Path) -> list[str]:
     has_snapshot = bool(getattr(args, "snapshot", None))
     has_base = bool(getattr(args, "base", None))
     has_head = bool(getattr(args, "head", None))
-    if has_snapshot and (has_base or has_head):
-        raise GateConfigError("choose either --snapshot or --base/--head")
+    has_staged = bool(getattr(args, "staged", False))
+    selectors = int(has_snapshot) + int(has_base or has_head) + int(has_staged)
+    if selectors > 1:
+        raise GateConfigError(
+            "choose one of --snapshot, --staged, or --base/--head"
+        )
     if has_snapshot:
         return changed_files_from_snapshot(root, load_snapshot(args.snapshot))
+    if has_staged:
+        return changed_files_from_staged(root)
     if has_base != has_head:
         raise GateConfigError("--base and --head must be provided together")
     if has_base:
         return changed_files_from_git(root, args.base, args.head)
-    raise GateConfigError("a task --snapshot or Git --base/--head range is required")
+    raise GateConfigError(
+        "a task --snapshot, --staged, or Git --base/--head range is required"
+    )
+
+
+def _preflight_diff_check_argv(
+    args: argparse.Namespace,
+    root: Path,
+    changed_files: list[str],
+) -> list[str]:
+    if getattr(args, "staged", False):
+        return ["git", "diff", "--cached", "--check", "--"]
+    if getattr(args, "base", None):
+        return ["git", "diff", "--check", args.base, args.head, "--"]
+    return [
+        _python(root),
+        str(Path(__file__).resolve()),
+        "--root",
+        str(root),
+        "_check-snapshot-diff",
+        *[f"--changed-file={relative}" for relative in changed_files],
+    ]
+
+
+def _check_snapshot_diff(root: Path, changed_files: list[str]) -> None:
+    tracked = subprocess.run(
+        ["git", "diff", "--check", "HEAD", "--"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if tracked.returncode != 0:
+        detail = tracked.stdout or tracked.stderr
+        raise GateConfigError(f"tracked diff check failed: {detail[:1000].strip()}")
+    for relative in changed_files:
+        if not _is_safe_relative_path(relative):
+            raise GateConfigError(f"unsafe changed path: {relative!r}")
+        path = root / relative
+        if not path.is_file():
+            continue
+        is_tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", relative],
+            cwd=root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if is_tracked.returncode == 0:
+            continue
+        untracked = subprocess.run(
+            ["git", "diff", "--no-index", "--check", "--", "/dev/null", relative],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if untracked.returncode > 1:
+            detail = untracked.stdout or untracked.stderr
+            raise GateConfigError(
+                f"untracked diff check failed for {relative}: {detail[:1000].strip()}"
+            )
 
 
 def _load_plan_file(path: Path) -> dict[str, Any]:
@@ -1084,6 +1230,17 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--mapping", type=Path)
     plan.add_argument("--output", type=Path)
     plan.add_argument("--json", action="store_true")
+    preflight = subparsers.add_parser(
+        "preflight",
+        help="run bounded impacted checks before an expensive full or release gate",
+    )
+    preflight.add_argument("--snapshot", type=Path)
+    preflight.add_argument("--staged", action="store_true")
+    preflight.add_argument("--base")
+    preflight.add_argument("--head")
+    preflight.add_argument("--mapping", type=Path)
+    preflight.add_argument("--result-root", type=Path)
+    preflight.add_argument("--run-id")
     run = subparsers.add_parser("run", help="execute a targeted, full, or release gate")
     run.add_argument("--snapshot", type=Path)
     run.add_argument("--base")
@@ -1099,6 +1256,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--result-root", type=Path)
     run.add_argument("--run-id")
     subparsers.add_parser("_validate-json", help=argparse.SUPPRESS)
+    snapshot_diff = subparsers.add_parser("_check-snapshot-diff", help=argparse.SUPPRESS)
+    snapshot_diff.add_argument("--changed-file", action="append", default=[])
     return parser
 
 
@@ -1112,6 +1271,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "_validate-json":
             _validate_json_files(root)
+            return 0
+        if args.command == "_check-snapshot-diff":
+            _check_snapshot_diff(root, args.changed_file)
             return 0
         mapping_path = args.mapping or root / "tests" / "test_impact_map.json"
         mapping = load_mapping(mapping_path)
@@ -1127,6 +1289,37 @@ def main(argv: list[str] | None = None) -> int:
                     f"groups={','.join(plan['selected_groups'])} ui={str(plan['ui_impacted']).lower()}"
                 )
             return 0
+        if args.command == "preflight":
+            changed_files = _selector_changed_files(args, root)
+            impact_plan = build_plan(changed_files, mapping)
+            plan = _run_plan("preflight", impact_plan)
+            specs = build_command_specs(
+                root,
+                plan,
+                mapping,
+                mode="preflight",
+                diff_check_argv=_preflight_diff_check_argv(
+                    args,
+                    root,
+                    changed_files,
+                ),
+            )
+            result = execute_specs(
+                root,
+                specs,
+                plan,
+                result_root=args.result_root,
+                run_id=args.run_id,
+            )
+            _reconcile_mapping_miss(result, impact_plan, mapping)
+            result_path = Path(result["result_path"])
+            if not result_path.is_absolute():
+                result_path = root / result_path
+            _write_json_private(result_path, result)
+            sys.stdout.write(format_summary(result))
+            return 0 if result["status"] == "passed" else (
+                2 if result["status"] == "error" else 1
+            )
         if args.command == "run":
             impact_plan: dict[str, Any] | None = None
             if args.impact_plan:

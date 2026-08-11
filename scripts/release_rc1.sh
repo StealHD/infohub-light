@@ -17,8 +17,50 @@ require_clean_tree() {
   fi
 }
 
-run_local_gates() {
+project_version() {
+  ./.venv/bin/python -c \
+    'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+}
+
+require_release_identity() {
+  local expected_tag head remote_head
   cd "$ROOT_DIR"
+  require_clean_tree
+  [[ "$(git branch --show-current)" == main ]] || {
+    echo "Refusing to release outside local main." >&2
+    exit 1
+  }
+  git fetch --prune origin main --tags
+  head="$(git rev-parse HEAD)"
+  remote_head="$(git rev-parse origin/main)"
+  [[ "$head" == "$(git rev-parse refs/heads/main)" ]] || {
+    echo "Release HEAD must exactly match local main." >&2
+    exit 1
+  }
+  [[ "$head" == "$remote_head" ]] || {
+    echo "Local main must exactly match origin/main." >&2
+    exit 1
+  }
+  expected_tag="v$(project_version)"
+  git ls-remote --exit-code --tags origin "refs/tags/$expected_tag" >/dev/null || {
+    echo "Expected remote release tag is missing: $expected_tag" >&2
+    exit 1
+  }
+  [[ "$(git rev-parse "$expected_tag^{commit}")" == "$head" ]] || {
+    echo "Release tag must resolve to the exact main HEAD: $expected_tag" >&2
+    exit 1
+  }
+}
+
+run_local_gates() {
+  local base_ref
+  cd "$ROOT_DIR"
+  base_ref="$(
+    git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null \
+      || git rev-parse HEAD^
+  )"
+  ./.venv/bin/python scripts/test_gate.py preflight \
+    --base "$base_ref" --head HEAD
   ./.venv/bin/python scripts/test_gate.py run --mode release
 }
 
@@ -64,17 +106,18 @@ PY
 
 prepare_release() {
   local database="$1"
-  require_clean_tree
+  require_release_identity
   run_local_gates
   require_clean_tree
   validate_database_artifact "$database"
 
-  local revision version built_at release_id image platform expected_arch actual_arch image_revision
+  local revision revision_short version built_at release_id image platform expected_arch actual_arch image_revision
   local archive image_archive remote_archive remote_image_archive remote_database
-  revision="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
+  revision="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+  revision_short="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
   version="$(./.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
   built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  release_id="rc1-$(date -u +%Y%m%dT%H%M%SZ)-${revision}"
+  release_id="rc1-$(date -u +%Y%m%dT%H%M%SZ)-${revision_short}"
   image="inteliscope-service:${release_id}"
   platform="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"
   expected_arch="${platform#linux/}"

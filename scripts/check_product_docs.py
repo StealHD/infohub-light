@@ -18,6 +18,8 @@ DOCUMENTATION_SOURCES = {
 NON_PRODUCT_SCRIPT_PATHS = {
     "scripts/check_product_docs.py",
     "scripts/check_markdown_controls.py",
+    "scripts/release_rc1.sh",
+    "scripts/release_vps.sh",
     "scripts/test_gate.py",
 }
 
@@ -143,12 +145,31 @@ def changed_paths_from_git(root: Path, base: str, head: str) -> list[ChangedPath
     return changes
 
 
+def changed_paths_from_files(root: Path, paths: list[str]) -> list[ChangedPath]:
+    changes: list[ChangedPath] = []
+    for value in sorted(set(paths)):
+        path = _safe_relative_path(value)
+        changes.append(
+            ChangedPath(
+                status="M" if (root / path).is_file() else "D",
+                path=path,
+            )
+        )
+    return changes
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Verify that product-code changes review the operation manual and changelog.",
     )
-    parser.add_argument("--base", required=True, help="Base Git revision")
-    parser.add_argument("--head", required=True, help="Head Git revision")
+    parser.add_argument("--base", help="Base Git revision")
+    parser.add_argument("--head", help="Head Git revision")
+    parser.add_argument(
+        "--changed-file",
+        action="append",
+        default=None,
+        help="Changed repository-relative path; repeat for a precomputed impact set",
+    )
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     return parser
 
@@ -157,7 +178,24 @@ def main() -> int:
     args = _parser().parse_args()
     root = args.root.resolve()
     try:
-        changes = changed_paths_from_git(root, args.base, args.head)
+        has_range = bool(args.base or args.head)
+        has_files = args.changed_file is not None
+        if has_range and has_files:
+            raise ProductDocumentationError(
+                "choose either --base/--head or --changed-file"
+            )
+        if has_range:
+            if not args.base or not args.head:
+                raise ProductDocumentationError(
+                    "--base and --head must be provided together"
+                )
+            changes = changed_paths_from_git(root, args.base, args.head)
+        elif has_files:
+            changes = changed_paths_from_files(root, args.changed_file)
+        else:
+            raise ProductDocumentationError(
+                "a Git --base/--head range or --changed-file is required"
+            )
         result = documentation_check(changes)
         if result["missing"]:
             missing = ", ".join(result["missing"])
