@@ -29,7 +29,7 @@ describe('AppBootstrap', () => {
     expect(html).toContain('data-bootstrap-region="agent"')
     expect(html).toContain('aria-hidden="true"')
     expect(html).toContain('/src/design-system/bootstrap.css')
-    expect(html).toContain('href="/favicon.svg"')
+    expect(html).toContain('href="/favicon.svg?v=dc29529a"')
     expect(html).toContain('<title>Inscope | Private &amp; Insights</title>')
     expect(html).toContain('content="Inscope 私人 AI 信息雷达"')
     expect(html).toContain("'inteliscope.ui.theme.v1'")
