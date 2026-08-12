@@ -7,27 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "context",
-    "decisions",
-    "instructions",
-    "phase"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "将 preflight 验证与发布身份加固合入本地 main；解决 D144 编号冲突，将流程决策登记为 D145，保留 main 的唯一运行面决策与紧凑 Worklog 历史。",
-  "status": "completed",
-  "task_id": "2026-08-11-merge-preflight-gate-main",
-  "unresolved": [],
-  "validation": [
-    "合并范围 preflight 8/8 命令通过（37.64 秒），无 mapping miss。",
-    "合并后本地 main 完整 Test Gate 15/15 命令通过（276.95 秒）。",
-    "未安装或分发 Git hook，未推送、未打 Tag、未部署。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-08-11",
   "result": "从本地 main revision a878b715c2b1 切换 8080 API 与 Worker，并安全清理旧本地构建镜像与过期构建缓存；未启动 scheduler。",
@@ -416,6 +395,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整路由 141 条、route SHA 与 OpenAPI SHA 与拆分前一致。",
     "Schedule、权限、操作日志、lifespan、导入边界等定向回归 183/183 通过，ResourceWarning 为 0。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker 的迁移检查、Actor 恢复、maintenance、lease recovery、schedule/notification backlog 与 claim 前准备拆入两个小模块，保留 claim 后 eligibility、事务终结、Feed/outbox 原子性和 post-commit 外呼时序不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-preclaim-cycle",
+  "unresolved": [],
+  "validation": [
+    "Worker 定向组 618/618 通过，另有首轮 76/76 和导入/规模/可观测性 30/30 通过，ResourceWarning 为 0。",
+    "worker.py 由 3072 行降至 2646 行，run_worker_once 由 743 行降至 491 行；新模块 390/209 行，最大新函数 102/100 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
