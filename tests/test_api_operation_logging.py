@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from src.api.server import create_app
 from src.logging_utils import configure_logging
 from src.services.operation_log import safe_emit_operation_event
+from src.storage.service_store import ServiceStore
 
 
 def _flush_managed_handlers() -> None:
@@ -149,10 +150,8 @@ def test_api_transaction_leak_rolls_back_and_never_logs_success(
 
         assert changed.status_code == 500
         assert changed.json()["error"]["code"] == "database_transaction_leak"
-        assert (
-            store.get_user(owner["id"])["display_name"]
-            == original_display_name
-        )
+        verification_store = ServiceStore(store.data_dir)
+        assert verification_store.get_user(owner["id"])["display_name"] == original_display_name
         password_events = [
             event
             for event in _events(log_dir)

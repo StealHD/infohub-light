@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from src.logging_utils import redact_log_text
 
@@ -61,3 +61,23 @@ def unclosed_sqlite_connection_warnings(log_path: Path) -> int:
                 continue
             count += len(_UNCLOSED_SQLITE_CONNECTION_WARNING.findall(line))
     return count
+
+
+def sqlite_warning_gate_failure(
+    command_result: dict[str, Any],
+    warning_count: int,
+) -> dict[str, Any]:
+    return {
+        "status": "failed",
+        "first_failure": {
+            "command": command_result["command"],
+            "command_id": command_result["command_id"],
+            "duration": command_result["duration"],
+            "exit_code": 1,
+            "id": "unclosed_sqlite_connection",
+            "excerpt": (
+                f"detected {warning_count} unclosed SQLite connection "
+                "ResourceWarning(s)"
+            ),
+        },
+    }

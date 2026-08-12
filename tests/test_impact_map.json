@@ -325,6 +325,7 @@
     "python_api_store": [
       "tests/test_agent_delegation_api.py",
       "tests/test_agent_delegations.py",
+      "tests/test_api_lifespan.py",
       "tests/test_api_operation_logging.py",
       "tests/test_api_permissions_matrix.py",
       "tests/test_api_service.py",

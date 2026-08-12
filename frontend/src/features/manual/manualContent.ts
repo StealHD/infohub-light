@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-11',
-  change: '旧 UI 与 Legacy 运行链路退役',
+  reviewedAt: '2026-08-12',
+  change: '代码健康与资源生命周期收敛；用户工作流不变',
 } as const
 
 export const manualSections: ManualSection[] = [

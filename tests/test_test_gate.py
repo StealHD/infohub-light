@@ -388,7 +388,7 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     for spec in [*targeted, *full, *release]:
         if "pytest" in spec.argv:
             assert "-W" in spec.argv
-            assert "default::ResourceWarning" in spec.argv
+            assert "error::ResourceWarning" in spec.argv
     assert {
         "code_size_backend",
         "code_size_frontend",
@@ -647,6 +647,9 @@ def test_execute_specs_counts_unclosed_sqlite_resource_warnings(tmp_path):
 
     assert result["commands"][0]["unclosed_sqlite_connection_warnings"] == 2
     assert result["counts"]["unclosed_sqlite_connection_warnings"] == 2
+    assert result["status"] == "failed"
+    assert result["counts"]["commands_failed"] == 1
+    assert result["first_failure"]["id"] == "unclosed_sqlite_connection"
     assert (
         json.loads(format_summary(result))["counts"][
             "unclosed_sqlite_connection_warnings"

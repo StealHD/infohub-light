@@ -10,7 +10,6 @@ import os
 import re
 import time
 import uuid
-from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +26,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
+
+from .lifespan import build_service_lifespan
 
 from ..logging_utils import (
     configure_logging,
@@ -2938,15 +2939,13 @@ def create_app(
         else None
     )
 
-    @asynccontextmanager
-    async def app_lifespan(_app: FastAPI):
-        if remote_mcp is None:
-            yield
-            return
-        async with remote_mcp.server.session_manager.run():
-            yield
-
-    app = FastAPI(title="InfoHub Light Service API", lifespan=app_lifespan)
+    app = FastAPI(
+        title="InfoHub Light Service API",
+        lifespan=build_service_lifespan(
+            store,
+            remote_mcp.server.session_manager if remote_mcp else None,
+        ),
+    )
     app.add_middleware(NegotiatedGZipMiddleware, minimum_size=1024, compresslevel=5)
     app.state.service_store = store
     app.state.subscription_mutations = subscription_mutations

@@ -162,7 +162,7 @@
       {
         "path": "src/api/server.py",
         "category": "production",
-        "max_lines": 10016
+        "max_lines": 10015
       },
       {
         "path": "src/mcp/remote_diagnostics.py",
@@ -658,7 +658,7 @@
         "path": "src/api/server.py",
         "symbol": "create_app",
         "category": "entrypoint",
-        "max_lines": 8668
+        "max_lines": 8666
       },
       {
         "path": "src/api/server.py",

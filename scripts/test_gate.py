@@ -29,9 +29,9 @@ from scripts.test_gate_log import (
     redact_gate_text as _redact,
     sanitize_gate_log as _sanitize_log,
     sensitive_values as _sensitive_values,
+    sqlite_warning_gate_failure as _sqlite_warning_gate_failure,
     unclosed_sqlite_connection_warnings as _unclosed_sqlite_connection_warnings,
 )
-
 
 SNAPSHOT_VERSION = 1
 EXCLUDED_PARTS = {
@@ -454,7 +454,7 @@ def _full_backend_specs(root: Path) -> list[CommandSpec]:
                 "--tb=short",
                 "--maxfail=1",
                 "-W",
-                "default::ResourceWarning",
+                "error::ResourceWarning",
             ],
             root,
         ),
@@ -513,7 +513,7 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
                     "--tb=short",
                     "--maxfail=1",
                     "-W",
-                    "default::ResourceWarning",
+                    "error::ResourceWarning",
                     *sorted(targets),
                 ],
                 root,
@@ -737,19 +737,16 @@ def execute_specs(
     failed = 0
     error = 0
     unclosed_sqlite_connection_warnings = 0
-
     for index, original_spec in enumerate(specs, start=1):
         replacements = {
             "{run_dir}": str(run_dir),
             "{run_id}": run_id,
             "{run_id_lower}": run_id.lower(),
         }
-
         def materialize(value: str) -> str:
             for marker, replacement in replacements.items():
                 value = value.replace(marker, replacement)
             return value
-
         materialized_env = (
             {name: materialize(value) for name, value in original_spec.env.items()}
             if original_spec.env
@@ -825,6 +822,10 @@ def execute_specs(
             "unclosed_sqlite_connection_warnings": command_sqlite_warnings,
         }
         commands.append(command_result)
+        if exit_code == 0 and command_sqlite_warnings:
+            failed += 1
+            result.update(_sqlite_warning_gate_failure(command_result, command_sqlite_warnings))
+            break
         if exit_code == 0:
             passed += 1
             continue
@@ -842,7 +843,6 @@ def execute_specs(
         )
         result["first_failure"]["duration"] = elapsed
         break
-
     result["commands"] = commands
     result["counts"] = {
         "commands_total": len(specs),
