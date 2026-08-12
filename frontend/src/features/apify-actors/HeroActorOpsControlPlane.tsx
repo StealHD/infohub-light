@@ -63,6 +63,16 @@ import {
   type ActorOpsTaskTab,
   type HumanActorError,
 } from './actorOpsPresentation'
+import {
+  ActorOpsActivationConfirmationDialog,
+  ActorOpsBatchConfirmationDialog,
+  ActorOpsRollbackConfirmationDialog,
+  ActorOpsSourceActivationConfirmationDialog,
+  ActorOpsSourceCanaryConfirmationDialog,
+  HumanActorErrorNotice,
+} from './ActorOpsWorkflowDialogs'
+import { toActivationConfirmationView, toBatchConfirmationView,
+  toRollbackConfirmationView, toSourceCanaryConfirmationView } from './actorOpsWorkflowDialogModel'
 
 const slotOrder: ApifyActorSlotName[] = ['primary', 'backup_1', 'backup_2']
 const slotLabels: Record<ApifyActorSlotName, string> = {
@@ -165,14 +175,6 @@ type CandidateProfileDraft = {
   timeoutSeconds: string
   sampleItems: string
   maxChargeUsd: string
-}
-
-function HumanActorErrorNotice({ error }: { error: HumanActorError }) {
-  return <HeroNotice title={error.reason} status="danger" role="alert">
-    <p><strong>影响：</strong>{error.impact}</p>
-    <p className="mt-1"><strong>下一步：</strong>{error.next}</p>
-    {error.diagnostic && <SettingsDisclosure title="诊断信息" description="仅包含可安全复制的错误代码。"><code className="break-all type-meta">{error.diagnostic}</code></SettingsDisclosure>}
-  </HeroNotice>
 }
 
 function workflowFailureNotice(
@@ -2164,39 +2166,32 @@ export function HeroActorOpsControlPlane({
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
 
-    <Modal isOpen={Boolean(batchTarget)} onOpenChange={(open) => {
-      if (!open && !canaryBatch.isPending) { setBatchTarget(null); setBatchError(null); restoreFocus(batchTriggerRef) }
-    }}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开付费验证确认</Modal.Trigger>
-      <Modal.Backdrop isDismissable={!canaryBatch.isPending} isKeyboardDismissDisabled={canaryBatch.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{batchTarget?.plan.goal === 'compatibility_single' ? '验证单路兼容 Actor' : '验证所选 Actor'}</Modal.Heading></Modal.Header>
-        <Modal.Body><div className="grid gap-3" aria-busy={canaryBatch.isPending}><HeroNotice title="严格串行，并受总费用上限保护" status="warning" role="status">这是确认 1/2。{batchTarget?.plan.goal === 'compatibility_single' ? '兼容 Canary 必须对固定公开参考账号返回真实非空内容；空结果不会通过。' : '验证通过并确认生效前，当前配置不会改变；未启动或不再需要的项费用为 $0。'}</HeroNotice>{batchTarget && <><dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">抓取类型</dt><dd className="mt-1">{routeProductNames[routeProfileId(batchTarget.plan)]?.label || routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)}</dd></div><div><dt className="text-muted">本批总费用上限</dt><dd className="mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div><div><dt className="text-muted">来源预验证</dt><dd className="mt-1">{batchTarget.plan.source_count ?? 0} 个已启用来源 · 最多 {batchTarget.plan.source_validation_count ?? 0} 次缺失验证</dd></div><div><dt className="text-muted">验证边界</dt><dd className="mt-1">只验证你选择的 Actor；系统不会静默换人或超出总费用上限。</dd></div></dl><ol className="grid gap-2">{batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta"><p className="type-control">{item.actor_public_name || `${item.publisher} Actor`}</p><p className="mt-1 text-muted">发布者 {item.publisher} · 单次封顶 {formatActorUsd(item.authorized_cap_usd, true)}{item.already_validated ? ' · 已有成功证据可复用' : ''}</p>{item.validation_profile && <p className="mt-1 text-muted">等待 {item.validation_profile.timeout_seconds} 秒 · 样本 {item.validation_profile.sample_items} 条 · 参数费用上限 {formatActorUsd(item.validation_profile.max_charge_usd, true)}</p>}</li>)}</ol></>}{batchError && <HumanActorErrorNotice error={batchError} />}</div></Modal.Body>
-        <Modal.Footer><Button variant="ghost" isDisabled={canaryBatch.isPending} onPress={() => { setBatchTarget(null); setBatchError(null); restoreFocus(batchTriggerRef) }}>取消</Button><Button isDisabled={!batchTarget?.plan.ready || canaryBatch.isPending} onPress={() => batchTarget && canaryBatch.mutate(batchTarget)}>{canaryBatch.isPending ? '提交中…' : `确认验证（最高 ${formatActorUsd(batchTarget?.plan.max_total_charge_usd ?? null, true)}）`}</Button></Modal.Footer>
-      </Modal.Dialog></Modal.Container></Modal.Backdrop>
-    </Modal>
-
-    <Modal isOpen={Boolean(activationTarget)} onOpenChange={(open) => {
-      if (!open && !activatePool.isPending) { setActivationTarget(null); setActivationError(null); restoreFocus(activationTriggerRef) }
-    }}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开主备生效确认</Modal.Trigger>
-      <Modal.Backdrop isDismissable={!activatePool.isPending} isKeyboardDismissDisabled={activatePool.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{activationTarget?.workflow?.goal === 'compatibility_single' ? '确认启用 1/3 兼容池' : activationTarget?.workflow?.goal === 'complete_third' ? '确认补齐备用 2' : activationTarget?.workflow?.goal === 'upgrade_legacy' ? '确认切换到新版主备' : activationTarget && routeMinimumActors(activationTarget) === 1 ? '确认启用单路 fallback' : '确认启用 Actor 主备'}</Modal.Heading></Modal.Header>
-        <Modal.Body><div className="grid gap-3" aria-busy={activatePool.isPending}><HeroNotice title="这是确认 2/2" status="warning" role="status">{activationTarget?.workflow?.goal === 'compatibility_single' ? '启用后 X 功能可用，但只有 1 路 Actor，没有主备冗余；失败时可能暂时无法抓取。' : activationTarget && routeMinimumActors(activationTarget) === 1 ? '启用后 YouTube 仍优先使用公开 Atom；这个 Actor 只作为故障 fallback，不会自动补更多 Actor。' : '槽位和已预验证来源会在同一事务中生效；运行中的任务继续使用原配置。'}</HeroNotice>{activationTarget && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">当前方案</dt><dd className="mt-1">{activationTarget.slots.filter((slot) => slot.revision_id).length}/3 路</dd></div><div><dt className="text-muted">生效后</dt><dd className="mt-1">{activationTarget.workflow?.goal === 'compatibility_single' ? '单路兼容 1/3；后续可不停机补主备' : activationTarget.workflow?.goal === 'complete_third' ? '补齐为 3/3，原主用与备用 1 不变' : activationTarget.workflow?.goal === 'upgrade_legacy' ? '零中断切换为新版 3/3 主备' : routeMinimumActors(activationTarget) === 1 ? '启用 1/3 单路 fallback；原生 Atom 继续优先' : '启用标准 2/3 主备；第三路可后续主动补充'}</dd></div><div><dt className="text-muted">停机影响</dt><dd className="mt-1">无停机；只有下一任务读取新配置。</dd></div></dl>}{activationError && <HumanActorErrorNotice error={activationError} />}</div></Modal.Body>
-        <Modal.Footer><Button variant="ghost" isDisabled={activatePool.isPending} onPress={() => { setActivationTarget(null); setActivationError(null); restoreFocus(activationTriggerRef) }}>取消</Button><Button isDisabled={!activationTarget || activatePool.isPending} onPress={() => activationTarget && activatePool.mutate(activationTarget)}>{activatePool.isPending ? '生效中…' : '确认生效'}</Button></Modal.Footer>
-      </Modal.Dialog></Modal.Container></Modal.Backdrop>
-    </Modal>
-
-    <Modal isOpen={Boolean(canaryTarget)} onOpenChange={(open) => {
-      if (!open && !sourceCanary.isPending) { setCanaryTarget(null); setCanaryError(''); restoreFocus(canaryTriggerRef) }
-    }}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开来源付费验证确认</Modal.Trigger>
-      <Modal.Backdrop isDismissable={!sourceCanary.isPending} isKeyboardDismissDisabled={sourceCanary.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>确认来源付费验证</Modal.Heading></Modal.Header><Modal.Body><div className="grid gap-3"><HeroNotice title="只验证下一缺失槽位" status="warning" role="status">精确 Build 串行执行一次；不会显示真实目标，也不会自动重试。</HeroNotice>{canaryTarget && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">Actor / Build</dt><dd className="mt-1">{canaryTarget.kind === 'source' ? canaryTarget.revision.actor_public_name || `${canaryTarget.revision.publisher} Actor` : ''} · {canaryTarget.buildLabel}</dd></div><div><dt className="text-muted">本次封顶</dt><dd className="mt-1">{formatActorUsd(canaryTarget.capUsd, true)}</dd></div></dl>}{canaryError && <HeroNotice title={canaryError} status="danger" />}</div></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={sourceCanary.isPending} onPress={() => { setCanaryTarget(null); setCanaryError(''); restoreFocus(canaryTriggerRef) }}>取消</Button><Button isDisabled={!canaryTarget || sourceCanary.isPending} onPress={() => canaryTarget && sourceCanary.mutate(canaryTarget)}>{sourceCanary.isPending ? '提交中…' : '确认付费试跑'}</Button></Modal.Footer>
-      </Modal.Dialog></Modal.Container></Modal.Backdrop>
-    </Modal>
-
-    <Modal isOpen={sourceActivationOpen} onOpenChange={(open) => { if (!open && !sourceActivate.isPending) { setSourceActivationOpen(false); restoreSourceActivationFocus() } }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开来源首次启用确认</Modal.Trigger><Modal.Backdrop isDismissable={!sourceActivate.isPending} isKeyboardDismissDisabled={sourceActivate.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>确认首次启用来源</Modal.Heading></Modal.Header><Modal.Body><HeroNotice title="所有当前主备均已验证" status="success" role="status">确认后该来源开始使用当前 Actor 主备；后续槽位变化只复验变化部分。</HeroNotice></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={sourceActivate.isPending} onPress={() => { setSourceActivationOpen(false); restoreSourceActivationFocus() }}>取消</Button><Button isDisabled={sourceActivate.isPending} onPress={() => sourceActivate.mutate()}>{sourceActivate.isPending ? '启用中…' : '确认首次启用'}</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
-
-    <Modal isOpen={Boolean(rollbackRevision)} onOpenChange={(open) => { if (!open && !updatePool.isPending) setRollbackRevision(null) }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Revision 回滚确认</Modal.Trigger><Modal.Backdrop isDismissable={!updatePool.isPending} isKeyboardDismissDisabled={updatePool.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>回滚不可变 Revision</Modal.Heading></Modal.Header><Modal.Body><div className="grid gap-4"><HeroNotice title="回滚会创建新的 Route generation" status="warning" role="status">运行中的旧任务可结束，但过期结果不能写入新缓存。</HeroNotice><p className="type-control break-all">{rollbackRevision?.revision_id}</p><HeroSelect label="回滚到槽位" value={rollbackSlot} onChange={(value) => setRollbackSlot(value as ApifyActorSlotName)} isDisabled={updatePool.isPending} options={slotOrder.map((slot) => ({ id: slot, label: slotDisplayLabels[slot] }))} /></div></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={updatePool.isPending} onPress={() => setRollbackRevision(null)}>取消</Button><Button isDisabled={!detail || !rollbackDraft || updatePool.isPending} onPress={() => detail && rollbackDraft && rollbackRevision && updatePool.mutate({ target: detail, draft: rollbackDraft, rollbackRevisionId: rollbackRevision.revision_id })}>{updatePool.isPending ? '回滚中…' : '确认回滚'}</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
+    <ActorOpsBatchConfirmationDialog
+      view={toBatchConfirmationView(batchTarget?.plan ?? null)}
+      error={batchError} pending={canaryBatch.isPending}
+      onCancel={() => { setBatchTarget(null); setBatchError(null); restoreFocus(batchTriggerRef) }}
+      onConfirm={() => { if (batchTarget) canaryBatch.mutate(batchTarget) }} />
+    <ActorOpsActivationConfirmationDialog
+      view={toActivationConfirmationView(activationTarget)}
+      error={activationError} pending={activatePool.isPending}
+      onCancel={() => { setActivationTarget(null); setActivationError(null); restoreFocus(activationTriggerRef) }}
+      onConfirm={() => { if (activationTarget) activatePool.mutate(activationTarget) }} />
+    <ActorOpsSourceCanaryConfirmationDialog
+      view={toSourceCanaryConfirmationView(canaryTarget?.kind === 'source' ? canaryTarget : null)}
+      error={canaryError} pending={sourceCanary.isPending}
+      onCancel={() => { setCanaryTarget(null); setCanaryError(''); restoreFocus(canaryTriggerRef) }}
+      onConfirm={() => { if (canaryTarget) sourceCanary.mutate(canaryTarget) }} />
+    <ActorOpsSourceActivationConfirmationDialog
+      open={sourceActivationOpen}
+      pending={sourceActivate.isPending}
+      onCancel={() => { setSourceActivationOpen(false); restoreSourceActivationFocus() }}
+      onConfirm={() => sourceActivate.mutate()} />
+    <ActorOpsRollbackConfirmationDialog
+      view={toRollbackConfirmationView(rollbackRevision, rollbackSlot, Boolean(detail && rollbackDraft))}
+      pending={updatePool.isPending} onSlotChange={setRollbackSlot}
+      onCancel={() => setRollbackRevision(null)}
+      onConfirm={() => detail && rollbackDraft && rollbackRevision && updatePool.mutate({
+        target: detail, draft: rollbackDraft, rollbackRevisionId: rollbackRevision.revision_id,
+      })} />
   </>
 }

@@ -107,7 +107,7 @@
       {
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "category": "production",
-        "max_lines": 2202
+        "max_lines": 2197
       },
       {
         "path": "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.test.tsx",
@@ -484,7 +484,7 @@
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "symbol": "HeroActorOpsControlPlane",
         "category": "production",
-        "max_lines": 1101
+        "max_lines": 1094
       },
       {
         "path": "frontend/src/features/jobs/useFeedActivity.ts",
