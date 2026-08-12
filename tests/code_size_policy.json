@@ -107,12 +107,12 @@
       {
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "category": "production",
-        "max_lines": 3634
+        "max_lines": 2465
       },
       {
         "path": "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.test.tsx",
         "category": "test",
-        "max_lines": 1678
+        "max_lines": 1346
       },
       {
         "path": "frontend/src/features/changelog/changelogEntries.ts",
@@ -487,46 +487,16 @@
         "max_lines": 1101
       },
       {
-        "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
-        "symbol": "LegacyHeroActorOpsControlPlane",
-        "category": "production",
-        "max_lines": 604
-      },
-      {
-        "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
-        "symbol": "SourceSupportPanel",
-        "category": "production",
-        "max_lines": 250
-      },
-      {
-        "path": "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.tsx",
-        "symbol": "ApifyActorAlertSettingsForm",
-        "category": "production",
-        "max_lines": 267
-      },
-      {
         "path": "frontend/src/features/jobs/useFeedActivity.ts",
         "symbol": "useFeedActivity",
         "category": "production",
         "max_lines": 196
       },
       {
-        "path": "frontend/src/features/notifications/HeroNotificationSettings.tsx",
-        "symbol": "NotificationSettingsForm",
-        "category": "production",
-        "max_lines": 234
-      },
-      {
         "path": "frontend/src/features/notifications/HeroNotificationTargets.tsx",
         "symbol": "HeroNotificationTargets",
         "category": "production",
         "max_lines": 605
-      },
-      {
-        "path": "frontend/src/features/notifications/NotificationChannelCards.tsx",
-        "symbol": "NotificationChannelCards",
-        "category": "production",
-        "max_lines": 172
       },
       {
         "path": "frontend/src/features/openclaw/OpenClawConversation.tsx",
