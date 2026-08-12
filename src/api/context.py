@@ -8,12 +8,15 @@ from pathlib import Path
 
 from ..auth import AuthSettings
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
-from ..services.job_queue import JobQueue
 from ..services.feed_read import FeedReadService
+from ..services.feed_schedule import FeedScheduleService
+from ..services.job_queue import JobQueue
 from ..services.media_cache import MediaCacheService
 from ..services.quota import QuotaService
 from ..services.runtime_status import RuntimeStatusService
+from ..services.source_schedule import SourceScheduleService
 from ..services.storage_governance import StorageGovernanceService
+from ..services.subscription_mutation import SubscriptionMutationService
 from ..services.user_content_store import UserContentStore
 from ..services.user_item_state import UserItemStateStore
 from ..storage.service_store import ServiceStore
@@ -30,6 +33,9 @@ class ApiContext:
     store: ServiceStore
     job_queue: JobQueue
     feed_reader: FeedReadService
+    feed_schedules: FeedScheduleService
+    source_schedules: SourceScheduleService
+    subscription_mutations: SubscriptionMutationService
     item_state: UserItemStateStore
     user_content: UserContentStore
     media_cache: MediaCacheService

@@ -193,6 +193,7 @@
       "id": "queue/worker",
       "globs": [
         "src/api/job_routes.py",
+        "src/api/schedule_routes.py",
         "src/services/feed_schedule.py",
         "src/services/daily_push.py",
         "src/services/apify_actor_alerts.py",
