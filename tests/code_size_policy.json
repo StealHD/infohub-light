@@ -297,7 +297,7 @@
       {
         "path": "src/services/worker.py",
         "category": "production",
-        "max_lines": 2305
+        "max_lines": 1893
       },
       {
         "path": "src/storage/service_store.py",
@@ -1181,12 +1181,6 @@
         "symbol": "_run_apify_actor_discovery",
         "category": "production",
         "max_lines": 332
-      },
-      {
-        "path": "src/services/worker.py",
-        "symbol": "_run_job",
-        "category": "production",
-        "max_lines": 159
       },
       {
         "path": "src/services/workspace_telegram_transport.py",

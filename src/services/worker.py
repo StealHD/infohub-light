@@ -20,21 +20,12 @@ from ..observability_context import (
     reset_observability_context,
     update_observability_context,
 )
-from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
 from ..storage.manager import StorageManager
 from .source_probe import run_source_test
-from .feed_schedule import SCHEDULED_REFRESH_REASON
 from .feed_end_messages import run_due_feed_end_messages_generation
 from .job_queue import JobQueue
 from .operation_log import safe_emit_operation_event
 from .quota import QuotaService
-from .source_type_registry import build_source_payload
-from .source_schedule import SourceScheduleService
-from .source_acquisition import (
-    SourceAcquisitionCoordinator,
-    shared_acquisition_enabled,
-)
-from .usage_attempt_meter import UsageAttemptMeter
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .source_avatar import SourceAvatarService
 from .apify_pool_runtime import (
@@ -54,11 +45,24 @@ from .worker_cycle import (
     prepare_worker_cycle,
 )
 from .worker_post_commit import WorkerPostCommitPorts, run_worker_post_commit
+from .worker_feed_handler import (
+    WorkerFeedPorts,
+    active_catalog_source_ids,
+    run_user_feed_refresh,
+)
+from .worker_handlers import (
+    PaidCanaryAuthorizationError,
+    PaidCanaryUnavailableError,
+    WorkerHandlerPorts,
+    run_job,
+    source_payload_from_catalog,
+)
 from .worker_finalization import (
     MediaPublicationState,
     WorkerFinalizationPorts,
     execute_claimed_job,
 )
+from .source_acquisition import shared_acquisition_enabled
 from .apify_actor_monitoring import (
     build_apify_actor_route,
     sync_apify_actor_quota_alert,
@@ -79,6 +83,16 @@ WORKER_JOB_TRACE_POLICY = {
     "apify_actor_freshness_check": "job_lifecycle_only",
     "apify_actor_discovery": "job_lifecycle_only",
 }
+
+
+def _source_payload_from_catalog(
+    job: dict[str, Any],
+    *,
+    store: ServiceStore,
+) -> dict[str, Any]:
+    """Compatibility façade for catalog payload projection callers."""
+
+    return source_payload_from_catalog(job, store=store)
 
 
 def _promote_due_actor_revisions(store: ServiceStore) -> dict[str, int]:
@@ -390,16 +404,6 @@ def _cache_run_source_avatars(
         )
 
 
-class PaidCanaryUnavailableError(RuntimeError):
-    code = "apify_actor_routing_disabled"
-    retryable = False
-
-
-class PaidCanaryAuthorizationError(RuntimeError):
-    code = "apify_actor_canary_unavailable"
-    retryable = False
-
-
 def _actor_validation_id(job: dict[str, Any]) -> str | None:
     if str(job.get("job_type") or "") != "apify_actor_validation":
         return None
@@ -644,312 +648,6 @@ class _LeaseHeartbeat:
             )
         finally:
             self.store.close()
-
-
-def _source_payload_from_catalog(
-    job: dict[str, Any],
-    *,
-    store: ServiceStore,
-) -> dict[str, Any]:
-    payload = dict(job.get("payload_json") or {})
-    if not job.get("source_id"):
-        return payload
-    source = store.get_source(str(job["source_id"]))
-    if not source:
-        return payload
-
-    managed_rsshub = bool(
-        source.get("type") == "rss"
-        and is_managed_rsshub_config(source.get("config"))
-    )
-    rsshub_base_url = DEFAULT_RSSHUB_BASE_URL
-    if managed_rsshub:
-        rsshub_base_url = StorageManager(
-            data_dir=str(store.data_dir)
-        ).load_config().rsshub.base_url
-    canonical = build_source_payload(
-        source,
-        rsshub_base_url=rsshub_base_url,
-    )
-    # Job control metadata is never source configuration. Removing it before
-    # the runtime overlay prevents unknown catalog fields from impersonating a
-    # confirmed paid Canary.
-    for reserved_key in (
-        "reason",
-        "apify_actor_candidate_id",
-        "apify_actor_route_generation",
-    ):
-        canonical.pop(reserved_key, None)
-    if source.get("type") == "rss":
-        if managed_rsshub:
-            canonical["enforce_public_network"] = False
-        else:
-            owner = store.get_user(str(source.get("owner_user_id") or ""))
-            canonical["enforce_public_network"] = bool(
-                source.get("enforce_public_network")
-            ) or not (
-                owner and owner.get("role") in {"owner", "admin"}
-            )
-    runtime_payload = {
-        key: value
-        for key, value in payload.items()
-        if key
-        in {
-            "hours",
-            "reason",
-            "apify_actor_candidate_id",
-            "apify_actor_route_generation",
-        }
-    }
-    return {**canonical, **runtime_payload}
-
-
-def _active_catalog_source_ids(
-    store: ServiceStore,
-    *,
-    workspace_id: str,
-    user_id: str,
-) -> set[str]:
-    return {
-        str(record["source_id"])
-        for record in store.list_enabled_user_subscriptions_with_sources(
-            workspace_id=workspace_id,
-            user_id=user_id,
-        )
-        if record.get("source_id")
-    }
-
-
-def _run_user_feed_refresh(
-    job: dict[str, Any],
-    *,
-    data_dir: str,
-    store: ServiceStore,
-) -> dict[str, Any]:
-    import asyncio
-
-    from ..orchestrator import HorizonOrchestrator
-    from ..storage.manager import StorageManager
-    from .user_analysis_cache import UserAnalysisCache
-    from .user_config_builder import build_user_config
-
-    storage = StorageManager(data_dir=data_dir)
-    base_config = storage.load_config()
-    scheduled_global_refresh = (
-        (job.get("payload_json") or {}).get("reason")
-        == SCHEDULED_REFRESH_REASON
-    )
-    config = build_user_config(
-        store=store,
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        base_config=base_config,
-        schedule_scope="global" if scheduled_global_refresh else "all",
-    )
-    analysis_cache = UserAnalysisCache(
-        store,
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        job_id=job["id"],
-    )
-    try:
-        analysis_cache.prune()
-        orchestrator = HorizonOrchestrator(config, storage)
-        if hasattr(orchestrator, "set_service_analysis_cache"):
-            orchestrator.set_service_analysis_cache(analysis_cache)
-        if hasattr(orchestrator, "set_service_attempt_meter"):
-            orchestrator.set_service_attempt_meter(
-                UsageAttemptMeter(
-                    store,
-                    workspace_id=job["workspace_id"],
-                    user_id=job["user_id"],
-                    job_id=job["id"],
-                )
-            )
-        if hasattr(orchestrator, "set_service_apify_coordinator"):
-            orchestrator.set_service_apify_coordinator(
-                apify_coordinator_for_workspace(
-                    store,
-                    workspace_id=str(job["workspace_id"]),
-                    data_dir=data_dir,
-                )
-            )
-        if (
-            apify_key_pool_enabled()
-            and hasattr(orchestrator, "set_service_apify_actor_route")
-        ):
-            orchestrator.set_service_apify_actor_route(
-                build_apify_actor_route(
-                    store,
-                    data_dir=data_dir,
-                    workspace_id=str(job["workspace_id"]),
-                ),
-                job_id=str(job["id"]),
-            )
-        if (
-            apify_key_pool_enabled()
-            and hasattr(orchestrator, "set_service_apify_actor_ops")
-        ):
-            from .apify_actor_ops import ApifyActorOpsService
-
-            orchestrator.set_service_apify_actor_ops(
-                ApifyActorOpsService(
-                    store,
-                    workspace_id=str(job["workspace_id"]),
-                ),
-                job_id=str(job["id"]),
-            )
-        if (
-            shared_acquisition_enabled()
-            and hasattr(orchestrator, "set_service_acquisition_coordinator")
-        ):
-            orchestrator.set_service_acquisition_coordinator(
-                SourceAcquisitionCoordinator(
-                    store,
-                    workspace_id=job["workspace_id"],
-                    user_id=job["user_id"],
-                    job_id=job["id"],
-                )
-            )
-        raw_force_hours = (job.get("payload_json") or {}).get("hours")
-        run_result = asyncio.run(
-            orchestrator.execute(
-                force_hours=(
-                    int(raw_force_hours)
-                    if raw_force_hours is not None
-                    else None
-                ),
-                enrich=False,
-            )
-        )
-        if hasattr(
-            orchestrator,
-            "assert_service_apify_actor_ops_publishable",
-        ):
-            orchestrator.assert_service_apify_actor_ops_publishable()
-    finally:
-        analysis_cache.close()
-    return _stage_user_feed_publication(
-        job,
-        data_dir=data_dir,
-        store=store,
-        config=config,
-        orchestrator=orchestrator,
-        run_result=run_result,
-    )
-
-
-def _stage_user_feed_publication(
-    job: dict[str, Any],
-    *,
-    data_dir: str,
-    store: ServiceStore,
-    config: Any,
-    orchestrator: Any,
-    run_result: Any,
-) -> dict[str, Any]:
-    """Stage Feed and media references under one rollback-safe transaction."""
-
-    from .feed_production import FeedProductionService, FeedRunFailed, active_service_source_ids
-    from .feed_run import safe_run_diagnostics
-    from .source_health import SourceHealthService
-
-    publication = store.connect()
-    if not publication.in_transaction:
-        publication.execute("BEGIN IMMEDIATE")
-    cleanup = PostCommitMediaCleanup()
-    try:
-        if hasattr(
-            orchestrator,
-            "assert_service_apify_actor_ops_publishable",
-        ):
-            orchestrator.assert_service_apify_actor_ops_publishable()
-        _cache_run_source_avatars(
-            job,
-            data_dir=data_dir,
-            store=store,
-            result=run_result,
-            commit=False,
-            publication_cleanup=cleanup,
-        )
-        if run_result.status == "failed":
-            raise FeedRunFailed(run_result)
-        publish_watermarks = getattr(
-            orchestrator,
-            "publish_service_apify_watermarks",
-            None,
-        )
-        if callable(publish_watermarks):
-            publish_watermarks(connection=publication)
-        _cache_run_media(
-            job,
-            data_dir=data_dir,
-            store=store,
-            items=list(run_result.items),
-            commit=False,
-            publication_cleanup=cleanup,
-        )
-        configured_source_ids = active_service_source_ids(config)
-        all_active_source_ids = _active_catalog_source_ids(
-            store,
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-        )
-        catalog_subscriptions = store.list_user_subscriptions(job["user_id"])
-        retained_source_ids = all_active_source_ids if catalog_subscriptions else None
-        attempted_source_ids = configured_source_ids & all_active_source_ids
-        current_outcomes = tuple(
-            outcome
-            for outcome in run_result.source_outcomes
-            if outcome.source_id in attempted_source_ids
-        )
-        snapshot = FeedProductionService(store, config).save_run_result(
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-            job_id=job["id"],
-            job_type="user_feed_refresh",
-            result=run_result,
-            active_source_ids=retained_source_ids,
-            publication_fence=(
-                orchestrator.assert_service_apify_actor_ops_publishable
-                if hasattr(
-                    orchestrator,
-                    "assert_service_apify_actor_ops_publishable",
-                )
-                else None
-            ),
-            commit=False,
-        )
-        SourceHealthService(store).apply_outcomes(
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-            job_id=job["id"],
-            attempted_at=run_result.finished_at,
-            outcomes=current_outcomes,
-            commit=False,
-        )
-        SourceScheduleService(store).advance_after_full_refresh(
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-            source_outcomes=current_outcomes,
-            finished_at=run_result.finished_at,
-            job_id=job["id"],
-        )
-        return {
-            "ok": True,
-            "job_type": "user_feed_refresh",
-            "snapshot_id": snapshot["id"],
-            "snapshot_created": bool(snapshot.get("snapshot_created", True)),
-            "new_item_count": snapshot["new_item_count"],
-            **safe_run_diagnostics(run_result, item_count=snapshot["item_count"]),
-            "_job_status": run_result.status,
-            "_media_cleanup": cleanup,
-        }
-    except Exception:
-        if publication.in_transaction:
-            publication.rollback()
-        cleanup.discard()
-        raise
 
 
 def _run_apify_actor_validation(
@@ -1923,165 +1621,55 @@ def _run_apify_actor_discovery(
         raise
 
 
-def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict[str, Any]:
-    payload = _source_payload_from_catalog(job, store=store)
-    raw_job_payload = (
-        job.get("payload_json")
-        if isinstance(job.get("payload_json"), dict)
-        else {}
+def _run_job(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+) -> dict[str, Any]:
+    """Compatibility façade over the explicit Worker handler registry."""
+
+    feed_ports = WorkerFeedPorts(
+        cache_source_avatars=_cache_run_source_avatars,
+        cache_media=_cache_run_media,
+        apify_coordinator=apify_coordinator_for_workspace,
+        build_actor_route=build_apify_actor_route,
+        apify_key_pool_enabled=apify_key_pool_enabled,
+        shared_acquisition_enabled=shared_acquisition_enabled,
     )
-    job_type = job["job_type"]
 
-    if job_type == "apify_actor_discovery":
-        return _run_apify_actor_discovery(
-            job,
+    def feed_refresh(
+        feed_job: dict[str, Any],
+        *,
+        data_dir: str,
+        store: ServiceStore,
+    ) -> dict[str, Any]:
+        return run_user_feed_refresh(
+            feed_job,
             data_dir=data_dir,
             store=store,
+            ports=feed_ports,
         )
 
-    if job_type == "apify_actor_validation":
-        return _run_apify_actor_validation(
-            job,
-            data_dir=data_dir,
-            store=store,
-        )
-
-    if job_type == "apify_actor_canary_batch":
-        return _run_apify_actor_canary_batch(
-            job,
-            data_dir=data_dir,
-            store=store,
-        )
-
-    if job_type == "apify_actor_freshness_check":
-        return _run_apify_actor_freshness_check(
-            job,
-            data_dir=data_dir,
-            store=store,
-        )
-
-    if job_type == "source_test":
-        meter = UsageAttemptMeter(
-            store,
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-            job_id=job["id"],
-        )
-
-        def run_metered_test() -> dict[str, Any]:
-            is_paid_canary = (
-                raw_job_payload.get("reason") == "apify_actor_canary"
-            )
-            is_x_profile = (
-                str(payload.get("source_type") or "") == "apify_social"
-                and str(payload.get("platform") or "").casefold() == "x"
-                and str(payload.get("kind") or "profile").casefold()
-                == "profile"
-            )
-            if is_paid_canary and (
-                not apify_key_pool_enabled() or not is_x_profile
-            ):
-                raise PaidCanaryUnavailableError(
-                    "Paid Actor canary requires enabled X profile routing"
-                )
-            if is_paid_canary and (
-                int(job.get("max_attempts") or 0) != 1
-                or int(job.get("priority") or 0) != 100
-            ):
-                raise PaidCanaryAuthorizationError(
-                    "Paid Actor canary was not created by the confirmed canary action"
-                )
-            meter.before_fetch_attempt(
-                provider=str(payload.get("source_type") or "unknown"),
-                source_id=str(job.get("source_id") or ""),
-            )
-            apify_coordinator = apify_coordinator_for_workspace(
-                store,
-                workspace_id=str(job["workspace_id"]),
-                data_dir=data_dir,
-            )
-            actor_route = None
-            forced_candidate_id = None
-            forced_route_generation = None
-            paid_canary = False
-            if (
-                apify_key_pool_enabled()
-                and is_x_profile
-            ):
-                actor_route = build_apify_actor_route(
-                    store,
-                    data_dir=data_dir,
-                    workspace_id=str(job["workspace_id"]),
-                )
-                if is_paid_canary:
-                    actor = store.get_user(str(job["user_id"]))
-                    if (
-                        actor is None
-                        or not bool(actor.get("enabled"))
-                        or actor.get("role") not in {"owner", "admin"}
-                    ):
-                        raise PermissionError(
-                            "paid Actor canary requires an active administrator"
-                        )
-                    forced_candidate_id = str(
-                        raw_job_payload.get("apify_actor_candidate_id") or ""
-                    )
-                    raw_generation = raw_job_payload.get(
-                        "apify_actor_route_generation"
-                    )
-                    if not forced_candidate_id or not isinstance(
-                        raw_generation,
-                        int,
-                    ):
-                        raise ValueError(
-                            "paid Actor canary routing metadata is invalid"
-                        )
-                    forced_route_generation = int(raw_generation)
-                    paid_canary = True
-            if actor_route is not None:
-                return run_source_test(
-                    payload,
-                    apify_coordinator=apify_coordinator,
-                    apify_actor_route=actor_route,
-                    route_job_id=str(job["id"]),
-                    forced_candidate_id=forced_candidate_id,
-                    forced_route_generation=forced_route_generation,
-                    paid_canary=paid_canary,
-                )
-            if apify_coordinator is not None:
-                return run_source_test(
-                    payload,
-                    apify_coordinator=apify_coordinator,
-                )
-            return run_source_test(payload)
-
-        if shared_acquisition_enabled() and job.get("source_id"):
-            return SourceAcquisitionCoordinator(
-                store,
-                workspace_id=job["workspace_id"],
-                user_id=job["user_id"],
-                job_id=job["id"],
-            ).run_probe(source=payload, call=run_metered_test)
-        return run_metered_test()
-
-    if job_type == "source_fetch":
-        if job.get("source_id"):
-            from .catalog_source_runner import run_catalog_source_fetch
-
-            return run_catalog_source_fetch(job, data_dir=data_dir, store=store, commit=False)
-        if not payload.get("source_type"):
-            return _run_user_feed_refresh(job, data_dir=data_dir, store=store)
-        raise ValueError("service source_fetch requires a catalog source_id")
-
-    if job_type == "user_feed_refresh":
-        return _run_user_feed_refresh(job, data_dir=data_dir, store=store)
-
-    if job_type == "content_repair":
-        from .content_repair import repair_existing_content
-
-        return repair_existing_content(job, data_dir=data_dir, store=store)
-
-    raise ValueError(f"unsupported job_type: {job_type}")
+    return run_job(
+        job,
+        data_dir=data_dir,
+        store=store,
+        ports=WorkerHandlerPorts(
+            actor_handlers={
+                "apify_actor_discovery": _run_apify_actor_discovery,
+                "apify_actor_validation": _run_apify_actor_validation,
+                "apify_actor_canary_batch": _run_apify_actor_canary_batch,
+                "apify_actor_freshness_check": _run_apify_actor_freshness_check,
+            },
+            run_user_feed_refresh=feed_refresh,
+            run_source_test=run_source_test,
+            apify_coordinator=apify_coordinator_for_workspace,
+            build_actor_route=build_apify_actor_route,
+            apify_key_pool_enabled=apify_key_pool_enabled,
+            shared_acquisition_enabled=shared_acquisition_enabled,
+        ),
+    )
 
 
 def run_worker_once(
@@ -2150,7 +1738,7 @@ def run_worker_once(
                         _terminalize_unstarted_actor_validation
                     ),
                     is_retryable_exception=_is_retryable_exception,
-                    active_catalog_source_ids=_active_catalog_source_ids,
+                    active_catalog_source_ids=active_catalog_source_ids,
                 ),
                 logger=logger,
             )

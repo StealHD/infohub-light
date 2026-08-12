@@ -36,6 +36,8 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/worker_actor_cycle.py",
     "src/services/worker_cycle.py",
     "src/services/worker_finalization.py",
+    "src/services/worker_feed_handler.py",
+    "src/services/worker_handlers.py",
     "src/services/worker_migration_gate.py",
     "src/services/worker_post_commit.py",
 )
@@ -401,6 +403,8 @@ def check_repository(root: Path) -> list[Violation]:
         "src/services/worker_actor_cycle.py",
         "src/services/worker_cycle.py",
         "src/services/worker_finalization.py",
+        "src/services/worker_feed_handler.py",
+        "src/services/worker_handlers.py",
         "src/services/worker_post_commit.py",
     ):
         path = root / relative

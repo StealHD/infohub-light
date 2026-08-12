@@ -212,6 +212,8 @@
         "src/services/worker_actor_cycle.py",
         "src/services/worker_cycle.py",
         "src/services/worker_finalization.py",
+        "src/services/worker_feed_handler.py",
+        "src/services/worker_handlers.py",
         "src/services/worker_migration_gate.py",
         "src/services/worker_post_commit.py",
         "tests/test_worker_migration_gate.py"
@@ -236,6 +238,7 @@
         "src/services/source_summary.py",
         "src/services/user_analysis_cache.py",
         "src/services/user_feed_store.py",
+        "src/services/worker_feed_handler.py",
         "tests/test_feed_end_messages.py"
       ],
       "groups": ["python_feed"]
@@ -267,7 +270,8 @@
         "src/services/source_acquisition.py",
         "src/services/source_projection.py",
         "src/services/source_health.py",
-        "src/services/source_probe.py"
+        "src/services/source_probe.py",
+        "src/services/worker_handlers.py"
       ],
       "groups": ["python_source_acquisition"]
     },
