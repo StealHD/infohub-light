@@ -620,6 +620,85 @@ def test_repeated_source_watermark_is_neutral_for_actor_success_metrics(tmp_path
     assert public_candidate["success_rate_24h"] == 1.0
 
 
+def test_three_no_advance_runs_rotate_on_next_schedule_without_extra_call(
+    tmp_path,
+):
+    store, service = _route(tmp_path)
+    source_id = _source(store, "stale-account")
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = next(row for row in ops.list_routes() if row["route_key"] == "x/profile")
+    ops.bind_source(
+        source_id=source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint="c" * 64,
+        mode="primary",
+    )
+    _make_dami_probationary(store)
+    seen: list[str] = []
+
+    async def initial(lease):
+        seen.append(lease.adapter_key)
+        return ApifyActorInvocationResult(
+            value=["first"],
+            semantic_outcome="valid_nonempty",
+            actual_cost_usd=0.001,
+            cost_final=True,
+            latest_published_at="2030-01-01T07:00:00+00:00",
+            latest_item_id="stable-post",
+        )
+
+    first = asyncio.run(service.execute_x_profile(source_id, initial))
+    ApifyActorResilienceService(store).publish_source_advance(
+        source_id,
+        candidate_id=str(first._apify_actor_candidate_id),
+        latest_published_at=str(first._apify_actor_latest_published_at),
+        latest_item_id_hash=str(first._apify_actor_latest_item_id_hash),
+    )
+    for _ in range(3):
+        before = len(seen)
+        result = asyncio.run(service.execute_x_profile(source_id, initial))
+        assert result == ["first"]
+        assert len(seen) == before + 1
+        assert seen[-1] == "scrape_badger"
+
+    async def backup(lease):
+        seen.append(lease.adapter_key)
+        return ApifyActorInvocationResult(
+            value=["newer"],
+            semantic_outcome="valid_nonempty",
+            actual_cost_usd=0.001,
+            cost_final=True,
+            latest_published_at="2030-01-01T07:30:00+00:00",
+            latest_item_id="newer-post",
+        )
+
+    assert service._candidate_rotation_due(
+        store.connect(),
+        source_id=source_id,
+        candidate_id=str(_candidate(store, "scrape_badger")["id"]),
+        now=FIXED_NOW,
+    ) is True
+    before = len(seen)
+    switched = asyncio.run(service.execute_x_profile(source_id, backup))
+
+    assert switched == ["newer"]
+    assert len(seen) == before + 1
+    assert seen[-1] == "dami"
+    ApifyActorResilienceService(store).publish_source_advance(
+        source_id,
+        candidate_id=str(switched._apify_actor_candidate_id),
+        latest_published_at=str(switched._apify_actor_latest_published_at),
+        latest_item_id_hash=str(switched._apify_actor_latest_item_id_hash),
+    )
+    preference = ApifyActorResilienceService(store).source_preference(source_id)
+    assert preference["active_candidate_id"] == _candidate(store, "dami")["id"]
+
+    before = len(seen)
+    asyncio.run(service.execute_x_profile(source_id, backup))
+    assert len(seen) == before + 1
+    assert seen[-1] == "dami"
+
+
 def test_half_open_requires_two_real_post_successes_without_reclaiming_primary(
     tmp_path,
 ):

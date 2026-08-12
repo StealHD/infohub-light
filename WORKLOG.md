@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "ActorOps 在补位验证已终态失败后保留安全失败摘要；下一步卡直接说明原因、实际已结算费用、现有线路影响和人工恢复动作。",
-  "status": "completed",
-  "task_id": "2026-08-10-actorops-background-validation-failure",
-  "unresolved": [],
-  "validation": [
-    "Pool Stage 定向回归 10/10 通过，覆盖 Route 超时与来源 suspicious-empty 失败投影。",
-    "ActorOps 前端 Vitest 48/48、TypeScript 类型检查通过。",
-    "完整 Test Gate 24/24 命令通过（251.91 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface",
@@ -392,6 +373,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并范围 preflight 13/13 通过（396.787 秒），mapping_miss=false。",
     "本地 main 完整 Test Gate 15/15 通过（427.315 秒），mapping_miss=false。",
     "决策记录保留 D146 MCP 复制，并将平台来源/ActorOps 韧性顺延为 D147/D148；WORKLOG 校验无 findings。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "只读诊断生产订阅抓取并在本地修复 X 旧数据假成功：生产每小时任务正常运行且 Dami 连续返回旧帖，schema 22 尚无来源水位；schema 23 上连续三次 no_advance 后，下一次自然计划会只调用一个健康备用，备用推进水位后成为来源活动 Actor。",
+  "status": "completed",
+  "task_id": "2026-08-12-production-x-stale-acquisition-failover",
+  "unresolved": [
+    "生产仍运行 2.2.14/schema 22，本次按用户要求仅只读检查生产并在本地修复，未修改生产、未部署、未运行付费 Actor。",
+    "生产升级时必须先按离线流程应用 schema 23 migration，随后发布通过门禁的本地 main。"
+  ],
+  "validation": [
+    "生产只读确认 API/Worker 健康，X 每小时任务成功但最新内容停在 2026-08-10，最近生产 Actor 为 Dami 且重复 valid_nonempty。",
+    "Actor route、水位、resilience、source acquisition 与产品文档定向后端回归 83/83 通过；更新日志 Vitest 5/5、控制面校验通过。"
   ]
 }
 ```

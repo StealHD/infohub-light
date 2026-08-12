@@ -25,6 +25,8 @@ FAILED_SPEND_WINDOW = timedelta(hours=6)
 QUOTA_SNAPSHOT_MAX_AGE = timedelta(seconds=60)
 SYSTEMIC_FAILURE_WINDOW = timedelta(minutes=15)
 TARGET_PAUSE = timedelta(hours=6)
+NO_ADVANCE_ROTATION_THRESHOLD = 3
+NO_ADVANCE_ROTATION_HOLD = timedelta(hours=6)
 HALF_OPEN_RECOVERY_SUCCESSES = 2
 PROBATION_WINDOW = timedelta(hours=48)
 PROBATION_SUCCESS_RATE = 0.95
@@ -2965,10 +2967,12 @@ class ApifyActorRouteService:
         source_id: str | None = None,
     ) -> sqlite3.Row | None:
         preferred_candidate_id = ""
+        source_active_candidate_id = ""
         if source_id:
             preference = connection.execute(
                 """
-                SELECT preferred_candidate_id, preference_suspended_at
+                SELECT preferred_candidate_id, active_candidate_id,
+                       preference_suspended_at
                 FROM apify_source_route_bindings
                 WHERE workspace_id = ? AND source_id = ?
                 """,
@@ -2982,6 +2986,10 @@ class ApifyActorRouteService:
                 preferred_candidate_id = str(
                     preference["preferred_candidate_id"]
                 )
+            if preference is not None and preference["active_candidate_id"]:
+                source_active_candidate_id = str(
+                    preference["active_candidate_id"]
+                )
         rows = connection.execute(
             """
             SELECT * FROM apify_actor_candidates
@@ -2991,15 +2999,18 @@ class ApifyActorRouteService:
               CASE WHEN id = ? THEN 0 ELSE 1 END,
               CASE WHEN state = 'half_open' THEN 0 ELSE 1 END,
               CASE WHEN id = ? THEN 0 ELSE 1 END,
+              CASE WHEN id = ? THEN 0 ELSE 1 END,
               position, id
             """,
             (
                 self.workspace_id,
                 self.route_key,
                 preferred_candidate_id,
+                source_active_candidate_id,
                 route["active_candidate_id"] or "",
             ),
         ).fetchall()
+        eligible: list[sqlite3.Row] = []
         for row in rows:
             candidate_id = str(row["id"])
             if candidate_id in excluded_candidate_ids:
@@ -3016,8 +3027,63 @@ class ApifyActorRouteService:
                 claimed_at = _parse_time(row["probe_claimed_at"])
                 if claimed_at is not None and claimed_at > now - timedelta(hours=1):
                     continue
-            return row
-        return None
+            eligible.append(row)
+        if not eligible:
+            return None
+        if source_id:
+            for row in eligible:
+                if not self._candidate_rotation_due(
+                    connection,
+                    source_id=str(source_id),
+                    candidate_id=str(row["id"]),
+                    now=now,
+                ):
+                    return row
+        return eligible[0]
+
+    def _candidate_rotation_due(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        source_id: str,
+        candidate_id: str,
+        now: datetime,
+    ) -> bool:
+        """Temporarily prefer another Actor after repeated unchanged results.
+
+        Rotation happens on a later scheduled acquisition, never by adding a
+        second paid Actor call to the current successful task.  If every Actor
+        has the same neutral evidence, the normal ordering remains available.
+        """
+
+        rows = connection.execute(
+            """
+            SELECT semantic_outcome, terminal_at, created_at
+            FROM apify_actor_attempts
+            WHERE workspace_id = ? AND route_key = ?
+              AND source_id = ? AND candidate_id = ?
+              AND status IN ('succeeded', 'valid_empty', 'actor_failed')
+            ORDER BY COALESCE(terminal_at, created_at) DESC, rowid DESC
+            LIMIT ?
+            """,
+            (
+                self.workspace_id,
+                self.route_key,
+                source_id,
+                candidate_id,
+                NO_ADVANCE_ROTATION_THRESHOLD,
+            ),
+        ).fetchall()
+        if len(rows) < NO_ADVANCE_ROTATION_THRESHOLD or any(
+            str(row["semantic_outcome"] or "") != "no_advance"
+            for row in rows
+        ):
+            return False
+        latest_at = _parse_time(rows[0]["terminal_at"] or rows[0]["created_at"])
+        return bool(
+            latest_at is not None
+            and now < latest_at + NO_ADVANCE_ROTATION_HOLD
+        )
 
     def _has_selectable_candidate(
         self,
