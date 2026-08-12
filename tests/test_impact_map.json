@@ -142,7 +142,8 @@
       "id": "ActorOps paid runtime",
       "globs": [
         "src/services/apify_actor_canary.py",
-        "src/services/apify_actor_runtime.py"
+        "src/services/apify_actor_runtime.py",
+        "src/services/worker_actor_canary_handler.py"
       ],
       "groups": [
         "python_queue_worker",
@@ -213,6 +214,7 @@
         "src/services/usage_attempt_meter.py",
         "src/services/worker.py",
         "src/services/worker_actor_cycle.py",
+        "src/services/worker_actor_canary_handler.py",
         "src/services/worker_actor_discovery_ai.py",
         "src/services/worker_actor_discovery_handler.py",
         "src/services/worker_actor_validation_handler.py",

@@ -297,7 +297,7 @@
       {
         "path": "src/services/worker.py",
         "category": "production",
-        "max_lines": 1370
+        "max_lines": 992
       },
       {
         "path": "src/storage/service_store.py",
@@ -1163,18 +1163,6 @@
         "symbol": "_neutral_reuse_item",
         "category": "production",
         "max_lines": 218
-      },
-      {
-        "path": "src/services/worker.py",
-        "symbol": "_run_apify_actor_canary_batch",
-        "category": "production",
-        "max_lines": 389
-      },
-      {
-        "path": "src/services/worker.py",
-        "symbol": "_run_apify_actor_canary_batch.execute",
-        "category": "production",
-        "max_lines": 298
       },
       {
         "path": "src/services/workspace_telegram_transport.py",
