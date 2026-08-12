@@ -239,7 +239,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '后台不可用',
-        description: 'Worker 显示缺失或过期时，不要连续提交获取任务；发布或重启后先等待约 30 秒让健康检查与心跳完成，仍未恢复时联系管理员，再从运行记录重试。',
+        description: 'Worker 显示缺失或过期时，不要连续提交获取任务；发布或重启后先等待约 30 秒让健康检查与心跳完成。Worker 在加载密钥、恢复路由或领取任务前会依既定顺序检查必需迁移；命中时保持 idle 并给出 migration_required，不会越过迁移继续执行。仍未恢复时联系管理员，再从运行记录重试。',
       },
       {
         title: '发布不会临时下载依赖',

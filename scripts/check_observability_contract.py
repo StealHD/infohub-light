@@ -28,6 +28,7 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/source_avatar.py",
     "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
+    "src/services/worker_migration_gate.py",
     "src/services/workspace_telegram_transport.py",
 )
 MUTATION_METHODS = {"post", "put", "patch", "delete"}

@@ -297,7 +297,7 @@
       {
         "path": "src/services/worker.py",
         "category": "production",
-        "max_lines": 3180
+        "max_lines": 3072
       },
       {
         "path": "src/storage/service_store.py",
@@ -1192,7 +1192,7 @@
         "path": "src/services/worker.py",
         "symbol": "run_worker_once",
         "category": "entrypoint",
-        "max_lines": 852
+        "max_lines": 743
       },
       {
         "path": "src/services/workspace_telegram_transport.py",
