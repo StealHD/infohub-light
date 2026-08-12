@@ -15,6 +15,7 @@ PROTECTED_RUNTIME_FILES = (
     "src/api/agent_delegation_routes.py",
     "src/api/job_routes.py",
     "src/api/server.py",
+    "src/api/user_routes.py",
     "src/ai/analyzer.py",
     "src/ai/enricher.py",
     "src/logging_utils.py",

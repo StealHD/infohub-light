@@ -1,4 +1,4 @@
-// Reviewed after the queued-job and Agent-delegation API adapter splits; user-facing behavior is unchanged.
+// Reviewed after the queued-job, Agent-delegation, and member API adapter splits; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string
