@@ -8,22 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "将包含 ActorOps schema 20–22 显式迁移的合并版本递增为 v2.2.14，避免复用已存在的 v2.2.13 Tag。",
-  "status": "completed",
-  "task_id": "2026-08-11-release-v2.2.14-actorops",
-  "unresolved": [],
-  "validation": [
-    "发布前将重新运行精确 main SHA 的完整 Test Gate；线上迁移与切换按带 0600 备份的显式流程执行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -407,6 +391,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "完整 141 条路由清单 SHA、规范化 OpenAPI SHA、5 条 delegation 路由顺序、handler 名和 201 状态均与基线一致。",
     "权限、令牌生命周期、operation log、lifespan、import boundary、observability 与规模定向测试 73 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0。",
     "server.py 从 9326 行降至 9182 行，create_app 从 8073 行降至 7961 行；新 router 199 行且最长 handler 小于 80 行。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "1920d16a5180f792794dce67484f9f67dc8f5d7f",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "observability"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成代码健康第四个低风险 API 切片：将 4 个成员管理端点与请求模型抽取到独立 typed router，保持角色、密码、Owner 保护、自删保护、运行任务阻断、责任转移与操作日志语义不变，并继续收紧代码规模旧债。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-member-router-slice",
+  "unresolved": [
+    "父级代码健康 Goal 仍包含其余 API 路由、前端 ActorOps、Worker、ServiceStore、后端 ActorOps、Workbench/OpenClaw 与依赖环的分期重构。",
+    "本切片不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
+  ],
+  "validation": [
+    "完整 141 条路由清单 SHA、规范化 OpenAPI SHA、4 条成员路由顺序与 handler 名均与基线一致。",
+    "成员与权限定向测试 63 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
+    "server.py 从 9182 行降至 9043 行，create_app 从 7961 行降至 7844 行；新 router 175 行且所有 callable 小于 80 行。"
   ]
 }
 ```
