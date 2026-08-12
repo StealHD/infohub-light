@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "ActorOps 三个任务页签使用浅色强调底轨区分未选项，保留已选白色胶囊，不恢复外框或阴影。",
-  "status": "completed",
-  "task_id": "2026-08-11-actorops-tab-accent-rail",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 与 Changelog 前端 Vitest 61/61 及 TypeScript 类型检查通过。",
-    "完整 Test Gate 24/24 命令通过（259.62 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -396,6 +378,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "一期分支完整 Test Gate 18/18 与 release 三视口 Playwright 6/6 通过；最终 diff 只读审查无高置信缺陷。",
     "基于本地 main@b0083d3 的集成 preflight 16/16 通过，mapping_miss=false，SQLite 未关闭连接警告为 0。",
     "代码规模全量门禁和延迟基线策略通过；首屏 JavaScript Brotli 为 235368 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "d8ca3efc6d4f6a84232783df8892f15f12c4eac5",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成代码健康第二个低风险切片：将 9 个 Jobs 与兼容任务端点从 API composition root 抽取到独立 typed router，保持路由、OpenAPI、权限、事务、任务脱敏与操作日志语义不变，并同步收紧代码规模旧债。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-jobs-router-slice",
+  "unresolved": [
+    "父级代码健康 Goal 仍包含剩余 API 路由、前端 ActorOps、Worker、ServiceStore、后端 ActorOps、Workbench/OpenClaw 与依赖环的分期重构。",
+    "本切片不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
+  ],
+  "validation": [
+    "完整路由清单、9 个 Jobs 路由顺序、规范化 OpenAPI SHA 与 app.state keys 均与基线一致；只读审查无高置信缺陷。",
+    "staged 与精确提交 preflight 均为 16/16，完整 Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
+    "release Playwright 三视口 107 passed、55 configured skipped、0 failed；首屏 JavaScript Brotli 为 235466 bytes。"
   ]
 }
 ```
