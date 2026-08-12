@@ -23,11 +23,13 @@ const forbidden = [
 const forbiddenPatterns = [
   { pattern: /\bMui(?:[A-Z][A-Za-z0-9]*)?-[A-Za-z0-9-]+\b/, label: 'MUI class marker' },
 ]
-const initialJavaScriptBrotliBudget = 250 * 1024
-const requiredLazyRouteChunks = [
+const initialJavaScriptBrotliBudget = 240 * 1024
+const requiredLazyChunks = [
   'HeroAgentsPage',
   'HeroChangelogPage',
+  'HeroLoginPage',
   'HeroManualPage',
+  'OpenClawConversation',
   'HeroSubscriptionsPage',
   'HeroUsersPage',
   'SettingsActorOpsPage',
@@ -35,6 +37,7 @@ const requiredLazyRouteChunks = [
   'SettingsAppearancePage',
   'SettingsFetchingPage',
   'SettingsIgnoredPage',
+  'SettingsLayout',
   'SettingsNotificationsPage',
   'SettingsOverviewPage',
   'SettingsSecretsPage',
@@ -90,9 +93,9 @@ if (buildFiles.includes(indexPath)) {
   }
 
   const builtNames = buildFiles.map((file) => file.slice(buildRoot.length + 1))
-  for (const chunkName of requiredLazyRouteChunks) {
+  for (const chunkName of requiredLazyChunks) {
     if (!builtNames.some((name) => name.startsWith(`assets/${chunkName}-`) && name.endsWith('.js'))) {
-      violations.push(`${buildRoot}: 缺少低频路由独立分包 ${chunkName}`)
+      violations.push(`${buildRoot}: 缺少按需加载独立分包 ${chunkName}`)
     }
   }
 }

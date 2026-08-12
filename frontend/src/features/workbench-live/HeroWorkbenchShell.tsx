@@ -42,11 +42,11 @@ import {
   writeAgentContextDraft,
   type AgentContextDraftV6,
 } from './agentContext'
-import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat } from '../openclaw/useOpenClawChat'
 import { HandoffComposer } from './HandoffComposer'
 import { FeedInsightsPanel, type FeedInsightsMetric } from './FeedInsightsPanel'
 import { AgentPanelSkeleton } from './WorkbenchLoadingState'
+import { LazyOpenClawConversation } from './LazyOpenClawConversation'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { relativeTime } from '../feed/feedModel'
@@ -691,7 +691,7 @@ function AgentPanelContent({
         </div>
       </div>
       <HandoffComposer value={value} />
-    </> : <OpenClawConversation chat={chat} value={value} />}
+    </> : <LazyOpenClawConversation chat={chat} value={value} />}
     </LoadingReveal>}
   </>
 }
