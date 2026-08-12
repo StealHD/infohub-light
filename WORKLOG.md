@@ -7,22 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-08-11",
-  "result": "从本地 main revision a878b715c2b1 切换 8080 API 与 Worker，并安全清理旧本地构建镜像与过期构建缓存；未启动 scheduler。",
-  "status": "completed",
-  "task_id": "2026-08-11-main-local-runtime-cutover-preflight-gate",
-  "unresolved": [],
-  "validation": [
-    "./scripts/up-latest.sh 在 main Worktree 构建并仅重建 horizon-api 与 horizon-worker；运行前确认活跃 fetch job=0、Feed schedule=0、无新增数据库迁移且无 scheduler 容器。",
-    "API 与 Worker 均为 healthy；/api/health/live 返回 revision=a878b715c2b1，/api/health/ready 返回 worker_status=ready；前端资源 index-CgdKDeP4.js 已服务。",
-    "当前仅保留 inteliscope-service:local-a878b715c2b1；旧 local 镜像标签 2 个已删除。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "interface"
   ],
@@ -413,6 +397,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Worker 定向组 618/618 通过，另有首轮 76/76 和导入/规模/可观测性 30/30 通过，ResourceWarning 为 0。",
     "worker.py 由 3072 行降至 2646 行，run_worker_once 由 743 行降至 491 行；新模块 390/209 行，最大新函数 102/100 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker 的个人通知、Actor 告警、finish/source/acquisition 遥测拆到独立 post-commit 模块，保持所有外呼只在 Job 事务提交后发生，且失败不改变 Job 终态。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-postcommit",
+  "unresolved": [],
+  "validation": [
+    "post-commit 定向回归 149/149 通过，完整 Worker 定向组 618/618 通过，ResourceWarning 为 0。",
+    "worker.py 由 2646 行降至 2513 行，run_worker_once 由 491 行降至 357 行；新模块 212 行、最大函数 78 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
