@@ -52,6 +52,40 @@ uvicorn.run(app, log_config=None, access_log=False)
     )
 
 
+def test_contract_checks_mutations_registered_by_extracted_api_modules():
+    source = """
+def register_routes(app):
+    app.add_api_route("/api/extracted", mutate, methods=["POST"])
+"""
+
+    violations = source_violations(
+        "src/api/extracted.py",
+        source,
+        mutation_routes=set(),
+    )
+
+    assert any(
+        violation.code == "OBS005"
+        and "POST /api/extracted" in violation.message
+        for violation in violations
+    )
+
+
+def test_contract_accepts_mapped_mutation_from_extracted_api_module():
+    source = """
+def register_routes(app):
+    app.add_api_route("/api/extracted", mutate, methods=["POST"])
+"""
+
+    violations = source_violations(
+        "src/api/extracted.py",
+        source,
+        mutation_routes={("POST", "/api/extracted")},
+    )
+
+    assert not any(violation.code == "OBS005" for violation in violations)
+
+
 def test_contract_rejects_worker_job_type_without_trace_policy():
     source = """
 WORKER_JOB_TRACE_POLICY = {"known": "job_lifecycle_only"}
