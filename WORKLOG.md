@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "合并助手连接创建流程的一次性 MCP token 复制体验：令牌单行省略并完整复制，环境写入与 OpenClaw 配置命令均使用右上角图标复制。",
-  "status": "completed",
-  "task_id": "2026-08-11-merge-openclaw-copy-ui",
-  "unresolved": [],
-  "validation": [
-    "任务分支定向 Vitest 16/16、preflight 11/11 与完整 Test Gate 15/15 通过。",
-    "合并后的产品更新日志同时保留订阅统计快捷查询和助手连接复制说明。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -416,6 +398,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Worker、Feed、来源、ActorOps、通知、调度、订阅变更和导入边界定向回归全部通过，ResourceWarning 为 0。",
     "worker.py 由 2305 行降至 1893 行，_run_job 由 159 行降至 49 行并移除旧债；新模块 279/238 行，最大新函数 105/93 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker 的 Actor validation 与 freshness handler 拆入独立模块，通过 ports 保留协调器和错误码兼容 seam，不改变管理员授权、专用校验 Key、费用失败记账或终态语义。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-actor-validation",
+  "unresolved": [],
+  "validation": [
+    "Actor validation/freshness、Worker、ActorOps、resilience、通知和调度扩展定向回归全部通过，ResourceWarning 为 0。",
+    "worker.py 由 1893 行降至 1705 行；新模块 262 行，全部新增函数不超过 78 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
