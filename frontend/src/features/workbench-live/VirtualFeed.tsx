@@ -15,7 +15,7 @@ import {
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
-import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
+import { cardLabelForViewer, workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
@@ -903,8 +903,4 @@ export function VirtualFeed(props: VirtualFeedProps) {
       onOpenChange={(open) => { if (!open) closeMediaViewer() }}
     />
   </div>
-}
-
-export function cardLabelForViewer(card: WorkbenchCardModel): string {
-  return card.displayKind === 'social' ? `${card.sourceLabel}: ${card.primaryText}` : card.title
 }

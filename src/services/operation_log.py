@@ -123,10 +123,6 @@ def bind_operation_actor(*, workspace_id: str, user_id: str) -> None:
     )
 
 
-def current_request_id() -> str | None:
-    return current_observability_context().request_id
-
-
 def _safe_value(value: Any, field: str) -> str:
     return safe_observability_value(value, field)
 

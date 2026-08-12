@@ -42,7 +42,7 @@ export default [
     rules: {
       'no-undef': 'off',
       ...reactHooks.configs.flat.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },

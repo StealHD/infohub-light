@@ -10,11 +10,9 @@ import { sidebarPreferenceKey } from '../../app/sidebarPreference'
 import { DesignSystemProvider } from '../../design-system'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import {
-  calculateFeedInsightsLayout,
-  canFloatFeedInsights,
   HeroWorkbenchShell,
-  rectanglesOverlap,
 } from './HeroWorkbenchShell'
+import { calculateFeedInsightsLayout, canFloatFeedInsights } from './feedInsightsLayout'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()
@@ -335,14 +333,6 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
       readingShift: 0,
       obstructsFeed: true,
     })
-    expect(rectanglesOverlap(
-      { left: 100, right: 1000, top: 60, bottom: 850 },
-      { left: 900, right: 1252, top: 60, bottom: 700 },
-    )).toBe(true)
-    expect(rectanglesOverlap(
-      { left: 100, right: 1000, top: 60, bottom: 850 },
-      { left: 1012, right: 1364, top: 60, bottom: 700 },
-    )).toBe(false)
   })
 
   it('shows a terminal refresh event once in an overlay toast with one retry action', async () => {

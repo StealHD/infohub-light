@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "ActorOps legacy 升级始终把当前 ScrapeBadger、Dami 和 Xquik 排在候选最前，安全新版自动选中，未通过项显示状态；重复免费检查被服务端合并，顶部与页签外层方框阴影已移除。",
-  "status": "completed",
-  "task_id": "2026-08-10-actorops-current-actors-visible-deduplicate",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 候选、API 与 Discovery 后端回归 97/97 通过，覆盖当前三 Actor 排序、ranking 运行态与重复 Job 零调用 supersede。",
-    "ActorOps 与 Changelog 前端 Vitest 61/61 及 TypeScript 类型检查通过。",
-    "完整 Test Gate 24/24 命令通过（244.49 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -391,6 +371,31 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布前检查和精确 main GitHub Test Gate 通过。",
     "v2.3.2 标签解析到已验证的 main 提交，Release Tag workflow 通过。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "b131f0531ca8c00388171929eead87116e061ea4",
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成并准备安全集成代码健康第一期：建立项目适配的规模旧债棘轮，修复门禁范围与数据库连接生命周期，删除已证明无调用的后端和旧 HeroUI 内部实现，拆出低风险 API、Worker、Store/Feed 与 ActorOps 边界，并将首屏 JavaScript 收紧到 240 KiB。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-refactor-phase-1",
+  "unresolved": [
+    "server.py、ServiceStore、后端 ActorOps、Worker、Workbench/OpenClaw 与 ActorOps facade 仍是登记旧债；后续继续按单域切片，不一次性改写事务或审批核心。",
+    "本次不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
+  ],
+  "validation": [
+    "一期分支完整 Test Gate 18/18 与 release 三视口 Playwright 6/6 通过；最终 diff 只读审查无高置信缺陷。",
+    "基于本地 main@b0083d3 的集成 preflight 16/16 通过，mapping_miss=false，SQLite 未关闭连接警告为 0。",
+    "代码规模全量门禁和延迟基线策略通过；首屏 JavaScript Brotli 为 235368 bytes。"
   ]
 }
 ```

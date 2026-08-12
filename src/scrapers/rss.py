@@ -299,10 +299,6 @@ class RSSScraper(BaseScraper):
         return ""
 
     @staticmethod
-    def _extract_media_urls(entry: dict, content: str) -> list[str]:
-        return RSSScraper._extract_media_inventory(entry, content, "")["image_urls"]
-
-    @staticmethod
     def _extract_media_inventory(entry: dict, content: str, item_url: Any) -> dict[str, Any]:
         urls: list[str] = []
         attachment_images: list[str] = []

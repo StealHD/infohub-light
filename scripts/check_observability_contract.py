@@ -28,6 +28,7 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/source_avatar.py",
     "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
+    "src/services/worker_migration_gate.py",
     "src/services/workspace_telegram_transport.py",
 )
 MUTATION_METHODS = {"post", "put", "patch", "delete"}
@@ -161,6 +162,42 @@ def _decorated_mutation_routes(
     return routes
 
 
+def _registered_mutation_routes(
+    tree: ast.Module,
+) -> list[tuple[str, str, int]]:
+    routes: list[tuple[str, str, int]] = []
+    for node in ast.walk(tree):
+        if (
+            not isinstance(node, ast.Call)
+            or not isinstance(node.func, ast.Attribute)
+            or node.func.attr != "add_api_route"
+            or not node.args
+        ):
+            continue
+        route = _constant_string(node.args[0])
+        methods_node = next(
+            (
+                keyword.value
+                for keyword in node.keywords
+                if keyword.arg == "methods"
+            ),
+            None,
+        )
+        if route is None:
+            continue
+        for method in _constant_strings(methods_node):
+            if method.lower() in MUTATION_METHODS:
+                routes.append((method.upper(), route, node.lineno))
+    return routes
+
+
+def _api_mutation_routes(tree: ast.Module) -> list[tuple[str, str, int]]:
+    return [
+        *_decorated_mutation_routes(tree),
+        *_registered_mutation_routes(tree),
+    ]
+
+
 def _operation_event_pairs(tree: ast.Module) -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
     for node in ast.walk(tree):
@@ -203,7 +240,12 @@ def _dispatched_worker_job_types(tree: ast.Module) -> set[str]:
     return dispatched
 
 
-def source_violations(relative: str, source: str) -> list[Violation]:
+def source_violations(
+    relative: str,
+    source: str,
+    *,
+    mutation_routes: set[tuple[str, str]] | None = None,
+) -> list[Violation]:
     try:
         tree = ast.parse(source, filename=relative)
     except SyntaxError as exc:
@@ -276,8 +318,13 @@ def source_violations(relative: str, source: str) -> list[Violation]:
                         "uvicorn must use log_config=None and access_log=False",
                     )
                 )
-        mapped = _mutation_route_map(tree)
-        for method, route, line in _decorated_mutation_routes(tree):
+    if relative.startswith("src/api/"):
+        mapped = (
+            mutation_routes
+            if mutation_routes is not None
+            else _mutation_route_map(tree)
+        )
+        for method, route, line in _api_mutation_routes(tree):
             if (method, route) not in mapped:
                 violations.append(
                     Violation(
@@ -315,7 +362,24 @@ def source_violations(relative: str, source: str) -> list[Violation]:
 
 def check_repository(root: Path) -> list[Violation]:
     violations: list[Violation] = []
-    for relative in PROTECTED_RUNTIME_FILES:
+    api_files = {
+        path.relative_to(root).as_posix()
+        for path in (root / "src" / "api").rglob("*.py")
+        if "__pycache__" not in path.parts
+    }
+    relatives = sorted({*PROTECTED_RUNTIME_FILES, *api_files})
+    server_path = root / "src" / "api" / "server.py"
+    mapped_mutations = (
+        _mutation_route_map(
+            ast.parse(
+                server_path.read_text(encoding="utf-8"),
+                filename="src/api/server.py",
+            )
+        )
+        if server_path.is_file()
+        else set()
+    )
+    for relative in relatives:
         path = root / relative
         if not path.is_file():
             violations.append(
@@ -328,7 +392,15 @@ def check_repository(root: Path) -> list[Violation]:
             )
             continue
         violations.extend(
-            source_violations(relative, path.read_text(encoding="utf-8"))
+            source_violations(
+                relative,
+                path.read_text(encoding="utf-8"),
+                mutation_routes=(
+                    mapped_mutations
+                    if relative.startswith("src/api/")
+                    else None
+                ),
+            )
         )
     return sorted(
         violations,

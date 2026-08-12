@@ -1,64 +1,4 @@
 import { ApiError } from '../../api/client'
-import type {
-  NotificationChannel,
-  NotificationChannelStates,
-  NotificationChannelTestStatus,
-} from '../../api/types'
-
-export function notificationChannelConfigured(
-  settings: { channel_states: NotificationChannelStates },
-  channel: NotificationChannel,
-): boolean {
-  return settings.channel_states[channel].configured
-}
-
-export function notificationChannelAvailable(
-  settings: { channel_states: NotificationChannelStates },
-  channel: NotificationChannel,
-): boolean {
-  return settings.channel_states[channel].available
-}
-
-export function notificationDestinationError({
-  channel,
-  destination,
-  configured,
-  enabled,
-}: {
-  channel: NotificationChannel
-  destination: string
-  configured: boolean
-  enabled: boolean
-}): string {
-  const value = destination.trim()
-  if (!value) {
-    return enabled && !configured
-      ? channel === 'email'
-        ? '启用邮件通知前，请填写收件邮箱。'
-        : channel === 'webhook'
-          ? '启用 Webhook 通知前，请填写 Webhook 地址。'
-          : '启用 Telegram 通知前，请填写 Chat ID。'
-      : ''
-  }
-  if (channel === 'email') {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? '' : '请输入有效的收件邮箱。'
-  }
-  if (channel === 'telegram') {
-    const usernameChatId = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(value)
-    const numericChatId = /^-?[1-9]\d{0,18}$/.test(value)
-      && BigInt(value) >= -(2n ** 63n)
-      && BigInt(value) <= (2n ** 63n) - 1n
-    return usernameChatId || numericChatId
-      ? ''
-      : '请输入有效的 Chat ID（有符号整数或 @channel）。'
-  }
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'https:' ? '' : 'Webhook 地址必须使用 HTTPS。'
-  } catch {
-    return '请输入有效的 Webhook 地址。'
-  }
-}
 
 const notificationErrorLabels: Record<string, string> = {
   invalid_notification_channel: '通知方式无效，请重新选择。',
@@ -104,23 +44,4 @@ export function safeNotificationError(caught: unknown, fallback: string): string
   if (caught instanceof ApiError) return notificationErrorLabels[caught.code] ?? fallback
   if (caught instanceof TypeError) return '网络请求失败，请检查连接后重试。'
   return fallback
-}
-
-export function notificationTestLabel(
-  status: NotificationChannelTestStatus | string,
-  context?: {
-    channel: NotificationChannel
-    verificationMode: 'http_status' | 'provider_response'
-  },
-): string {
-  if (!status) return '尚未发送测试通知'
-  if (status === 'succeeded' || status === 'success' || status === 'sent') {
-    if (context?.channel === 'email') return '最近一次测试邮件已发送，请确认收件箱'
-    if (context?.channel === 'telegram') return '最近一次 Telegram 测试消息已发送，请确认目标会话'
-    if (context?.verificationMode === 'provider_response') return '最近一次测试已获平台接受，请确认接收端'
-    return '最近一次测试请求已发送，请确认接收端'
-  }
-  if (status === 'failed' || status === 'failure') return '最近一次测试发送失败'
-  if (status === 'unknown') return '最近一次测试结果未知，不会自动重发'
-  return '最近一次测试状态未知'
 }

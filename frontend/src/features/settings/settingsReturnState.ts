@@ -1,5 +1,3 @@
-export const SETTINGS_RETURN_STATE_KEY = 'settingsReturnTo'
-
 export type SettingsReturnState = {
   settingsReturnTo?: string
 }

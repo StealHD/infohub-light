@@ -11,9 +11,8 @@ import sqlite3
 import time
 import uuid
 from copy import deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..storage.service_store import ServiceStore
 from ..models import ContentItem
 from .content_presentation import complete_content_presentation
 from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
@@ -28,7 +27,8 @@ from .content_timeline import (
     resolve_effective_at,
     timeline_bucket,
 )
-
+if TYPE_CHECKING:
+    from ..storage.service_store import ServiceStore
 
 class ContentSearchTimeoutError(RuntimeError):
     """Raised when a bounded SQLite content search exceeds its time budget."""
@@ -636,29 +636,6 @@ class UserContentStore:
             for field in public_fields
             for value in _flatten_search_values(field)
         ).casefold()
-
-    def latest_feed_article_ids(
-        self,
-        *,
-        workspace_id: str,
-        user_id: str,
-    ) -> set[str]:
-        rows = self.store.connect().execute(
-            """
-            SELECT item.article_id
-            FROM user_feed_items AS item
-            WHERE item.workspace_id = ? AND item.user_id = ?
-              AND item.snapshot_id = (
-                SELECT snapshot.id
-                FROM user_feed_snapshots AS snapshot
-                WHERE snapshot.workspace_id = ? AND snapshot.user_id = ?
-                ORDER BY snapshot.generated_at DESC, snapshot.created_at DESC
-                LIMIT 1
-              )
-            """,
-            (workspace_id, user_id, workspace_id, user_id),
-        ).fetchall()
-        return {str(row["article_id"]) for row in rows if row["article_id"]}
 
     def history_items(
         self,

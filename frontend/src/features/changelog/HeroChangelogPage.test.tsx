@@ -44,6 +44,7 @@ describe('HeroChangelogPage', () => {
     renderChangelog('/changelog#month-2026-07')
 
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 8 月' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: '内部结构更易维护，用户流程保持不变' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: 'YouTube Actor 不再因映射错误全军覆没' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 7 月' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '通知服务统一配置、测试并直接复用' })).toBeInTheDocument()
@@ -115,7 +116,7 @@ describe('HeroChangelogPage', () => {
     expect(within(entries[12] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
     const latestTimeline = screen.getByRole('list', { name: '2026 年 8 月更新记录' })
     const latestEntries = latestTimeline.querySelectorAll(':scope > [data-timeline-item]')
-    expect(latestEntries).toHaveLength(31)
+    expect(latestEntries).toHaveLength(32)
     expect(latestEntries[0]).toHaveAttribute('aria-current', 'true')
     expect(within(latestTimeline).getByText('助手连接命令可直接复制')).toBeVisible()
     expect(within(latestTimeline).getByText('功能优先但费用仍需确认')).toBeVisible()

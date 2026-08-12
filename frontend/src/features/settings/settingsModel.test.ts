@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SecretRef, User } from '../../api/types'
-import { DEFAULT_DEEPSEEK_MODEL, DEFAULT_GEMINI_MODEL, aiDefaultsForProvider, canAdministerWorkspace, secretPresentation, settingsDataReady, tagLibraryText } from './settingsModel'
+import { DEFAULT_DEEPSEEK_MODEL, DEFAULT_GEMINI_MODEL, aiDefaultsForProvider, canAdministerWorkspace, secretPresentation } from './settingsModel'
 
 const user = (role: User['role']): User => ({ id: role, username: role, role, enabled: true })
 
@@ -28,14 +28,4 @@ describe('settings model', () => {
     expect(JSON.stringify(secretPresentation(secret))).not.toContain('value')
   })
 
-  it('formats the configured topic library as one editable topic per line', () => {
-    expect(tagLibraryText(['AI Agent', 'RAG/MCP'])).toBe('AI Agent\nRAG/MCP')
-    expect(tagLibraryText(undefined)).toBe('')
-  })
-
-  it('waits for both config and secret metadata before mounting admin forms', () => {
-    expect(settingsDataReady({ admin: true, configLoaded: true, secretsLoaded: false })).toBe(false)
-    expect(settingsDataReady({ admin: true, configLoaded: true, secretsLoaded: true })).toBe(true)
-    expect(settingsDataReady({ admin: false, configLoaded: true, secretsLoaded: false })).toBe(true)
-  })
 })

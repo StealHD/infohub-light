@@ -15,7 +15,6 @@ describe('query keys', () => {
     expect(queryKeys.feedJobs('user-b')).toEqual(['user', 'user-b', 'feed-jobs'])
     expect(queryKeys.jobs('user-b')).toEqual(['user', 'user-b', 'jobs'])
     expect(queryKeys.notificationSettings('user-b')).toEqual(['user', 'user-b', 'notification-settings'])
-    expect(queryKeys.notificationTargets('user-b')).toEqual(['user', 'user-b', 'notification-targets'])
     expect(queryKeys.notificationServices('user-b')).toEqual(['user', 'user-b', 'notification-services'])
     expect(queryKeys.agentDelegations('user-b')).toEqual(['user', 'user-b', 'agent-delegations'])
     expect(queryKeys.apifyKeyPool('user-a')).toEqual(['user', 'user-a', 'apify-key-pool'])
@@ -29,9 +28,6 @@ describe('query keys', () => {
     )
     expect(queryKeys.notificationSettings('user-b')).not.toEqual(
       queryKeys.notificationSettings('user-a'),
-    )
-    expect(queryKeys.notificationTargets('user-b')).not.toEqual(
-      queryKeys.notificationTargets('user-a'),
     )
     expect(queryKeys.notificationServices('user-b')).not.toEqual(
       queryKeys.notificationServices('user-a'),

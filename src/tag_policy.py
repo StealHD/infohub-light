@@ -433,11 +433,6 @@ def normalize_tags(
     return tags
 
 
-def normalize_category(value: object, *, fallback: object | None = None) -> str:
-    """Normalize legacy category values to a top-level hub channel."""
-    return normalize_channel(value, fallback=fallback)
-
-
 def order_tags(
     values: Iterable[object],
     *,

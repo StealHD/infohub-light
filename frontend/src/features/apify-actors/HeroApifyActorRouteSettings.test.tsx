@@ -20,9 +20,10 @@ import type {
 import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
 import {
-  ApifyActorAlertSettingsForm,
-  HeroApifyActorRouteSettings,
+  ApifyActorAlertSettingsPanel,
+  ApifyActorIncidentList,
 } from './HeroApifyActorRouteSettings'
+import { HeroActorOpsControlPlane } from './HeroActorOpsControlPlane'
 import { APIFY_ACTOR_ROUTE_REFRESH_MS } from './apifyActorModel'
 
 const actorOpsDetail = (
@@ -497,14 +498,6 @@ const sharedTarget = (overrides: Partial<NotificationTarget> = {}): Notification
   ...overrides,
 })
 
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => {
-    resolve = next
-  })
-  return { promise, resolve }
-}
-
 function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = true) {
   const defaultDetail = actorOpsDetail()
   const api = {
@@ -577,7 +570,6 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     measureApifyActorDiscovery: vi.fn(),
     apifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     updateApifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
-    testApifyActorAlertSettings: vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' }),
     notificationServices: vi.fn().mockResolvedValue({
       schema_version: 1,
       services: [{ ...sharedTarget(), legacy_private: false, can_validate: true }],
@@ -659,7 +651,11 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
       <DesignSystemProvider>
         <Routes>
           <Route element={<Outlet context={context} />}>
-            <Route index element={<HeroApifyActorRouteSettings queryEnabled={enabled} />} />
+            <Route index element={<>
+              <HeroActorOpsControlPlane queryEnabled={enabled} />
+              <ApifyActorAlertSettingsPanel queryEnabled={enabled} />
+              <ApifyActorIncidentList queryEnabled={enabled} />
+            </>} />
           </Route>
         </Routes>
       </DesignSystemProvider>
@@ -673,7 +669,7 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
   }
 }
 
-describe('HeroApifyActorRouteSettings', () => {
+describe('current ActorOps settings panels', () => {
   beforeEach(() => actionToast.clear())
 
   it('refreshes route health on the specified 30-second interval', () => {
@@ -711,248 +707,6 @@ describe('HeroApifyActorRouteSettings', () => {
     }
   })
 
-  it('keeps polling an in-flight Discovery Canary after the approval stage pauses', async () => {
-    vi.useFakeTimers()
-    try {
-      const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
-      const running = discoveryRun(detail)
-      running.candidates[0] = {
-        ...running.candidates[0],
-        validation_status: 'running',
-        canary_in_flight: true,
-        awaiting_approval: false,
-      }
-      const apifyActorDiscoveryRun = vi.fn().mockResolvedValue(running)
-      renderFeature({
-        apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
-        apifyActorRoute: vi.fn().mockResolvedValue(detail),
-        apifyActorDiscoveryRun,
-      })
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(100)
-      })
-      expect(apifyActorDiscoveryRun).toHaveBeenCalledOnce()
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3_000)
-      })
-      expect(apifyActorDiscoveryRun).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('shows persisted Actor and publisher shortfalls without hiding valid partials', async () => {
-    const detail = actorOpsDetail({
-      discovery_run_id: 'discovery-run-1',
-      activation_recommendation: {
-        ready: false,
-        already_active: false,
-        confirmation: '确认启用 Actor 主备',
-        problems: ['canary_successful_candidates_incomplete'],
-        certified_actor_count: 0,
-        backup_2_actor_count: 0,
-        runnable_actor_count: 0,
-        publisher_count: 0,
-        activation_mode: null,
-        slots: [],
-      },
-    })
-    const partial = discoveryRun(detail)
-    partial.stage = 'candidate_shortfall'
-    partial.status = 'candidate_shortfall'
-    partial.candidate_count = 1
-    partial.candidate_shortfall = 2
-    partial.publisher_count = 1
-    partial.publisher_shortfall = 1
-    partial.error_code = 'input_validation_candidate_shortfall'
-    partial.failure_phase = 'input_validation'
-    partial.rejections = [{
-      reason: 'actor_input_validation_rejected',
-      count: 2,
-    }]
-    partial.candidates[0] = {
-      ...partial.candidates[0],
-      awaiting_approval: false,
-    }
-    const apifyActorCanaryPlan = vi.fn().mockResolvedValue(canaryPlan(detail))
-    renderFeature({
-      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
-      apifyActorRoute: vi.fn().mockResolvedValue(detail),
-      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(partial),
-      apifyActorCanaryPlan,
-    })
-
-    expect(await screen.findByText('缺少 2 个 Actor')).toBeVisible()
-    await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
-      'discovery-run-1',
-      'initial_pool',
-      expect.any(AbortSignal),
-    ))
-    expect(screen.getByRole('button', { name: '验证两路主备' })).toBeVisible()
-    expect(screen.getByText('固定 Build 输入校验需要处理')).toBeVisible()
-    expect(screen.getByText(/候选输入与固定 Build Schema 不兼容/)).toBeVisible()
-    expect(screen.getByText('1/2 Actor · 1/2 发布者；付费验证只统计真实启动')).toBeVisible()
-    expect(within(
-      screen.getByRole('list', { name: 'Actor 发现候选' }),
-    ).getAllByRole('listitem')).toHaveLength(1)
-  })
-
-  it('preserves timeout cost evidence while offering a fresh server plan', async () => {
-    const detail = actorOpsDetail({
-      discovery_run_id: 'discovery-run-1',
-      activation_recommendation: {
-        ready: false,
-        already_active: false,
-        confirmation: '确认启用 Actor 主备',
-        problems: ['canary_successful_candidates_incomplete'],
-        certified_actor_count: 0,
-        backup_2_actor_count: 1,
-        runnable_actor_count: 1,
-        publisher_count: 1,
-        activation_mode: null,
-        slots: [],
-      },
-    })
-    const exhausted = discoveryRun(detail)
-    exhausted.stage = 'canary_exhausted'
-    exhausted.status = 'canary_exhausted'
-    exhausted.error_code = 'route_canary_attempts_exhausted'
-    exhausted.failure_phase = 'route_canary'
-    exhausted.canary_attempts_used = 5
-    exhausted.canary_attempts_limit = 5
-    exhausted.canary_attempts_remaining = 0
-    exhausted.canary_timeout_seconds = 300
-    exhausted.spent_usd = 0.01905
-    exhausted.candidates[0] = {
-      ...exhausted.candidates[0],
-      awaiting_approval: false,
-      validation_status: 'failed',
-      validation_outcome: 'apify_actor_run_timed_out',
-      validation_cost_usd: 0.01905,
-      validation_cost_final: true,
-      validation_duration_ms: 187_189,
-      actor_run_status: 'aborted',
-    }
-    renderFeature({
-      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
-      apifyActorRoute: vi.fn().mockResolvedValue(detail),
-      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(exhausted),
-      apifyActorCanaryPlan: vi.fn().mockResolvedValue(canaryPlan(detail)),
-    })
-
-    expect(await screen.findByRole('button', { name: '验证两路主备' })).toBeVisible()
-    expect(screen.getByText(/Actor 在时限内未完成/)).toBeVisible()
-    expect(screen.getByText(/实际费用 \$0\.01905（已终结）/)).toBeVisible()
-    expect(screen.getByText(/付费验证只统计真实启动/)).toBeVisible()
-    expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
-  })
-
-  it('keeps two viable candidates approvable when three metadata candidates are blocked', async () => {
-    const detail = actorOpsDetail({
-      discovery_run_id: 'discovery-run-1',
-      runtime_status: 'blocked',
-      runnable_slots: 0,
-      activation_recommendation: {
-        ready: false,
-        already_active: false,
-        confirmation: '确认启用 Actor 主备',
-        problems: ['probationary_candidates_incomplete'],
-        certified_actor_count: 0,
-        backup_2_actor_count: 0,
-        runnable_actor_count: 0,
-        publisher_count: 0,
-        activation_mode: null,
-        slots: [],
-      },
-    })
-    const run = discoveryRun(detail)
-    const candidate = run.candidates[0]
-    run.canary_attempts_used = 1
-    run.canary_attempts_limit = 5
-    run.canary_attempts_remaining = 4
-    run.candidate_count = 5
-    run.publisher_count = 4
-    run.candidates = [
-      {
-        ...candidate,
-        rank: 1,
-        awaiting_approval: false,
-        rejection_reasons: ['apify_actor_metadata_only'],
-        revision: {
-          ...candidate.revision,
-          revision_id: 'revision-metadata-only',
-          actor_id: 'metadata/channel',
-          publisher: 'metadata',
-          can_canary: false,
-        },
-      },
-      {
-        ...candidate,
-        rank: 2,
-        revision: {
-          ...candidate.revision,
-          revision_id: 'revision-streamers',
-          actor_id: 'streamers/videos',
-          publisher: 'streamers',
-        },
-      },
-      {
-        ...candidate,
-        rank: 3,
-        awaiting_approval: false,
-        rejection_reasons: ['apify_manifest_item_identity_invalid'],
-        revision: {
-          ...candidate.revision,
-          revision_id: 'revision-channel-id',
-          actor_id: 'metadata/statistics',
-          publisher: 'metadata',
-          can_canary: false,
-        },
-      },
-      {
-        ...candidate,
-        rank: 4,
-        revision: {
-          ...candidate.revision,
-          revision_id: 'revision-apidojo',
-          actor_id: 'apidojo/videos',
-          publisher: 'apidojo',
-        },
-      },
-      {
-        ...candidate,
-        rank: 5,
-        awaiting_approval: false,
-        rejection_reasons: ['apify_manifest_item_identity_invalid'],
-        revision: {
-          ...candidate.revision,
-          revision_id: 'revision-profile-id',
-          actor_id: 'profile/channel',
-          publisher: 'profile',
-          can_canary: false,
-        },
-      },
-    ]
-    const apifyActorCanaryPlan = vi.fn().mockResolvedValue(canaryPlan(detail))
-    renderFeature({
-      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
-      apifyActorRoute: vi.fn().mockResolvedValue(detail),
-      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(run),
-      apifyActorCanaryPlan,
-    })
-
-    expect(await screen.findByText('5/2 Actor · 4/2 发布者；付费验证只统计真实启动')).toBeVisible()
-    await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
-      'discovery-run-1',
-      'initial_pool',
-      expect.any(AbortSignal),
-    ))
-    expect(screen.queryByText('成功试跑 Actor 仍不足两路')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '验证两路主备' })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
-  })
-
   it('offers expedited two-Actor activation without another paid attempt', async () => {
     const base = actorOpsDetail()
     const expeditedRevisions = base.revisions.map((revision, index) => ({
@@ -961,6 +715,12 @@ describe('HeroApifyActorRouteSettings', () => {
     }))
     const detail = actorOpsDetail({
       discovery_run_id: 'discovery-run-1',
+      workflow: {
+        kind: 'setup_activation_approval_required',
+        goal: 'initial_pool',
+        progress: {},
+        blockers: [],
+      },
       support_status: 'pending',
       runtime_status: 'blocked',
       runnable_slots: 0,
@@ -988,55 +748,26 @@ describe('HeroApifyActorRouteSettings', () => {
         ],
       },
     })
-    const run = discoveryRun(detail)
-    run.canary_attempts_used = 4
-    run.canary_attempts_limit = 5
-    run.canary_attempts_remaining = 1
-    run.candidates = [
-      {
-        ...run.candidates[0],
-        revision: {
-          ...detail.revisions[0],
-          lifecycle: 'probationary',
-          can_canary: true,
-        },
-      },
-      {
-        ...run.candidates[0],
-        rank: 2,
-        revision: {
-          ...detail.revisions[1],
-          lifecycle: 'probationary',
-          can_canary: true,
-        },
-      },
-      {
-        ...run.candidates[0],
-        rank: 3,
-        revision: {
-          ...detail.revisions[2],
-          lifecycle: 'static_valid',
-          can_canary: true,
-        },
-      },
-    ]
-    renderFeature({
+    const { api } = renderFeature({
       apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
-      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(run),
     })
 
-    expect(await screen.findByText('两路主备已可快速启用')).toBeVisible()
-    expect(screen.getByText(/第三槽先留空/)).toBeVisible()
-    expect(screen.getByRole('button', { name: '确认先启用两路主备' })).toBeVisible()
-    expect(screen.queryByText('本轮剩余 Canary 无法完成 2+1')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
-    expect(screen.getByText('此步骤尚未解锁')).toBeVisible()
-    expect(screen.queryByPlaceholderText('仅提交 opaque source_id')).not.toBeInTheDocument()
+    expect(await screen.findByText('标准主备验证通过')).toBeVisible()
+    expect(screen.getByText(/以 2\/3 标准主备开始运行/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '查看并确认启用' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /付费验证/ })).not.toBeInTheDocument()
+    expect(api.createApifyActorCanaryBatch).not.toHaveBeenCalled()
   })
 
   it('hides manual Revision configuration until candidate approval is complete', async () => {
     const detail = actorOpsDetail({
+      workflow: {
+        kind: 'setup_discovery_running',
+        goal: 'initial_pool',
+        progress: {},
+        blockers: [],
+      },
       runnable_slots: 0,
       publisher_count: 0,
       slots: [
@@ -1062,17 +793,22 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
     })
 
-    expect(await screen.findByText('候选审批尚未完成，你现在无需配置')).toBeVisible()
-    expect(screen.getAllByText('0/2')).toHaveLength(2)
-    expect(screen.getByText('成功试跑 Actor')).toBeVisible()
+    expect(await screen.findByText('正在搜索可用 Actor')).toBeVisible()
     expect(screen.queryByText('替换 Revision')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保存三槽配置' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Revision 差异与回滚/ })).not.toBeInTheDocument()
   })
 
   it('activates the server-recommended pool with one explicit confirmation', async () => {
     const browser = userEvent.setup()
     const base = actorOpsDetail()
     const detail = actorOpsDetail({
+      workflow: {
+        kind: 'setup_activation_approval_required',
+        goal: 'initial_pool',
+        progress: {},
+        blockers: [],
+      },
       support_status: 'pending',
       runtime_status: 'blocked',
       runnable_slots: 0,
@@ -1106,11 +842,11 @@ describe('HeroApifyActorRouteSettings', () => {
       activateApifyActorRouteRecommendedPool: activate,
     })
 
-    expect(await screen.findByRole('list', { name: '系统推荐 Actor 主备方案' })).toBeVisible()
+    expect(await screen.findByText('标准主备验证通过')).toBeVisible()
     expect(screen.queryByText('替换 Revision')).not.toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '确认启用 Actor 主备' }))
+    await browser.click(screen.getByRole('button', { name: '查看并确认启用' }))
     const dialog = await screen.findByRole('dialog', { name: '确认启用 Actor 主备' })
-    await browser.click(within(dialog).getByRole('button', { name: '确认启用 Actor 主备' }))
+    await browser.click(within(dialog).getByRole('button', { name: '确认生效' }))
 
     await waitFor(() => expect(api.activateApifyActorRouteRecommendedPool).toHaveBeenCalledWith(
       detail.route_id,
@@ -1122,33 +858,15 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(api.updateApifyActorRouteActivePool).not.toHaveBeenCalled()
   })
 
-  it('renders safe three-slot projections and submits a generation-checked support request', async () => {
-    const browser = userEvent.setup()
-    const { api } = renderFeature({
-      apifyActorRoutes: vi.fn().mockResolvedValue({
-        ...actorOpsRoutes(),
-        generation: 41,
-      }),
-    })
-
-    expect(await screen.findByRole(
-      'grid',
-      { name: 'ActorOps 路由列表' },
-    )).toBeInTheDocument()
-    expect(await screen.findByRole('list', { name: '当前 Actor 主备方案' })).toBeInTheDocument()
+  it('renders the current three-slot projection without unsafe targets', async () => {
+    renderFeature()
+    expect(await screen.findByText('主用')).toBeInTheDocument()
+    expect(screen.getByText('备用 1')).toBeInTheDocument()
+    expect(screen.getByText('备用 2')).toBeInTheDocument()
     expect(screen.getByText('Publisher A Primary')).toBeInTheDocument()
     expect(screen.getByText('Publisher B Backup')).toBeInTheDocument()
     expect(screen.getByText('Publisher A Probationary')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('not-rendered')
-
-    await browser.click(screen.getByRole('button', { name: '请求支持检查' }))
-    await waitFor(() => expect(api.requestApifyActorSupportCheck).toHaveBeenCalledWith({
-      platform: 'x',
-      target_type: 'profile',
-      capability: 'items',
-      expected_generation: 41,
-      force_discovery: false,
-    }))
   })
 
   it('renders only opaque source ids in embedded validation progress', async () => {
@@ -1167,15 +885,19 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
     })
 
-    expect(await screen.findByText('source-opaque-1')).toBeInTheDocument()
+    const browser = userEvent.setup()
+    await browser.click(await screen.findByRole('tab', { name: /来源启用/ }))
+    expect(await screen.findByText('来源 · aque-1')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('@private-target-must-not-render')
+    expect(document.body.textContent).not.toContain('source-opaque-1')
   })
 
-  it('supports explicit route-cap updates and administrator rediscovery', async () => {
+  it('updates the route cap from the current advanced settings surface', async () => {
     const browser = userEvent.setup()
     const { api } = renderFeature()
-    await browser.click(await screen.findByText('调整 Route 单次费用上限'))
-    const cap = await screen.findByLabelText('Route 单次费用上限（USD）')
+    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
+    await browser.click(screen.getByRole('button', { name: /^Route 单次费用上限/ }))
+    const cap = await screen.findByLabelText('单次费用上限（USD）')
     await browser.clear(cap)
     await browser.type(cap, '0.03')
     await browser.click(screen.getByRole('button', { name: '保存费用上限' }))
@@ -1191,16 +913,6 @@ describe('HeroApifyActorRouteSettings', () => {
         ],
       },
     ))
-
-    await browser.click(screen.getByRole('switch', { name: '仅检查现有支持' }))
-    await browser.click(screen.getByRole('button', { name: '请求支持检查' }))
-    await waitFor(() => expect(api.requestApifyActorSupportCheck).toHaveBeenLastCalledWith({
-      platform: 'x',
-      target_type: 'profile',
-      capability: 'items',
-      expected_generation: 7,
-      force_discovery: true,
-    }))
   })
 
   it('rolls back from canonical server slots and sends an explicit revision id', async () => {
@@ -1223,8 +935,8 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
     })
 
-    await screen.findByRole('list', { name: '当前 Actor 主备方案' })
-    await browser.click(screen.getByRole('button', { name: /Revision 差异与回滚/ }))
+    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
+    await browser.click(screen.getByRole('button', { name: /^Revision 差异与回滚/ }))
     await browser.click(screen.getByRole('button', { name: '回滚到此 Revision' }))
     await browser.click(within(
       screen.getByRole('dialog', { name: '回滚不可变 Revision' }),
@@ -1273,16 +985,24 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
     })
 
-    await screen.findByRole('list', { name: '当前 Actor 主备方案' })
-    await browser.click(screen.getByRole('button', { name: /Revision 差异与回滚/ }))
+    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
+    await browser.click(screen.getByRole('button', { name: /^Revision 差异与回滚/ }))
     expect(await screen.findByText('当前没有可回滚的历史 Revision。')).toBeVisible()
     expect(screen.queryByRole('button', { name: '回滚到此 Revision' })).not.toBeInTheDocument()
   })
 
   it('uses an independent source Canary cap bounded by remaining source budget', async () => {
     const browser = userEvent.setup()
-    const detail = actorOpsDetail()
-    const support = sourceSupport(detail)
+    const detail = actorOpsDetail({
+      source_validations: [{
+        source_id: 'source-x-1',
+        binding_status: 'pending_validation',
+        generation: 3,
+        slots: [],
+      } as unknown as ApifyActorSourceValidation],
+      source_validation_summary: { ready: 0, pending: 1, failed: 0 },
+    })
+    const support = sourceSupport(detail, { source_id: 'source-x-1' })
     const canaryApifyActorSourceRevision = vi.fn().mockResolvedValue({
       schema_version: 1,
       validation: {
@@ -1297,21 +1017,18 @@ describe('HeroApifyActorRouteSettings', () => {
       job: { id: 'job-source-1', status: 'queued' },
     })
     const { api } = renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
       apifyActorSourceSupport: vi.fn().mockResolvedValue(support),
       canaryApifyActorSourceRevision,
     })
 
-    const lookup = await screen.findByLabelText('按来源 ID 查看当前主备验证')
-    await browser.type(lookup, support.source_id)
-    await browser.click(screen.getByRole('button', { name: '读取验证状态' }))
-    expect(await screen.findByText('$0.015 剩余')).toBeVisible()
-    const cap = screen.getByLabelText('来源 Canary 单次上限（USD）')
-    expect(cap).toHaveValue(0.015)
-    await browser.clear(cap)
-    await browser.type(cap, '0.007')
-    await browser.click(screen.getByRole('button', { name: '验证此槽' }))
+    await browser.click(await screen.findByRole('tab', { name: /来源启用/ }))
+    await browser.click(await screen.findByRole('button', { name: '继续验证' }))
+    expect(await screen.findByText(/剩余 \$0\.015/)).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '查看并确认付费验证' }))
     await browser.click(within(
-      screen.getByRole('dialog', { name: '确认付费 Canary' }),
+      screen.getByRole('dialog', { name: '确认来源付费验证' }),
     ).getByRole('button', { name: '确认付费试跑' }))
 
     await waitFor(() => expect(api.canaryApifyActorSourceRevision).toHaveBeenCalledWith(
@@ -1320,8 +1037,53 @@ describe('HeroApifyActorRouteSettings', () => {
       expect.objectContaining({
         expected_generation: support.generation,
         confirmation: '确认付费试跑',
-        max_total_charge_usd: 0.007,
+        max_total_charge_usd: 0.015,
       }),
+    ))
+  })
+
+  it('requires an explicit confirmation before first enabling a validated source', async () => {
+    const browser = userEvent.setup()
+    const detail = actorOpsDetail({
+      source_validations: [{
+        source_id: 'source-x-1',
+        binding_status: 'pending_activation',
+        generation: 3,
+        slots: [],
+      } as unknown as ApifyActorSourceValidation],
+      source_validation_summary: { ready: 0, pending: 1, failed: 0 },
+    })
+    const support = sourceSupport(detail, {
+      source_id: 'source-x-1',
+      slots: detail.slots.map((slot) => ({
+        slot: slot.slot,
+        revision_id: slot.revision_id,
+        status: 'passed',
+        last_canary_at: '2026-07-29T08:00:00Z',
+        last_canary_status: 'valid_nonempty',
+        can_canary: false,
+      })),
+      activation_confirmation: '确认首次启用',
+    })
+    const activateApifyActorSourceBinding = vi.fn().mockResolvedValue(support)
+    const { api } = renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      apifyActorSourceSupport: vi.fn().mockResolvedValue(support),
+      activateApifyActorSourceBinding,
+    })
+
+    await browser.click(await screen.findByRole('tab', { name: /来源启用/ }))
+    await browser.click(await screen.findByRole('button', { name: '继续验证' }))
+    await browser.click(await screen.findByRole('button', { name: '查看并确认首次启用' }))
+    expect(api.activateApifyActorSourceBinding).not.toHaveBeenCalled()
+    await browser.click(within(
+      screen.getByRole('dialog', { name: '确认首次启用来源' }),
+    ).getByRole('button', { name: '确认首次启用' }))
+
+    await waitFor(() => expect(api.activateApifyActorSourceBinding).toHaveBeenCalledWith(
+      'source-x-1',
+      { expected_generation: 3, confirmation: '确认首次启用' },
     ))
   })
 
@@ -1329,6 +1091,13 @@ describe('HeroApifyActorRouteSettings', () => {
     const browser = userEvent.setup()
     const detail = actorOpsDetail({
       discovery_run_id: 'discovery-run-1',
+      workflow: {
+        kind: 'setup_canary_approval_required',
+        goal: 'initial_pool',
+        run_id: 'discovery-run-1',
+        progress: {},
+        blockers: [],
+      },
       activation_recommendation: {
         ready: false,
         already_active: false,
@@ -1355,22 +1124,18 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorCanaryPlan: vi.fn().mockResolvedValue(plan),
       createApifyActorCanaryBatch,
     })
-    const canaryTrigger = await screen.findByRole(
-      'button',
-      { name: '验证两路主备' },
-    )
+    const canaryTrigger = await screen.findByRole('button', { name: '查看并确认付费验证' })
 
     await browser.click(canaryTrigger)
-    const dialog = screen.getByRole('dialog', { name: '确认付费验证两路主备' })
+    const dialog = await screen.findByRole('dialog', { name: '验证所选 Actor' })
     expect(api.createApifyActorCanaryBatch).not.toHaveBeenCalled()
     expect(within(dialog).queryByText('not-rendered')).not.toBeInTheDocument()
-    expect(within(dialog).getByText(/x \/ profile \/ items/)).toBeVisible()
-    expect(within(dialog).getByText(/一次确认，最多串行验证三个候选/)).toBeVisible()
+    expect(within(dialog).getByText('X 用户动态')).toBeVisible()
+    expect(within(dialog).getByText(/严格串行，并受总费用上限保护/)).toBeVisible()
     expect(within(dialog).getByText(/本批总费用上限/)).toBeVisible()
-    expect(within(dialog).getByText(/publisher-c.*discovered/)).toBeVisible()
-    expect(within(dialog).getByText(/\$0\.001 起 \/ 计费事件/)).toBeVisible()
+    expect(within(dialog).getAllByText(/publisher-c/)).not.toHaveLength(0)
 
-    await browser.click(within(dialog).getByRole('button', { name: '确认付费验证主备' }))
+    await browser.click(within(dialog).getByRole('button', { name: /确认验证（最高/ }))
 
     await waitFor(() => expect(api.createApifyActorCanaryBatch).toHaveBeenCalledWith(
       'discovery-run-1',
@@ -1379,6 +1144,7 @@ describe('HeroApifyActorRouteSettings', () => {
         expected_plan_hash: 'a'.repeat(64),
         approval_id: expect.any(String),
         confirmation: '确认付费验证主备',
+        goal: 'initial_pool',
         max_candidates: 3,
         max_total_charge_usd: 0.04,
       }),
@@ -1435,8 +1201,9 @@ describe('HeroApifyActorRouteSettings', () => {
       updateApifyActorDiscoverySettings,
     })
 
-    await screen.findByRole('list', { name: '当前 Actor 主备方案' })
-    await browser.click(screen.getByRole('button', { name: /Actor Discovery AI 设置/ }))
+    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
+    expect(api.apifyActorDiscoverySettings).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('button', { name: /^候选搜索 AI/ }))
     const selector = await screen.findByLabelText('Discovery 使用的全局 AI')
     expect(selector).toBeInTheDocument()
     expect(screen.queryByLabelText('SecretStore 引用')).not.toBeInTheDocument()
@@ -1456,18 +1223,24 @@ describe('HeroApifyActorRouteSettings', () => {
 
   it('keeps unsafe server details out of ActorOps action feedback', async () => {
     const browser = userEvent.setup()
+    const danger = vi.spyOn(actionToast, 'danger').mockReturnValue('route-cap-error')
     renderFeature({
-      requestApifyActorSupportCheck: vi.fn().mockRejectedValue(new ApiError(502, {
+      updateApifyActorRouteActivePool: vi.fn().mockRejectedValue(new ApiError(502, {
         code: 'unexpected_upstream_failure',
         message: 'runId=unsafe-run datasetId=unsafe-dataset',
       })),
     })
 
-    await browser.click(await screen.findByRole(
-      'button',
-      { name: '请求支持检查' },
+    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
+    await browser.click(screen.getByRole('button', { name: /^Route 单次费用上限/ }))
+    const cap = await screen.findByLabelText('单次费用上限（USD）')
+    await browser.clear(cap)
+    await browser.type(cap, '0.03')
+    await browser.click(screen.getByRole('button', { name: '保存费用上限' }))
+    await waitFor(() => expect(danger).toHaveBeenCalledWith(
+      '高级 Route 设置更新失败',
+      { description: 'Route 已变化，请刷新后重试。' },
     ))
-    expect(await screen.findByText('支持检查请求失败')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('unsafe-run')
     expect(document.body.textContent).not.toContain('unsafe-dataset')
   })
@@ -1479,7 +1252,7 @@ describe('HeroApifyActorRouteSettings', () => {
       target_ids: [selected.id],
       selected_targets: [selected],
     }))
-    const { api } = renderFeature({
+    renderFeature({
       notificationServices: vi.fn().mockResolvedValue({
         schema_version: 1,
         services: [{ ...selected, legacy_private: false, can_validate: true }],
@@ -1513,7 +1286,6 @@ describe('HeroApifyActorRouteSettings', () => {
       target_ids: [selected.id],
       events: alertSettings().events,
     }))
-    expect(api.testApifyActorAlertSettings).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
   })
 
@@ -1568,111 +1340,5 @@ describe('HeroApifyActorRouteSettings', () => {
     await browser.click(screen.getByRole('button', { name: /查看全部事件/ }))
     expect(screen.getByText('涉及 Actor 6')).toBeVisible()
     expect(screen.getByText('涉及 Actor 7')).toBeVisible()
-  })
-})
-
-describe('ApifyActorAlertSettingsForm', () => {
-  beforeEach(() => actionToast.clear())
-
-  it('keeps the Webhook write-only and clears it as soon as saving starts', async () => {
-    const browser = userEvent.setup()
-    const request = deferred<ApifyActorAlertSettings>()
-    const onSave = vi.fn().mockReturnValue(request.promise)
-    render(<MemoryRouter><DesignSystemProvider>
-      <ApifyActorAlertSettingsForm
-        settings={alertSettings({
-          last_alert_status: 'sent',
-          last_alerted_at: '2026-07-29T13:50:46Z',
-        })}
-        onSave={onSave}
-        onTest={vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' })}
-      />
-    </DesignSystemProvider></MemoryRouter>)
-
-    const destination = screen.getByLabelText('告警 Webhook 地址')
-    expect(destination).toHaveAttribute('type', 'password')
-    expect(screen.getByText(/最近一次运行告警请求已发送，请确认接收端/)).toBeVisible()
-    await browser.type(destination, 'https://example.invalid/actor-alert')
-    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
-
-    expect(onSave).toHaveBeenCalledWith({
-      enabled: true,
-      channels: ['webhook'],
-      events: alertSettings().events,
-      webhook_url: 'https://example.invalid/actor-alert',
-      webhook_provider: 'generic_event',
-    })
-    expect(destination).toHaveValue('')
-    expect(document.body.textContent).not.toContain('https://example.invalid/actor-alert')
-
-    await act(async () => request.resolve(alertSettings()))
-  })
-
-  it('requires at least one event and never repeats an unsafe server message', async () => {
-    const browser = userEvent.setup()
-    const onSave = vi.fn().mockRejectedValue(new ApiError(500, {
-      code: 'unexpected_alert_failure',
-      message: 'https://secret.invalid/hook runId=never-render',
-    }))
-    render(<MemoryRouter><DesignSystemProvider>
-      <ApifyActorAlertSettingsForm
-        settings={alertSettings()}
-        onSave={onSave}
-        onTest={vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' })}
-      />
-    </DesignSystemProvider></MemoryRouter>)
-
-    const destination = screen.getByLabelText('告警 Webhook 地址')
-    await browser.type(destination, 'https://secret.invalid/hook')
-    for (const label of Object.values({
-      switched: '自动切换 Actor',
-      exhausted: '三个 Actor 全部不可用',
-      quota: 'Apify 额度偏低',
-      budget: '额度耗尽或费用熔断',
-      unknown: 'Actor 启动结果未知',
-      recovered: '故障恢复',
-    })) {
-      await browser.click(screen.getByRole('checkbox', { name: label }))
-    }
-    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
-    expect(onSave).not.toHaveBeenCalled()
-    expect(await screen.findByText('启用运行告警时，请至少选择一种告警事件。')).toBeInTheDocument()
-    expect(destination).toHaveValue('')
-    expect(document.body.textContent).not.toContain('https://secret.invalid/hook')
-
-    await browser.click(screen.getByRole('checkbox', { name: '自动切换 Actor' }))
-    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
-    expect((await screen.findAllByText('Apify 运行告警设置保存失败，请稍后重试。')).length).toBeGreaterThan(0)
-    expect(document.body.textContent).not.toContain('secret.invalid')
-    expect(document.body.textContent).not.toContain('never-render')
-  })
-
-  it('adds Telegram without discarding a configured Webhook and clears the Chat ID immediately', async () => {
-    const browser = userEvent.setup()
-    const request = deferred<ApifyActorAlertSettings>()
-    const onSave = vi.fn().mockReturnValue(request.promise)
-    render(<MemoryRouter><DesignSystemProvider>
-      <ApifyActorAlertSettingsForm
-        settings={alertSettings()}
-        onSave={onSave}
-        onTest={vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' })}
-      />
-    </DesignSystemProvider></MemoryRouter>)
-
-    await browser.click(screen.getByRole('checkbox', { name: '启用Telegram渠道' }))
-    const chatId = screen.getByLabelText('告警 Chat ID')
-    expect(chatId).toHaveAttribute('type', 'password')
-    await browser.type(chatId, '@apify_alerts')
-    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
-
-    expect(onSave).toHaveBeenCalledWith({
-      enabled: true,
-      channels: ['webhook', 'telegram'],
-      events: alertSettings().events,
-      telegram_chat_id: '@apify_alerts',
-    })
-    expect(chatId).toHaveValue('')
-    expect(document.body.textContent).not.toContain('@apify_alerts')
-    await act(async () => request.resolve(alertSettings()))
   })
 })

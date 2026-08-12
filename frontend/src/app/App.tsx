@@ -5,12 +5,10 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import type { ServiceApi } from '../api/service'
 import type { AuthStatus, User } from '../api/types'
 import { queryKeys } from '../api/queryKeys'
-import { HeroLoginPage } from '../features/admin-heroui/HeroLoginPage'
 import { LoadingState, actionToast } from '../design-system'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
-import { SettingsLayout } from '../features/settings/SettingsLayout'
 import { canAdministerSettings, settingsDestinationFromLegacyHash } from '../features/settings/settingsNavigation'
 import { preserveSettingsReturnState } from '../features/settings/settingsReturnState'
 import { clearUserCache } from './sessionCache'
@@ -21,6 +19,7 @@ import { clearBootstrapShellSnapshot, releaseBootstrapShell, writeBootstrapShell
 import { readSidebarPreference } from './sidebarPreference'
 
 const HeroAgentsPage = lazy(() => import('../features/admin-heroui/HeroAgentsPage').then((module) => ({ default: module.HeroAgentsPage })))
+const HeroLoginPage = lazy(() => import('../features/admin-heroui/HeroLoginPage').then((module) => ({ default: module.HeroLoginPage })))
 const HeroSubscriptionsPage = lazy(() => import('../features/admin-heroui/HeroSubscriptionsPage').then((module) => ({ default: module.HeroSubscriptionsPage })))
 const HeroUsersPage = lazy(() => import('../features/admin-heroui/HeroUsersPage').then((module) => ({ default: module.HeroUsersPage })))
 const HeroChangelogPage = lazy(() => import('../features/changelog/HeroChangelogPage').then((module) => ({ default: module.HeroChangelogPage })))
@@ -30,6 +29,7 @@ const SettingsAIPage = lazy(() => import('../features/settings/SettingsAIPage').
 const SettingsActorOpsPage = lazy(() => import('../features/settings/SettingsActorOpsPage').then((module) => ({ default: module.SettingsActorOpsPage })))
 const SettingsFetchingPage = lazy(() => import('../features/settings/SettingsFetchingPage').then((module) => ({ default: module.SettingsFetchingPage })))
 const SettingsIgnoredPage = lazy(() => import('../features/settings/SettingsIgnoredPage').then((module) => ({ default: module.SettingsIgnoredPage })))
+const SettingsLayout = lazy(() => import('../features/settings/SettingsLayout').then((module) => ({ default: module.SettingsLayout })))
 const SettingsNotificationsPage = lazy(() => import('../features/settings/SettingsNotificationsPage').then((module) => ({ default: module.SettingsNotificationsPage })))
 const SettingsOverviewPage = lazy(() => import('../features/settings/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })))
 const SettingsSecretsPage = lazy(() => import('../features/settings/SettingsSecretsPage').then((module) => ({ default: module.SettingsSecretsPage })))
@@ -91,6 +91,12 @@ function RouteLoadingState() {
   </main>
 }
 
+function LoginLoadingState() {
+  return <main className="app-loading" role="status">
+    <LoadingState label="正在加载登录页面" rows={3} />
+  </main>
+}
+
 function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const queryClient = useQueryClient()
   const location = useLocation()
@@ -143,7 +149,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   </AppErrorBoundary>
 
   return <ActionFeedbackProvider key={user.id} userId={user.id}>
-    {settingsWorkspaceRoute ? <SettingsLayout user={user}>{outlet}</SettingsLayout> : <HeroWorkbenchShell
+    {settingsWorkspaceRoute ? <Suspense fallback={<RouteLoadingState />}><SettingsLayout user={user}>{outlet}</SettingsLayout></Suspense> : <HeroWorkbenchShell
       api={api}
       user={user}
       query={query}
@@ -178,7 +184,9 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
   if (auth.isLoading) return <span className="sr-only" role="status">正在连接 Inscope…</span>
   if (auth.isError) return <BootstrapShellRelease><main className="app-loading app-error" role="alert">无法连接服务，请确认 API 已启动后重试。</main></BootstrapShellRelease>
   const user = auth.data?.authenticated ? auth.data.user : null
-  const login = <HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
+  const login = <Suspense fallback={<LoginLoadingState />}>
+    <HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
+  </Suspense>
 
   return <BootstrapShellRelease user={user} clearSnapshot={!user}><AppErrorBoundary>
     <Routes>

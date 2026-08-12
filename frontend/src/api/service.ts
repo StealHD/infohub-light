@@ -52,11 +52,8 @@ import type {
   FeedItem,
   IgnoredFeed,
   Job,
-  NotificationChannel,
   NotificationTarget,
-  NotificationTargetCreate,
   NotificationTargetPatch,
-  NotificationTargets,
   NotificationService,
   NotificationServiceCreate,
   NotificationServicePatch,
@@ -69,7 +66,6 @@ import type {
   SourceSummary,
   SourceShareResult,
   SourceTypesResponse,
-  SourceUsage,
   StorageArchives,
   StorageOperation,
   StoragePlan,
@@ -168,17 +164,12 @@ export function createServiceApi(client: ApiClient) {
     updateSubscription: (subscriptionId: string, patch: SubscriptionPatch) => client.patch<Subscription>(resource('/api/me/subscriptions', subscriptionId), patch),
     createSource: (payload: Record<string, unknown>) => client.post<CatalogSource>('/api/catalog/sources', payload),
     updateSource: (sourceId: string, patch: Record<string, unknown>) => client.patch<CatalogSource>(resource('/api/catalog/sources', sourceId), patch),
-    sourceUsage: (sourceId: string, signal?: AbortSignal) => client.get<SourceUsage>(`${resource('/api/catalog/sources', sourceId)}/usage`, signal),
     shareSource: (sourceId: string, scope: 'workspace' | 'public') => client.post<SourceShareResult>(`${resource('/api/catalog/sources', sourceId)}/share`, { scope }),
     feedSchedule: (signal?: AbortSignal) => client.get<FeedSchedule>('/api/me/feed-schedule?view=summary', signal),
     updateFeedSchedule: (patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>('/api/me/feed-schedule', patch),
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
     notificationSettings: (signal?: AbortSignal) => client.get<UserNotificationSettings>('/api/me/notification-settings', signal),
     updateNotificationSettings: (patch: UserNotificationSettingsPatch) => client.patch<UserNotificationSettings>('/api/me/notification-settings', patch),
-    notificationTargets: (signal?: AbortSignal) => client.get<NotificationTargets>(
-      '/api/notification-targets',
-      signal,
-    ),
     notificationServices: (signal?: AbortSignal) => client.get<NotificationServices>(
       '/api/notification-services',
       signal,
@@ -197,23 +188,12 @@ export function createServiceApi(client: ApiClient) {
     archiveNotificationService: (serviceId: string) => client.delete<{ service_id: string; archived: boolean }>(
       resource('/api/admin/notification-services', serviceId),
     ),
-    createNotificationTarget: (payload: NotificationTargetCreate) => client.post<NotificationTarget>(
-      '/api/notification-targets',
-      payload,
-    ),
     updateNotificationTarget: (targetId: string, patch: NotificationTargetPatch) => client.patch<NotificationTarget>(
       resource('/api/notification-targets', targetId),
       patch,
     ),
-    testNotificationTarget: (targetId: string) => client.post<NotificationTestResult>(
-      `${resource('/api/notification-targets', targetId)}/test`,
-    ),
     archiveNotificationTarget: (targetId: string) => client.delete<{ target_id: string; archived: boolean }>(
       resource('/api/notification-targets', targetId),
-    ),
-    testNotificationSettings: (channel?: NotificationChannel) => client.post<NotificationTestResult>(
-      '/api/me/notification-settings/test',
-      channel ? { channel } : undefined,
     ),
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
     createAgentDelegation: (
@@ -476,10 +456,6 @@ export function createServiceApi(client: ApiClient) {
     updateApifyActorAlertSettings: (patch: ApifyActorAlertSettingsPatch) => client.patch<ApifyActorAlertSettings>(
       '/api/admin/apify-actor-alert-settings',
       patch,
-    ),
-    testApifyActorAlertSettings: (channel?: NotificationChannel) => client.post<NotificationTestResult>(
-      '/api/admin/apify-actor-alert-settings/test',
-      channel ? { channel } : undefined,
     ),
     apifyActorAlertIncidents: (signal?: AbortSignal) => client.get<ApifyActorAlertIncidents>(
       '/api/admin/apify-actor-alert-incidents?limit=20',

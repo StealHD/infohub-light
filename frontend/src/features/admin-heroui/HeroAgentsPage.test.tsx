@@ -12,9 +12,9 @@ import { DesignSystemProvider } from '../../design-system'
 import type { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
 import { OpenClawPairingUpgradeRequiredError } from '../openclaw/openclawDevice'
 import { OPENCLAW_CURRENT_SCOPES } from '../openclaw/openclawGateway'
+import { oneTimeTokenWriteCommand } from '../openclaw/openclawAgentConfiguration'
 import {
   HeroAgentsPage,
-  oneTimeTokenWriteCommand,
   OpenClawBrowserSettings,
 } from './HeroAgentsPage'
 

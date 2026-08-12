@@ -1,16 +1,15 @@
 // User-facing changes are recorded in the version-controlled entries below.
+import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string
   description: string
 }
-
 export type ChangelogEntry = {
   date: string
   title: string
   summary: string
   items: ChangelogItem[]
 }
-
 export type ChangelogMonth = {
   id: `month-${number}-${string}`
   label: string
@@ -22,6 +21,7 @@ export const changelogMonths: ChangelogMonth[] = [
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [
+      codeHealthMaintenanceEntry,
       {
         date: '2026-08-12',
         title: 'ActorOps 可先恢复 X，并主动识别旧数据',

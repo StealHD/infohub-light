@@ -38,6 +38,9 @@ def test_test_and_control_only_changes_do_not_require_product_documentation():
         _modified("frontend/src/app/App.test.tsx"),
         _modified("tests/test_api_service.py"),
         _modified("scripts/test_gate.py"),
+        _modified("scripts/check_code_size.py"),
+        _modified("scripts/code_size_policy.py"),
+        _modified("scripts/test_gate_log.py"),
         _modified("scripts/release_vps.sh"),
         _modified("WORKLOG.md"),
     ]

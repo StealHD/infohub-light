@@ -123,9 +123,3 @@ export function formatActorPercent(value: number | null): string {
     maximumFractionDigits: 1,
   }).format(Math.min(1, Math.max(0, value)))
 }
-
-export function formatEstimatedDays(value: number | null): string {
-  if (value === null || !Number.isFinite(value) || value < 0) return '暂无可信数据'
-  if (value < 1) return '不足 1 天'
-  return `约 ${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(value)} 天`
-}

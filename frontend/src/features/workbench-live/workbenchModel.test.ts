@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { FeedItem, FeedPresentation, FeedSnapshot } from '../../api/types'
 import {
+  cardLabelForViewer,
   cleanLegacyModeSearch,
   mergeDeepLinkedItem,
-  sampleTickIndexes,
   selectWorkbenchSourceItems,
   toWorkbenchCardModel,
 } from './workbenchModel'
@@ -22,6 +22,19 @@ const item = (id: string, publishedAt?: string, summary = `摘要 ${id}`): FeedI
 })
 
 describe('live workbench model', () => {
+  it('uses source-first labels for social media and titles for articles', () => {
+    const article = toWorkbenchCardModel(item('article'))
+    const social = {
+      ...article,
+      displayKind: 'social' as const,
+      sourceLabel: 'Alice',
+      primaryText: 'hello',
+    }
+
+    expect(cardLabelForViewer(article)).toBe('标题 article')
+    expect(cardLabelForViewer(social)).toBe('Alice: hello')
+  })
+
   it('reads only snapshot.items for Feed and maps the shared card contract', () => {
     const all = item('all', '2026-07-13T08:00:00Z')
     const snapshot: FeedSnapshot = {
@@ -215,13 +228,6 @@ describe('live workbench model', () => {
     expect(cleanLegacyModeSearch('?mode=daily&item=article-1&source=rss')).toBe('?item=article-1&source=rss')
   })
 
-  it('samples at most twelve stable tick targets across long feeds', () => {
-    const indexes = sampleTickIndexes(200)
-    expect(indexes).toHaveLength(12)
-    expect(indexes[0]).toBe(0)
-    expect(indexes.at(-1)).toBe(199)
-    expect(new Set(indexes).size).toBe(indexes.length)
-  })
 })
 
 function socialItemWithMedia(): FeedItem {

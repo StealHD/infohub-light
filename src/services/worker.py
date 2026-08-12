@@ -47,6 +47,7 @@ from .apify_pool_runtime import (
     reconcile_all_apify_pools_sync,
 )
 from .apify_key_pool import apify_key_pool_enabled
+from .worker_migration_gate import first_required_worker_startup_migration
 from .apify_actor_monitoring import (
     build_apify_actor_route,
     sync_apify_actor_quota_alert,
@@ -2273,7 +2274,8 @@ def run_worker_once(
     try:
         store.initialize()
         update_observability_context(stage="migration_check")
-        if store.apify_actor_routing_v13_migration_required():
+        required_migration = first_required_worker_startup_migration(store)
+        if required_migration is not None:
             store.upsert_worker_heartbeat(
                 worker_id,
                 "idle",
@@ -2282,117 +2284,7 @@ def run_worker_once(
             return {
                 "ok": False,
                 "error_code": "migration_required",
-                "migration": "apify_actor_routing_v13",
-            }
-        if store.webhook_providers_v14_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "webhook_providers_v14",
-            }
-        if store.multichannel_notifications_v15_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "multichannel_notifications_v15",
-            }
-        if store.notification_targets_v16_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "notification_targets_v16",
-            }
-        if store.apify_actor_ops_v15_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_actor_ops_v15",
-            }
-        if store.apify_discovery_limits_v16_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_discovery_limits_v16",
-            }
-        if store.apify_actor_canary_batches_v17_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_actor_canary_batches_v17",
-            }
-        if store.apify_actor_pool_staging_v18_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_actor_pool_staging_v18",
-            }
-        if store.apify_actor_manual_pool_selection_v19_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_actor_manual_pool_selection_v19",
-            }
-        if store.apify_actor_validation_tuning_v20_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_actor_validation_tuning_v20",
-            }
-        if store.apify_actor_resilience_v21_migration_required():
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": "apify_actor_resilience_v21",
+                "migration": required_migration,
             }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")

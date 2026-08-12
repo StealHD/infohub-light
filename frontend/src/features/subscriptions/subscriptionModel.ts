@@ -36,31 +36,14 @@ export function canEditSource(user: User, source: CatalogSource): boolean {
   return user.role === 'owner' || user.role === 'admin'
 }
 
-const scopeMetadata = {
-  public: { label: '公共订阅', description: '由管理员维护，所有成员都可以订阅。' },
-  workspace: { label: '公共订阅', description: '由管理员维护，所有成员都可以订阅。' },
-  private: { label: '私人订阅', description: '仅创建者可见和编辑。' },
+const scopeLabels = {
+  public: '公共订阅',
+  workspace: '公共订阅',
+  private: '私人订阅',
 } as const
 
 export function sourceScopeLabel(scope: CatalogSource['scope']): string {
-  return scopeMetadata[scope].label
-}
-
-export function sourceScopeDescription(scope: CatalogSource['scope']): string {
-  return scopeMetadata[scope].description
-}
-
-export function groupSourcesByScope<T extends Pick<CatalogSource, 'scope'>>(items: T[]) {
-  return (['public', 'private'] as const).map((scope) => ({
-    scope,
-    label: sourceScopeLabel(scope),
-    description: sourceScopeDescription(scope),
-    items: items.filter((item) => sourceMatchesSubscriptionVisibility(item, scope)),
-  })).filter((group) => group.items.length > 0)
-}
-
-export function effectiveSubscriptionChannel(subscription: Subscription, source: CatalogSource): string {
-  return String(subscription.override_channel || source.default_channel || '').trim() || '其他'
+  return scopeLabels[scope]
 }
 
 const sourceTypeLabels: Record<string, string> = {
@@ -281,8 +264,6 @@ export function sourceMutationPayload({ source, allowSecret, metadata, config }:
   if (allowSecret && metadata.secret_env !== undefined) payload.secret_env = metadata.secret_env
   return payload
 }
-
-export const isSourceSubscribed = (sourceId: string, subscriptions: Subscription[]) => subscriptions.some((item) => item.source_id === sourceId)
 
 export function sourceForSubscription(subscription: Subscription, source?: CatalogSource): CatalogSource {
   return source ?? {

@@ -21,8 +21,3 @@ export function settingsSectionsForRole(role: SettingsRole): readonly SettingsSe
   const canAdminister = role === 'owner' || role === 'admin'
   return SETTINGS_SECTIONS.filter((section) => canAdminister || !section.adminOnly)
 }
-
-export function settingsSectionFromHash(hash: string, role: SettingsRole): SettingsSection | null {
-  const id = hash.replace(/^#/, '')
-  return settingsSectionsForRole(role).find((section) => section.id === id) ?? null
-}

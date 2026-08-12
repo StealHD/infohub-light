@@ -10,7 +10,6 @@ import os
 import re
 import time
 import uuid
-from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,10 +27,15 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
+from .context import ApiContext
+from .lifespan import build_service_lifespan
+from .responses import ApiError, error_response, ok
+from .storage_routes import register_storage_routes
+from .system_auth import current_admin, current_user, register_system_auth_routes
+
 from ..logging_utils import (
     configure_logging,
     error_fingerprint,
-    logging_health_status,
 )
 from ..services.feed_read import FeedReadService
 from ..services.feed_end_messages import (
@@ -271,29 +275,6 @@ class NegotiatedGZipMiddleware(GZipMiddleware):
         await responder(scope, receive, send)
 
 
-class ApiError(Exception):
-    """Structured API error converted to the public error envelope."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        status_code: int = 400,
-        retryable: bool = False,
-        action: str = "",
-    ) -> None:
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-        self.retryable = retryable
-        self.action = action
-
-
-def ok(data: Any) -> dict[str, Any]:
-    return {"ok": True, "data": data}
-
-
 def _public_notification_test_result(
     result: dict[str, Any],
 ) -> dict[str, Any]:
@@ -348,21 +329,6 @@ def _bounded_job_type_filters(values: list[str] | None) -> list[str] | None:
     return normalized
 
 
-def error_response(exc: ApiError) -> JSONResponse:
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "ok": False,
-            "error": {
-                "code": exc.code,
-                "message": exc.message,
-                "retryable": exc.retryable,
-                "action": exc.action,
-            },
-        },
-    )
-
-
 def _validate_secret_env(value: str | None) -> str | None:
     try:
         return validate_secret_env_name(value)
@@ -381,11 +347,6 @@ def _is_admin(user: dict[str, Any]) -> bool:
 
 def _sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
     return ServiceStore.sanitize_user(user)
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 
 class SourceSummaryRequest(BaseModel):
@@ -430,13 +391,6 @@ class UserPatchRequest(BaseModel):
     display_name: str | None = None
     enabled: bool | None = None
     password: str | None = None
-
-
-class PasswordChangeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    current_password: str
-    new_password: str = Field(min_length=8, max_length=200)
 
 
 class NotificationSettingsPatchRequest(BaseModel):
@@ -1038,19 +992,6 @@ class ConfigImportSourcesRequest(BaseModel):
 class ConfigActionRequest(BaseModel):
     action: str
     payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class StoragePlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: Literal["cleanup", "archive", "restore", "delete_archive"]
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class StoragePlanApplyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    confirmation: str = Field(default="", max_length=240)
 
 
 SOURCE_UPSERT_ACTIONS = {
@@ -2938,15 +2879,13 @@ def create_app(
         else None
     )
 
-    @asynccontextmanager
-    async def app_lifespan(_app: FastAPI):
-        if remote_mcp is None:
-            yield
-            return
-        async with remote_mcp.server.session_manager.run():
-            yield
-
-    app = FastAPI(title="InfoHub Light Service API", lifespan=app_lifespan)
+    app = FastAPI(
+        title="InfoHub Light Service API",
+        lifespan=build_service_lifespan(
+            store,
+            remote_mcp.server.session_manager if remote_mcp else None,
+        ),
+    )
     app.add_middleware(NegotiatedGZipMiddleware, minimum_size=1024, compresslevel=5)
     app.state.service_store = store
     app.state.subscription_mutations = subscription_mutations
@@ -2960,6 +2899,23 @@ def create_app(
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
     app.state.youtube_channel_resolver = youtube_channels
     app.state.source_summary_service = SourceSummaryService(store, quota=quota)
+    app.state.api_context = ApiContext(
+        store=store,
+        runtime_status=runtime_status,
+        storage_governance=storage_governance,
+        auth_settings=auth_settings,
+        readiness_checks=(
+            require_apify_actor_routing_v13,
+            require_webhook_providers_v14,
+            require_notification_targets_v16,
+            require_apify_actor_ops_v15,
+            require_apify_discovery_limits_v16,
+            require_apify_actor_canary_batches_v17,
+            require_apify_actor_pool_staging_v18,
+            require_apify_actor_manual_pool_selection_v19,
+            require_apify_actor_validation_tuning_v20,
+        ),
+    )
 
     @app.middleware("http")
     async def _remote_mcp_body_limit(request: Request, call_next):
@@ -3511,24 +3467,6 @@ def create_app(
                 action="Fix the request payload or query parameters.",
             )
         )
-
-    async def current_user(request: Request) -> dict[str, Any]:
-        token = request.cookies.get(COOKIE_NAME)
-        user = store.get_session_user(token)
-        if not user:
-            raise ApiError("unauthorized", "login required", status_code=401, action="Log in and retry.")
-        bind_operation_actor(
-            workspace_id=str(user["workspace_id"]),
-            user_id=str(user["id"]),
-        )
-        request.state.operation_workspace_id = str(user["workspace_id"])
-        request.state.operation_actor_user_id = str(user["id"])
-        return user
-
-    async def current_admin(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        if not _is_admin(user):
-            raise ApiError("forbidden", "admin role required", status_code=403)
-        return user
 
     def require_mutating_member(user: dict[str, Any]) -> None:
         if user.get("role") == "viewer":
@@ -4334,159 +4272,7 @@ def create_app(
             raise ApiError("not_found", "target user not found", status_code=404)
         return target
 
-    @app.get("/api/auth/status")
-    async def auth_status(request: Request) -> dict[str, Any]:
-        user = store.get_session_user(request.cookies.get(COOKIE_NAME))
-        return ok(
-            {
-                "authenticated": bool(user),
-                "user": _sanitize_user(user) if user else None,
-            }
-        )
-
-    @app.get("/api/health/live")
-    async def health_live() -> dict[str, Any]:
-        return ok(
-            {
-                "status": "live",
-                "version": os.getenv("INTELISCOPE_VERSION", "1.5.0"),
-                "revision": os.getenv("INTELISCOPE_BUILD_REVISION", "unknown"),
-                "built_at": os.getenv("INTELISCOPE_BUILT_AT", "unknown"),
-            }
-        )
-
-    @app.get("/api/health/ready")
-    async def health_ready() -> dict[str, Any]:
-        store.connect().execute("SELECT 1").fetchone()
-        if store.feed_v2_migration_required():
-            raise ApiError(
-                "migration_required",
-                "user feed v2 migration must be applied before feed jobs can run",
-                status_code=503,
-                action="Stop services and run the explicit feed v2 migration command.",
-            )
-        if store.content_index_v4_migration_required():
-            raise ApiError(
-                "migration_required",
-                "user content v4 migration must be applied before feed jobs can run",
-                status_code=503,
-                action="Stop services and run scripts/migrate_user_content_v4.py --apply.",
-            )
-        if store.content_timeline_v11_migration_required():
-            raise ApiError(
-                "migration_required",
-                "content timeline v11 migration must be applied before feed reads or jobs can run",
-                status_code=503,
-                action=(
-                    "Stop services and run "
-                    "scripts/migrate_content_timeline_v11.py --apply."
-                ),
-            )
-        require_apify_actor_routing_v13()
-        require_webhook_providers_v14()
-        require_notification_targets_v16()
-        require_apify_actor_ops_v15()
-        require_apify_discovery_limits_v16()
-        require_apify_actor_canary_batches_v17()
-        require_apify_actor_pool_staging_v18()
-        require_apify_actor_manual_pool_selection_v19()
-        require_apify_actor_validation_tuning_v20()
-        if not store.has_enabled_user():
-            raise ApiError(
-                "auth_not_configured",
-                "no enabled service user is configured",
-                status_code=503,
-                action=(
-                    "Set HORIZON_AUTH_PASSWORD or HORIZON_AUTH_PASSWORD_HASH, "
-                    "then restart horizon-api."
-                ),
-            )
-        availability = runtime_status.availability()
-        logging_status = logging_health_status()["status"]
-        require_worker = os.getenv("HORIZON_REQUIRE_WORKER_FOR_READINESS", "false").lower() == "true"
-        if require_worker and availability["worker_status"] != "ready":
-            raise ApiError(
-                "worker_unavailable",
-                f"worker status is {availability['worker_status']}",
-                status_code=503,
-                retryable=True,
-                action="Start or inspect horizon-worker.",
-            )
-        return ok(
-            {
-                "status": "ready",
-                "database": "ready",
-                "worker_status": availability["worker_status"],
-                "logging_status": logging_status,
-                "checked_at": availability["checked_at"],
-            }
-        )
-
-    @app.post("/api/auth/login")
-    async def auth_login(
-        payload: LoginRequest,
-        request: Request,
-        response: Response,
-    ) -> dict[str, Any]:
-        user = store.authenticate_user(payload.username, payload.password)
-        if not user:
-            raise ApiError("invalid_credentials", "username or password is incorrect", status_code=401)
-        bind_operation_actor(
-            workspace_id=str(user["workspace_id"]),
-            user_id=str(user["id"]),
-        )
-        request.state.operation_workspace_id = str(user["workspace_id"])
-        request.state.operation_actor_user_id = str(user["id"])
-        token = store.create_session(
-            user["id"],
-            ttl_seconds=auth_settings.session_ttl_seconds,
-        )
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            httponly=True,
-            samesite="lax",
-            secure=auth_settings.cookie_secure,
-            max_age=auth_settings.session_ttl_seconds,
-        )
-        return ok({"authenticated": True, "user": _sanitize_user(user)})
-
-    @app.post("/api/auth/logout")
-    async def auth_logout(request: Request, response: Response) -> dict[str, Any]:
-        session_token = request.cookies.get(COOKIE_NAME)
-        user = store.get_session_user(session_token)
-        if user is not None:
-            bind_operation_actor(
-                workspace_id=str(user["workspace_id"]),
-                user_id=str(user["id"]),
-            )
-            request.state.operation_workspace_id = str(user["workspace_id"])
-            request.state.operation_actor_user_id = str(user["id"])
-        store.delete_session(session_token)
-        response.delete_cookie(
-            COOKIE_NAME,
-            httponly=True,
-            samesite="lax",
-            secure=auth_settings.cookie_secure,
-        )
-        return ok({"authenticated": False, "user": None})
-
-    @app.post("/api/me/password")
-    async def me_password_change(
-        payload: PasswordChangeRequest,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        authenticated = store.authenticate_user(user["username"], payload.current_password)
-        if authenticated is None or authenticated["id"] != user["id"]:
-            raise ApiError(
-                "invalid_current_password",
-                "current password is incorrect",
-                status_code=400,
-            )
-        store.update_user(user["id"], password=payload.new_password)
-        request.state.operation_changed_fields = ["password"]
-        return ok({"changed": True})
+    register_system_auth_routes(app)
 
     @app.get("/api/notification-targets")
     async def notification_targets_get(
@@ -5227,73 +5013,7 @@ def create_app(
             }
         )
 
-    @app.get("/api/admin/storage/summary")
-    async def admin_storage_summary(
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            await run_in_threadpool(
-                storage_governance.summary,
-                workspace_id=str(user["workspace_id"]),
-            )
-        )
-
-    @app.post("/api/admin/storage/plans")
-    async def admin_storage_plan_create(
-        payload: StoragePlanRequest,
-        request: Request,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        plan = await run_in_threadpool(
-            storage_governance.create_plan,
-            workspace_id=str(user["workspace_id"]),
-            actor_user_id=str(user["id"]),
-            actor_role=str(user["role"]),
-            operation=payload.operation,
-            payload=payload.payload,
-        )
-        request.state.operation_changed_fields = ["operation", "preview"]
-        response.headers["Cache-Control"] = "no-store"
-        return ok(plan)
-
-    @app.post("/api/admin/storage/plans/{plan_id}/apply")
-    async def admin_storage_plan_apply(
-        plan_id: str,
-        payload: StoragePlanApplyRequest,
-        request: Request,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        plan = await run_in_threadpool(
-            storage_governance.apply_plan,
-            workspace_id=str(user["workspace_id"]),
-            actor_user_id=str(user["id"]),
-            actor_role=str(user["role"]),
-            plan_id=plan_id,
-            confirmation=payload.confirmation,
-        )
-        request.state.operation_changed_fields = [
-            str(plan.get("operation") or "storage"),
-            "apply",
-        ]
-        response.headers["Cache-Control"] = "no-store"
-        return ok(plan)
-
-    @app.get("/api/admin/storage/archives")
-    async def admin_storage_archives(
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            await run_in_threadpool(
-                storage_governance.list_archives,
-                workspace_id=str(user["workspace_id"]),
-            )
-        )
+    register_storage_routes(app)
 
     @app.get("/api/admin/secrets")
     async def admin_secrets_list(

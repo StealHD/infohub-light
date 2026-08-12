@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,12 +38,44 @@ def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _markdown_paths(root: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in root.rglob("*.md")
-        if path.is_file() and not (set(path.relative_to(root).parts) & EXCLUDED_PARTS)
-    )
+def _repository_paths(root: Path) -> tuple[list[Path], str | None]:
+    """Return tracked and non-ignored untracked repository files."""
+
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+            check=False,
+            capture_output=True,
+        )
+    except OSError as exc:
+        return [], f"repository inventory failed: {exc}"
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        suffix = f": {detail}" if detail else ""
+        return [], f"repository inventory failed with exit {result.returncode}{suffix}"
+
+    paths: list[Path] = []
+    for raw_relative in result.stdout.split(b"\0"):
+        if not raw_relative:
+            continue
+        relative = raw_relative.decode("utf-8", errors="surrogateescape")
+        path = root / relative
+        if path.is_file() and not (set(Path(relative).parts) & EXCLUDED_PARTS):
+            paths.append(path)
+    return sorted(paths), None
+
+
+def _markdown_paths(paths: list[Path]) -> list[Path]:
+    return [path for path in paths if path.suffix.lower() == ".md"]
 
 
 def _check_size(path: Path, limit: int, label: str, errors: list[str]) -> None:
@@ -104,10 +137,12 @@ def _validate_authorities(root: Path, errors: list[str]) -> None:
             errors.append(f"AGENTS.md: missing authority routing for {required}")
 
 
-def _validate_legacy_references(root: Path, errors: list[str]) -> None:
-    for path in root.rglob("*"):
-        if not path.is_file() or set(path.relative_to(root).parts) & EXCLUDED_PARTS:
-            continue
+def _validate_legacy_references(
+    root: Path,
+    paths: list[Path],
+    errors: list[str],
+) -> None:
+    for path in paths:
         relative = _relative(root, path)
         if relative.startswith(ARCHIVE_PREFIX) or relative.startswith("docs/decisions/records/"):
             continue
@@ -125,7 +160,10 @@ def _validate_legacy_references(root: Path, errors: list[str]) -> None:
 def validate(root: Path) -> list[str]:
     root = root.resolve()
     errors: list[str] = []
-    for path in _markdown_paths(root):
+    repository_paths, inventory_error = _repository_paths(root)
+    if inventory_error:
+        return [inventory_error]
+    for path in _markdown_paths(repository_paths):
         relative = _relative(root, path)
         if not relative.startswith(ARCHIVE_PREFIX):
             _check_size(path, MAX_ACTIVE_MARKDOWN, "active Markdown", errors)
@@ -142,7 +180,7 @@ def validate(root: Path) -> list[str]:
         _check_size(plan, MAX_PLAN, "PLAN", errors)
     _validate_authorities(root, errors)
     _validate_decisions(root, errors)
-    _validate_legacy_references(root, errors)
+    _validate_legacy_references(root, repository_paths, errors)
     return errors
 
 

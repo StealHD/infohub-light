@@ -1,4 +1,4 @@
-// Reviewed for the v2.3.2 release; user-facing changes are documented below.
+// Reviewed after v2.3.2 for internal structural maintenance; user workflows are unchanged.
 export type ManualStep = {
   title: string
   description: string
@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-11',
-  change: '旧 UI 与 Legacy 运行链路退役',
+  reviewedAt: '2026-08-13',
+  change: 'v2.3.2 后的代码规模、资源生命周期、API 与 Store/Feed 分层收敛；用户工作流不变',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -210,7 +210,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看 ActorOps 运行与告警',
-        description: 'Owner/Admin 可在“设置 → ActorOps”切换 X、Instagram 或 YouTube 抓取类型。标准配置选择两个不同发布者的 Actor 即可启用，第三槽只由管理员主动补充；严格候选不足时可查看放宽项与保留底线，明确选择单路兼容。兼容候选会跨免费搜索保留同一路线里每个 Actor 的最新安全证据，后续空搜索或历史 3/3 Stage 失败不会把已合格的 1 个候选清掉；Build、Schema、价格或失败指纹变化时仍会重新判定。付费试跑和 1/3 生效仍各自确认，普通新增来源始终不显示 Actor。主备配置默认只显示三槽、人类可读生命周期和唯一下一步；免费搜索进行时显示查询进度并自动刷新，完成后分别显示原始候选数、当前可选择数与失败原因，不再保留可无限连点的主操作。相同 Actor/Build 的失败会被记住；确认 Store 中证据变化后才从候选详情重新检查。若提示“Actor 返回的内容不属于本次目标”，表示结果来自其他账号/频道，或缺少可证明目标归属的字段，可能由推荐内容、默认账号、旧缓存或字段映射造成。来源启用直接列出既有账号或频道和最近一次实际 Actor，可为单个来源选择自动或首选 Actor；保存从下一次计划抓取起生效，不会立即启动 Actor 或产生额外费用，首选旧数据、失败或暂停时仍自动切备。同一路 Actor 连续三次只返回已见内容时，系统会在下一次原有周期改用一个健康备用，不会在当次额外启动付费 Actor；备用带来更新后成为该来源后续首选。运行与告警可用专用校验 Key 按默认 24 小时、6–168 小时或关闭的频率比较主备，也可单独确认费用后立即校验；页面显示上次、下次、实际费用、单轮和理论月上限。诊断时间线汇总发现、验证、费用、切备、新鲜度、Key 与人工动作，只显示公共 Actor 名称和安全原因码。候选、Build、费用账本、Revision/回滚与 Discovery AI 位于默认收起的高级详情；地址、签名、Chat ID、Token、真实目标、Actor 输入与远端 Run/Dataset 都不会回显。YouTube 始终先用公开 Atom Feed，Actor fallback 一路即可运行且不会自动追逐第三槽。',
+        description: 'Owner/Admin 可在“设置 → ActorOps”切换 X、Instagram 或 YouTube 抓取类型。标准配置选择两个不同发布者的 Actor 即可启用，第三槽只由管理员主动补充；严格候选不足时可查看放宽项与保留底线，明确选择单路兼容。兼容候选会跨免费搜索保留同一路线里每个 Actor 的最新安全证据，后续空搜索或历史 3/3 Stage 失败不会把已合格的 1 个候选清掉；Build、Schema、价格或失败指纹变化时仍会重新判定。付费试跑和 1/3 生效仍各自确认，普通新增来源始终不显示 Actor。主备配置默认只显示三槽、人类可读生命周期和唯一下一步；免费搜索进行时显示查询进度并自动刷新，完成后分别显示原始候选数、当前可选择数与失败原因，不再保留可无限连点的主操作。相同 Actor/Build 的失败会被记住；确认 Store 中证据变化后才从候选详情重新检查。若提示“Actor 返回的内容不属于本次目标”，表示结果来自其他账号/频道，或缺少可证明目标归属的字段，可能由推荐内容、默认账号、旧缓存或字段映射造成。来源启用直接列出既有账号或频道和最近一次实际 Actor，可为单个来源选择自动或首选 Actor；保存从下一次计划抓取起生效，不会立即启动 Actor 或产生额外费用，首选旧数据、失败或暂停时仍自动切备。同一路 Actor 连续三次只返回已见内容时，系统会在下一次原有周期改用一个健康备用，不会在当次额外启动付费 Actor；备用带来更新后成为该来源后续首选。运行与告警可用专用校验 Key 按默认 24 小时、6–168 小时或关闭的频率比较主备，也可单独确认费用后立即校验；页面显示上次、下次、实际费用、单轮和理论月上限。诊断时间线汇总发现、验证、费用、切备、新鲜度、Key 与人工动作，只显示公共 Actor 名称和安全原因码。候选、Build、费用账本、Revision/回滚与 Discovery AI 位于默认收起的高级详情；地址、签名、Chat ID、Token、真实目标、Actor 输入与远端 Run/Dataset 都不会回显。ActorOps 只保留当前三任务控制面，通知只使用统一服务选择；历史设置书签仍按兼容规则跳转，不会恢复退役表单或重复测试入口，历史私人通知目标的更新与归档兼容仍保留。YouTube 始终先用公开 Atom Feed，Actor fallback 一路即可运行且不会自动追逐第三槽。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
@@ -239,11 +239,11 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '后台不可用',
-        description: 'Worker 显示缺失或过期时，不要连续提交获取任务；发布或重启后先等待约 30 秒让健康检查与心跳完成，仍未恢复时联系管理员，再从运行记录重试。',
+        description: 'Worker 显示缺失或过期时，不要连续提交获取任务；发布或重启后先等待约 30 秒让健康检查与心跳完成。Worker 在加载密钥、恢复路由或领取任务前会依既定顺序检查必需迁移；命中时保持 idle 并给出 migration_required，不会越过迁移继续执行。仍未恢复时联系管理员，再从运行记录重试。',
       },
       {
         title: '发布不会临时下载依赖',
-        description: '正式镜像已经包含 API、Worker 与迁移需要的 Python 环境，容器启动直接使用镜像内可执行文件；标准发布会复用同一 main revision 已通过的完整门禁，在本地构建 Linux 镜像并由 VPS 直接载入，Tag 只追加隔离 smoke。切换前会备份并检查空闲任务，发现残留历史 scheduler 容器会阻断；失败自动恢复上一 API/Worker 版本，含迁移的版本会被普通流程阻断。若运行日志出现解析或下载 Python 构建依赖，应停止切换并继续使用上一健康版本，而不是在 VPS 现场安装。',
+        description: '正式镜像已经包含 API、Worker 与迁移需要的 Python 环境，容器启动直接使用镜像内可执行文件；标准发布会复用同一 main revision 已通过的完整门禁，在本地构建 Linux 镜像并由 VPS 直接载入，Tag 只追加隔离 smoke。切换前会备份并检查空闲任务，发现残留历史 scheduler 容器会阻断；失败自动恢复上一 API/Worker 版本，含迁移的版本会被普通流程阻断。代码结构维护只改变内部模块边界，健康、登录、登出和密码修改的 HTTP/OpenAPI 合同保持不变；ActorOps 的展示映射与控制器分离后，现有审批、权限、查询和付费动作也保持不变。登录、设置与 OpenClaw 对话视图按需加载，OpenClaw 后台运行和重连状态仍由常驻外壳保持；前端编译会拒绝未使用代码，Fast Refresh 合同也以零警告门禁执行。若运行日志出现解析或下载 Python 构建依赖，应停止切换并继续使用上一健康版本，而不是在 VPS 现场安装。',
       },
       {
         title: '当前只有一套界面与数据路径',

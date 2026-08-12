@@ -38,6 +38,10 @@ export type WorkbenchCardModel = {
   item: FeedItem
 }
 
+export function cardLabelForViewer(card: WorkbenchCardModel): string {
+  return card.displayKind === 'social' ? `${card.sourceLabel}: ${card.primaryText}` : card.title
+}
+
 type WorkbenchSourceData = {
   snapshot?: FeedSnapshot
   saved?: SavedFeed
@@ -305,11 +309,4 @@ export function cleanLegacyModeSearch(search: string): string {
   params.delete('mode')
   const value = params.toString()
   return value ? `?${value}` : ''
-}
-
-export function sampleTickIndexes(itemCount: number, limit = 12): number[] {
-  if (itemCount <= 0 || limit <= 0) return []
-  const count = Math.min(itemCount, limit)
-  if (count === 1) return [0]
-  return Array.from({ length: count }, (_, index) => Math.round(index * (itemCount - 1) / (count - 1)))
 }

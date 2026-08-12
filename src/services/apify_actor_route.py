@@ -934,40 +934,6 @@ class ApifyActorRouteService:
             raise
         return self.public_state()
 
-    def unblock(
-        self,
-        *,
-        expected_generation: int,
-        reason: str = "run_reconciled",
-    ) -> dict[str, Any]:
-        """Release a start-unknown block only after the caller reconciles the Run."""
-
-        connection = self.store.connect()
-        owns_transaction = not connection.in_transaction
-        now = self._current_time()
-        try:
-            if owns_transaction:
-                connection.execute("BEGIN IMMEDIATE")
-            route = self._assert_generation(connection, expected_generation)
-            if route["status"] != "blocked":
-                self._commit(connection, owns_transaction)
-                return self.public_state()
-            active = self._first_routable_candidate(connection, now)
-            self._write_route_change(
-                connection,
-                route,
-                now,
-                active_candidate_id=active["id"] if active else None,
-                status="degraded" if active else "exhausted",
-                reason=reason,
-                blocked_reason=None,
-            )
-            self._commit(connection, owns_transaction)
-        except Exception:
-            self._rollback(connection, owns_transaction)
-            raise
-        return self.public_state()
-
     def reserve_canary(
         self,
         candidate_id: str,

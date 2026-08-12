@@ -7,12 +7,14 @@
 `data/site/**`、`data/horizon.db`、旧 summaries、本地 MCP run 与既有 feedback 表/行均为 inert operator-owned artifact。API、Worker、React、Remote MCP、初始化和迁移不得读取、写入、投影、迁移或物理删除它们；`/api/archive/*` 与 feedback POST 不在 OpenAPI 中并返回统一 404。`data/archives/**` 属于下述现役冷归档，不受本边界影响。
 
 ### 3.5B Storage Governance Boundary
-`src/services/storage_governance.py::StorageGovernanceService` 独占当前工作区的存储概览、两阶段候选计划、标准清理、90 天冷归档、恢复和归档永久删除。API 只负责 owner/admin 鉴权、请求 shape 与安全 envelope；入口层不得拼任意 SQL、接受原始路径、运行在线 `VACUUM` 或直接删除文件。每个计划绑定 actor/workspace、十分钟有效期和候选指纹；apply 在写事务内复算候选，变化即 fail closed。
+`src/services/storage_governance.py::StorageGovernanceService` 独占当前工作区的存储概览、两阶段候选计划、标准清理、90 天冷归档、恢复和归档永久删除。`src/api/storage_routes.py` 只负责 owner/admin 鉴权、请求 shape、安全 envelope 与 `no-store` 响应；入口层不得拼任意 SQL、接受原始路径、运行在线 `VACUUM` 或直接删除文件。每个计划绑定 actor/workspace、十分钟有效期和候选指纹；apply 在写事务内复算候选，变化即 fail closed。
 
 冷归档文件只可写入私有 `data/archives`，先完成临时 ZIP、manifest/NDJSON/媒体写入、计数与 checksum 校验，再原子落位并提交批次；只有提交成功后才能把在线正文/分析输入/媒体降为永久可搜索元数据，并通过 post-commit cleanup 移除媒体文件。restore 必须先复验批次、workspace、文件 SHA-256、媒体成员路径和每项 checksum，再幂等恢复数据库与媒体；失败时回滚数据库并移除本次新建文件。收藏、稍后读、当前 Feed、通知 pending/sending 和未提交归档始终受保护。系统永不自动永久删除归档；owner 的永久删除必须以已恢复批次、零冷引用、独立预演和精确确认短语为前置条件。
 
 ### 3.6 Tenant/User Boundary
 小团体 MVP 使用单 workspace。用户、角色、公共/私有 source catalog、订阅配置、job queue、usage event 和 secret ref 归 `src/storage/service_store.py` 管理。入口层不得直接拼 SQL 或绕过 `ServiceStore`/service helper 读写这些状态。
+
+`ServiceStore` 可在订阅生命周期事务内延迟调用 `UserFeedStore` 做原子 reconciliation；`UserFeedStore` 及其内容、媒体、item-state repository 只能通过 `TYPE_CHECKING` 引用 `ServiceStore` 类型，不得在模块载入时反向导入。用户/订阅投影纯函数归 `src/services/source_projection.py`，`source_acquisition.py` 只保留兼容导出，避免 Feed 读取层拉入 acquisition/ActorOps 运行链。
 
 ### 3.6A User Behavior Boundary
 用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。Fresh DB 不创建 feedback 表；旧表与行只按 3.5A 原样保留，不进入任何行为路径。

@@ -149,7 +149,17 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         (["src/api/server.py"], {"control", "python_api_store"}, False, False),
         (["src/services/job_queue.py"], {"control", "python_queue_worker"}, False, False),
         (["src/services/feed_production.py"], {"control", "python_feed"}, False, False),
-        (["src/services/source_acquisition.py"], {"control", "python_source_acquisition"}, False, False),
+        (
+            ["src/services/source_acquisition.py"],
+            {
+                "control",
+                "python_api_store",
+                "python_feed",
+                "python_source_acquisition",
+            },
+            False,
+            False,
+        ),
         (
             ["src/services/apify_actor_ops.py"],
             {
@@ -388,12 +398,19 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     for spec in [*targeted, *full, *release]:
         if "pytest" in spec.argv:
             assert "-W" in spec.argv
-            assert "default::ResourceWarning" in spec.argv
-    assert {"python_full", "frontend_vitest", "frontend_build"} <= full_ids
+            assert "error::ResourceWarning" in spec.argv
+    assert {
+        "code_size_backend",
+        "code_size_frontend",
+        "python_full",
+        "frontend_vitest",
+        "frontend_build",
+    } <= full_ids
     assert "legacy_node_full" not in full_ids
     assert {spec.domain for spec in control} == {"control"}
     assert {spec.command_id for spec in control} == {
         "markdown_controls",
+        "code_size_policy",
         "observability_contract",
         "control_json",
         "diff_check",
@@ -432,6 +449,8 @@ def test_preflight_fail_closed_runs_full_code_checks_without_docker_or_playwrigh
     assert "product_docs_preflight" in ids
     assert "python_full" in ids
     assert "frontend_vitest" in ids
+    assert "code_size_backend" in ids
+    assert "code_size_frontend" in ids
     assert not any(command_id.startswith("compose_") for command_id in ids)
     assert "release_playwright" not in ids
     assert "release_api_docker_smoke" not in ids
@@ -638,6 +657,9 @@ def test_execute_specs_counts_unclosed_sqlite_resource_warnings(tmp_path):
 
     assert result["commands"][0]["unclosed_sqlite_connection_warnings"] == 2
     assert result["counts"]["unclosed_sqlite_connection_warnings"] == 2
+    assert result["status"] == "failed"
+    assert result["counts"]["commands_failed"] == 1
+    assert result["first_failure"]["id"] == "unclosed_sqlite_connection"
     assert (
         json.loads(format_summary(result))["counts"][
             "unclosed_sqlite_connection_warnings"
@@ -694,7 +716,11 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
         *PROTECTED_RUNTIME_FILES,
         "scripts/check_observability_contract.py",
         "scripts/check_markdown_controls.py",
+        "scripts/check_code_size.py",
+        "scripts/code_size_policy.py",
         "scripts/check_product_docs.py",
+        "scripts/test_gate_log.py",
+        "tests/code_size_policy.json",
         "AGENTS.md",
         "PLAN.md",
     ):
