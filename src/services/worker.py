@@ -26,7 +26,6 @@ from .source_probe import run_source_test
 from .feed_schedule import SCHEDULED_REFRESH_REASON
 from .feed_end_messages import run_due_feed_end_messages_generation
 from .job_queue import JobQueue
-from .job_eligibility import JobEligibilityService
 from .operation_log import safe_emit_operation_event
 from .quota import QuotaService
 from .source_type_registry import build_source_payload
@@ -55,6 +54,11 @@ from .worker_cycle import (
     prepare_worker_cycle,
 )
 from .worker_post_commit import WorkerPostCommitPorts, run_worker_post_commit
+from .worker_finalization import (
+    MediaPublicationState,
+    WorkerFinalizationPorts,
+    execute_claimed_job,
+)
 from .apify_actor_monitoring import (
     build_apify_actor_route,
     sync_apify_actor_quota_alert,
@@ -384,10 +388,6 @@ def _cache_run_source_avatars(
                 else None
             ),
         )
-
-
-class MigrationRequiredError(RuntimeError):
-    retryable = False
 
 
 class PaidCanaryUnavailableError(RuntimeError):
@@ -2096,7 +2096,7 @@ def run_worker_once(
     store = ServiceStore(data_dir)
     job: dict[str, Any] | None = None
     failure_fingerprint: str | None = None
-    publication_cleanup: PostCommitMediaCleanup | None = None
+    publication = MediaPublicationState()
     context_token = begin_observability_context(stage="startup")
     try:
         store.initialize()
@@ -2130,240 +2130,32 @@ def run_worker_once(
         lease = prepared_cycle.lease_seconds
         retry_base = prepared_cycle.retry_base_seconds
         with _LeaseHeartbeat(data_dir=data_dir, job=job, lease_seconds=lease):
-            update_observability_context(stage="eligibility")
-            eligibility = JobEligibilityService(store).evaluate(job)
-            if not eligibility.allowed:
-                invalidation_reason = str(
-                    eligibility.reason or "job_invalidated"
-                )
-                finalized = _cancel_claimed_job_with_validation(
-                    queue,
-                    store,
-                    job,
-                    reason=invalidation_reason,
-                    worker_id=worker_id,
-                )
-                _emit_job_invalidation(job, reason=invalidation_reason)
-            else:
-                try:
-                    update_observability_context(stage="execute")
-                    if job["job_type"] in {"source_fetch", "user_feed_refresh"} and store.feed_v2_migration_required():
-                        raise MigrationRequiredError("user feed v2 migration is required before feed jobs can run")
-                    if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_index_v4_migration_required():
-                        raise MigrationRequiredError("user content v4 migration is required before feed jobs can run")
-                    if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_timeline_v11_migration_required():
-                        raise MigrationRequiredError("content timeline v11 migration is required before feed jobs can run")
-                    if store.apify_actor_ops_v15_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify ActorOps v15 migration is required before jobs can run"
-                        )
-                    if store.apify_discovery_limits_v16_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify Discovery limits v16 migration is required before jobs can run"
-                        )
-                    if store.apify_actor_canary_batches_v17_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify Actor Canary batch migration is required before jobs can run"
-                        )
-                    if store.apify_actor_pool_staging_v18_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify Actor pool staging migration is required before jobs can run"
-                        )
-                    if store.apify_actor_manual_pool_selection_v19_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify Actor manual pool selection migration is required before jobs can run"
-                        )
-                    if store.apify_actor_validation_tuning_v20_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify Actor validation tuning migration is required before jobs can run"
-                        )
-                    if store.apify_actor_resilience_v21_migration_required():
-                        raise MigrationRequiredError(
-                            "Apify Actor resilience migration is required before jobs can run"
-                        )
-                    result = _run_job(job, data_dir=data_dir, store=store)
-                    raw_cleanup = result.pop("_media_cleanup", None)
-                    if raw_cleanup is not None and not isinstance(
-                        raw_cleanup, PostCommitMediaCleanup
-                    ):
-                        raise RuntimeError("invalid media publication cleanup")
-                    publication_cleanup = raw_cleanup
-                    if result.get("snapshot_id"):
-                        conn = store.connect()
-                        if conn.in_transaction:
-                            conn.execute(
-                                "SAVEPOINT preferred_source_notification_stage"
-                            )
-                            try:
-                                notifications.stage_for_job(
-                                    job=job,
-                                    snapshot_id=str(result["snapshot_id"]),
-                                    snapshot_created=bool(
-                                        result.get("snapshot_created")
-                                    ),
-                                )
-                            except Exception:
-                                conn.execute(
-                                    "ROLLBACK TO preferred_source_notification_stage"
-                                )
-                                conn.execute(
-                                    "RELEASE preferred_source_notification_stage"
-                                )
-                                logger.warning(
-                                    "preferred-source notification staging failed job_id=%s",
-                                    job.get("id"),
-                                )
-                            else:
-                                conn.execute(
-                                    "RELEASE preferred_source_notification_stage"
-                                )
-                        else:
-                            logger.warning(
-                                "preferred-source notification staging skipped without feed transaction job_id=%s",
-                                job.get("id"),
-                            )
-                except Exception as exc:
-                    from .feed_production import FeedRunFailed
-                    from .feed_run import safe_run_diagnostics
-                    from .source_health import SourceHealthService
-                    from .source_health import sanitize_issue_message
-
-                    failure_fingerprint = error_fingerprint()
-                    error_code = _exception_code(exc)
-                    update_observability_context(
-                        stage="execute",
-                        error_code=error_code,
-                    )
-                    logger.exception(
-                        "job execution failed job_id=%s job_type=%s",
-                        job["id"],
-                        job["job_type"],
-                        extra={
-                            "stage": "execute",
-                            "error_code": error_code,
-                        },
-                    )
-                    conn = store.connect()
-                    conn.rollback()
-                    if publication_cleanup is not None:
-                        publication_cleanup.discard()
-                        publication_cleanup = None
-                    eligibility = JobEligibilityService(store).evaluate(job)
-                    if not eligibility.allowed:
-                        invalidation_reason = str(
-                            eligibility.reason or "job_invalidated"
-                        )
-                        finalized = _cancel_claimed_job_with_validation(
-                            queue,
-                            store,
-                            job,
-                            reason=invalidation_reason,
-                            worker_id=worker_id,
-                        )
-                        _emit_job_invalidation(
-                            job,
-                            reason=invalidation_reason,
-                        )
-                    else:
-                        try:
-                            conn.execute("BEGIN IMMEDIATE")
-                            _terminalize_failed_actor_discovery(store, job)
-                            _terminalize_unstarted_actor_validation(
-                                store,
-                                job,
-                                status="failed",
-                                semantic_outcome=error_code,
-                            )
-                            structured_result = (
-                                safe_run_diagnostics(exc.result, item_count=0)
-                                if isinstance(exc, FeedRunFailed)
-                                else None
-                            )
-                            finalized = queue.fail_or_retry_job(
-                                job["id"],
-                                error_code=error_code,
-                                error_message=sanitize_issue_message(str(exc)),
-                                retryable=_is_retryable_exception(exc),
-                                retry_base_seconds=retry_base,
-                                result=structured_result,
-                                worker_id=worker_id,
-                                claim_token=job["claim_token"],
-                                commit=False,
-                            )
-                            if finalized["status"] == "failed" and isinstance(
-                                exc, FeedRunFailed
-                            ):
-                                outcomes = exc.result.source_outcomes
-                                if (
-                                    job["job_type"] == "source_fetch"
-                                    and job.get("source_id")
-                                ):
-                                    outcomes = tuple(
-                                        outcome
-                                        for outcome in outcomes
-                                        if outcome.source_id == job["source_id"]
-                                    )
-                                elif job["job_type"] == "user_feed_refresh":
-                                    active_source_ids = _active_catalog_source_ids(
-                                        store,
-                                        workspace_id=job["workspace_id"],
-                                        user_id=job["user_id"],
-                                    )
-                                    outcomes = tuple(
-                                        outcome
-                                        for outcome in outcomes
-                                        if outcome.source_id in active_source_ids
-                                    )
-                                SourceHealthService(store).apply_outcomes(
-                                    workspace_id=job["workspace_id"],
-                                    user_id=job["user_id"],
-                                    job_id=job["id"],
-                                    attempted_at=exc.result.finished_at,
-                                    outcomes=outcomes,
-                                    commit=False,
-                                )
-                            conn.commit()
-                        except Exception:
-                            if conn.in_transaction:
-                                conn.rollback()
-                            raise
-                else:
-                    update_observability_context(stage="finalize")
-                    eligibility = JobEligibilityService(store).evaluate(job)
-                    if not eligibility.allowed:
-                        store.connect().rollback()
-                        if publication_cleanup is not None:
-                            publication_cleanup.discard()
-                            publication_cleanup = None
-                        invalidation_reason = str(
-                            eligibility.reason or "job_invalidated"
-                        )
-                        finalized = _cancel_claimed_job_with_validation(
-                            queue,
-                            store,
-                            job,
-                            reason=invalidation_reason,
-                            worker_id=worker_id,
-                        )
-                        _emit_job_invalidation(
-                            job,
-                            reason=invalidation_reason,
-                        )
-                    else:
-                        job_status = str(result.pop("_job_status", "succeeded"))
-                        finalized = queue.complete_job(
-                            job["id"],
-                            status=job_status,
-                            result=result,
-                            worker_id=worker_id,
-                            claim_token=job["claim_token"],
-                            commit=False,
-                        )
-                        store.connect().commit()
-                        committed_cleanup = publication_cleanup
-                        publication_cleanup = None
-                        if committed_cleanup is not None:
-                            committed_cleanup.run()
+            finalization = execute_claimed_job(
+                queue,
+                store,
+                job,
+                data_dir=data_dir,
+                worker_id=worker_id,
+                retry_base_seconds=retry_base,
+                notifications=notifications,
+                publication=publication,
+                ports=WorkerFinalizationPorts(
+                    run_job=_run_job,
+                    error_fingerprint=error_fingerprint,
+                    exception_code=_exception_code,
+                    cancel_claimed_job=_cancel_claimed_job_with_validation,
+                    emit_job_invalidation=_emit_job_invalidation,
+                    terminalize_failed_discovery=_terminalize_failed_actor_discovery,
+                    terminalize_unstarted_validation=(
+                        _terminalize_unstarted_actor_validation
+                    ),
+                    is_retryable_exception=_is_retryable_exception,
+                    active_catalog_source_ids=_active_catalog_source_ids,
+                ),
+                logger=logger,
+            )
+        finalized = finalization.finalized
+        failure_fingerprint = finalization.failure_fingerprint
         return run_worker_post_commit(
             store,
             notifications=notifications,
@@ -2435,10 +2227,10 @@ def run_worker_once(
             )
         raise
     finally:
-        if publication_cleanup is not None:
+        if publication.cleanup is not None:
             if store.connect().in_transaction:
                 store.connect().rollback()
-            publication_cleanup.discard()
+            publication.cleanup.discard()
         store.close()
         reset_observability_context(context_token)
 

@@ -1,4 +1,4 @@
-// Reviewed after the API adapter and Worker cycle/post-commit splits; user workflows are unchanged.
+// Reviewed after the API adapter and Worker cycle/finalization splits; user workflows are unchanged.
 export type ManualStep = {
   title: string
   description: string
@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-13',
-  change: 'v2.3.2 后的代码规模、资源生命周期、API/Worker 周期与 Store 分层收敛；用户工作流不变',
+  change: 'v2.3.2 后的代码规模、资源生命周期、API/Worker 周期与事务分层收敛；用户工作流不变',
 } as const
 
 export const manualSections: ManualSection[] = [
