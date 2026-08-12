@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
+from .agent_delegation_routes import register_agent_delegation_routes
 from .context import ApiContext
 from .job_routes import JobCreateRequest, public_job as _public_job, register_job_routes
 from .lifespan import build_service_lifespan
@@ -161,11 +162,8 @@ from ..services.youtube_channel import (
     YouTubeChannelResolver,
 )
 from ..storage.service_store import (
-    AGENT_DELEGATION_MAX_ACTIVE,
-    AGENT_DELEGATION_TTL_DAYS,
     ROLES,
     SOURCE_SCOPES,
-    AgentDelegationLimitError,
     SecretEnvConflictError,
     ServiceStore,
     SourceKeyConflictError,
@@ -916,36 +914,6 @@ class ItemStatePatchRequest(BaseModel):
     is_saved: bool | None = None
     is_later: bool | None = None
     dismissed: bool | None = None
-
-
-class AgentDelegationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1, max_length=80)
-    access: Literal["read", "subscriptions_write"] = "read"
-    diagnostics_scope: Literal["self", "workspace"] = "self"
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError("name is required")
-        return name
-
-
-class AgentDelegationRenameRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1, max_length=80)
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError("name is required")
-        return name
 
 
 class ConfigImportSourcesRequest(BaseModel):
@@ -2870,6 +2838,8 @@ def create_app(
         runtime_status=runtime_status,
         storage_governance=storage_governance,
         auth_settings=auth_settings,
+        remote_mcp_settings=remote_mcp_settings,
+        openclaw_chat_settings=openclaw_chat_settings,
         readiness_checks=(
             require_apify_actor_routing_v13,
             require_webhook_providers_v14,
@@ -8509,121 +8479,7 @@ def create_app(
             }
         )
 
-    @app.get("/api/me/agent-delegations")
-    async def agent_delegations_list(
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        return ok(
-            {
-                "enabled": remote_mcp_settings.enabled,
-                "mcp_url": remote_mcp_settings.public_url,
-                "subscription_writes_enabled": (
-                    remote_mcp_settings.subscription_writes_enabled
-                ),
-                "openclaw_chat": openclaw_chat_settings.public_config(),
-                "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
-                "max_active": AGENT_DELEGATION_MAX_ACTIVE,
-                "connections": store.list_agent_delegations(user["id"]),
-            }
-        )
-
-    @app.post("/api/me/agent-delegations", status_code=201)
-    async def agent_delegations_create(
-        payload: AgentDelegationRequest,
-        response: Response,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        if not remote_mcp_settings.enabled:
-            raise ApiError(
-                "remote_mcp_disabled",
-                "Remote MCP is disabled",
-                status_code=409,
-                action="Ask an administrator to enable Remote MCP.",
-            )
-        if payload.access == "subscriptions_write":
-            if user.get("role") == "viewer":
-                raise ApiError(
-                    "forbidden",
-                    "viewer users cannot create subscription write connections",
-                    status_code=403,
-                )
-            if not remote_mcp_settings.subscription_writes_enabled:
-                raise ApiError(
-                    "subscription_writes_disabled",
-                    "subscription writes are disabled",
-                    status_code=409,
-                    action="Ask an administrator to enable subscription writes.",
-                )
-        if (
-            payload.diagnostics_scope == "workspace"
-            and user.get("role") not in {"owner", "admin"}
-        ):
-            raise ApiError(
-                "forbidden",
-                "workspace diagnostics require owner or admin role",
-                status_code=403,
-            )
-        try:
-            connection, token = store.create_agent_delegation(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
-                name=payload.name,
-                access=payload.access,
-                diagnostics_scope=payload.diagnostics_scope,
-            )
-        except PermissionError as exc:
-            raise ApiError(
-                "forbidden",
-                "workspace diagnostics require owner or admin role",
-                status_code=403,
-            ) from exc
-        except AgentDelegationLimitError as exc:
-            raise ApiError(
-                "agent_delegation_limit",
-                str(exc),
-                status_code=409,
-                action="Revoke an unused connection before creating another.",
-            ) from exc
-        response.headers["Cache-Control"] = "no-store"
-        return ok({"connection": connection, "token": token})
-
-    @app.patch("/api/me/agent-delegations/{delegation_id}")
-    async def agent_delegations_patch(
-        delegation_id: str,
-        payload: AgentDelegationRenameRequest,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        connection = store.rename_agent_delegation(
-            user["id"], delegation_id, payload.name
-        )
-        if connection is None:
-            raise ApiError("not_found", "connection not found", status_code=404)
-        return ok(connection)
-
-    @app.delete("/api/me/agent-delegations/{delegation_id}")
-    async def agent_delegations_delete(
-        delegation_id: str,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        if not store.revoke_agent_delegation(user["id"], delegation_id):
-            raise ApiError("not_found", "connection not found", status_code=404)
-        return ok({"revoked": True})
-
-    @app.delete("/api/me/agent-delegations/{delegation_id}/record")
-    async def agent_delegations_record_delete(
-        delegation_id: str,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        deleted = store.delete_revoked_agent_delegation(user["id"], delegation_id)
-        if deleted is None:
-            raise ApiError("not_found", "connection not found", status_code=404)
-        if deleted is False:
-            raise ApiError(
-                "agent_delegation_not_revoked",
-                "connection must be revoked before deletion",
-                status_code=409,
-            )
-        return ok({"deleted": True})
+    register_agent_delegation_routes(app)
 
     @app.get("/api/me/source-health")
     async def source_health_get(

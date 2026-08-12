@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..auth import AuthSettings
+from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..services.job_queue import JobQueue
 from ..services.quota import QuotaService
 from ..services.runtime_status import RuntimeStatusService
@@ -26,4 +27,6 @@ class ApiContext:
     runtime_status: RuntimeStatusService
     storage_governance: StorageGovernanceService
     auth_settings: AuthSettings
+    remote_mcp_settings: RemoteMCPSettings
+    openclaw_chat_settings: OpenClawChatSettings
     readiness_checks: tuple[ReadinessCheck, ...]

@@ -1,4 +1,4 @@
-// Reviewed after the queued-job API adapter split; user workflows are unchanged.
+// Reviewed after the queued-job and Agent-delegation API adapter splits; user workflows are unchanged.
 export type ManualStep = {
   title: string
   description: string
@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-13',
-  change: 'v2.3.2 后的代码规模、资源生命周期、Jobs API 与 Store/Feed 分层收敛；用户工作流不变',
+  change: 'v2.3.2 后的代码规模、资源生命周期、Jobs/Agent 连接 API 与 Store/Feed 分层收敛；用户工作流不变',
 } as const
 
 export const manualSections: ManualSection[] = [

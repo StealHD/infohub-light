@@ -163,6 +163,7 @@
     {
       "id": "Remote MCP/OpenClaw",
       "globs": [
+        "src/api/agent_delegation_routes.py",
         "src/mcp/remote_*.py",
         "src/mcp/__init__.py",
         "src/services/bilibili_user_search.py",
