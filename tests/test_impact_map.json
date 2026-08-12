@@ -209,6 +209,8 @@
         "src/services/source_schedule.py",
         "src/services/usage_attempt_meter.py",
         "src/services/worker.py",
+        "src/services/worker_actor_cycle.py",
+        "src/services/worker_cycle.py",
         "src/services/worker_migration_gate.py",
         "tests/test_worker_migration_gate.py"
       ],

@@ -23,17 +23,13 @@ from ..observability_context import (
 from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
 from ..storage.manager import StorageManager
 from .source_probe import run_source_test
-from .feed_schedule import FeedScheduleService, SCHEDULED_REFRESH_REASON
+from .feed_schedule import SCHEDULED_REFRESH_REASON
 from .feed_end_messages import run_due_feed_end_messages_generation
 from .job_queue import JobQueue
 from .job_eligibility import JobEligibilityService
-from .maintenance import MaintenanceService
-from .preferred_source_notifications import PreferredSourceNotificationService
-from .apify_actor_alerts import ApifyActorAlertService
 from .operation_log import safe_emit_operation_event
 from .quota import QuotaService
 from .source_type_registry import build_source_payload
-from .secret_store import SecretStore
 from .source_schedule import SourceScheduleService
 from .source_acquisition import (
     SourceAcquisitionCoordinator,
@@ -47,7 +43,17 @@ from .apify_pool_runtime import (
     reconcile_all_apify_pools_sync,
 )
 from .apify_key_pool import apify_key_pool_enabled
-from .worker_migration_gate import first_required_worker_startup_migration
+from .worker_actor_cycle import (
+    enqueue_due_actor_freshness_checks as _enqueue_due_actor_freshness_checks_impl,
+    promote_due_actor_revisions as _promote_due_actor_revisions_impl,
+    reconcile_and_enqueue_actor_discoveries as _reconcile_actor_discoveries_impl,
+)
+from .worker_cycle import (
+    PreparedWorkerCycle,
+    StoppedWorkerCycle,
+    WorkerCyclePorts,
+    prepare_worker_cycle,
+)
 from .apify_actor_monitoring import (
     build_apify_actor_route,
     sync_apify_actor_quota_alert,
@@ -71,207 +77,27 @@ WORKER_JOB_TRACE_POLICY = {
 
 
 def _promote_due_actor_revisions(store: ServiceStore) -> dict[str, int]:
-    """Re-evaluate the 48-hour certification window without paid retries."""
+    """Compatibility seam for tests and operational overrides."""
 
-    from .apify_actor_ops import ApifyActorOpsService
-
-    promoted = 0
-    pending = 0
-    workspaces = store.connect().execute(
-        "SELECT id FROM workspaces ORDER BY created_at, id"
-    ).fetchall()
-    for workspace in workspaces:
-        result = ApifyActorOpsService(
-            store,
-            workspace_id=str(workspace["id"]),
-        ).promote_eligible_revisions()
-        promoted += int(result["promoted"])
-        pending += int(result["pending"])
-    return {"promoted": promoted, "pending": pending}
+    return _promote_due_actor_revisions_impl(store)
 
 
 def _reconcile_and_enqueue_actor_discoveries(
     store: ServiceStore,
     queue: JobQueue,
 ) -> dict[str, int]:
-    """Recover free discovery work without replaying any paid Canary."""
+    """Compatibility seam for tests and operational overrides."""
 
-    connection = store.connect()
-    now = datetime.now(timezone.utc).isoformat()
-    enqueued = 0
-    failed = 0
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        interrupted = connection.execute(
-            """
-            SELECT run.run_id
-            FROM apify_actor_discovery_runs AS run
-            WHERE run.stage IN (
-                'searching', 'metadata', 'ranking',
-                'static_validation', 'input_validation'
-            )
-              AND NOT EXISTS (
-                  SELECT 1 FROM fetch_jobs AS job
-                  WHERE job.workspace_id = run.workspace_id
-                    AND job.job_type = 'apify_actor_discovery'
-                    AND job.status IN ('queued', 'running')
-                    AND json_extract(job.payload_json, '$.run_id') = run.run_id
-              )
-            """
-        ).fetchall()
-        for row in interrupted:
-            connection.execute(
-                """
-                UPDATE apify_actor_discovery_runs
-                SET stage = 'failed', error_code = 'discovery_interrupted',
-                    updated_at = ?
-                WHERE run_id = ? AND stage IN (
-                    'searching', 'metadata', 'ranking',
-                    'static_validation', 'input_validation'
-                )
-                """,
-                (now, row["run_id"]),
-            )
-            failed += 1
-        queued_runs = connection.execute(
-            """
-            SELECT run.run_id, run.workspace_id
-            FROM apify_actor_discovery_runs AS run
-            WHERE run.stage = 'queued'
-              AND NOT EXISTS (
-                  SELECT 1 FROM fetch_jobs AS job
-                  WHERE job.workspace_id = run.workspace_id
-                    AND job.job_type = 'apify_actor_discovery'
-                    AND job.status IN ('queued', 'running')
-                    AND json_extract(job.payload_json, '$.run_id') = run.run_id
-              )
-            ORDER BY run.created_at, run.run_id
-            """
-        ).fetchall()
-        for run in queued_runs:
-            actor = connection.execute(
-                """
-                SELECT id FROM users
-                WHERE workspace_id = ? AND enabled = 1
-                  AND role IN ('owner', 'admin')
-                ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END,
-                         created_at, id
-                LIMIT 1
-                """,
-                (run["workspace_id"],),
-            ).fetchone()
-            if actor is None:
-                connection.execute(
-                    """
-                    UPDATE apify_actor_discovery_runs
-                    SET stage = 'failed',
-                        error_code = 'discovery_admin_unavailable',
-                        updated_at = ?
-                    WHERE run_id = ? AND stage = 'queued'
-                    """,
-                    (now, run["run_id"]),
-                )
-                failed += 1
-                continue
-            queue.create_job(
-                workspace_id=str(run["workspace_id"]),
-                user_id=str(actor["id"]),
-                job_type="apify_actor_discovery",
-                payload={"run_id": str(run["run_id"])},
-                priority=50,
-                max_attempts=1,
-                retention_days=int(
-                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
-                ),
-                commit=False,
-            )
-            enqueued += 1
-        connection.commit()
-    except Exception:
-        if connection.in_transaction:
-            connection.rollback()
-        raise
-    return {"enqueued": enqueued, "failed": failed}
+    return _reconcile_actor_discoveries_impl(store, queue)
 
 
 def _enqueue_due_actor_freshness_checks(
     store: ServiceStore,
     queue: JobQueue,
 ) -> dict[str, int]:
-    """Queue only explicitly enabled standing-authorized freshness work."""
+    """Compatibility seam for tests and operational overrides."""
 
-    from .apify_actor_resilience import (
-        ActorResilienceError,
-        ApifyActorResilienceService,
-    )
-
-    enqueued = 0
-    blocked = 0
-    workspaces = store.connect().execute(
-        "SELECT id FROM workspaces ORDER BY created_at, id"
-    ).fetchall()
-    for workspace in workspaces:
-        workspace_id = str(workspace["id"])
-        service = ApifyActorResilienceService(
-            store,
-            workspace_id=workspace_id,
-        )
-        for route_id in service.due_routes():
-            actor = store.connect().execute(
-                """
-                SELECT id FROM users
-                WHERE workspace_id = ? AND enabled = 1
-                  AND role IN ('owner', 'admin')
-                ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END,
-                         created_at, id
-                LIMIT 1
-                """,
-                (workspace_id,),
-            ).fetchone()
-            if actor is None:
-                blocked += 1
-                continue
-            check: dict[str, Any] | None = None
-            try:
-                check = service.create_freshness_check(
-                    route_id,
-                    trigger_kind="automatic",
-                    actor_user_id=str(actor["id"]),
-                    cost_confirmed=True,
-                )
-                job = queue.create_job(
-                    workspace_id=workspace_id,
-                    user_id=str(actor["id"]),
-                    job_type="apify_actor_freshness_check",
-                    payload={"check_id": str(check["check_id"])},
-                    priority=100,
-                    max_attempts=1,
-                    retention_days=int(
-                        os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
-                    ),
-                )
-                service.attach_freshness_job(
-                    str(check["check_id"]), str(job["id"])
-                )
-            except ActorResilienceError as exc:
-                service.emit_event(
-                    route_id=route_id,
-                    phase="freshness_schedule",
-                    outcome="blocked",
-                    reason_code=exc.code,
-                )
-                blocked += 1
-                continue
-            except Exception:
-                if check is not None:
-                    service.fail_freshness_check(
-                        str(check["check_id"]),
-                        reason_code="freshness_job_queue_failed",
-                    )
-                blocked += 1
-                continue
-            enqueued += 1
-    return {"enqueued": enqueued, "blocked": blocked}
+    return _enqueue_due_actor_freshness_checks_impl(store, queue)
 
 
 def _exception_code(exc: Exception) -> str:
@@ -2273,287 +2099,35 @@ def run_worker_once(
     context_token = begin_observability_context(stage="startup")
     try:
         store.initialize()
-        update_observability_context(stage="migration_check")
-        required_migration = first_required_worker_startup_migration(store)
-        if required_migration is not None:
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code="migration_required",
-            )
-            return {
-                "ok": False,
-                "error_code": "migration_required",
-                "migration": required_migration,
-            }
-        SecretStore(data_dir).load_into_environ()
-        update_observability_context(stage="provider_reconcile")
-        apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
+        prepared_cycle = prepare_worker_cycle(
             store,
             data_dir=data_dir,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            retry_base_seconds=retry_base_seconds,
+            enqueue_schedules=enqueue_schedules,
+            ports=WorkerCyclePorts(
+                reconcile_apify_pools=reconcile_all_apify_pools_sync,
+                build_actor_route=build_apify_actor_route,
+                sync_actor_quota_alert=sync_apify_actor_quota_alert,
+                promote_actor_revisions=_promote_due_actor_revisions,
+                reconcile_actor_discoveries=_reconcile_and_enqueue_actor_discoveries,
+                enqueue_actor_freshness=_enqueue_due_actor_freshness_checks,
+                run_feed_end_messages=run_due_feed_end_messages_generation,
+                emit_operation_event=safe_emit_operation_event,
+            ),
+            logger=logger,
         )
-        for outcome in apify_reconcile_outcomes:
-            if not outcome["ok"]:
-                logger.warning(
-                    "Apify pool reconcile pending workspace_id=%s code=%s",
-                    outcome["workspace_id"],
-                    outcome["code"],
-                )
-            actor_route = build_apify_actor_route(
-                store,
-                data_dir=data_dir,
-                workspace_id=str(outcome["workspace_id"]),
-            )
-            route_reconcile = actor_route.reconcile_unfinished_attempts()
-            if route_reconcile["route_blocked"]:
-                logger.warning(
-                    "Apify Actor route reconcile blocked workspace_id=%s",
-                    outcome["workspace_id"],
-                )
-            from .apify_actor_ops import ApifyActorOpsService
-
-            actor_ops = ApifyActorOpsService(
-                store,
-                workspace_id=str(outcome["workspace_id"]),
-            )
-            no_start_reconcile = actor_ops.reconcile_proven_no_start_attempts()
-            if no_start_reconcile["attempts"]:
-                logger.info(
-                    "Apify Actor no-start proof reconciled workspace_id=%s count=%s",
-                    outcome["workspace_id"],
-                    no_start_reconcile["attempts"],
-                )
-            actor_ops_reconcile = actor_ops.reconcile_unfinished_attempts()
-            if actor_ops_reconcile["routes_blocked"]:
-                logger.warning(
-                    "Apify ActorOps reconcile blocked workspace_id=%s",
-                    outcome["workspace_id"],
-                )
-            cost_reconcile = actor_ops.reconcile_terminal_validation_costs()
-            if cost_reconcile["validations"]:
-                logger.info(
-                    "Apify Actor validation costs reconciled workspace_id=%s count=%s",
-                    outcome["workspace_id"],
-                    cost_reconcile["validations"],
-                )
-            from .apify_actor_resilience import ApifyActorResilienceService
-
-            freshness_cost_reconcile = ApifyActorResilienceService(
-                store,
-                workspace_id=str(outcome["workspace_id"]),
-            ).reconcile_terminal_freshness_costs()
-            if freshness_cost_reconcile["checks"]:
-                logger.info(
-                    "Apify Actor freshness costs reconciled workspace_id=%s count=%s",
-                    outcome["workspace_id"],
-                    freshness_cost_reconcile["checks"],
-                )
-            try:
-                sync_apify_actor_quota_alert(
-                    store,
-                    data_dir=data_dir,
-                    workspace_id=str(outcome["workspace_id"]),
-                    route_state=actor_route.public_state(),
-                )
-            except Exception:
-                if store.connect().in_transaction:
-                    store.connect().rollback()
-                logger.warning(
-                    "Apify Actor quota alert sync failed workspace_id=%s",
-                    outcome["workspace_id"],
-                )
-        if (
-            not store.feed_storage_v3_migration_required()
-            and not store.content_index_v4_migration_required()
-            and not store.content_timeline_v11_migration_required()
-            and not store.apify_actor_routing_v13_migration_required()
-            and not store.webhook_providers_v14_migration_required()
-            and not store.multichannel_notifications_v15_migration_required()
-            and not store.notification_targets_v16_migration_required()
-            and not store.apify_actor_ops_v15_migration_required()
-            and not store.apify_discovery_limits_v16_migration_required()
-            and not store.apify_actor_canary_batches_v17_migration_required()
-            and not store.apify_actor_pool_staging_v18_migration_required()
-            and not store.apify_actor_manual_pool_selection_v19_migration_required()
-            and not store.apify_actor_validation_tuning_v20_migration_required()
-            and not store.apify_actor_resilience_v21_migration_required()
-        ):
-            update_observability_context(stage="maintenance")
-            maintenance_result = MaintenanceService(store).run_if_due()
-            if bool(maintenance_result.get("ran")):
-                try:
-                    _promote_due_actor_revisions(store)
-                except Exception:
-                    logger.warning(
-                        "Actor revision certification maintenance failed",
-                        exc_info=True,
-                    )
-                try:
-                    from .apify_actor_maintenance import (
-                        run_due_actor_metadata_checks,
-                    )
-
-                    run_due_actor_metadata_checks(store)
-                except Exception:
-                    # Metadata refresh is proposal-only. Existing pinned
-                    # Routes continue safely when Store metadata is unavailable.
-                    logger.warning(
-                        "Actor metadata maintenance failed",
-                        exc_info=True,
-                    )
-        queue = JobQueue(store)
-        lease = float(lease_seconds if lease_seconds is not None else os.getenv("HORIZON_WORKER_LEASE_SECONDS", "900"))
-        retry_base = float(
-            retry_base_seconds
-            if retry_base_seconds is not None
-            else os.getenv("HORIZON_WORKER_RETRY_BASE_SECONDS", "30")
-        )
-        update_observability_context(stage="lease_recovery")
-        recovered_jobs = queue.recover_stale_running_jobs()
-        for recovered in recovered_jobs:
-            recovery_failed = recovered["status"] == "failed"
-            safe_emit_operation_event(
-                category="job",
-                action="lease_recovery",
-                outcome="failed" if recovery_failed else "retried",
-                level="error" if recovery_failed else "warning",
-                workspace_id=str(recovered["workspace_id"]),
-                subject_user_id=str(recovered["user_id"]),
-                job_id=str(recovered["job_id"]),
-                source_id=recovered.get("source_id"),
-                subscription_id=recovered.get("subscription_id"),
-                stage="lease_recovery",
-                error_code="lease_expired",
-                counts={"attempts": int(recovered["attempts"])},
-            )
-        _reconcile_and_enqueue_actor_discoveries(store, queue)
-        _enqueue_due_actor_freshness_checks(store, queue)
-        queue.prune_terminal_jobs()
-        if enqueue_schedules:
-            update_observability_context(stage="schedule_enqueue")
-            feed_enqueue_result = FeedScheduleService(store).enqueue_due()
-            source_enqueue_result = SourceScheduleService(store).enqueue_due()
-            for outcome in feed_enqueue_result["outcomes"]:
-                if outcome.get("action") not in {"enqueued", "deduplicated"}:
-                    continue
-                scheduled_user = store.get_user(str(outcome["user_id"]))
-                if scheduled_user is None:
-                    continue
-                safe_emit_operation_event(
-                    category="job",
-                    action="scheduled_queue",
-                    outcome=(
-                        "queued"
-                        if outcome["action"] == "enqueued"
-                        else "skipped"
-                    ),
-                    level="info",
-                    workspace_id=str(scheduled_user["workspace_id"]),
-                    subject_user_id=str(scheduled_user["id"]),
-                    job_id=outcome.get("job_id"),
-                    counts={
-                        "deduplicated": int(
-                            outcome["action"] == "deduplicated"
-                        )
-                    },
-                )
-            for outcome in source_enqueue_result["outcomes"]:
-                if outcome.get("action") not in {"enqueued", "deduplicated"}:
-                    continue
-                scheduled_subscription = store.get_subscription(
-                    str(outcome["subscription_id"])
-                )
-                if scheduled_subscription is None:
-                    continue
-                scheduled_user = store.get_user(
-                    str(scheduled_subscription["user_id"])
-                )
-                if scheduled_user is None:
-                    continue
-                safe_emit_operation_event(
-                    category="job",
-                    action="scheduled_queue",
-                    outcome=(
-                        "queued"
-                        if outcome["action"] == "enqueued"
-                        else "skipped"
-                    ),
-                    level="info",
-                    workspace_id=str(scheduled_user["workspace_id"]),
-                    subject_user_id=str(scheduled_subscription["user_id"]),
-                    job_id=outcome.get("job_id"),
-                    source_id=str(scheduled_subscription["source_id"]),
-                    subscription_id=str(scheduled_subscription["id"]),
-                    counts={
-                        "deduplicated": int(
-                            outcome["action"] == "deduplicated"
-                        )
-                    },
-                )
-        notifications = PreferredSourceNotificationService(
-            store,
-            data_dir=data_dir,
-        )
-        actor_alerts = ApifyActorAlertService(
-            store,
-            data_dir=data_dir,
-            email_transport=notifications.email_transport,
-        )
-        try:
-            update_observability_context(stage="notification_backlog")
-            notifications.dispatch_pending(limit=20)
-        except Exception:
-            if store.connect().in_transaction:
-                store.connect().rollback()
-            logger.warning(
-                "preferred-source notification backlog dispatch failed"
-            )
-        try:
-            actor_alerts.dispatch_pending(limit=20)
-        except Exception:
-            if store.connect().in_transaction:
-                store.connect().rollback()
-            logger.warning("Apify Actor alert backlog dispatch failed")
-        if store.get_worker_heartbeat(worker_id) is None:
-            store.upsert_worker_heartbeat(worker_id, "starting")
-        update_observability_context(stage="claim")
-        job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
-        if not job:
-            generation_result = run_due_feed_end_messages_generation(
-                data_dir=data_dir,
-                store=store,
-                worker_id=worker_id,
-            )
-            store.upsert_worker_heartbeat(
-                worker_id,
-                "idle",
-                last_error_code=(
-                    generation_result.get("error_code")
-                    if generation_result and not generation_result.get("ok")
-                    else None
-                ),
-            )
-            return generation_result
-        update_observability_context(
-            workspace_id=str(job["workspace_id"]),
-            actor_user_id=str(job["user_id"]),
-            job_id=str(job["id"]),
-            source_id=job.get("source_id"),
-            subscription_id=job.get("subscription_id"),
-            stage="claim",
-        )
-        safe_emit_operation_event(
-            category="job",
-            action="claim",
-            outcome="running",
-            workspace_id=str(job["workspace_id"]),
-            subject_user_id=str(job["user_id"]),
-            job_id=str(job["id"]),
-            source_id=job.get("source_id"),
-            subscription_id=job.get("subscription_id"),
-            stage="claim",
-            counts={"attempts": int(job.get("attempts") or 0)},
-        )
+        if isinstance(prepared_cycle, StoppedWorkerCycle):
+            return prepared_cycle.result
+        if not isinstance(prepared_cycle, PreparedWorkerCycle):
+            raise RuntimeError("invalid prepared Worker cycle")
+        queue = prepared_cycle.queue
+        notifications = prepared_cycle.notifications
+        actor_alerts = prepared_cycle.actor_alerts
+        job = prepared_cycle.job
+        lease = prepared_cycle.lease_seconds
+        retry_base = prepared_cycle.retry_base_seconds
         with _LeaseHeartbeat(data_dir=data_dir, job=job, lease_seconds=lease):
             update_observability_context(stage="eligibility")
             eligibility = JobEligibilityService(store).evaluate(job)

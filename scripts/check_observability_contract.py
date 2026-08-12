@@ -33,8 +33,9 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/source_avatar.py",
     "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
+    "src/services/worker_actor_cycle.py",
+    "src/services/worker_cycle.py",
     "src/services/worker_migration_gate.py",
-    "src/services/workspace_telegram_transport.py",
 )
 MUTATION_METHODS = {"post", "put", "patch", "delete"}
 DISALLOWED_LOGGING_CALLS = {
@@ -206,7 +207,11 @@ def _api_mutation_routes(tree: ast.Module) -> list[tuple[str, str, int]]:
 def _operation_event_pairs(tree: ast.Module) -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or _call_name(node) != "safe_emit_operation_event":
+        if (
+            not isinstance(node, ast.Call)
+            or _call_name(node)
+            not in {"safe_emit_operation_event", "emit_operation_event"}
+        ):
             continue
         keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
         category = _constant_string(keywords.get("category"))
@@ -250,6 +255,7 @@ def source_violations(
     source: str,
     *,
     mutation_routes: set[tuple[str, str]] | None = None,
+    worker_event_pairs: set[tuple[str, str]] | None = None,
 ) -> list[Violation]:
     try:
         tree = ast.parse(source, filename=relative)
@@ -351,9 +357,12 @@ def source_violations(
                     f"Worker job type {missing!r} has no trace policy",
                 )
             )
-        for category, action in sorted(
-            REQUIRED_WORKER_EVENTS - _operation_event_pairs(tree)
-        ):
+        observed_events = (
+            worker_event_pairs
+            if worker_event_pairs is not None
+            else _operation_event_pairs(tree)
+        )
+        for category, action in sorted(REQUIRED_WORKER_EVENTS - observed_events):
             violations.append(
                 Violation(
                     relative,
@@ -384,6 +393,19 @@ def check_repository(root: Path) -> list[Violation]:
         if server_path.is_file()
         else set()
     )
+    worker_event_pairs: set[tuple[str, str]] = set()
+    for relative in (
+        "src/services/worker.py",
+        "src/services/worker_actor_cycle.py",
+        "src/services/worker_cycle.py",
+    ):
+        path = root / relative
+        if path.is_file():
+            worker_event_pairs.update(
+                _operation_event_pairs(
+                    ast.parse(path.read_text(encoding="utf-8"), filename=relative)
+                )
+            )
     for relative in relatives:
         path = root / relative
         if not path.is_file():
@@ -403,6 +425,11 @@ def check_repository(root: Path) -> list[Violation]:
                 mutation_routes=(
                     mapped_mutations
                     if relative.startswith("src/api/")
+                    else None
+                ),
+                worker_event_pairs=(
+                    worker_event_pairs
+                    if relative == "src/services/worker.py"
                     else None
                 ),
             )

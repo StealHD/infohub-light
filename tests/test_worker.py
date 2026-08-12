@@ -90,7 +90,7 @@ def test_failed_actor_discovery_is_terminalized_without_reenqueue(
     )
 
     monkeypatch.setattr(
-        "src.services.worker.MaintenanceService.run_if_due",
+        "src.services.worker_cycle.MaintenanceService.run_if_due",
         lambda *_args, **_kwargs: {"ran": False},
     )
 
@@ -1708,7 +1708,7 @@ def test_worker_defers_retention_until_feed_storage_v3_is_migrated(
         raise AssertionError("retention ran before backup-backed v3 migration")
 
     monkeypatch.setattr(
-        "src.services.worker.MaintenanceService.run_if_due",
+        "src.services.worker_cycle.MaintenanceService.run_if_due",
         unexpected_maintenance,
     )
 
@@ -1726,7 +1726,7 @@ def test_worker_runs_actor_revision_and_metadata_maintenance_when_due(
 ):
     calls = []
     monkeypatch.setattr(
-        "src.services.worker.MaintenanceService.run_if_due",
+        "src.services.worker_cycle.MaintenanceService.run_if_due",
         lambda *_args, **_kwargs: {"ran": True},
     )
     monkeypatch.setattr(
@@ -1752,7 +1752,7 @@ def test_worker_keeps_existing_routes_running_when_actor_metadata_check_fails(
     caplog,
 ):
     monkeypatch.setattr(
-        "src.services.worker.MaintenanceService.run_if_due",
+        "src.services.worker_cycle.MaintenanceService.run_if_due",
         lambda *_args, **_kwargs: {"ran": True},
     )
     monkeypatch.setattr(
@@ -1806,8 +1806,8 @@ def test_worker_runs_content_repair_without_schedules_or_feed_snapshot(tmp_path,
         }
 
     monkeypatch.setattr("src.services.content_repair.repair_existing_content", fake_repair)
-    monkeypatch.setattr("src.services.worker.FeedScheduleService.enqueue_due", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("schedule evaluated")))
-    monkeypatch.setattr("src.services.worker.SourceScheduleService.enqueue_due", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("schedule evaluated")))
+    monkeypatch.setattr("src.services.worker_cycle.FeedScheduleService.enqueue_due", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("schedule evaluated")))
+    monkeypatch.setattr("src.services.worker_cycle.SourceScheduleService.enqueue_due", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("schedule evaluated")))
 
     result = run_worker_once(
         data_dir=str(tmp_path), worker_id="content-repair-worker", enqueue_schedules=False,
@@ -1993,7 +1993,7 @@ def test_post_commit_cleanup_error_keeps_committed_media_file(
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        "src.services.worker.MaintenanceService.run_if_due",
+        "src.services.worker_cycle.MaintenanceService.run_if_due",
         lambda *_args, **_kwargs: {"ran": False},
     )
     monkeypatch.setattr(

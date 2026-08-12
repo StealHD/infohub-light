@@ -93,7 +93,7 @@ def _disable_background_actor_work(monkeypatch) -> None:
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        "src.services.worker.MaintenanceService.run_if_due",
+        "src.services.worker_cycle.MaintenanceService.run_if_due",
         lambda *_args, **_kwargs: {"ran": False},
     )
 

@@ -124,3 +124,26 @@ def _run_job(job):
         and "'new_grouped_type'" in violation.message
         for violation in violations
     )
+
+
+def test_contract_accepts_worker_events_split_across_runtime_modules():
+    source = """
+WORKER_JOB_TRACE_POLICY = {}
+"""
+
+    violations = source_violations(
+        "src/services/worker.py",
+        source,
+        worker_event_pairs={
+            ("job", "claim"),
+            ("job", "finish"),
+            ("job", "worker_boundary"),
+            ("job", "lease_recovery"),
+            ("job", "invalidate"),
+            ("acquisition", "source_result"),
+            ("source", "avatar_cache"),
+            ("notification", "dispatch"),
+        },
+    )
+
+    assert not any(violation.code == "OBS007" for violation in violations)
