@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "将本地 main 的项目版本升级为 v2.3.1；手册和更新日志完成发布审阅并保留无用户可见条目的记录。",
-  "status": "completed",
-  "task_id": "2026-08-11-release-v2.3.1-git-publish",
-  "unresolved": [],
-  "validation": [
-    "版本变更 preflight 13/13 通过（287.965 秒），产品文档门禁、后端完整回归、前端检查、构建与控制检查全部通过。",
-    "正式 release gate 及 main 与 v2.3.1 推送将在该提交上执行；用户明确不部署 VPS。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -415,6 +398,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "post-commit 定向回归 149/149 通过，完整 Worker 定向组 618/618 通过，ResourceWarning 为 0。",
     "worker.py 由 2646 行降至 2513 行，run_worker_once 由 491 行降至 357 行；新模块 212 行、最大函数 78 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker claim-token 执行与事务终结拆入独立模块，保持二次 eligibility、Feed/outbox savepoint、retry/rollback、Source Health、媒体 cleanup 和 commit 后外呼时序不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-finalization",
+  "unresolved": [],
+  "validation": [
+    "高风险定向回归 169/169 与扩展 Worker 定向组全部通过，ResourceWarning 为 0。",
+    "worker.py 由 2513 行降至 2305 行，run_worker_once 由 357 行降至 149 行并移除旧债；新模块 369 行、最大函数 70 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
