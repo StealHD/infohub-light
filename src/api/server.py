@@ -29,6 +29,12 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 
 from .agent_delegation_routes import register_agent_delegation_routes
 from .context import ApiContext
+from .feed_routes import (
+    register_dashboard_runtime_routes,
+    register_feed_collection_routes,
+    register_feed_latest_route,
+    register_item_state_routes,
+)
 from .job_routes import JobCreateRequest, public_job as _public_job, register_job_routes
 from .lifespan import build_service_lifespan
 from .responses import ApiError, error_response, ok
@@ -115,7 +121,7 @@ from ..services.subscription_mutation import (
 )
 from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
-from ..services.user_content_store import ContentSearchTimeoutError, UserContentStore
+from ..services.user_content_store import UserContentStore
 from ..services.media_cache import MediaCacheService, PostCommitMediaCleanup
 from ..services.preferred_source_notifications import (
     NotificationServiceError,
@@ -885,13 +891,6 @@ class FeedSchedulePatchRequest(BaseModel):
 class SourceSchedulePatchRequest(BaseModel):
     enabled: bool | None = None
     interval_minutes: int | None = None
-
-
-class ItemStatePatchRequest(BaseModel):
-    is_read: bool | None = None
-    is_saved: bool | None = None
-    is_later: bool | None = None
-    dismissed: bool | None = None
 
 
 class ConfigImportSourcesRequest(BaseModel):
@@ -2812,6 +2811,12 @@ def create_app(
     app.state.api_context = ApiContext(
         store=store,
         job_queue=queue,
+        feed_reader=feed_reader,
+        item_state=item_state,
+        user_content=user_content,
+        media_cache=media_cache,
+        data_path=data_path,
+        feed_window_days=lambda: current_feed_window_days(),
         quota=quota,
         runtime_status=runtime_status,
         storage_governance=storage_governance,
@@ -4124,29 +4129,6 @@ def create_app(
             source_id=source_id,
             updates={"enabled": False},
         )
-
-    def visible_item_or_404(article_id: str, user: dict[str, Any]) -> None:
-        if not item_state.is_visible(
-            workspace_id=user["workspace_id"],
-            user_id=user["id"],
-            article_id=article_id,
-        ):
-            raise ApiError("not_found", "item not found", status_code=404)
-
-    def target_user_for_scope(requested_user_id: str | None, user: dict[str, Any]) -> dict[str, Any]:
-        if not requested_user_id or requested_user_id == user["id"]:
-            return user
-        if not _is_admin(user):
-            raise ApiError(
-                "forbidden",
-                "current user cannot inspect another user's feed or archive",
-                status_code=403,
-                action="Use your own user scope or ask an admin.",
-            )
-        target = store.get_user(requested_user_id)
-        if not target or target["workspace_id"] != user["workspace_id"]:
-            raise ApiError("not_found", "target user not found", status_code=404)
-        return target
 
     register_system_auth_routes(app)
 
@@ -8585,98 +8567,10 @@ def create_app(
         )
         return ok({"deleted": True})
 
-    @app.get("/api/me/item-state")
-    async def me_item_state(
-        article_ids: str = "",
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        ids = [part.strip() for part in str(article_ids or "").split(",") if part.strip()]
-        return ok(
-            {
-                "states": item_state.get_states(
-                    workspace_id=user["workspace_id"],
-                    user_id=user["id"],
-                    article_ids=ids,
-                )
-            }
-        )
-
-    @app.patch("/api/me/items/{article_id}/state")
-    async def me_item_state_update(
-        article_id: str,
-        payload: ItemStatePatchRequest,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        visible_item_or_404(article_id, user)
-        return ok(
-            item_state.update_state(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
-                article_id=article_id,
-                is_read=payload.is_read,
-                is_saved=payload.is_saved,
-                is_later=payload.is_later,
-                dismissed=payload.dismissed,
-            )
-        )
-
+    register_item_state_routes(app)
     register_job_routes(app)
-
-    @app.get("/api/dashboard/summary")
-    async def dashboard_summary(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        sources = store.list_visible_sources(user)
-        subscriptions = store.list_user_subscriptions(user["id"])
-        jobs = queue.list_jobs(
-            workspace_id=user["workspace_id"],
-            user_id=None if _is_admin(user) else user["id"],
-        )
-        latest = feed_reader.latest_feed(workspace_id=user["workspace_id"], user_id=user["id"])
-        item_state_counts = item_state.count_flags(workspace_id=user["workspace_id"], user_id=user["id"])
-        runtime = runtime_status.summary(workspace_id=user["workspace_id"], user_id=user["id"])
-        return ok(
-            {
-                "source_count": len(sources),
-                "subscription_count": len(subscriptions),
-                "queued_job_count": len([job for job in jobs if job["status"] == "queued"]),
-                "running_job_count": len([job for job in jobs if job["status"] == "running"]),
-                "failed_job_count": len([job for job in jobs if job["status"] == "failed"]),
-                "latest_generated_at": latest.get("generated_at"),
-                "item_state_counts": item_state_counts,
-                "current_user": _sanitize_user(user),
-                "runtime": {
-                    "worker_status": runtime["worker_status"],
-                    "oldest_queued_age_seconds": runtime["oldest_queued_age_seconds"],
-                    "stale_running_count": runtime["stale_running_count"],
-                },
-            }
-        )
-
-    @app.get("/api/ops/runtime")
-    async def ops_runtime(user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:
-        return ok(runtime_status.summary(workspace_id=user["workspace_id"]))
-
-    @app.get("/api/feed/latest")
-    async def feed_latest(
-        user_id: str | None = None,
-        hide_dismissed: bool = False,
-        unread_first: bool = False,
-        saved_first: bool = False,
-        view: Literal["compat", "canonical"] = "compat",
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        target = target_user_for_scope(user_id, user)
-        payload = feed_reader.latest_feed(
-            workspace_id=target["workspace_id"],
-            user_id=target["id"],
-            hide_dismissed=hide_dismissed,
-            unread_first=unread_first,
-            saved_first=saved_first,
-            feed_window_days=current_feed_window_days(),
-        )
-        if view == "canonical":
-            payload.pop("today_items", None)
-        return ok(payload)
+    register_dashboard_runtime_routes(app)
+    register_feed_latest_route(app)
 
     @app.get("/api/feed/end-messages")
     async def feed_end_messages_get(
@@ -8746,174 +8640,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok(result)
 
-    @app.get("/api/feed/search")
-    async def feed_search(
-        q: str,
-        limit: int = 50,
-        cursor: str | None = None,
-        submitted: bool = False,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        normalized_q = str(q or "").strip()
-        if not normalized_q or len(normalized_q) > 160:
-            raise ApiError(
-                "invalid_query",
-                "q must contain between 1 and 160 characters",
-                status_code=400,
-            )
-        if len(normalized_q) == 1 and not submitted:
-            raise ApiError(
-                "query_requires_submit",
-                "single-character searches must be submitted explicitly",
-                status_code=400,
-            )
-        if limit < 1 or limit > 50:
-            raise ApiError(
-                "invalid_limit",
-                "limit must be between 1 and 50",
-                status_code=400,
-            )
-        try:
-            result = feed_reader.search_feed(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
-                q=normalized_q,
-                limit=limit,
-                cursor=str(cursor or "").strip() or None,
-                feed_window_days=current_feed_window_days(),
-            )
-        except ContentSearchTimeoutError as exc:
-            raise ApiError(
-                "search_timeout",
-                "content search exceeded the one-second budget",
-                status_code=503,
-                action="Retry the search or use a more specific keyword.",
-            ) from exc
-        except ValueError as exc:
-            raise ApiError(
-                "invalid_cursor",
-                str(exc),
-                status_code=400,
-            ) from exc
-        return ok(result)
-
-    @app.get("/api/feed/saved")
-    async def feed_saved(
-        limit: int = 200,
-        offset: int = 0,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        return ok(
-            user_content.saved_items(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
-                limit=max(1, min(int(limit), 200)),
-                offset=max(0, int(offset)),
-            )
-        )
-
-    @app.get("/api/feed/ignored")
-    async def feed_ignored(
-        limit: int = 200,
-        offset: int = 0,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        return ok(
-            user_content.dismissed_items(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
-                limit=max(1, min(int(limit), 200)),
-                offset=max(0, int(offset)),
-            )
-        )
-
-    @app.get("/api/feed/items/{article_id}")
-    async def feed_item_detail(
-        article_id: str,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        item = user_content.detail_item(
-            workspace_id=user["workspace_id"],
-            user_id=user["id"],
-            article_id=article_id,
-        )
-        if item is None:
-            raise ApiError("not_found", "item not found", status_code=404)
-        return ok(item)
-
-    @app.get("/api/media/{asset_id}")
-    async def media_asset(
-        asset_id: str,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> FileResponse:
-        asset = media_cache.authorized_asset(
-            asset_id=asset_id,
-            workspace_id=user["workspace_id"],
-            user_id=user["id"],
-        )
-        if asset is None:
-            raise ApiError("not_found", "media not found", status_code=404)
-        path = (data_path / str(asset["local_path"])).resolve()
-        media_root = (data_path / "media").resolve()
-        if media_root not in path.parents or not path.is_file():
-            raise ApiError("not_found", "media not found", status_code=404)
-        return FileResponse(
-            path,
-            media_type=str(asset.get("mime_type") or "application/octet-stream"),
-            headers={"Cache-Control": "private, max-age=31536000, immutable"},
-        )
-
-    @app.get("/api/feed/history")
-    async def feed_history(
-        user_id: str | None = None,
-        q: str | None = None,
-        source_id: str | None = None,
-        limit: int = 200,
-        offset: int = 0,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        target = target_user_for_scope(user_id, user)
-        normalized_q = str(q or "").strip()
-        if len(normalized_q) > 160:
-            raise ApiError(
-                "invalid_query",
-                "q must be at most 160 characters",
-                status_code=400,
-            )
-        if limit < 1 or limit > 200:
-            raise ApiError(
-                "invalid_limit",
-                "limit must be between 1 and 200",
-                status_code=400,
-            )
-        if offset < 0:
-            raise ApiError(
-                "invalid_offset",
-                "offset must be non-negative",
-                status_code=400,
-            )
-        normalized_source_id = str(source_id or "").strip() or None
-        if normalized_source_id:
-            visible_source_ids = {
-                str(source["id"])
-                for source in store.list_visible_sources(
-                    target,
-                    include_disabled=True,
-                )
-            }
-            if normalized_source_id not in visible_source_ids:
-                raise ApiError("not_found", "source not found", status_code=404)
-        return ok(
-            feed_reader.history_feed(
-                workspace_id=target["workspace_id"],
-                user_id=target["id"],
-                q=normalized_q or None,
-                source_id=normalized_source_id,
-                limit=limit,
-                offset=offset,
-                feed_window_days=current_feed_window_days(),
-            )
-        )
+    register_feed_collection_routes(app)
 
     @app.api_route(
         "/api",
