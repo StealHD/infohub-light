@@ -13,26 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-10",
-  "result": "ActorOps 优先为 X 兼容池中的原 Actor 生成并验证固定 Build 新 Revision；不可升级时才要求替换。兼容来源在付费前被引导回主备升级，顶部选择器与悬浮页签同步精简。",
-  "status": "completed",
-  "task_id": "2026-08-10-actorops-same-actor-upgrade-source-precheck",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 后端定向回归 104/104 通过，覆盖原 Actor exact Revision、公开 Store 安全检查和 legacy 来源零 Job/零费用拦截。",
-    "ActorOps 前端 Vitest 79/79、Changelog 5/5、TypeScript 与 ESLint 通过（仅仓库既有 8 条 Fast Refresh 警告）。",
-    "完整 Test Gate 24/24 命令通过（246.72 秒）；共享 8080 浏览器复核后补充了无原 Actor 新版时的免费更新提示。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
   "result": "ActorOps legacy 升级始终把当前 ScrapeBadger、Dami 和 Xquik 排在候选最前，安全新版自动选中，未通过项显示状态；重复免费检查被服务端合并，顶部与页签外层方框阴影已移除。",
   "status": "completed",
   "task_id": "2026-08-10-actorops-current-actors-visible-deduplicate",
@@ -394,6 +374,31 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps compatibility、API 与 route 定向后端回归 79/79 通过。",
     "ActorOps UI 与 changelog Vitest 73/73、TypeScript、UI 合同及 lint（0 error）通过。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "b131f0531ca8c00388171929eead87116e061ea4",
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成代码健康第一期安全重构：建立项目适配的规模旧债棘轮，修复门禁范围与数据库连接生命周期，删除已证明无调用的后端和旧 HeroUI 内部实现，拆出低风险 API、Worker、Store/Feed 与 ActorOps 边界，并将首屏 JavaScript 收紧到 240 KiB。",
+  "status": "partial",
+  "task_id": "2026-08-13-code-health-refactor-phase-1",
+  "unresolved": [
+    "server.py、ServiceStore、后端 ActorOps、Worker、Workbench/OpenClaw 与 ActorOps facade 仍是登记旧债；后续应继续按单域切片，不一次性改写事务或审批核心。",
+    "本任务未推送、未合并、未重建 8080、未发布，也未运行真实来源、AI、通知或付费 Actor。"
+  ],
+  "validation": [
+    "基于本地 main 基线的完整 preflight 16/16 通过，SQLite 未关闭连接警告为 0。",
+    "最终提交的完整 Test Gate 18/18 通过；release 三视口 Playwright 6/6 通过。",
+    "最终 diff 只读审查未发现高置信 correctness、security 或 compatibility 缺陷；综合健康度由 61/100 提升到 73/100。"
   ]
 }
 ```
