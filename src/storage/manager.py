@@ -3,7 +3,6 @@
 import json
 import os
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -89,22 +88,3 @@ class StorageManager:
                 f"Configuration validation failed for {self.config_path}\n"
                 f"Details: {e}"
             ) from e
-
-    def save_config(self, config: Config, backup: bool = True) -> Path:
-        """Save configuration to config.json, optionally backing up the existing file.
-
-        Args:
-            config: The Config object to save.
-            backup: If True and config.json exists, copy it to config.json.bak first.
-
-        Returns:
-            Path to the saved config file.
-        """
-        if backup and self.config_path.exists():
-            shutil.copy2(self.config_path, self.config_path.with_suffix(".json.bak"))
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(config.model_dump(mode="json"), f, indent=2, ensure_ascii=False)
-            f.write("\n")
-
-        return self.config_path

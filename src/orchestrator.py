@@ -972,10 +972,6 @@ class HorizonOrchestrator:
     def _ai_enabled(self) -> bool:
         return bool(getattr(self.config.ai, "enabled", True))
 
-    @staticmethod
-    def _fallback_category(item: ContentItem) -> str:
-        return HorizonOrchestrator._source_channel(item)
-
     @classmethod
     def publish_without_ai(cls, items: List[ContentItem]) -> List[ContentItem]:
         """Prepare fetched items for the Service Feed without model scoring."""

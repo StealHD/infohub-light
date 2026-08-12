@@ -177,7 +177,7 @@
       {
         "path": "src/orchestrator.py",
         "category": "production",
-        "max_lines": 1044
+        "max_lines": 1040
       },
       {
         "path": "src/scrapers/apify_client.py",
@@ -187,7 +187,7 @@
       {
         "path": "src/scrapers/apify_social.py",
         "category": "production",
-        "max_lines": 1450
+        "max_lines": 1442
       },
       {
         "path": "src/services/apify_actor_alerts.py",
@@ -222,12 +222,12 @@
       {
         "path": "src/services/apify_actor_route.py",
         "category": "production",
-        "max_lines": 4076
+        "max_lines": 4042
       },
       {
         "path": "src/services/apify_key_pool.py",
         "category": "production",
-        "max_lines": 2691
+        "max_lines": 2688
       },
       {
         "path": "src/services/config_runtime.py",
@@ -287,7 +287,7 @@
       {
         "path": "src/services/user_content_store.py",
         "category": "production",
-        "max_lines": 1436
+        "max_lines": 1413
       },
       {
         "path": "src/services/user_feed_store.py",

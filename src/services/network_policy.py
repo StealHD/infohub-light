@@ -157,11 +157,6 @@ def resolve_public_http_url(
     )
 
 
-def require_public_http_url(url: str) -> str:
-    """Require a safe member-controlled URL without performing the request."""
-    return resolve_public_http_url(url).url
-
-
 async def _resolve_public_http_url_daemon(
     url: str,
     *,

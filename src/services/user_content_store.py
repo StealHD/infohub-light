@@ -637,29 +637,6 @@ class UserContentStore:
             for value in _flatten_search_values(field)
         ).casefold()
 
-    def latest_feed_article_ids(
-        self,
-        *,
-        workspace_id: str,
-        user_id: str,
-    ) -> set[str]:
-        rows = self.store.connect().execute(
-            """
-            SELECT item.article_id
-            FROM user_feed_items AS item
-            WHERE item.workspace_id = ? AND item.user_id = ?
-              AND item.snapshot_id = (
-                SELECT snapshot.id
-                FROM user_feed_snapshots AS snapshot
-                WHERE snapshot.workspace_id = ? AND snapshot.user_id = ?
-                ORDER BY snapshot.generated_at DESC, snapshot.created_at DESC
-                LIMIT 1
-              )
-            """,
-            (workspace_id, user_id, workspace_id, user_id),
-        ).fetchall()
-        return {str(row["article_id"]) for row in rows if row["article_id"]}
-
     def history_items(
         self,
         *,

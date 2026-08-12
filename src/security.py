@@ -195,18 +195,6 @@ def _classified_sensitive_query_name(value: str) -> bool:
     return any(marker in normalized for marker in _SENSITIVE_QUERY_PARTS)
 
 
-def is_sensitive_query_name(value: Any) -> bool:
-    """Classify URL query names under the deliberately stricter name policy."""
-
-    try:
-        copies = classification_copies(str(value))
-    except Exception:
-        return True
-    if copies is None:
-        return True
-    return any(_classified_sensitive_query_name(copy) for copy in copies)
-
-
 def _classified_text_contains_credential(value: str) -> bool:
     if _KNOWN_CREDENTIAL_VALUE_RE.search(value):
         return True

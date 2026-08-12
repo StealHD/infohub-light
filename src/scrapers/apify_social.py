@@ -1330,10 +1330,6 @@ class ApifySocialScraper(BaseScraper):
         return ""
 
     @classmethod
-    def _instagram_media_urls(cls, row: dict[str, Any]) -> list[str]:
-        return cls._instagram_media_inventory(row)["image_urls"]
-
-    @classmethod
     def _instagram_media_inventory(cls, row: dict[str, Any]) -> dict[str, Any]:
         urls: list[str] = []
         videos = 0
@@ -1373,10 +1369,6 @@ class ApifySocialScraper(BaseScraper):
             "audio_count": audio,
             "format": cls._inventory_format(images=len(urls), videos=videos, audio=audio),
         }
-
-    @classmethod
-    def _x_media_urls(cls, row: dict[str, Any]) -> list[str]:
-        return cls._x_media_inventory(row)["image_urls"]
 
     @classmethod
     def _x_media_inventory(cls, row: dict[str, Any]) -> dict[str, Any]:

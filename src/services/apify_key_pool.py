@@ -287,9 +287,6 @@ class ApifyKeyPoolService:
         state = self._state_row(self.store.connect(), workspace_id)
         return int(state["generation"])
 
-    def generation_matches(self, workspace_id: str, generation: int) -> bool:
-        return self.current_generation(workspace_id) == int(generation)
-
     def public_state(self, workspace_id: str) -> dict[str, Any]:
         """Project pool state without credentials or remote run identifiers."""
 
