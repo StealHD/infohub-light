@@ -1,4 +1,4 @@
-// Reviewed for the v2.3.1 release; no user-facing manual change is required.
+// Reviewed for the v2.3.2 release; user-facing changes are documented below.
 export type ManualStep = {
   title: string
   description: string
