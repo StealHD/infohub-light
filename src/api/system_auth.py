@@ -53,6 +53,16 @@ async def current_user(
     return user
 
 
+async def current_admin(
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Require an owner or admin without coupling domain routers to server.py."""
+
+    if user.get("role") not in {"owner", "admin"}:
+        raise ApiError("forbidden", "admin role required", status_code=403)
+    return user
+
+
 def _bind_request_actor(request: Request, user: dict[str, Any]) -> None:
     workspace_id = str(user["workspace_id"])
     user_id = str(user["id"])

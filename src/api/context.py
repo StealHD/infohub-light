@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from ..auth import AuthSettings
 from ..services.runtime_status import RuntimeStatusService
+from ..services.storage_governance import StorageGovernanceService
 from ..storage.service_store import ServiceStore
 
 
@@ -19,5 +20,6 @@ class ApiContext:
 
     store: ServiceStore
     runtime_status: RuntimeStatusService
+    storage_governance: StorageGovernanceService
     auth_settings: AuthSettings
     readiness_checks: tuple[ReadinessCheck, ...]

@@ -30,7 +30,8 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 from .context import ApiContext
 from .lifespan import build_service_lifespan
 from .responses import ApiError, error_response, ok
-from .system_auth import current_user, register_system_auth_routes
+from .storage_routes import register_storage_routes
+from .system_auth import current_admin, current_user, register_system_auth_routes
 
 from ..logging_utils import (
     configure_logging,
@@ -991,19 +992,6 @@ class ConfigImportSourcesRequest(BaseModel):
 class ConfigActionRequest(BaseModel):
     action: str
     payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class StoragePlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: Literal["cleanup", "archive", "restore", "delete_archive"]
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class StoragePlanApplyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    confirmation: str = Field(default="", max_length=240)
 
 
 SOURCE_UPSERT_ACTIONS = {
@@ -2914,6 +2902,7 @@ def create_app(
     app.state.api_context = ApiContext(
         store=store,
         runtime_status=runtime_status,
+        storage_governance=storage_governance,
         auth_settings=auth_settings,
         readiness_checks=(
             require_apify_actor_routing_v13,
@@ -3478,11 +3467,6 @@ def create_app(
                 action="Fix the request payload or query parameters.",
             )
         )
-
-    async def current_admin(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        if not _is_admin(user):
-            raise ApiError("forbidden", "admin role required", status_code=403)
-        return user
 
     def require_mutating_member(user: dict[str, Any]) -> None:
         if user.get("role") == "viewer":
@@ -5029,73 +5013,7 @@ def create_app(
             }
         )
 
-    @app.get("/api/admin/storage/summary")
-    async def admin_storage_summary(
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            await run_in_threadpool(
-                storage_governance.summary,
-                workspace_id=str(user["workspace_id"]),
-            )
-        )
-
-    @app.post("/api/admin/storage/plans")
-    async def admin_storage_plan_create(
-        payload: StoragePlanRequest,
-        request: Request,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        plan = await run_in_threadpool(
-            storage_governance.create_plan,
-            workspace_id=str(user["workspace_id"]),
-            actor_user_id=str(user["id"]),
-            actor_role=str(user["role"]),
-            operation=payload.operation,
-            payload=payload.payload,
-        )
-        request.state.operation_changed_fields = ["operation", "preview"]
-        response.headers["Cache-Control"] = "no-store"
-        return ok(plan)
-
-    @app.post("/api/admin/storage/plans/{plan_id}/apply")
-    async def admin_storage_plan_apply(
-        plan_id: str,
-        payload: StoragePlanApplyRequest,
-        request: Request,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        plan = await run_in_threadpool(
-            storage_governance.apply_plan,
-            workspace_id=str(user["workspace_id"]),
-            actor_user_id=str(user["id"]),
-            actor_role=str(user["role"]),
-            plan_id=plan_id,
-            confirmation=payload.confirmation,
-        )
-        request.state.operation_changed_fields = [
-            str(plan.get("operation") or "storage"),
-            "apply",
-        ]
-        response.headers["Cache-Control"] = "no-store"
-        return ok(plan)
-
-    @app.get("/api/admin/storage/archives")
-    async def admin_storage_archives(
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            await run_in_threadpool(
-                storage_governance.list_archives,
-                workspace_id=str(user["workspace_id"]),
-            )
-        )
+    register_storage_routes(app)
 
     @app.get("/api/admin/secrets")
     async def admin_secrets_list(

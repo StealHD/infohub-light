@@ -7,7 +7,7 @@
 `data/site/**`、`data/horizon.db`、旧 summaries、本地 MCP run 与既有 feedback 表/行均为 inert operator-owned artifact。API、Worker、React、Remote MCP、初始化和迁移不得读取、写入、投影、迁移或物理删除它们；`/api/archive/*` 与 feedback POST 不在 OpenAPI 中并返回统一 404。`data/archives/**` 属于下述现役冷归档，不受本边界影响。
 
 ### 3.5B Storage Governance Boundary
-`src/services/storage_governance.py::StorageGovernanceService` 独占当前工作区的存储概览、两阶段候选计划、标准清理、90 天冷归档、恢复和归档永久删除。API 只负责 owner/admin 鉴权、请求 shape 与安全 envelope；入口层不得拼任意 SQL、接受原始路径、运行在线 `VACUUM` 或直接删除文件。每个计划绑定 actor/workspace、十分钟有效期和候选指纹；apply 在写事务内复算候选，变化即 fail closed。
+`src/services/storage_governance.py::StorageGovernanceService` 独占当前工作区的存储概览、两阶段候选计划、标准清理、90 天冷归档、恢复和归档永久删除。`src/api/storage_routes.py` 只负责 owner/admin 鉴权、请求 shape、安全 envelope 与 `no-store` 响应；入口层不得拼任意 SQL、接受原始路径、运行在线 `VACUUM` 或直接删除文件。每个计划绑定 actor/workspace、十分钟有效期和候选指纹；apply 在写事务内复算候选，变化即 fail closed。
 
 冷归档文件只可写入私有 `data/archives`，先完成临时 ZIP、manifest/NDJSON/媒体写入、计数与 checksum 校验，再原子落位并提交批次；只有提交成功后才能把在线正文/分析输入/媒体降为永久可搜索元数据，并通过 post-commit cleanup 移除媒体文件。restore 必须先复验批次、workspace、文件 SHA-256、媒体成员路径和每项 checksum，再幂等恢复数据库与媒体；失败时回滚数据库并移除本次新建文件。收藏、稍后读、当前 Feed、通知 pending/sending 和未提交归档始终受保护。系统永不自动永久删除归档；owner 的永久删除必须以已恢复批次、零冷引用、独立预演和精确确认短语为前置条件。
 
