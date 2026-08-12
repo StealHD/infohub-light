@@ -1,4 +1,4 @@
-// User-facing changes are recorded in the version-controlled entries below.
+// Reviewed after the queued-job API adapter split; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string

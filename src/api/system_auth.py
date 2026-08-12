@@ -58,9 +58,33 @@ async def current_admin(
 ) -> dict[str, Any]:
     """Require an owner or admin without coupling domain routers to server.py."""
 
-    if user.get("role") not in {"owner", "admin"}:
+    if not is_admin(user):
         raise ApiError("forbidden", "admin role required", status_code=403)
     return user
+
+
+def is_admin(user: dict[str, Any]) -> bool:
+    return user.get("role") in {"owner", "admin"}
+
+
+def require_mutating_member(user: dict[str, Any]) -> None:
+    if user.get("role") == "viewer":
+        raise ApiError(
+            "forbidden",
+            "viewer users cannot change sources, subscriptions, or jobs",
+            status_code=403,
+        )
+
+
+def visible_source_or_404(
+    store: ServiceStore,
+    source_id: str,
+    user: dict[str, Any],
+) -> dict[str, Any]:
+    for source in store.list_visible_sources(user):
+        if source["id"] == source_id:
+            return source
+    raise ApiError("not_found", "source not found", status_code=404)
 
 
 def _bind_request_actor(request: Request, user: dict[str, Any]) -> None:
