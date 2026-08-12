@@ -9,21 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-08-10",
-  "result": "从专题总结任务 Worktree 按标准流程重建并启动本地 8080，仅运行 horizon-api 与 horizon-worker；当前 revision 与前端资源均已切换到任务分支。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-v3-runtime-start",
-  "unresolved": [],
-  "validation": [
-    "./scripts/up-latest.sh 完成，API liveness revision=885c7ce22556，readiness 返回 API/Worker ready。",
-    "horizon-light-api 与 horizon-light-worker 均 healthy；8080 实际服务前端资源 index-DCQ0XeSV.js。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
   "result": "将专题 AI 总结与同用户同内容最近成功结果缓存分支合入本地 main；保留真实失败、完成指标日志、V3 可读要点预算和已演进 ActorOps schema 的兼容判断。",
   "status": "completed",
   "task_id": "2026-08-10-main-source-summary-cache-integration",
@@ -386,6 +371,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "validation": [
     "前端 ActorOps 定向 Vitest 66/66、TypeScript 类型检查与 ESLint 通过（仅仓库既有 Fast Refresh 警告）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "修复 X 严格升级只保留 1 个合格 Actor 时无法进入下一步：compatibility_single 现跨免费检查复用同 Route 每个 Candidate 的最新安全 Revision，空搜索不再清掉已合格候选。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-x-single-candidate-continuation",
+  "unresolved": [
+    "按用户要求，完整 Test Gate 留到最终合并代码时执行。"
+  ],
+  "validation": [
+    "ActorOps compatibility 与 pool staging 定向后端回归 32/32 通过。",
+    "待完成 preflight、8080 重建与浏览器只读验收。"
   ]
 }
 ```

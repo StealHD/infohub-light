@@ -4450,9 +4450,12 @@ class ApifyActorOpsService:
               AND EXISTS (
                   SELECT 1
                   FROM apify_actor_discovery_run_revisions AS run_revision
+                  JOIN apify_actor_discovery_runs AS source_run
+                    ON source_run.workspace_id = run_revision.workspace_id
+                   AND source_run.run_id = run_revision.run_id
                   WHERE run_revision.workspace_id = revision.workspace_id
-                    AND run_revision.run_id = ?
                     AND run_revision.revision_id = revision.revision_id
+                    AND source_run.route_id = ?
               )
               AND revision.created_at = (
                   SELECT MAX(latest_revision.created_at)
@@ -4468,7 +4471,7 @@ class ApifyActorOpsService:
                 route_id,
                 self.workspace_id,
                 str(route["route_key"]),
-                str(latest["run_id"]),
+                route_id,
             ),
         ).fetchall()
         candidates: list[dict[str, Any]] = []

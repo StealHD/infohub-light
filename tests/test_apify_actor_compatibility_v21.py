@@ -188,13 +188,13 @@ def test_compatibility_candidates_relax_evidence_but_keep_hard_fences(
     assert workflow["run_id"] == run["run_id"]
 
 
-def test_compatibility_candidates_come_only_from_latest_free_inspection(
+def test_compatibility_candidates_reuse_prior_evidence_after_empty_inspection(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
     ops = ApifyActorOpsService(store)
-    route, _run, _revisions = _compatibility_discovery(store, ops)
+    route, _run, revisions = _compatibility_discovery(store, ops)
     newer = ops.create_discovery_run(
         str(route["route_id"]),
         trigger_reason="newer-compatibility-inspection",
@@ -213,8 +213,17 @@ def test_compatibility_candidates_come_only_from_latest_free_inspection(
     )
 
     assert listed["run_id"] == newer["run_id"]
-    assert listed["candidates"] == []
-    assert listed["blockers"] == ["candidate_shortfall"]
+    assert listed["blockers"] == []
+    assert any(
+        row["candidate_id"] == _candidate_id(store, revisions["allowed"])
+        and row["selectable"] is True
+        for row in listed["candidates"]
+    )
+    workflow = ops.workflow_state(str(route["route_id"]))
+    assert workflow["kind"] == "compatibility_candidate_selection_available"
+    assert workflow["goal"] == "compatibility_single"
+    assert workflow["run_id"] == newer["run_id"]
+    assert workflow["progress"]["eligible_candidate_count"] >= 1
 
 
 def test_x_discovery_preserves_metadata_safe_compatibility_candidate(
