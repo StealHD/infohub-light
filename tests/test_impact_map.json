@@ -212,6 +212,7 @@
         "src/services/worker_actor_cycle.py",
         "src/services/worker_cycle.py",
         "src/services/worker_migration_gate.py",
+        "src/services/worker_post_commit.py",
         "tests/test_worker_migration_gate.py"
       ],
       "groups": ["python_queue_worker"]

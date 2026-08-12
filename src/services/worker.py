@@ -54,6 +54,7 @@ from .worker_cycle import (
     WorkerCyclePorts,
     prepare_worker_cycle,
 )
+from .worker_post_commit import WorkerPostCommitPorts, run_worker_post_commit
 from .apify_actor_monitoring import (
     build_apify_actor_route,
     sync_apify_actor_quota_alert,
@@ -2363,155 +2364,21 @@ def run_worker_once(
                         publication_cleanup = None
                         if committed_cleanup is not None:
                             committed_cleanup.run()
-        update_observability_context(stage="notification_dispatch")
-        try:
-            delivery_summary = notifications.dispatch_pending(job_id=str(job["id"]))
-        except Exception as exc:
-            if store.connect().in_transaction:
-                store.connect().rollback()
-            logger.warning(
-                "preferred-source notification dispatch failed job_id=%s",
-                job.get("id"),
-            )
-            safe_emit_operation_event(
-                category="notification",
-                action="dispatch",
-                outcome="failed",
-                level="error",
-                workspace_id=str(job["workspace_id"]),
-                subject_user_id=str(job["user_id"]),
-                job_id=str(job["id"]),
-                source_id=job.get("source_id"),
-                subscription_id=job.get("subscription_id"),
-                error_code=_exception_code(exc),
-            )
-        else:
-            if int(delivery_summary.get("claimed") or 0) > 0:
-                failed_deliveries = int(delivery_summary.get("failed") or 0)
-                succeeded_deliveries = int(
-                    delivery_summary.get("succeeded") or 0
-                )
-                if failed_deliveries and succeeded_deliveries:
-                    delivery_outcome = "partial"
-                    delivery_level = "warning"
-                elif failed_deliveries:
-                    delivery_outcome = "failed"
-                    delivery_level = "error"
-                else:
-                    delivery_outcome = "succeeded"
-                    delivery_level = "info"
-                safe_emit_operation_event(
-                    category="notification",
-                    action="dispatch",
-                    outcome=delivery_outcome,
-                    level=delivery_level,
-                    workspace_id=str(job["workspace_id"]),
-                    subject_user_id=str(job["user_id"]),
-                    job_id=str(job["id"]),
-                    source_id=job.get("source_id"),
-                    subscription_id=job.get("subscription_id"),
-                    counts={
-                        "claimed": int(delivery_summary["claimed"]),
-                        "failed": failed_deliveries,
-                        "succeeded": succeeded_deliveries,
-                    },
-                )
-        try:
-            actor_alerts.dispatch_pending(
-                workspace_id=str(job["workspace_id"]),
-                limit=20,
-            )
-        except Exception:
-            if store.connect().in_transaction:
-                store.connect().rollback()
-            logger.warning(
-                "Apify Actor alert dispatch failed job_id=%s",
-                job.get("id"),
-            )
-        result_payload = finalized.get("result_json") or {}
-        final_status = str(finalized["status"])
-        outcome_by_status = {
-            "queued": "retried",
-            "succeeded": "succeeded",
-            "partial": "partial",
-            "failed": "failed",
-            "cancelled": "cancelled",
-        }
-        final_outcome = outcome_by_status.get(final_status, "failed")
-        if final_outcome == "failed":
-            final_level = "error"
-        elif final_outcome in {"partial", "retried"}:
-            final_level = "warning"
-        else:
-            final_level = "info"
-        duration_ms = int((time.monotonic() - started_at) * 1000)
-        final_counts = {"attempts": int(finalized.get("attempts") or 0)}
-        if isinstance(result_payload.get("item_count"), int):
-            final_counts["items"] = max(int(result_payload["item_count"]), 0)
-        update_observability_context(
-            stage="finish",
-            error_code=str(finalized.get("error_code") or ""),
-        )
-        safe_emit_operation_event(
-            category="job",
-            action="finish",
-            outcome=final_outcome,
-            level=final_level,
-            workspace_id=str(job["workspace_id"]),
-            subject_user_id=str(job["user_id"]),
-            job_id=str(job["id"]),
-            source_id=job.get("source_id"),
-            subscription_id=job.get("subscription_id"),
-            stage="finish",
-            error_code=finalized.get("error_code"),
-            error_fingerprint=(
-                failure_fingerprint
-                if final_outcome in {"failed", "retried"}
-                else None
-            ),
-            duration_ms=duration_ms,
-            counts=final_counts,
-        )
-        _emit_source_outcome_events(
-            job,
-            result_payload,
+        return run_worker_post_commit(
+            store,
+            notifications=notifications,
+            actor_alerts=actor_alerts,
+            job=job,
+            finalized=finalized,
+            started_at=started_at,
             failure_fingerprint=failure_fingerprint,
+            ports=WorkerPostCommitPorts(
+                exception_code=_exception_code,
+                emit_operation_event=safe_emit_operation_event,
+                emit_source_outcomes=_emit_source_outcome_events,
+            ),
+            logger=logger,
         )
-        if job["job_type"] in {
-            "source_test",
-            "source_fetch",
-            "user_feed_refresh",
-        }:
-            safe_emit_operation_event(
-                category="acquisition",
-                action=(
-                    "test" if job["job_type"] == "source_test" else "fetch"
-                ),
-                outcome=final_outcome,
-                level=final_level,
-                workspace_id=str(job["workspace_id"]),
-                subject_user_id=str(job["user_id"]),
-                job_id=str(job["id"]),
-                source_id=job.get("source_id"),
-                subscription_id=job.get("subscription_id"),
-                stage="acquisition",
-                error_code=finalized.get("error_code"),
-                error_fingerprint=(
-                    failure_fingerprint
-                    if final_outcome in {"failed", "retried"}
-                    else None
-                ),
-                duration_ms=duration_ms,
-                counts=final_counts,
-            )
-        logger.info(
-            "job_id=%s job_type=%s duration_ms=%d status=%s",
-            job["id"],
-            job["job_type"],
-            duration_ms,
-            finalized["status"],
-        )
-        return finalized
     except Exception as exc:
         boundary_fingerprint = error_fingerprint()
         boundary_error_code = _exception_code(exc)

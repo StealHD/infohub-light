@@ -1,4 +1,4 @@
-// Reviewed after the API adapter and Worker pre-claim cycle splits; user-facing behavior is unchanged.
+// Reviewed after the API adapter and Worker cycle/post-commit splits; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string

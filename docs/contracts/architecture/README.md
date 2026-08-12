@@ -12,7 +12,7 @@
 ## 2. 默认分层
 当前默认分层：
 
-1. API / event 入口层：`src/api/server.py` 作为 composition root，`src/api/context.py` 提供 typed request-independent 依赖，system/auth、member administration、Feed/read-media、schedule、storage governance、queued-job 与 Agent delegation HTTP 适配分别归 `src/api/system_auth.py`、`src/api/user_routes.py`、`src/api/feed_routes.py`、`src/api/schedule_routes.py`、`src/api/storage_routes.py`、`src/api/job_routes.py`、`src/api/agent_delegation_routes.py`；Worker 入口保留在 `src/services/worker.py`，claim 前周期编排和 Actor 周期维护分别归 `src/services/worker_cycle.py` 与 `src/services/worker_actor_cycle.py`，Remote MCP HTTP 与 Worker job handler 同属入口层。这里只负责参数接收、认证、校验和薄编排，领域服务与事务语义不得搬进入口模块。
+1. API / event 入口层：`src/api/server.py` 作为 composition root，`src/api/context.py` 提供 typed request-independent 依赖，system/auth、member administration、Feed/read-media、schedule、storage governance、queued-job 与 Agent delegation HTTP 适配分别归 `src/api/system_auth.py`、`src/api/user_routes.py`、`src/api/feed_routes.py`、`src/api/schedule_routes.py`、`src/api/storage_routes.py`、`src/api/job_routes.py`、`src/api/agent_delegation_routes.py`；Worker 入口保留在 `src/services/worker.py`，claim 前周期编排、Actor 周期维护和提交后分发/终态遥测分别归 `src/services/worker_cycle.py`、`src/services/worker_actor_cycle.py` 与 `src/services/worker_post_commit.py`，Remote MCP HTTP 与 Worker job handler 同属入口层。这里只负责参数接收、认证、校验和薄编排，领域服务与事务语义不得搬进入口模块。
 2. Service 层：`src/orchestrator.py`, `src/services/**`。负责抓取、去重、可选分析、用户 Feed finalization、读取与留存；配置运行时、来源探测、Feed payload/read 都归中性 Service 模块。
 3. Domain 层：`src/models.py`, `src/tag_policy.py`。负责标准模型、taxonomy、source ref、状态和规则输入输出。
 4. Adapter / Integration 层：`src/scrapers/**`, `src/ai/**` 与当前 notification/OpenBB/Apify client。隔离外部系统字段、协议和失败模式。
