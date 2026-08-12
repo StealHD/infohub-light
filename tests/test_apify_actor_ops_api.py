@@ -154,9 +154,22 @@ def _discovery_revision(store: ServiceStore):
 
 
 def _discovery_batch_candidates(store: ServiceStore):
-    ops, route, run, first_revision = _discovery_revision(store)
-    revisions = [first_revision]
-    for index, publisher in enumerate(("publisher-two", "publisher-three"), start=2):
+    ops = ApifyActorOpsService(store)
+    route = next(
+        route
+        for route in ops.list_routes()
+        if route["route_key"] == "instagram/profile/items"
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="test-two-publisher-batch",
+        expected_generation=int(route["generation"]),
+    )
+    revisions = []
+    for index, publisher in enumerate(
+        ("publisher-one", "publisher-two", "publisher-three"),
+        start=1,
+    ):
         actor_id = f"{publisher}/api-canary-{index}"
         candidate_id = ops.ensure_candidate(
             str(route["route_id"]),
@@ -169,7 +182,11 @@ def _discovery_batch_candidates(store: ServiceStore):
                 publisher=publisher,
                 build_id=f"build-api-canary-{index}",
                 build_number=f"1.0.{index}",
-                manifest=_manifest(actor_id, f"1.0.{index}"),
+                manifest=_manifest(
+                    actor_id,
+                    f"1.0.{index}",
+                    host="instagram.com",
+                ),
                 pricing={
                     "pricingModel": "PAY_PER_EVENT",
                     "minimalMaxTotalChargeUsd": 0.02,
@@ -183,6 +200,12 @@ def _discovery_batch_candidates(store: ServiceStore):
                 discovery_run_id=str(run["run_id"]),
             )
         )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+    run = ops.get_discovery_run(str(run["run_id"]))
     return ops, route, run, revisions
 
 
@@ -263,6 +286,264 @@ def test_actor_ops_routes_are_admin_only_safe_and_three_slot(tmp_path, monkeypat
         assert forbidden not in detail.text.casefold()
 
 
+def test_actor_resilience_admin_api_configures_key_frequency_and_preference(
+    tmp_path,
+    monkeypatch,
+):
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    created_secrets = []
+    for name, env_name in (
+        ("Acquisition", "APIFY_ACTOROPS_ACQUISITION"),
+        ("Validation", "APIFY_ACTOROPS_VALIDATION"),
+    ):
+        response = client.post(
+            "/api/admin/secrets",
+            json={
+                "name": name,
+                "kind": "apify",
+                "provider": "apify",
+                "env_name": env_name,
+                "value": f"private-{name.casefold()}-token",
+            },
+        )
+        assert response.status_code == 200, response.text
+        created_secrets.append(response.json()["data"])
+
+    pool = client.get("/api/admin/apify-key-pool").json()["data"]
+    selected = client.put(
+        "/api/admin/apify-key-pool/validation-key",
+        json={
+            "secret_id": created_secrets[1]["id"],
+            "expected_generation": pool["generation"],
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    key_state = selected.json()["data"]
+    assert key_state["schema_version"] == 2
+    assert key_state["validation_secret_id"] == created_secrets[1]["id"]
+    assert next(
+        row
+        for row in key_state["members"]
+        if row["secret_id"] == created_secrets[1]["id"]
+    )["role"] == "validation"
+
+    routes = client.get("/api/admin/apify-routes").json()["data"]["routes"]
+    x_route = next(row for row in routes if row["route_key"] == "x/profile")
+    detail_url = f"/api/admin/apify-routes/{x_route['route_id']}"
+    detail = client.get(detail_url).json()["data"]
+    assert detail["admission_mode"] == "standard"
+    assert detail["freshness"]["interval_hours"] == 24
+    assert detail["freshness"]["validation_key"]["usable"] is True
+
+    missing_confirmation = client.patch(
+        f"{detail_url}/freshness-settings",
+        json={
+            "enabled": True,
+            "interval_hours": 24,
+            "expected_generation": detail["generation"],
+            "standing_authorization_confirmed": False,
+        },
+    )
+    assert missing_confirmation.status_code == 412
+    assert missing_confirmation.json()["error"]["code"] == (
+        "freshness_authorization_required"
+    )
+    configured = client.patch(
+        f"{detail_url}/freshness-settings",
+        json={
+            "enabled": True,
+            "interval_hours": 24,
+            "expected_generation": detail["generation"],
+            "standing_authorization_confirmed": True,
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    configured_detail = configured.json()["data"]
+    assert configured_detail["route_id"] == x_route["route_id"]
+    assert configured_detail["freshness"]["enabled"] is True
+    assert configured_detail["freshness"]["interval_hours"] == 24
+
+    plan = client.get(f"{detail_url}/freshness-plan")
+    assert plan.status_code == 200, plan.text
+    plan_data = plan.json()["data"]
+    assert plan_data["requires_cost_confirmation"] is True
+    assert plan_data["max_total_charge_usd"] <= 0.06
+    unconfirmed = client.post(
+        f"{detail_url}/freshness-checks",
+        json={
+            "cost_confirmed": False,
+            "expected_generation": configured_detail["generation"],
+            "max_total_charge_usd": plan_data["max_total_charge_usd"],
+        },
+    )
+    assert unconfirmed.status_code == 412
+    assert unconfirmed.json()["error"]["code"] == (
+        "freshness_cost_confirmation_required"
+    )
+    changed_cap = client.post(
+        f"{detail_url}/freshness-checks",
+        json={
+            "cost_confirmed": True,
+            "expected_generation": configured_detail["generation"],
+            "max_total_charge_usd": round(
+                plan_data["max_total_charge_usd"] / 2,
+                6,
+            ),
+        },
+    )
+    assert changed_cap.status_code == 409
+    assert changed_cap.json()["error"]["code"] == "freshness_plan_conflict"
+    queued = client.post(
+        f"{detail_url}/freshness-checks",
+        json={
+            "cost_confirmed": True,
+            "expected_generation": configured_detail["generation"],
+            "max_total_charge_usd": plan_data["max_total_charge_usd"],
+        },
+    )
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["data"]["check"]["status"] == "queued"
+
+    ops = ApifyActorOpsService(store)
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Preference source",
+        config={"platform": "x", "kind": "profile", "target": "example"},
+    )
+    binding = ops.bind_source(
+        source_id=source_id,
+        route_id=str(x_route["route_id"]),
+        target_fingerprint=hashlib.sha256(b"preference-source").hexdigest(),
+        mode="primary",
+    )
+    preferred = next(
+        slot
+        for slot in ops.get_route(str(x_route["route_id"]))["slots"]
+        if slot["candidate_state"] == "closed"
+    )
+    preference = client.patch(
+        f"/api/admin/sources/{source_id}/apify-preference",
+        json={
+            "candidate_id": preferred["candidate_id"],
+            "expected_generation": binding["generation"],
+        },
+    )
+    assert preference.status_code == 200, preference.text
+    preference_data = preference.json()["data"]
+    assert preference_data["mode"] == "manual"
+    assert preference_data["preferred_actor_name"] == preferred["actor_public_name"]
+
+    events = client.get(
+        "/api/admin/apify-actor-events",
+        params={"route_id": x_route["route_id"], "limit": 100},
+    )
+    assert events.status_code == 200, events.text
+    timeline = events.json()["data"]
+    assert {row["phase"] for row in timeline["events"]} >= {
+        "freshness",
+        "freshness_settings",
+        "source_preference",
+    }
+    for forbidden in (
+        "private-acquisition-token",
+        "private-validation-token",
+        "target_fingerprint",
+        "remote_run_id",
+        "dataset_id",
+        "raw_error",
+    ):
+        assert forbidden not in events.text
+
+
+def test_freshness_queue_failure_finalizes_check_and_route_state(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    for name, env_name in (
+        ("Acquisition", "APIFY_ACTOROPS_ACQUISITION_QUEUE_FAILURE"),
+        ("Validation", "APIFY_ACTOROPS_VALIDATION_QUEUE_FAILURE"),
+    ):
+        secret = client.post(
+            "/api/admin/secrets",
+            json={
+                "name": name,
+                "kind": "apify",
+                "provider": "apify",
+                "env_name": env_name,
+                "value": f"private-{name.casefold()}-token",
+            },
+        ).json()["data"]
+    pool = client.get("/api/admin/apify-key-pool").json()["data"]
+    selected = client.put(
+        "/api/admin/apify-key-pool/validation-key",
+        json={
+            "secret_id": secret["id"],
+            "expected_generation": pool["generation"],
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    routes = client.get("/api/admin/apify-routes").json()["data"]["routes"]
+    route = next(item for item in routes if item["route_key"] == "x/profile")
+    route_url = f"/api/admin/apify-routes/{route['route_id']}"
+    detail = client.get(route_url).json()["data"]
+    plan = client.get(f"{route_url}/freshness-plan").json()["data"]
+
+    def fail_create_job(*_args, **_kwargs):
+        raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(JobQueue, "create_job", fail_create_job)
+    response = client.post(
+        f"{route_url}/freshness-checks",
+        json={
+            "cost_confirmed": True,
+            "expected_generation": detail["generation"],
+            "max_total_charge_usd": plan["max_total_charge_usd"],
+        },
+    )
+    assert response.status_code == 500
+    check = store.connect().execute(
+        """
+        SELECT status, error_code FROM apify_actor_freshness_checks
+        WHERE workspace_id = ? AND route_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    ).fetchone()
+    assert dict(check) == {
+        "status": "failed",
+        "error_code": "job_queue_failed",
+    }
+    profile = store.connect().execute(
+        """
+        SELECT freshness_status, freshness_next_check_at
+        FROM apify_actor_route_profiles
+        WHERE workspace_id = ? AND route_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    ).fetchone()
+    assert dict(profile) == {
+        "freshness_status": "failed",
+        "freshness_next_check_at": None,
+    }
+    event = store.connect().execute(
+        """
+        SELECT outcome, reason_code FROM apify_actor_diagnostic_events
+        WHERE workspace_id = ? AND route_id = ? AND phase = 'freshness'
+        ORDER BY created_at DESC, event_id DESC LIMIT 1
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    ).fetchone()
+    assert dict(event) == {
+        "outcome": "failed",
+        "reason_code": "job_queue_failed",
+    }
+
+
 def test_capability_catalog_requires_fully_certified_three_slot_route(
     tmp_path,
     monkeypatch,
@@ -312,6 +593,177 @@ def test_youtube_fallback_capability_uses_native_source_fields(
     ]
 
 
+def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, _revisions = _ready_route(store, route_key="x/profile")
+
+    before_key = client.get("/api/catalog/source-types")
+    assert before_key.status_code == 200, before_key.text
+    before_x = next(
+        item
+        for item in before_key.json()["data"]["source_types"]
+        if item["type"] == "x_profile"
+    )
+    assert before_x["availability"] == "temporarily_unavailable"
+    assert before_x["unavailable_reason"] == "workspace_credential_unavailable"
+
+    secret = client.post(
+        "/api/admin/secrets",
+        json={
+            "name": "Workspace social connection",
+            "kind": "apify",
+            "provider": "apify",
+            "env_name": "APIFY_PLATFORM_ALIAS_TEST",
+            "value": "private-test-token",
+        },
+    )
+    assert secret.status_code == 200, secret.text
+
+    catalog = client.get("/api/catalog/source-types")
+    assert catalog.status_code == 200, catalog.text
+    x_definition = next(
+        item
+        for item in catalog.json()["data"]["source_types"]
+        if item["type"] == "x_profile"
+    )
+    assert x_definition["availability"] == "ready"
+    assert x_definition["unavailable_reason"] is None
+    assert "catalog_source_type" not in x_definition
+    serialized_definition = json.dumps(x_definition).casefold()
+    for forbidden in ("apify", "actor", "route", "profile_id"):
+        assert forbidden not in serialized_definition
+
+    rejected_internal = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "workspace",
+            "type": "x_profile",
+            "display_name": "Invalid X",
+            "config": {
+                "target": "openai",
+                "profile_id": route["route_id"],
+            },
+        },
+    )
+    assert rejected_internal.status_code == 400
+    assert rejected_internal.json()["error"]["code"] == "invalid_source_config"
+
+    created = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "workspace",
+            "type": "x_profile",
+            "display_name": "OpenAI X",
+            "description": "Public updates",
+            "config": {
+                "target": "@OpenAI",
+                "fetch_limit": 3,
+                "analysis_mode": "full",
+            },
+            "enabled": True,
+        },
+    )
+    assert created.status_code == 200, created.text
+    public_source = created.json()["data"]
+    assert public_source["type"] == "apify_social"
+    assert public_source["setup_type"] == "x_profile"
+    assert public_source["enabled"] is False
+    assert public_source["config"] == {
+        "target": "@OpenAI",
+        "fetch_limit": 3,
+        "analysis_mode": "full",
+    }
+    for forbidden in ("profile_id", "platform", "kind", "secret_env"):
+        assert forbidden not in public_source.get("config", {})
+        assert forbidden not in public_source
+    assert public_source["source_key"].startswith("apify_social:")
+
+    stored = store.get_source(public_source["id"])
+    assert stored["config"]["profile_id"] == route["route_id"]
+    assert "platform" not in stored["config"]
+    assert "kind" not in stored["config"]
+    binding = ApifyActorOpsService(store).get_source_binding(public_source["id"])
+    assert binding["route_id"] == route["route_id"]
+    assert binding["validation_status"] == "pending_validation"
+
+    partial_config_patch = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"config": {"target": "@OpenAI"}},
+    )
+    assert partial_config_patch.status_code == 200, partial_config_patch.text
+    assert partial_config_patch.json()["data"]["config"] == public_source["config"]
+    partial_stored = store.get_source(public_source["id"])
+    assert partial_stored["config"]["profile_id"] == route["route_id"]
+    assert partial_stored["config"]["fetch_limit"] == 3
+    assert partial_stored["config"]["analysis_mode"] == "full"
+
+    connection = store.connect()
+    connection.execute(
+        """
+        UPDATE apify_actor_route_profiles
+        SET status = 'blocked'
+        WHERE workspace_id = ? AND route_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    )
+    connection.commit()
+    metadata_patch = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"display_name": "OpenAI on X", "description": "Renamed safely"},
+    )
+    assert metadata_patch.status_code == 200, metadata_patch.text
+    assert metadata_patch.json()["data"]["display_name"] == "OpenAI on X"
+    assert metadata_patch.json()["data"]["config"] == public_source["config"]
+
+    changed_target = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={
+            "config": {
+                "target": "another-account",
+                "fetch_limit": 3,
+                "analysis_mode": "full",
+            }
+        },
+    )
+    assert changed_target.status_code == 409
+    assert changed_target.json()["error"]["code"] == "apify_actor_route_not_ready"
+
+    legacy_changed_target = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={
+            "config": {
+                "profile_id": route["route_id"],
+                "target": "another-account",
+                "fetch_limit": 3,
+                "analysis_mode": "full",
+            }
+        },
+    )
+    assert legacy_changed_target.status_code == 409
+    assert legacy_changed_target.json()["error"]["code"] == (
+        "apify_actor_route_not_ready"
+    )
+
+    changed_fetch_limit = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"config": {"fetch_limit": 4}},
+    )
+    assert changed_fetch_limit.status_code == 409
+    assert changed_fetch_limit.json()["error"]["code"] == "apify_actor_route_not_ready"
+
+    changed_enabled = client.patch(
+        f"/api/catalog/sources/{public_source['id']}",
+        json={"enabled": True},
+    )
+    assert changed_enabled.status_code == 409
+    assert changed_enabled.json()["error"]["code"] == "apify_actor_route_not_ready"
+
+
 def test_route_detail_projects_newer_exact_build_revision_diff(
     tmp_path,
     monkeypatch,
@@ -342,7 +794,7 @@ def test_route_detail_projects_newer_exact_build_revision_diff(
     ]
 
 
-def test_member_support_check_uses_generation_and_viewer_is_denied(
+def test_support_catalog_and_checks_are_owner_admin_only(
     tmp_path,
     monkeypatch,
 ):
@@ -364,8 +816,6 @@ def test_member_support_check_uses_generation_and_viewer_is_denied(
             "role": "viewer",
         },
     )
-    client.post("/api/auth/logout")
-    _login(client, "member", "member-password")
     catalog = client.get("/api/catalog/source-capabilities").json()["data"]
 
     created = client.post(
@@ -416,7 +866,21 @@ def test_member_support_check_uses_generation_and_viewer_is_denied(
             "force_discovery": True,
         },
     )
-    assert forced.status_code == 403
+    assert forced.status_code == 200, forced.text
+
+    client.post("/api/auth/logout")
+    _login(client, "member", "member-password")
+    assert client.get("/api/catalog/source-capabilities").status_code == 403
+    member_denied = client.post(
+        "/api/admin/apify-support-checks",
+        json={
+            "platform": "x",
+            "target_type": "profile",
+            "capability": "items",
+            "expected_generation": catalog["generation"],
+        },
+    )
+    assert member_denied.status_code == 403
 
     client.post("/api/auth/logout")
     _login(client, "viewer", "viewer-password")
@@ -682,7 +1146,7 @@ def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
 ) -> None:
     client, store = _client(tmp_path, monkeypatch)
     _login(client)
-    _ready_route(store, route_key="x/profile")
+    _ops, route, _revisions = _ready_route(store, route_key="x/profile")
 
     response = client.post(
         "/api/catalog/sources",
@@ -701,12 +1165,40 @@ def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
     assert response.status_code == 200, response.text
     source = response.json()["data"]
     assert source["enabled"] is False
-    assert source["config"]["profile_id"]
+    assert source["setup_type"] == "x_profile"
+    assert source["config"] == {
+        "target": "openai",
+        "fetch_limit": 20,
+        "analysis_mode": "full",
+    }
+    assert "profile_id" not in source["config"]
+    stored = store.get_source(source["id"])
+    assert stored["config"]["profile_id"] == route["route_id"]
     assert "platform" not in source["config"]
     assert "kind" not in source["config"]
     binding = ApifyActorOpsService(store).get_source_binding(source["id"])
     assert binding["validation_status"] == "pending_validation"
-    assert binding["route_id"] == source["config"]["profile_id"]
+    assert binding["route_id"] == stored["config"]["profile_id"]
+
+    legacy_patch = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={
+            "config": {
+                "profile_id": route["route_id"],
+                "target": "openai",
+                "fetch_limit": 25,
+                "analysis_mode": "personal_only",
+            }
+        },
+    )
+    assert legacy_patch.status_code == 200, legacy_patch.text
+    assert legacy_patch.json()["data"]["setup_type"] == "x_profile"
+    assert legacy_patch.json()["data"]["config"] == {
+        "target": "openai",
+        "fetch_limit": 25,
+        "analysis_mode": "personal_only",
+    }
+    assert store.get_source(source["id"])["config"]["profile_id"] == route["route_id"]
 
 
 def test_discovery_settings_use_global_ai_and_are_cas_guarded(tmp_path, monkeypatch):
@@ -1182,6 +1674,42 @@ def test_route_cap_hot_update_and_manual_rediscovery_are_cas_guarded(
     assert rediscovery_data["generation"] == route_catalog["generation"]
     assert rediscovery_data["route_generation"] == updated_route["generation"]
     assert rediscovery_data["job"]["status"] == "queued"
+
+
+def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, revisions = _ready_route(
+        store,
+        route_key="youtube/channel/items",
+        activate=False,
+    )
+
+    response = client.put(
+        f"/api/admin/apify-routes/{route['route_id']}/active-pool",
+        json={
+            "expected_generation": route["generation"],
+            "slots": [
+                {"slot": "primary", "revision_id": revisions[0]},
+                {"slot": "backup_1", "revision_id": None},
+                {"slot": "backup_2", "revision_id": None},
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["min_runtime_healthy"] == 1
+    assert data["runnable_slots"] == 1
+    assert data["slots"][0]["runnable"] is True
+    assert [slot["revision_id"] for slot in data["slots"]] == [
+        revisions[0],
+        None,
+        None,
+    ]
 
 
 def test_route_activation_uses_server_recommendation_and_exact_confirmation(

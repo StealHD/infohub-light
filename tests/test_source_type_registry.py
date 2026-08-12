@@ -2,13 +2,17 @@ import pytest
 
 import src.services.source_type_registry as source_type_registry
 from src.services.source_type_registry import (
+    INSTAGRAM_PROFILE_SETUP_TYPE,
+    X_PROFILE_SETUP_TYPE,
     YOUTUBE_CHANNEL_SETUP_TYPE,
     SourceConfigError,
     build_source_payload,
     catalog_source_setup_type,
     list_source_setup_types,
     list_source_types,
+    normalize_platform_profile_setup_config,
     normalize_source_setup_input,
+    project_catalog_source_config_for_web,
     self_service_agent_type_for_catalog,
     source_key,
     validate_secret_env_name,
@@ -111,13 +115,14 @@ def test_agent_apify_lookup_keeps_legacy_identity_and_requires_web_setup():
     assert setup["policy"]["self_service"] is False
 
 
-def test_web_setup_types_add_youtube_alias_without_changing_storage_enum():
+def test_web_setup_types_are_platform_first_without_exposing_apify_route_fields():
     storage_types = {item["type"] for item in list_source_types()}
-    setup_types = {
-        item["type"]: item for item in list_source_setup_types()
-    }
+    setup_types = {item["type"]: item for item in list_source_setup_types()}
 
     assert YOUTUBE_CHANNEL_SETUP_TYPE not in storage_types
+    assert X_PROFILE_SETUP_TYPE not in storage_types
+    assert INSTAGRAM_PROFILE_SETUP_TYPE not in storage_types
+    assert "apify_social" not in setup_types
     youtube = setup_types[YOUTUBE_CHANNEL_SETUP_TYPE]
     assert youtube["catalog_source_type"] == "rss"
     assert youtube["label"] == "YouTube 频道"
@@ -125,6 +130,92 @@ def test_web_setup_types_add_youtube_alias_without_changing_storage_enum():
     fields = {field["name"]: field for field in youtube["fields"]}
     assert fields["url"]["input_type"] == "text"
     assert fields["keep_latest_item"]["default"] is True
+    for setup_type in (X_PROFILE_SETUP_TYPE, INSTAGRAM_PROFILE_SETUP_TYPE):
+        definition = setup_types[setup_type]
+        assert "catalog_source_type" not in definition
+        assert definition["availability"] == "ready"
+        assert definition["unavailable_reason"] is None
+        assert [field["name"] for field in definition["fields"]] == [
+            "target",
+            "fetch_limit",
+            "analysis_mode",
+        ]
+        assert definition["fields"][2]["options"] == [
+            {"value": "full", "label": "完整分析"},
+            {"value": "personal_only", "label": "仅收集"},
+        ]
+        serialized = str(definition).casefold()
+        for forbidden in ("apify", "actor", "route", "profile_id"):
+            assert forbidden not in serialized
+
+
+def test_platform_setup_availability_and_config_projection_are_safe():
+    setup_types = {
+        item["type"]: item
+        for item in list_source_setup_types(
+            availability={
+                X_PROFILE_SETUP_TYPE: (
+                    "temporarily_unavailable",
+                    "platform_setup_pending",
+                ),
+                INSTAGRAM_PROFILE_SETUP_TYPE: (
+                    "temporarily_unavailable",
+                    "workspace_credential_unavailable",
+                ),
+            }
+        )
+    }
+    assert setup_types[X_PROFILE_SETUP_TYPE]["unavailable_reason"] == (
+        "platform_setup_pending"
+    )
+    assert setup_types[INSTAGRAM_PROFILE_SETUP_TYPE]["unavailable_reason"] == (
+        "workspace_credential_unavailable"
+    )
+
+    normalized = normalize_platform_profile_setup_config(
+        X_PROFILE_SETUP_TYPE,
+        {"target": "@OpenAI", "fetch_limit": 3, "analysis_mode": "full"},
+    )
+    assert normalized == {
+        "platform": "x",
+        "kind": "profile",
+        "target": "@OpenAI",
+        "fetch_limit": 3,
+        "analysis_mode": "full",
+        "enabled": True,
+    }
+    with pytest.raises(SourceConfigError, match="unsupported fields"):
+        normalize_platform_profile_setup_config(
+            X_PROFILE_SETUP_TYPE,
+            {"target": "openai", "profile_id": "x/profile/items"},
+        )
+
+    stored = {
+        "profile_id": "x/profile/items",
+        "target": "@OpenAI",
+        "fetch_limit": 3,
+        "analysis_mode": "full",
+    }
+    assert catalog_source_setup_type("apify_social", stored) == X_PROFILE_SETUP_TYPE
+    assert project_catalog_source_config_for_web("apify_social", stored) == {
+        "target": "@OpenAI",
+        "fetch_limit": 3,
+        "analysis_mode": "full",
+    }
+    assert project_catalog_source_config_for_web(
+        "apify_social",
+        {
+            "platform": "instagram",
+            "kind": "hashtag",
+            "target": "openai",
+            "fetch_limit": 5,
+            "analysis_mode": "personal_only",
+        },
+    ) == {
+        "target": "openai",
+        "fetch_limit": 5,
+        "analysis_mode": "personal_only",
+    }
 
 
 def test_youtube_channel_setup_projection_is_migration_free_and_agent_compatible():

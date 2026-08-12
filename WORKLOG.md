@@ -8,119 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "修复专题总结在 200 字预算内平均截断 5 条要点造成的半截单词和残句：字符预算进入 Prompt，服务端按可读长度减少要点并使用省略号安全裁剪；缓存升级 V3，淘汰 V1/V2 伪总结和残句结果。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-readable-budget",
-  "unresolved": [],
-  "validation": [
-    "真实 20 篇页面生成已确认 2048 token 预算成功：completion_tokens=1057、reasoning_tokens=886、content_tokens=171、finish_reason=stop。",
-    "可读预算后端 7/7、V3 缓存与产品文案 15/15、专题 UI 1/1、TypeScript 通过。",
-    "最终完整 Test Gate 24/24 通过（305.553 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-runtime-schema-compatibility",
-  "unresolved": [
-    "API/Worker 在迁移保护流程中已停止；用户明确要求不重建容器，本任务未继续恢复 8080。",
-    "V3 可读要点已通过自动化门禁，但未在最终 V3 资源上再次执行真实浏览器生成与刷新缓存验证。"
-  ],
-  "validation": [
-    "真实 service.db 只读预检从 required=true 修复为 required=false，数据库 integrity_check=ok 且 foreign_key_check 无违规。",
-    "迁移兼容测试 5/5 通过；完整 Test Gate 24/24 通过（499.311 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "从专题总结任务 Worktree 按标准流程重建并启动本地 8080，仅运行 horizon-api 与 horizon-worker；当前 revision 与前端资源均已切换到任务分支。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-v3-runtime-start",
-  "unresolved": [],
-  "validation": [
-    "./scripts/up-latest.sh 完成，API liveness revision=885c7ce22556，readiness 返回 API/Worker ready。",
-    "horizon-light-api 与 horizon-light-worker 均 healthy；8080 实际服务前端资源 index-DCQ0XeSV.js。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "将专题 AI 总结与同用户同内容最近成功结果缓存分支合入本地 main；保留真实失败、完成指标日志、V3 可读要点预算和已演进 ActorOps schema 的兼容判断。",
-  "status": "completed",
-  "task_id": "2026-08-10-main-source-summary-cache-integration",
-  "unresolved": [],
-  "validation": [
-    "main 合并 commit 无冲突，产品手册、更新日志、API/UI 合同与决策记录随功能一并进入集成结果。",
-    "main 完整 Test Gate 24/24 通过（406.768 秒），mapping_miss=false。"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "完成人类化 ActorOps 配置闭环：首次配置与旧版升级手选 3 个安全候选，第三槽手选 1 个；一次限额验证覆盖 Route 与已启用来源，第二次确认原子生效，后台认证不再阻塞运行。",
-  "status": "completed",
-  "task_id": "2026-08-10-actorops-manual-pool-selection",
-  "unresolved": [
-    "共享 schema 21 迁移与 8080 切换等待单独授权。"
-  ],
-  "validation": [
-    "ActorOps 后端定向回归 49/49 通过，覆盖 schema 21、人工候选、最新 exact Build、原子入队、来源预验证与 apply。",
-    "前端定向 Vitest 179/179、类型检查、ESLint、UI 合同与生产构建通过。",
-    "ActorOps Playwright 12 通过、3 个预期视口跳过；初始 3/3、第三槽、legacy 3/3、明暗视觉与无障碍验收通过。",
-    "完整 Test Gate 24/24 命令通过（326.58 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "修复第三槽候选验证失败后空目标 Stage 被错误标为可生效的问题；历史卡住状态会安全回退到重新选择候选，确认弹窗不再滞留。",
-  "status": "completed",
-  "task_id": "2026-08-10-actorops-empty-stage-recovery",
-  "unresolved": [],
-  "validation": [
-    "Pool Stage 定向回归 9/9 通过，覆盖 Worker 空来源刷新、历史状态恢复与零写入 apply 拦截。",
-    "ActorOps 前端 Vitest 46/46、类型检查通过。",
-    "完整 Test Gate 24/24 命令通过（262.63 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -378,6 +265,133 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "任务分支定向 Vitest 16/16、preflight 11/11 与完整 Test Gate 15/15 通过。",
     "合并后的产品更新日志同时保留订阅统计快捷查询和助手连接复制说明。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-11",
+  "result": "将新增来源重构为平台导向的 X 账号、Instagram 账号与 YouTube 频道；Web 隐藏 Apify、Actor 和 Route 实现字段，服务端自动路由并保持旧来源兼容。X 兼容池升级只扩大当前三 Actor 的免费召回到 30，保留跨 Run 安全 Revision，价格、Schema、输入、Manifest、发布者和 Canary 底线不变，三路不足时关闭失败。",
+  "status": "completed",
+  "task_id": "2026-08-11-platform-source-setup-x-recall",
+  "unresolved": [
+    "付费 Route Canary 与最终 3/3 原子切换仍需用户分别明确确认。"
+  ],
+  "validation": [
+    "后端定向回归 227/227、前端完整 Vitest 669/669 通过。",
+    "影响 preflight 13/13 通过（247.445 秒），mapping_miss=false。",
+    "完整 Test Gate 15/15 通过（247.778 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "实现 ActorOps 功能优先兼容模式、来源内容水位与软切备、可配置专用 Key 新鲜度校验、失败指纹记忆和统一安全诊断时间线；YouTube fallback 一路即可运行且不再自动追逐第三槽。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-compatibility-freshness-diagnostics",
+  "unresolved": [
+    "global schema 23 离线迁移与本地 8080 切换按计划在本提交后执行。",
+    "未指定 validation Key，未授权自动新鲜度，也未运行兼容 Canary 或任何付费 Actor；这些动作保留给用户逐项确认。"
+  ],
+  "validation": [
+    "ActorOps 后端发现、兼容、运行、水位、新鲜度、Key、API 与迁移定向回归通过。",
+    "前端完整 Vitest 74 文件/676 测试此前通过；最终 ActorOps 62/62、TypeScript 与 ESLint 零错误通过。",
+    "任务级 preflight 13/13、完整 Test Gate 15/15 通过（352.94 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "ActorOps 免费候选搜索改为有界进度与明确终态：提交后自动刷新并锁定重复操作，YouTube 可选第三路不足时说明现有 Atom Feed/fallback 不受影响；目标身份不匹配改为人类可读原因与恢复建议。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-search-terminal-ui",
+  "unresolved": [
+    "8080 重建与真实浏览器验收将在完整门禁和任务提交后执行。"
+  ],
+  "validation": [
+    "前端 ActorOps 定向 Vitest 66/66、TypeScript 类型检查与 ESLint 通过（仅仓库既有 Fast Refresh 警告）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "修复 X 严格升级只保留 1 个合格 Actor 时无法进入下一步：compatibility_single 现跨免费检查复用同 Route 每个 Candidate 的最新安全 Revision，空搜索不再清掉已合格候选。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-x-single-candidate-continuation",
+  "unresolved": [
+    "按用户要求，完整 Test Gate 留到最终合并代码时执行。"
+  ],
+  "validation": [
+    "ActorOps compatibility 与 pool staging 定向后端回归 32/32 通过。",
+    "待完成 preflight、8080 重建与浏览器只读验收。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "补齐 X 历史严格 Stage 的兼容降级：upgrade_legacy 处于 replan_required 且严格候选不足时，只要存在单个兼容候选就投影降低要求入口，并保留安全失败摘要。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-x-replan-compatibility-entry",
+  "unresolved": [
+    "按用户要求，完整 Test Gate 留到最终合并代码时执行。"
+  ],
+  "validation": [
+    "ActorOps compatibility 与 pool staging 定向后端回归 33/33 通过。",
+    "真实 service.db 只读诊断确认严格 1/3、兼容列表 6 个可选，未触发搜索、Actor 或付费动作。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "将平台导向新增来源、ActorOps 功能优先兼容/新鲜度/诊断能力与 X 单 Actor 继续流程合入本地 main；同时保留既有 MCP 令牌复制改动并解决决策编号冲突。",
+  "status": "completed",
+  "task_id": "2026-08-12-main-actorops-platform-source-integration",
+  "unresolved": [
+    "未选择 validation Key、未授权自动新鲜度，也未运行兼容 Canary 或任何付费 Actor；这些动作继续由用户逐项确认。"
+  ],
+  "validation": [
+    "合并范围 preflight 13/13 通过（396.787 秒），mapping_miss=false。",
+    "本地 main 完整 Test Gate 15/15 通过（427.315 秒），mapping_miss=false。",
+    "决策记录保留 D146 MCP 复制，并将平台来源/ActorOps 韧性顺延为 D147/D148；WORKLOG 校验无 findings。"
   ]
 }
 ```

@@ -680,6 +680,12 @@ def test_apify_actor_route_generation_accepts_proven_backup_result(
         return ApifyActorRoutedList(
             [_content_item(suffix="apify-proven-route")],
             route_generation=int(generation),
+            workspace_id=str(workspace["id"]),
+            source_id=source_id,
+            candidate_id="candidate-publication-proof",
+            latest_published_at="2026-07-29T00:00:00+00:00",
+            latest_item_id="publication-item",
+            semantic_outcome="advanced",
         )
 
     items = asyncio.run(
@@ -705,6 +711,21 @@ def test_apify_actor_route_generation_accepts_proven_backup_result(
     assert new_context.actor_route_generation != old_context.actor_route_generation
     assert snapshot["acquisition_key"] == new_context.acquisition_key
     assert snapshot["config_fingerprint"] == new_context.config_fingerprint
+    assert items._apify_actor_candidate_id == "candidate-publication-proof"
+    assert items._apify_actor_semantic_outcome == "advanced"
+
+    cached = asyncio.run(
+        coordinator.acquire(
+            source=projection,
+            provider="apify_social",
+            window_hours=24,
+            fetch=fetch_from_backup,
+        )
+    )
+    assert cached._apify_actor_candidate_id == "candidate-publication-proof"
+    assert cached._apify_actor_latest_item_id_hash == (
+        items._apify_actor_latest_item_id_hash
+    )
 
 
 def test_public_source_reuses_fresh_acquisition_and_reprojects_per_user(

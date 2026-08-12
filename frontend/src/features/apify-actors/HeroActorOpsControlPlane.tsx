@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import type {
   ApifyActorDiscoveryCandidate,
+  ApifyActorDiagnosticEvents,
   ApifyActorCanaryBatch,
   ApifyActorCanaryPlan,
   ApifyActorDiscoverySettingsPatch,
@@ -20,6 +21,7 @@ import type {
   ApifyActorRouteSupportStatus,
   ApifyActorSlotName,
   ApifyActorSourceSupport,
+  ApifyActorSourceValidation,
   ApifyActorSupportProfile,
   ApifyActorValidationProfileRequest,
 } from '../../api/types'
@@ -134,7 +136,7 @@ const discoveryReasonLabels: Record<string, string> = {
   route_canary_attempts_exhausted: '本轮五次 Route Canary 已用完，请重新发现并生成修正后的 Revision',
   apify_actor_run_timed_out: 'Actor 在时限内未完成，已中止且不会自动重试',
   apify_actor_contract_mismatch: 'Dataset 未满足统一内容合同',
-  apify_actor_target_identity_mismatch: 'Dataset 内容无法确认属于目标账号或频道',
+  apify_actor_target_identity_mismatch: 'Actor 返回了其他账号或频道的内容，或结果缺少可证明目标归属的字段',
   apify_manifest_output_pointer_unverifiable: 'Manifest 字段路径不在固定 Build Dataset Schema 中',
   apify_manifest_item_identity_invalid: 'Manifest 把频道或主页本身错误映射成内容条目',
   apify_actor_metadata_only: 'Actor 只返回频道资料，没有返回视频内容；该 Build 已停止重复试跑',
@@ -194,6 +196,7 @@ function HumanActorErrorNotice({ error }: { error: HumanActorError }) {
 
 function workflowFailureNotice(
   progress: Record<string, unknown> | undefined,
+  goal: ApifyActorPoolGoal | undefined,
 ): HumanActorError | null {
   const rawFailure = progress?.last_failure
   if (rawFailure === null || typeof rawFailure !== 'object' || Array.isArray(rawFailure)) return null
@@ -221,10 +224,14 @@ function workflowFailureNotice(
     ...presented,
     impact: `${presented.impact}${spend}`,
     next: code === 'apify_actor_run_timed_out' && costFinal
-      ? '打开候选列表，把等待时间从当前值调高后再确认；系统不会自动重试。'
+      ? goal === 'upgrade_legacy'
+        ? '当前 Actor 的升级已停止；保持兼容池，不提价、不延时、不选择替补。'
+        : '打开候选列表，把等待时间从当前值调高后再确认；系统不会自动重试。'
       : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(code)
-        ? '打开候选列表；支持扩大样本时改为 3 或 5 条，否则更换 Actor。'
-      : presented.next,
+        ? goal === 'upgrade_legacy'
+          ? '打开当前 Actor 状态；样本为 1 时只可扩大到 3，样本 3 仍失败就停止升级。'
+          : '打开候选列表；支持扩大样本时改为 3 或 5 条，否则更换 Actor。'
+        : presented.next,
   }
 }
 
@@ -284,6 +291,8 @@ function poolCandidateUnavailableLabel(reason: string | null | undefined): strin
   if (reason === 'candidate_not_validated') return '基础检查尚未通过'
   if (reason === 'actor_upgrade_inspection_running') return '正在为这个当前 Actor 生成安全新版'
   if (reason === 'actor_upgrade_revision_unavailable') return '尚未通过安全升级检查；当前兼容版本继续运行'
+  if (reason === 'actor_validation_sample_limit_reached') return '3 条样本仍未通过，升级已停止'
+  if (reason === 'actor_validation_retry_not_permitted') return '上次失败不允许通过提价、换 Actor 或重复付费绕过'
   return '当前不满足安全条件'
 }
 
@@ -323,6 +332,26 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
     <p className="type-page-title mt-1 break-words tabular-nums">{value}</p>
     {detail && <p className="type-meta mt-1 break-words text-muted">{detail}</p>}
   </div>
+}
+
+function routeMinimumActors(
+  route: Pick<ApifyActorRouteSummary, 'min_runtime_healthy'> & {
+    actual_min_runtime_healthy?: number
+  },
+): number {
+  const value = route.actual_min_runtime_healthy ?? route.min_runtime_healthy
+  return Math.min(3, Math.max(1, Math.trunc(value)))
+}
+
+function routeMinimumPublishers(
+  route: Pick<ApifyActorRouteSummary, 'min_runtime_healthy'> & {
+    actual_min_runtime_healthy?: number
+    actual_min_publishers?: number
+  },
+): number {
+  const actorMinimum = routeMinimumActors(route)
+  const value = route.actual_min_publishers ?? (actorMinimum === 1 ? 1 : 2)
+  return Math.min(actorMinimum, Math.max(1, Math.trunc(value)))
 }
 
 function RouteList({
@@ -438,7 +467,11 @@ function ActorPoolPlan({
 }) {
   const recommendation = detail.activation_recommendation
   const activeSlots = detail.slots.filter((slot) => slot.revision)
-  const alreadyActive = recommendation?.already_active ?? activeSlots.length === 3
+  const minimumActors = routeMinimumActors(detail)
+  const minimumPublishers = routeMinimumPublishers(detail)
+  const singleActorFallback = recommendation?.activation_mode === 'standard_1of1'
+    || (minimumActors === 1 && detail.admission_mode !== 'compatibility')
+  const alreadyActive = recommendation?.already_active ?? activeSlots.length >= minimumActors
   const expedited = recommendation?.activation_mode === 'expedited_2of3'
   const displaySlots = alreadyActive
     ? detail.slots
@@ -453,12 +486,14 @@ function ActorPoolPlan({
     const publishers = recommendation?.publisher_count ?? 0
     return <div className="grid gap-3">
       <HeroNotice title="候选审批尚未完成，你现在无需配置" status="warning" role="status">
-        至少需要两个成功试跑、Actor 不同且发布者不同的固定 Build。满足后系统会自动生成快速主备方案；这里不会要求选择 Revision 或手工排槽。
+        {singleActorFallback
+          ? 'YouTube 原生 Atom 始终优先；只需一个成功试跑的 Actor 作为故障 fallback。系统不会自动追逐第二或第三路备用。'
+          : '至少需要两个成功试跑、Actor 不同且发布者不同的固定 Build。满足后系统会自动生成快速主备方案；这里不会要求选择 Revision 或手工排槽。'}
       </HeroNotice>
       <div className="grid gap-3 min-[640px]:grid-cols-3">
-        <Metric label="成功试跑 Actor" value={`${Math.min(runnable, 2)}/2`} detail="每个 Actor 至少成功一次 Canary" />
-        <Metric label="不同 Actor 候选" value={`${Math.min(runnable, 2)}/2`} detail="主用和备用不能是同一 Actor" />
-        <Metric label="候选发布者" value={`${Math.min(publishers, 2)}/2`} detail="两路必须来自不同发布者" />
+        <Metric label="成功试跑 Actor" value={`${Math.min(runnable, minimumActors)}/${minimumActors}`} detail="每个 Actor 至少成功一次 Canary" />
+        <Metric label="不同 Actor 候选" value={`${Math.min(runnable, minimumActors)}/${minimumActors}`} detail={singleActorFallback ? '单路仅作原生链路故障回退' : '主用和备用不能是同一 Actor'} />
+        <Metric label="候选发布者" value={`${Math.min(publishers, minimumPublishers)}/${minimumPublishers}`} detail={singleActorFallback ? '单路 fallback 不要求发布者分散' : '两路必须来自不同发布者'} />
       </div>
     </div>
   }
@@ -466,16 +501,20 @@ function ActorPoolPlan({
   return <div className="grid gap-3">
     <HeroNotice
       title={alreadyActive
-        ? expedited ? '两路 Actor 主备已生效' : 'Actor 主备已生效'
-        : expedited ? '两路主备已可快速启用' : '系统已完成候选审批'}
+        ? singleActorFallback ? '单路 Actor fallback 已生效' : expedited ? '两路 Actor 主备已生效' : 'Actor 主备已生效'
+        : singleActorFallback ? '单路 Actor fallback 已可启用' : expedited ? '两路主备已可快速启用' : '系统已完成候选审批'}
       status={alreadyActive ? 'success' : 'default'}
       role="status"
     >
       {alreadyActive
-        ? expedited
+        ? singleActorFallback
+          ? 'YouTube 继续优先使用公开 Atom Feed；这一 Actor 仅在允许回退的故障发生时运行，额外备用只由管理员主动补充。'
+          : expedited
           ? '当前 Route 以两个成功试跑的固定 Build 降级运行；少于两路仍会自动阻断，第三槽可后续热补位。'
           : '当前 Route 已按 2+1 规则运行；日常故障切换由系统自动完成。'
-        : expedited
+        : singleActorFallback
+          ? '以下 Actor 已成功试跑，可作为 YouTube 原生 Atom 的单路故障 fallback；系统不会自动补第二或第三路。'
+          : expedited
           ? '以下两个 Actor 均已成功试跑，来自不同发布者并固定 Build。第三槽先留空，你无需继续付费认证即可确认生效。'
           : '以下方案已由后端重新校验 2+1、Actor 唯一、发布者分散和固定 Build。你只需确认一次即可生效。'}
     </HeroNotice>
@@ -509,7 +548,7 @@ function ActorPoolPlan({
         {' '}单次费用最高 {formatActorUsd(detail.per_run_cap_usd)}。
       </p>
       <Button size="sm" isDisabled={actionPending} onPress={onConfirm}>
-        {expedited ? '确认先启用两路主备' : '确认启用 Actor 主备'}
+        {singleActorFallback ? '确认启用单路 fallback' : expedited ? '确认先启用两路主备' : '确认启用 Actor 主备'}
       </Button>
     </div>}
   </div>
@@ -573,6 +612,18 @@ function DiscoveryPanel({
   const publisherCount = run.publisher_count ?? new Set(
     run.candidates.map((candidate) => candidate.revision.publisher),
   ).size
+  const routeTargetCount = goal === 'upgrade_legacy'
+    ? 3
+    : ['complete_third', 'compatibility_single'].includes(goal)
+      ? 1
+      : routeMinimumActors(detail)
+  const targetActorCount = planQuery.data?.target_slot_count ?? routeTargetCount
+  const targetPublisherCount = goal === 'upgrade_legacy'
+    ? 2
+    : goal === 'compatibility_single' || targetActorCount === 1
+      ? 1
+      : routeMinimumPublishers(detail)
+  const singleActorTarget = targetActorCount === 1
   const paidBatchRunning = Boolean(displayedBatch && ['queued', 'preflighting', 'running'].includes(displayedBatch.status))
   return <div className="grid gap-3">
     <div className="grid gap-3 min-[720px]:grid-cols-3">
@@ -595,7 +646,7 @@ function DiscoveryPanel({
           : run.publisher_shortfall
             ? `缺少 ${run.publisher_shortfall} 个发布者`
             : '数量充足'}
-        detail={`${run.candidate_count ?? run.candidates.length}/3 Actor · ${publisherCount}/2 发布者；付费验证只统计真实启动`}
+        detail={`${run.candidate_count ?? run.candidates.length}/${targetActorCount} Actor · ${publisherCount}/${targetPublisherCount} 发布者；付费验证只统计真实启动`}
       />
     </div>
     {run.error_code && <HeroNotice title={discoveryFailureTitle(run.failure_phase)} status="warning">
@@ -605,11 +656,13 @@ function DiscoveryPanel({
       title={displayedBatch.stop_reason === 'apify_start_not_created'
         ? 'Apify 已确认未创建 Run：本次费用 $0，系统没有自动重跑'
         : displayedBatch.status === 'activation_ready'
-        ? '两路主备验证完成，可以确认启用'
+        ? singleActorTarget ? '单路 Actor 验证完成，可以确认启用' : '两路主备验证完成，可以确认启用'
         : paidBatchRunning
-          ? `正在串行验证主备（${displayedBatch.success_count}/2 成功）`
+          ? `正在串行验证${singleActorTarget ? '单路 Actor' : '主备'}（${displayedBatch.success_count}/${targetActorCount} 成功）`
           : displayedBatch.status === 'partial'
-            ? '本批候选未凑齐两路，系统正在补位发现（不会启动 Actor）'
+            ? singleActorTarget
+              ? '本批候选未通过单路验证；系统不会自动追逐额外备用'
+              : '本批候选未凑齐两路，系统正在补位发现（不会启动 Actor）'
             : '主备验证批次已结束'}
       status={displayedBatch.status === 'activation_ready' ? 'success' : paidBatchRunning ? 'warning' : 'default'}
     >
@@ -620,19 +673,21 @@ function DiscoveryPanel({
     </HeroNotice>}
     {showApprovalAction && !detail.activation_recommendation?.ready && !paidBatchRunning && planQuery.data?.ready && <div className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-separator bg-surface-secondary p-3">
       <div>
-        <p className="type-control">一次确认，系统验证两路主备</p>
+        <p className="type-control">一次确认，系统验证{singleActorTarget ? '单路 Actor' : '两路主备'}</p>
         <p className="type-meta mt-1 text-muted">
-          服务器已选择 {planQuery.data.items.length} 个候选，严格串行；两位不同发布者成功后立即停止。全部候选总封顶 {formatActorUsd(planQuery.data.max_total_charge_usd, true)}。
+          服务器已选择 {planQuery.data.items.length} 个候选，严格串行；{singleActorTarget ? '一个 Actor 成功后立即停止，不自动补第二或第三路' : '两位不同发布者成功后立即停止'}。全部候选总封顶 {formatActorUsd(planQuery.data.max_total_charge_usd, true)}。
         </p>
       </div>
       <Button
         size="sm"
         isDisabled={paidBatchRunning}
         onPress={() => onBatchCanary(planQuery.data)}
-      ><Icons.FlaskConical size={14} aria-hidden="true" />验证两路主备</Button>
+      ><Icons.FlaskConical size={14} aria-hidden="true" />验证{singleActorTarget ? '单路 Actor' : '两路主备'}</Button>
     </div>}
-    {!detail.activation_recommendation?.ready && planQuery.isError && <HeroNotice title="当前候选还不能组成安全的两路主备" status="warning">
-      无需反复刷新或逐个试跑；系统会保留已有成功证据，并在候选用尽时自动创建不会启动 Actor 的补位发现任务。
+    {!detail.activation_recommendation?.ready && planQuery.isError && <HeroNotice title={singleActorTarget ? '当前候选还不能形成可用的单路 fallback' : '当前候选还不能组成安全的两路主备'} status="warning">
+      {singleActorTarget
+        ? '无需反复刷新或逐个试跑；系统会保留已有成功证据，也不会为了补满三槽自动重复验证。'
+        : '无需反复刷新或逐个试跑；系统会保留已有成功证据，并在候选用尽时自动创建不会启动 Actor 的补位发现任务。'}
     </HeroNotice>}
     {Boolean(run.rejections?.length) && <HeroNotice title="确定性淘汰摘要" status="default">
       <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
@@ -836,10 +891,12 @@ function SourceSupportPanel({
   })
 
   const embedded = detail.source_validations ?? []
+  const minimumActors = routeMinimumActors(detail)
+  const minimumPublishers = routeMinimumPublishers(detail)
   const configuredRouteSlots = detail.slots.filter((slot) => slot.revision)
   const routeConfiguredForSources = detail.support_status === 'supported'
-    && detail.runnable_slots >= detail.min_runtime_healthy
-    && configuredRouteSlots.length >= detail.min_runtime_healthy
+    && detail.runnable_slots >= minimumActors
+    && configuredRouteSlots.length >= minimumActors
     && configuredRouteSlots.every((slot) => (
       slot.revision
       && ['probationary', 'certified'].includes(slot.revision.lifecycle)
@@ -849,7 +906,7 @@ function SourceSupportPanel({
   const requiredSourceCanaries = activeSupportSlots.length || detail.runnable_slots
   const allSlotsPassed = Boolean(
     support
-    && activeSupportSlots.length >= detail.min_runtime_healthy
+    && activeSupportSlots.length >= minimumActors
     && activeSupportSlots.every((slot) => slot.status === 'passed'),
   )
   const revisionMap = new Map((detail.revisions ?? []).map((revision) => [revision.revision_id, revision]))
@@ -898,7 +955,8 @@ function SourceSupportPanel({
     </Table>}
 
     {!routeConfiguredForSources && embedded.length === 0 && <HeroNotice title="此步骤尚未解锁" status="warning">
-      这里不是添加账号的入口。请先让至少两个不同发布者的 Actor 成功试跑并确认启用；之后在订阅页创建具体来源，系统会按当前实际运行槽位验证。
+      这里不是添加账号的入口。请先完成至少 {minimumActors} 个 Actor 的成功试跑
+      {minimumPublishers > 1 ? `，并覆盖 ${minimumPublishers} 个发布者` : ''}，再确认启用；之后在订阅页创建具体来源，系统会按当前实际运行槽位验证。
     </HeroNotice>}
 
     {(routeConfiguredForSources || embedded.length > 0) && <form className="flex min-w-0 flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end" onSubmit={submitLookup}>
@@ -1333,14 +1391,16 @@ const routeProductNames: Record<string, { label: string; description: string }> 
   'youtube/channel/items': { label: 'YouTube 频道视频', description: '原生优先 · Actor 故障回退' },
 }
 
-const workflowPresentation: Record<string, {
+type WorkflowPresentation = {
   title: string
   description: string
   status: string
   tone: 'neutral' | 'success' | 'warning' | 'danger'
   action: GuidedNextAction
   cta?: string
-}> = {
+}
+
+const workflowPresentation: Record<string, WorkflowPresentation> = {
   setup_discovery_required: {
     title: '尚未建立 Actor 主备',
     description: '系统会先免费搜索并检查候选，不会启动 Actor 或产生费用。',
@@ -1352,13 +1412,13 @@ const workflowPresentation: Record<string, {
     status: '建立中', tone: 'warning', action: 'none',
   },
   setup_candidate_selection_required: {
-    title: '选择 3 个 Actor 建立完整主备',
-    description: '候选已经完成免费检查。选择 3 个不同 Actor；服务端会固定安全版本和槽位顺序。',
+    title: '选择 2 个 Actor 建立标准主备',
+    description: '候选已经完成免费检查。选择 2 个不同发布者的 Actor；第三路可在运行后主动补充。',
     status: '待选择', tone: 'warning', action: 'select_candidates', cta: '选择 Actor',
   },
   setup_canary_approval_required: {
-    title: '候选已选择，下一步验证完整主备',
-    description: '系统会严格按你的选择串行验证 3 个 Actor；验证期间不会提前启用。',
+    title: '候选已选择，下一步验证标准主备',
+    description: '系统会严格按你的选择串行验证 2 个 Actor；验证期间不会提前启用。',
     status: '待付费验证', tone: 'warning', action: 'approve_canary', cta: '查看并确认付费验证',
   },
   setup_canary_running: {
@@ -1367,14 +1427,14 @@ const workflowPresentation: Record<string, {
     status: '待付费验证', tone: 'warning', action: 'none',
   },
   setup_activation_approval_required: {
-    title: '完整主备验证通过',
-    description: '确认后以完整 3/3 主备开始运行；验证完成前没有自动启用。',
+    title: '标准主备验证通过',
+    description: '确认后以 2/3 标准主备开始运行；第三路可后续由管理员主动补充。',
     status: '待生效', tone: 'success', action: 'approve_activation', cta: '查看并确认启用',
   },
   backup_2_discovery_required: {
-    title: '补齐第三路备用',
-    description: '当前两路已可自动切换。系统会免费搜索第三个不同发布者的 Actor；无需填写 Actor ID。',
-    status: '两路可用', tone: 'warning', action: 'start_discovery', cta: '开始补齐备用 2',
+    title: '可选：补充第三路备用',
+    description: '当前两路已达到标准模式并可自动切换。只有管理员点击后才会免费搜索第三路。',
+    status: '标准可用', tone: 'neutral', action: 'start_discovery', cta: '主动补充备用 2',
   },
   backup_2_discovery_running: {
     title: '正在寻找第三路备用',
@@ -1403,7 +1463,7 @@ const workflowPresentation: Record<string, {
   },
   legacy_discovery_required: {
     title: '升级当前 3 个 Actor',
-    description: '先只检查上面正在使用的 3 个 Actor，为它们固定新版 Build 并旁路验证。只有某个明确无法安全升级时，才需要选替代者。',
+    description: '只检查上面正在使用的 3 个 Actor，为它们固定新版 Build 并旁路验证。任一 Actor 无法安全升级就停止，不选择替补。',
     status: '兼容模式', tone: 'warning', action: 'start_discovery', cta: '开始升级当前 3 个 Actor',
   },
   legacy_discovery_running: {
@@ -1413,7 +1473,7 @@ const workflowPresentation: Record<string, {
   },
   legacy_candidate_selection_required: {
     title: '确认当前 Actor 升级',
-    description: '上面的 3 个 Actor 会排在候选列表最前面并优先选中；只为明确无法升级的位置选择替代项。',
+    description: '只允许上面的 3 个当前 Actor 进入新版方案；三者必须全部通过，并覆盖至少两个发布者。',
     status: '兼容模式', tone: 'warning', action: 'select_candidates', cta: '继续升级当前 Actor',
   },
   legacy_canary_approval_required: {
@@ -1430,6 +1490,56 @@ const workflowPresentation: Record<string, {
     title: '新版主备验证通过',
     description: '第二步：确认后原子切换到固定 Build；运行中的任务仍使用旧 generation。',
     status: '待生效', tone: 'success', action: 'approve_activation', cta: '查看并确认切换',
+  },
+  compatibility_candidate_selection_available: {
+    title: '严格配置不足，可降低要求继续',
+    description: '功能优先兼容模式只启用 1 路实测可用 Actor。Actor 数量、发布者分散和 Canary 前元数据要求会降低；身份、真实非空内容、受控输入和 $0.02 费用上限仍保留。',
+    status: '可兼容启用', tone: 'warning', action: 'select_candidates', cta: '降低要求继续',
+  },
+  compatibility_discovery_required: {
+    title: '兼容候选仍不足',
+    description: '可继续免费扩大候选召回；不会自动启动 Actor 或产生费用。',
+    status: '兼容检查', tone: 'warning', action: 'start_discovery', cta: '更新兼容候选',
+  },
+  compatibility_discovery_running: {
+    title: '正在检查兼容候选',
+    description: '当前线路保持不变；免费检查不会启动 Actor。',
+    status: '兼容检查', tone: 'warning', action: 'none',
+  },
+  compatibility_candidate_selection_required: {
+    title: '选择 1 个兼容 Actor',
+    description: '选择一个候选进入真实非空 Canary。系统仍执行身份、发布时间、正文、占位内容与费用边界检查。',
+    status: '待选择', tone: 'warning', action: 'select_candidates', cta: '选择兼容 Actor',
+  },
+  compatibility_canary_approval_required: {
+    title: '兼容候选已就绪',
+    description: '确认后只串行试跑所选 Actor；必须返回参考账号的真实非空内容才能继续。',
+    status: '待付费验证', tone: 'warning', action: 'approve_canary', cta: '查看并确认兼容试跑',
+  },
+  compatibility_canary_running: {
+    title: '正在验证兼容 Actor',
+    description: '验证期间不会切换现有线路，也不会自动换候选或重试。',
+    status: '兼容验证中', tone: 'warning', action: 'none',
+  },
+  compatibility_activation_approval_required: {
+    title: '单路兼容验证通过',
+    description: '再次确认后启用 1/3 兼容池；后续仍可不停机补充主备并升级回标准模式。',
+    status: '待生效', tone: 'success', action: 'approve_activation', cta: '查看兼容风险并确认启用',
+  },
+  compatibility_operational: {
+    title: 'X 已以单路兼容模式运行',
+    description: '功能已经可用，但当前没有主备冗余。可在不中断现有抓取的情况下继续免费寻找标准双路候选。',
+    status: '兼容启用（1/3）', tone: 'warning', action: 'start_discovery', cta: '升级为标准主备',
+  },
+  compatibility_standard_discovery_running: {
+    title: '正在旁路准备标准主备',
+    description: '单路兼容 Actor 继续运行；免费检查不会切换线路或产生 Actor 费用。',
+    status: '兼容启用（1/3）', tone: 'warning', action: 'none',
+  },
+  compatibility_standard_candidate_selection_required: {
+    title: '标准主备候选已就绪',
+    description: '选择 2 个不同发布者的 Actor 旁路验证；最终确认前单路兼容配置保持不变。',
+    status: '兼容启用（1/3）', tone: 'warning', action: 'select_candidates', cta: '选择标准主备',
   },
   probation_observing: {
     title: '主备配置完成',
@@ -1472,11 +1582,77 @@ const unknownWorkflowPresentation = {
   cta: '刷新状态',
 }
 
+function routeWorkflowPresentation(
+  kind: string,
+  minimumActors: number,
+): WorkflowPresentation {
+  const standard = workflowPresentation[kind] ?? unknownWorkflowPresentation
+  if (minimumActors !== 1) return standard
+  const singleActorOverrides: Record<string, WorkflowPresentation> = {
+    setup_discovery_required: {
+      title: '尚未建立 Actor fallback',
+      description: 'YouTube 继续优先使用公开 Atom；系统先免费检查一个故障 fallback，不会自动追逐第二或第三路。',
+      status: '未建立', tone: 'neutral', action: 'start_discovery', cta: '开始建立 fallback',
+    },
+    setup_discovery_running: {
+      title: '正在搜索 fallback Actor',
+      description: '系统正在免费检查候选；不会启动 Actor，也不会为了补满三槽重复搜索。',
+      status: '建立中', tone: 'warning', action: 'none',
+    },
+    setup_candidate_selection_required: {
+      title: '选择 1 个 Actor 作为故障 fallback',
+      description: '候选已经完成免费检查。选择 1 个 Actor 即可；系统不会自动追逐第二或第三路，额外备用只由管理员主动补充。',
+      status: '待选择', tone: 'warning', action: 'select_candidates', cta: '选择 Actor',
+    },
+    setup_canary_approval_required: {
+      title: '候选已选择，下一步验证单路 fallback',
+      description: '系统只验证所选的 1 个 Actor；验证期间 YouTube 原生 Atom 链路不受影响。',
+      status: '待付费验证', tone: 'warning', action: 'approve_canary', cta: '查看并确认付费验证',
+    },
+    setup_canary_running: {
+      title: '正在验证单路 fallback',
+      description: '系统正在按计划串行执行；没有成功确认前不会启用 Actor fallback。',
+      status: '待付费验证', tone: 'warning', action: 'none',
+    },
+    setup_activation_approval_required: {
+      title: '单路 fallback 验证通过',
+      description: '确认后以 1/3 fallback 运行；YouTube 原生 Atom 仍是主链路，系统不会自动补更多 Actor。',
+      status: '待生效', tone: 'success', action: 'approve_activation', cta: '查看并确认启用',
+    },
+    probation_observing: {
+      title: 'Actor fallback 配置完成',
+      description: '单路 fallback 已验证并可运行；YouTube 原生 Atom 始终优先，额外备用只由管理员主动补充。',
+      status: '配置完成', tone: 'success', action: 'none',
+    },
+    source_validation_required: {
+      title: '有来源等待启用',
+      description: '单路 fallback 已可运行，下一步只需验证具体频道。',
+      status: '配置完成', tone: 'success', action: 'open_sources', cta: '前往来源启用',
+    },
+    complete: {
+      title: 'Actor fallback 配置完成',
+      description: 'YouTube 原生 Atom 优先，单路 Actor 仅在允许回退的故障发生时运行。',
+      status: '配置完成', tone: 'success', action: 'none',
+    },
+  }
+  return singleActorOverrides[kind] ?? standard
+}
+
 function routeProfileId(route: Pick<ApifyActorRouteSummary, 'platform' | 'target_type' | 'capability'>): string {
   return `${route.platform}/${route.target_type}/${route.capability}`
 }
 
-function sourceStatusPresentation(status: string): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' } {
+function sourceStatusPresentation(
+  status: string,
+  route?: Pick<ApifyActorRouteSummary, 'min_runtime_healthy' | 'admission_mode'> & {
+    actual_min_runtime_healthy?: number
+  },
+): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' } {
+  if (status === 'ready_1of1') {
+    return route && routeMinimumActors(route) === 1 && route.admission_mode !== 'compatibility'
+      ? { label: '已启用（1/1 fallback）', tone: 'success' }
+      : { label: '兼容启用（1/3）', tone: 'warning' }
+  }
   if (status === 'ready_2of2') return { label: '已启用（2/2）', tone: 'success' }
   if (status === 'ready_3of3') return { label: '已启用（3/3）', tone: 'success' }
   if (['queued', 'running'].includes(status)) return { label: '验证中', tone: 'warning' }
@@ -1512,6 +1688,222 @@ function guidedSlotStatus(
   return { label: '需要处理', tone: 'warning', note: '尚未完成实际验证' }
 }
 
+function SourceActorPreferenceControl({
+  detail,
+  source,
+}: {
+  detail: ApifyActorRouteDetail
+  source: ApifyActorSourceValidation
+}) {
+  const { api, user } = useAppContext()
+  const queryClient = useQueryClient()
+  const preference = source.actor_preference
+  const [draft, setDraft] = useState(preference?.preferred_candidate_id || 'automatic')
+  const options = [
+    { id: 'automatic', label: '自动选择', description: '按健康与新鲜度自动串行切换' },
+    ...(detail.slot_freshness ?? []).flatMap((slot) => (
+      slot.candidate_id && slot.actor_name
+        ? [{
+            id: slot.candidate_id,
+            label: slot.actor_name,
+            description: detail.slots.find((item) => item.slot === slot.slot_name)?.runnable === false
+              ? `${slotDisplayLabels[slot.slot_name]} · 当前因故障或旧数据暂停`
+              : `${slotDisplayLabels[slot.slot_name]} · 失败或旧数据时仍自动切备`,
+            isDisabled: detail.slots.find((item) => item.slot === slot.slot_name)?.runnable === false,
+          }]
+        : []
+    )),
+  ].filter((item, index, rows) => rows.findIndex((candidate) => candidate.id === item.id) === index)
+  const mutation = useMutation({
+    mutationFn: () => api.updateApifyActorSourcePreference(
+      source.source_id,
+      draft === 'automatic' ? null : draft,
+      source.generation,
+    ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, detail.route_id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorSourceSupport(user.id, source.source_id) })
+      actionToast.success('来源首选 Actor 已更新')
+    },
+    onError: (caught) => actionToast.danger('来源首选更新失败', {
+      description: safeActorActionError(caught, '来源或 Actor 主备已变化，请刷新后重试。'),
+    }),
+  })
+  if (!preference) return null
+  const changed = draft !== (preference.preferred_candidate_id || 'automatic')
+  return <div className="grid gap-3 rounded-control border border-separator bg-default p-3">
+    <div><p className="type-control">来源级 Actor 首选</p><p className="type-meta mt-1 text-muted">只改变本来源的调用优先级，不硬锁 Actor；旧数据、失败或暂停时仍自动切备。</p></div>
+    <div className="grid gap-3 min-[640px]:grid-cols-[minmax(0,1fr)_auto] min-[640px]:items-end">
+      <HeroSelect label="首选 Actor" value={draft} onChange={setDraft} isDisabled={mutation.isPending} options={options} />
+      <Button size="sm" isDisabled={!changed || mutation.isPending} onPress={() => mutation.mutate()}>{mutation.isPending ? '保存中…' : '保存首选'}</Button>
+    </div>
+    <p className="type-meta text-muted">当前实际使用：{preference.active_actor_name || '尚无运行记录'}{preference.preference_suspended ? ' · 首选因旧数据或故障已暂停' : ''}</p>
+  </div>
+}
+
+function ActorFreshnessPanel({ detail, queryEnabled }: { detail: ApifyActorRouteDetail; queryEnabled: boolean }) {
+  const { api, user } = useAppContext()
+  const queryClient = useQueryClient()
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const saveRef = useRef<HTMLButtonElement | null>(null)
+  const [enabled, setEnabled] = useState(Boolean(detail.freshness?.enabled))
+  const [interval, setInterval] = useState(String(detail.freshness?.interval_hours ?? 24))
+  const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false)
+  const [manualConfirmOpen, setManualConfirmOpen] = useState(false)
+  const [checkId, setCheckId] = useState('')
+  const planQuery = useQuery({
+    queryKey: queryKeys.apifyActorFreshnessPlan(user.id, detail.route_id),
+    queryFn: ({ signal }) => api.apifyActorFreshnessPlan(detail.route_id, signal),
+    enabled: queryEnabled,
+    retry: false,
+  })
+  const checkQuery = useQuery({
+    queryKey: queryKeys.apifyActorFreshnessCheck(user.id, checkId),
+    queryFn: ({ signal }) => api.apifyActorFreshnessCheck(checkId, signal),
+    enabled: queryEnabled && Boolean(checkId),
+    retry: false,
+    refetchInterval: (query) => ['queued', 'running'].includes(query.state.data?.status || '') ? 3_000 : false,
+  })
+  const numericInterval = Number(interval)
+  const intervalValid = Number.isInteger(numericInterval) && numericInterval >= 6 && numericInterval <= 168
+  const currentEnabled = Boolean(detail.freshness?.enabled)
+  const currentInterval = detail.freshness?.interval_hours ?? 24
+  const changed = enabled !== currentEnabled || numericInterval !== currentInterval
+  const saveMutation = useMutation({
+    mutationFn: () => api.updateApifyActorFreshnessSettings(detail.route_id, {
+      enabled,
+      interval_hours: numericInterval,
+      expected_generation: detail.generation,
+      standing_authorization_confirmed: enabled,
+    }),
+    onSuccess: () => {
+      setSettingsConfirmOpen(false)
+      window.requestAnimationFrame(() => saveRef.current?.focus())
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, detail.route_id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorFreshnessPlan(user.id, detail.route_id) })
+      actionToast.success(enabled ? '自动新鲜度校验已授权' : '自动新鲜度校验已关闭')
+    },
+    onError: (caught) => actionToast.danger('新鲜度设置保存失败', { description: safeActorActionError(caught, '请检查校验 Key 与 Route 状态。') }),
+  })
+  const manualMutation = useMutation({
+    mutationFn: () => api.createApifyActorFreshnessCheck(detail.route_id, {
+      cost_confirmed: true,
+      expected_generation: detail.generation,
+      max_total_charge_usd: Number(planQuery.data?.max_total_charge_usd),
+    }),
+    onSuccess: (result) => {
+      setCheckId(result.check.check_id)
+      setManualConfirmOpen(false)
+      window.requestAnimationFrame(() => triggerRef.current?.focus())
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, detail.route_id) })
+      actionToast.success('主备新鲜度校验已提交，将严格串行执行')
+    },
+    onError: (caught) => actionToast.danger('新鲜度校验未提交', { description: safeActorActionError(caught, '不会自动重试或产生新的 Actor Run。') }),
+  })
+  const state = detail.freshness
+  const validationKeyUsable = Boolean(state?.validation_key.usable)
+  const activeActorCount = detail.active_slot_count
+    ?? detail.slots.filter((slot) => Boolean(slot.revision_id) && slot.runnable).length
+  const hasActiveActor = activeActorCount > 0
+  const freshnessLabel = activeActorCount === 1 ? 'Actor 新鲜度' : '主备新鲜度'
+  const comparisonRule = activeActorCount >= 3
+    ? '三路按最新内容指纹多数结果识别落后 Actor。'
+    : activeActorCount === 2
+      ? '两路不一致先记为疑似旧数据，连续两轮才确认。'
+      : '单路只能验证可运行性和结果时效，无法进行主备交叉验证。'
+  return <Card variant="secondary" className="grid gap-4 border border-separator p-4" data-testid="actorops-freshness-panel">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><Card.Title>{freshnessLabel}</Card.Title><Card.Description className="mt-1">专用校验 Key 按同一参考账号与窗口校验；不会保存或返回明文目标。{comparisonRule}</Card.Description></div><StatusIndicator label={state?.status || '尚未校验'} tone={state?.status === 'fresh' ? 'success' : ['stale', 'failed'].includes(state?.status || '') ? 'danger' : 'warning'} /></div>
+    {!validationKeyUsable && <HeroNotice title="需要先指定专用校验 Key" status="warning">自动校验和手动立即校验均不会借用生产 Key。请在“凭据”页指定一个独占校验 Key。</HeroNotice>}
+    {!hasActiveActor && <HeroNotice title="当前没有可校验的 Actor" status="warning">先完成标准或兼容启用；没有活动 Actor 时不会创建自动或手动付费校验。</HeroNotice>}
+    <div className="grid gap-3 min-[720px]:grid-cols-[auto_minmax(120px,220px)_auto] min-[720px]:items-end">
+      <Switch isSelected={enabled} isDisabled={saveMutation.isPending} onChange={setEnabled}><Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>{enabled ? '自动校验已开启' : '自动校验已关闭'}</Switch.Content></Switch>
+      <TextField fullWidth value={interval} onChange={setInterval} isInvalid={Boolean(interval) && !intervalValid} isDisabled={saveMutation.isPending}>
+        <Label>运行间隔（小时）</Label><Input type="number" min={6} max={168} step={1} /><Description>允许 6–168 小时，默认 24。</Description>{Boolean(interval) && !intervalValid && <FieldError>请输入 6–168 的整数。</FieldError>}
+      </TextField>
+      <Button ref={saveRef} size="sm" isDisabled={!changed || !intervalValid || saveMutation.isPending || (enabled && (!validationKeyUsable || !hasActiveActor))} onPress={() => setSettingsConfirmOpen(true)}>保存并确认授权</Button>
+    </div>
+    <dl className="grid gap-2 type-meta min-[720px]:grid-cols-3"><div><dt className="text-muted">上次 / 下次</dt><dd className="mt-1">{formatActorDateTime(state?.last_checked_at ?? null)} / {formatActorDateTime(state?.next_check_at ?? null)}</dd></div><div><dt className="text-muted">单轮实际 / 上限</dt><dd className="mt-1">{formatActorUsd(state?.last_actual_cost_usd ?? null, true)} / {formatActorUsd(state?.per_round_max_usd ?? planQuery.data?.max_total_charge_usd ?? null, true)}</dd></div><div><dt className="text-muted">理论月上限</dt><dd className="mt-1">{formatActorUsd(state?.theoretical_monthly_max_usd ?? null, true)}</dd></div></dl>
+    {(detail.slot_freshness ?? []).length > 0 && <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="Actor 新鲜度摘要">{(detail.slot_freshness ?? []).map((slot) => <li key={slot.slot_name} className="min-w-0 rounded-control border border-separator bg-default p-3"><p className="type-control break-words">{slot.actor_name || slotDisplayLabels[slot.slot_name]}</p><p className="type-meta mt-1 break-words text-muted">{slot.status}{slot.follows_current_build ? ' · 跟随当前 Build' : ''}{slot.observed_manifest ? ' · 观察型 Manifest' : ''}</p><p className="type-meta mt-1 text-muted">最近内容 {formatActorDateTime(slot.latest_published_at)}</p></li>)}</ol>}
+    <div className="flex flex-wrap items-center gap-3"><Button ref={triggerRef} size="sm" variant="secondary" isDisabled={!validationKeyUsable || !hasActiveActor || manualMutation.isPending || planQuery.isPending || !planQuery.data} onPress={() => setManualConfirmOpen(true)}>立即校验{activeActorCount === 1 ? ' Actor' : '主备'}</Button>{checkQuery.data && <span className="type-meta text-muted" role="status">本轮 {checkQuery.data.status} · {checkQuery.data.completed_count}/{checkQuery.data.planned_count} · {checkQuery.data.cost_final ? `已结算 ${formatActorUsd(checkQuery.data.actual_cost_usd, true)}` : '费用待对账'}</span>}</div>
+    <Modal isOpen={settingsConfirmOpen} onOpenChange={(open) => { if (!open && !saveMutation.isPending) { setSettingsConfirmOpen(false); window.requestAnimationFrame(() => saveRef.current?.focus()) } }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">确认自动校验授权</Modal.Trigger><Modal.Backdrop isDismissable={!saveMutation.isPending} isKeyboardDismissDisabled={saveMutation.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>{enabled ? '确认站立费用授权' : '确认关闭自动校验'}</Modal.Heading></Modal.Header><Modal.Body><HeroNotice title={enabled ? `每 ${numericInterval} 小时运行一次` : '停止后续自动运行'} status="warning" role="status">{enabled ? `每轮最多 ${formatActorUsd(planQuery.data?.max_total_charge_usd ?? state?.per_round_max_usd ?? null, true)}，理论月上限 ${formatActorUsd(state?.per_round_max_usd ? state.per_round_max_usd * 24 * 30 / numericInterval : null, true)}。频率变更即替换本次授权。` : '已排队或运行中的校验不会被重放；关闭后不再创建新周期。'}</HeroNotice></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={saveMutation.isPending} onPress={() => setSettingsConfirmOpen(false)}>取消</Button><Button isDisabled={saveMutation.isPending} onPress={() => saveMutation.mutate()}>{saveMutation.isPending ? '保存中…' : enabled ? '确认授权并保存' : '确认关闭'}</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
+    <Modal isOpen={manualConfirmOpen} onOpenChange={(open) => { if (!open && !manualMutation.isPending) { setManualConfirmOpen(false); window.requestAnimationFrame(() => triggerRef.current?.focus()) } }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">确认立即校验费用</Modal.Trigger><Modal.Backdrop isDismissable={!manualMutation.isPending} isKeyboardDismissDisabled={manualMutation.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>确认立即校验{activeActorCount === 1 ? ' Actor' : '主备'}</Modal.Heading></Modal.Header><Modal.Body><HeroNotice title="严格串行，不自动重试" status="warning" role="status">本轮最多 {formatActorUsd(planQuery.data?.max_total_charge_usd ?? state?.per_round_max_usd ?? null, true)}。使用专用校验 Key；{comparisonRule}</HeroNotice></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={manualMutation.isPending} onPress={() => setManualConfirmOpen(false)}>取消</Button><Button isDisabled={manualMutation.isPending} onPress={() => manualMutation.mutate()}>{manualMutation.isPending ? '提交中…' : '确认费用并立即校验'}</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
+  </Card>
+}
+
+function ActorDiagnosticTimeline({ detail, queryEnabled }: { detail: ApifyActorRouteDetail; queryEnabled: boolean }) {
+  const { api, user } = useAppContext()
+  const routeId = detail.route_id
+  const [phase, setPhase] = useState('all')
+  const [outcome, setOutcome] = useState('all')
+  const [sourceId, setSourceId] = useState('all')
+  const [candidateId, setCandidateId] = useState('all')
+  const [windowHours, setWindowHours] = useState('24')
+  const [cursor, setCursor] = useState('')
+  const sourceOptions = [
+    { id: 'all', label: '全部来源' },
+    ...(detail.source_validations ?? []).map((source) => ({
+      id: source.source_id,
+      label: sourceShortLabel(source.source_id),
+    })),
+  ]
+  const actorOptionsQuery = useQuery<ApifyActorDiagnosticEvents>({
+    queryKey: [...queryKeys.apifyActorEvents(user.id, routeId, 'actor_options', 'all', 'all', 'all', windowHours)],
+    queryFn: ({ signal }) => api.apifyActorEvents({
+      route_id: routeId,
+      since: new Date(Date.now() - Number(windowHours) * 60 * 60 * 1_000).toISOString(),
+      limit: 100,
+    }, signal),
+    enabled: queryEnabled && Boolean(routeId),
+    retry: false,
+  })
+  const actorOptions = [
+    { id: 'all', label: '全部 Actor' },
+    ...(detail.slot_freshness ?? []).flatMap((slot) => (
+      slot.candidate_id && slot.actor_name
+        ? [{ id: slot.candidate_id, label: slot.actor_name }]
+        : []
+    )),
+    ...(actorOptionsQuery.data?.events ?? []).flatMap((event) => (
+      event.candidate_id && event.actor_public_name
+        ? [{ id: event.candidate_id, label: event.actor_public_name }]
+        : []
+    )),
+  ].filter((item, index, rows) => rows.findIndex((candidate) => candidate.id === item.id) === index)
+  const query = useQuery<ApifyActorDiagnosticEvents>({
+    queryKey: [...queryKeys.apifyActorEvents(user.id, routeId, phase, outcome, sourceId, candidateId, windowHours), cursor],
+    queryFn: ({ signal }) => api.apifyActorEvents({
+      route_id: routeId,
+      source_id: sourceId === 'all' ? undefined : sourceId,
+      candidate_id: candidateId === 'all' ? undefined : candidateId,
+      phase: phase === 'all' ? undefined : phase,
+      outcome: outcome === 'all' ? undefined : outcome,
+      since: new Date(Date.now() - Number(windowHours) * 60 * 60 * 1_000).toISOString(),
+      cursor: cursor || undefined,
+      limit: 50,
+    }, signal),
+    enabled: queryEnabled && Boolean(routeId),
+    retry: false,
+  })
+  const updateFilter = (setter: (value: string) => void) => (value: string) => {
+    setter(value)
+    setCursor('')
+  }
+  return <Card variant="secondary" className="grid gap-4 border border-separator p-4" data-testid="actorops-diagnostic-timeline">
+    <div><Card.Title>ActorOps 诊断时间线</Card.Title><Card.Description className="mt-1">汇总发现、验证、费用、新鲜度、切备、Key 与人工操作；只显示安全原因码和公共 Actor 名称。</Card.Description></div>
+    <div className="grid gap-3 min-[640px]:grid-cols-2 min-[1100px]:grid-cols-5">
+      <HeroSelect label="阶段" value={phase} onChange={updateFilter(setPhase)} options={[{ id: 'all', label: '全部阶段' }, { id: 'discovery', label: '候选发现' }, { id: 'metadata', label: '元数据检查' }, { id: 'compatibility_metadata', label: '兼容预检' }, { id: 'static_validation', label: '静态检查' }, { id: 'input_validation', label: '输入检查' }, { id: 'canary', label: 'Canary' }, { id: 'freshness', label: '新鲜度' }, { id: 'source_preference', label: '来源首选' }, { id: 'validation_key', label: '校验 Key' }]} />
+      <HeroSelect label="结果" value={outcome} onChange={updateFilter(setOutcome)} options={[{ id: 'all', label: '全部结果' }, { id: 'succeeded', label: '成功' }, { id: 'failed', label: '失败' }, { id: 'queued', label: '已排队' }, { id: 'skipped', label: '已跳过' }]} />
+      <HeroSelect label="来源" value={sourceId} onChange={updateFilter(setSourceId)} options={sourceOptions} />
+      <HeroSelect label="Actor" value={candidateId} onChange={updateFilter(setCandidateId)} options={actorOptions} />
+      <HeroSelect label="时间范围" value={windowHours} onChange={updateFilter(setWindowHours)} options={[{ id: '24', label: '最近 24 小时' }, { id: '168', label: '最近 7 天' }, { id: '720', label: '最近 30 天' }]} />
+    </div>
+    {query.isPending && <LoadingState label="正在读取诊断事件" rows={3} />}
+    {query.isError && <HeroNotice title="诊断时间线读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice>}
+    {query.data && (query.data.events.length ? <ol className="grid gap-2">{query.data.events.map((event) => <li key={event.event_id} className="min-w-0 rounded-control border border-separator bg-default p-3"><div className="flex flex-wrap items-start justify-between gap-2"><p className="type-control break-words">{event.actor_public_name || event.phase}</p><StatusIndicator label={event.outcome} tone={event.outcome === 'succeeded' ? 'success' : event.outcome === 'failed' ? 'danger' : 'warning'} /></div><p className="type-meta mt-1 break-words text-muted">{event.phase} · {event.reason_code || '无原因码'} · {formatActorDateTime(event.created_at)}</p><p className="type-meta mt-1 break-words text-muted">次数 {event.occurrence_count}{event.final_cost_usd !== null ? ` · 最终费用 ${formatActorUsd(event.final_cost_usd, true)}` : ''}{event.job_id ? ` · Job ${event.job_id.slice(-8)}` : ''}</p></li>)}</ol> : <HeroNotice title="当前筛选下没有事件" status="default">默认查看最近 24 小时，数据库最多保留 30 天。</HeroNotice>)}
+    {query.data && <div className="flex items-center justify-between gap-3"><Button size="sm" variant="ghost" isDisabled={!cursor} onPress={() => setCursor('')}>返回最新</Button><Button size="sm" variant="ghost" isDisabled={!query.data.next_cursor} onPress={() => setCursor(query.data?.next_cursor || '')}>下一页</Button></div>}
+  </Card>
+}
+
 export function HeroActorOpsControlPlane({
   queryEnabled = true,
   operationsContent,
@@ -1537,6 +1929,11 @@ export function HeroActorOpsControlPlane({
   const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false)
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false)
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[] | null>(null)
+  const [submittedDiscovery, setSubmittedDiscovery] = useState<{
+    routeId: string
+    runId: string
+    previousRunId: string
+  } | null>(null)
   const [candidateProfileDrafts, setCandidateProfileDrafts] = useState<Record<string, CandidateProfileDraft>>({})
   const [candidateError, setCandidateError] = useState<HumanActorError | null>(null)
   const [batchTarget, setBatchTarget] = useState<CanaryBatchApprovalTarget | null>(null)
@@ -1577,7 +1974,7 @@ export function HeroActorOpsControlPlane({
   const detailQuery = useQuery({
     queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId),
     queryFn: ({ signal }) => api.apifyActorRoute(selectedRouteId, signal),
-    enabled: queryEnabled && Boolean(selectedRouteId) && tab !== 'operations',
+    enabled: queryEnabled && Boolean(selectedRouteId),
     retry: false,
     refetchInterval: (current) => {
       const kind = current.state.data?.workflow?.kind || ''
@@ -1586,9 +1983,43 @@ export function HeroActorOpsControlPlane({
   })
   const detail = detailQuery.data
   const workflow = detail?.workflow ?? selectedSummary?.workflow
-  const next = workflowPresentation[workflow?.kind || ''] ?? unknownWorkflowPresentation
-  const workflowFailure = workflowFailureNotice(workflow?.progress)
+  const minimumActors = detail
+    ? routeMinimumActors(detail)
+    : selectedSummary
+      ? routeMinimumActors(selectedSummary)
+      : 2
+  const next = routeWorkflowPresentation(workflow?.kind || '', minimumActors)
   const candidateGoal: ApifyActorPoolGoal = workflow?.goal || 'initial_pool'
+  const workflowFailure = workflowFailureNotice(workflow?.progress, candidateGoal)
+  const submittedDiscoveryRunId = submittedDiscovery?.routeId === selectedRouteId
+    ? submittedDiscovery.runId
+    : ''
+  const workflowDiscoveryRunId = workflow?.run_id || ''
+  const workflowAdvancedPastSubmission = Boolean(
+    submittedDiscoveryRunId
+    && workflowDiscoveryRunId
+    && workflowDiscoveryRunId !== submittedDiscovery?.previousRunId,
+  )
+  const trackedDiscoveryRunId = workflowAdvancedPastSubmission
+    ? workflowDiscoveryRunId
+    : submittedDiscoveryRunId || workflowDiscoveryRunId
+  const trackedDiscoveryQuery = useQuery({
+    queryKey: queryKeys.apifyActorDiscoveryRun(user.id, trackedDiscoveryRunId),
+    queryFn: ({ signal }) => api.apifyActorDiscoveryRun(trackedDiscoveryRunId, signal),
+    enabled: queryEnabled && tab === 'pool' && Boolean(trackedDiscoveryRunId),
+    retry: false,
+    refetchInterval: (current) => {
+      const status = current.state.data?.status
+      return status && terminalDiscoveryStatuses.has(status) ? false : 3_000
+    },
+  })
+  const workflowDiscoveryRunning = Boolean(workflow?.kind && /discovery_running/.test(workflow.kind))
+  const submittedDiscoveryRunning = Boolean(
+    submittedDiscoveryRunId
+    && trackedDiscoveryRunId === submittedDiscoveryRunId
+    && (!trackedDiscoveryQuery.data || !terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)),
+  )
+  const discoveryRunRunning = workflowDiscoveryRunning || submittedDiscoveryRunning
   const candidatesQuery = useQuery({
     queryKey: queryKeys.apifyActorPoolCandidates(user.id, selectedRouteId, candidateGoal),
     queryFn: ({ signal }) => api.apifyActorPoolCandidates(selectedRouteId, candidateGoal, signal),
@@ -1604,6 +2035,9 @@ export function HeroActorOpsControlPlane({
     : []
   const hasPreferredActorUpgrades = preferredCandidateIds.length > 0
   const activeSelectedCandidateIds = selectedCandidateIds ?? preferredCandidateIds
+  const selectableCandidateCount = candidatesQuery.data
+    ? candidatesQuery.data.candidates.filter((candidate) => candidate.selectable).length
+    : null
 
   const batchQuery = useQuery({
     queryKey: queryKeys.apifyActorCanaryBatch(user.id, activeBatchId),
@@ -1648,6 +2082,26 @@ export function HeroActorOpsControlPlane({
     if (!selectedSourceValid) return
     sourceDetailHeadingRef.current?.focus({ preventScroll: true })
   }, [selectedSourceId, selectedSourceValid])
+
+  useEffect(() => {
+    if (
+      !submittedDiscoveryRunId
+      || trackedDiscoveryRunId !== submittedDiscoveryRunId
+      || !trackedDiscoveryQuery.data
+      || !terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)
+    ) return
+    void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+    if (selectedRouteId) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
+    }
+  }, [
+    queryClient,
+    selectedRouteId,
+    submittedDiscoveryRunId,
+    trackedDiscoveryQuery.data,
+    trackedDiscoveryRunId,
+    user.id,
+  ])
 
   function replaceQuery(nextTab: ActorOpsTaskTab, sourceId?: string) {
     const nextParams = new URLSearchParams()
@@ -1752,13 +2206,18 @@ export function HeroActorOpsControlPlane({
         candidateGoal,
       )
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
+      setSubmittedDiscovery({
+        routeId: response.route_id,
+        runId: response.run_id,
+        previousRunId: workflow?.run_id || '',
+      })
       setCandidatePickerOpen(false)
       setSelectedCandidateIds([])
       setCandidateError(null)
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       if (selectedRouteId) void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
-      actionToast.success('正在免费更新候选，不会启动 Actor')
+      actionToast.success('已开始免费搜索，页面会自动更新进度')
     },
     onError: (caught) => setCandidateError(humanActorError(caught)),
   })
@@ -1779,7 +2238,11 @@ export function HeroActorOpsControlPlane({
         candidate_ids: activeSelectedCandidateIds,
         candidate_validation_profiles: profiles as ApifyActorValidationProfileRequest[],
         expected_generation: candidates.generation,
-        target_slot_count: 3,
+        target_slot_count: candidates.goal === 'compatibility_single'
+          ? 1
+          : candidates.goal === 'initial_pool'
+            ? candidates.required_selection_count as 2 | 3
+            : 3,
       })
     },
     onSuccess: (plan) => {
@@ -1855,7 +2318,13 @@ export function HeroActorOpsControlPlane({
             options_hash: item.validation_profile.options_hash,
           }] : []
         )),
-        target_slot_count: 3 as const,
+        target_slot_count: target.plan.target_slot_count || (
+          target.plan.goal === 'compatibility_single'
+            ? 1
+            : target.plan.goal === 'initial_pool'
+              ? minimumActors as 1 | 2 | 3
+              : 3
+        ),
       } : {}),
     }),
     onSuccess: (response) => {
@@ -1898,6 +2367,7 @@ export function HeroActorOpsControlPlane({
       queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, updated.route_id), updated)
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourceCapabilities(user.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourceTypes(user.id) })
       setActivationTarget(null)
       setActivationError(null)
       restoreFocus(activationTriggerRef)
@@ -2011,9 +2481,21 @@ export function HeroActorOpsControlPlane({
     )),
   })
 
+  const retryEvaluation = useMutation({
+    mutationFn: (evaluationId: string) => api.retryApifyActorEvaluation(evaluationId),
+    onSuccess: () => {
+      void candidatesQuery.refetch()
+      actionToast.success('已允许重新尝试一次', { description: '失败历史会保留；涉及付费时仍需重新确认。' })
+    },
+    onError: (caught) => setCandidateError(humanActorError(
+      caught,
+      '该证据指纹已重试过；Build、Schema 或价格变化后会自动重新评估。',
+    )),
+  })
+
   const actionPending = discovery.isPending || preparePlan.isPending || prepareManualPlan.isPending || canaryBatch.isPending
     || activatePool.isPending || updatePool.isPending || sourceCanary.isPending || sourceActivate.isPending
-    || reconcileValidation.isPending
+    || reconcileValidation.isPending || retryEvaluation.isPending
   const activePoolDraft = useMemo(() => detail ? Object.fromEntries(
     detail.slots.map((slot) => [slot.slot, slot.revision_id]),
   ) as PoolDraft : null, [detail])
@@ -2029,7 +2511,11 @@ export function HeroActorOpsControlPlane({
   const routeCapValid = Number.isFinite(routeCapValue) && routeCapValue > 0 && routeCapValue <= 100
   const routeCapChanged = Boolean(detail && routeCapValid && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9)
   const candidateRequiredCount = candidatesQuery.data?.required_selection_count
-    ?? (candidateGoal === 'complete_third' ? 1 : 3)
+    ?? (['complete_third', 'compatibility_single'].includes(candidateGoal)
+      ? 1
+      : candidateGoal === 'upgrade_legacy'
+        ? 3
+        : minimumActors)
   const selectedCandidates = activeSelectedCandidateIds.map((candidateId) => (
     candidatesQuery.data?.candidates.find((candidate) => candidate.candidate_id === candidateId)
   )).filter((candidate): candidate is ApifyActorPoolCandidate => Boolean(candidate))
@@ -2046,7 +2532,8 @@ export function HeroActorOpsControlPlane({
     : pendingSourceCount
   const candidateShortfall = Boolean(
     workflow?.blockers?.includes('candidate_shortfall')
-    && next.action === 'start_discovery',
+    && next.action === 'start_discovery'
+    && workflow?.kind !== 'compatibility_operational'
   )
   const eligibleCandidateCount = typeof workflow?.progress?.eligible_candidate_count === 'number'
     ? Math.max(0, Math.trunc(workflow.progress.eligible_candidate_count))
@@ -2056,29 +2543,48 @@ export function HeroActorOpsControlPlane({
     : typeof workflow?.progress?.required_success_count === 'number'
       ? Math.max(1, Math.trunc(workflow.progress.required_success_count))
     : null
-  const nextTitle = workflow?.kind === 'source_validation_required' && workflowPendingSourceCount > 0
+  const trackedDiscovery = trackedDiscoveryQuery.data
+  const trackedDiscoveryProgress = trackedDiscoveryQuery.isError
+    ? '暂时未读到进度，仍锁定重复提交并等待自动重试'
+    : trackedDiscovery?.queries_limit
+      ? `已完成 ${trackedDiscovery.queries_completed ?? 0}/${trackedDiscovery.queries_limit} 轮查询`
+      : '正在准备候选检查'
+  const youtubeOptionalThirdShortfall = candidateShortfall
+    && workflow?.goal === 'complete_third'
+    && selectedProfileId === 'youtube/channel/items'
+  const nextTitle = submittedDiscoveryRunning
+    ? '正在免费搜索候选'
+    : workflow?.kind === 'source_validation_required' && workflowPendingSourceCount > 0
     ? `有 ${workflowPendingSourceCount} 个来源等待启用`
     : candidateShortfall
       ? workflow?.goal === 'upgrade_legacy'
         ? '当前 Actor 尚未全部升级'
-        : workflow?.goal === 'complete_third'
-          ? '第三路备用候选不足'
+        : youtubeOptionalThirdShortfall
+          ? '本轮已完成，未找到新的第三路备用'
+          : workflow?.goal === 'complete_third'
+            ? '本轮已完成，第三路备用候选不足'
           : '主备候选不足'
     : next.title
-  const nextDescription = candidateShortfall
+  const nextDescription = discoveryRunRunning
+    ? `${trackedDiscoveryProgress}。页面每 3 秒自动刷新；完成后会显示找到的候选和失败原因，无需再次点击。`
+    : candidateShortfall
     ? workflow?.goal === 'upgrade_legacy'
-      ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；只有某个明确失败时，才需要选择替代者。免费检查不会启动 Actor。'
+      ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；任一 Actor 未通过就停止，不选择替补。免费检查不会启动 Actor。'
+      : youtubeOptionalThirdShortfall
+        ? `${trackedDiscovery?.updated_at ? `完成于 ${formatActorDateTime(trackedDiscovery.updated_at)}。` : ''}本轮找到 ${eligibleCandidateCount ?? 0}/${requiredSuccessCount ?? 1} 个符合条件的候选。YouTube 仍优先使用 Atom Feed，已有 fallback 不受影响；第三路是可选备份。相同 Actor / Build 的失败已记录，立即重复搜索不会改变结果。`
       : `${eligibleCandidateCount !== null && requiredSuccessCount !== null
         ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
-        : '当前符合条件的候选还不足。'}已通过的候选会保留；继续免费搜索不会启动 Actor 或产生费用。`
+        : '当前符合条件的候选还不足。'}本轮已终结，已通过的候选会保留。请先查看候选与失败原因；只在 Actor / Build 证据变化后再发起新检查。`
     : next.description
-  const nextCta = candidateShortfall
-    ? workflow?.goal === 'upgrade_legacy' ? '查看当前 Actor 升级状态' : '继续免费搜索候选'
+  const nextCta = discoveryRunRunning
+    ? null
+    : candidateShortfall
+    ? workflow?.goal === 'upgrade_legacy' ? '查看当前 Actor 升级状态' : '查看候选与失败原因'
     : next.cta
 
   function performNextAction() {
     if (actionPending) return
-    if (candidateShortfall && workflow?.goal === 'upgrade_legacy') {
+    if (candidateShortfall) {
       setSelectedCandidateIds(null)
       setCandidateError(null)
       setCandidatePickerOpen(true)
@@ -2134,6 +2640,7 @@ export function HeroActorOpsControlPlane({
           label="抓取类型"
           value={selectedProfileId}
           onChange={(value) => {
+            setSubmittedDiscovery(null)
             setCandidatePickerOpen(false)
             setSelectedCandidateIds([])
             setCandidateError(null)
@@ -2212,14 +2719,14 @@ export function HeroActorOpsControlPlane({
                 <div className="flex flex-col gap-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
                   <div className="min-w-0"><Card.Title>{nextTitle}</Card.Title><Card.Description className="mt-1 max-w-3xl">{nextDescription}</Card.Description></div>
                   {nextCta && <Button
-                    ref={next.action === 'select_candidates' ? candidateTriggerRef : next.action === 'approve_canary' ? batchTriggerRef : next.action === 'approve_activation' ? activationTriggerRef : undefined}
+                    ref={candidateShortfall || next.action === 'select_candidates' ? candidateTriggerRef : next.action === 'approve_canary' ? batchTriggerRef : next.action === 'approve_activation' ? activationTriggerRef : undefined}
                     className="w-full shrink-0 min-[720px]:w-auto"
                     isDisabled={actionPending}
                     onPress={performNextAction}
                   >{actionPending ? '处理中…' : nextCta}</Button>}
                 </div>
                 {workflowFailure && <HumanActorErrorNotice error={workflowFailure} />}
-                {workflow?.kind && /(setup|backup_2|legacy)_(discovery|candidate|canary|activation)/.test(workflow.kind) && <div className="grid gap-2 border-t border-separator pt-3 type-meta text-muted min-[640px]:grid-cols-3" aria-label="配置流程">
+                {workflow?.kind && /(setup|backup_2|legacy|compatibility)_(discovery|candidate|canary|activation)/.test(workflow.kind) && <div className="grid gap-2 border-t border-separator pt-3 type-meta text-muted min-[640px]:grid-cols-3" aria-label="配置流程">
                   <span>1. 手选安全候选（免费）</span><span>2. 付费验证（确认 1/2）</span><span>3. 生效（确认 2/2）</span>
                 </div>}
               </Card>
@@ -2277,7 +2784,7 @@ export function HeroActorOpsControlPlane({
               {sourceRows.length === 0 ? <SettingsGroup ariaLabel="Actor 来源空状态"><SettingsItem label="还没有需要 Actor 验证的来源" description="先在来源页添加 X 或 Instagram 账号；创建后会自动出现在这里。" icon={<Icons.Plus size={17} aria-hidden="true" />} to="/subscriptions" /></SettingsGroup> : <SettingsGroup ariaLabel="Actor 来源启用列表">
                 {sourceRows.map((row) => {
                   const source = sourceCatalog.get(row.source_id)
-                  const status = sourceStatusPresentation(row.binding_status)
+                  const status = sourceStatusPresentation(row.binding_status, detail)
                   return <SettingsItem key={row.source_id} density="compact" label={source?.display_name || sourceShortLabel(row.source_id)} description={source ? sourceShortLabel(row.source_id) : '已脱敏来源；真实目标不会在此显示'} icon={<Icons.RadioTower size={17} aria-hidden="true" />} trailing={<div className="flex items-center gap-2"><StatusIndicator label={status.label} tone={status.tone} /><Button size="sm" variant="ghost" onPress={() => replaceQuery('sources', row.source_id)}>{status.tone === 'success' ? '查看' : '继续验证'}</Button></div>} />
                 })}
               </SettingsGroup>}
@@ -2287,6 +2794,11 @@ export function HeroActorOpsControlPlane({
                 {sourceSupportQuery.data && <>
                   <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源主备验证槽位">{sourceSupportQuery.data.slots.map((slot) => <li key={slot.slot} className="rounded-control border border-separator bg-default p-3"><p className="type-control">{slotDisplayLabels[slot.slot]}</p><p className="type-meta mt-1 text-muted">{slot.status === 'passed' ? '已通过' : ['queued', 'running'].includes(slot.status) ? '验证中' : slot.status === 'blocked' ? '需先升级主备' : slot.status === 'failed' ? '需要处理' : '待验证'} · {formatActorDateTime(slot.last_canary_at ?? null)}</p></li>)}</ol>
                   <p className="type-meta text-muted">实际费用 {formatActorUsd(sourceSupportQuery.data.spent_usd, true)} · 已预留 {formatActorUsd(sourceSupportQuery.data.reserved_usd, true)} · 剩余 {formatActorUsd(sourceSupportQuery.data.remaining_budget_usd, true)}</p>
+                  {sourceRows.find((row) => row.source_id === selectedSourceId) && <SourceActorPreferenceControl
+                    key={`${selectedSourceId}:${sourceRows.find((row) => row.source_id === selectedSourceId)?.generation}:${sourceRows.find((row) => row.source_id === selectedSourceId)?.actor_preference?.preferred_candidate_id || 'automatic'}`}
+                    detail={detail}
+                    source={sourceRows.find((row) => row.source_id === selectedSourceId) as ApifyActorSourceValidation}
+                  />}
                   {(() => {
                     const nextAction = sourceSupportQuery.data.next_action
                     if (nextAction?.kind === 'upgrade_pool_required') return <HeroNotice title="先升级 Actor 主备" status="warning" role="alert"><p>当前兼容 Actor 没有固定 Build，无法安全验证这个来源；继续提交也不会成功。</p><p className="mt-1"><strong>影响：</strong>没有启动新的 Actor，现有抓取继续运行。</p><p className="mt-1"><strong>下一步：</strong>回到主备配置升级原 Actor，升级生效后再验证来源。</p><Button className="mt-3" size="sm" variant="secondary" onPress={() => replaceQuery('pool')}>前往主备配置</Button></HeroNotice>
@@ -2308,6 +2820,13 @@ export function HeroActorOpsControlPlane({
           {tab === 'operations' && <div className="grid gap-4">
             <p className="type-body">查看所选抓取类型的运行状态；告警设置适用于整个工作区的 ActorOps。</p>
             <Card variant="secondary" className="grid gap-3 border border-separator p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><Card.Title>运行状态</Card.Title><Card.Description className="mt-1">{selectedSummary.runnable_slots}/3 路可用 · {selectedSummary.mode === 'fallback' ? '原生优先，Actor 回退' : 'Actor 主链路'} · 单次上限 {formatActorUsd(selectedSummary.per_run_cap_usd)}</Card.Description></div><StatusIndicator label={next.status} tone={next.tone} /></div><div><Button size="sm" variant="ghost" isDisabled={routesQuery.isFetching} onPress={() => void routesQuery.refetch()}><Icons.RefreshCw size={14} className={routesQuery.isFetching ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />刷新状态</Button></div></Card>
+            {detailQuery.isPending && <LoadingState label="正在读取新鲜度与诊断状态" rows={2} />}
+            {detail && <ActorFreshnessPanel
+              key={`${detail.route_id}:${detail.generation}:${detail.freshness?.enabled}:${detail.freshness?.interval_hours}`}
+              detail={detail}
+              queryEnabled={queryEnabled && tab === 'operations'}
+            />}
+            {detail && <ActorDiagnosticTimeline key={detail.route_id} detail={detail} queryEnabled={queryEnabled && tab === 'operations'} />}
             {operationsContent}
           </div>}
         </Tabs.Panel>
@@ -2324,15 +2843,33 @@ export function HeroActorOpsControlPlane({
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 候选列表</Modal.Trigger>
       <Modal.Backdrop isDismissable={!prepareManualPlan.isPending && !discovery.isPending} isKeyboardDismissDisabled={prepareManualPlan.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : '选择 3 个 Actor'}</Modal.Heading></Modal.Header>
+        <Modal.Header><Modal.Heading>{candidateGoal === 'compatibility_single' ? '降低要求：选择 1 个兼容 Actor' : candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : `选择 ${candidateRequiredCount} 个 Actor`}</Modal.Heading></Modal.Header>
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
+          {discoveryRunRunning && <HeroNotice title="正在搜索，无需重复点击" status="warning" role="status">
+            {trackedDiscoveryProgress}。完成后页面会自动显示新候选或明确的失败原因。
+          </HeroNotice>}
+          {!discoveryRunRunning && trackedDiscovery && terminalDiscoveryStatuses.has(trackedDiscovery.status) && <HeroNotice title="最近一轮免费搜索已结束" status="default" role="status">
+            完成于 {formatActorDateTime(trackedDiscovery.updated_at ?? null)} · 查询 {trackedDiscovery.queries_completed ?? 0}/{trackedDiscovery.queries_limit ?? 0} 轮 · 本轮记录 {trackedDiscovery.candidate_count ?? trackedDiscovery.candidates.length} 个原始候选{selectableCandidateCount !== null ? `，当前 ${selectableCandidateCount} 个可选择` : ''}。原始候选仍可能因固定版本、输入、输出或失败记忆而不可选择；立即重复搜索不会让它通过。只有确认 Store 中的 Actor / Build 已更新后，才需要再次检查。
+          </HeroNotice>}
           <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy'
             ? hasPreferredActorUpgrades
-              ? '上面的当前 Actor 已排在最前并自动选中。若某个当前 Actor 明确无法升级，只为那个缺口选替代项。'
+              ? '可安全升级的当前 Actor 已自动选中。只允许这 3 个当前 Actor；任一未通过就停止。'
               : candidatesQuery.data
-                ? '上面的当前 Actor 已列在最前。点击“重新检查当前 Actor（免费）”会为它们生成安全新版；只有未通过检查的位置才需要换人。'
-                : '系统会先列出上面的当前 Actor；只有无法形成安全新版的位置才需要换人。'
-            : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。你只选择成员，服务端负责安全槽位顺序和固定版本。'}</HeroNotice>
+                ? '上面的 3 个当前 Actor 已列出。确认 Actor / Build 已更新后再次检查，只会生成它们的安全新版，不会寻找替补。'
+                : '系统只检查上面的 3 个当前 Actor；无法形成安全新版时保持兼容池并停止。'
+            : candidateGoal === 'compatibility_single'
+              ? '这是明确的功能优先降级：单个实测可用 Actor 即可启用，但没有主备冗余；选择本身免费，付费 Canary 和最终生效仍分别确认。'
+            : minimumActors === 1
+              ? '系统已经按当前抓取类型和费用上限完成免费筛选。1 个 Actor 即可作为故障 fallback；不会自动追逐第二或第三路。'
+              : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。2 个不同发布者即可标准启用；第三路可在运行后由管理员主动补充。'}</HeroNotice>
+          {candidateGoal === 'upgrade_legacy' && <dl className="grid gap-3 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+            <div><dt className="type-control">可扩大召回</dt><dd className="mt-1 text-muted">直接检查当前 Primary、Backup 1、Backup 2；最多 3 个内容导向查询；有效候选检查上限 30；可信空结果样本只允许从 1 扩到 3。</dd></div>
+            <div><dt className="type-control">不可放宽底线</dt><dd className="mt-1 text-muted">必须公开可运行、精确成功 Build、输入与 Dataset Schema 可验证、Manifest 路径真实、单次不超过 $0.02；3 个 Actor 必须唯一且至少两个发布者，付费 Canary 必须返回有效内容或可信空结果。</dd></div>
+          </dl>}
+          {candidateGoal === 'compatibility_single' && <dl className="grid gap-3 rounded-control border border-warning/50 bg-surface-secondary p-3 type-meta">
+            <div><dt className="type-control">本次明确放宽</dt><dd className="mt-1 text-muted">Actor 数量、发布者多样性，以及 Canary 前必须具备 Store Schema、Tagged Build、可证明 Manifest。</dd></div>
+            <div><dt className="type-control">仍不可绕过</dt><dd className="mt-1 text-muted">公开可运行、受控目标输入、身份与发布时间、正文及占位检查、真实非空参考输出、每次最多 $0.02、费用展示和两次人工确认。</dd></div>
+          </dl>}
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}
           {candidatesQuery.data && <>
@@ -2353,9 +2890,11 @@ export function HeroActorOpsControlPlane({
                 ].includes(failure.code)
                 return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
                   <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
-                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 可调单次上限最高 {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
+                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · {candidateGoal === 'upgrade_legacy' ? '固定单次上限' : '可调单次上限最高'} {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
                   </Checkbox>
                   {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">{candidate.existing_actor_upgrade ? '当前状态：' : '不可选择：'}{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
+                  {candidate.compatibility_warnings?.length ? <p className="type-meta mt-2 break-words pl-7 text-warning">兼容风险：{candidate.compatibility_warnings.join(' · ')}</p> : null}
+                  {candidate.evaluation_history && <div className="mt-3 flex flex-col gap-2 rounded-control border border-separator bg-default p-3 type-meta min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between"><p className="break-words text-muted">曾失败 {candidate.evaluation_history.attempt_count} 次 · {candidate.evaluation_history.reason_code} · 最近 {formatActorDateTime(candidate.evaluation_history.last_seen_at)}</p><Button size="sm" variant="secondary" isDisabled={candidate.evaluation_history.attempt_count > 1 || Boolean(candidate.evaluation_history.retry_requested_at) || retryEvaluation.isPending} onPress={() => candidate.evaluation_history && retryEvaluation.mutate(candidate.evaluation_history.evaluation_id)}>{candidate.evaluation_history.attempt_count > 1 ? '一次性重试已用完' : candidate.evaluation_history.retry_requested_at ? '已申请重新尝试' : '重新尝试一次'}</Button></div>}
                   {failure && <div className="mt-3 grid gap-3 rounded-control border border-warning/40 bg-default p-3">
                     <div className="type-meta">
                       <p className="type-control text-warning">{failure.code === 'apify_actor_run_timed_out'
@@ -2372,22 +2911,32 @@ export function HeroActorOpsControlPlane({
                       <p className="mt-1 text-muted">耗时 {failure.duration_seconds ?? 0} 秒 · Dataset {failure.dataset_row_count ?? '未知'} 条 · {failure.cost_final ? `已结算 ${formatActorUsd(failure.actual_cost_usd, true)}` : '费用待对账'}</p>
                       <p className="mt-1 text-muted">当前参数：等待 {failure.timeout_seconds} 秒 · 样本 {failure.sample_items} 条 · 单次上限 {formatActorUsd(failure.max_charge_usd, true)}</p>
                       <p className="mt-2"><strong>下一步：</strong>{failure.code === 'apify_actor_run_timed_out'
-                        ? failure.timeout_seconds < 900
+                        ? candidateGoal === 'upgrade_legacy'
+                          ? '当前 Actor 的升级在这里停止；不能通过提价、延长等待或更换 Actor 绕过。'
+                          : failure.timeout_seconds < 900
                           ? '增加等待时间；如果 Actor 需要更高启动预算，再同步提高单次费用上限。'
                           : '等待时间已经是 15 分钟上限，请选择另一个候选。'
                         : ['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code)
-                          ? candidate.validation_options?.supports_sample_items
-                            ? failure.sample_items < 5
+                          ? candidateGoal === 'upgrade_legacy'
+                            ? candidate.validation_options?.supports_sample_items && failure.sample_items < 3
+                              ? '保持 300 秒等待和 $0.02 上限，只把验证样本从 1 扩大到 3。'
+                              : '3 条样本仍未通过，当前 Actor 的升级停止；不扩大到 5、不换 Actor。'
+                            : candidate.validation_options?.supports_sample_items
+                              ? failure.sample_items < 5
                               ? '延长等待无效；把验证样本扩大到 3 或 5 条。'
                               : '已经使用 5 条最大样本，延长等待无效；请选择另一个候选。'
-                            : '这个 Actor 不支持扩大样本，请选择另一个候选。'
+                              : '这个 Actor 不支持扩大样本，请选择另一个候选。'
                           : statusReadFailure
                             ? '免费重新读取同一个 Run 和 Dataset，不会重新启动 Actor。'
                             : contractFailure
-                              ? '免费更新当前抓取类型的候选并重新生成字段映射；仍不匹配就换 Actor。'
-                              : '请选择另一个候选；系统不会原样重复付费。'}</p>
+                              ? candidateGoal === 'upgrade_legacy'
+                                ? '可免费重新检查同一个当前 Actor；仍不匹配就停止升级，不换 Actor。'
+                                : '免费更新当前抓取类型的候选并重新生成字段映射；仍不匹配就换 Actor。'
+                              : candidateGoal === 'upgrade_legacy'
+                                ? '当前 Actor 的升级停止；系统不会原样重复付费或换 Actor。'
+                                : '请选择另一个候选；系统不会原样重复付费。'}</p>
                     </div>
-                    {failure.code === 'apify_actor_run_timed_out' && failure.timeout_seconds < 900 && <div className="grid gap-3 min-[640px]:grid-cols-2">
+                    {candidateGoal !== 'upgrade_legacy' && failure.code === 'apify_actor_run_timed_out' && failure.timeout_seconds < 900 && <div className="grid gap-3 min-[640px]:grid-cols-2">
                       <TextField fullWidth value={draft.timeoutSeconds} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'timeoutSeconds', value)} isDisabled={!selected || prepareManualPlan.isPending}>
                         <Label>等待时间（秒）</Label><Input type="number" min={180} max={900} step={60} /><Description>只对新计划生效；范围 180–900 秒。</Description>
                       </TextField>
@@ -2395,20 +2944,20 @@ export function HeroActorOpsControlPlane({
                         <Label>单次费用上限（USD）</Label><Input type="number" min={0.000001} max={0.10} step={0.005} /><Description>不会自动放宽，最高 $0.10。</Description>
                       </TextField>
                     </div>}
-                    {['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code) && candidate.validation_options?.supports_sample_items && failure.sample_items < 5 && <HeroSelect label="验证样本数" value={draft.sampleItems} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'sampleItems', value)} isDisabled={!selected || prepareManualPlan.isPending} options={candidate.validation_options.allowed_sample_items.map((value) => ({ id: String(value), label: `${value} 条` }))} />}
+                    {['suspicious_empty', 'apify_actor_suspicious_empty'].includes(failure.code) && candidate.validation_options?.supports_sample_items && (candidateGoal === 'upgrade_legacy' ? failure.sample_items < 3 : failure.sample_items < 5) && <HeroSelect label="验证样本数" value={draft.sampleItems} onChange={(value) => updateCandidateProfile(candidate.candidate_id, 'sampleItems', value)} isDisabled={!selected || prepareManualPlan.isPending} options={candidate.validation_options.allowed_sample_items.map((value) => ({ id: String(value), label: `${value} 条` }))} />}
                     {statusReadFailure && <Button size="sm" variant="secondary" isDisabled={reconcileValidation.isPending} onPress={() => reconcileValidation.mutate(candidate.candidate_id)}>{reconcileValidation.isPending ? '正在核对…' : '重新核对运行状态（免费）'}</Button>}
                     {contractFailure && <Button size="sm" variant="secondary" isDisabled={discovery.isPending} onPress={() => discovery.mutate()}>{discovery.isPending ? '正在更新候选与字段映射…' : '更新候选与字段映射（免费）'}</Button>}
                     {candidate.requires_profile_change && selected && !candidateHasUsefulProfileChange(candidate) && <p className="type-meta text-danger" role="alert">必须按上面的建议修改参数，原样验证已被禁止。</p>}
                   </div>}
                 </div>
               })}
-            </div> : <HeroNotice title="暂时没有可选 Actor" status="warning">当前没有同时满足来源能力、发布者分散和费用上限的候选。现有线路不会改变。</HeroNotice>}
+            </div> : <HeroNotice title="暂时没有可选 Actor" status="warning">{candidateGoal === 'upgrade_legacy' ? '当前 3 个 Actor 尚未全部满足安全升级条件。升级已停止，现有兼容池不会改变。' : candidateGoal === 'compatibility_single' ? '当前没有满足公开可运行、受控输入和 $0.02 硬底线的候选。可继续免费扩大召回。' : '当前没有同时满足来源能力、发布者分散和费用上限的候选。现有线路不会改变。'}</HeroNotice>}
           </>}
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
         </div></Modal.Body>
         <Modal.Footer>
           <Button variant="ghost" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
-          <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => discovery.mutate()}>{candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : '重新检查当前 Actor（免费）' : discovery.isPending ? '正在更新…' : '更新候选（免费）'}</Button>
+          <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending || discoveryRunRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : 'Actor / Build 已更新，再检查（免费）' : discovery.isPending ? '正在更新…' : candidateGoal === 'compatibility_single' ? '候选证据已更新，再检查（免费）' : 'Actor / Build 已更新，再检查（免费）'}</Button>
           <Button isDisabled={!candidateSelectionComplete || prepareManualPlan.isPending || discovery.isPending} onPress={() => prepareManualPlan.mutate()}>{prepareManualPlan.isPending ? '正在核对…' : '继续'}</Button>
         </Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
@@ -2419,8 +2968,8 @@ export function HeroActorOpsControlPlane({
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开付费验证确认</Modal.Trigger>
       <Modal.Backdrop isDismissable={!canaryBatch.isPending} isKeyboardDismissDisabled={canaryBatch.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>验证所选 Actor</Modal.Heading></Modal.Header>
-        <Modal.Body><div className="grid gap-3" aria-busy={canaryBatch.isPending}><HeroNotice title="严格串行，并受总费用上限保护" status="warning" role="status">这是确认 1/2。验证通过并确认生效前，当前配置不会改变；未启动或不再需要的项费用为 $0。</HeroNotice>{batchTarget && <><dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">抓取类型</dt><dd className="mt-1">{routeProductNames[routeProfileId(batchTarget.plan)]?.label || routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)}</dd></div><div><dt className="text-muted">本批总费用上限</dt><dd className="mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div><div><dt className="text-muted">来源预验证</dt><dd className="mt-1">{batchTarget.plan.source_count ?? 0} 个已启用来源 · 最多 {batchTarget.plan.source_validation_count ?? 0} 次缺失验证</dd></div><div><dt className="text-muted">验证边界</dt><dd className="mt-1">只验证你选择的 Actor；系统不会静默换人或超出总费用上限。</dd></div></dl><ol className="grid gap-2">{batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta"><p className="type-control">{item.actor_public_name || `${item.publisher} Actor`}</p><p className="mt-1 text-muted">发布者 {item.publisher} · 单次封顶 {formatActorUsd(item.authorized_cap_usd, true)}{item.already_validated ? ' · 已有成功证据可复用' : ''}</p>{item.validation_profile && <p className="mt-1 text-muted">等待 {item.validation_profile.timeout_seconds} 秒 · 样本 {item.validation_profile.sample_items} 条 · 参数费用上限 {formatActorUsd(item.validation_profile.max_charge_usd, true)}</p>}</li>)}</ol></>}{batchError && <HumanActorErrorNotice error={batchError} />}</div></Modal.Body>
+        <Modal.Header><Modal.Heading>{batchTarget?.plan.goal === 'compatibility_single' ? '验证单路兼容 Actor' : '验证所选 Actor'}</Modal.Heading></Modal.Header>
+        <Modal.Body><div className="grid gap-3" aria-busy={canaryBatch.isPending}><HeroNotice title="严格串行，并受总费用上限保护" status="warning" role="status">这是确认 1/2。{batchTarget?.plan.goal === 'compatibility_single' ? '兼容 Canary 必须对固定公开参考账号返回真实非空内容；空结果不会通过。' : '验证通过并确认生效前，当前配置不会改变；未启动或不再需要的项费用为 $0。'}</HeroNotice>{batchTarget && <><dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">抓取类型</dt><dd className="mt-1">{routeProductNames[routeProfileId(batchTarget.plan)]?.label || routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)}</dd></div><div><dt className="text-muted">本批总费用上限</dt><dd className="mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div><div><dt className="text-muted">来源预验证</dt><dd className="mt-1">{batchTarget.plan.source_count ?? 0} 个已启用来源 · 最多 {batchTarget.plan.source_validation_count ?? 0} 次缺失验证</dd></div><div><dt className="text-muted">验证边界</dt><dd className="mt-1">只验证你选择的 Actor；系统不会静默换人或超出总费用上限。</dd></div></dl><ol className="grid gap-2">{batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta"><p className="type-control">{item.actor_public_name || `${item.publisher} Actor`}</p><p className="mt-1 text-muted">发布者 {item.publisher} · 单次封顶 {formatActorUsd(item.authorized_cap_usd, true)}{item.already_validated ? ' · 已有成功证据可复用' : ''}</p>{item.validation_profile && <p className="mt-1 text-muted">等待 {item.validation_profile.timeout_seconds} 秒 · 样本 {item.validation_profile.sample_items} 条 · 参数费用上限 {formatActorUsd(item.validation_profile.max_charge_usd, true)}</p>}</li>)}</ol></>}{batchError && <HumanActorErrorNotice error={batchError} />}</div></Modal.Body>
         <Modal.Footer><Button variant="ghost" isDisabled={canaryBatch.isPending} onPress={() => { setBatchTarget(null); setBatchError(null); restoreFocus(batchTriggerRef) }}>取消</Button><Button isDisabled={!batchTarget?.plan.ready || canaryBatch.isPending} onPress={() => batchTarget && canaryBatch.mutate(batchTarget)}>{canaryBatch.isPending ? '提交中…' : `确认验证（最高 ${formatActorUsd(batchTarget?.plan.max_total_charge_usd ?? null, true)}）`}</Button></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
@@ -2430,8 +2979,8 @@ export function HeroActorOpsControlPlane({
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开主备生效确认</Modal.Trigger>
       <Modal.Backdrop isDismissable={!activatePool.isPending} isKeyboardDismissDisabled={activatePool.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{activationTarget?.workflow?.goal === 'complete_third' ? '确认补齐备用 2' : activationTarget?.workflow?.goal === 'upgrade_legacy' ? '确认切换到新版主备' : '确认启用 Actor 主备'}</Modal.Heading></Modal.Header>
-        <Modal.Body><div className="grid gap-3" aria-busy={activatePool.isPending}><HeroNotice title="这是确认 2/2" status="warning" role="status">槽位和已预验证来源会在同一事务中生效；运行中的任务继续使用原配置。</HeroNotice>{activationTarget && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">当前方案</dt><dd className="mt-1">{activationTarget.slots.filter((slot) => slot.revision_id).length}/3 路</dd></div><div><dt className="text-muted">生效后</dt><dd className="mt-1">{activationTarget.workflow?.goal === 'complete_third' ? '补齐为 3/3，原主用与备用 1 不变' : activationTarget.workflow?.goal === 'upgrade_legacy' ? '零中断切换为新版 3/3 主备' : '启用完整 3/3 主备'}</dd></div><div><dt className="text-muted">停机影响</dt><dd className="mt-1">无停机；只有下一任务读取新配置。</dd></div></dl>}{activationError && <HumanActorErrorNotice error={activationError} />}</div></Modal.Body>
+        <Modal.Header><Modal.Heading>{activationTarget?.workflow?.goal === 'compatibility_single' ? '确认启用 1/3 兼容池' : activationTarget?.workflow?.goal === 'complete_third' ? '确认补齐备用 2' : activationTarget?.workflow?.goal === 'upgrade_legacy' ? '确认切换到新版主备' : activationTarget && routeMinimumActors(activationTarget) === 1 ? '确认启用单路 fallback' : '确认启用 Actor 主备'}</Modal.Heading></Modal.Header>
+        <Modal.Body><div className="grid gap-3" aria-busy={activatePool.isPending}><HeroNotice title="这是确认 2/2" status="warning" role="status">{activationTarget?.workflow?.goal === 'compatibility_single' ? '启用后 X 功能可用，但只有 1 路 Actor，没有主备冗余；失败时可能暂时无法抓取。' : activationTarget && routeMinimumActors(activationTarget) === 1 ? '启用后 YouTube 仍优先使用公开 Atom；这个 Actor 只作为故障 fallback，不会自动补更多 Actor。' : '槽位和已预验证来源会在同一事务中生效；运行中的任务继续使用原配置。'}</HeroNotice>{activationTarget && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta"><div><dt className="text-muted">当前方案</dt><dd className="mt-1">{activationTarget.slots.filter((slot) => slot.revision_id).length}/3 路</dd></div><div><dt className="text-muted">生效后</dt><dd className="mt-1">{activationTarget.workflow?.goal === 'compatibility_single' ? '单路兼容 1/3；后续可不停机补主备' : activationTarget.workflow?.goal === 'complete_third' ? '补齐为 3/3，原主用与备用 1 不变' : activationTarget.workflow?.goal === 'upgrade_legacy' ? '零中断切换为新版 3/3 主备' : routeMinimumActors(activationTarget) === 1 ? '启用 1/3 单路 fallback；原生 Atom 继续优先' : '启用标准 2/3 主备；第三路可后续主动补充'}</dd></div><div><dt className="text-muted">停机影响</dt><dd className="mt-1">无停机；只有下一任务读取新配置。</dd></div></dl>}{activationError && <HumanActorErrorNotice error={activationError} />}</div></Modal.Body>
         <Modal.Footer><Button variant="ghost" isDisabled={activatePool.isPending} onPress={() => { setActivationTarget(null); setActivationError(null); restoreFocus(activationTriggerRef) }}>取消</Button><Button isDisabled={!activationTarget || activatePool.isPending} onPress={() => activationTarget && activatePool.mutate(activationTarget)}>{activatePool.isPending ? '生效中…' : '确认生效'}</Button></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
@@ -2609,7 +3158,7 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
       void queryClient.invalidateQueries({
         queryKey: queryKeys.apifyActorDiscoveryRun(user.id, response.batch.discovery_run_id),
       })
-      actionToast.success('两路主备验证已提交，将严格串行执行')
+      actionToast.success('Actor 验证已提交，将严格串行执行')
     },
     onError: (caught) => {
       setBatchError(safeActorActionError(
@@ -2708,13 +3257,21 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
     }
     return next
   }, [detail, rollbackRevision, rollbackSlot])
+  const detailMinimumActors = detail
+    ? routeMinimumActors(detail)
+    : selectedSummary
+      ? routeMinimumActors(selectedSummary)
+      : 2
+  const batchTargetActors = batchTarget?.plan.target_slot_count
+    ?? batchTarget?.plan.required_success_count
+    ?? detailMinimumActors
 
   return <>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         <Card.Title>ActorOps 路由控制面</Card.Title>
         <Card.Description className="mt-1">
-          每条 Route 只需确认一次主备验证；系统串行试跑并在两路成功后停止，随后再确认启用。
+          每条 Route 按自己的最低运行槽位串行验证；达到目标后立即停止，随后再确认启用。
         </Card.Description>
       </div>
       {selectedSummary && <div className="flex flex-wrap gap-2">
@@ -2768,8 +3325,8 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
             {detail.runnable_slots}/3 可用 · {detail.publisher_count} 个发布者 · {formatActorUsd(detail.per_run_cap_usd)}/Run
           </p>
         </div>
-        {detail.runnable_slots < detail.min_runtime_healthy && <div className="mt-3">
-          <HeroNotice title="少于两个 Actor 可用，自动付费抓取已阻断" status="danger">
+        {detail.runnable_slots < detailMinimumActors && <div className="mt-3">
+          <HeroNotice title={`少于 ${detailMinimumActors} 个 Actor 可用，自动付费抓取已阻断`} status="danger">
             {detail.blocked_reason || '请先完成补位、Canary 与管理员激活。'}
           </HeroNotice>
         </div>}
@@ -2825,7 +3382,7 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
 
       <section className="border-t border-separator pt-5" aria-labelledby="actor-ops-source-validation-heading">
         <h3 id="actor-ops-source-validation-heading" className="type-page-title">来源级 Actor 验证</h3>
-        <p className="type-meta mt-1 text-muted">新来源串行验证当前实际运行的 2 或 3 个 Actor；后续补位只复验变化槽位。</p>
+        <p className="type-meta mt-1 text-muted">新来源串行验证当前实际运行的 {detail.runnable_slots} 个 Actor；后续补位只复验变化槽位。</p>
         <div className="mt-3"><SourceSupportPanel
           detail={detail}
           queryEnabled={queryEnabled}
@@ -2862,11 +3419,13 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
       <Modal.Backdrop isDismissable={!activatePool.isPending} isKeyboardDismissDisabled={activatePool.isPending}>
         <Modal.Container>
           <Modal.Dialog>
-            <Modal.Header><Modal.Heading>确认启用 Actor 主备</Modal.Heading></Modal.Header>
+            <Modal.Header><Modal.Heading>{detailMinimumActors === 1 ? '确认启用单路 Actor fallback' : '确认启用 Actor 主备'}</Modal.Heading></Modal.Header>
             <Modal.Body>
               <div className="grid gap-3" aria-busy={activatePool.isPending}>
                 <HeroNotice title="系统将在提交时重新校验候选" status="warning" role="status">
-                  不接受浏览器指定的 Revision。后端优先选择完整 2+1；暂时不足时允许两个已成功试跑、Actor 与发布者均不同的固定 Build 先以降级模式上线。
+                  {detailMinimumActors === 1
+                    ? '不接受浏览器指定的 Revision。后端只启用一个已成功试跑的 Actor 作为原生链路故障 fallback，不会自动补第二或第三路。'
+                    : '不接受浏览器指定的 Revision。后端优先选择完整 2+1；暂时不足时允许两个已成功试跑、Actor 与发布者均不同的固定 Build 先以降级模式上线。'}
                 </HeroNotice>
                 {detail && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
                   <div><dt className="text-muted">Route / 来源类型</dt><dd className="type-control mt-1 break-words">{routeIdentity(detail.platform, detail.target_type, detail.capability)} · {detail.mode === 'fallback' ? '原生优先，Actor 回退' : 'Actor 主链路'}</dd></div>
@@ -2883,7 +3442,9 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
                 onPress={() => detail && activatePool.mutate(detail)}
               >{activatePool.isPending
                 ? '启用中…'
-                : detail?.activation_recommendation?.activation_mode === 'expedited_2of3'
+                : detail?.activation_recommendation?.activation_mode === 'standard_1of1'
+                  ? '确认启用单路 fallback'
+                  : detail?.activation_recommendation?.activation_mode === 'expedited_2of3'
                   ? '确认先启用两路主备'
                   : '确认启用 Actor 主备'}</Button>
             </Modal.Footer>
@@ -2898,22 +3459,22 @@ export function LegacyHeroActorOpsControlPlane({ queryEnabled = true }: { queryE
         setBatchError('')
       }
     }}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开两路主备付费验证确认</Modal.Trigger>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 付费验证确认</Modal.Trigger>
       <Modal.Backdrop isDismissable={!canaryBatch.isPending} isKeyboardDismissDisabled={canaryBatch.isPending}>
         <Modal.Container>
           <Modal.Dialog>
-            <Modal.Header><Modal.Heading>确认付费验证两路主备</Modal.Heading></Modal.Header>
+            <Modal.Header><Modal.Heading>确认付费验证{batchTargetActors === 1 ? '单路 Actor' : '两路主备'}</Modal.Heading></Modal.Header>
             <Modal.Body>
               <div className="grid gap-3" aria-busy={canaryBatch.isPending}>
                 <HeroNotice title="一次确认，最多串行验证三个候选" status="warning" role="status">
-                  每次启动前先免费检查 Actor 与精确 Build；两位不同发布者成功后立即停止。未启动、Build 已失效或不再需要的候选费用为 $0，不计入失败次数。
+                  每次启动前先免费检查 Actor 与精确 Build；{batchTargetActors === 1 ? '一个 Actor 成功后立即停止，不自动补更多备用' : '两位不同发布者成功后立即停止'}。未启动、Build 已失效或不再需要的候选费用为 $0，不计入失败次数。
                 </HeroNotice>
                 {batchTarget && <>
                   <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
                     <div><dt className="text-muted">所属 Route / 来源类型</dt><dd className="type-control mt-1 break-words">{routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)} · <code>{batchTarget.plan.route_key}</code> · {batchTarget.plan.mode === 'fallback' ? '原生优先，Actor 回退' : 'Actor 主链路'}</dd></div>
                     <div><dt className="text-muted">本批总费用上限</dt><dd className="type-control mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div>
                     <div><dt className="text-muted">本轮剩余额度</dt><dd className="type-control mt-1 tabular-nums">还可计入 {batchTarget.plan.attempts_remaining} 次真实启动 · 费用余额 {formatActorUsd(batchTarget.plan.budget_remaining_usd, true)}</dd></div>
-                    <div><dt className="text-muted">停止条件</dt><dd className="type-control mt-1">两个不同 Actor、来自两个不同发布者且均通过内容合同。</dd></div>
+                    <div><dt className="text-muted">停止条件</dt><dd className="type-control mt-1">{batchTargetActors === 1 ? '一个 Actor 通过内容合同。' : '两个不同 Actor、来自两个不同发布者且均通过内容合同。'}</dd></div>
                   </dl>
                   <ol className="grid gap-2" aria-label="本批 Actor 验证计划">
                     {batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta">

@@ -445,7 +445,7 @@ def test_exact_schema_drift_quarantines_and_fences_route_and_binding(
         raise AssertionError("quarantined revision did not fence publication")
 
 
-def test_missing_permission_or_pricing_evidence_quarantines_revision(
+def test_youtube_fallback_remains_available_with_one_safe_revision(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -467,7 +467,7 @@ def test_missing_permission_or_pricing_evidence_quarantines_revision(
     assert ops.get_revision(revisions[0])["lifecycle"] == "quarantined"
     assert ops.get_revision(revisions[1])["lifecycle"] == "quarantined"
     current = ops.get_route(str(route["route_id"]))
-    assert current["runtime"]["allowed"] is False
+    assert current["runtime"]["allowed"] is True
     assert current["runtime"]["runnable_count"] == 1
 
 
@@ -560,5 +560,5 @@ def test_oversized_tier_prices_quarantine_instead_of_aborting_maintenance(
     assert ops.get_revision(revisions[0])["lifecycle"] == "quarantined"
     assert ops.get_revision(revisions[1])["lifecycle"] == "quarantined"
     current = ops.get_route(str(route["route_id"]))
-    assert current["runtime"]["allowed"] is False
+    assert current["runtime"]["allowed"] is True
     assert current["runtime"]["runnable_count"] == 1

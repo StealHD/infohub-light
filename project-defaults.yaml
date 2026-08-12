@@ -179,6 +179,8 @@
       "apify_actor_ops_source_validation_budget_usd": 0.06,
       "apify_actor_ops_discovery_query_rounds": 3,
       "apify_actor_ops_discovery_candidate_limit": 12,
+      "apify_actor_ops_legacy_upgrade_candidate_limit": 30,
+      "apify_actor_ops_legacy_upgrade_allowed_sample_items": [1, 3],
       "apify_actor_ops_metadata_recheck_seconds": 604800,
       "apify_actor_ops_member_support_checks_per_day": 10,
       "apify_actor_ops_pending_route_limit": 20,

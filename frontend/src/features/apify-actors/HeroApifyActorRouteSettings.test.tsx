@@ -792,7 +792,7 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(screen.getByRole('button', { name: '验证两路主备' })).toBeVisible()
     expect(screen.getByText('固定 Build 输入校验需要处理')).toBeVisible()
     expect(screen.getByText(/候选输入与固定 Build Schema 不兼容/)).toBeVisible()
-    expect(screen.getByText('1/3 Actor · 1/2 发布者；付费验证只统计真实启动')).toBeVisible()
+    expect(screen.getByText('1/2 Actor · 1/2 发布者；付费验证只统计真实启动')).toBeVisible()
     expect(within(
       screen.getByRole('list', { name: 'Actor 发现候选' }),
     ).getAllByRole('listitem')).toHaveLength(1)
@@ -942,7 +942,7 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorCanaryPlan,
     })
 
-    expect(await screen.findByText('5/3 Actor · 4/2 发布者；付费验证只统计真实启动')).toBeVisible()
+    expect(await screen.findByText('5/2 Actor · 4/2 发布者；付费验证只统计真实启动')).toBeVisible()
     await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
       'discovery-run-1',
       'initial_pool',

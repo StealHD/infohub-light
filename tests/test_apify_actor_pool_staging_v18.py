@@ -16,7 +16,9 @@ from src.services.apify_actor_ops import (
     FIRST_ACTIVATION_CONFIRMATION,
     PAID_CANARY_CONFIRMATION,
     ROUTE_POOL_ACTIVATION_CONFIRMATION,
+    actor_evidence_fingerprint,
 )
+from src.services.apify_actor_resilience import ApifyActorResilienceService
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -76,6 +78,7 @@ def _revision(
     host: str,
     discovery_run_id: str | None = None,
     lifecycle: str = "static_valid",
+    pricing: dict | None = None,
 ) -> str:
     candidate_id = ops.ensure_candidate(route_id, actor_id=actor_id)
     return ops.create_adapter_revision(
@@ -87,6 +90,7 @@ def _revision(
         manifest=_manifest(actor_id, build_number, host=host),
         input_schema_hash=hashlib.sha256(f"in:{actor_id}".encode()).hexdigest(),
         output_schema_hash=hashlib.sha256(f"out:{actor_id}".encode()).hexdigest(),
+        pricing=pricing,
         lifecycle=lifecycle,
         discovery_run_id=discovery_run_id,
     )
@@ -285,6 +289,290 @@ def test_legacy_upgrade_lists_current_actors_first_while_inspecting(
     assert workflow["run_id"] == run["run_id"]
 
 
+def test_standard_candidate_remembers_deterministic_failure_until_one_retry(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="evaluation-retry-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = ops.get_route(
+        str(_route(store, "youtube/channel/items")["route_id"])
+    )
+    run, revisions = _discovery_with_revisions(
+        store,
+        ops,
+        route,
+        (
+            ("publisher-a/youtube-a", "publisher-a"),
+            ("publisher-b/youtube-b", "publisher-b"),
+            ("publisher-c/youtube-c", "publisher-c"),
+        ),
+        host="youtube.com",
+    )
+    revision = ops.get_revision(revisions[0])
+    fingerprint = actor_evidence_fingerprint(
+        route_id=str(route["route_id"]),
+        candidate_id=str(revision["candidate_id"]),
+        actor_id=str(revision["actor_id"]),
+        build_id=str(revision["build_id"]),
+        build_number=str(revision["build_number"]),
+        manifest_hash=str(revision["manifest_hash"]),
+        pricing=revision["pricing"],
+        input_schema_hash=str(revision["input_schema_hash"]),
+        output_schema_hash=str(revision["output_schema_hash"]),
+    )
+    resilience = ApifyActorResilienceService(store)
+    evaluation = resilience.record_evaluation(
+        route_id=str(route["route_id"]),
+        candidate_id=str(revision["candidate_id"]),
+        revision_id=revisions[0],
+        evidence_fingerprint=fingerprint,
+        policy_mode="standard",
+        stage="canary",
+        outcome="failed",
+        reason_code="apify_actor_contract_mismatch",
+        deterministic=True,
+    )
+
+    listed = ops.list_pool_candidates(
+        str(route["route_id"]), goal="initial_pool"
+    )
+    remembered = next(
+        item
+        for item in listed["candidates"]
+        if item["candidate_id"] == revision["candidate_id"]
+    )
+    assert remembered["selectable"] is False
+    assert remembered["unavailable_reason"] == (
+        "actor_evaluation_deterministic_failure"
+    )
+    assert remembered["evaluation_history"]["reason_code"] == (
+        "apify_actor_contract_mismatch"
+    )
+
+    resilience.retry_evaluation_once(
+        str(evaluation["evaluation_id"]),
+        actor_user_id=str(owner["id"]),
+    )
+    retried = ops.list_pool_candidates(
+        str(route["route_id"]), goal="initial_pool"
+    )
+    candidate = next(
+        item
+        for item in retried["candidates"]
+        if item["candidate_id"] == revision["candidate_id"]
+    )
+    assert candidate["selectable"] is True
+    assert candidate["evaluation_history"]["retry_requested_at"] is not None
+    assert run["run_id"] == retried["run_id"]
+
+
+def test_legacy_upgrade_allows_only_sample_one_to_three_then_stops(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="legacy-sample-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = ops.get_route(str(_route(store, "x/profile")["route_id"]))
+    legacy_actors = tuple(
+        (str(slot["actor_id"]), str(slot["publisher"]))
+        for slot in route["slots"]
+    )
+    run, revisions = _discovery_with_revisions(
+        store,
+        ops,
+        route,
+        legacy_actors,
+        host="x.com",
+    )
+    _plan, batch = _approve_manual_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        str(run["run_id"]),
+        revisions,
+        goal="upgrade_legacy",
+        approval_id="legacy-sample-first-approval",
+    )
+    failed_validation_id = ""
+    for index, item in enumerate(batch["items"]):
+        succeeded = index != 0
+        semantic = "valid_nonempty" if succeeded else "suspicious_empty"
+        ops.record_validation(
+            str(item["validation_id"]),
+            status="succeeded" if succeeded else "failed",
+            semantic_outcome=semantic,
+            cost_usd=0.001,
+            cost_final=True,
+            counts_toward_canary=True,
+            duration_seconds=30,
+            dataset_row_count=1 if succeeded else 0,
+            mapped_item_count=1 if succeeded else 0,
+        )
+        ops.update_canary_batch_item(
+            str(batch["batch_id"]),
+            int(item["ordinal"]),
+            status="succeeded" if succeeded else "failed",
+            semantic_outcome=semantic,
+            actual_cost_usd=0.001,
+            cost_final=True,
+        )
+        if not succeeded:
+            failed_validation_id = str(item["validation_id"])
+    assert ops.prepare_pool_stage_source_validations(
+        str(batch["pool_stage_id"])
+    ) == []
+    assert ops.get_pool_stage(str(batch["pool_stage_id"]))["status"] == (
+        "replan_required"
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_validations
+        SET validation_timeout_seconds = 600
+        WHERE workspace_id = ? AND validation_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, failed_validation_id),
+    )
+    store.connect().commit()
+
+    listed = ops.list_pool_candidates(
+        str(route["route_id"]), goal="upgrade_legacy"
+    )
+    assert listed["blockers"] == []
+    failed = next(
+        candidate
+        for candidate in listed["candidates"]
+        if candidate["last_failure"] is not None
+    )
+    assert failed["selectable"] is True
+    assert failed["last_failure"]["timeout_seconds"] == 600
+    assert failed["validation_options"]["timeout_seconds"] == 300
+    assert failed["validation_options"]["allowed_sample_items"] == [1, 3]
+    assert failed["validation_options"]["max_charge_limit_usd"] == 0.02
+
+    candidate_ids = [
+        str(candidate["candidate_id"]) for candidate in listed["candidates"]
+    ]
+
+    def profiles(*, failed_sample: int = 3, failed_cap: float = 0.02):
+        return [
+            {
+                "candidate_id": str(candidate["candidate_id"]),
+                "timeout_seconds": int(
+                    candidate["validation_options"]["timeout_seconds"]
+                ),
+                "sample_items": (
+                    failed_sample
+                    if candidate["candidate_id"] == failed["candidate_id"]
+                    else int(candidate["validation_options"]["sample_items"])
+                ),
+                "max_charge_usd": (
+                    failed_cap
+                    if candidate["candidate_id"] == failed["candidate_id"]
+                    else float(candidate["validation_options"]["max_charge_usd"])
+                ),
+                "options_hash": str(
+                    candidate["validation_options"]["options_hash"]
+                ),
+            }
+            for candidate in listed["candidates"]
+        ]
+
+    retry_plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="upgrade_legacy",
+        candidate_ids=candidate_ids,
+        candidate_validation_profiles=profiles(),
+        target_slot_count=3,
+    )
+    retried = next(
+        item
+        for item in retry_plan["items"]
+        if item["candidate_id"] == failed["candidate_id"]
+    )
+    assert retried["validation_profile"]["sample_items"] == 3
+    assert retried["validation_profile"]["timeout_seconds"] == 300
+    assert retried["validation_profile"]["max_charge_usd"] == 0.02
+
+    with pytest.raises(ActorOpsError) as sample_five:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="upgrade_legacy",
+            candidate_ids=candidate_ids,
+            candidate_validation_profiles=profiles(failed_sample=5),
+            target_slot_count=3,
+        )
+    assert sample_five.value.code == "apify_actor_validation_profile_invalid"
+    with pytest.raises(ActorOpsError) as raised_cap:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="upgrade_legacy",
+            candidate_ids=candidate_ids,
+            candidate_validation_profiles=profiles(failed_cap=0.03),
+            target_slot_count=3,
+        )
+    assert raised_cap.value.code == "apify_actor_validation_profile_invalid"
+    timeout_profiles = profiles()
+    next(
+        profile
+        for profile in timeout_profiles
+        if profile["candidate_id"] == failed["candidate_id"]
+    )["timeout_seconds"] = 600
+    with pytest.raises(ActorOpsError) as raised_timeout:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="upgrade_legacy",
+            candidate_ids=candidate_ids,
+            candidate_validation_profiles=timeout_profiles,
+            target_slot_count=3,
+        )
+    assert raised_timeout.value.code == "apify_actor_validation_profile_invalid"
+    with pytest.raises(ActorOpsError) as raised_target_count:
+        ops.get_canary_plan(
+            str(run["run_id"]),
+            goal="upgrade_legacy",
+            candidate_ids=candidate_ids,
+            candidate_validation_profiles=profiles(),
+            target_slot_count=2,
+        )
+    assert raised_target_count.value.code == "apify_actor_pool_target_count_invalid"
+
+    store.connect().execute(
+        """
+        UPDATE apify_actor_validations
+        SET validation_sample_items = 3
+        WHERE workspace_id = ? AND validation_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, failed_validation_id),
+    )
+    store.connect().commit()
+    stopped = ops.list_pool_candidates(
+        str(route["route_id"]), goal="upgrade_legacy"
+    )
+    stopped_candidate = next(
+        candidate
+        for candidate in stopped["candidates"]
+        if candidate["candidate_id"] == failed["candidate_id"]
+    )
+    assert stopped_candidate["selectable"] is False
+    assert stopped_candidate["unavailable_reason"] == (
+        "actor_validation_sample_limit_reached"
+    )
+    assert stopped["blockers"] == ["candidate_shortfall"]
+
+
 def _discovery_with_revisions(
     store: ServiceStore,
     ops: ApifyActorOpsService,
@@ -292,6 +580,7 @@ def _discovery_with_revisions(
     actors: tuple[tuple[str, str], ...],
     *,
     host: str,
+    pricing_by_actor: dict[str, dict] | None = None,
 ) -> tuple[dict, list[str]]:
     run = ops.create_discovery_run(
         str(route["route_id"]),
@@ -307,6 +596,7 @@ def _discovery_with_revisions(
             build_number=f"9.0.{index}",
             host=host,
             discovery_run_id=str(run["run_id"]),
+            pricing=(pricing_by_actor or {}).get(actor_id),
         )
         for index, (actor_id, publisher) in enumerate(actors, start=1)
     ]
@@ -358,6 +648,7 @@ def _approve_manual_stage(
     *,
     goal: str,
     approval_id: str,
+    target_slot_count: int = 3,
 ) -> tuple[dict, dict]:
     candidate_ids = [
         str(
@@ -409,7 +700,7 @@ def _approve_manual_stage(
         goal=goal,
         candidate_ids=candidate_ids,
         candidate_validation_profiles=profiles,
-        target_slot_count=3,
+        target_slot_count=target_slot_count,
     )
     assert plan["ready"] is True
     references = {
@@ -423,7 +714,7 @@ def _approve_manual_stage(
         goal=goal,
         candidate_ids=candidate_ids,
         candidate_validation_profiles=profiles,
-        target_slot_count=3,
+        target_slot_count=target_slot_count,
         expected_generation=int(plan["generation"]),
         expected_plan_hash=str(plan["plan_hash"]),
         approval_id=approval_id,
@@ -1615,17 +1906,18 @@ def test_new_source_replans_only_missing_proofs_before_third_slot_apply(tmp_path
 
 
 @pytest.mark.parametrize(
-    ("route_key", "goal", "host"),
+    ("route_key", "goal", "host", "target_slot_count"),
     (
-        ("instagram/profile/items", "initial_pool", "instagram.com"),
-        ("x/profile", "upgrade_legacy", "x.com"),
+        ("instagram/profile/items", "initial_pool", "instagram.com", 2),
+        ("x/profile", "upgrade_legacy", "x.com", 3),
     ),
 )
-def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
+def test_manual_standard_two_and_legacy_three_apply_atomically(
     tmp_path,
     route_key: str,
     goal: str,
     host: str,
+    target_slot_count: int,
 ) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
@@ -1638,15 +1930,25 @@ def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
     ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
     route = ops.get_route(str(_route(store, route_key)["route_id"]))
     original_slots = [slot["revision_id"] for slot in route["slots"]]
+    actors = (
+        tuple(
+            (
+                str(slot["actor_id"]),
+                str(slot["publisher"]),
+            )
+            for slot in route["slots"]
+        )
+        if goal == "upgrade_legacy"
+        else (
+            (f"publisher-a/{goal}-primary", "publisher-a"),
+            (f"publisher-b/{goal}-backup", "publisher-b"),
+        )
+    )
     run, revisions = _discovery_with_revisions(
         store,
         ops,
         route,
-        (
-            (f"publisher-a/{goal}-primary", "publisher-a"),
-            (f"publisher-b/{goal}-backup", "publisher-b"),
-            (f"publisher-c/{goal}-backup-2", "publisher-c"),
-        ),
+        actors,
         host=host,
     )
     plan, batch = _approve_manual_stage(
@@ -1657,12 +1959,13 @@ def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
         revisions,
         goal=goal,
         approval_id=f"manual-three-{goal}-approval",
+        target_slot_count=target_slot_count,
     )
 
     assert plan["schema_version"] == 3
     assert plan["selection_mode"] == "manual"
-    assert plan["target_slot_count"] == 3
-    assert plan["required_success_count"] == 3
+    assert plan["target_slot_count"] == target_slot_count
+    assert plan["required_success_count"] == target_slot_count
     assert [slot["revision_id"] for slot in ops.get_route(route["route_id"])["slots"]] == original_slots
 
     _succeed_route_items(store, ops, batch)
@@ -1676,9 +1979,18 @@ def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
         confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
     )
 
-    assert [slot["revision_id"] for slot in applied["slots"]] == revisions
-    assert {slot["lifecycle"] for slot in applied["slots"]} == {"probationary"}
-    assert ops.workflow_state(str(route["route_id"]))["kind"] == "probation_observing"
+    assert [slot["revision_id"] for slot in applied["slots"]] == [
+        *revisions,
+        *([None] if target_slot_count == 2 else []),
+    ]
+    assert {
+        slot["lifecycle"] for slot in applied["slots"] if slot["revision_id"]
+    } == {"probationary"}
+    assert ops.workflow_state(str(route["route_id"]))["kind"] == (
+        "backup_2_discovery_required"
+        if target_slot_count == 2
+        else "probation_observing"
+    )
     pending_source_id = store.create_source(
         workspace_id=DEFAULT_WORKSPACE_ID,
         scope="workspace",
@@ -1708,7 +2020,9 @@ def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
     )
     store.connect().commit()
     assert ops.workflow_state(str(route["route_id"]))["kind"] == (
-        "probation_observing"
+        "backup_2_discovery_required"
+        if target_slot_count == 2
+        else "probation_observing"
     )
     if goal == "upgrade_legacy":
         persisted = {
@@ -1724,39 +2038,45 @@ def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
         assert persisted == {"legacy_builtin"}
 
 
-def test_legacy_workflow_requires_three_explicit_candidates_before_paid_confirmation(
+def test_legacy_workflow_keeps_partial_revisions_and_rejects_replacement_actor(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
     ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
     seeded = ops.get_route(str(_route(store, "x/profile")["route_id"]))
-    first_run, _first_revision = _discovery_with_revisions(
+    legacy_actors = tuple(
+        (str(slot["actor_id"]), str(slot["publisher"]))
+        for slot in seeded["slots"]
+    )
+    first_run, first_revisions = _discovery_with_revisions(
         store,
         ops,
         seeded,
-        (("publisher-new-a/x-primary", "publisher-new-a"),),
+        (legacy_actors[0],),
         host="x.com",
     )
 
     shortfall = ops.workflow_state(str(seeded["route_id"]))
 
-    assert shortfall["kind"] == "legacy_discovery_required"
+    assert shortfall["kind"] == "compatibility_candidate_selection_available"
+    assert shortfall["goal"] == "compatibility_single"
     assert shortfall["run_id"] == first_run["run_id"]
-    assert shortfall["progress"] == {
-        "eligible_candidate_count": 1,
-        "required_selection_count": 3,
-    }
-    assert shortfall["blockers"] == ["candidate_shortfall"]
+    assert shortfall["progress"]["eligible_candidate_count"] >= 1
+    assert shortfall["progress"]["required_selection_count"] == 1
+    assert shortfall["progress"]["strict_blockers"] == [
+        "candidate_shortfall"
+    ]
+    assert shortfall["blockers"] == []
 
     second_run, second_revisions = _discovery_with_revisions(
         store,
         ops,
         seeded,
         (
-            ("publisher-new-a/x-primary-v2", "publisher-new-a"),
-            ("publisher-new-b/x-backup", "publisher-new-b"),
-            ("publisher-new-c/x-backup-2", "publisher-new-c"),
+            legacy_actors[1],
+            legacy_actors[2],
+            ("publisher-replacement/x-not-allowed", "publisher-replacement"),
         ),
         host="x.com",
     )
@@ -1769,18 +2089,38 @@ def test_legacy_workflow_requires_three_explicit_candidates_before_paid_confirma
         "required_selection_count": 3,
     }
     assert ready["blockers"] == []
+    listed = ops.list_pool_candidates(
+        str(seeded["route_id"]), goal="upgrade_legacy"
+    )
+    assert listed["blockers"] == []
+    assert len(listed["candidates"]) == 3
+    assert all(item["existing_actor_upgrade"] for item in listed["candidates"])
+    assert {
+        item["actor_public_name"] for item in listed["candidates"]
+    } == {"ScrapeBadger", "Dami", "Xquik"}
     candidate_ids = [
-        str(
-            store.connect().execute(
-                """
-                SELECT candidate_id FROM apify_actor_adapter_revisions
-                WHERE workspace_id = ? AND revision_id = ?
-                """,
-                (DEFAULT_WORKSPACE_ID, revision_id),
-            ).fetchone()["candidate_id"]
-        )
-        for revision_id in second_revisions
+        str(candidate["candidate_id"]) for candidate in listed["candidates"]
     ]
+    retained_candidate_id = str(
+        store.connect().execute(
+            """
+            SELECT candidate_id FROM apify_actor_adapter_revisions
+            WHERE workspace_id = ? AND revision_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID, first_revisions[0]),
+        ).fetchone()["candidate_id"]
+    )
+    assert retained_candidate_id in candidate_ids
+    replacement_candidate_id = str(
+        store.connect().execute(
+            """
+            SELECT candidate_id FROM apify_actor_adapter_revisions
+            WHERE workspace_id = ? AND revision_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID, second_revisions[-1]),
+        ).fetchone()["candidate_id"]
+    )
+    assert replacement_candidate_id not in candidate_ids
     plan = ops.get_canary_plan(
         str(ready["run_id"]),
         goal="upgrade_legacy",
@@ -1801,10 +2141,7 @@ def test_legacy_workflow_requires_three_explicit_candidates_before_paid_confirma
                     candidate["validation_options"]["options_hash"]
                 ),
             }
-            for candidate in ops.list_pool_candidates(
-                str(seeded["route_id"]), goal="upgrade_legacy"
-            )["candidates"]
-            if str(candidate["candidate_id"]) in candidate_ids
+            for candidate in listed["candidates"]
         ],
         target_slot_count=3,
     )
@@ -1812,23 +2149,88 @@ def test_legacy_workflow_requires_three_explicit_candidates_before_paid_confirma
     assert plan["selection_mode"] == "manual"
     assert plan["target_slot_count"] == 3
     assert plan["required_success_count"] == 3
+    assert {item["actor_id"] for item in plan["items"]} == {
+        actor_id for actor_id, _publisher in legacy_actors
+    }
+
+    with pytest.raises(ActorOpsError) as replacement:
+        ops.get_canary_plan(
+            str(ready["run_id"]),
+            goal="upgrade_legacy",
+            candidate_ids=[
+                replacement_candidate_id,
+                candidate_ids[1],
+                candidate_ids[2],
+            ],
+            target_slot_count=3,
+        )
+    assert replacement.value.code == "apify_actor_manual_candidate_stale"
 
 
-def test_initial_route_does_not_offer_legacy_two_actor_activation(
+def test_legacy_cross_run_revision_still_obeys_the_two_cent_price_gate(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
     ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    seeded = ops.get_route(str(_route(store, "x/profile")["route_id"]))
+    legacy_actors = tuple(
+        (str(slot["actor_id"]), str(slot["publisher"]))
+        for slot in seeded["slots"]
+    )
+    expensive_actor = legacy_actors[0][0]
+    _run, _revisions = _discovery_with_revisions(
+        store,
+        ops,
+        seeded,
+        legacy_actors,
+        host="x.com",
+        pricing_by_actor={
+            expensive_actor: {
+                "pricingModel": "PAY_PER_EVENT",
+                "minimalMaxTotalChargeUsd": 0.03,
+                "pricingPerEvent": {
+                    "actorChargeEvents": {
+                        "item": {"eventPriceUsd": 0.001},
+                    }
+                },
+            }
+        },
+    )
+
+    listed = ops.list_pool_candidates(
+        str(seeded["route_id"]),
+        goal="upgrade_legacy",
+    )
+
+    assert listed["blockers"] == ["candidate_shortfall"]
+    blocked = next(
+        item
+        for item in listed["candidates"]
+        if item["unavailable_reason"] == "actor_price_above_route_cap"
+    )
+    assert blocked["existing_actor_upgrade"] is True
+    assert blocked["selectable"] is False
+
+
+def test_youtube_initial_route_activates_one_standard_fallback_actor(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="youtube-single-fallback-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
     route = ops.get_route(str(_route(store, "youtube/channel/items")["route_id"]))
-    run, _revisions = _discovery_with_revisions(
+    run, revisions = _discovery_with_revisions(
         store,
         ops,
         route,
-        (
-            ("publisher-a/initial-primary", "publisher-a"),
-            ("publisher-b/initial-backup", "publisher-b"),
-        ),
+        (("publisher-a/initial-primary", "publisher-a"),),
         host="youtube.com",
     )
     store.connect().execute(
@@ -1842,15 +2244,52 @@ def test_initial_route_does_not_offer_legacy_two_actor_activation(
 
     workflow = ops.workflow_state(str(route["route_id"]))
 
-    assert workflow["kind"] == "setup_discovery_required"
+    assert workflow["kind"] == "setup_candidate_selection_required"
     assert workflow["progress"] == {
-        "eligible_candidate_count": 2,
-        "required_selection_count": 3,
+        "eligible_candidate_count": 1,
+        "required_selection_count": 1,
     }
-    assert workflow["blockers"] == ["candidate_shortfall"]
+    assert workflow["blockers"] == []
+
+    automatic_plan = ops.get_canary_plan(str(run["run_id"]), goal="initial_pool")
+    assert automatic_plan["required_success_count"] == 1
+    assert automatic_plan["target_slot_count"] == 1
+    assert len(automatic_plan["items"]) == 1
+    plan, batch = _approve_manual_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        str(run["run_id"]),
+        revisions,
+        goal="initial_pool",
+        approval_id="youtube-single-fallback-approval",
+        target_slot_count=1,
+    )
+    _succeed_route_items(store, ops, batch)
+    assert _succeed_stage_sources(ops, str(batch["pool_stage_id"])) == []
+    assert ops.finalize_canary_batch(str(batch["batch_id"]))["status"] == (
+        "activation_ready"
+    )
+    applied = ops.apply_pool_stage(
+        str(batch["pool_stage_id"]),
+        expected_generation=int(route["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        apply_id="youtube-single-fallback-apply",
+        confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
+    )
+
+    assert applied["admission_mode"] == "standard"
+    assert applied["min_runtime_healthy"] == 1
+    assert applied["min_publishers"] == 1
+    assert applied["runtime"]["allowed"] is True
+    assert [slot["revision_id"] for slot in applied["slots"]] == [
+        revisions[0],
+        None,
+        None,
+    ]
 
 
-def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
+def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_three(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -1869,14 +2308,15 @@ def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
         if slot["revision_id"]
     ]
     assert {slot["lifecycle"] for slot in seeded["slots"]} == {"legacy_builtin"}
+    legacy_actors = tuple(
+        (str(slot["actor_id"]), str(slot["publisher"]))
+        for slot in seeded["slots"]
+    )
     run, exact_revisions = _discovery_with_revisions(
         store,
         ops,
         seeded,
-        (
-            ("publisher-new-a/x-primary", "publisher-new-a"),
-            ("publisher-new-b/x-backup", "publisher-new-b"),
-        ),
+        legacy_actors,
         host="x.com",
     )
     plan, batch = _approve_stage(
@@ -1886,18 +2326,17 @@ def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
         goal="upgrade_legacy",
         approval_id="legacy-sidecar-approval",
     )
-    assert plan["required_success_count"] == 2
+    assert plan["required_success_count"] == 3
+    assert plan["target_slot_count"] == 3
     assert plan["source_count"] == 0
     assert [slot["revision_id"] for slot in ops.get_route(seeded["route_id"])["slots"]] == legacy_revision_ids
 
     _succeed_route_items(store, ops, batch)
-    recommendation = ops.recommend_active_pool(str(seeded["route_id"]))
-    assert recommendation["ready"] is True
-    assert set(
-        value for value in recommendation["slots"].values() if value
-    ) == set(exact_revisions)
-    assert recommendation["already_active"] is False
     assert _succeed_stage_sources(ops, str(batch["pool_stage_id"])) == []
+    stage = ops.get_pool_stage(str(batch["pool_stage_id"]))
+    assert set(
+        value for value in stage["target_slots"].values() if value
+    ) == set(exact_revisions)
     ops.finalize_canary_batch(str(batch["batch_id"]))
     applied = ops.apply_pool_stage(
         str(batch["pool_stage_id"]),
@@ -1910,7 +2349,7 @@ def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
     assert [slot["revision_id"] for slot in applied["slots"]] == [
         exact_revisions[0],
         exact_revisions[1],
-        None,
+        exact_revisions[2],
     ]
     assert {slot["lifecycle"] for slot in applied["slots"] if slot["revision_id"]} == {"probationary"}
     persisted_legacy = {
@@ -1925,5 +2364,5 @@ def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
     }
     assert persisted_legacy == {"legacy_builtin"}
     follow_up = ops.workflow_state(str(seeded["route_id"]))
-    assert follow_up["kind"] == "backup_2_discovery_required"
-    assert follow_up["goal"] == "complete_third"
+    assert follow_up["kind"] == "probation_observing"
+    assert follow_up["goal"] is None

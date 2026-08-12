@@ -133,6 +133,65 @@ def _actor_acquisition_origin(
     return None
 
 
+def _actor_publication_proof(items: Any) -> dict[str, Any] | None:
+    if str(
+        getattr(items, "_apify_actor_semantic_outcome", "") or ""
+    ) != "advanced":
+        return None
+    route_generation = getattr(
+        items, "_apify_actor_route_generation", None
+    )
+    proof = {
+        "workspace_id": getattr(items, "_apify_actor_workspace_id", None),
+        "source_id": getattr(items, "_apify_actor_source_id", None),
+        "candidate_id": getattr(items, "_apify_actor_candidate_id", None),
+        "latest_published_at": getattr(
+            items, "_apify_actor_latest_published_at", None
+        ),
+        "latest_item_id_hash": getattr(
+            items, "_apify_actor_latest_item_id_hash", None
+        ),
+        "route_generation": route_generation,
+        "semantic_outcome": "advanced",
+    }
+    if (
+        not isinstance(route_generation, int)
+        or any(
+            not isinstance(proof[key], str) or not str(proof[key]).strip()
+            for key in (
+                "workspace_id",
+                "source_id",
+                "candidate_id",
+                "latest_published_at",
+                "latest_item_id_hash",
+            )
+        )
+        or len(str(proof["latest_item_id_hash"])) != 64
+    ):
+        return None
+    return proof
+
+
+def _with_actor_publication_proof(
+    items: list[ContentItem],
+    proof: dict[str, Any] | None,
+) -> list[ContentItem]:
+    if proof is None:
+        return items
+    from .apify_actor_route import ApifyActorRoutedList
+
+    return ApifyActorRoutedList(
+        items,
+        route_generation=int(proof["route_generation"]),
+        workspace_id=str(proof["workspace_id"]),
+        source_id=str(proof["source_id"]),
+        candidate_id=str(proof["candidate_id"]),
+        latest_published_at=str(proof["latest_published_at"]),
+        latest_item_id_hash=str(proof["latest_item_id_hash"]),
+        semantic_outcome="advanced",
+    )
+
+
 def shared_acquisition_enabled() -> bool:
     return os.getenv("HORIZON_SHARED_ACQUISITION_ENABLED", "false").strip().lower() in {
         "1",
@@ -410,6 +469,7 @@ class SourceAcquisitionCoordinator:
             self.metrics.upstream_attempts += 1
             try:
                 fetched = await fetch()
+                actor_publication_proof = _actor_publication_proof(fetched)
                 actor_acquisition_origin = _actor_acquisition_origin(
                     fetched,
                     provider=provider,
@@ -463,6 +523,7 @@ class SourceAcquisitionCoordinator:
                     claim_token=claim_token,
                     provider=provider,
                     items=neutral,
+                    actor_publication_proof=actor_publication_proof,
                 )
             except BaseException as exc:
                 self._record_failure(context, claim_token=claim_token, exc=exc)
@@ -472,7 +533,10 @@ class SourceAcquisitionCoordinator:
                 self._publication_contexts[
                     publication_context.acquisition_key
                 ] = publication_context
-            return self._project_items(neutral, source)
+            return _with_actor_publication_proof(
+                self._project_items(neutral, source),
+                actor_publication_proof,
+            )
 
     def run_probe(
         self,
@@ -762,7 +826,20 @@ class SourceAcquisitionCoordinator:
             ContentItem.model_validate(json.loads(row["item_json"]))
             for row in rows
         ]
-        return self._project_items(neutral, source)
+        try:
+            diagnostics = json.loads(str(snapshot["diagnostics_json"] or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            diagnostics = {}
+        proof = (
+            diagnostics.get("actor_publication")
+            if isinstance(diagnostics, dict)
+            and isinstance(diagnostics.get("actor_publication"), dict)
+            else None
+        )
+        return _with_actor_publication_proof(
+            self._project_items(neutral, source),
+            proof,
+        )
 
     def _try_claim(self, context: _AcquisitionContext, claim_token: str) -> str:
         conn = self.store.connect()
@@ -897,6 +974,7 @@ class SourceAcquisitionCoordinator:
         claim_token: str,
         provider: str,
         items: list[ContentItem],
+        actor_publication_proof: dict[str, Any] | None = None,
     ) -> None:
         conn = self.store.connect()
         now = _utcnow()
@@ -974,6 +1052,13 @@ class SourceAcquisitionCoordinator:
                             "adapter_contract": ADAPTER_CONTRACT_VERSION,
                             "provider": str(provider),
                             "upstream_attempts": 1,
+                            **(
+                                {
+                                    "actor_publication": actor_publication_proof
+                                }
+                                if actor_publication_proof is not None
+                                else {}
+                            ),
                         }
                     ),
                     now.isoformat(),

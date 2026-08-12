@@ -108,6 +108,43 @@ def test_manifest_renders_only_exact_references_and_maps_safe_output() -> None:
     )
 
 
+def test_manifest_latest_item_for_nonempty_result_uses_filtered_window() -> None:
+    result = map_actor_output(
+        parse_actor_manifest(_manifest()),
+        [
+            {
+                "id": "future-post",
+                "url": "https://x.com/apify/status/future-post",
+                "createdAt": "2030-01-03T08:00:00Z",
+                "text": "future",
+                "author": {"handle": "apify"},
+            },
+            {
+                "id": "window-post",
+                "url": "https://x.com/apify/status/window-post",
+                "createdAt": "2030-01-01T08:00:00Z",
+                "text": "in window",
+                "author": {"handle": "apify"},
+            },
+        ],
+        {
+            "canonical_url": "https://x.com/apify",
+            "native_id": "apify",
+            "handle": "apify",
+        },
+        {
+            "max_items": 3,
+            "since_iso": "2030-01-01T00:00:00Z",
+            "until_iso": "2030-01-02T00:00:00Z",
+        },
+    )
+
+    assert result.semantic_outcome == "valid_nonempty"
+    assert [item.native_id for item in result.items] == ["window-post"]
+    assert result.latest_native_id == "window-post"
+    assert result.latest_published_at == "2030-01-01T08:00:00+00:00"
+
+
 @pytest.mark.parametrize(
     "timestamp",
     [1893456000, 1893456000000, "1893456000"],

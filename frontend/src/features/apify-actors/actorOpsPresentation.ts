@@ -28,7 +28,15 @@ export function humanActorError(
   if (['apify_actor_unexpected_empty', 'apify_actor_suspicious_empty', 'suspicious_empty', 'systemic_empty'].includes(code)) {
     return { reason: '运行已完成，但没有返回内容', impact: '它不会加入主备；现有配置保持不变。若已启动验证，只会保留已终结费用。', next: '若页面允许，扩大验证样本到 3 或 5 条；否则选择另一个 Actor。', diagnostic: code }
   }
-  if (['apify_actor_contract_mismatch', 'apify_actor_metadata_only', 'apify_actor_placeholder', 'apify_actor_target_identity_mismatch', 'apify_actor_identity_mismatch', 'apify_actor_revision_output_incompatible'].includes(code)) {
+  if (code === 'apify_actor_target_identity_mismatch') {
+    return {
+      reason: 'Actor 返回的内容不属于本次目标',
+      impact: '返回结果无法证明来自正在校验的账号或频道；可能是推荐内容、默认账号、旧缓存或字段映射错误。它不会加入主备，现有线路不变。',
+      next: '不要原样重复验证。请选择另一个 Actor；只有该 Actor 的 Build、Schema 或字段映射变化后才值得重试。',
+      diagnostic: code,
+    }
+  }
+  if (['apify_actor_contract_mismatch', 'apify_actor_metadata_only', 'apify_actor_placeholder', 'apify_actor_identity_mismatch', 'apify_actor_revision_output_incompatible'].includes(code)) {
     return { reason: '这个 Actor 不适合当前来源', impact: '它不会加入主备；现有配置保持不变。若已启动验证，只会保留已终结费用。', next: '返回候选列表，选择另一个 Actor。', diagnostic: code }
   }
   if (['apify_actor_deleted', 'apify_actor_build_unavailable', 'apify_actor_revision_unavailable', 'apify_actor_revision_preflight_unavailable', 'apify_actor_manual_candidate_unavailable'].includes(code)) {

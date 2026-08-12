@@ -63,6 +63,23 @@ export const queryKeys = {
   apifyActorRoute: (userId: string, routeId: string) => [
     ...userKey(userId), 'apify-actor-routes', routeId,
   ] as const,
+  apifyActorFreshnessPlan: (userId: string, routeId: string) => [
+    ...userKey(userId), 'apify-actor-routes', routeId, 'freshness-plan',
+  ] as const,
+  apifyActorFreshnessCheck: (userId: string, checkId: string) => [
+    ...userKey(userId), 'apify-actor-freshness-checks', checkId,
+  ] as const,
+  apifyActorEvents: (
+    userId: string,
+    routeId: string,
+    phase = '',
+    outcome = '',
+    sourceId = '',
+    candidateId = '',
+    windowHours = '24',
+  ) => [
+    ...userKey(userId), 'apify-actor-events', routeId, phase, outcome, sourceId, candidateId, windowHours,
+  ] as const,
   apifyActorDiscoveryRun: (userId: string, runId: string) => [
     ...userKey(userId), 'apify-actor-discovery-runs', runId,
   ] as const,

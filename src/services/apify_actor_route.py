@@ -49,13 +49,43 @@ T = TypeVar("T")
 
 
 class ApifyActorRoutedList(list[T]):
-    """List carrying an internal proof of the final route generation."""
+    """List carrying value-free proofs for final Actor publication."""
 
-    __slots__ = ("_apify_actor_route_generation",)
+    __slots__ = (
+        "_apify_actor_route_generation",
+        "_apify_actor_workspace_id",
+        "_apify_actor_source_id",
+        "_apify_actor_candidate_id",
+        "_apify_actor_latest_published_at",
+        "_apify_actor_latest_item_id_hash",
+        "_apify_actor_semantic_outcome",
+    )
 
-    def __init__(self, values: list[T], *, route_generation: int) -> None:
+    def __init__(
+        self,
+        values: list[T],
+        *,
+        route_generation: int,
+        workspace_id: str | None = None,
+        source_id: str | None = None,
+        candidate_id: str | None = None,
+        latest_published_at: str | None = None,
+        latest_item_id: str | None = None,
+        latest_item_id_hash: str | None = None,
+        semantic_outcome: str | None = None,
+    ) -> None:
         super().__init__(values)
         self._apify_actor_route_generation = int(route_generation)
+        self._apify_actor_workspace_id = workspace_id
+        self._apify_actor_source_id = source_id
+        self._apify_actor_candidate_id = candidate_id
+        self._apify_actor_latest_published_at = latest_published_at
+        self._apify_actor_latest_item_id_hash = (
+            hashlib.sha256(latest_item_id.encode()).hexdigest()
+            if latest_item_id
+            else latest_item_id_hash
+        )
+        self._apify_actor_semantic_outcome = semantic_outcome
 
 
 def _utc(value: datetime) -> datetime:
@@ -150,6 +180,8 @@ class ApifyActorInvocationResult(Generic[T]):
     semantic_outcome: str
     actual_cost_usd: float | None = None
     cost_final: bool = False
+    latest_published_at: str | None = None
+    latest_item_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -502,6 +534,7 @@ class ApifyActorRouteService:
                 """
                 SELECT
                     SUM(CASE WHEN status IN ('succeeded', 'valid_empty')
+                                  AND COALESCE(semantic_outcome, '') != 'no_advance'
                         THEN 1 ELSE 0 END) AS successes,
                     SUM(CASE WHEN status = 'actor_failed'
                         THEN 1 ELSE 0 END) AS failures,
@@ -1298,6 +1331,74 @@ class ApifyActorRouteService:
                 "The selected Actor returned an invalid semantic result",
                 retryable=True,
             ) from None
+        freshness_outcome = normalized.semantic_outcome
+        if lease.source_id:
+            from .apify_actor_resilience import ApifyActorResilienceService
+
+            freshness_outcome = ApifyActorResilienceService(
+                self.store,
+                workspace_id=self.workspace_id,
+            ).classify_source_result(
+                lease.source_id,
+                candidate_id=lease.candidate_id,
+                latest_published_at=normalized.latest_published_at,
+                latest_item_id=normalized.latest_item_id,
+                semantic_outcome=normalized.semantic_outcome,
+                defer_publication=True,
+            )
+        if freshness_outcome == "stale_regression":
+            self.record_failure(
+                lease,
+                failure_scope="actor",
+                semantic_outcome="stale_regression",
+                error_code="apify_actor_stale_regression",
+                actual_cost_usd=normalized.actual_cost_usd,
+                cost_final=normalized.cost_final,
+            )
+            actor_error = ApifyActorRouteError(
+                "apify_actor_stale_regression",
+                "The selected Actor returned content older than the source watermark",
+                retryable=True,
+            )
+            if fallback_allowed:
+                return False, None, actor_error
+            raise actor_error
+        if freshness_outcome == "no_advance":
+            if lease.canary:
+                self.record_failure(
+                    lease,
+                    failure_scope="actor",
+                    semantic_outcome="no_advance",
+                    error_code="apify_actor_no_advance",
+                    actual_cost_usd=normalized.actual_cost_usd,
+                    cost_final=normalized.cost_final,
+                )
+                actor_error = ApifyActorRouteError(
+                    "apify_actor_no_advance",
+                    "The selected Actor did not return fresh content",
+                    retryable=True,
+                )
+                if fallback_allowed:
+                    return False, None, actor_error
+                raise actor_error
+            final_generation = self.record_no_advance(
+                lease,
+                actual_cost_usd=normalized.actual_cost_usd,
+                cost_final=normalized.cost_final,
+            )
+            value = normalized.value
+            if isinstance(value, list):
+                value = ApifyActorRoutedList(
+                    value,
+                    route_generation=final_generation,
+                    workspace_id=self.workspace_id,
+                    source_id=lease.source_id,
+                    candidate_id=lease.candidate_id,
+                    latest_published_at=normalized.latest_published_at,
+                    latest_item_id=normalized.latest_item_id,
+                    semantic_outcome=freshness_outcome,
+                )
+            return True, value, None
         if normalized.semantic_outcome == "suspicious_empty":
             should_fallback, final_generation = self.record_suspicious_empty(
                 lease,
@@ -1318,11 +1419,22 @@ class ApifyActorRouteService:
                 value = ApifyActorRoutedList(
                     value,
                     route_generation=final_generation,
+                    workspace_id=self.workspace_id,
+                    source_id=lease.source_id,
+                    candidate_id=lease.candidate_id,
+                    latest_published_at=normalized.latest_published_at,
+                    latest_item_id=normalized.latest_item_id,
+                    semantic_outcome=normalized.semantic_outcome,
                 )
             return True, value, None
+        success_semantic = (
+            "valid_nonempty"
+            if freshness_outcome == "advanced"
+            else normalized.semantic_outcome
+        )
         final_generation = self.record_success(
             lease,
-            semantic_outcome=normalized.semantic_outcome,
+            semantic_outcome=success_semantic,
             actual_cost_usd=normalized.actual_cost_usd,
             cost_final=normalized.cost_final,
         )
@@ -1331,8 +1443,91 @@ class ApifyActorRouteService:
             value = ApifyActorRoutedList(
                 value,
                 route_generation=final_generation,
+                workspace_id=self.workspace_id,
+                source_id=lease.source_id,
+                candidate_id=lease.candidate_id,
+                latest_published_at=normalized.latest_published_at,
+                latest_item_id=normalized.latest_item_id,
+                semantic_outcome=freshness_outcome,
             )
         return True, value, None
+
+    def record_no_advance(
+        self,
+        lease: ApifyActorCandidateLease,
+        *,
+        actual_cost_usd: float | None,
+        cost_final: bool,
+    ) -> int:
+        """Settle a usable but unchanged Dataset without crediting success."""
+
+        connection = self.store.connect()
+        owns_transaction = not connection.in_transaction
+        now = self._current_time()
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            if self._settle_route_generation_conflict(
+                connection,
+                lease,
+                actual_cost_usd=actual_cost_usd,
+                cost_final=cost_final,
+                now=now,
+            ):
+                self._commit(connection, owns_transaction)
+                raise ApifyActorRouteConflictError()
+            self._finish_attempt_in_transaction(
+                connection,
+                lease,
+                status="valid_empty",
+                semantic_outcome="no_advance",
+                error_code=None,
+                actual_cost_usd=actual_cost_usd,
+                cost_final=cost_final,
+                now=now,
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_candidates
+                SET last_attempt_at = ?, probe_claimed_at = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now.isoformat(), now.isoformat(), lease.candidate_id),
+            )
+            if lease.source_id:
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_target_health (
+                        workspace_id, route_key, candidate_id, source_id,
+                        consecutive_failures, last_semantic_outcome, updated_at
+                    ) VALUES (?, ?, ?, ?, 0, 'no_advance', ?)
+                    ON CONFLICT(workspace_id, route_key, candidate_id, source_id)
+                    DO UPDATE SET last_semantic_outcome = 'no_advance',
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        self.workspace_id,
+                        self.route_key,
+                        lease.candidate_id,
+                        lease.source_id,
+                        now.isoformat(),
+                    ),
+                )
+            self._release_reconcile_block_if_clear(connection, now)
+            generation = int(self._route_row(connection)["generation"])
+            connection.execute(
+                """
+                UPDATE apify_actor_attempts
+                SET route_generation = ?, updated_at = ? WHERE id = ?
+                """,
+                (generation, now.isoformat(), lease.attempt_id),
+            )
+            self._commit(connection, owns_transaction)
+            return generation
+        except Exception:
+            self._rollback(connection, owns_transaction)
+            raise
 
     def _reserve_forced(
         self,
@@ -1512,6 +1707,7 @@ class ApifyActorRouteService:
                 now,
                 excluded_candidate_ids,
                 exclude_canary_busy=True,
+                source_id=source_id,
             )
             if candidate is None:
                 if self._has_canary_busy_candidate(connection, now):
@@ -2204,6 +2400,26 @@ class ApifyActorRouteService:
                 )
                 if self._failed_spend(connection, now) >= FAILED_SPEND_LIMIT_USD:
                     self._engage_budget_fuse(connection, now)
+                if lease.source_id:
+                    connection.execute(
+                        """
+                        UPDATE apify_source_route_bindings
+                        SET preference_suspended_at = COALESCE(
+                                preference_suspended_at, ?
+                            ),
+                            preference_recovery_successes = 0,
+                            updated_at = ?
+                        WHERE workspace_id = ? AND source_id = ?
+                          AND preferred_candidate_id = ?
+                        """,
+                        (
+                            now.isoformat(),
+                            now.isoformat(),
+                            self.workspace_id,
+                            lease.source_id,
+                            lease.candidate_id,
+                        ),
+                    )
             generation = int(self._route_row(connection)["generation"])
             connection.execute(
                 """
@@ -2326,6 +2542,26 @@ class ApifyActorRouteService:
                         now,
                         reason=error_code,
                     )
+            if lease.source_id:
+                connection.execute(
+                    """
+                    UPDATE apify_source_route_bindings
+                    SET preference_suspended_at = COALESCE(
+                            preference_suspended_at, ?
+                        ),
+                        preference_recovery_successes = 0,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND source_id = ?
+                      AND preferred_candidate_id = ?
+                    """,
+                    (
+                        now.isoformat(),
+                        now.isoformat(),
+                        self.workspace_id,
+                        lease.source_id,
+                        lease.candidate_id,
+                    ),
+                )
             self._evaluate_probation(connection, lease.candidate_id, now)
             self._release_reconcile_block_if_clear(connection, now)
             if self._failed_spend(connection, now) >= FAILED_SPEND_LIMIT_USD:
@@ -2348,6 +2584,32 @@ class ApifyActorRouteService:
         except Exception:
             self._rollback(connection, owns_transaction)
             raise
+        try:
+            from .apify_actor_resilience import ApifyActorResilienceService
+
+            profile = connection.execute(
+                """
+                SELECT route_id FROM apify_actor_route_profiles
+                WHERE workspace_id = ? AND route_key = ?
+                """,
+                (self.workspace_id, self.route_key),
+            ).fetchone()
+            ApifyActorResilienceService(
+                self.store,
+                workspace_id=self.workspace_id,
+            ).emit_event(
+                route_id=str(profile["route_id"]) if profile else None,
+                source_id=lease.source_id,
+                candidate_id=lease.candidate_id,
+                actor_public_name=str(candidate["display_name"] or ""),
+                phase="runtime_switch",
+                outcome="failed",
+                reason_code=error_code,
+                final_cost_usd=actual_cost_usd if cost_final else None,
+                job_id=lease.job_id,
+            )
+        except Exception:
+            pass
 
     def _finish_attempt(
         self,
@@ -2560,6 +2822,8 @@ class ApifyActorRouteService:
                     getattr(value, "actual_charge_usd", None),
                 ),
                 cost_final=bool(getattr(value, "cost_final", False)),
+                latest_published_at=getattr(value, "latest_published_at", None),
+                latest_item_id=getattr(value, "latest_item_id", None),
             )
         else:
             raise TypeError("Actor invocation must return a semantic outcome")
@@ -2575,6 +2839,14 @@ class ApifyActorRouteService:
             actual_cost_usd=_safe_cost(result.actual_cost_usd),
             cost_final=bool(
                 result.cost_final and _safe_cost(result.actual_cost_usd) is not None
+            ),
+            latest_published_at=(
+                str(result.latest_published_at)
+                if result.latest_published_at
+                else None
+            ),
+            latest_item_id=(
+                str(result.latest_item_id) if result.latest_item_id else None
             ),
         )
 
@@ -2690,13 +2962,33 @@ class ApifyActorRouteService:
         excluded_candidate_ids: set[str],
         *,
         exclude_canary_busy: bool = False,
+        source_id: str | None = None,
     ) -> sqlite3.Row | None:
+        preferred_candidate_id = ""
+        if source_id:
+            preference = connection.execute(
+                """
+                SELECT preferred_candidate_id, preference_suspended_at
+                FROM apify_source_route_bindings
+                WHERE workspace_id = ? AND source_id = ?
+                """,
+                (self.workspace_id, str(source_id)),
+            ).fetchone()
+            if (
+                preference is not None
+                and preference["preferred_candidate_id"]
+                and not preference["preference_suspended_at"]
+            ):
+                preferred_candidate_id = str(
+                    preference["preferred_candidate_id"]
+                )
         rows = connection.execute(
             """
             SELECT * FROM apify_actor_candidates
             WHERE workspace_id = ? AND route_key = ?
               AND state IN ('closed', 'probationary', 'half_open')
             ORDER BY
+              CASE WHEN id = ? THEN 0 ELSE 1 END,
               CASE WHEN state = 'half_open' THEN 0 ELSE 1 END,
               CASE WHEN id = ? THEN 0 ELSE 1 END,
               position, id
@@ -2704,6 +2996,7 @@ class ApifyActorRouteService:
             (
                 self.workspace_id,
                 self.route_key,
+                preferred_candidate_id,
                 route["active_candidate_id"] or "",
             ),
         ).fetchall()
@@ -3173,6 +3466,7 @@ class ApifyActorRouteService:
             FROM apify_actor_attempts
             WHERE candidate_id = ? AND created_at >= ?
               AND status IN ('succeeded', 'valid_empty', 'actor_failed')
+              AND COALESCE(semantic_outcome, '') != 'no_advance'
             """,
             (candidate_id, started_at.isoformat()),
         ).fetchone()

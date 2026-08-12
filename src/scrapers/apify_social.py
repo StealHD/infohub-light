@@ -44,6 +44,8 @@ class ApifySocialActorResult:
     semantic_outcome: str
     actual_charge_usd: float | None = None
     cost_final: bool = False
+    latest_published_at: str | None = None
+    latest_item_id: str | None = None
 
 
 class ApifySocialSemanticError(SourceFetchError):
@@ -195,11 +197,43 @@ class ApifySocialScraper(BaseScraper):
             exc.cost_final = result.cost_final
             raise
         items = self._parse_candidate_rows(candidate_rows, sub, since)
+        latest_observed_item: ContentItem | None = None
+        if candidate_rows and not items:
+            oldest_since = datetime.min.replace(tzinfo=timezone.utc)
+            for row in candidate_rows:
+                parsed = self._parse_row(row, sub, oldest_since)
+                if parsed is not None and (
+                    latest_observed_item is None
+                    or (parsed.published_at, parsed.id)
+                    > (
+                        latest_observed_item.published_at,
+                        latest_observed_item.id,
+                    )
+                ):
+                    latest_observed_item = parsed
+        latest_item = (
+            max(items, key=lambda item: (item.published_at, item.id))
+            if items
+            else latest_observed_item
+        )
+        post_filter_outcome = (
+            "valid_nonempty"
+            if items
+            else "valid_empty"
+            if candidate_rows
+            else semantic_outcome
+        )
         return ApifySocialActorResult(
             items=items,
-            semantic_outcome=semantic_outcome,
+            semantic_outcome=post_filter_outcome,
             actual_charge_usd=result.actual_charge_usd,
             cost_final=result.cost_final,
+            latest_published_at=(
+                latest_item.published_at.astimezone(timezone.utc).isoformat()
+                if latest_item is not None
+                else None
+            ),
+            latest_item_id=(latest_item.id if latest_item is not None else None),
         )
 
     def _client_for_subscription(
@@ -285,7 +319,7 @@ class ApifySocialScraper(BaseScraper):
                 frozen_snapshot=self.actor_ops_snapshot,
                 source_target_value=sub.target,
             )
-            return list(result.value or [])
+            return result.value or []
 
         if (
             self.apify_actor_route is not None
@@ -310,6 +344,8 @@ class ApifySocialScraper(BaseScraper):
                     semantic_outcome=result.semantic_outcome,
                     actual_cost_usd=result.actual_charge_usd,
                     cost_final=result.cost_final,
+                    latest_published_at=result.latest_published_at,
+                    latest_item_id=result.latest_item_id,
                 )
 
             return await self.apify_actor_route.execute_x_profile(
@@ -730,12 +766,63 @@ class ApifySocialScraper(BaseScraper):
         sub: ApifySocialSubscriptionConfig,
         *,
         actor_id: str | None = None,
+        input_dialect: str | None = None,
+        input_count_field: str | None = None,
     ) -> dict[str, Any]:
         platform = sub.platform
         if platform == ApifySocialPlatform.X:
             selected_actor_id = actor_id or self._actor_id(platform)
-            contract = self._actor_contract(selected_actor_id, platform)
             fetch_limit = 1 if self.paid_canary else sub.fetch_limit
+            if input_dialect and input_dialect != "controlled_default":
+                handle = self._x_handle(sub.target)
+                canonical_url = f"https://x.com/{handle}"
+                payload: dict[str, Any]
+                if input_dialect == "twitter_handles":
+                    payload = {"twitterHandles": [handle]}
+                elif input_dialect == "start_urls":
+                    payload = {"startUrls": [{"url": canonical_url}]}
+                elif input_dialect == "profile_urls":
+                    payload = {"profile_urls": [canonical_url]}
+                elif input_dialect == "handle":
+                    payload = {"handle": handle}
+                elif input_dialect == "username":
+                    payload = {"username": handle}
+                elif input_dialect == "twitter_handle":
+                    payload = {"twitterHandle": handle}
+                elif input_dialect == "url":
+                    payload = {"url": canonical_url}
+                elif input_dialect == "urls":
+                    payload = {"urls": [canonical_url]}
+                elif input_dialect == "direct_urls":
+                    payload = {"directUrls": [canonical_url]}
+                else:
+                    raise ValueError("Unsupported controlled X input dialect")
+                if input_count_field in {
+                    "maxItems",
+                    "max_items",
+                    "maxResults",
+                    "max_results",
+                    "resultsLimit",
+                    "limit",
+                    "tweetsDesired",
+                }:
+                    payload[str(input_count_field)] = fetch_limit
+                return payload
+            normalized_actor_id = selected_actor_id.replace("~", "/").lower()
+            if (
+                input_dialect == "controlled_default"
+                and normalized_actor_id not in ACTOR_ADAPTER_REGISTRY
+            ):
+                return {
+                    "startUrls": [
+                        {
+                            "url": (
+                                f"https://x.com/{self._x_handle(sub.target)}"
+                            )
+                        }
+                    ]
+                }
+            contract = self._actor_contract(selected_actor_id, platform)
             if contract.input_style == "scrape_badger":
                 return {
                     "mode": "Advanced Search",

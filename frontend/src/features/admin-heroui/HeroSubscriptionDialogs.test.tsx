@@ -126,6 +126,8 @@ describe('YouTube SourceForm', () => {
     renderYouTubeSourceForm(onSubmit)
 
     expect(screen.getByRole('checkbox', { name: '保留最新内容' })).toBeChecked()
+    expect(screen.queryByText('高级配置')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('高级配置 JSON')).not.toBeInTheDocument()
     await browser.type(screen.getByRole('textbox', { name: '来源名称' }), 'Google Developers')
     await browser.type(
       screen.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' }),

@@ -585,8 +585,16 @@ export type SourceTypeDefinition = {
   catalog_source_type?: string
   label?: string
   display_name?: string
-  credential_mode?: 'source_secret' | 'workspace_apify_pool'
+  credential_mode?: 'none' | 'source_secret' | 'workspace_apify_pool'
+  availability?: 'ready' | 'temporarily_unavailable'
+  unavailable_reason?: 'platform_setup_pending' | 'workspace_credential_unavailable' | null
   fields: CatalogField[]
+}
+
+export type SourceTypesResponse = {
+  schema_version: 1
+  generation: number
+  source_types: SourceTypeDefinition[]
 }
 
 export type ApifyActorSourceCapability = {
@@ -731,6 +739,7 @@ export type ApifyKeyPoolMemberStatus =
 export type ApifyKeyPoolMember = {
   secret_id: string
   position: number
+  role?: 'acquisition' | 'validation'
   status: ApifyKeyPoolMemberStatus
   blocked_until: string | null
   cycle_end_at: string | null
@@ -740,7 +749,7 @@ export type ApifyKeyPoolMember = {
 }
 
 export type ApifyKeyPool = {
-  schema_version: 1
+  schema_version: 1 | 2
   enabled: boolean
   generation: number
   status: 'empty' | 'ready' | 'draining' | 'blocked' | 'exhausted'
@@ -748,6 +757,8 @@ export type ApifyKeyPool = {
   draining_secret_id: string | null
   blocked_reason: string | null
   retry_at: string | null
+  validation_secret_id?: string | null
+  validation_key_status?: ApifyKeyPoolMemberStatus | 'unassigned'
   members: ApifyKeyPoolMember[]
 }
 
@@ -809,6 +820,16 @@ export type ApifyActorWorkflowKind =
   | 'legacy_canary_approval_required'
   | 'legacy_canary_running'
   | 'legacy_activation_approval_required'
+  | 'compatibility_candidate_selection_available'
+  | 'compatibility_discovery_required'
+  | 'compatibility_discovery_running'
+  | 'compatibility_candidate_selection_required'
+  | 'compatibility_canary_approval_required'
+  | 'compatibility_canary_running'
+  | 'compatibility_activation_approval_required'
+  | 'compatibility_operational'
+  | 'compatibility_standard_discovery_running'
+  | 'compatibility_standard_candidate_selection_required'
   | 'probation_observing'
   | 'source_validation_required'
   | 'runtime_degraded_monitoring'
@@ -845,6 +866,8 @@ export type ApifyActorRevisionSummary = {
   build_id?: string | null
   build_number?: string | null
   manifest_hash?: string | null
+  execution_mode?: 'pinned' | 'current'
+  observed_manifest?: boolean
   lifecycle: ApifyActorRevisionLifecycle
   certification_progress?: ApifyActorCertificationProgress | null
   listed_price_usd_per_1000?: number | null
@@ -883,8 +906,9 @@ export type ApifyActorRouteSummary = {
   support_status: ApifyActorRouteSupportStatus
   runtime_status: ApifyActorRouteRuntimeStatus
   runnable_slots: number
-  required_slots: 3
-  min_runtime_healthy: 2
+  required_slots: number
+  min_runtime_healthy: number
+  admission_mode?: 'standard' | 'compatibility'
   publisher_count: number
   per_run_cap_usd: number
   discovery_run_id?: string | null
@@ -906,6 +930,7 @@ export type ApifyActorSourceValidation = {
   source_id: string
   binding_status: string
   generation: number
+  actor_preference?: ApifyActorSourcePreference
   slots: ApifyActorSourceValidationSlot[]
   activation_confirmation?: string | null
   staged_validation?: {
@@ -934,6 +959,15 @@ export type ApifyActorRouteDetail = ApifyActorRouteSummary & {
     failed: number
   }
   replacement_needed?: boolean
+  actual_min_runtime_healthy?: number
+  actual_min_publishers?: number
+  active_slot_count?: number
+  compatibility_risk?: {
+    code: string
+    requires_operator_acknowledgement: boolean
+  } | null
+  freshness?: ApifyActorFreshnessState
+  slot_freshness?: ApifyActorSlotFreshness[]
   revision_diffs?: ApifyActorRevisionDiff[]
   activation_recommendation?: {
     ready: boolean
@@ -944,7 +978,7 @@ export type ApifyActorRouteDetail = ApifyActorRouteSummary & {
     backup_2_actor_count: number
     runnable_actor_count: number
     publisher_count: number
-    activation_mode: 'standard_2plus1' | 'expedited_2of3' | null
+    activation_mode: 'standard_1of1' | 'standard_2plus1' | 'expedited_2of3' | null
     slots: Array<{
       slot: ApifyActorSlotName
       revision_id: string | null
@@ -1041,6 +1075,7 @@ export type ApifyActorPoolGoal =
   | 'initial_pool'
   | 'complete_third'
   | 'upgrade_legacy'
+  | 'compatibility_single'
 
 export type ApifyActorPoolStage = {
   stage_id: string
@@ -1048,7 +1083,7 @@ export type ApifyActorPoolStage = {
   discovery_run_id: string
   initial_batch_id: string
   goal: ApifyActorPoolGoal
-  target_slot_count: 2 | 3
+  target_slot_count: 1 | 2 | 3
   selection_mode: 'server' | 'manual'
   base_generation: number
   base_pool_hash: string
@@ -1080,10 +1115,10 @@ export type ApifyActorPoolStage = {
 }
 
 export type ApifyActorCanaryPlan = {
-  schema_version: 1 | 2 | 3
+  schema_version: 1 | 2 | 3 | 4
   goal?: ApifyActorPoolGoal
   selection_mode?: 'server' | 'manual'
-  target_slot_count?: 2 | 3
+  target_slot_count?: 1 | 2 | 3
   run_id: string
   route_id: string
   route_key: string
@@ -1123,7 +1158,7 @@ export type ApifyActorCanaryBatchRequest = {
   max_total_charge_usd: number
   candidate_ids?: string[]
   candidate_validation_profiles?: ApifyActorValidationProfileRequest[]
-  target_slot_count?: 2 | 3
+  target_slot_count?: 1 | 2 | 3
 }
 
 export type ApifyActorPoolCandidate = {
@@ -1153,17 +1188,24 @@ export type ApifyActorPoolCandidate = {
   } | null
   requires_profile_change?: boolean
   existing_actor_upgrade?: boolean
+  execution_mode?: 'pinned' | 'current'
+  already_validated?: boolean
+  compatibility_warnings?: string[]
+  relaxed_requirements?: string[]
+  evaluation_history?: ApifyActorEvaluationHistory | null
   selectable: boolean
   unavailable_reason?: string | null
 }
 
 export type ApifyActorPoolCandidates = {
-  schema_version: 1
+  schema_version: 1 | 2
   route_id: string
   generation: number
   goal: ApifyActorPoolGoal
   run_id: string | null
-  required_selection_count: 1 | 3
+  required_selection_count: 1 | 2 | 3
+  relaxed_requirements?: string[]
+  retained_requirements?: string[]
   candidates: ApifyActorPoolCandidate[]
   blockers: string[]
 }
@@ -1325,6 +1367,144 @@ export type ApifyActorSourceSupport = {
     reason?: string
   }
   activation_confirmation?: string | null
+}
+
+export type ApifyActorSourcePreference = {
+  source_id?: string
+  route_id?: string
+  generation?: number
+  mode: 'automatic' | 'manual'
+  preferred_candidate_id: string | null
+  preferred_actor_name: string | null
+  active_candidate_id: string | null
+  active_actor_name: string | null
+  preference_suspended: boolean
+  preference_recovery_successes?: number
+}
+
+export type ApifyActorValidationKeyState = {
+  configured: boolean
+  secret_id: string | null
+  status: string
+  usable: boolean
+  last_checked_at: string | null
+  last_error_code: string | null
+}
+
+export type ApifyActorFreshnessState = {
+  enabled: boolean
+  interval_hours: number
+  status: string
+  authorized_at: string | null
+  last_checked_at: string | null
+  next_check_at: string | null
+  last_actual_cost_usd: number | null
+  per_round_max_usd: number
+  theoretical_monthly_max_usd: number
+  validation_key: ApifyActorValidationKeyState
+}
+
+export type ApifyActorSlotFreshness = {
+  slot_name: ApifyActorSlotName
+  candidate_id: string | null
+  actor_name: string | null
+  execution_mode: 'pinned' | 'current' | null
+  follows_current_build: boolean
+  observed_manifest: boolean
+  status: string
+  latest_published_at: string | null
+  consecutive_fresh_count: number
+  consecutive_stale_count: number
+  reason_code: string | null
+  checked_at: string | null
+}
+
+export type ApifyActorFreshnessPlan = {
+  schema_version: 1
+  route_id: string
+  actor_count: number
+  serial_execution: true
+  same_reference_target: true
+  reference_target_exposed: false
+  per_actor_cap_usd: number
+  max_total_charge_usd: number
+  actual_cost_usd: number | null
+  frequency: ApifyActorFreshnessState
+  requires_cost_confirmation: true
+  requires_validation_key: true
+}
+
+export type ApifyActorFreshnessResult = {
+  candidate_id: string
+  revision_id: string | null
+  ordinal: number
+  status: string
+  semantic_outcome: string
+  latest_published_at: string | null
+  consecutive_fresh_count: number
+  consecutive_stale_count: number
+  actual_cost_usd: number | null
+  cost_final: boolean
+  reason_code: string
+  updated_at: string
+  actor_public_name: string
+}
+
+export type ApifyActorFreshnessCheck = {
+  schema_version?: 1
+  check_id: string
+  route_id: string
+  trigger_kind: 'manual' | 'automatic'
+  status: string
+  planned_count: number
+  completed_count: number
+  max_total_charge_usd: number
+  actual_cost_usd: number | null
+  cost_final: boolean
+  job_id: string | null
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  results: ApifyActorFreshnessResult[]
+}
+
+export type ApifyActorFreshnessCheckResponse = {
+  schema_version: 1
+  check: ApifyActorFreshnessCheck
+  job: { id: string; status: string }
+}
+
+export type ApifyActorEvaluationHistory = {
+  evaluation_id: string
+  reason_code: string
+  attempt_count: number
+  first_seen_at: string
+  last_seen_at: string
+  retry_requested_at: string | null
+}
+
+export type ApifyActorDiagnosticEvent = {
+  event_id: string
+  route_id: string | null
+  source_id: string | null
+  candidate_id: string | null
+  actor_public_name: string | null
+  phase: string
+  outcome: string
+  reason_code: string | null
+  occurrence_count: number
+  final_cost_usd: number | null
+  request_id: string | null
+  job_id: string | null
+  created_at: string
+}
+
+export type ApifyActorDiagnosticEvents = {
+  schema_version: 1
+  events: ApifyActorDiagnosticEvent[]
+  next_cursor: string | null
+  retention_days: number
 }
 
 export type ApifyActorSourceBindingActivation = {

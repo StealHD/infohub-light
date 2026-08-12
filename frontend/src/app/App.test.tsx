@@ -1617,6 +1617,28 @@ describe('App routes', () => {
     expect(screen.queryByRole('button', { name: /加入 OpenClaw 上下文/ })).not.toBeInTheDocument()
   })
 
+  it('does not expose platform implementation jobs to members', async () => {
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-live', username: 'member', role: 'member', enabled: true } }),
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 20, source_types: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
+      jobs: vi.fn().mockResolvedValue({ jobs: [
+        { id: 'member-platform-job', user_id: 'member-live', job_type: 'apify_actor_validation', status: 'failed', error_code: 'apify_actor_canary_timeout' },
+        { id: 'member-source-job', user_id: 'member-live', job_type: 'source_test', status: 'succeeded' },
+      ] }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions?tab=jobs']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByText('这里只展示与你的订阅直接相关的运行结果。')).toBeVisible()
+    expect(await screen.findByText('测试来源连接')).toBeVisible()
+    expect(document.querySelectorAll('[data-compact-job-card]')).toHaveLength(1)
+    expect(screen.queryByText(/Actor|Apify|Route/)).not.toBeInTheDocument()
+  })
+
   it('adds a readable run record to OpenClaw context without exposing the job id', async () => {
     const browser = userEvent.setup()
     const source = { id: 'context-source', type: 'rss', display_name: '上下文来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
@@ -2675,6 +2697,76 @@ describe('App routes', () => {
     expect(document.body.textContent).not.toContain('rotated-write-only')
   }, 10_000)
 
+  it('assigns one dedicated validation Key and restores focus to that Key row', async () => {
+    const browser = userEvent.setup()
+    const pool = {
+      schema_version: 2 as const,
+      enabled: true,
+      generation: 11,
+      status: 'ready' as const,
+      active_secret_id: 'apify-production',
+      draining_secret_id: null,
+      blocked_reason: null,
+      retry_at: null,
+      validation_secret_id: null,
+      validation_key_status: 'unassigned' as const,
+      members: [
+        { secret_id: 'apify-production', position: 0, role: 'acquisition' as const, status: 'active' as const, blocked_until: null, cycle_end_at: null, last_checked_at: null, last_error_code: null, active_run_count: 0 },
+        { secret_id: 'apify-validation', position: 1, role: 'acquisition' as const, status: 'standby' as const, blocked_until: null, cycle_end_at: null, last_checked_at: null, last_error_code: null, active_run_count: 0 },
+      ],
+    }
+    const assigned = {
+      ...pool,
+      generation: 12,
+      validation_secret_id: 'apify-validation',
+      validation_key_status: 'standby' as const,
+      members: [
+        pool.members[0],
+        { ...pool.members[1], role: 'validation' as const },
+      ],
+    }
+    const setApifyValidationKey = vi.fn().mockResolvedValue(assigned)
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-validation-key', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [
+        { id: 'apify-production', name: 'Production Key', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRODUCTION', is_set: true, used_by: [] },
+        { id: 'apify-validation', name: 'Validation Key', kind: 'apify', provider: 'apify', env_name: 'APIFY_VALIDATION', is_set: true, used_by: [] },
+      ] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      apifyKeyPool: vi.fn().mockResolvedValue(pool),
+      setApifyValidationKey,
+      secretQuota: vi.fn().mockResolvedValue({
+        secret_id: 'apify-validation',
+        provider: 'apify',
+        currency: 'USD',
+        cycle_start_at: '2026-08-01T00:00:00Z',
+        cycle_end_at: '2026-08-31T23:59:59Z',
+        checked_at: '2026-08-11T08:00:00Z',
+        monthly_included_credits_usd: 5,
+        monthly_usage_usd: 1,
+        remaining_included_credits_usd: 4,
+        max_monthly_usage_usd: 10,
+        remaining_hard_limit_usd: 9,
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    const validationCard = (await screen.findByText('Validation Key')).closest<HTMLElement>('[data-apify-key-card]')!
+    const trigger = within(validationCard).getByRole('button', { name: '设为校验 Key' })
+    await browser.click(trigger)
+    const dialog = await screen.findByRole('dialog', { name: '指定专用校验 Key' })
+    expect(within(dialog).getByText(/不进入生产排序/)).toBeVisible()
+    await browser.click(within(dialog).getByRole('button', { name: '确认角色变更' }))
+
+    await waitFor(() => expect(setApifyValidationKey).toHaveBeenCalledWith('apify-validation', 11))
+    expect(await within(validationCard).findByText('专用校验')).toBeVisible()
+    const cancelRole = within(validationCard).getByRole('button', { name: '取消校验角色' })
+    await waitFor(() => expect(cancelRole).toHaveFocus())
+    expect(within(validationCard).getByText('角色：专用校验（不参与生产）')).toBeVisible()
+  })
+
   it('announces deferred Apify quota retries and preserves the last trusted quota after refresh failure', async () => {
     const browser = userEvent.setup()
     const retryQuota = deferred<{
@@ -2937,267 +3029,190 @@ describe('App routes', () => {
     expect(dialog.querySelector('details')).not.toBeInTheDocument()
   })
 
-  it('surfaces a source capability catalog failure and supports a local retry', async () => {
+  it('lists platform setup types beside ordinary sources without loading the Actor capability catalog', async () => {
     const browser = userEvent.setup()
     const sourceCapabilities = vi.fn()
-      .mockRejectedValueOnce(new Error('capability catalog unavailable'))
-      .mockResolvedValue({
-        schema_version: 1,
-        generation: 2,
-        support_profiles: actorSupportProfiles,
-        capabilities: [],
-      })
     const api = liveApi({
       sources: vi.fn().mockResolvedValue({ sources: [] }),
       subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
-      sourceTypes: vi.fn().mockResolvedValue({
-        source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }],
-      }),
-      sourceCapabilities,
-      sourceHealth: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        scope: 'user',
-        summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 },
-        items: [],
-      }),
-      config: vi.fn().mockResolvedValue({
-        config: {},
-        taxonomy: { channels: [], topics: [] },
-      }),
-    } as Partial<ServiceApi>)
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    render(<QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/subscriptions']}>
-        <AppRoutes api={api} />
-      </MemoryRouter>
-    </QueryClientProvider>)
-
-    expect(await screen.findByText(
-      'Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。',
-    )).toBeVisible()
-    await browser.click(screen.getByRole('button', { name: '重试能力目录' }))
-    await waitFor(() => expect(sourceCapabilities).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(screen.queryByText(
-      'Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。',
-    )).not.toBeInTheDocument())
-  })
-
-  it('lets a member submit an Actor support check from the source dialog', async () => {
-    const browser = userEvent.setup()
-    const requestApifyActorSupportCheck = vi.fn().mockResolvedValue({
-      schema_version: 1,
-      kind: 'discovery',
-      generation: 4,
-      route_generation: 1,
-      route_id: 'route-instagram',
-      support_status: 'pending',
-      discovery_run_id: 'discovery-instagram',
-      job: null,
-    })
-    const api = liveApi({
-      authStatus: vi.fn().mockResolvedValue({
-        authenticated: true,
-        user: {
-          id: 'member-actor-support',
-          username: 'member',
-          role: 'member',
-          enabled: true,
-        },
-      }),
-      sources: vi.fn().mockResolvedValue({ sources: [] }),
-      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
-      sourceTypes: vi.fn().mockResolvedValue({
-        source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }],
-      }),
-      sourceCapabilities: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        generation: 23,
-        support_profiles: actorSupportProfiles,
-        capabilities: [],
-      }),
-      sourceHealth: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        scope: 'user',
-        summary: {
-          healthy: 0,
-          degraded: 0,
-          failing: 0,
-          unknown: 0,
-          total: 0,
-        },
-        items: [],
-      }),
-      config: vi.fn().mockResolvedValue({
-        config: {},
-        taxonomy: { channels: [], topics: [] },
-      }),
-      requestApifyActorSupportCheck,
-    } as Partial<ServiceApi>)
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    })
-    render(<QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/subscriptions']}>
-        <AppRoutes api={api} />
-      </MemoryRouter>
-    </QueryClientProvider>)
-
-    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
-    const dialog = screen.getByRole('dialog', { name: '新增来源' })
-    await browser.click(within(dialog).getByRole('button', { name: /待检查 Profile/ }))
-    await browser.click(await screen.findByRole('option', { name: /Instagram Profile/ }))
-    await browser.click(within(dialog).getByRole('button', { name: '请求支持检查' }))
-
-    await waitFor(() => expect(requestApifyActorSupportCheck).toHaveBeenCalledWith({
-      platform: 'instagram',
-      target_type: 'profile',
-      capability: 'items',
-      expected_generation: 23,
-    }))
-  })
-
-  it('loads admin secrets only inside a source-secret dialog and keeps loading errors local', async () => {
-    const browser = userEvent.setup()
-    const firstSecretsRequest = deferred<{ secrets: [] }>()
-    const secrets = vi.fn()
-      .mockReturnValueOnce(firstSecretsRequest.promise)
-      .mockResolvedValue({ secrets: [] })
-    const api = liveApi({
-      authStatus: vi.fn().mockResolvedValue({
-        authenticated: true,
-        user: { id: 'owner-source-secrets', username: 'owner', role: 'owner', enabled: true },
-      }),
-      sources: vi.fn().mockResolvedValue({ sources: [] }),
-      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
-      sourceTypes: vi.fn().mockResolvedValue({ source_types: [
-        { type: 'rss', label: 'RSS / Atom', fields: [] },
-        { type: 'apify_social', label: 'Apify 社交来源', credential_mode: 'source_secret', fields: [] },
+      sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 17, source_types: [
+        { type: 'rss', label: 'RSS / Atom', availability: 'ready', unavailable_reason: null, fields: [] },
+        { type: 'x_profile', label: 'X 账号', availability: 'ready', unavailable_reason: null, fields: [] },
+        { type: 'instagram_profile', label: 'Instagram 账号', availability: 'temporarily_unavailable', unavailable_reason: 'platform_setup_pending', fields: [] },
+        { type: 'youtube_channel', label: 'YouTube 频道', availability: 'ready', unavailable_reason: null, fields: [] },
       ] }),
-      sourceCapabilities: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        generation: 7,
-        support_profiles: actorSupportProfiles,
-        capabilities: [{
-          profile_id: 'route-instagram-profile',
-          platform: 'instagram',
-          target_type: 'profile',
-          capability: 'items',
-          mode: 'primary',
-          generation: 7,
-          storage_type: 'apify_social',
-          fields: [
-            { name: 'profile_id', input_type: 'select', required: true },
-            { name: 'target', input_type: 'text', required: true },
-          ],
-        }],
-      }),
-      sourceHealth: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        scope: 'user',
-        summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 },
-        items: [],
-      }),
+      sourceCapabilities,
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
       config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
-      secrets,
     } as Partial<ServiceApi>)
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '订阅与来源' })
-    expect(secrets).not.toHaveBeenCalled()
     await browser.click(await screen.findByRole('button', { name: '新增来源' }))
-    expect(secrets).not.toHaveBeenCalled()
-
     await browser.click(screen.getByRole('button', { name: /来源类型/ }))
-    await browser.click(await screen.findByRole('option', { name: 'RSS / Atom' }))
-    expect(await screen.findByRole('textbox', { name: '来源名称' })).toBeInTheDocument()
-    expect(secrets).not.toHaveBeenCalled()
-
-    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
-    await browser.click(await screen.findByRole('option', { name: 'Apify 社交来源' }))
-    expect(await screen.findByRole('status', { name: '正在读取可用 Key' })).toBeInTheDocument()
-    expect(secrets).toHaveBeenCalledOnce()
-    expect(screen.queryByRole('textbox', { name: '来源名称' })).not.toBeInTheDocument()
-
-    act(() => firstSecretsRequest.reject(new Error('secret registry unavailable')))
-    expect(await screen.findByText('可用 Key 读取失败')).toBeInTheDocument()
-    const dialog = screen.getByRole('dialog', { name: '新增来源' })
-    await browser.click(within(dialog).getByRole('button', { name: '重试' }))
-    expect(await within(dialog).findByRole('textbox', { name: '来源名称' })).toBeInTheDocument()
-    expect(secrets).toHaveBeenCalledTimes(2)
+    expect(await screen.findByRole('option', { name: 'RSS / Atom' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'X 账号' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Instagram 账号/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'YouTube 频道' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Apify/ })).not.toBeInTheDocument()
+    expect(sourceCapabilities).not.toHaveBeenCalled()
   })
 
-  it('blocks incomplete required Apify options and submits their real registry metadata after selection', async () => {
+  it('explains an unavailable platform without exposing a source form or provider internals', async () => {
     const browser = userEvent.setup()
-    const createSource = vi.fn().mockResolvedValue({ id: 'apify-new' })
     const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-platform', username: 'owner', role: 'owner', enabled: true } }),
       sources: vi.fn().mockResolvedValue({ sources: [] }),
       subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
-      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{
-        type: 'apify_social', label: 'Apify 社交来源', fields: [
-          { name: 'profile_id', label: 'Actor Route', input_type: 'text', required: false, default: '' },
-          { name: 'platform', label: '平台', input_type: 'select', required: true, default: '', options: [{ value: 'x', label: 'X' }] },
-          { name: 'kind', label: '来源类别', input_type: 'select', required: true, default: '', options: [{ value: 'profile', label: '账号' }] },
-          { name: 'target', label: '目标', input_type: 'text', required: true, default: '', help: '输入公开账号。' },
+      sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 18, source_types: [{
+        type: 'x_profile', label: 'X 账号', availability: 'temporarily_unavailable', unavailable_reason: 'platform_setup_pending', fields: [],
+      }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: /X 账号/ }))
+    const dialog = screen.getByRole('dialog', { name: '新增来源' })
+    expect(within(dialog).getByText('X 账号正在准备中')).toBeVisible()
+    expect(within(dialog).getByText(/管理员完成平台配置后即可新增/)).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: '打开平台设置' })).toBeVisible()
+    expect(within(dialog).queryByRole('button', { name: '创建并订阅' })).not.toBeInTheDocument()
+    expect(dialog).not.toHaveTextContent(/Apify|Actor|Route|profile_id/)
+  })
+
+  it('submits only user-facing X fields and never loads a source key selector', async () => {
+    const browser = userEvent.setup()
+    const createSource = vi.fn().mockResolvedValue({ id: 'x-new' })
+    const secrets = vi.fn().mockResolvedValue({ secrets: [] })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-x', username: 'owner', role: 'owner', enabled: true } }),
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 19, source_types: [{
+        type: 'x_profile', label: 'X 账号', availability: 'ready', unavailable_reason: null, fields: [
+          { name: 'target', label: 'X 用户名或主页链接', input_type: 'text', required: true, default: '', help: '输入公开账号。' },
+          { name: 'fetch_limit', label: '每次获取条数', input_type: 'number', required: false, default: 20, min: 1, max: 100 },
+          { name: 'analysis_mode', label: '分析模式', input_type: 'select', required: false, default: 'full', options: [{ value: 'full', label: '完整分析' }, { value: 'personal_only', label: '仅收集' }] },
         ],
       }] }),
-      sourceCapabilities: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        generation: 11,
-        support_profiles: actorSupportProfiles,
-        capabilities: [{
-          profile_id: 'route-x-profile',
-          platform: 'x',
-          target_type: 'profile',
-          capability: 'items',
-          mode: 'primary',
-          generation: 11,
-          storage_type: 'apify_social',
-          fields: [
-            { name: 'profile_id', input_type: 'select', required: true },
-            { name: 'target', input_type: 'text', required: true },
-          ],
-        }],
-      }),
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
       config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
       createSource,
+      secrets,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '新增来源' }))
     await browser.click(screen.getByRole('button', { name: /来源类型/ }))
-    await browser.click(await screen.findByRole('option', { name: 'Apify 社交来源' }))
+    await browser.click(await screen.findByRole('option', { name: 'X 账号' }))
     await browser.type(await screen.findByRole('textbox', { name: '来源名称' }), 'Codex 动态')
-    const routeControl = screen.getByLabelText('Actor Route')
-    const targetControl = screen.getByLabelText('目标')
-    expect(routeControl.parentElement).toHaveAttribute('data-required', 'true')
+    const targetControl = screen.getByLabelText('X 用户名或主页链接')
     expect(targetControl).toBeRequired()
-    expect(routeControl).toHaveTextContent('X · profile · items')
-    expect(screen.queryByLabelText('平台')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('来源类别')).not.toBeInTheDocument()
+    expect(screen.queryByText('高级配置')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Apify|Actor|Route|Key|平台|来源类别/)).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(createSource).not.toHaveBeenCalled()
-    expect(await screen.findByText('目标不能为空。')).toBeInTheDocument()
+    expect(await screen.findByText('X 用户名或主页链接不能为空。')).toBeInTheDocument()
 
     await browser.type(targetControl, 'openai')
-    expect(screen.queryByText('目标不能为空。')).not.toBeInTheDocument()
-    const sourceForm = screen.getByRole('button', { name: '创建并订阅' }).closest('form') as HTMLFormElement
-    expect(Array.from(sourceForm.elements).filter((element): element is HTMLInputElement => element instanceof HTMLInputElement && !element.validity.valid).map((element) => ({ name: element.name, value: element.value, required: element.required, validity: element.validity.valid }))).toEqual([])
     await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'x_profile',
       config: {
-        profile_id: 'route-x-profile',
         target: 'openai',
+        fetch_limit: 20,
+        analysis_mode: 'full',
       },
     })))
-    expect(api.subscribe).toHaveBeenCalledWith('apify-new')
+    expect(api.subscribe).toHaveBeenCalledWith('x-new')
+    expect(secrets).not.toHaveBeenCalled()
+  })
+
+  it('locks an unavailable X target while preserving metadata-only edits', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'x-existing', type: 'apify_social', setup_type: 'x_profile', display_name: 'OpenAI 旧名称', description: '', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', default_topics: [], enabled: true, config: { target: 'openai', fetch_limit: 20, analysis_mode: 'full' } }
+    const subscription = { id: 'x-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
+    const updateSource = vi.fn().mockResolvedValue({ ...source, display_name: 'OpenAI X' })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 20, source_types: [{
+        type: 'x_profile', label: 'X 账号', availability: 'temporarily_unavailable', unavailable_reason: 'platform_setup_pending', fields: [
+          { name: 'target', label: 'X 用户名或主页链接', input_type: 'text', required: true, default: '' },
+          { name: 'fetch_limit', label: '每次获取条数', input_type: 'number', required: false, default: 20, min: 1, max: 100 },
+          { name: 'analysis_mode', label: '分析模式', input_type: 'select', required: false, default: 'full', options: [{ value: 'full', label: '完整分析' }] },
+        ],
+      }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      updateSource,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '编辑来源：OpenAI 旧名称' }))
+    const dialog = await screen.findByRole('dialog', { name: 'OpenAI 旧名称 · 来源设置' })
+    expect(within(dialog).getByText('平台连接字段暂时锁定')).toBeVisible()
+    expect(within(dialog).getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled()
+    expect(within(dialog).getByRole('checkbox', { name: '启用来源' })).toBeDisabled()
+    const name = within(dialog).getByRole('textbox', { name: '来源名称' })
+    await browser.clear(name)
+    await browser.type(name, 'OpenAI X')
+    await browser.click(within(dialog).getByRole('button', { name: '保存来源' }))
+    await waitFor(() => expect(updateSource).toHaveBeenCalledOnce())
+    expect(updateSource).toHaveBeenCalledWith('x-existing', expect.objectContaining({ display_name: 'OpenAI X' }))
+    expect(updateSource.mock.calls[0][1]).not.toHaveProperty('config')
+    expect(updateSource.mock.calls[0][1]).not.toHaveProperty('enabled')
+  })
+
+  it('keeps legacy social sources editable as metadata without exposing implementation controls', async () => {
+    const browser = userEvent.setup()
+    const source = {
+      id: 'legacy-social',
+      type: 'apify_social',
+      display_name: '旧 Instagram 标签源',
+      description: '保留中的旧来源',
+      scope: 'private' as const,
+      owner_user_id: 'user-live',
+      default_channel: 'AI',
+      default_topics: [],
+      enabled: true,
+      config: { target: 'openai', fetch_limit: 20, analysis_mode: 'full' },
+    }
+    const subscription = { id: 'legacy-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
+    const updateSource = vi.fn().mockResolvedValue({ ...source, description: '只改说明' })
+    const secrets = vi.fn().mockResolvedValue({ secrets: [] })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 20, source_types: [{ type: 'rss', label: 'RSS/Atom', availability: 'ready', unavailable_reason: null, fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      secrets,
+      updateSource,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '编辑来源：旧 Instagram 标签源' }))
+    const dialog = await screen.findByRole('dialog', { name: '旧 Instagram 标签源 · 来源设置' })
+    expect(within(dialog).getByText('平台连接字段暂时锁定')).toBeVisible()
+    expect(within(dialog).queryByText('高级配置')).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText(/Apify|Actor|Route|Key|平台|来源类别/)).not.toBeInTheDocument()
+    const description = within(dialog).getByRole('textbox', { name: '来源说明' })
+    await browser.clear(description)
+    await browser.type(description, '只改说明')
+    await browser.click(within(dialog).getByRole('button', { name: '保存来源' }))
+    await waitFor(() => expect(updateSource).toHaveBeenCalledOnce())
+    expect(updateSource).toHaveBeenCalledWith('legacy-social', expect.objectContaining({ description: '只改说明' }))
+    expect(updateSource.mock.calls[0][1]).not.toHaveProperty('config')
+    expect(updateSource.mock.calls[0][1]).not.toHaveProperty('enabled')
+    expect(secrets).not.toHaveBeenCalled()
   })
 
   it('omits source usage lookup and confirms management transfer before sharing', async () => {

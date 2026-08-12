@@ -77,6 +77,7 @@ class HorizonOrchestrator:
         self._service_apify_actor_ops: Any | None = None
         self._service_apify_actor_ops_job_id: str | None = None
         self._service_apify_actor_ops_snapshots: list[Any] = []
+        self._service_apify_watermark_proofs: list[dict[str, str]] = []
         self._service_apify_actor_route_job_id: str | None = None
         self._service_apify_forced_candidate_id: str | None = None
         self._service_apify_forced_route_generation: int | None = None
@@ -143,6 +144,57 @@ class HorizonOrchestrator:
         for snapshot in self._service_apify_actor_ops_snapshots:
             self._service_apify_actor_ops.assert_publishable(snapshot)
 
+    def _capture_service_apify_watermark(self, items: Any) -> None:
+        if str(
+            getattr(items, "_apify_actor_semantic_outcome", "") or ""
+        ) != "advanced":
+            return
+        proof = {
+            "workspace_id": getattr(
+                items, "_apify_actor_workspace_id", None
+            ),
+            "source_id": getattr(items, "_apify_actor_source_id", None),
+            "candidate_id": getattr(
+                items, "_apify_actor_candidate_id", None
+            ),
+            "latest_published_at": getattr(
+                items, "_apify_actor_latest_published_at", None
+            ),
+            "latest_item_id_hash": getattr(
+                items, "_apify_actor_latest_item_id_hash", None
+            ),
+        }
+        if all(isinstance(value, str) and value for value in proof.values()):
+            self._service_apify_watermark_proofs.append(proof)  # type: ignore[arg-type]
+
+    def publish_service_apify_watermarks(self, *, connection: Any) -> None:
+        """Advance Actor source watermarks in the final Feed transaction."""
+
+        if not self._service_apify_watermark_proofs:
+            return
+        from .services.apify_actor_resilience import (
+            ApifyActorResilienceService,
+        )
+
+        actor_service = (
+            self._service_apify_actor_ops
+            if self._service_apify_actor_ops is not None
+            else self._service_apify_actor_route
+        )
+        if actor_service is None:
+            raise RuntimeError("Actor watermark proof is missing its runtime")
+        for proof in self._service_apify_watermark_proofs:
+            ApifyActorResilienceService(
+                actor_service.store,
+                workspace_id=proof["workspace_id"],
+            ).publish_source_advance(
+                proof["source_id"],
+                candidate_id=proof["candidate_id"],
+                latest_published_at=proof["latest_published_at"],
+                latest_item_id_hash=proof["latest_item_id_hash"],
+                connection=connection,
+            )
+
     def _service_acquisition_usage(self) -> AcquisitionUsage:
         metrics = getattr(self._service_acquisition_coordinator, "metrics", None)
         values = metrics.as_dict() if hasattr(metrics, "as_dict") else {}
@@ -162,6 +214,7 @@ class HorizonOrchestrator:
     ) -> FeedRunResult:
         """Run the Service pipeline without filesystem publishing side effects."""
         self._service_apify_actor_ops_snapshots = []
+        self._service_apify_watermark_proofs = []
         return await self._execute_structured(
             force_hours=force_hours,
             enrich=enrich,
@@ -571,13 +624,16 @@ class HorizonOrchestrator:
             elapsed_hours = (
                 datetime.now(timezone.utc) - since.astimezone(timezone.utc)
             ).total_seconds() / 3600
-            return await acquire(
+            fetched = await acquire(
                 source=source,
                 provider=provider,
                 window_hours=max(int(round(elapsed_hours)), 1),
                 fetch=fetch_upstream,
             )
-        return await fetch_upstream()
+        else:
+            fetched = await fetch_upstream()
+        self._capture_service_apify_watermark(fetched)
+        return fetched
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours is not None:

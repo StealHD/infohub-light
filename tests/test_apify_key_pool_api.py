@@ -106,9 +106,12 @@ def test_admin_pool_order_lifecycle_and_safe_projection(tmp_path, monkeypatch):
     response = client.get("/api/admin/apify-key-pool")
     assert response.status_code == 200
     pool = response.json()["data"]
+    assert pool["schema_version"] == 2
     assert pool["enabled"] is True
     assert pool["status"] == "ready"
     assert pool["active_secret_id"] == primary["id"]
+    assert pool["validation_secret_id"] is None
+    assert pool["validation_key_status"] == "unassigned"
     assert [item["secret_id"] for item in pool["members"]] == [
         primary["id"],
         backup_one["id"],
@@ -117,6 +120,7 @@ def test_admin_pool_order_lifecycle_and_safe_projection(tmp_path, monkeypatch):
     for member in pool["members"]:
         assert set(member) == {
             "secret_id",
+            "role",
             "position",
             "status",
             "blocked_until",
@@ -349,9 +353,18 @@ def test_pool_managed_sources_reject_secret_env_and_hide_legacy_reference(
     registry = client.get("/api/catalog/source-types").json()["data"][
         "source_types"
     ]
-    apify = next(item for item in registry if item["type"] == "apify_social")
-    assert apify["credential_mode"] == "workspace_apify_pool"
-    assert apify["supports_secret_env"] is False
+    assert all(item["type"] != "apify_social" for item in registry)
+    platform_profiles = [
+        item
+        for item in registry
+        if item["type"] in {"x_profile", "instagram_profile"}
+    ]
+    assert {item["type"] for item in platform_profiles} == {
+        "x_profile",
+        "instagram_profile",
+    }
+    assert all(item["credential_mode"] == "none" for item in platform_profiles)
+    assert all(item["supports_secret_env"] is False for item in platform_profiles)
 
 
 def test_pool_routes_require_admin_and_are_workspace_isolated(tmp_path, monkeypatch):

@@ -6,7 +6,7 @@
 - 核心：小团体账号与角色、来源订阅、共享获取、用户作用域 Feed/History、Worker 队列、React/HeroUI Service UI、受保护媒体、可观测性和本地 OpenClaw 直连。
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
-- 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps schema v17–v22、付费 Canary、外部 Webhook/Telegram/Email 验收。
+- 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps schema v17–v23、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。
 
 本任务代码基线为 `32fc41e`（发布流程优化）；最近记录的生产基线为 `8ef4c6bf6491` / `v2.2.13`，任何运行操作前必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | Feed storage v3 | 停 API/Worker、无活跃任务 | dry-run、UTC `0600` backup、显式 apply | marker、hash backfill、integrity、foreign keys 与 readiness |
 | notification v14–v16 | 上一 schema 已完成 | 同上，不调用 Transport | 表/约束/历史映射、API 与 Worker ready |
-| ActorOps v17–v22 | 无 Discovery/Canary Job | 同上，不联网、不调用 AI/Actor | 精确 migration checksum、完整表形状与 readiness |
+| ActorOps v17–v23 | 无 Discovery/Canary/新鲜度 Job | 同上，不联网、不调用 AI/Actor | 精确 migration checksum、完整表形状、integrity/foreign keys 与 readiness |
 | 付费 Actor/AI | operator 明确授权 | 单次有上限 canary | 费用、远端 Run、来源结果与回滚证据 |
 | 正式 VPS 升级 | 干净且等同 `origin/main` 的 main | `./scripts/release_vps.sh release vX.Y.Z` | 精确 SHA main Gate、Tag smoke、API/Worker/前端 revision |
 

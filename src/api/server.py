@@ -57,6 +57,10 @@ from ..services.apify_key_pool import (
     ApifyKeyPoolService,
     apify_key_pool_enabled,
 )
+from ..services.apify_actor_resilience import (
+    ActorResilienceError,
+    ApifyActorResilienceService,
+)
 from ..services.apify_actor_route import (
     ApifyActorRouteConflictError,
     ApifyActorRouteError,
@@ -66,8 +70,6 @@ from ..services.apify_actor_ops import (
     ActorOpsError,
     ApifyActorOpsService,
     FIRST_ACTIVATION_CONFIRMATION,
-    MEMBER_PENDING_DISCOVERY_ROUTES,
-    MEMBER_SUPPORT_CHECKS_PER_DAY,
     ROUTE_CANARY_ATTEMPT_LIMIT,
     SOURCE_CANARY_BUDGET_USD,
     source_target_fingerprint,
@@ -129,10 +131,16 @@ from ..services.workspace_telegram_transport import (
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
+    INSTAGRAM_PROFILE_SETUP_TYPE,
+    PLATFORM_PROFILE_SETUP_TYPES,
     SourceConfigError,
+    X_PROFILE_SETUP_TYPE,
     YOUTUBE_CHANNEL_SETUP_TYPE,
     catalog_source_setup_type,
     list_source_setup_types,
+    normalize_platform_profile_setup_config,
+    platform_for_profile_setup_type,
+    project_catalog_source_config_for_web,
     source_key as build_source_key,
     validate_secret_env_name,
     validate_source_config,
@@ -646,6 +654,13 @@ class ApifyKeyPoolOrderRequest(BaseModel):
     expected_generation: StrictInt = Field(ge=1)
 
 
+class ApifyValidationKeyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    secret_id: str | None = Field(default=None, min_length=1, max_length=128)
+    expected_generation: StrictInt = Field(ge=1)
+
+
 class ApifyActorRouteOrderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -730,8 +745,8 @@ class ApifyActivePoolRequest(BaseModel):
         names = {item.slot for item in slots}
         if names != {"primary", "backup_1", "backup_2"}:
             raise ValueError("slots must contain primary, backup_1, and backup_2")
-        if sum(item.revision_id is not None for item in slots) < 2:
-            raise ValueError("slots must contain at least two revisions")
+        if sum(item.revision_id is not None for item in slots) < 1:
+            raise ValueError("slots must contain at least one revision")
         return slots
 
 
@@ -813,7 +828,8 @@ class ApifyActorCanaryBatchRequest(BaseModel):
     )
     confirmation: Literal["确认付费验证主备"]
     goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy"
+        "initial_pool", "complete_third", "upgrade_legacy",
+        "compatibility_single",
     ] = "initial_pool"
     max_candidates: StrictInt = Field(default=3, ge=1, le=3)
     max_total_charge_usd: float = Field(default=0.06, gt=0, le=6.06)
@@ -825,21 +841,22 @@ class ApifyActorCanaryBatchRequest(BaseModel):
     candidate_validation_profiles: list[
         ApifyActorValidationProfileRequest
     ] | None = Field(default=None, min_length=1, max_length=3)
-    target_slot_count: StrictInt | None = Field(default=None, ge=2, le=3)
+    target_slot_count: StrictInt | None = Field(default=None, ge=1, le=3)
 
 
 class ApifyActorManualCanaryPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy"
+        "initial_pool", "complete_third", "upgrade_legacy",
+        "compatibility_single",
     ]
     candidate_ids: list[str] = Field(min_length=1, max_length=3)
     candidate_validation_profiles: list[
         ApifyActorValidationProfileRequest
     ] = Field(min_length=1, max_length=3)
     expected_generation: StrictInt = Field(ge=1)
-    target_slot_count: Literal[3] = 3
+    target_slot_count: Literal[1, 2, 3] = 3
 
 
 class ApifyActorCandidateRefreshRequest(BaseModel):
@@ -847,8 +864,39 @@ class ApifyActorCandidateRefreshRequest(BaseModel):
 
     expected_generation: StrictInt = Field(ge=1)
     goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy"
+        "initial_pool", "complete_third", "upgrade_legacy",
+        "compatibility_single",
     ] = "initial_pool"
+
+
+class ApifyFreshnessSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool
+    interval_hours: StrictInt = Field(ge=6, le=168)
+    expected_generation: StrictInt = Field(ge=1)
+    standing_authorization_confirmed: StrictBool = False
+
+
+class ApifyFreshnessCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cost_confirmed: StrictBool
+    expected_generation: StrictInt = Field(ge=1)
+    max_total_charge_usd: float = Field(gt=0, le=0.06)
+
+
+class ApifySourcePreferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str | None = Field(default=None, min_length=1, max_length=128)
+    expected_generation: StrictInt = Field(ge=1)
+
+
+class ApifyEvaluationRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: Literal["确认重新尝试一次"]
 
 
 class ApifyActorValidationReconcileRequest(BaseModel):
@@ -1112,6 +1160,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "telegram_transport_test",
     ),
     ("PUT", "/api/admin/apify-key-pool/order"): ("secret", "pool_reorder"),
+    ("PUT", "/api/admin/apify-key-pool/validation-key"): (
+        "secret",
+        "validation_key_update",
+    ),
     ("POST", "/api/admin/apify-key-pool/{secret_id}/drain"): (
         "secret",
         "pool_drain",
@@ -1140,6 +1192,22 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-routes/{route_id}/pool-candidates/refresh",
     ): ("job", "actor_candidate_refresh"),
+    (
+        "PATCH",
+        "/api/admin/apify-routes/{route_id}/freshness-settings",
+    ): ("source", "actor_freshness_settings_update"),
+    (
+        "POST",
+        "/api/admin/apify-routes/{route_id}/freshness-checks",
+    ): ("job", "actor_freshness_check_queue"),
+    (
+        "PATCH",
+        "/api/admin/sources/{source_id}/apify-preference",
+    ): ("source", "actor_source_preference_update"),
+    (
+        "POST",
+        "/api/admin/apify-actor-evaluations/{evaluation_id}/retry",
+    ): ("source", "actor_evaluation_retry"),
     (
         "POST",
         "/api/admin/apify-routes/{route_id}/validations/reconcile",
@@ -1418,6 +1486,18 @@ def create_app(
                 ),
             )
 
+    def require_apify_actor_resilience_v21() -> None:
+        if store.apify_actor_resilience_v21_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor resilience v21 migration must be applied before Actor routes are used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_resilience_v21.py --apply."
+                ),
+            )
+
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()
         require_apify_actor_ops_v15()
@@ -1426,6 +1506,7 @@ def create_app(
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
         require_apify_actor_validation_tuning_v20()
+        require_apify_actor_resilience_v21()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1445,7 +1526,17 @@ def create_app(
         require_apify_actor_pool_staging_v18()
         require_apify_actor_manual_pool_selection_v19()
         require_apify_actor_validation_tuning_v20()
+        require_apify_actor_resilience_v21()
         return ApifyActorOpsService(
+            store,
+            workspace_id=str(workspace_id),
+        )
+
+    def apify_actor_resilience_for(
+        workspace_id: str,
+    ) -> ApifyActorResilienceService:
+        require_apify_actor_resilience_v21()
+        return ApifyActorResilienceService(
             store,
             workspace_id=str(workspace_id),
         )
@@ -1676,13 +1767,110 @@ def create_app(
         base_url = normalize_ai_secret_base_url(payload.base_url) if kind == "ai" else ""
         return name, kind, provider, env_name, base_url
 
+    def primary_actor_route_for_platform(
+        ops: ApifyActorOpsService,
+        platform: str,
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                route
+                for route in ops.list_routes()
+                if str(route["platform"]) == platform
+                and str(route["target_type"]) == "profile"
+                and str(route["capability"]) == "items"
+                and str(route["mode"]) == "primary"
+            ),
+            None,
+        )
+
+    def workspace_apify_credential_ready(workspace_id: str) -> bool:
+        if not apify_key_pool_enabled():
+            return False
+        state = apify_key_pool.public_state(workspace_id)
+        active_secret_id = state.get("active_secret_id")
+        if state.get("status") != "ready" or not active_secret_id:
+            return False
+        secret = store.get_secret_ref(str(active_secret_id))
+        return bool(
+            secret
+            and secret_values.status(str(secret["env_name"]))["is_set"]
+        )
+
+    def source_setup_availability(
+        workspace_id: str,
+    ) -> tuple[int, dict[str, tuple[str, str | None]]]:
+        ops = apify_actor_ops_for(workspace_id)
+        credential_ready = workspace_apify_credential_ready(workspace_id)
+        statuses: dict[str, tuple[str, str | None]] = {}
+        for setup_type, platform in (
+            (X_PROFILE_SETUP_TYPE, "x"),
+            (INSTAGRAM_PROFILE_SETUP_TYPE, "instagram"),
+        ):
+            route = primary_actor_route_for_platform(ops, platform)
+            if route is None or not ops.source_capability_ready(
+                str(route["route_id"])
+            ):
+                statuses[setup_type] = (
+                    "temporarily_unavailable",
+                    "platform_setup_pending",
+                )
+            elif not credential_ready:
+                statuses[setup_type] = (
+                    "temporarily_unavailable",
+                    "workspace_credential_unavailable",
+                )
+            else:
+                statuses[setup_type] = ("ready", None)
+        return ops.catalog_generation(), statuses
+
+    def workspace_catalog_source_setup_type(
+        workspace_id: str,
+        source_type: str,
+        config: Any,
+    ) -> str:
+        setup_type = catalog_source_setup_type(source_type, config)
+        if (
+            setup_type != "apify_social"
+            or not isinstance(config, dict)
+            or not config.get("profile_id")
+        ):
+            return setup_type
+        try:
+            route = apify_actor_ops_for(workspace_id).get_route(
+                str(config["profile_id"])
+            )
+        except ActorOpsError:
+            return setup_type
+        identity = (
+            str(route.get("platform") or ""),
+            str(route.get("target_type") or ""),
+            str(route.get("capability") or ""),
+            str(route.get("mode") or ""),
+        )
+        if identity == ("x", "profile", "items", "primary"):
+            return X_PROFILE_SETUP_TYPE
+        if identity == ("instagram", "profile", "items", "primary"):
+            return INSTAGRAM_PROFILE_SETUP_TYPE
+        return setup_type
+
     def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         item = dict(source)
         item.pop("enforce_public_network", None)
-        item["setup_type"] = catalog_source_setup_type(
+        item["setup_type"] = workspace_catalog_source_setup_type(
+            str(source["workspace_id"]),
             str(source.get("type") or ""),
             source.get("config"),
         )
+        if (
+            item["setup_type"] in PLATFORM_PROFILE_SETUP_TYPES
+            or str(source.get("type") or "") == "apify_social"
+        ):
+            item["config"] = project_catalog_source_config_for_web(
+                str(source.get("type") or ""),
+                source.get("config"),
+                setup_type=str(item["setup_type"]),
+            )
+            item.pop("secret_env", None)
         avatar = media_cache.avatar_for_source(
             workspace_id=str(source["workspace_id"]),
             source_id=str(source["id"]),
@@ -1705,11 +1893,11 @@ def create_app(
             )
             item.pop("secret_env", None)
         else:
-            env_name = item.get("secret_env")
+            env_name = source.get("secret_env")
             item["secret_configured"] = bool(
                 env_name and secret_values.status(str(env_name))["is_set"]
             )
-            if not _is_admin(user):
+            if not _is_admin(user) or item["setup_type"] in PLATFORM_PROFILE_SETUP_TYPES:
                 item.pop("secret_env", None)
         return item
 
@@ -1788,6 +1976,7 @@ def create_app(
             "runnable_slots": int(gate.runnable_count),
             "required_slots": int(route["required_slots"]),
             "min_runtime_healthy": int(route["min_runtime_healthy"]),
+            "admission_mode": str(route.get("admission_mode") or "standard"),
             "publisher_count": int(
                 len(
                     {
@@ -1884,6 +2073,8 @@ def create_app(
             "build_id": revision.get("build_id"),
             "build_number": revision.get("build_number"),
             "manifest_hash": revision.get("manifest_hash"),
+            "execution_mode": str(revision.get("execution_mode") or "pinned"),
+            "observed_manifest": bool(revision.get("observed_manifest") or False),
             "lifecycle": str(revision["lifecycle"]),
             "certification_progress": revision.get("certification_progress"),
             "listed_price_usd_per_1000": (
@@ -2001,10 +2192,6 @@ def create_app(
         result = public_actor_ops_route(ops, route)
         revisions: dict[str, dict[str, Any]] = {}
         slots: list[dict[str, Any]] = []
-        populated_slot_count = sum(
-            slot.get("revision_id") is not None
-            for slot in route.get("slots", [])
-        )
         for slot in route.get("slots", []):
             revision_id = slot.get("revision_id")
             revision = (
@@ -2028,17 +2215,8 @@ def create_app(
                     "revision_id": revision_id,
                     "runnable": candidate_state
                     in {"closed", "half_open", "probationary"}
-                    and (
-                        lifecycle in {"certified", "legacy_builtin"}
-                        or (
-                            populated_slot_count == 2
-                            and lifecycle == "probationary"
-                        )
-                        or (
-                            str(slot["slot_name"]) == "backup_2"
-                            and lifecycle == "probationary"
-                        )
-                    ),
+                    and lifecycle
+                    in {"certified", "probationary", "legacy_builtin"},
                     "validation_status": lifecycle or "unconfigured",
                     "revision": (
                         revisions.get(str(revision_id))
@@ -2232,12 +2410,25 @@ def create_app(
                 }
             )
         result["revision_diffs"] = revision_diffs
-        result["replacement_needed"] = int(result["runnable_slots"]) < 3
+        result["replacement_needed"] = int(result["runnable_slots"]) < int(
+            result["min_runtime_healthy"]
+        )
         binding_rows = connection.execute(
             """
             SELECT binding.source_id, binding.validation_status,
-                   binding.generation, binding.target_fingerprint
+                   binding.generation, binding.target_fingerprint,
+                   binding.preferred_candidate_id,
+                   binding.active_candidate_id,
+                   binding.preference_suspended_at,
+                   preferred.display_name AS preferred_actor_name,
+                   active.display_name AS active_actor_name
             FROM apify_source_route_bindings AS binding
+            LEFT JOIN apify_actor_candidates AS preferred
+              ON preferred.workspace_id = binding.workspace_id
+             AND preferred.id = binding.preferred_candidate_id
+            LEFT JOIN apify_actor_candidates AS active
+              ON active.workspace_id = binding.workspace_id
+             AND active.id = binding.active_candidate_id
             WHERE binding.workspace_id = ? AND binding.route_id = ?
             ORDER BY binding.updated_at DESC, binding.source_id
             LIMIT 100
@@ -2330,7 +2521,7 @@ def create_app(
             binding_status = str(binding["validation_status"])
             bucket = (
                 "ready"
-                if binding_status in {"ready_2of2", "ready_3of3"}
+                if binding_status in {"ready_1of1", "ready_2of2", "ready_3of3"}
                 else "failed"
                 if binding_status in {"failed", "blocked"}
                 else "pending"
@@ -2341,6 +2532,24 @@ def create_app(
                     "source_id": str(binding["source_id"]),
                     "binding_status": binding_status,
                     "generation": int(binding["generation"]),
+                    "actor_preference": {
+                        "mode": (
+                            "manual"
+                            if binding["preferred_candidate_id"]
+                            else "automatic"
+                        ),
+                        "preferred_candidate_id": binding[
+                            "preferred_candidate_id"
+                        ],
+                        "preferred_actor_name": binding[
+                            "preferred_actor_name"
+                        ],
+                        "active_candidate_id": binding["active_candidate_id"],
+                        "active_actor_name": binding["active_actor_name"],
+                        "preference_suspended": bool(
+                            binding["preference_suspended_at"]
+                        ),
+                    },
                     "slots": validation_slots,
                 }
             )
@@ -2390,6 +2599,12 @@ def create_app(
         )
         result["discovery_error_code"] = (
             discovery["error_code"] if discovery is not None else None
+        )
+        result.update(
+            ApifyActorResilienceService(
+                store,
+                workspace_id=ops.workspace_id,
+            ).route_resilience(route_id)
         )
         return result
 
@@ -3216,6 +3431,25 @@ def create_app(
             )
         )
 
+    @app.exception_handler(ActorResilienceError)
+    async def _apify_actor_resilience_error_handler(
+        request: Request,
+        exc: ActorResilienceError,
+    ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                action=(
+                    "Reload ActorOps before retrying."
+                    if "conflict" in exc.code
+                    else "Review the validation Key, cost authorization, and Route state."
+                ),
+            )
+        )
+
     @app.exception_handler(QuotaExceeded)
     async def _quota_error_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:
         mark_operation_error(request, exc.code)
@@ -3757,6 +3991,23 @@ def create_app(
         source_type: str,
         config: dict[str, Any],
     ) -> tuple[str, dict[str, Any], str]:
+        if source_type in PLATFORM_PROFILE_SETUP_TYPES:
+            try:
+                normalized = normalize_platform_profile_setup_config(
+                    source_type,
+                    config,
+                )
+            except SourceConfigError as exc:
+                raise ApiError(
+                    "invalid_source_config",
+                    str(exc),
+                    status_code=400,
+                ) from exc
+            return (
+                "apify_social",
+                normalized,
+                build_source_key("apify_social", normalized),
+            )
         if source_type != YOUTUBE_CHANNEL_SETUP_TYPE:
             normalized, key = validate_catalog_source_config(source_type, config)
             return source_type, normalized, key
@@ -5232,6 +5483,7 @@ def create_app(
     async def admin_apify_key_pool(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
         return ok(apify_key_pool.public_state(str(user["workspace_id"])))
 
     @app.put("/api/admin/apify-key-pool/order")
@@ -5239,6 +5491,7 @@ def create_app(
         payload: ApifyKeyPoolOrderRequest,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
         try:
             state = apify_key_pool.reorder(
                 str(user["workspace_id"]),
@@ -5255,11 +5508,43 @@ def create_app(
             raise pool_api_error(exc) from exc
         return ok(state)
 
+    @app.put("/api/admin/apify-key-pool/validation-key")
+    async def admin_apify_validation_key(
+        payload: ApifyValidationKeyRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
+        try:
+            state = apify_key_pool.set_validation_key(
+                str(user["workspace_id"]),
+                secret_id=payload.secret_id,
+                expected_generation=int(payload.expected_generation),
+            )
+        except LookupError as exc:
+            raise ApiError(
+                "not_found", "Apify Key pool member not found", status_code=404
+            ) from exc
+        except ApifyKeyPoolError as exc:
+            raise pool_api_error(exc) from exc
+        resilience = apify_actor_resilience_for(str(user["workspace_id"]))
+        resilience.emit_event(
+            phase="validation_key",
+            outcome="succeeded",
+            reason_code=("assigned" if payload.secret_id else "unassigned"),
+            request_id=getattr(request.state, "operation_request_id", None),
+        )
+        request.state.operation_changed_fields = ["validation_key"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(state)
+
     @app.post("/api/admin/apify-key-pool/{secret_id}/drain")
     async def admin_apify_key_pool_drain(
         secret_id: str,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_apify_actor_resilience_v21()
         state = apify_key_pool.public_state(str(user["workspace_id"]))
         if secret_id not in {
             str(member["secret_id"]) for member in state["members"]
@@ -5319,7 +5604,8 @@ def create_app(
         route_id: str,
         response: Response,
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ] = Query(...),
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
@@ -5328,6 +5614,186 @@ def create_app(
         ).list_pool_candidates(route_id, goal=goal)
         response.headers["Cache-Control"] = "no-store"
         return ok(result)
+
+    @app.patch("/api/admin/apify-routes/{route_id}/freshness-settings")
+    async def admin_apify_freshness_settings(
+        route_id: str,
+        payload: ApifyFreshnessSettingsRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).update_freshness_settings(
+            route_id,
+            enabled=bool(payload.enabled),
+            interval_hours=int(payload.interval_hours),
+            expected_generation=int(payload.expected_generation),
+            actor_user_id=str(user["id"]),
+            standing_authorization_confirmed=bool(
+                payload.standing_authorization_confirmed
+            ),
+        )
+        result = public_actor_ops_detail(
+            apify_actor_ops_for(str(user["workspace_id"])),
+            route_id,
+        )
+        request.state.operation_changed_fields = [
+            "freshness_enabled",
+            "freshness_interval_hours",
+            "freshness_authorization",
+        ]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.get("/api/admin/apify-routes/{route_id}/freshness-plan")
+    async def admin_apify_freshness_plan(
+        route_id: str,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).freshness_plan(route_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.post("/api/admin/apify-routes/{route_id}/freshness-checks")
+    async def admin_apify_freshness_check(
+        route_id: str,
+        payload: ApifyFreshnessCheckRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        quota.ensure_job_allowed(
+            workspace_id=str(user["workspace_id"]),
+            user_id=str(user["id"]),
+        )
+        resilience = apify_actor_resilience_for(str(user["workspace_id"]))
+        check = resilience.create_freshness_check(
+            route_id,
+            trigger_kind="manual",
+            actor_user_id=str(user["id"]),
+            cost_confirmed=bool(payload.cost_confirmed),
+            expected_generation=int(payload.expected_generation),
+            approved_max_total_charge_usd=float(
+                payload.max_total_charge_usd
+            ),
+            request_id=getattr(request.state, "operation_request_id", None),
+        )
+        try:
+            queued = queue.create_job(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                job_type="apify_actor_freshness_check",
+                payload={"check_id": str(check["check_id"])},
+                priority=100,
+                max_attempts=1,
+                retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+            )
+            resilience.attach_freshness_job(
+                str(check["check_id"]), str(queued["id"])
+            )
+        except Exception:
+            resilience.fail_freshness_check(
+                str(check["check_id"]),
+                reason_code="job_queue_failed",
+            )
+            raise
+        request.state.operation_job_id = str(queued["id"])
+        request.state.operation_outcome = "queued"
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "check": resilience.get_freshness_check(str(check["check_id"])),
+                "job": {"id": str(queued["id"]), "status": str(queued["status"])},
+            }
+        )
+
+    @app.get("/api/admin/apify-freshness-checks/{check_id}")
+    async def admin_apify_freshness_check_detail(
+        check_id: str,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).get_freshness_check(check_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.patch("/api/admin/sources/{source_id}/apify-preference")
+    async def admin_apify_source_preference(
+        source_id: str,
+        payload: ApifySourcePreferenceRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).set_source_preference(
+            source_id,
+            candidate_id=payload.candidate_id,
+            expected_generation=int(payload.expected_generation),
+        )
+        request.state.operation_source_id = source_id
+        request.state.operation_changed_fields = ["actor_preference"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, **result})
+
+    @app.get("/api/admin/apify-actor-events")
+    async def admin_apify_actor_events(
+        response: Response,
+        route_id: str | None = Query(default=None, max_length=128),
+        source_id: str | None = Query(default=None, max_length=128),
+        candidate_id: str | None = Query(default=None, max_length=128),
+        phase: str | None = Query(default=None, max_length=96),
+        outcome: str | None = Query(default=None, max_length=96),
+        since: datetime | None = Query(default=None),
+        until: datetime | None = Query(default=None),
+        cursor: str | None = Query(default=None, max_length=512),
+        limit: int = Query(default=50, ge=1, le=100),
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).list_events(
+            route_id=route_id,
+            source_id=source_id,
+            candidate_id=candidate_id,
+            phase=phase,
+            outcome=outcome,
+            since=since,
+            until=until,
+            cursor=cursor,
+            limit=limit,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
+
+    @app.post(
+        "/api/admin/apify-actor-evaluations/{evaluation_id}/retry"
+    )
+    async def admin_apify_actor_evaluation_retry(
+        evaluation_id: str,
+        payload: ApifyEvaluationRetryRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_resilience_for(
+            str(user["workspace_id"])
+        ).retry_evaluation_once(
+            evaluation_id,
+            actor_user_id=str(user["id"]),
+        )
+        request.state.operation_changed_fields = ["evaluation_retry"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"schema_version": 1, "evaluation": result})
 
     @app.post(
         "/api/admin/apify-routes/{route_id}/pool-candidates/refresh"
@@ -5373,12 +5839,17 @@ def create_app(
                     status_code=409,
                 )
             prefer_existing = payload.goal == "upgrade_legacy"
+            compatibility_single = payload.goal == "compatibility_single"
             discovery = ops.create_discovery_run(
                 route_id,
                 trigger_reason=(
                     "manual_legacy_upgrade_refresh"
                     if prefer_existing
-                    else "manual_candidate_refresh"
+                    else (
+                        "manual_compatibility_candidate_refresh"
+                        if compatibility_single
+                        else "manual_candidate_refresh"
+                    )
                 ),
                 expected_generation=int(payload.expected_generation),
             )
@@ -5475,6 +5946,7 @@ def create_app(
             store,
             workspace_id=workspace_id,
             data_dir=str(data_dir),
+            purpose="validation",
         )
         if coordinator is None:
             raise ActorOpsError(
@@ -5545,15 +6017,8 @@ def create_app(
         payload: ApifySupportCheckRequest,
         request: Request,
         response: Response,
-        user: dict[str, Any] = Depends(current_user),
+        user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
-        require_mutating_member(user)
-        if payload.force_discovery and not _is_admin(user):
-            raise ApiError(
-                "admin_required",
-                "Manual Actor rediscovery requires an administrator",
-                status_code=403,
-            )
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         result = ops.request_support_check(
             platform=payload.platform,
@@ -5563,20 +6028,10 @@ def create_app(
                 "admin_rediscovery"
                 if payload.force_discovery
                 else "admin_support_check"
-                if _is_admin(user)
-                else "member_support_check"
             ),
             expected_generation=int(payload.expected_generation),
-            max_recent_runs=(
-                None
-                if _is_admin(user)
-                else MEMBER_SUPPORT_CHECKS_PER_DAY
-            ),
-            max_pending_routes=(
-                None
-                if _is_admin(user)
-                else MEMBER_PENDING_DISCOVERY_ROUTES
-            ),
+            max_recent_runs=None,
+            max_pending_routes=None,
             force_discovery=bool(payload.force_discovery),
         )
         discovery_job = None
@@ -6076,7 +6531,8 @@ def create_app(
         run_id: str,
         response: Response,
         goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "compatibility_single",
         ] = Query(default="initial_pool"),
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
@@ -6498,6 +6954,23 @@ def create_app(
                 else []
             ),
         ]
+        try:
+            apify_actor_resilience_for(str(user["workspace_id"])).emit_event(
+                route_id=route_id,
+                phase="pool_activation",
+                outcome="succeeded",
+                reason_code=(
+                    "manual_rollback"
+                    if payload.rollback_revision_id
+                    else "manual_pool_update"
+                ),
+                occurrence_count=sum(
+                    1 for item in payload.slots if item.revision_id
+                ),
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except Exception:
+            pass
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
@@ -6518,6 +6991,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         ops = apify_actor_ops_for(str(user["workspace_id"]))
+        activation_reason = "recommended_pool"
         staged_fields = (
             payload.stage_id,
             payload.expected_plan_hash,
@@ -6539,6 +7013,11 @@ def create_app(
                     "Actor pool stage was not found for this route",
                     status_code=404,
                 )
+            activation_reason = (
+                "compatibility_single"
+                if str(stage.get("goal") or "") == "compatibility_single"
+                else "staged_pool"
+            )
             result = ops.apply_pool_stage(
                 str(payload.stage_id),
                 expected_generation=int(payload.expected_generation),
@@ -6552,6 +7031,21 @@ def create_app(
                 expected_generation=int(payload.expected_generation),
                 confirmation=payload.confirmation,
             )
+        try:
+            apify_actor_resilience_for(str(user["workspace_id"])).emit_event(
+                route_id=route_id,
+                phase="pool_activation",
+                outcome="succeeded",
+                reason_code=activation_reason,
+                occurrence_count=sum(
+                    1
+                    for slot in result.get("slots", [])
+                    if slot.get("revision_id")
+                ),
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except Exception:
+            pass
         request.state.operation_changed_fields = [
             "recommended_slots",
             "generation",
@@ -7501,13 +7995,28 @@ def create_app(
         return ok({"deleted": True, "id": secret_id})
 
     @app.get("/api/catalog/source-types")
-    async def catalog_source_types(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok({"source_types": list_source_setup_types()})
+    async def catalog_source_types(
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        generation, availability = source_setup_availability(
+            str(user["workspace_id"])
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "generation": generation,
+                "source_types": list_source_setup_types(
+                    availability=availability
+                ),
+            }
+        )
 
     @app.get("/api/catalog/source-capabilities")
     async def catalog_source_capabilities(
         response: Response,
-        user: dict[str, Any] = Depends(current_user),
+        user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         capabilities = []
@@ -7598,12 +8107,15 @@ def create_app(
         if scope != "private" and not _is_admin(user):
             raise ApiError("forbidden", "only admins can create public or workspace sources", status_code=403)
         if (
-            payload.type == YOUTUBE_CHANNEL_SETUP_TYPE
+            payload.type in (
+                YOUTUBE_CHANNEL_SETUP_TYPE,
+                *PLATFORM_PROFILE_SETUP_TYPES,
+            )
             and payload.secret_env is not None
         ):
             raise ApiError(
                 "invalid_source_config",
-                "YouTube channel subscriptions do not accept credentials.",
+                "This source setup does not accept per-source credentials.",
                 status_code=400,
             )
         catalog_type, normalized_config, key = await resolve_catalog_source_config(
@@ -7626,15 +8138,9 @@ def create_app(
             legacy_platform = str(
                 normalized_config["platform"]
             ).casefold()
-            actor_ops_route = next(
-                (
-                    route
-                    for route in actor_ops.list_routes()
-                    if str(route["platform"]) == legacy_platform
-                    and str(route["target_type"]) == "profile"
-                    and str(route["capability"]) == "items"
-                ),
-                None,
+            actor_ops_route = primary_actor_route_for_platform(
+                actor_ops,
+                legacy_platform,
             )
             if (
                 actor_ops_route is None
@@ -7646,6 +8152,18 @@ def create_app(
                     "apify_actor_route_not_ready",
                     "The selected Actor Route is not certified for new sources",
                     status_code=409,
+                )
+            if (
+                payload.type in PLATFORM_PROFILE_SETUP_TYPES
+                and not workspace_apify_credential_ready(
+                    str(user["workspace_id"])
+                )
+            ):
+                raise ApiError(
+                    "workspace_credential_unavailable",
+                    "The workspace credential for this platform is unavailable",
+                    status_code=409,
+                    action="Ask an administrator to configure the platform connection.",
                 )
             normalized_config = {
                 key: value
@@ -7706,7 +8224,11 @@ def create_app(
             == YOUTUBE_CHANNEL_SETUP_TYPE
         )
         source_enabled = bool(payload.enabled)
-        if actor_ops_mode == "primary":
+        if (
+            actor_ops_mode == "primary"
+            and str((actor_ops_route or {}).get("admission_mode") or "standard")
+            != "compatibility"
+        ):
             existing_source = store.get_source_by_key(
                 workspace_id=str(user["workspace_id"]),
                 source_key=key,
@@ -7724,7 +8246,7 @@ def create_app(
                 existing_source
                 and existing_binding
                 and existing_binding.get("validation_status")
-                in {"ready_2of2", "ready_3of3"}
+                in {"ready_1of1", "ready_2of2", "ready_3of3"}
                 and existing_source.get("enabled")
             )
         try:
@@ -7829,18 +8351,48 @@ def create_app(
             str,
             Literal["primary", "fallback"],
         ] | None = None
-        setup_type = catalog_source_setup_type(
+        setup_type = workspace_catalog_source_setup_type(
+            str(user["workspace_id"]),
             str(source["type"]),
             source.get("config"),
         )
+        platform_availability: tuple[str, str | None] | None = None
+        if setup_type in PLATFORM_PROFILE_SETUP_TYPES:
+            _generation, platform_statuses = source_setup_availability(
+                str(user["workspace_id"])
+            )
+            platform_availability = platform_statuses.get(setup_type)
+
+        def reject_locked_platform_mutation() -> None:
+            reason = (
+                platform_availability[1]
+                if platform_availability is not None
+                else "platform_setup_pending"
+            )
+            if reason == "workspace_credential_unavailable":
+                raise ApiError(
+                    "workspace_credential_unavailable",
+                    "The workspace credential for this platform is unavailable",
+                    status_code=409,
+                    action="Ask an administrator to configure the platform connection.",
+                )
+            raise ApiError(
+                "apify_actor_route_not_ready",
+                "The selected Actor Route is not certified for this source",
+                status_code=409,
+            )
+
         if (
             "secret_env" in provided
-            and setup_type == YOUTUBE_CHANNEL_SETUP_TYPE
+            and setup_type in (
+                YOUTUBE_CHANNEL_SETUP_TYPE,
+                *PLATFORM_PROFILE_SETUP_TYPES,
+            )
             and payload.secret_env is not None
         ):
             raise ApiError(
                 "invalid_source_config",
-                "YouTube channel subscriptions do not accept credentials.",
+                "This source setup does not accept per-source credentials.",
                 status_code=400,
             )
         updates: dict[str, Any] = {}
@@ -7853,9 +8405,35 @@ def create_app(
         if "default_topics" in provided and payload.default_topics is not None:
             updates["default_topics"] = payload.default_topics
         if "config" in provided and payload.config is not None:
+            current_config = (
+                source["config"]
+                if isinstance(source.get("config"), dict)
+                else {}
+            )
+            legacy_apify_request = (
+                source["type"] == "apify_social"
+                and any(
+                    field_name in payload.config
+                    for field_name in ("profile_id", "platform", "kind")
+                )
+            )
+            request_setup_type = (
+                "apify_social" if legacy_apify_request else setup_type
+            )
+            request_config = payload.config
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and not legacy_apify_request
+            ):
+                request_config = {
+                    field_name: current_config[field_name]
+                    for field_name in ("target", "fetch_limit", "analysis_mode")
+                    if field_name in current_config
+                }
+                request_config.update(payload.config)
             catalog_type, normalized_config, key = await resolve_catalog_source_config(
-                setup_type,
-                payload.config,
+                request_setup_type,
+                request_config,
             )
             if catalog_type != source["type"]:
                 raise ApiError(
@@ -7863,14 +8441,123 @@ def create_app(
                     "source storage type cannot be changed",
                     status_code=400,
                 )
-            updates["config"] = normalized_config
-            updates["source_key"] = key
-            current_config = (
-                source["config"]
-                if isinstance(source.get("config"), dict)
-                else {}
-            )
-            if source["type"] == "apify_social":
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and legacy_apify_request
+                and platform_availability is not None
+                and platform_availability[1] == "platform_setup_pending"
+            ):
+                current_profile_id = str(
+                    current_config.get("profile_id") or ""
+                ).strip()
+                next_profile_id = str(
+                    normalized_config.get("profile_id") or ""
+                ).strip()
+                legacy_config_changed = any(
+                    current_config.get(field_name)
+                    != normalized_config.get(field_name)
+                    for field_name in ("target", "fetch_limit", "analysis_mode")
+                )
+                if current_profile_id:
+                    legacy_config_changed = (
+                        legacy_config_changed
+                        or next_profile_id != current_profile_id
+                    )
+                else:
+                    legacy_config_changed = legacy_config_changed or any(
+                        str(current_config.get(field_name) or "").casefold()
+                        != str(normalized_config.get(field_name) or "").casefold()
+                        for field_name in ("profile_id", "platform", "kind")
+                    )
+                if legacy_config_changed:
+                    reject_locked_platform_mutation()
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and not legacy_apify_request
+            ):
+                merged_config = dict(current_config)
+                for field_name in ("target", "fetch_limit", "analysis_mode"):
+                    if field_name in payload.config:
+                        merged_config[field_name] = normalized_config[field_name]
+                current_profile_id = str(
+                    current_config.get("profile_id") or ""
+                ).strip()
+                target_changed = (
+                    str(current_config.get("target") or "").strip().casefold()
+                    != str(merged_config.get("target") or "")
+                    .strip()
+                    .casefold()
+                )
+                config_changed = any(
+                    current_config.get(field_name) != merged_config.get(field_name)
+                    for field_name in ("target", "fetch_limit", "analysis_mode")
+                    if field_name in payload.config
+                )
+                if (
+                    config_changed
+                    and platform_availability is not None
+                    and platform_availability[0] != "ready"
+                ):
+                    reject_locked_platform_mutation()
+                if target_changed:
+                    actor_ops = apify_actor_ops_for(
+                        str(user["workspace_id"])
+                    )
+                    platform = platform_for_profile_setup_type(setup_type)
+                    route = (
+                        primary_actor_route_for_platform(actor_ops, platform)
+                        if platform is not None
+                        else None
+                    )
+                    if route is None or not actor_ops.source_capability_ready(
+                        str(route["route_id"])
+                    ):
+                        raise ApiError(
+                            "apify_actor_route_not_ready",
+                            "The selected Actor Route is not certified for this source",
+                            status_code=409,
+                        )
+                    if not workspace_apify_credential_ready(
+                        str(user["workspace_id"])
+                    ):
+                        raise ApiError(
+                            "workspace_credential_unavailable",
+                            "The workspace credential for this platform is unavailable",
+                            status_code=409,
+                            action="Ask an administrator to configure the platform connection.",
+                        )
+                    validate_actor_ops_source_target(
+                        route,
+                        str(merged_config["target"]),
+                        primary=True,
+                    )
+                    merged_config.pop("platform", None)
+                    merged_config.pop("kind", None)
+                    merged_config["profile_id"] = str(route["route_id"])
+                    actor_binding_plan = (
+                        route,
+                        str(merged_config["target"]),
+                        "primary",
+                    )
+                    updates["enabled"] = False
+                elif current_profile_id:
+                    merged_config.pop("platform", None)
+                    merged_config.pop("kind", None)
+                    merged_config["profile_id"] = current_profile_id
+                else:
+                    merged_config["platform"] = str(
+                        current_config.get("platform")
+                        or platform_for_profile_setup_type(setup_type)
+                        or ""
+                    )
+                    merged_config["kind"] = str(
+                        current_config.get("kind") or "profile"
+                    )
+                normalized_config, key = validate_catalog_source_config(
+                    "apify_social",
+                    merged_config,
+                )
+            elif source["type"] == "apify_social":
                 current_profile_id = str(
                     current_config.get("profile_id") or ""
                 ).strip()
@@ -7915,6 +8602,8 @@ def create_app(
                         "primary",
                     )
                     updates["enabled"] = False
+            updates["config"] = normalized_config
+            updates["source_key"] = key
             if (
                 source["type"] == "rss"
                 and catalog_source_setup_type(catalog_type, normalized_config)
@@ -7951,6 +8640,13 @@ def create_app(
         if "secret_env" in provided:
             updates["secret_env"] = _validate_secret_env(payload.secret_env)
         if "enabled" in provided:
+            if (
+                setup_type in PLATFORM_PROFILE_SETUP_TYPES
+                and bool(payload.enabled) != bool(source.get("enabled"))
+                and platform_availability is not None
+                and platform_availability[0] != "ready"
+            ):
+                reject_locked_platform_mutation()
             effective_config = (
                 updates["config"]
                 if isinstance(updates.get("config"), dict)
@@ -7971,6 +8667,7 @@ def create_app(
                         status_code=409,
                     ) from exc
                 if str(binding["validation_status"]) not in {
+                    "ready_1of1",
                     "ready_2of2",
                     "ready_3of3",
                 }:

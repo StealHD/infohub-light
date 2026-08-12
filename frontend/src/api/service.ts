@@ -18,6 +18,11 @@ import type {
   ApifyActorDiscoveryMeasurementResponse,
   ApifyActorDiscoverySettings,
   ApifyActorDiscoverySettingsPatch,
+  ApifyActorDiagnosticEvents,
+  ApifyActorEvaluationHistory,
+  ApifyActorFreshnessCheck,
+  ApifyActorFreshnessCheckResponse,
+  ApifyActorFreshnessPlan,
   ApifyActorPaidCanaryRequest,
   ApifyActorPaidCanaryResponse,
   ApifyActorPoolGoal,
@@ -30,6 +35,7 @@ import type {
   ApifyActorSourceBindingActivation,
   ApifyActorSourceBindingActivationResponse,
   ApifyActorSourceSupport,
+  ApifyActorSourcePreference,
   ApifyActorSupportCheckRequest,
   ApifyActorSupportCheckResponse,
   ApifyActorValidationProfileRequest,
@@ -62,7 +68,7 @@ import type {
   SourceHealthResponse,
   SourceSummary,
   SourceShareResult,
-  SourceTypeDefinition,
+  SourceTypesResponse,
   SourceUsage,
   StorageArchives,
   StorageOperation,
@@ -151,7 +157,7 @@ export function createServiceApi(client: ApiClient) {
       includeDisabled ? '/api/catalog/sources?include_disabled=true' : '/api/catalog/sources',
       signal,
     ),
-    sourceTypes: (signal?: AbortSignal) => client.get<ListResponse<SourceTypeDefinition, 'source_types'>>('/api/catalog/source-types', signal),
+    sourceTypes: (signal?: AbortSignal) => client.get<SourceTypesResponse>('/api/catalog/source-types', signal),
     sourceCapabilities: (signal?: AbortSignal) => client.get<ApifyActorSourceCapabilitiesResponse>(
       '/api/catalog/source-capabilities',
       signal,
@@ -250,6 +256,10 @@ export function createServiceApi(client: ApiClient) {
       signal,
     ),
     apifyKeyPool: (signal?: AbortSignal) => client.get<ApifyKeyPool>('/api/admin/apify-key-pool', signal),
+    setApifyValidationKey: (secretId: string | null, expectedGeneration: number) => client.put<ApifyKeyPool>(
+      '/api/admin/apify-key-pool/validation-key',
+      { secret_id: secretId, expected_generation: expectedGeneration },
+    ),
     reorderApifyKeyPool: (secretIds: string[], expectedGeneration: number) => client.put<ApifyKeyPool>(
       '/api/admin/apify-key-pool/order',
       { secret_ids: secretIds, expected_generation: expectedGeneration },
@@ -263,6 +273,39 @@ export function createServiceApi(client: ApiClient) {
     ),
     apifyActorRoute: (routeId: string, signal?: AbortSignal) => client.get<ApifyActorRouteDetail>(
       resource('/api/admin/apify-routes', routeId),
+      signal,
+    ),
+    apifyActorFreshnessPlan: (routeId: string, signal?: AbortSignal) => client.get<ApifyActorFreshnessPlan>(
+      `${resource('/api/admin/apify-routes', routeId)}/freshness-plan`,
+      signal,
+    ),
+    updateApifyActorFreshnessSettings: (
+      routeId: string,
+      payload: {
+        enabled: boolean
+        interval_hours: number
+        expected_generation: number
+        standing_authorization_confirmed: boolean
+      },
+    ) => client.patch<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/freshness-settings`,
+      payload,
+    ),
+    createApifyActorFreshnessCheck: (
+      routeId: string,
+      payload: {
+        cost_confirmed: boolean
+        expected_generation: number
+        max_total_charge_usd: number
+      },
+    ) => (
+      client.post<ApifyActorFreshnessCheckResponse>(
+        `${resource('/api/admin/apify-routes', routeId)}/freshness-checks`,
+        payload,
+      )
+    ),
+    apifyActorFreshnessCheck: (checkId: string, signal?: AbortSignal) => client.get<ApifyActorFreshnessCheck>(
+      resource('/api/admin/apify-freshness-checks', checkId),
       signal,
     ),
     requestApifyActorSupportCheck: (payload: ApifyActorSupportCheckRequest) => (
@@ -317,7 +360,7 @@ export function createServiceApi(client: ApiClient) {
         candidate_ids: string[]
         candidate_validation_profiles: ApifyActorValidationProfileRequest[]
         expected_generation: number
-        target_slot_count: 3
+        target_slot_count: 1 | 2 | 3
       },
     ) => client.post<ApifyActorCanaryPlan>(
       `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
@@ -375,6 +418,44 @@ export function createServiceApi(client: ApiClient) {
       `${resource('/api/admin/sources', sourceId)}/apify-binding/activate`,
       payload,
     ),
+    updateApifyActorSourcePreference: (
+      sourceId: string,
+      candidateId: string | null,
+      expectedGeneration: number,
+    ) => client.patch<ApifyActorSourcePreference>(
+      `${resource('/api/admin/sources', sourceId)}/apify-preference`,
+      { candidate_id: candidateId, expected_generation: expectedGeneration },
+    ),
+    apifyActorEvents: (
+      params: {
+        route_id?: string
+        source_id?: string
+        candidate_id?: string
+        phase?: string
+        outcome?: string
+        since?: string
+        until?: string
+        cursor?: string
+        limit?: number
+      } = {},
+      signal?: AbortSignal,
+    ) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') query.set(key, String(value))
+      })
+      const suffix = query.toString()
+      return client.get<ApifyActorDiagnosticEvents>(
+        `/api/admin/apify-actor-events${suffix ? `?${suffix}` : ''}`,
+        signal,
+      )
+    },
+    retryApifyActorEvaluation: (evaluationId: string) => client.post<{
+      schema_version: 1
+      evaluation: ApifyActorEvaluationHistory
+    }>(`${resource('/api/admin/apify-actor-evaluations', evaluationId)}/retry`, {
+      confirmation: '确认重新尝试一次',
+    }),
     apifyActorDiscoverySettings: (signal?: AbortSignal) => client.get<ApifyActorDiscoverySettings>(
       '/api/admin/apify-discovery-settings',
       signal,

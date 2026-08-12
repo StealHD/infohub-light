@@ -114,6 +114,22 @@ def test_paid_canary_caps_every_x_actor_contract_to_one_item():
     asyncio.run(scraper.client.aclose())
 
 
+def test_unknown_compatibility_actor_uses_value_free_standard_url_input():
+    scraper = ApifySocialScraper(
+        _social_config(_sub("x", "profile", "@openai", fetch_limit=50)),
+        httpx.AsyncClient(),
+        paid_canary=True,
+    )
+    sub = scraper.social_config.subscriptions[0]
+
+    assert scraper._actor_input(
+        sub,
+        actor_id="community/unknown-x-actor",
+        input_dialect="controlled_default",
+    ) == {"startUrls": [{"url": "https://x.com/openai"}]}
+    asyncio.run(scraper.client.aclose())
+
+
 def test_routed_x_profile_rejects_dami_error_rows_with_charge(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "test-token")
     scraper = ApifySocialScraper(

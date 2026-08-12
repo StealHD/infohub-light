@@ -80,18 +80,37 @@ class ApifyActorRuntimeService:
             slot: RouteSlotSnapshot,
             snapshot: RouteExecutionSnapshot,
         ) -> RouteInvocationResult[list[ContentItem]]:
-            if (
-                slot.manifest is None
-                or not slot.build_number
-                or not slot.manifest_hash
-            ):
-                return RouteInvocationResult(
-                    semantic_outcome="revision_not_executable",
-                    failure_scope="actor",
-                    error_code="apify_actor_revision_not_executable",
-                )
             actual_charge_usd: float | None = None
             try:
+                if slot.manifest is None:
+                    if (
+                        content.platform.casefold() == "x"
+                        and (
+                            slot.lifecycle == "legacy_builtin"
+                            or slot.execution_mode == "current"
+                            or slot.observed_manifest
+                        )
+                    ):
+                        return await self._fetch_controlled_x(
+                            slot=slot,
+                            snapshot=snapshot,
+                            source_id=source_id,
+                            target=target,
+                            runtime=runtime,
+                            content=content,
+                            job_id=job_id,
+                        )
+                    return RouteInvocationResult(
+                        semantic_outcome="revision_not_executable",
+                        failure_scope="actor",
+                        error_code="apify_actor_revision_not_executable",
+                    )
+                if not slot.build_number or not slot.manifest_hash:
+                    return RouteInvocationResult(
+                        semantic_outcome="revision_not_executable",
+                        failure_scope="actor",
+                        error_code="apify_actor_revision_not_executable",
+                    )
                 actor_input = render_actor_input(slot.manifest, target, runtime)
                 run = await self.client.run_actor_detailed(
                     slot.actor_id,
@@ -118,6 +137,8 @@ class ApifyActorRuntimeService:
                     value=items,
                     semantic_outcome=mapped.semantic_outcome,
                     cost_usd=actual_charge_usd,
+                    latest_published_at=mapped.latest_published_at,
+                    latest_item_id=mapped.latest_native_id,
                 )
             except ApifyClientError as exc:
                 return RouteInvocationResult(
@@ -152,6 +173,144 @@ class ApifyActorRuntimeService:
             **execute_kwargs,
         )
 
+    async def _fetch_controlled_x(
+        self,
+        *,
+        slot: RouteSlotSnapshot,
+        snapshot: RouteExecutionSnapshot,
+        source_id: str,
+        target: ActorTarget,
+        runtime: ActorRuntime,
+        content: ActorContentContext,
+        job_id: str | None,
+    ) -> RouteInvocationResult[list[ContentItem]]:
+        """Execute the value-free observed compatibility contract for X."""
+
+        from ..models import (
+            ApifySocialConfig,
+            ApifySocialPlatform,
+            ApifySocialSubscriptionConfig,
+        )
+        from ..scrapers.apify_social import (
+            ApifySocialScraper,
+            ApifySocialSemanticError,
+        )
+
+        handle = str(target.handle or target.native_id or "").strip().lstrip("@")
+        if not handle:
+            return RouteInvocationResult(
+                semantic_outcome="apify_actor_target_invalid",
+                failure_scope="target",
+                error_code="apify_actor_target_invalid",
+            )
+        since = (
+            datetime.fromisoformat(runtime.since_iso.replace("Z", "+00:00"))
+            if runtime.since_iso
+            else datetime.min.replace(tzinfo=timezone.utc)
+        )
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        sub = ApifySocialSubscriptionConfig(
+            source_id=source_id,
+            source_key=content.source_key,
+            source_display_name=content.source_name,
+            platform=ApifySocialPlatform.X,
+            kind="profile",
+            target=handle,
+            fetch_limit=int(runtime.max_items),
+            enabled=True,
+            channel=content.channel,
+            topics=list(content.topics),
+            tags=list(content.tags),
+            personal_tags=list(content.personal_tags),
+            analysis_mode=content.analysis_mode,
+        )
+        scraper = ApifySocialScraper(
+            ApifySocialConfig(
+                enabled=True,
+                timeout_seconds=self.client.timeout_seconds,
+                subscriptions=[sub],
+            ),
+            self.client.http_client,
+            apify_coordinator=self.client.coordinator,
+        )
+        actor_input = scraper._actor_input(
+            sub,
+            actor_id=slot.actor_id,
+            input_dialect=slot.compatibility_input_dialect,
+            input_count_field=slot.compatibility_input_count_field,
+        )
+        try:
+            run = await self.client.run_actor_detailed(
+                slot.actor_id,
+                actor_input,
+                max_total_charge_usd=min(snapshot.per_run_cap_usd, 0.02),
+                logical_run_id=snapshot.attempt_id or job_id or source_id,
+                build_number=(
+                    slot.build_number if slot.execution_mode != "current" else None
+                ),
+                max_paid_dataset_items=max(1, int(runtime.max_items)),
+                dataset_item_limit=min(max(2, int(runtime.max_items) + 1), 100),
+                expected_pool_generation=snapshot.key_pool_generation,
+                max_remote_starts=1,
+            )
+            candidate_rows, raw_semantic = scraper._validated_x_rows(run.items)
+            expected = handle.casefold()
+            identity_rows = [
+                row
+                for row in candidate_rows
+                if _x_output_handle(row) == expected
+            ]
+            if candidate_rows and not identity_rows:
+                return RouteInvocationResult(
+                    semantic_outcome="apify_actor_identity_mismatch",
+                    cost_usd=run.actual_charge_usd,
+                    failure_scope="actor",
+                    error_code="apify_actor_identity_mismatch",
+                )
+            items = scraper._parse_candidate_rows(identity_rows, sub, since)
+            all_items = scraper._parse_candidate_rows(
+                identity_rows,
+                sub,
+                datetime.min.replace(tzinfo=timezone.utc),
+            )
+            latest = (
+                max(items, key=lambda item: (item.published_at, item.id))
+                if items
+                else max(
+                    all_items,
+                    key=lambda item: (item.published_at, item.id),
+                    default=None,
+                )
+            )
+            semantic = (
+                "valid_nonempty"
+                if items
+                else "valid_empty"
+                if identity_rows
+                else raw_semantic
+            )
+            return RouteInvocationResult(
+                value=items,
+                semantic_outcome=semantic,
+                cost_usd=run.actual_charge_usd,
+                latest_published_at=(
+                    latest.published_at.astimezone(timezone.utc).isoformat()
+                    if latest is not None
+                    else None
+                ),
+                latest_item_id=(latest.id if latest is not None else None),
+            )
+        except ApifySocialSemanticError as exc:
+            return RouteInvocationResult(
+                semantic_outcome=str(exc.code),
+                cost_usd=run.actual_charge_usd,
+                failure_scope=(
+                    "target" if exc.failure_scope == "target" else "actor"
+                ),
+                error_code=str(exc.code),
+            )
+
 
 _X_PROFILE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 _INSTAGRAM_PROFILE_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
@@ -183,6 +342,28 @@ _INSTAGRAM_RESERVED_PROFILES = frozenset(
         "web",
     }
 )
+
+
+def _x_output_handle(row: dict[str, Any]) -> str:
+    user_value = row.get("user") or row.get("author") or {}
+    user = user_value if isinstance(user_value, dict) else {}
+    value = str(
+        user.get("screen_name")
+        or user.get("username")
+        or user.get("userName")
+        or user.get("handle")
+        or row.get("user_screen_name")
+        or row.get("user_username")
+        or row.get("screen_name")
+        or row.get("handle")
+        or row.get("username")
+        or ""
+    ).strip().lstrip("@").casefold()
+    if value:
+        return value
+    parsed = urlparse(str(row.get("url") or row.get("permalink") or ""))
+    parts = [part for part in parsed.path.split("/") if part]
+    return parts[0].lstrip("@").casefold() if parts else ""
 
 
 def actor_target_for_route(platform: str, raw_target: str) -> ActorTarget:

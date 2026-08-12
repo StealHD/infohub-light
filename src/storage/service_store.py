@@ -66,6 +66,11 @@ APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_NAME = (
 APIFY_ACTOR_VALIDATION_TUNING_MIGRATION_CHECKSUM = (
     "apify-actor-validation-tuning-v20-bounded-repeat-guard"
 )
+APIFY_ACTOR_RESILIENCE_MIGRATION_VERSION = 23
+APIFY_ACTOR_RESILIENCE_MIGRATION_NAME = "apify_actor_resilience_v21"
+APIFY_ACTOR_RESILIENCE_MIGRATION_CHECKSUM = (
+    "apify-actor-resilience-v21-compatibility-freshness-diagnostics"
+)
 ROLES = {"owner", "admin", "member", "viewer"}
 USERNAME_MAX_LENGTH = 80
 SOURCE_SCOPES = {"public", "workspace", "private"}
@@ -368,6 +373,8 @@ def apify_actor_pool_staging_v18_schema_shapes_valid(
         "goalin('complete_third','upgrade_legacy')" in stage_sql
         or "goalin('initial_pool','complete_third','upgrade_legacy')"
         in stage_sql
+        or "goalin('initial_pool','complete_third','upgrade_legacy','compatibility_single')"
+        in stage_sql
     )
     return (
         goal_shape_valid
@@ -410,10 +417,19 @@ def apify_actor_manual_pool_selection_v19_schema_shapes_valid(
         ).fetchall()
     }
     stage_sql = table_sql.get("apify_actor_pool_stages", "")
-    return (
+    goal_shape_valid = (
         "goalin('initial_pool','complete_third','upgrade_legacy')"
         in stage_sql
-        and "check(target_slot_countbetween2and3)" in stage_sql
+        or "goalin('initial_pool','complete_third','upgrade_legacy','compatibility_single')"
+        in stage_sql
+    )
+    target_shape_valid = (
+        "check(target_slot_countbetween2and3)" in stage_sql
+        or "check(target_slot_countbetween1and3)" in stage_sql
+    )
+    return (
+        goal_shape_valid
+        and target_shape_valid
         and "selection_modein('server','manual')" in stage_sql
     )
 
@@ -500,6 +516,160 @@ def apify_actor_validation_tuning_v20_schema_shapes_valid(
         and "per_candidate_cap_usd<=0.10" in batch_sql
         and "authorized_cap_usd<=0.10" in item_sql
         and "route_validation_cap_usd<=0.30" in stage_sql
+    )
+
+
+APIFY_ACTOR_RESILIENCE_V21_COLUMNS = {
+    "apify_actor_route_profiles": {
+        "admission_mode",
+        "compatibility_risk_code",
+        "freshness_enabled",
+        "freshness_interval_hours",
+        "freshness_authorized_at",
+        "freshness_authorized_by_user_id",
+        "freshness_last_checked_at",
+        "freshness_next_check_at",
+        "freshness_status",
+        "freshness_last_cost_usd",
+    },
+    "apify_actor_adapter_revisions": {
+        "execution_mode",
+        "observed_manifest",
+    },
+    "apify_key_pool_members": {"role"},
+    "apify_actor_runs": {"purpose"},
+    "apify_source_route_bindings": {
+        "preferred_candidate_id",
+        "active_candidate_id",
+        "watermark_latest_published_at",
+        "watermark_item_id_hash",
+        "watermark_last_advanced_at",
+        "preference_suspended_at",
+        "preference_recovery_successes",
+    },
+    "apify_actor_freshness_checks": {
+        "check_id", "workspace_id", "route_id", "route_generation",
+        "trigger_kind",
+        "reference_slot", "status", "planned_count", "completed_count",
+        "max_total_charge_usd", "actual_cost_usd", "cost_final",
+        "request_id", "job_id", "created_by_user_id", "error_code",
+        "created_at", "started_at", "completed_at", "updated_at",
+    },
+    "apify_actor_freshness_results": {
+        "workspace_id", "check_id", "candidate_id", "revision_id",
+        "ordinal", "status", "semantic_outcome", "latest_published_at",
+        "latest_item_id_hash", "consecutive_fresh_count",
+        "consecutive_stale_count", "actual_cost_usd", "cost_final",
+        "reason_code", "created_at", "updated_at",
+    },
+    "apify_actor_evaluation_history": {
+        "evaluation_id", "workspace_id", "route_id", "candidate_id",
+        "revision_id", "evidence_fingerprint", "policy_mode", "stage",
+        "outcome", "reason_code", "deterministic", "attempt_count",
+        "retry_requested_at", "retry_requested_by_user_id",
+        "first_seen_at", "last_seen_at",
+    },
+    "apify_actor_diagnostic_events": {
+        "event_id", "workspace_id", "route_id", "source_id",
+        "candidate_id", "actor_public_name", "phase", "outcome",
+        "reason_code", "occurrence_count", "final_cost_usd",
+        "request_id", "job_id", "created_at",
+    },
+}
+APIFY_ACTOR_RESILIENCE_V21_TABLES = {
+    "apify_actor_freshness_checks",
+    "apify_actor_freshness_results",
+    "apify_actor_evaluation_history",
+    "apify_actor_diagnostic_events",
+}
+
+
+def apify_actor_resilience_v21_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate compatibility admission, freshness and safe diagnostics."""
+
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if not APIFY_ACTOR_RESILIENCE_V21_TABLES <= tables:
+        return False
+    for table, expected in APIFY_ACTOR_RESILIENCE_V21_COLUMNS.items():
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if not expected <= columns:
+            return False
+    table_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    route_sql = table_sql.get("apify_actor_route_profiles", "")
+    stage_sql = table_sql.get("apify_actor_pool_stages", "")
+    batch_sql = table_sql.get("apify_actor_canary_batches", "")
+    key_sql = table_sql.get("apify_key_pool_members", "")
+    run_sql = table_sql.get("apify_actor_runs", "")
+    freshness_sql = table_sql.get("apify_actor_freshness_checks", "")
+    result_sql = table_sql.get("apify_actor_freshness_results", "")
+    evaluation_sql = table_sql.get("apify_actor_evaluation_history", "")
+    event_sql = table_sql.get("apify_actor_diagnostic_events", "")
+    index_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'index'"
+        ).fetchall()
+        if row[1]
+    }
+    trigger_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"
+        ).fetchall()
+        if row[1]
+    }
+    active_index = index_sql.get("idx_apify_key_pool_one_active", "")
+    validation_index = index_sql.get(
+        "idx_apify_key_pool_one_validation", ""
+    )
+    revision_trigger = trigger_sql.get(
+        "trg_apify_actor_adapter_revision_immutable", ""
+    )
+    return (
+        "check(required_slots=3)" in route_sql
+        and "check(min_runtime_healthybetween1and3)" in route_sql
+        and "check(min_publishersbetween1and3)" in route_sql
+        and "admission_modein('standard','compatibility')" in route_sql
+        and "freshness_interval_hoursbetween6and168" in route_sql
+        and "compatibility_single" in stage_sql
+        and "check(target_slot_countbetween1and3)" in stage_sql
+        and "compatibility_single" in batch_sql
+        and "rolein('acquisition','validation')" in key_sql
+        and "purposein('acquisition','validation')" in run_sql
+        and "max_total_charge_usd<=0.06" in freshness_sql
+        and "check(route_generation>=1)" in freshness_sql
+        and "statusin('queued','running','succeeded','partial','failed','cancelled')"
+        in freshness_sql
+        and "foreignkey(workspace_id,candidate_id)" in result_sql
+        and "foreignkey(revision_id)" in result_sql
+        and "policy_modein('standard','compatibility')" in evaluation_sql
+        and "foreignkey(workspace_id,candidate_id)" in evaluation_sql
+        and "occurrence_count>=1" in event_sql
+        and "foreignkey(source_id)" in event_sql
+        and "onapify_key_pool_members(workspace_id)wherestatus='active'androle='acquisition'"
+        in active_index
+        and "onapify_key_pool_members(workspace_id)whererole='validation'"
+        in validation_index
+        and "new.execution_modeisnotold.execution_mode" in revision_trigger
+        and "new.observed_manifestisnotold.observed_manifest"
+        in revision_trigger
     )
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
@@ -946,6 +1116,7 @@ class ServiceStore:
         prepare_apify_actor_canary_batches_v17: bool = False,
         prepare_apify_actor_pool_staging_v18: bool = False,
         prepare_apify_actor_validation_tuning_v20: bool = False,
+        prepare_apify_actor_resilience_v21: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -1176,6 +1347,30 @@ class ServiceStore:
             or (
                 prepare_apify_actor_validation_tuning_v20
                 and apify_actor_manual_pool_selection_v19_migrated
+            )
+        )
+        apify_actor_resilience_v21_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_ACTOR_RESILIENCE_MIGRATION_VERSION,
+                    APIFY_ACTOR_RESILIENCE_MIGRATION_NAME,
+                    APIFY_ACTOR_RESILIENCE_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
+        )
+        apify_actor_resilience_v21_upgrade_pending = bool(
+            existing_schema and not apify_actor_resilience_v21_migrated
+        )
+        install_apify_actor_resilience_v21 = bool(
+            not existing_schema
+            or (
+                prepare_apify_actor_resilience_v21
+                and apify_actor_validation_tuning_v20_migrated
             )
         )
         schema_sql = """
@@ -1810,6 +2005,8 @@ class ServiceStore:
             CREATE TABLE IF NOT EXISTS apify_key_pool_members (
                 workspace_id TEXT NOT NULL,
                 secret_id TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'acquisition'
+                    CHECK(role IN ('acquisition', 'validation')),
                 position INTEGER NOT NULL CHECK(position >= 0),
                 status TEXT NOT NULL
                     CHECK(status IN ('active', 'standby', 'draining', 'depleted', 'invalid')),
@@ -1845,6 +2042,8 @@ class ServiceStore:
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
                 logical_run_id TEXT,
+                purpose TEXT NOT NULL DEFAULT 'acquisition'
+                    CHECK(purpose IN ('acquisition', 'validation')),
                 secret_id TEXT NOT NULL,
                 secret_version INTEGER NOT NULL CHECK(secret_version >= 1),
                 pool_generation INTEGER NOT NULL CHECK(pool_generation >= 1),
@@ -2348,14 +2547,36 @@ class ServiceStore:
                 required_slots INTEGER NOT NULL DEFAULT 3
                     CHECK(required_slots = 3),
                 min_runtime_healthy INTEGER NOT NULL DEFAULT 2
-                    CHECK(min_runtime_healthy BETWEEN 2 AND 3),
+                    CHECK(min_runtime_healthy BETWEEN 1 AND 3),
                 min_publishers INTEGER NOT NULL DEFAULT 2
-                    CHECK(min_publishers BETWEEN 2 AND 3),
+                    CHECK(min_publishers BETWEEN 1 AND 3),
+                admission_mode TEXT NOT NULL DEFAULT 'standard'
+                    CHECK(admission_mode IN ('standard', 'compatibility')),
+                compatibility_risk_code TEXT,
                 per_run_cap_usd REAL NOT NULL DEFAULT 0.02
                     CHECK(per_run_cap_usd > 0),
                 status TEXT NOT NULL DEFAULT 'discovery_required',
                 metadata_check_interval_seconds INTEGER NOT NULL DEFAULT 604800
                     CHECK(metadata_check_interval_seconds >= 3600),
+                freshness_enabled INTEGER NOT NULL DEFAULT 0
+                    CHECK(freshness_enabled IN (0, 1)),
+                freshness_interval_hours INTEGER NOT NULL DEFAULT 24
+                    CHECK(freshness_interval_hours BETWEEN 6 AND 168),
+                freshness_authorized_at TEXT,
+                freshness_authorized_by_user_id TEXT,
+                freshness_last_checked_at TEXT,
+                freshness_next_check_at TEXT,
+                freshness_status TEXT NOT NULL DEFAULT 'disabled'
+                    CHECK(freshness_status IN (
+                        'disabled', 'scheduled', 'running', 'fresh',
+                        'suspected_stale', 'stale', 'partial',
+                        'unverified_single', 'blocked_no_validation_key',
+                        'failed'
+                    )),
+                freshness_last_cost_usd REAL CHECK(
+                    freshness_last_cost_usd IS NULL
+                    OR freshness_last_cost_usd >= 0
+                ),
                 policy_version TEXT NOT NULL DEFAULT 'actor_ops_v1',
                 generation INTEGER NOT NULL DEFAULT 1
                     CHECK(generation >= 1),
@@ -2365,7 +2586,9 @@ class ServiceStore:
                 UNIQUE(workspace_id, platform, target_type, capability),
                 UNIQUE(workspace_id, route_id),
                 FOREIGN KEY(workspace_id)
-                    REFERENCES workspaces(id) ON DELETE CASCADE
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(freshness_authorized_by_user_id)
+                    REFERENCES users(id) ON DELETE SET NULL
             );
             CREATE INDEX IF NOT EXISTS idx_apify_actor_route_profiles_capability
                 ON apify_actor_route_profiles(
@@ -2388,6 +2611,10 @@ class ServiceStore:
                     CHECK(input_schema_hash IS NULL OR length(input_schema_hash) = 64),
                 output_schema_hash TEXT
                     CHECK(output_schema_hash IS NULL OR length(output_schema_hash) = 64),
+                execution_mode TEXT NOT NULL DEFAULT 'pinned'
+                    CHECK(execution_mode IN ('pinned', 'current')),
+                observed_manifest INTEGER NOT NULL DEFAULT 0
+                    CHECK(observed_manifest IN (0, 1)),
                 pricing_json TEXT
                     CHECK(pricing_json IS NULL OR json_valid(pricing_json)),
                 permission_level TEXT NOT NULL DEFAULT 'unknown',
@@ -2425,10 +2652,19 @@ class ServiceStore:
                 CHECK(
                     lifecycle = 'legacy_builtin'
                     OR (
-                        build_id IS NOT NULL
-                        AND build_number IS NOT NULL
-                        AND manifest_json IS NOT NULL
+                        manifest_json IS NOT NULL
                         AND manifest_hash IS NOT NULL
+                        AND (
+                            (
+                                execution_mode = 'pinned'
+                                AND build_id IS NOT NULL
+                                AND build_number IS NOT NULL
+                            )
+                            OR (
+                                execution_mode = 'current'
+                                AND observed_manifest = 1
+                            )
+                        )
                     )
                 )
             );
@@ -2457,6 +2693,8 @@ class ServiceStore:
                 OR NEW.manifest_hash IS NOT OLD.manifest_hash
                 OR NEW.input_schema_hash IS NOT OLD.input_schema_hash
                 OR NEW.output_schema_hash IS NOT OLD.output_schema_hash
+                OR NEW.execution_mode IS NOT OLD.execution_mode
+                OR NEW.observed_manifest IS NOT OLD.observed_manifest
                 OR NEW.pricing_json IS NOT OLD.pricing_json
                 OR NEW.permission_level IS NOT OLD.permission_level
                 OR NEW.security_evidence_json IS NOT OLD.security_evidence_json
@@ -2590,6 +2828,20 @@ class ServiceStore:
                     CHECK(length(target_fingerprint) = 64),
                 mode TEXT NOT NULL CHECK(mode IN ('primary', 'fallback')),
                 validation_status TEXT NOT NULL,
+                preferred_candidate_id TEXT,
+                active_candidate_id TEXT,
+                watermark_latest_published_at TEXT,
+                watermark_item_id_hash TEXT CHECK(
+                    watermark_item_id_hash IS NULL
+                    OR (
+                        length(watermark_item_id_hash) = 64
+                        AND watermark_item_id_hash NOT GLOB '*[^0-9a-f]*'
+                    )
+                ),
+                watermark_last_advanced_at TEXT,
+                preference_suspended_at TEXT,
+                preference_recovery_successes INTEGER NOT NULL DEFAULT 0
+                    CHECK(preference_recovery_successes BETWEEN 0 AND 2),
                 verified_revision_set_hash TEXT
                     CHECK(
                         verified_revision_set_hash IS NULL
@@ -2609,7 +2861,11 @@ class ServiceStore:
                     REFERENCES apify_actor_route_profiles(
                         workspace_id, route_id
                     )
-                    ON DELETE RESTRICT
+                    ON DELETE RESTRICT,
+                FOREIGN KEY(preferred_candidate_id)
+                    REFERENCES apify_actor_candidates(id) ON DELETE SET NULL,
+                FOREIGN KEY(active_candidate_id)
+                    REFERENCES apify_actor_candidates(id) ON DELETE SET NULL
             );
             CREATE INDEX IF NOT EXISTS idx_apify_source_route_bindings_route
                 ON apify_source_route_bindings(
@@ -2869,7 +3125,8 @@ class ServiceStore:
                         AND per_candidate_cap_usd <= 0.10
                     ),
                 goal TEXT NOT NULL DEFAULT 'initial_pool' CHECK(goal IN (
-                    'initial_pool', 'complete_third', 'upgrade_legacy'
+                    'initial_pool', 'complete_third', 'upgrade_legacy',
+                    'compatibility_single'
                 )),
                 pool_stage_id TEXT,
                 status TEXT NOT NULL CHECK(status IN (
@@ -2970,10 +3227,11 @@ class ServiceStore:
                 discovery_run_id TEXT NOT NULL,
                 initial_batch_id TEXT NOT NULL,
                 goal TEXT NOT NULL CHECK(goal IN (
-                    'initial_pool', 'complete_third', 'upgrade_legacy'
+                    'initial_pool', 'complete_third', 'upgrade_legacy',
+                    'compatibility_single'
                 )),
                 target_slot_count INTEGER NOT NULL DEFAULT 3
-                    CHECK(target_slot_count BETWEEN 2 AND 3),
+                    CHECK(target_slot_count BETWEEN 1 AND 3),
                 selection_mode TEXT NOT NULL DEFAULT 'server'
                     CHECK(selection_mode IN ('server', 'manual')),
                 base_generation INTEGER NOT NULL CHECK(base_generation >= 1),
@@ -3126,6 +3384,205 @@ class ServiceStore:
                 ON apify_actor_validations(workspace_id, failure_fingerprint)
                 WHERE failure_fingerprint IS NOT NULL;
             -- APIFY_ACTOR_VALIDATION_TUNING_V20_END
+
+            -- APIFY_ACTOR_RESILIENCE_V21_BEGIN
+            DROP INDEX IF EXISTS idx_apify_key_pool_one_active;
+            CREATE UNIQUE INDEX idx_apify_key_pool_one_active
+                ON apify_key_pool_members(workspace_id)
+                WHERE status = 'active' AND role = 'acquisition';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_key_pool_one_validation
+                ON apify_key_pool_members(workspace_id)
+                WHERE role = 'validation';
+
+            CREATE TABLE IF NOT EXISTS apify_actor_freshness_checks (
+                check_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                route_generation INTEGER NOT NULL CHECK(route_generation >= 1),
+                trigger_kind TEXT NOT NULL CHECK(trigger_kind IN (
+                    'manual', 'automatic'
+                )),
+                reference_slot INTEGER NOT NULL CHECK(reference_slot IN (0, 1)),
+                status TEXT NOT NULL CHECK(status IN (
+                    'queued', 'running', 'succeeded', 'partial',
+                    'failed', 'cancelled'
+                )),
+                planned_count INTEGER NOT NULL CHECK(planned_count BETWEEN 1 AND 3),
+                completed_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(completed_count BETWEEN 0 AND 3),
+                max_total_charge_usd REAL NOT NULL CHECK(
+                    max_total_charge_usd > 0
+                    AND max_total_charge_usd <= 0.06
+                ),
+                actual_cost_usd REAL CHECK(
+                    actual_cost_usd IS NULL OR actual_cost_usd >= 0
+                ),
+                cost_final INTEGER NOT NULL DEFAULT 0
+                    CHECK(cost_final IN (0, 1)),
+                request_id TEXT,
+                job_id TEXT,
+                created_by_user_id TEXT,
+                error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, check_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(created_by_user_id)
+                    REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY(job_id)
+                    REFERENCES fetch_jobs(id) ON DELETE SET NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_freshness_active
+                ON apify_actor_freshness_checks(workspace_id, route_id)
+                WHERE status IN ('queued', 'running');
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_freshness_route_time
+                ON apify_actor_freshness_checks(
+                    workspace_id, route_id, created_at DESC
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_freshness_results (
+                workspace_id TEXT NOT NULL,
+                check_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                revision_id TEXT,
+                ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 3),
+                status TEXT NOT NULL CHECK(status IN (
+                    'fresh', 'suspected_stale', 'stale',
+                    'unverified_single', 'failed'
+                )),
+                semantic_outcome TEXT,
+                latest_published_at TEXT,
+                latest_item_id_hash TEXT CHECK(
+                    latest_item_id_hash IS NULL OR (
+                        length(latest_item_id_hash) = 64
+                        AND latest_item_id_hash NOT GLOB '*[^0-9a-f]*'
+                    )
+                ),
+                consecutive_fresh_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(consecutive_fresh_count BETWEEN 0 AND 2),
+                consecutive_stale_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(consecutive_stale_count BETWEEN 0 AND 2),
+                actual_cost_usd REAL CHECK(
+                    actual_cost_usd IS NULL OR actual_cost_usd >= 0
+                ),
+                cost_final INTEGER NOT NULL DEFAULT 0
+                    CHECK(cost_final IN (0, 1)),
+                reason_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(check_id, candidate_id),
+                FOREIGN KEY(workspace_id, check_id)
+                    REFERENCES apify_actor_freshness_checks(
+                        workspace_id, check_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, candidate_id)
+                    REFERENCES apify_actor_candidates(workspace_id, id)
+                    ON DELETE RESTRICT,
+                FOREIGN KEY(revision_id)
+                    REFERENCES apify_actor_adapter_revisions(revision_id)
+                    ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_freshness_results_status
+                ON apify_actor_freshness_results(
+                    workspace_id, status, updated_at DESC
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_evaluation_history (
+                evaluation_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                revision_id TEXT,
+                evidence_fingerprint TEXT NOT NULL CHECK(
+                    length(evidence_fingerprint) = 64
+                    AND evidence_fingerprint NOT GLOB '*[^0-9a-f]*'
+                ),
+                policy_mode TEXT NOT NULL CHECK(policy_mode IN (
+                    'standard', 'compatibility'
+                )),
+                stage TEXT NOT NULL,
+                outcome TEXT NOT NULL CHECK(outcome IN (
+                    'passed', 'failed', 'skipped'
+                )),
+                reason_code TEXT NOT NULL,
+                deterministic INTEGER NOT NULL DEFAULT 0
+                    CHECK(deterministic IN (0, 1)),
+                attempt_count INTEGER NOT NULL DEFAULT 1
+                    CHECK(attempt_count >= 1),
+                retry_requested_at TEXT,
+                retry_requested_by_user_id TEXT,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                UNIQUE(
+                    workspace_id, route_id, candidate_id,
+                    evidence_fingerprint, policy_mode, stage
+                ),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, candidate_id)
+                    REFERENCES apify_actor_candidates(workspace_id, id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(revision_id)
+                    REFERENCES apify_actor_adapter_revisions(revision_id)
+                    ON DELETE SET NULL,
+                FOREIGN KEY(retry_requested_by_user_id)
+                    REFERENCES users(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_evaluation_lookup
+                ON apify_actor_evaluation_history(
+                    workspace_id, route_id, candidate_id,
+                    evidence_fingerprint, last_seen_at DESC
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_diagnostic_events (
+                event_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT,
+                source_id TEXT,
+                candidate_id TEXT,
+                actor_public_name TEXT,
+                phase TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                reason_code TEXT,
+                occurrence_count INTEGER NOT NULL DEFAULT 1
+                    CHECK(occurrence_count >= 1),
+                final_cost_usd REAL CHECK(
+                    final_cost_usd IS NULL OR final_cost_usd >= 0
+                ),
+                request_id TEXT,
+                job_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(route_id)
+                    REFERENCES apify_actor_route_profiles(route_id)
+                    ON DELETE SET NULL,
+                FOREIGN KEY(source_id)
+                    REFERENCES source_catalog(id) ON DELETE SET NULL,
+                FOREIGN KEY(candidate_id)
+                    REFERENCES apify_actor_candidates(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_events_workspace_time
+                ON apify_actor_diagnostic_events(
+                    workspace_id, created_at DESC, event_id DESC
+                );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_events_filters
+                ON apify_actor_diagnostic_events(
+                    workspace_id, route_id, source_id,
+                    candidate_id, phase, outcome, created_at DESC
+                );
+            -- APIFY_ACTOR_RESILIENCE_V21_END
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -3311,6 +3768,16 @@ class ServiceStore:
                 1,
             )
             schema_sql = before_tuning + after_tuning
+        if not install_apify_actor_resilience_v21:
+            before_resilience, after_marker = schema_sql.split(
+                "-- APIFY_ACTOR_RESILIENCE_V21_BEGIN",
+                1,
+            )
+            _resilience_sql, after_resilience = after_marker.split(
+                "-- APIFY_ACTOR_RESILIENCE_V21_END",
+                1,
+            )
+            schema_sql = before_resilience + after_resilience
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -3482,6 +3949,11 @@ class ServiceStore:
                     CHECK(max_candidates BETWEEN 3 AND 30)""",
             )
             self._upgrade_apify_actor_attempts_v15()
+            self._ensure_apify_actor_ops_v15_triggers()
+        elif install_apify_actor_resilience_v21:
+            # The v21 migration adds immutable revision fields after the v15
+            # migration has already installed its trigger. Rebuild that
+            # trigger only once the offline migration has added the columns.
             self._ensure_apify_actor_ops_v15_triggers()
         self._ensure_column(
             "source_acquisition_states",
@@ -3806,6 +4278,11 @@ class ServiceStore:
             self.mark_apify_actor_validation_tuning_v20_migrated(
                 commit=False
             )
+        if (
+            install_apify_actor_resilience_v21
+            and not apify_actor_resilience_v21_upgrade_pending
+        ):
+            self.mark_apify_actor_resilience_v21_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -4469,6 +4946,59 @@ class ServiceStore:
             )
         )
 
+    def mark_apify_actor_resilience_v21_migrated(
+        self,
+        *,
+        commit: bool = True,
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (APIFY_ACTOR_RESILIENCE_MIGRATION_VERSION,),
+        ).fetchone()
+        if existing is not None and str(existing["name"]) != (
+            APIFY_ACTOR_RESILIENCE_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 23 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_ACTOR_RESILIENCE_MIGRATION_VERSION,
+                APIFY_ACTOR_RESILIENCE_MIGRATION_NAME,
+                APIFY_ACTOR_RESILIENCE_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            connection.commit()
+
+    def apify_actor_resilience_v21_migration_required(self) -> bool:
+        connection = self.connect()
+        marker = connection.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_ACTOR_RESILIENCE_MIGRATION_VERSION,
+                APIFY_ACTOR_RESILIENCE_MIGRATION_NAME,
+                APIFY_ACTOR_RESILIENCE_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone()
+        return (
+            not marker
+            or not apify_actor_resilience_v21_schema_shapes_valid(connection)
+        )
+
     def mark_apify_key_pool_v8_migrated(self, *, commit: bool = True) -> None:
         self.connect().execute(
             """
@@ -4987,6 +5517,16 @@ class ServiceStore:
 
         conn = self.connect()
         now = _now_iso()
+        member_columns = {
+            str(row[1])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_key_pool_members)"
+            ).fetchall()
+        }
+        has_member_role = "role" in member_columns
+        acquisition_clause = (
+            " AND role = 'acquisition'" if has_member_role else ""
+        )
         workspace_rows = conn.execute(
             "SELECT id FROM workspaces ORDER BY created_at, id"
         ).fetchall()
@@ -5120,10 +5660,11 @@ class ServiceStore:
             if state is None or state["status"] in {"draining", "blocked"}:
                 continue
             active = conn.execute(
-                """
+                f"""
                 SELECT secret_id
                 FROM apify_key_pool_members
                 WHERE workspace_id = ? AND status = 'active'
+                  {acquisition_clause}
                 LIMIT 1
                 """,
                 (workspace_id,),
@@ -5140,10 +5681,11 @@ class ServiceStore:
                 )
                 continue
             candidate = conn.execute(
-                """
+                f"""
                 SELECT secret_id
                 FROM apify_key_pool_members
                 WHERE workspace_id = ? AND status = 'standby'
+                  {acquisition_clause}
                 ORDER BY position
                 LIMIT 1
                 """,
@@ -5170,9 +5712,9 @@ class ServiceStore:
                 )
             else:
                 member_exists = conn.execute(
-                    """
+                    f"""
                     SELECT 1 FROM apify_key_pool_members
-                    WHERE workspace_id = ? LIMIT 1
+                    WHERE workspace_id = ? {acquisition_clause} LIMIT 1
                     """,
                     (workspace_id,),
                 ).fetchone()
@@ -5301,6 +5843,8 @@ class ServiceStore:
                 "capability": "items",
                 "mode": "primary",
                 "status": "legacy_validation_pending",
+                "min_runtime_healthy": 2,
+                "min_publishers": 2,
             },
             "youtube/channel/items": {
                 "platform": "youtube",
@@ -5308,6 +5852,8 @@ class ServiceStore:
                 "capability": "items",
                 "mode": "fallback",
                 "status": "candidate_shortfall",
+                "min_runtime_healthy": 1,
+                "min_publishers": 1,
             },
             "instagram/profile/items": {
                 "platform": "instagram",
@@ -5315,6 +5861,8 @@ class ServiceStore:
                 "capability": "items",
                 "mode": "primary",
                 "status": "candidate_shortfall",
+                "min_runtime_healthy": 2,
+                "min_publishers": 2,
             },
         }
         for workspace in conn.execute(
@@ -5380,7 +5928,7 @@ class ServiceStore:
                         generation, created_at, updated_at
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?,
-                        3, 2, 2, 0.02, ?,
+                        3, ?, ?, 0.02, ?,
                         604800, 'actor_ops_v1', ?, ?, ?
                     )
                     """,
@@ -5392,6 +5940,8 @@ class ServiceStore:
                         spec["target_type"],
                         spec["capability"],
                         spec["mode"],
+                        spec["min_runtime_healthy"],
+                        spec["min_publishers"],
                         profile_status,
                         generation,
                         now,
@@ -5873,8 +6423,19 @@ class ServiceStore:
     def _ensure_apify_actor_ops_v15_triggers(self) -> None:
         """Replace security triggers so same-name legacy shapes cannot survive."""
 
+        revision_columns = {
+            str(row[1])
+            for row in self.connect().execute(
+                "PRAGMA table_info(apify_actor_adapter_revisions)"
+            ).fetchall()
+        }
+        resilience_revision_checks = ""
+        if {"execution_mode", "observed_manifest"} <= revision_columns:
+            resilience_revision_checks = """
+                OR NEW.execution_mode IS NOT OLD.execution_mode
+                OR NEW.observed_manifest IS NOT OLD.observed_manifest"""
         self.connect().executescript(
-            """
+            f"""
             DROP TRIGGER IF EXISTS trg_apify_actor_adapter_revision_immutable;
             DROP TRIGGER IF EXISTS trg_apify_actor_attempt_freeze_immutable;
             DROP TRIGGER IF EXISTS trg_apify_actor_validation_attempt_delete;
@@ -5897,6 +6458,7 @@ class ServiceStore:
                 OR NEW.manifest_hash IS NOT OLD.manifest_hash
                 OR NEW.input_schema_hash IS NOT OLD.input_schema_hash
                 OR NEW.output_schema_hash IS NOT OLD.output_schema_hash
+                {resilience_revision_checks}
                 OR NEW.pricing_json IS NOT OLD.pricing_json
                 OR NEW.permission_level IS NOT OLD.permission_level
                 OR NEW.security_evidence_json IS NOT OLD.security_evidence_json

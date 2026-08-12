@@ -94,7 +94,11 @@
       "id": "ActorOps v15 control plane",
       "globs": [
         "src/apify_actor_identity.py",
-        "src/services/apify_actor_ops.py"
+        "src/services/apify_actor_ops.py",
+        "src/services/apify_actor_resilience.py",
+        "src/services/apify_actor_freshness.py",
+        "tests/test_apify_actor_compatibility_v21.py",
+        "tests/test_apify_actor_resilience_v21.py"
       ],
       "groups": [
         "python_api_store",
@@ -136,6 +140,14 @@
       "id": "ActorOps native fallback",
       "globs": ["src/services/apify_native_fallback.py"],
       "groups": ["python_source_acquisition"]
+    },
+    {
+      "id": "ActorOps resilience v21 migration",
+      "globs": [
+        "scripts/migrate_apify_actor_resilience_v21.py",
+        "tests/test_migrate_apify_actor_resilience_v21.py"
+      ],
+      "groups": ["python_api_store", "python_scripts"]
     },
     {
       "id": "Remote MCP/OpenClaw",
@@ -318,6 +330,8 @@
       "tests/test_apify_actor_maintenance.py",
       "tests/test_apify_actor_ops_api.py",
       "tests/test_apify_actor_ops_v15.py",
+      "tests/test_apify_actor_compatibility_v21.py",
+      "tests/test_apify_actor_resilience_v21.py",
       "tests/test_apify_key_pool.py",
       "tests/test_apify_key_pool_api.py",
       "tests/test_auth.py",
@@ -355,6 +369,7 @@
       "tests/test_migrate_notification_targets_v16.py",
       "tests/test_migrate_apify_actor_ops_v15.py",
       "tests/test_migrate_apify_actor_canary_batches_v17.py",
+      "tests/test_migrate_apify_actor_resilience_v21.py",
       "tests/test_migrate_apify_discovery_limits_v16.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_notification_multichannel_api.py",
@@ -378,6 +393,8 @@
       "tests/test_apify_actor_maintenance.py",
       "tests/test_apify_actor_manifest_v15.py",
       "tests/test_apify_actor_ops_v15.py",
+      "tests/test_apify_actor_compatibility_v21.py",
+      "tests/test_apify_actor_resilience_v21.py",
       "tests/test_apify_actor_runtime.py",
       "tests/test_apify_actor_validation_worker.py",
       "tests/test_apify_key_pool.py",
@@ -418,6 +435,8 @@
       "tests/test_apify_actor_canary.py",
       "tests/test_apify_actor_manifest_v15.py",
       "tests/test_apify_actor_ops_v15.py",
+      "tests/test_apify_actor_compatibility_v21.py",
+      "tests/test_apify_actor_resilience_v21.py",
       "tests/test_apify_actor_runtime.py",
       "tests/test_apify_native_fallback.py",
       "tests/test_apify_key_pool.py",
@@ -462,6 +481,7 @@
       "tests/test_migrate_notification_targets_v16.py",
       "tests/test_migrate_apify_actor_ops_v15.py",
       "tests/test_migrate_apify_actor_canary_batches_v17.py",
+      "tests/test_migrate_apify_actor_resilience_v21.py",
       "tests/test_migrate_apify_discovery_limits_v16.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_prepare_service_deployment.py",

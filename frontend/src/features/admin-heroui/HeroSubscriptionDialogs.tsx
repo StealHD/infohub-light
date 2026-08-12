@@ -82,19 +82,21 @@ function fieldValue(field: CatalogField, form: FormData, registryValues: Record<
   return field.input_type === 'number' ? raw === '' ? field.default : Number(raw) : raw
 }
 
-function RegistryFields({ definition, values, errors, onOptionChange, onFieldChange }: { definition: SourceTypeDefinition; values: Record<string, unknown>; errors: Record<string, string>; onOptionChange: (name: string, value: string) => void; onFieldChange: (name: string) => void }) {
+function RegistryFields({ definition, values, errors, disabled = false, onOptionChange, onFieldChange }: { definition: SourceTypeDefinition; values: Record<string, unknown>; errors: Record<string, string>; disabled?: boolean; onOptionChange: (name: string, value: string) => void; onFieldChange: (name: string) => void }) {
   return <>{definition.fields.map((field) => field.options?.length
-    ? <RegistryOptionField key={field.name} field={field} value={String(values[field.name] ?? '')} error={errors[field.name]} onChange={(value) => onOptionChange(field.name, value)} />
+    ? <RegistryOptionField key={field.name} field={field} value={String(values[field.name] ?? '')} error={errors[field.name]} disabled={disabled} onChange={(value) => onOptionChange(field.name, value)} />
     : field.input_type === 'checkbox' || field.input_type === 'boolean'
-      ? <div key={field.name} className="grid gap-1"><Checkbox name={field.name} defaultSelected={Boolean(values[field.name])} isInvalid={Boolean(errors[field.name])} onChange={() => onFieldChange(field.name)}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>{field.label}</Checkbox.Content></Checkbox>{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</div>
-      : <TextField key={field.name} fullWidth name={field.name} defaultValue={String(values[field.name] ?? '')} isRequired={field.required} isInvalid={Boolean(errors[field.name])}><Label>{field.label}</Label><Input type={field.input_type === 'number' ? 'number' : field.input_type === 'url' ? 'url' : 'text'} min={field.min ?? undefined} max={field.max ?? undefined} step={field.input_type === 'number' ? 1 : undefined} onChange={() => onFieldChange(field.name)} />{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</TextField>)}</>
+      ? <div key={field.name} className="grid gap-1"><Checkbox name={field.name} defaultSelected={Boolean(values[field.name])} isDisabled={disabled} isInvalid={Boolean(errors[field.name])} onChange={() => onFieldChange(field.name)}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>{field.label}</Checkbox.Content></Checkbox>{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</div>
+      : <TextField key={field.name} fullWidth name={field.name} defaultValue={String(values[field.name] ?? '')} isDisabled={disabled} isRequired={field.required && !disabled} isInvalid={Boolean(errors[field.name])}><Label>{field.label}</Label><Input type={field.input_type === 'number' ? 'number' : field.input_type === 'url' ? 'url' : 'text'} min={field.min ?? undefined} max={field.max ?? undefined} step={field.input_type === 'number' ? 1 : undefined} onChange={() => onFieldChange(field.name)} />{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</TextField>)}</>
 }
 
-function RegistryOptionField({ field, value, error, onChange }: { field: CatalogField; value: string; error?: string; onChange: (value: string) => void }) {
-  return <HeroSelect label={field.label} value={value} onChange={onChange} isRequired={field.required} description={field.help} errorMessage={error} options={(field.options ?? []).map((option) => typeof option === 'string' ? { id: option, label: option } : { id: option.value, label: option.label })} />
+function RegistryOptionField({ field, value, error, disabled, onChange }: { field: CatalogField; value: string; error?: string; disabled: boolean; onChange: (value: string) => void }) {
+  return <HeroSelect label={field.label} value={value} onChange={onChange} isDisabled={disabled} isRequired={field.required && !disabled} description={field.help} errorMessage={error} options={(field.options ?? []).map((option) => typeof option === 'string' ? { id: option, label: option } : { id: option.value, label: option.label })} />
 }
 
-export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, onSubmit }: {
+const platformManagedSourceTypes = new Set(['x_profile', 'instagram_profile', 'youtube_channel'])
+
+export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, configLocked = false, onSubmit }: {
   definition: SourceTypeDefinition
   source?: CatalogSource
   secrets: SecretRef[]
@@ -102,6 +104,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   scopes: CatalogSource['scope'][]
   taxonomy: TaxonomyOptions
   submitLabel: string
+  configLocked?: boolean
   onSubmit: (payload: Record<string, unknown>) => Promise<void>
 }) {
   const feedback = useActionFeedback()
@@ -120,7 +123,9 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     const entity = source?.id ?? 'new'
     setError(''); setFieldErrors({})
     const form = new FormData(event.currentTarget)
-    const nextFieldErrors = validateRegistryFields(definition, form, registryValues)
+    const nextFieldErrors = configLocked
+      ? {}
+      : validateRegistryFields(definition, form, registryValues)
     if (!String(form.get('display_name') ?? '').trim()) nextFieldErrors.display_name = '来源名称不能为空。'
     if (Object.keys(nextFieldErrors).length) {
       setFieldErrors(nextFieldErrors)
@@ -128,8 +133,14 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     }
     setPending(true); feedback.begin('source-save', entity)
     try {
-      const config = advanced.trim() ? JSON.parse(advanced) as Record<string, unknown> : {}
-      for (const field of definition.fields) config[field.name] = fieldValue(field, form, registryValues)
+      const config = configLocked
+        ? undefined
+        : advanced.trim()
+          ? JSON.parse(advanced) as Record<string, unknown>
+          : {}
+      if (config) {
+        for (const field of definition.fields) config[field.name] = fieldValue(field, form, registryValues)
+      }
       await onSubmit(sourceMutationPayload({ source, allowSecret, config, metadata: {
         type: definition.type,
         display_name: String(form.get('display_name') ?? '').trim(),
@@ -138,7 +149,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
         default_channel: channel || null,
         default_topics: topics,
         secret_env: secretEnv || null,
-        enabled: form.has('enabled'),
+        enabled: configLocked ? undefined : form.has('enabled'),
       } }))
       feedback.succeed('source-save', entity)
     } catch (caught) {
@@ -179,7 +190,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
     <TextField fullWidth name="description" defaultValue={source?.description ?? ''}><Label>来源说明</Label><Input /></TextField>
     {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}
-    <RegistryFields definition={definition} values={registryValues} errors={fieldErrors} onOptionChange={(name, value) => {
+    <RegistryFields definition={definition} values={registryValues} errors={fieldErrors} disabled={configLocked} onOptionChange={(name, value) => {
       setRegistryValues((current) => ({ ...current, [name]: value }))
       clearFieldError(name)
     }} onFieldChange={clearFieldError} />
@@ -187,8 +198,8 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
     {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
     {definition.credential_mode === 'workspace_apify_pool' && <HeroNotice title="由工作区 Apify Key 池自动管理" />}
-    <Checkbox name="enabled" defaultSelected={source?.enabled ?? true}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>
-    <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>
+    <Checkbox name="enabled" defaultSelected={source?.enabled ?? true} isDisabled={configLocked}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>
+    {!configLocked && !platformManagedSourceTypes.has(definition.type) && <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>}
     {error && <HeroNotice title={error} />}
     <Button type="submit" isDisabled={pending}>{pending ? '保存中…' : submitLabel}</Button>
   </form>
