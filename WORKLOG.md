@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-11",
-  "result": "为订阅来源卡的非零今日、近 N 天和历史统计补齐对应快捷查询：今日与近 N 天直达带来源及时间范围的 Feed，历史保留现有历史查询。",
-  "status": "completed",
-  "task_id": "2026-08-11-subscription-stats-quick-query",
-  "unresolved": [],
-  "validation": [
-    "订阅页、Feed 深链、手册和更新日志定向测试及 TypeScript/ESLint/UI 合同检查通过。",
-    "完整 Test Gate 15/15 命令通过（285 秒）。",
-    "./scripts/up-latest.sh 完成；API/Worker healthy、readiness 为 ready，8080 实际订阅页确认今日与近 7 天链接。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
   "result": "合并助手连接创建流程的一次性 MCP token 复制体验：令牌单行省略并完整复制，环境写入与 OpenClaw 配置命令均使用右上角图标复制。",
   "status": "completed",
   "task_id": "2026-08-11-merge-openclaw-copy-ui",
@@ -416,6 +397,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "高风险定向回归 169/169 与扩展 Worker 定向组全部通过，ResourceWarning 为 0。",
     "worker.py 由 2513 行降至 2305 行，run_worker_once 由 357 行降至 149 行并移除旧债；新模块 369 行、最大函数 70 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker 的来源探测、来源抓取、Feed 刷新与显式 Job handler registry 拆到独立模块，保留现有 _run_job 和 catalog payload 兼容入口、付费 Canary 栅栏及 Feed/outbox 事务语义。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-handlers",
+  "unresolved": [],
+  "validation": [
+    "Worker、Feed、来源、ActorOps、通知、调度、订阅变更和导入边界定向回归全部通过，ResourceWarning 为 0。",
+    "worker.py 由 2305 行降至 1893 行，_run_job 由 159 行降至 49 行并移除旧债；新模块 279/238 行，最大新函数 105/93 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
