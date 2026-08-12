@@ -32,6 +32,8 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '来源可以软选 Actor', description: 'ActorOps 来源详情可选择自动或一个首选 Actor。选择只改变本来源的调用顺序；首选旧数据、失败或暂停时仍自动切备，连续两次新鲜度通过后再恢复。' },
           { title: '校验频率可设置', description: '可指定一个不参与生产的专用校验 Key，并按 Route 设置默认 24 小时、6–168 小时或关闭；启用/改频率和立即校验都会先展示单轮与理论月费用上限。' },
           { title: '失败会被记住', description: '同一 Actor 与 Build/Schema/价格指纹的确定性失败不会反复进入 AI 或付费计划；管理员可重新尝试一次，证据变化后系统会自动重新评估。YouTube 不再自动追逐第三个备份 Actor。' },
+          { title: '免费搜索会明确结束', description: '搜索中显示查询轮次并自动刷新，不能重复提交；终态分别显示原始候选数、当前可选择数和失败原因。YouTube 未找到可选第三路时明确说明现有 Atom Feed 与 fallback 仍可运行，重新检查只放在候选详情且仅用于已确认的 Actor/Build 证据变化。' },
+          { title: '目标不匹配改为可理解提示', description: '当 Actor 返回其他账号或频道内容，或结果缺少可证明目标归属的字段时，页面会说明可能是推荐内容、默认账号、旧缓存或字段映射，不再只显示 target identity 技术错误码。' },
           { title: '诊断集中到一条时间线', description: '发现、验证、费用对账、切备、新鲜度、Key 与人工操作可按阶段和结果筛选；只显示公共 Actor 名称、安全原因码、次数和最终费用，不显示 Token、目标、正文或远端运行信息。' },
         ],
       },

@@ -9,6 +9,7 @@ import { ApiError } from '../../api/client'
 import type {
   ApifyActorCanaryBatch,
   ApifyActorCanaryPlan,
+  ApifyActorDiscoveryRun,
   ApifyActorRevisionSummary,
   ApifyActorRevisionLifecycle,
   ApifyActorRouteDetail,
@@ -308,6 +309,22 @@ function renderControlPlane(selected = detail(), initialEntry = '/?route=x%2Fpro
     }),
     requestApifyActorSupportCheck: vi.fn().mockResolvedValue({ schema_version: 1, kind: 'discovery', generation: 23, route_generation: 1 }),
     refreshApifyActorPoolCandidates: vi.fn().mockResolvedValue({ schema_version: 1, route_id: selected.route_id, run_id: 'run-refresh', status: 'refreshing' }),
+    apifyActorDiscoveryRun: vi.fn().mockImplementation((runId: string) => Promise.resolve({
+      schema_version: 5,
+      run_id: runId,
+      route_id: selected.route_id,
+      generation: selected.generation,
+      stage: 'candidate_shortfall',
+      status: 'candidate_shortfall',
+      queries_completed: 3,
+      queries_limit: 3,
+      budget_cap_usd: 0.1,
+      spent_usd: 0,
+      candidate_count: 0,
+      candidate_shortfall: 1,
+      candidates: [],
+      updated_at: '2026-08-12T01:35:52Z',
+    } satisfies ApifyActorDiscoveryRun)),
     apifyActorPoolCandidates: vi.fn().mockResolvedValue({
       schema_version: 1,
       route_id: selected.route_id,
@@ -480,6 +497,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     ['apify_actor_run_timed_out', 'Actor 验证超时', '不会自动重试', '费用完成对账后'],
     ['apify_actor_validation_reconcile_required', '原运行结果还没有确认', '没有重新启动 Actor', '免费重新核对'],
     ['apify_start_outcome_unknown', '无法确认 Actor 是否已启动', '锁定新的验证', '不要重试付费请求'],
+    ['apify_actor_target_identity_mismatch', 'Actor 返回的内容不属于本次目标', '推荐内容、默认账号、旧缓存或字段映射错误', '不要原样重复验证'],
   ] as const)('maps %s to reason, impact and next-step copy without the raw message', (code, reason, impact, next) => {
     const presented = humanActorError(new ApiError(409, {
       code,
@@ -575,6 +593,140 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(within(nextAction).queryByText(/选择 2 个 Actor/)).not.toBeInTheDocument()
   })
 
+  it('treats a finished YouTube third-slot search as a result instead of an endless primary action', async () => {
+    const browser = userEvent.setup()
+    const primary = revision('youtube-primary', 'publisher-youtube')
+    const youtube = detail({
+      route_id: 'route-youtube-channel',
+      route_key: 'youtube/channel/items',
+      platform: 'youtube',
+      target_type: 'channel',
+      mode: 'fallback',
+      min_runtime_healthy: 1,
+      actual_min_runtime_healthy: 1,
+      actual_min_publishers: 1,
+      runnable_slots: 1,
+      active_slot_count: 1,
+      publisher_count: 1,
+      workflow: workflow('backup_2_discovery_required', {
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        progress: { eligible_candidate_count: 0, required_selection_count: 1 },
+        blockers: ['candidate_shortfall'],
+      }),
+      slots: [
+        { slot: 'primary', revision_id: primary.revision_id, runnable: true, revision: primary },
+        { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
+      ],
+      revisions: [primary],
+    })
+
+    renderControlPlane(youtube, '/?route=youtube%2Fchannel%2Fitems&tab=pool', {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        route_id: youtube.route_id,
+        generation: youtube.generation,
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        required_selection_count: 1,
+        blockers: ['candidate_shortfall'],
+        candidates: [],
+      }),
+    })
+
+    const nextAction = await screen.findByTestId('actorops-next-action')
+    expect(within(nextAction).getByText('本轮已完成，未找到新的第三路备用')).toBeVisible()
+    expect(within(nextAction).getByText(/本轮找到 0\/1 个符合条件的候选/)).toBeVisible()
+    expect(within(nextAction).getByText(/YouTube 仍优先使用 Atom Feed/)).toBeVisible()
+    expect(within(nextAction).queryByRole('button', { name: '继续免费搜索候选' })).not.toBeInTheDocument()
+
+    await browser.click(within(nextAction).getByRole('button', { name: '查看候选与失败原因' }))
+    expect(await screen.findByText('最近一轮免费搜索已结束')).toBeVisible()
+    expect(screen.getByRole('dialog')).toHaveTextContent('查询 3/3 轮')
+    expect(screen.getByRole('dialog')).toHaveTextContent('本轮记录 0 个原始候选，当前 0 个可选择')
+    expect(screen.getByRole('button', { name: 'Actor / Build 已更新，再检查（免费）' })).toBeVisible()
+  })
+
+  it('shows discovery progress and removes the repeat action while a search is running', async () => {
+    const youtube = detail({
+      route_id: 'route-youtube-channel',
+      route_key: 'youtube/channel/items',
+      platform: 'youtube',
+      target_type: 'channel',
+      mode: 'fallback',
+      workflow: workflow('backup_2_discovery_running', {
+        goal: 'complete_third',
+        run_id: 'run-running',
+      }),
+    })
+    renderControlPlane(youtube, '/?route=youtube%2Fchannel%2Fitems&tab=pool', {
+      apifyActorDiscoveryRun: vi.fn().mockResolvedValue({
+        schema_version: 5,
+        run_id: 'run-running',
+        route_id: youtube.route_id,
+        generation: youtube.generation,
+        stage: 'searching',
+        status: 'searching',
+        queries_completed: 1,
+        queries_limit: 3,
+        budget_cap_usd: 0.1,
+        candidates: [],
+      } satisfies ApifyActorDiscoveryRun),
+    })
+
+    const nextAction = await screen.findByTestId('actorops-next-action')
+    expect(await within(nextAction).findByText(/已完成 1\/3 轮查询/)).toBeVisible()
+    expect(within(nextAction).getByText(/每 3 秒自动刷新/)).toBeVisible()
+    expect(within(nextAction).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('enters the locked auto-refresh state immediately after submitting a new free search', async () => {
+    const browser = userEvent.setup()
+    const youtube = detail({
+      route_id: 'route-youtube-channel',
+      route_key: 'youtube/channel/items',
+      platform: 'youtube',
+      target_type: 'channel',
+      mode: 'fallback',
+      workflow: workflow('backup_2_discovery_required', {
+        goal: 'complete_third',
+        run_id: 'run-guided',
+        progress: { eligible_candidate_count: 0, required_selection_count: 1 },
+        blockers: ['candidate_shortfall'],
+      }),
+    })
+    const apifyActorDiscoveryRun = vi.fn().mockImplementation((runId: string) => Promise.resolve({
+      schema_version: 5,
+      run_id: runId,
+      route_id: youtube.route_id,
+      generation: youtube.generation,
+      stage: runId === 'run-refresh' ? 'searching' : 'candidate_shortfall',
+      status: runId === 'run-refresh' ? 'searching' : 'candidate_shortfall',
+      queries_completed: runId === 'run-refresh' ? 1 : 3,
+      queries_limit: 3,
+      budget_cap_usd: 0.1,
+      candidate_count: 0,
+      candidates: [],
+      updated_at: '2026-08-12T01:35:52Z',
+    } satisfies ApifyActorDiscoveryRun))
+    const { api } = renderControlPlane(
+      youtube,
+      '/?route=youtube%2Fchannel%2Fitems&tab=pool',
+      { apifyActorDiscoveryRun },
+    )
+
+    const nextAction = await screen.findByTestId('actorops-next-action')
+    await browser.click(within(nextAction).getByRole('button', { name: '查看候选与失败原因' }))
+    await browser.click(await screen.findByRole('button', { name: 'Actor / Build 已更新，再检查（免费）' }))
+
+    await waitFor(() => expect(api.refreshApifyActorPoolCandidates).toHaveBeenCalledOnce())
+    expect(await within(nextAction).findByText('正在免费搜索候选')).toBeVisible()
+    expect(await within(nextAction).findByText(/已完成 1\/3 轮查询/)).toBeVisible()
+    expect(within(nextAction).queryByRole('button')).not.toBeInTheDocument()
+    expect(apifyActorDiscoveryRun).toHaveBeenCalledWith('run-refresh', expect.any(AbortSignal))
+  })
+
   it('keeps current legacy actors visible when safe upgrades are still incomplete', async () => {
     const browser = userEvent.setup()
     const legacyShortfall = detail({
@@ -630,7 +782,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(screen.getAllByText('当前 Actor')).toHaveLength(3)
     expect(screen.getAllByText(/当前状态：尚未通过安全升级检查/)).toHaveLength(2)
 
-    await browser.click(screen.getByRole('button', { name: '重新检查当前 Actor（免费）' }))
+    await browser.click(screen.getByRole('button', { name: 'Actor / Build 已更新，再检查（免费）' }))
     expect(api.refreshApifyActorPoolCandidates).toHaveBeenCalledWith(
       'route-x-profile',
       12,

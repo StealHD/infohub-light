@@ -9,24 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-08-10",
-  "result": "修复本地共享运行库已完成后续 ActorOps 迁移后被旧 v17 readiness 误判的问题：兼容正式演进的 0.30 批次费用约束，并增加 schema 回归测试；按用户要求不再重建容器。",
-  "status": "completed",
-  "task_id": "2026-08-10-source-summary-runtime-schema-compatibility",
-  "unresolved": [
-    "API/Worker 在迁移保护流程中已停止；用户明确要求不重建容器，本任务未继续恢复 8080。",
-    "V3 可读要点已通过自动化门禁，但未在最终 V3 资源上再次执行真实浏览器生成与刷新缓存验证。"
-  ],
-  "validation": [
-    "真实 service.db 只读预检从 required=true 修复为 required=false，数据库 integrity_check=ok 且 foreign_key_check 无违规。",
-    "迁移兼容测试 5/5 通过；完整 Test Gate 24/24 通过（499.311 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
   "result": "从专题总结任务 Worktree 按标准流程重建并启动本地 8080，仅运行 horizon-api 与 horizon-worker；当前 revision 与前端资源均已切换到任务分支。",
   "status": "completed",
   "task_id": "2026-08-10-source-summary-v3-runtime-start",
@@ -386,6 +368,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps 后端发现、兼容、运行、水位、新鲜度、Key、API 与迁移定向回归通过。",
     "前端完整 Vitest 74 文件/676 测试此前通过；最终 ActorOps 62/62、TypeScript 与 ESLint 零错误通过。",
     "任务级 preflight 13/13、完整 Test Gate 15/15 通过（352.94 秒），mapping_miss=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "ActorOps 免费候选搜索改为有界进度与明确终态：提交后自动刷新并锁定重复操作，YouTube 可选第三路不足时说明现有 Atom Feed/fallback 不受影响；目标身份不匹配改为人类可读原因与恢复建议。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-search-terminal-ui",
+  "unresolved": [
+    "8080 重建与真实浏览器验收将在完整门禁和任务提交后执行。"
+  ],
+  "validation": [
+    "前端 ActorOps 定向 Vitest 66/66、TypeScript 类型检查与 ESLint 通过（仅仓库既有 Fast Refresh 警告）。"
   ]
 }
 ```

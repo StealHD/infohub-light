@@ -136,7 +136,7 @@ const discoveryReasonLabels: Record<string, string> = {
   route_canary_attempts_exhausted: '本轮五次 Route Canary 已用完，请重新发现并生成修正后的 Revision',
   apify_actor_run_timed_out: 'Actor 在时限内未完成，已中止且不会自动重试',
   apify_actor_contract_mismatch: 'Dataset 未满足统一内容合同',
-  apify_actor_target_identity_mismatch: 'Dataset 内容无法确认属于目标账号或频道',
+  apify_actor_target_identity_mismatch: 'Actor 返回了其他账号或频道的内容，或结果缺少可证明目标归属的字段',
   apify_manifest_output_pointer_unverifiable: 'Manifest 字段路径不在固定 Build Dataset Schema 中',
   apify_manifest_item_identity_invalid: 'Manifest 把频道或主页本身错误映射成内容条目',
   apify_actor_metadata_only: 'Actor 只返回频道资料，没有返回视频内容；该 Build 已停止重复试跑',
@@ -1929,6 +1929,11 @@ export function HeroActorOpsControlPlane({
   const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false)
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false)
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[] | null>(null)
+  const [submittedDiscovery, setSubmittedDiscovery] = useState<{
+    routeId: string
+    runId: string
+    previousRunId: string
+  } | null>(null)
   const [candidateProfileDrafts, setCandidateProfileDrafts] = useState<Record<string, CandidateProfileDraft>>({})
   const [candidateError, setCandidateError] = useState<HumanActorError | null>(null)
   const [batchTarget, setBatchTarget] = useState<CanaryBatchApprovalTarget | null>(null)
@@ -1986,6 +1991,35 @@ export function HeroActorOpsControlPlane({
   const next = routeWorkflowPresentation(workflow?.kind || '', minimumActors)
   const candidateGoal: ApifyActorPoolGoal = workflow?.goal || 'initial_pool'
   const workflowFailure = workflowFailureNotice(workflow?.progress, candidateGoal)
+  const submittedDiscoveryRunId = submittedDiscovery?.routeId === selectedRouteId
+    ? submittedDiscovery.runId
+    : ''
+  const workflowDiscoveryRunId = workflow?.run_id || ''
+  const workflowAdvancedPastSubmission = Boolean(
+    submittedDiscoveryRunId
+    && workflowDiscoveryRunId
+    && workflowDiscoveryRunId !== submittedDiscovery?.previousRunId,
+  )
+  const trackedDiscoveryRunId = workflowAdvancedPastSubmission
+    ? workflowDiscoveryRunId
+    : submittedDiscoveryRunId || workflowDiscoveryRunId
+  const trackedDiscoveryQuery = useQuery({
+    queryKey: queryKeys.apifyActorDiscoveryRun(user.id, trackedDiscoveryRunId),
+    queryFn: ({ signal }) => api.apifyActorDiscoveryRun(trackedDiscoveryRunId, signal),
+    enabled: queryEnabled && tab === 'pool' && Boolean(trackedDiscoveryRunId),
+    retry: false,
+    refetchInterval: (current) => {
+      const status = current.state.data?.status
+      return status && terminalDiscoveryStatuses.has(status) ? false : 3_000
+    },
+  })
+  const workflowDiscoveryRunning = Boolean(workflow?.kind && /discovery_running/.test(workflow.kind))
+  const submittedDiscoveryRunning = Boolean(
+    submittedDiscoveryRunId
+    && trackedDiscoveryRunId === submittedDiscoveryRunId
+    && (!trackedDiscoveryQuery.data || !terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)),
+  )
+  const discoveryRunRunning = workflowDiscoveryRunning || submittedDiscoveryRunning
   const candidatesQuery = useQuery({
     queryKey: queryKeys.apifyActorPoolCandidates(user.id, selectedRouteId, candidateGoal),
     queryFn: ({ signal }) => api.apifyActorPoolCandidates(selectedRouteId, candidateGoal, signal),
@@ -2001,6 +2035,9 @@ export function HeroActorOpsControlPlane({
     : []
   const hasPreferredActorUpgrades = preferredCandidateIds.length > 0
   const activeSelectedCandidateIds = selectedCandidateIds ?? preferredCandidateIds
+  const selectableCandidateCount = candidatesQuery.data
+    ? candidatesQuery.data.candidates.filter((candidate) => candidate.selectable).length
+    : null
 
   const batchQuery = useQuery({
     queryKey: queryKeys.apifyActorCanaryBatch(user.id, activeBatchId),
@@ -2045,6 +2082,26 @@ export function HeroActorOpsControlPlane({
     if (!selectedSourceValid) return
     sourceDetailHeadingRef.current?.focus({ preventScroll: true })
   }, [selectedSourceId, selectedSourceValid])
+
+  useEffect(() => {
+    if (
+      !submittedDiscoveryRunId
+      || trackedDiscoveryRunId !== submittedDiscoveryRunId
+      || !trackedDiscoveryQuery.data
+      || !terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)
+    ) return
+    void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+    if (selectedRouteId) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
+    }
+  }, [
+    queryClient,
+    selectedRouteId,
+    submittedDiscoveryRunId,
+    trackedDiscoveryQuery.data,
+    trackedDiscoveryRunId,
+    user.id,
+  ])
 
   function replaceQuery(nextTab: ActorOpsTaskTab, sourceId?: string) {
     const nextParams = new URLSearchParams()
@@ -2149,13 +2206,18 @@ export function HeroActorOpsControlPlane({
         candidateGoal,
       )
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
+      setSubmittedDiscovery({
+        routeId: response.route_id,
+        runId: response.run_id,
+        previousRunId: workflow?.run_id || '',
+      })
       setCandidatePickerOpen(false)
       setSelectedCandidateIds([])
       setCandidateError(null)
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       if (selectedRouteId) void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
-      actionToast.success('正在免费更新候选，不会启动 Actor')
+      actionToast.success('已开始免费搜索，页面会自动更新进度')
     },
     onError: (caught) => setCandidateError(humanActorError(caught)),
   })
@@ -2481,29 +2543,48 @@ export function HeroActorOpsControlPlane({
     : typeof workflow?.progress?.required_success_count === 'number'
       ? Math.max(1, Math.trunc(workflow.progress.required_success_count))
     : null
-  const nextTitle = workflow?.kind === 'source_validation_required' && workflowPendingSourceCount > 0
+  const trackedDiscovery = trackedDiscoveryQuery.data
+  const trackedDiscoveryProgress = trackedDiscoveryQuery.isError
+    ? '暂时未读到进度，仍锁定重复提交并等待自动重试'
+    : trackedDiscovery?.queries_limit
+      ? `已完成 ${trackedDiscovery.queries_completed ?? 0}/${trackedDiscovery.queries_limit} 轮查询`
+      : '正在准备候选检查'
+  const youtubeOptionalThirdShortfall = candidateShortfall
+    && workflow?.goal === 'complete_third'
+    && selectedProfileId === 'youtube/channel/items'
+  const nextTitle = submittedDiscoveryRunning
+    ? '正在免费搜索候选'
+    : workflow?.kind === 'source_validation_required' && workflowPendingSourceCount > 0
     ? `有 ${workflowPendingSourceCount} 个来源等待启用`
     : candidateShortfall
       ? workflow?.goal === 'upgrade_legacy'
         ? '当前 Actor 尚未全部升级'
-        : workflow?.goal === 'complete_third'
-          ? '第三路备用候选不足'
+        : youtubeOptionalThirdShortfall
+          ? '本轮已完成，未找到新的第三路备用'
+          : workflow?.goal === 'complete_third'
+            ? '本轮已完成，第三路备用候选不足'
           : '主备候选不足'
     : next.title
-  const nextDescription = candidateShortfall
+  const nextDescription = discoveryRunRunning
+    ? `${trackedDiscoveryProgress}。页面每 3 秒自动刷新；完成后会显示找到的候选和失败原因，无需再次点击。`
+    : candidateShortfall
     ? workflow?.goal === 'upgrade_legacy'
       ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；任一 Actor 未通过就停止，不选择替补。免费检查不会启动 Actor。'
+      : youtubeOptionalThirdShortfall
+        ? `${trackedDiscovery?.updated_at ? `完成于 ${formatActorDateTime(trackedDiscovery.updated_at)}。` : ''}本轮找到 ${eligibleCandidateCount ?? 0}/${requiredSuccessCount ?? 1} 个符合条件的候选。YouTube 仍优先使用 Atom Feed，已有 fallback 不受影响；第三路是可选备份。相同 Actor / Build 的失败已记录，立即重复搜索不会改变结果。`
       : `${eligibleCandidateCount !== null && requiredSuccessCount !== null
         ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
-        : '当前符合条件的候选还不足。'}已通过的候选会保留；继续免费搜索不会启动 Actor 或产生费用。`
+        : '当前符合条件的候选还不足。'}本轮已终结，已通过的候选会保留。请先查看候选与失败原因；只在 Actor / Build 证据变化后再发起新检查。`
     : next.description
-  const nextCta = candidateShortfall
-    ? workflow?.goal === 'upgrade_legacy' ? '查看当前 Actor 升级状态' : '继续免费搜索候选'
+  const nextCta = discoveryRunRunning
+    ? null
+    : candidateShortfall
+    ? workflow?.goal === 'upgrade_legacy' ? '查看当前 Actor 升级状态' : '查看候选与失败原因'
     : next.cta
 
   function performNextAction() {
     if (actionPending) return
-    if (candidateShortfall && workflow?.goal === 'upgrade_legacy') {
+    if (candidateShortfall) {
       setSelectedCandidateIds(null)
       setCandidateError(null)
       setCandidatePickerOpen(true)
@@ -2559,6 +2640,7 @@ export function HeroActorOpsControlPlane({
           label="抓取类型"
           value={selectedProfileId}
           onChange={(value) => {
+            setSubmittedDiscovery(null)
             setCandidatePickerOpen(false)
             setSelectedCandidateIds([])
             setCandidateError(null)
@@ -2637,7 +2719,7 @@ export function HeroActorOpsControlPlane({
                 <div className="flex flex-col gap-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
                   <div className="min-w-0"><Card.Title>{nextTitle}</Card.Title><Card.Description className="mt-1 max-w-3xl">{nextDescription}</Card.Description></div>
                   {nextCta && <Button
-                    ref={next.action === 'select_candidates' ? candidateTriggerRef : next.action === 'approve_canary' ? batchTriggerRef : next.action === 'approve_activation' ? activationTriggerRef : undefined}
+                    ref={candidateShortfall || next.action === 'select_candidates' ? candidateTriggerRef : next.action === 'approve_canary' ? batchTriggerRef : next.action === 'approve_activation' ? activationTriggerRef : undefined}
                     className="w-full shrink-0 min-[720px]:w-auto"
                     isDisabled={actionPending}
                     onPress={performNextAction}
@@ -2763,11 +2845,17 @@ export function HeroActorOpsControlPlane({
       <Modal.Backdrop isDismissable={!prepareManualPlan.isPending && !discovery.isPending} isKeyboardDismissDisabled={prepareManualPlan.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>{candidateGoal === 'compatibility_single' ? '降低要求：选择 1 个兼容 Actor' : candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : `选择 ${candidateRequiredCount} 个 Actor`}</Modal.Heading></Modal.Header>
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
+          {discoveryRunRunning && <HeroNotice title="正在搜索，无需重复点击" status="warning" role="status">
+            {trackedDiscoveryProgress}。完成后页面会自动显示新候选或明确的失败原因。
+          </HeroNotice>}
+          {!discoveryRunRunning && trackedDiscovery && terminalDiscoveryStatuses.has(trackedDiscovery.status) && <HeroNotice title="最近一轮免费搜索已结束" status="default" role="status">
+            完成于 {formatActorDateTime(trackedDiscovery.updated_at ?? null)} · 查询 {trackedDiscovery.queries_completed ?? 0}/{trackedDiscovery.queries_limit ?? 0} 轮 · 本轮记录 {trackedDiscovery.candidate_count ?? trackedDiscovery.candidates.length} 个原始候选{selectableCandidateCount !== null ? `，当前 ${selectableCandidateCount} 个可选择` : ''}。原始候选仍可能因固定版本、输入、输出或失败记忆而不可选择；立即重复搜索不会让它通过。只有确认 Store 中的 Actor / Build 已更新后，才需要再次检查。
+          </HeroNotice>}
           <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy'
             ? hasPreferredActorUpgrades
               ? '可安全升级的当前 Actor 已自动选中。只允许这 3 个当前 Actor；任一未通过就停止。'
               : candidatesQuery.data
-                ? '上面的 3 个当前 Actor 已列出。点击“重新检查当前 Actor（免费）”只会生成它们的安全新版，不会寻找替补。'
+                ? '上面的 3 个当前 Actor 已列出。确认 Actor / Build 已更新后再次检查，只会生成它们的安全新版，不会寻找替补。'
                 : '系统只检查上面的 3 个当前 Actor；无法形成安全新版时保持兼容池并停止。'
             : candidateGoal === 'compatibility_single'
               ? '这是明确的功能优先降级：单个实测可用 Actor 即可启用，但没有主备冗余；选择本身免费，付费 Canary 和最终生效仍分别确认。'
@@ -2869,7 +2957,7 @@ export function HeroActorOpsControlPlane({
         </div></Modal.Body>
         <Modal.Footer>
           <Button variant="ghost" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
-          <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => discovery.mutate()}>{candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : '重新检查当前 Actor（免费）' : discovery.isPending ? '正在更新…' : candidateGoal === 'compatibility_single' ? '更新兼容候选（免费）' : '更新候选（免费）'}</Button>
+          <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending || discoveryRunRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : 'Actor / Build 已更新，再检查（免费）' : discovery.isPending ? '正在更新…' : candidateGoal === 'compatibility_single' ? '候选证据已更新，再检查（免费）' : 'Actor / Build 已更新，再检查（免费）'}</Button>
           <Button isDisabled={!candidateSelectionComplete || prepareManualPlan.isPending || discovery.isPending} onPress={() => prepareManualPlan.mutate()}>{prepareManualPlan.isPending ? '正在核对…' : '继续'}</Button>
         </Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
