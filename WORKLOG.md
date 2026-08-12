@@ -8,30 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "实现 ActorOps 功能优先兼容模式、来源内容水位与软切备、可配置专用 Key 新鲜度校验、失败指纹记忆和统一安全诊断时间线；YouTube fallback 一路即可运行且不再自动追逐第三槽。",
-  "status": "completed",
-  "task_id": "2026-08-12-actorops-compatibility-freshness-diagnostics",
-  "unresolved": [
-    "global schema 23 离线迁移与本地 8080 切换按计划在本提交后执行。",
-    "未指定 validation Key，未授权自动新鲜度，也未运行兼容 Canary 或任何付费 Actor；这些动作保留给用户逐项确认。"
-  ],
-  "validation": [
-    "ActorOps 后端发现、兼容、运行、水位、新鲜度、Key、API 与迁移定向回归通过。",
-    "前端完整 Vitest 74 文件/676 测试此前通过；最终 ActorOps 62/62、TypeScript 与 ESLint 零错误通过。",
-    "任务级 preflight 13/13、完整 Test Gate 15/15 通过（352.94 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-12",
@@ -414,6 +390,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Actor discovery、Worker、ActorOps、manifest、resilience、pool staging 和 import boundary 定向回归全部通过，ResourceWarning 为 0。",
     "worker.py 由 1705 行降至 1370 行并移除 332 行 discovery 函数旧债；新模块 420/135 行，最大函数 75/36 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker 的管理员付费 Canary batch 拆入独立 handler，保持一次性授权、串行免费预检、unknown-start 阻断、source validation、费用终结和补充 discovery 语义。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-actor-canary",
+  "unresolved": [],
+  "validation": [
+    "Canary、pool staging、compatibility、Worker、ActorOps、通知和调度扩展定向回归全部通过，ResourceWarning 为 0。",
+    "worker.py 由 1370 行降至 992 行并移除 Canary 389/298 行函数旧债；新模块 540 行，最大函数 52 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
