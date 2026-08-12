@@ -38,6 +38,11 @@ from .worker_actor_cycle import (
     promote_due_actor_revisions as _promote_due_actor_revisions_impl,
     reconcile_and_enqueue_actor_discoveries as _reconcile_actor_discoveries_impl,
 )
+from .worker_actor_discovery_handler import (
+    WorkerActorDiscoveryPorts,
+    actor_discovery_queries as _actor_discovery_queries,
+    run_actor_discovery,
+)
 from .worker_actor_validation_handler import (
     WorkerActorValidationPorts,
     actor_freshness_check_id as _actor_freshness_check_id,
@@ -1052,37 +1057,6 @@ def _run_apify_actor_canary_batch(
     return asyncio.run(execute())
 
 
-def _actor_discovery_queries(route: dict[str, Any]) -> tuple[str, str, str]:
-    """Return route-specific Store queries that target content-item Actors."""
-
-    profile = (
-        str(route.get("platform") or ""),
-        str(route.get("target_type") or ""),
-        str(route.get("capability") or ""),
-    )
-    presets = {
-        ("x", "profile", "items"): (
-            "x profile posts scraper",
-            "twitter user tweets scraper",
-            "x profile feed actor",
-        ),
-        ("youtube", "channel", "items"): (
-            "youtube channel videos scraper",
-            "youtube public channel videos",
-            "youtube channel feed actor",
-        ),
-        ("instagram", "profile", "items"): (
-            "instagram profile posts scraper",
-            "instagram user posts scraper",
-            "instagram profile feed actor",
-        ),
-    }
-    selected = presets.get(profile)
-    if selected is None:
-        raise ValueError("Actor discovery route profile is unsupported")
-    return selected
-
-
 def _run_apify_actor_freshness_check(
     job: dict[str, Any],
     *,
@@ -1099,338 +1073,29 @@ def _run_apify_actor_freshness_check(
     )
 
 
+def _log_actor_discovery_ai_close_failure() -> None:
+    logger.warning(
+        "Actor discovery AI client close failed error_code=ai_client_close_failed"
+    )
+
+
 def _run_apify_actor_discovery(
     job: dict[str, Any],
     *,
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    import asyncio
-    import inspect
-    import json
+    """Compatibility façade for Worker tests and operational overrides."""
 
-    from ..ai.client import create_ai_client
-    from .apify_actor_discovery import (
-        ActorDiscoveryError,
-        ApifyActorDiscoveryService,
-        ApifyStoreRestClient,
-        LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT,
-    )
-    from .apify_actor_ops import ApifyActorOpsService
-    from .apify_discovery_ai import resolve_global_discovery_ai
-
-    payload = (
-        job.get("payload_json")
-        if isinstance(job.get("payload_json"), dict)
-        else {}
-    )
-    run_id = str(payload.get("run_id") or "").strip()
-    prefer_existing = payload.get("prefer_existing_legacy_actors", False)
-    if (
-        not run_id
-        or set(payload) not in (
-            {"run_id"},
-            {"run_id", "prefer_existing_legacy_actors"},
-        )
-        or not isinstance(prefer_existing, bool)
-        or int(job.get("max_attempts") or 0) != 1
-    ):
-        raise ValueError("Actor discovery job metadata is invalid")
-    actor = store.get_user(str(job["user_id"]))
-    if actor is None or not bool(actor.get("enabled")) or actor.get("role") == "viewer":
-        raise PermissionError("Actor discovery requires an active member")
-    ops = ApifyActorOpsService(
-        store,
-        workspace_id=str(job["workspace_id"]),
-    )
-    run = ops.get_discovery_run(run_id)
-    expanded_compatibility = (
-        str(run.get("trigger_reason") or "")
-        == "manual_compatibility_candidate_refresh"
-    )
-    if str(run["stage"]) != "queued":
-        # Concurrent support checks can observe the same queued Run before one
-        # Worker advances it.  A second one-shot Job must be an idempotent
-        # no-op, not a false system failure after the first Job succeeds.
-        return {
-            "ok": True,
-            "job_type": "apify_actor_discovery",
-            "run_id": run_id,
-            "stage": str(run["stage"]),
-            "revision_count": 0,
-            "idempotent_replay": True,
-        }
-    if prefer_existing:
-        earlier_active = store.connect().execute(
-            """
-            SELECT 1
-            FROM apify_actor_discovery_runs AS earlier
-            WHERE earlier.workspace_id = ?
-              AND earlier.route_id = ?
-              AND earlier.trigger_reason = 'manual_legacy_upgrade_refresh'
-              AND earlier.stage IN (
-                  'queued', 'searching', 'metadata', 'ranking',
-                  'static_validation', 'input_validation'
-              )
-              AND earlier.rowid < (
-                  SELECT current.rowid
-                  FROM apify_actor_discovery_runs AS current
-                  WHERE current.workspace_id = ? AND current.run_id = ?
-              )
-            LIMIT 1
-            """,
-            (
-                str(job["workspace_id"]),
-                str(run["route_id"]),
-                str(job["workspace_id"]),
-                run_id,
-            ),
-        ).fetchone()
-        if earlier_active is not None:
-            superseded = ops.update_discovery_run(
-                run_id,
-                expected_stage="queued",
-                stage="failed",
-                error_code="superseded_duplicate_refresh",
-            )
-            return {
-                "ok": True,
-                "job_type": "apify_actor_discovery",
-                "run_id": run_id,
-                "stage": superseded["stage"],
-                "revision_count": 0,
-                "superseded_duplicate": True,
-            }
-    settings = ops.get_discovery_settings()
-    if not bool(settings["enabled"]):
-        blocked = ops.update_discovery_run(
-            run_id,
-            expected_stage="queued",
-            stage="blocked_ai_unavailable",
-            error_code="discovery_ai_disabled",
-        )
-        return {
-            "ok": True,
-            "job_type": "apify_actor_discovery",
-            "run_id": run_id,
-            "stage": blocked["stage"],
-            "revision_count": 0,
-        }
-    global_ai = resolve_global_discovery_ai(
-        store,
+    return run_actor_discovery(
+        job,
         data_dir=data_dir,
-        workspace_id=str(job["workspace_id"]),
-        secret_ref_id=(
-            str(settings["secret_ref_id"])
-            if settings.get("secret_ref_id")
-            else None
+        store=store,
+        ports=WorkerActorDiscoveryPorts(
+            safe_machine_code=_safe_machine_code,
+            log_close_failure=_log_actor_discovery_ai_close_failure,
         ),
     )
-    if not global_ai.ready or global_ai.config is None:
-        blocked = ops.update_discovery_run(
-            run_id,
-            expected_stage="queued",
-            stage="blocked_ai_unavailable",
-            error_code="discovery_global_ai_unavailable",
-        )
-        return {
-            "ok": True,
-            "job_type": "apify_actor_discovery",
-            "run_id": run_id,
-            "stage": blocked["stage"],
-            "revision_count": 0,
-        }
-    pool_secret = store.connect().execute(
-        """
-        SELECT secret.env_name
-        FROM apify_key_pool_state AS state
-        JOIN secret_refs AS secret ON secret.id = state.active_secret_id
-        WHERE state.workspace_id = ?
-        """,
-        (str(job["workspace_id"]),),
-    ).fetchone()
-    apify_env = str(pool_secret["env_name"]) if pool_secret else ""
-    if not apify_env or not os.getenv(apify_env):
-        failed = ops.update_discovery_run(
-            run_id,
-            expected_stage="queued",
-            stage="failed",
-            error_code="metadata_token_unavailable",
-        )
-        return {
-            "ok": False,
-            "job_type": "apify_actor_discovery",
-            "run_id": run_id,
-            "stage": failed["stage"],
-            "revision_count": 0,
-        }
-    QuotaService(store).admit_ai_attempt(
-        workspace_id=str(job["workspace_id"]),
-        user_id=str(job["user_id"]),
-        provider=global_ai.provider,
-    )
-    route = ops.get_route(str(run["route_id"]))
-    output_limit = int(run.get("ai_max_output_tokens") or settings["max_output_tokens"])
-    ai_config = global_ai.config.model_copy(
-        update={
-            "enabled": True,
-            "temperature": 0.0,
-            "max_tokens": output_limit,
-        }
-    )
-    ai_client = create_ai_client(
-        ai_config,
-        single_attempt=True,
-        timeout_seconds=180,
-    )
-
-    async def generate(prompt: dict[str, Any]) -> dict[str, Any]:
-        started = time.monotonic()
-        try:
-            raw = await ai_client.complete(
-                (
-                    "Return one strict JSON object only. Follow the supplied "
-                    "Manifest v1 contract exactly. Never invent Actor IDs, "
-                    "Build IDs, schema fields, code, templates, credentials, "
-                    "headers, tokens, or URLs."
-                ),
-                json.dumps(prompt, ensure_ascii=False, sort_keys=True),
-                temperature=0.0,
-                max_tokens=output_limit,
-            )
-        except Exception as error:
-            latency_ms = int((time.monotonic() - started) * 1000)
-            ops.record_discovery_ai_metrics(
-                run_id,
-                latency_ms=latency_ms,
-                json_status="unknown",
-                manifest_status="not_run",
-            )
-            status = getattr(error, "status_code", None)
-            name = type(error).__name__.casefold()
-            if "timeout" in name or isinstance(error, (TimeoutError, httpx.TimeoutException)):
-                code = "discovery_ai_timeout"
-            elif status in {401, 403}:
-                code = "discovery_ai_authentication_failed"
-            elif status == 402:
-                code = "discovery_ai_balance_unavailable"
-            elif status == 404:
-                code = "discovery_ai_model_unavailable"
-            elif status == 429:
-                code = "discovery_ai_rate_limited"
-            else:
-                code = "discovery_ai_transport_unavailable"
-            raise ActorDiscoveryError(code, "Actor discovery AI request failed") from error
-        latency_ms = int((time.monotonic() - started) * 1000)
-        metrics = getattr(ai_client, "last_completion_metrics", None)
-        ops.record_discovery_ai_metrics(
-            run_id,
-            input_tokens=(metrics.input_tokens if metrics else None),
-            completion_tokens=(metrics.completion_tokens if metrics else None),
-            reasoning_tokens=(metrics.reasoning_tokens if metrics else None),
-            content_tokens=(metrics.content_tokens if metrics else None),
-            finish_reason=(metrics.finish_reason if metrics else None),
-            latency_ms=latency_ms,
-            response_bytes=(metrics.response_bytes if metrics else len(raw.encode("utf-8"))),
-            json_status="unknown",
-            manifest_status="not_run",
-        )
-        if not raw.strip():
-            ops.record_discovery_ai_metrics(run_id, json_status="empty")
-            raise ActorDiscoveryError("discovery_ai_empty_content", "Actor discovery AI returned no content")
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as error:
-            status = "truncated" if metrics and metrics.finish_reason == "length" else "invalid"
-            ops.record_discovery_ai_metrics(run_id, json_status=status)
-            code = "discovery_ai_output_truncated" if status == "truncated" else "discovery_ai_invalid_json"
-            raise ActorDiscoveryError(code, "Actor discovery AI returned invalid JSON") from error
-        if not isinstance(parsed, dict):
-            ops.record_discovery_ai_metrics(run_id, json_status="invalid")
-            raise ActorDiscoveryError("discovery_ai_contract_invalid", "Actor discovery AI output must be an object")
-        ops.record_discovery_ai_metrics(run_id, json_status="valid")
-        return parsed
-
-    queries = _actor_discovery_queries(route)
-
-    async def execute() -> dict[str, Any]:
-        try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(30.0, connect=10.0),
-                trust_env=False,
-            ) as http_client:
-                service = ApifyActorDiscoveryService(
-                    ops,
-                    ApifyStoreRestClient(
-                        os.environ[apify_env],
-                        client=http_client,
-                    ),
-                    generate,
-                    ai_provider=global_ai.provider,
-                    ai_model=global_ai.model,
-                )
-                outcome = await service.run_discovery(
-                    run_id,
-                    queries=queries,
-                    preferred_actor_ids=(
-                        ops.legacy_actor_ids(str(run["route_id"]))
-                        if prefer_existing
-                        else ()
-                    ),
-                    candidate_limit=(
-                        LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT
-                        if prefer_existing or expanded_compatibility
-                        else None
-                    ),
-                )
-                return {
-                    "ok": True,
-                    "job_type": "apify_actor_discovery",
-                    "run_id": outcome.run_id,
-                    "route_id": outcome.route_id,
-                    "stage": outcome.stage,
-                    "revision_count": len(outcome.revision_ids),
-                    "rejected_count": len(outcome.rejected),
-                }
-        finally:
-            close = getattr(ai_client, "aclose", None)
-            if callable(close):
-                try:
-                    close_result = close()
-                    if inspect.isawaitable(close_result):
-                        await close_result
-                except Exception:
-                    logger.warning(
-                        "Actor discovery AI client close failed error_code=ai_client_close_failed"
-                    )
-
-    try:
-        return asyncio.run(execute())
-    except Exception as exc:
-        current = ops.get_discovery_run(run_id)
-        if str(current["stage"]) not in {
-            "awaiting_canary_approval",
-            "candidate_shortfall",
-            "blocked_ai_unavailable",
-            "failed",
-        }:
-            ops.update_discovery_run(
-                run_id,
-                expected_stage=str(current["stage"]),
-                stage="failed",
-                error_code=_safe_machine_code(
-                    getattr(exc, "code", None),
-                    "apify_actor_discovery_failed",
-                ),
-                failure_phase={
-                    "searching": "store",
-                    "metadata": "metadata",
-                    "ranking": "ai_generation",
-                    "static_validation": "static_validation",
-                    "input_validation": "input_validation",
-                }.get(str(current["stage"])),
-            )
-        raise
 
 
 def _run_job(

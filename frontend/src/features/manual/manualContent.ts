@@ -1,4 +1,4 @@
-// Reviewed after the API adapter and Worker cycle/finalization/Actor handler splits; user workflows are unchanged.
+// Reviewed after the API adapter and Worker cycle/finalization/Actor discovery splits; user workflows are unchanged.
 export type ManualStep = {
   title: string
   description: string
