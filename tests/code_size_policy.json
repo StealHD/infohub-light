@@ -267,7 +267,7 @@
       {
         "path": "src/services/source_acquisition.py",
         "category": "production",
-        "max_lines": 1247
+        "max_lines": 1132
       },
       {
         "path": "src/services/source_type_registry.py",

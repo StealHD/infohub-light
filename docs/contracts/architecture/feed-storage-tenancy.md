@@ -14,6 +14,8 @@
 ### 3.6 Tenant/User Boundary
 小团体 MVP 使用单 workspace。用户、角色、公共/私有 source catalog、订阅配置、job queue、usage event 和 secret ref 归 `src/storage/service_store.py` 管理。入口层不得直接拼 SQL 或绕过 `ServiceStore`/service helper 读写这些状态。
 
+`ServiceStore` 可在订阅生命周期事务内延迟调用 `UserFeedStore` 做原子 reconciliation；`UserFeedStore` 及其内容、媒体、item-state repository 只能通过 `TYPE_CHECKING` 引用 `ServiceStore` 类型，不得在模块载入时反向导入。用户/订阅投影纯函数归 `src/services/source_projection.py`，`source_acquisition.py` 只保留兼容导出，避免 Feed 读取层拉入 acquisition/ActorOps 运行链。
+
 ### 3.6A User Behavior Boundary
 用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。Fresh DB 不创建 feedback 表；旧表与行只按 3.5A 原样保留，不进入任何行为路径。
 

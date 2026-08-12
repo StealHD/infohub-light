@@ -225,6 +225,7 @@
         "src/services/network_policy.py",
         "src/services/response_schema.py",
         "src/services/source_avatar.py",
+        "src/services/source_projection.py",
         "src/services/source_summary.py",
         "src/services/user_analysis_cache.py",
         "src/services/user_feed_store.py",
@@ -233,12 +234,31 @@
       "groups": ["python_feed"]
     },
     {
+      "id": "Store/Feed import boundary",
+      "globs": [
+        "src/storage/service_store.py",
+        "src/services/media_cache.py",
+        "src/services/source_acquisition.py",
+        "src/services/source_projection.py",
+        "src/services/user_content_store.py",
+        "src/services/user_feed_store.py",
+        "src/services/user_item_state.py",
+        "tests/test_service_import_boundaries.py"
+      ],
+      "groups": [
+        "python_api_store",
+        "python_feed",
+        "python_source_acquisition"
+      ]
+    },
+    {
       "id": "source acquisition",
       "globs": [
         "src/services/catalog_source_runner.py",
         "src/services/apify_actor_route.py",
         "src/services/config_runtime.py",
         "src/services/source_acquisition.py",
+        "src/services/source_projection.py",
         "src/services/source_health.py",
         "src/services/source_probe.py"
       ],
@@ -365,6 +385,7 @@
       "tests/test_content_timeline.py",
       "tests/test_secret_api.py",
       "tests/test_secret_store.py",
+      "tests/test_service_import_boundaries.py",
       "tests/test_service_store.py",
       "tests/test_source_resolution.py",
       "tests/test_source_setup_guidance.py",
@@ -469,6 +490,7 @@
       "tests/test_source_presentation_adapters.py",
       "tests/test_source_summary.py",
       "tests/test_storage_governance.py",
+      "tests/test_service_import_boundaries.py",
       "tests/test_user_analysis_cache.py",
       "tests/test_user_content_v4_migration.py",
       "tests/test_user_feed_store.py",
@@ -491,7 +513,8 @@
       "tests/test_source_health.py",
       "tests/test_source_health_api.py",
       "tests/test_source_health_worker.py",
-      "tests/test_source_schedule.py"
+      "tests/test_source_schedule.py",
+      "tests/test_service_import_boundaries.py"
     ],
     "python_ai_orchestrator": [
       "tests/test_analyzer.py",

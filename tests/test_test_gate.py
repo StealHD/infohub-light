@@ -149,7 +149,17 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         (["src/api/server.py"], {"control", "python_api_store"}, False, False),
         (["src/services/job_queue.py"], {"control", "python_queue_worker"}, False, False),
         (["src/services/feed_production.py"], {"control", "python_feed"}, False, False),
-        (["src/services/source_acquisition.py"], {"control", "python_source_acquisition"}, False, False),
+        (
+            ["src/services/source_acquisition.py"],
+            {
+                "control",
+                "python_api_store",
+                "python_feed",
+                "python_source_acquisition",
+            },
+            False,
+            False,
+        ),
         (
             ["src/services/apify_actor_ops.py"],
             {

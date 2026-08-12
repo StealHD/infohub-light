@@ -9,18 +9,18 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
-from ..storage.service_store import ServiceStore
 from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from .content_presentation import complete_content_presentation
 from .media_cache import MediaCacheService
-from .source_acquisition import (
+from .source_projection import (
     TargetSubscriptionProjection,
     target_subscription_projection,
 )
 from .user_content_store import UserContentStore, service_public_item
-
+if TYPE_CHECKING:
+    from ..storage.service_store import ServiceStore
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

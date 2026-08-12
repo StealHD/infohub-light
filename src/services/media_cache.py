@@ -10,13 +10,13 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 from ..models import ContentItem
-from ..storage.service_store import ServiceStore
 from .network_policy import fetch_public_http
-
+if TYPE_CHECKING:
+    from ..storage.service_store import ServiceStore
 
 MAX_IMAGES_PER_ITEM = 6
 MAX_IMAGE_BYTES = 8 * 1024 * 1024

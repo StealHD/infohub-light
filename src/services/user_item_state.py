@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..storage.service_store import ServiceStore
+if TYPE_CHECKING:
+    from ..storage.service_store import ServiceStore
 
 
 def _now_iso() -> str:

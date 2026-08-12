@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-12',
-  change: '代码健康、资源生命周期与 API 入口分层收敛；用户工作流不变',
+  change: '代码健康、资源生命周期、API 与 Store/Feed 分层收敛；用户工作流不变',
 } as const
 
 export const manualSections: ManualSection[] = [
