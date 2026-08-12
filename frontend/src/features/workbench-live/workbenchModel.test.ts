@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { FeedItem, FeedPresentation, FeedSnapshot } from '../../api/types'
 import {
+  cardLabelForViewer,
   cleanLegacyModeSearch,
   mergeDeepLinkedItem,
   selectWorkbenchSourceItems,
@@ -21,6 +22,19 @@ const item = (id: string, publishedAt?: string, summary = `摘要 ${id}`): FeedI
 })
 
 describe('live workbench model', () => {
+  it('uses source-first labels for social media and titles for articles', () => {
+    const article = toWorkbenchCardModel(item('article'))
+    const social = {
+      ...article,
+      displayKind: 'social' as const,
+      sourceLabel: 'Alice',
+      primaryText: 'hello',
+    }
+
+    expect(cardLabelForViewer(article)).toBe('标题 article')
+    expect(cardLabelForViewer(social)).toBe('Alice: hello')
+  })
+
   it('reads only snapshot.items for Feed and maps the shared card contract', () => {
     const all = item('all', '2026-07-13T08:00:00Z')
     const snapshot: FeedSnapshot = {

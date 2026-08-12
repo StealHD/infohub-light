@@ -10,10 +10,9 @@ import { sidebarPreferenceKey } from '../../app/sidebarPreference'
 import { DesignSystemProvider } from '../../design-system'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import {
-  calculateFeedInsightsLayout,
-  canFloatFeedInsights,
   HeroWorkbenchShell,
 } from './HeroWorkbenchShell'
+import { calculateFeedInsightsLayout, canFloatFeedInsights } from './feedInsightsLayout'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()

@@ -9,7 +9,7 @@
     "check:preview-build": "node scripts/check-preview-build.mjs",
     "check:ui": "node scripts/check-ui-contract.mjs",
     "typecheck": "tsc -b --pretty false",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview --host 127.0.0.1",

@@ -127,7 +127,7 @@
       {
         "path": "frontend/src/features/openclaw/OpenClawConversation.tsx",
         "category": "production",
-        "max_lines": 1152
+        "max_lines": 1133
       },
       {
         "path": "frontend/src/features/openclaw/useOpenClawChat.test.ts",
@@ -147,12 +147,12 @@
       {
         "path": "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
         "category": "production",
-        "max_lines": 1592
+        "max_lines": 1554
       },
       {
         "path": "frontend/src/features/workbench-live/VirtualFeed.tsx",
         "category": "production",
-        "max_lines": 910
+        "max_lines": 906
       },
       {
         "path": "scripts/test_gate.py",

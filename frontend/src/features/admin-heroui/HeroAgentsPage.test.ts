@@ -4,7 +4,7 @@ import {
   READ_TOOL_FILTER,
   SUBSCRIPTION_WRITE_TOOL_FILTER,
   agentConfiguration,
-} from './HeroAgentsPage'
+} from '../openclaw/openclawAgentConfiguration'
 
 describe('Hero Agents OpenClaw configuration', () => {
   it('keeps read and subscription-management tool filters exact', () => {

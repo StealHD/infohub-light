@@ -41,7 +41,8 @@ import { sourceMatchesSubscriptionVisibility } from '../subscriptions/subscripti
 import { createAgentSourceSnapshot } from './agentContext'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
-import { readSourceOverviewViewportAnchor, SourceOverviewFeed, type SourceOverviewViewportAnchor, type SourceSummaryViewState } from './SourceOverviewFeed'
+import { SourceOverviewFeed, type SourceSummaryViewState } from './SourceOverviewFeed'
+import { readSourceOverviewViewportAnchor, type SourceOverviewViewportAnchor } from './sourceOverviewViewport'
 import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './sourceOverviewModel'
 import { readCachedSourceSummaries, writeCachedSourceSummary } from './sourceSummaryCache'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
@@ -59,7 +60,6 @@ import {
   workbenchSourceLabels,
   type WorkbenchKind,
 } from './workbenchModel'
-
 function FeedModeLayer({ mode, children }: { mode: FeedViewMode; children: ReactNode }) {
   return <div
     data-feed-mode-layer={mode}

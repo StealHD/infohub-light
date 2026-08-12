@@ -38,6 +38,10 @@ export type WorkbenchCardModel = {
   item: FeedItem
 }
 
+export function cardLabelForViewer(card: WorkbenchCardModel): string {
+  return card.displayKind === 'social' ? `${card.sourceLabel}: ${card.primaryText}` : card.title
+}
+
 type WorkbenchSourceData = {
   snapshot?: FeedSnapshot
   saved?: SavedFeed

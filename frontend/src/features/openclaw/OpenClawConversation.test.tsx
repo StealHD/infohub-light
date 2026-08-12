@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
-import { OpenClawActivityTrace, OpenClawContextUsageIndicator, OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
+import { OpenClawActivityTrace, OpenClawContextUsageIndicator, OpenClawConversation } from './OpenClawConversation'
+import { gatewayOriginSetupCommands } from './openclawOriginSetup'
 
 function contextValue(overrides: Partial<WorkbenchAgentContextValue['draft']> = {}): WorkbenchAgentContextValue {
   return {
