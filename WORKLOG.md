@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-10",
-  "result": "ActorOps 按每个候选冻结 180–900 秒、1/3/5 条样本与最高 $0.10 单次费用；超时、空结果和状态读取失败只提供有效恢复动作，相同失败参数在 Actor 启动前以 0 费用拒绝。",
-  "status": "completed",
-  "task_id": "2026-08-10-actorops-validation-tuning-repeat-guard",
-  "unresolved": [],
-  "validation": [
-    "ActorOps、Apify Client 与迁移定向回归 112/112 通过，覆盖 X 空结果、Instagram 超时、YouTube 状态免费核对、原审批费用和无 abort/二次启动。",
-    "ActorOps 前端 Vitest 83/83、Changelog 5/5、TypeScript 类型检查与 ESLint 通过（仅仓库既有 8 条 Fast Refresh 警告）。",
-    "完整 Test Gate 24/24 命令通过（600.17 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -395,6 +374,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "生产只读确认 API/Worker 健康，X 每小时任务成功但最新内容停在 2026-08-10，最近生产 Actor 为 Dami 且重复 valid_nonempty。",
     "Actor route、水位、resilience、source acquisition 与产品文档定向后端回归 83/83 通过；更新日志 Vitest 5/5、控制面校验通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "ActorOps 来源列表和详情现标记最近一次实际 Actor，并允许从下一次计划抓取起手动软切换；同时修复 X 单路兼容计划缺少 max_candidates 导致降低要求后返回 500 的问题，失败改为页面可见且不启动 Actor。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-current-actor-switch-compatibility-plan",
+  "unresolved": [
+    "未执行任何付费 Canary、1/3 生效或生产部署；本地仅验证计划预览和现有来源状态。"
+  ],
+  "validation": [
+    "ActorOps compatibility、API 与 route 定向后端回归 79/79 通过。",
+    "ActorOps UI 与 changelog Vitest 73/73、TypeScript、UI 合同及 lint（0 error）通过。"
   ]
 }
 ```

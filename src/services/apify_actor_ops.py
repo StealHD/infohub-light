@@ -4998,6 +4998,7 @@ class ApifyActorOpsService:
             "ready": True,
             "activation_ready": already_validated,
             "plan_hash": plan_hash,
+            "max_candidates": 1,
             "route_validation_cap_usd": round(cap, 6),
             "source_validation_cap_usd": 0.0,
             "source_count": 0,

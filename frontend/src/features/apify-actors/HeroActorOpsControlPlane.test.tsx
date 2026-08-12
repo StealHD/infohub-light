@@ -890,6 +890,58 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(await screen.findByRole('heading', { name: '验证单路兼容 Actor' })).toBeVisible()
   })
 
+  it('shows visible feedback when a compatibility plan cannot be generated', async () => {
+    const browser = userEvent.setup()
+    const danger = vi.spyOn(actionToast, 'danger').mockReturnValue('compatibility-plan-error')
+    const compatibility = detail({
+      workflow: workflow('compatibility_candidate_selection_available', {
+        goal: 'compatibility_single',
+        run_id: 'run-guided',
+        progress: { eligible_candidate_count: 1, required_selection_count: 1 },
+      }),
+    })
+    renderControlPlane(compatibility, undefined, {
+      apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+        schema_version: 2,
+        route_id: compatibility.route_id,
+        generation: compatibility.generation,
+        goal: 'compatibility_single',
+        run_id: 'run-guided',
+        required_selection_count: 1,
+        relaxed_requirements: ['actor_count'],
+        retained_requirements: ['public_runnable_actor'],
+        blockers: [],
+        candidates: [{
+          candidate_id: 'candidate-compatible',
+          revision_id: 'revision-compatible',
+          actor_public_name: '兼容抓取 Actor',
+          publisher: 'publisher-compatible',
+          pricing: {},
+          execution_mode: 'current',
+          already_validated: false,
+          compatibility_warnings: [],
+          relaxed_requirements: [],
+          validation_options: validationOptions(),
+          selectable: true,
+          unavailable_reason: null,
+        }],
+      }),
+      createApifyActorManualCanaryPlan: vi.fn().mockRejectedValue(
+        new ApiError(500, { code: 'internal_error', message: 'safe error' }),
+      ),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '降低要求继续' }))
+    await browser.click(await screen.findByRole('checkbox', { name: /兼容抓取 Actor/ }))
+    await browser.click(screen.getByRole('button', { name: '继续' }))
+
+    expect(await screen.findByText('操作未完成')).toBeVisible()
+    expect(danger).toHaveBeenCalledWith('未能生成验证计划', expect.objectContaining({
+      description: expect.stringContaining('没有启动 Actor，也没有产生新的费用'),
+    }))
+    danger.mockRestore()
+  })
+
   it('requires the second confirmation before enabling a 1/3 compatibility pool', async () => {
     const browser = userEvent.setup()
     const compatibility = detail({
@@ -1138,16 +1190,46 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
       '/?route=x%2Fprofile%2Fitems&tab=sources&source=source-safe-abcdef',
     )
 
-    expect(await screen.findByText('来源级 Actor 首选')).toBeVisible()
+    expect(await screen.findByText('当前实际 Actor')).toBeVisible()
+    expect(screen.getByText('备用 Actor')).toBeVisible()
+    expect(screen.getByText('切换本来源的 Actor')).toBeVisible()
     expect(document.body.textContent).not.toContain('private-target-must-not-render')
-    await browser.click(screen.getByRole('button', { name: /首选 Actor/ }))
+    await browser.click(screen.getByRole('button', { name: /下次抓取优先使用/ }))
     await browser.click(await screen.findByRole('option', { name: /主用 Actor/ }))
-    await browser.click(screen.getByRole('button', { name: '保存首选' }))
+    await browser.click(screen.getByRole('button', { name: '保存切换' }))
     await waitFor(() => expect(api.updateApifyActorSourcePreference).toHaveBeenCalledWith(
       'source-safe-abcdef',
       'candidate-primary',
       3,
     ))
+  })
+
+  it('marks a suspended manual preference and keeps automatic failover visible', async () => {
+    const suspended = detail({
+      source_validations: [{
+        source_id: 'source-safe-abcdef',
+        binding_status: 'ready_2of2',
+        generation: 4,
+        actor_preference: {
+          mode: 'manual',
+          preferred_candidate_id: 'candidate-primary',
+          preferred_actor_name: '主用 Actor',
+          active_candidate_id: 'candidate-backup',
+          active_actor_name: '备用 Actor',
+          preference_suspended: true,
+        },
+        slots: [],
+      }],
+      source_validation_summary: { ready: 1, pending: 0, failed: 0 },
+    })
+    renderControlPlane(
+      suspended,
+      '/?route=x%2Fprofile%2Fitems&tab=sources&source=source-safe-abcdef',
+    )
+
+    expect(await screen.findAllByText('手动首选已暂停')).not.toHaveLength(0)
+    expect(screen.getByText(/系统正在自动切备/)).toBeVisible()
+    expect(screen.getByText(/连续两次新鲜度通过后自动恢复首选/)).toBeVisible()
   })
 
   it('keeps a finalized failed third-slot validation visible with a human recovery path', async () => {
@@ -1774,6 +1856,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(await screen.findByText('有 1 个来源等待启用')).toBeVisible()
     await browser.click(screen.getByRole('tab', { name: /来源启用/ }))
     expect(await screen.findByText('Instagram · 产品账号')).toBeVisible()
+    expect(screen.getByText(/当前实际 Actor 尚无记录/)).toBeVisible()
     expect(screen.queryByRole('textbox', { name: /来源 ID/ })).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('private-target-must-not-render')
     await browser.click(screen.getByRole('button', { name: '继续验证' }))

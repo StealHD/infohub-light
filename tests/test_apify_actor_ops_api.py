@@ -2421,6 +2421,85 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
     assert stage["target_slot_count"] == 3
 
 
+def test_manual_compatibility_plan_projects_single_candidate_limit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops = ApifyActorOpsService(store)
+    route = next(
+        row for row in ops.list_routes() if row["route_key"] == "x/profile"
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="api-compatibility-shortfall",
+        expected_generation=int(route["generation"]),
+    )
+    revision_id = ops.ensure_compatibility_trial_revision(
+        route_id=str(route["route_id"]),
+        discovery_run_id=str(run["run_id"]),
+        actor_id="compatibility/api-x",
+        publisher="compatibility",
+        build_id=None,
+        build_number=None,
+        pricing={"minimalMaxTotalChargeUsd": 0.01},
+        permission_level="limited",
+        input_schema_hash=None,
+        output_schema_hash=None,
+    )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="candidate_shortfall",
+        error_code="candidate_shortfall",
+    )
+    candidate_id = str(
+        store.connect().execute(
+            """
+            SELECT candidate_id FROM apify_actor_adapter_revisions
+            WHERE workspace_id = ? AND revision_id = ?
+            """,
+            (DEFAULT_WORKSPACE_ID, revision_id),
+        ).fetchone()["candidate_id"]
+    )
+    candidates_response = client.get(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates"
+        "?goal=compatibility_single"
+    )
+    assert candidates_response.status_code == 200, candidates_response.text
+    candidate = next(
+        row
+        for row in candidates_response.json()["data"]["candidates"]
+        if row["candidate_id"] == candidate_id
+    )
+    options = candidate["validation_options"]
+
+    response = client.post(
+        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-plan",
+        json={
+            "goal": "compatibility_single",
+            "candidate_ids": [candidate_id],
+            "candidate_validation_profiles": [{
+                "candidate_id": candidate_id,
+                "timeout_seconds": options["timeout_seconds"],
+                "sample_items": options["sample_items"],
+                "max_charge_usd": options["max_charge_usd"],
+                "options_hash": options["options_hash"],
+            }],
+            "expected_generation": route["generation"],
+            "target_slot_count": 1,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    plan = response.json()["data"]
+    assert plan["goal"] == "compatibility_single"
+    assert plan["max_candidates"] == 1
+    assert plan["target_slot_count"] == 1
+    assert plan["ready"] is True
+
+
 def test_discovery_projection_reports_persisted_partial_pool(
     tmp_path,
     monkeypatch,

@@ -1666,6 +1666,19 @@ function sourceShortLabel(sourceId: string): string {
   return `来源 · ${sourceId.slice(-6)}`
 }
 
+function sourceActorSummary(source: ApifyActorSourceValidation): string {
+  const preference = source.actor_preference
+  if (!preference) return '当前实际 Actor 尚无记录'
+  const active = preference.active_actor_name || '尚无运行记录'
+  if (preference.preference_suspended) {
+    return `当前实际 Actor：${active} · 手动首选已暂停，系统正在自动切备`
+  }
+  if (preference.preferred_actor_name) {
+    return `当前实际 Actor：${active} · 手动首选：${preference.preferred_actor_name}`
+  }
+  return `当前实际 Actor：${active} · 自动选择`
+}
+
 function guidedSlotStatus(
   slot: ApifyActorSlotName,
   revision: ApifyActorRevisionSummary | null | undefined,
@@ -1706,9 +1719,11 @@ function SourceActorPreferenceControl({
         ? [{
             id: slot.candidate_id,
             label: slot.actor_name,
-            description: detail.slots.find((item) => item.slot === slot.slot_name)?.runnable === false
-              ? `${slotDisplayLabels[slot.slot_name]} · 当前因故障或旧数据暂停`
-              : `${slotDisplayLabels[slot.slot_name]} · 失败或旧数据时仍自动切备`,
+            description: `${slot.candidate_id === preference?.active_candidate_id ? '当前实际 · ' : ''}${
+              detail.slots.find((item) => item.slot === slot.slot_name)?.runnable === false
+                ? `${slotDisplayLabels[slot.slot_name]} · 当前因故障或旧数据暂停`
+                : `${slotDisplayLabels[slot.slot_name]} · 失败或旧数据时仍自动切备`
+            }`,
             isDisabled: detail.slots.find((item) => item.slot === slot.slot_name)?.runnable === false,
           }]
         : []
@@ -1732,12 +1747,18 @@ function SourceActorPreferenceControl({
   if (!preference) return null
   const changed = draft !== (preference.preferred_candidate_id || 'automatic')
   return <div className="grid gap-3 rounded-control border border-separator bg-default p-3">
-    <div><p className="type-control">来源级 Actor 首选</p><p className="type-meta mt-1 text-muted">只改变本来源的调用优先级，不硬锁 Actor；旧数据、失败或暂停时仍自动切备。</p></div>
-    <div className="grid gap-3 min-[640px]:grid-cols-[minmax(0,1fr)_auto] min-[640px]:items-end">
-      <HeroSelect label="首选 Actor" value={draft} onChange={setDraft} isDisabled={mutation.isPending} options={options} />
-      <Button size="sm" isDisabled={!changed || mutation.isPending} onPress={() => mutation.mutate()}>{mutation.isPending ? '保存中…' : '保存首选'}</Button>
+    <div className="flex min-w-0 flex-col gap-2 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
+      <div className="min-w-0"><p className="type-control">当前实际 Actor</p><p className="type-page-title mt-1 break-words">{preference.active_actor_name || '尚无运行记录'}</p><p className="type-meta mt-1 text-muted">最近一次实际使用，并会在自动模式下优先复用。</p></div>
+      <StatusBadge tone={preference.preference_suspended ? 'warning' : preference.mode === 'manual' ? 'accent' : 'success'}>
+        {preference.preference_suspended ? '手动首选已暂停' : preference.mode === 'manual' ? '手动首选' : '自动选择'}
+      </StatusBadge>
     </div>
-    <p className="type-meta text-muted">当前实际使用：{preference.active_actor_name || '尚无运行记录'}{preference.preference_suspended ? ' · 首选因旧数据或故障已暂停' : ''}</p>
+    <div><p className="type-control">切换本来源的 Actor</p><p className="type-meta mt-1 text-muted">保存后从下一次计划抓取起优先使用；不会立即启动 Actor 或产生额外费用。旧数据、失败或暂停时仍自动切备。</p></div>
+    <div className="grid gap-3 min-[640px]:grid-cols-[minmax(0,1fr)_auto] min-[640px]:items-end">
+      <HeroSelect label="下次抓取优先使用" value={draft} onChange={setDraft} isDisabled={mutation.isPending} options={options} />
+      <Button size="sm" isDisabled={!changed || mutation.isPending} onPress={() => mutation.mutate()}>{mutation.isPending ? '保存中…' : '保存切换'}</Button>
+    </div>
+    {preference.preference_suspended && <HeroNotice title="手动首选暂未使用" status="warning" role="status">该 Actor 因旧数据或故障暂停。系统会继续使用健康备用；连续两次新鲜度通过后自动恢复首选。</HeroNotice>}
   </div>
 }
 
@@ -2262,6 +2283,9 @@ export function HeroActorOpsControlPlane({
     onError: (caught) => {
       const error = humanActorError(caught, '调整候选后重新生成验证计划。')
       setCandidateError(error)
+      actionToast.danger('未能生成验证计划', {
+        description: `${error.reason}；没有启动 Actor，也没有产生新的费用。`,
+      })
       if (caught instanceof ApiError && [
         'apify_actor_route_generation_conflict',
         'apify_actor_manual_candidate_stale',
@@ -2785,20 +2809,23 @@ export function HeroActorOpsControlPlane({
                 {sourceRows.map((row) => {
                   const source = sourceCatalog.get(row.source_id)
                   const status = sourceStatusPresentation(row.binding_status, detail)
-                  return <SettingsItem key={row.source_id} density="compact" label={source?.display_name || sourceShortLabel(row.source_id)} description={source ? sourceShortLabel(row.source_id) : '已脱敏来源；真实目标不会在此显示'} icon={<Icons.RadioTower size={17} aria-hidden="true" />} trailing={<div className="flex items-center gap-2"><StatusIndicator label={status.label} tone={status.tone} /><Button size="sm" variant="ghost" onPress={() => replaceQuery('sources', row.source_id)}>{status.tone === 'success' ? '查看' : '继续验证'}</Button></div>} />
+                  const sourceDescription = source
+                    ? `${sourceShortLabel(row.source_id)} · ${sourceActorSummary(row)}`
+                    : `已脱敏来源；真实目标不会在此显示 · ${sourceActorSummary(row)}`
+                  return <SettingsItem key={row.source_id} density="compact" label={source?.display_name || sourceShortLabel(row.source_id)} description={sourceDescription} icon={<Icons.RadioTower size={17} aria-hidden="true" />} trailing={<div className="flex items-center gap-2"><StatusIndicator label={status.label} tone={status.tone} /><Button size="sm" variant="ghost" onPress={() => replaceQuery('sources', row.source_id)}>{status.tone === 'success' ? '管理 Actor' : '继续验证'}</Button></div>} />
                 })}
               </SettingsGroup>}
               {selectedSourceId && selectedSourceValid && <Card variant="secondary" className="grid gap-4 border border-separator p-4" aria-label={`来源 ${selectedSourceId} 验证详情`}>
                 <div ref={sourceDetailHeadingRef} tabIndex={-1} data-testid="actorops-source-detail-heading" className="outline-none"><Card.Title>{sourceCatalog.get(selectedSourceId)?.display_name || sourceShortLabel(selectedSourceId)}</Card.Title><Card.Description className="mt-1">只显示当前主备的验证进度；真实目标保持隐藏。</Card.Description></div>
                 {sourceSupportQuery.isPending && <LoadingState label="正在读取来源验证" rows={2} />}
                 {sourceSupportQuery.data && <>
-                  <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源主备验证槽位">{sourceSupportQuery.data.slots.map((slot) => <li key={slot.slot} className="rounded-control border border-separator bg-default p-3"><p className="type-control">{slotDisplayLabels[slot.slot]}</p><p className="type-meta mt-1 text-muted">{slot.status === 'passed' ? '已通过' : ['queued', 'running'].includes(slot.status) ? '验证中' : slot.status === 'blocked' ? '需先升级主备' : slot.status === 'failed' ? '需要处理' : '待验证'} · {formatActorDateTime(slot.last_canary_at ?? null)}</p></li>)}</ol>
-                  <p className="type-meta text-muted">实际费用 {formatActorUsd(sourceSupportQuery.data.spent_usd, true)} · 已预留 {formatActorUsd(sourceSupportQuery.data.reserved_usd, true)} · 剩余 {formatActorUsd(sourceSupportQuery.data.remaining_budget_usd, true)}</p>
                   {sourceRows.find((row) => row.source_id === selectedSourceId) && <SourceActorPreferenceControl
                     key={`${selectedSourceId}:${sourceRows.find((row) => row.source_id === selectedSourceId)?.generation}:${sourceRows.find((row) => row.source_id === selectedSourceId)?.actor_preference?.preferred_candidate_id || 'automatic'}`}
                     detail={detail}
                     source={sourceRows.find((row) => row.source_id === selectedSourceId) as ApifyActorSourceValidation}
                   />}
+                  <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源主备验证槽位">{sourceSupportQuery.data.slots.map((slot) => <li key={slot.slot} className="rounded-control border border-separator bg-default p-3"><p className="type-control">{slotDisplayLabels[slot.slot]}</p><p className="type-meta mt-1 text-muted">{slot.status === 'passed' ? '已通过' : ['queued', 'running'].includes(slot.status) ? '验证中' : slot.status === 'blocked' ? '需先升级主备' : slot.status === 'failed' ? '需要处理' : '待验证'} · {formatActorDateTime(slot.last_canary_at ?? null)}</p></li>)}</ol>
+                  <p className="type-meta text-muted">实际费用 {formatActorUsd(sourceSupportQuery.data.spent_usd, true)} · 已预留 {formatActorUsd(sourceSupportQuery.data.reserved_usd, true)} · 剩余 {formatActorUsd(sourceSupportQuery.data.remaining_budget_usd, true)}</p>
                   {(() => {
                     const nextAction = sourceSupportQuery.data.next_action
                     if (nextAction?.kind === 'upgrade_pool_required') return <HeroNotice title="先升级 Actor 主备" status="warning" role="alert"><p>当前兼容 Actor 没有固定 Build，无法安全验证这个来源；继续提交也不会成功。</p><p className="mt-1"><strong>影响：</strong>没有启动新的 Actor，现有抓取继续运行。</p><p className="mt-1"><strong>下一步：</strong>回到主备配置升级原 Actor，升级生效后再验证来源。</p><Button className="mt-3" size="sm" variant="secondary" onPress={() => replaceQuery('pool')}>前往主备配置</Button></HeroNotice>

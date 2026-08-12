@@ -641,6 +641,7 @@ def test_compatibility_cost_reconciliation_promotes_without_second_run(
         candidate_ids=[candidate_id],
         target_slot_count=1,
     )
+    assert plan["max_candidates"] == 1
     batch = ops.create_canary_batch(
         str(run["run_id"]),
         goal="compatibility_single",
