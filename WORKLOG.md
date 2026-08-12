@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "将新增来源重构为平台导向的 X 账号、Instagram 账号与 YouTube 频道；Web 隐藏 Apify、Actor 和 Route 实现字段，服务端自动路由并保持旧来源兼容。X 兼容池升级只扩大当前三 Actor 的免费召回到 30，保留跨 Run 安全 Revision，价格、Schema、输入、Manifest、发布者和 Canary 底线不变，三路不足时关闭失败。",
-  "status": "completed",
-  "task_id": "2026-08-11-platform-source-setup-x-recall",
-  "unresolved": [
-    "付费 Route Canary 与最终 3/3 原子切换仍需用户分别明确确认。"
-  ],
-  "validation": [
-    "后端定向回归 227/227、前端完整 Vitest 669/669 通过。",
-    "影响 preflight 13/13 通过（247.445 秒），mapping_miss=false。",
-    "完整 Test Gate 15/15 通过（247.778 秒），mapping_miss=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface",
@@ -417,6 +395,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Actor validation/freshness、Worker、ActorOps、resilience、通知和调度扩展定向回归全部通过，ResourceWarning 为 0。",
     "worker.py 由 1893 行降至 1705 行；新模块 262 行，全部新增函数不超过 78 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker Actor discovery 的幂等/重复刷新、AI 适配、元数据客户端和失败阶段终结拆入两个独立模块，保留现有测试入口、输出投影与错误码语义。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-actor-discovery",
+  "unresolved": [],
+  "validation": [
+    "Actor discovery、Worker、ActorOps、manifest、resilience、pool staging 和 import boundary 定向回归全部通过，ResourceWarning 为 0。",
+    "worker.py 由 1705 行降至 1370 行并移除 332 行 discovery 函数旧债；新模块 420/135 行，最大函数 75/36 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
