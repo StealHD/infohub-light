@@ -19,13 +19,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
-from typing import Any, TextIO
+from typing import Any
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.logging_utils import redact_log_text
+from scripts.test_gate_log import (
+    redact_gate_text as _redact,
+    sanitize_gate_log as _sanitize_log,
+    sensitive_values as _sensitive_values,
+    unclosed_sqlite_connection_warnings as _unclosed_sqlite_connection_warnings,
+)
 
 
 SNAPSHOT_VERSION = 1
@@ -356,6 +361,16 @@ def _spec(
     return CommandSpec(command_id, tuple(str(item) for item in argv), cwd, env, domain)
 
 
+def _code_size_spec(root: Path, scope: str) -> CommandSpec:
+    domain = {"policy": "control", "backend": "backend", "frontend": "frontend"}[scope]
+    return _spec(
+        f"code_size_{scope}",
+        [_python(root), "scripts/check_code_size.py", "--scope", scope],
+        root,
+        domain=domain,
+    )
+
+
 def _control_specs(
     root: Path,
     *,
@@ -369,6 +384,7 @@ def _control_specs(
             root,
             domain="control",
         ),
+        _code_size_spec(root, "policy"),
         _spec(
             "observability_contract",
             [python, "scripts/check_observability_contract.py"],
@@ -427,6 +443,7 @@ def _full_backend_specs(root: Path) -> list[CommandSpec]:
     python = _python(root)
     script = str(Path(__file__).resolve())
     return [
+        _code_size_spec(root, "backend"),
         _spec(
             "python_full",
             [
@@ -457,6 +474,7 @@ def _full_backend_specs(root: Path) -> list[CommandSpec]:
 def _full_frontend_specs(root: Path) -> list[CommandSpec]:
     frontend = root / "frontend"
     return [
+        _code_size_spec(root, "frontend"),
         _spec("frontend_contract", ["npm", "run", "check:ui"], frontend, domain="frontend"),
         _spec("frontend_lint", ["npm", "run", "lint"], frontend, domain="frontend"),
         _spec("frontend_typecheck", ["npm", "run", "typecheck"], frontend, domain="frontend"),
@@ -481,6 +499,8 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
     targets = set(plan.get("python_test_targets", []))
     for group in sorted(groups & python_groups):
         targets.update(mapping.get("group_tests", {}).get(group, []))
+    if groups & python_groups or targets:
+        specs.append(_code_size_spec(root, "backend"))
     if targets:
         specs.append(
             _spec(
@@ -508,6 +528,8 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
         specs.append(_spec("python_changed_syntax", [python, "-m", "py_compile", *changed_python], root))
 
     frontend = root / "frontend"
+    if groups & {"frontend_checks", "frontend_full", "frontend_related"}:
+        specs.append(_code_size_spec(root, "frontend"))
     if "frontend_checks" in groups:
         specs.extend(
             [
@@ -538,7 +560,7 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
     elif "frontend_related" in groups and related and not related_files_exist:
         specs.extend(_full_frontend_specs(root)[-5:])
     if "frontend_full" in groups:
-        specs.extend(_full_frontend_specs(root)[-5:])
+        specs.extend(_full_frontend_specs(root))
     return specs
 
 
@@ -634,56 +656,6 @@ def build_command_specs(
         for spec in deduplicated
         if spec.domain in allowed_domains
     ]
-
-
-def _sensitive_values(environment: dict[str, str]) -> list[str]:
-    return sorted(
-        {
-            value
-            for name, value in environment.items()
-            if value and len(value) >= 4 and any(marker in name.upper() for marker in SECRET_NAME_PARTS)
-        },
-        key=len,
-        reverse=True,
-    )
-
-
-def _redact(text: str, sensitive_values: list[str]) -> str:
-    for value in sensitive_values:
-        text = text.replace(value, "[REDACTED]")
-    text = re.sub(
-        r"(?i)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)\s*[:=]\s*[^\s,;]+",
-        r"\1=[REDACTED]",
-        text,
-    )
-    return redact_log_text(text)
-
-
-def _sanitize_log(
-    source: TextIO,
-    log_path: Path,
-    sensitive_values: list[str],
-) -> None:
-    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as target:
-        for line in source:
-            target.write(_redact(line, sensitive_values))
-    os.chmod(log_path, 0o600)
-
-
-_UNCLOSED_SQLITE_CONNECTION_WARNING = re.compile(
-    r"ResourceWarning:\s+unclosed (?:database in )?<sqlite3\.Connection object"
-)
-
-
-def _unclosed_sqlite_connection_warnings(log_path: Path) -> int:
-    count = 0
-    with log_path.open("r", encoding="utf-8", errors="replace") as handle:
-        for index, line in enumerate(handle):
-            if index == 0 and line.startswith("$ "):
-                continue
-            count += len(_UNCLOSED_SQLITE_CONNECTION_WARNING.findall(line))
-    return count
 
 
 def _failure_details(

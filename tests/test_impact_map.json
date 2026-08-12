@@ -17,6 +17,12 @@
     "project-controls.json",
     "project-defaults.yaml",
     "pyproject.toml",
+    "scripts/check_code_size.py",
+    "scripts/code_size_policy.py",
+    "scripts/code_size_ts_ast.mjs",
+    "scripts/test_gate_log.py",
+    "tests/code_size_policy.json",
+    "tests/test_code_size.py",
     "tests/conftest.py",
     "tests/test_impact_map.json",
     "uv.lock"
