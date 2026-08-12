@@ -297,7 +297,7 @@
       {
         "path": "src/services/worker.py",
         "category": "production",
-        "max_lines": 1893
+        "max_lines": 1705
       },
       {
         "path": "src/storage/service_store.py",

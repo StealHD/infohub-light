@@ -108,6 +108,7 @@
         "src/services/apify_actor_ops.py",
         "src/services/apify_actor_resilience.py",
         "src/services/apify_actor_freshness.py",
+        "src/services/worker_actor_validation_handler.py",
         "tests/test_apify_actor_compatibility_v21.py",
         "tests/test_apify_actor_resilience_v21.py"
       ],
@@ -210,6 +211,7 @@
         "src/services/usage_attempt_meter.py",
         "src/services/worker.py",
         "src/services/worker_actor_cycle.py",
+        "src/services/worker_actor_validation_handler.py",
         "src/services/worker_cycle.py",
         "src/services/worker_finalization.py",
         "src/services/worker_feed_handler.py",

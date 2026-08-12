@@ -38,6 +38,13 @@ from .worker_actor_cycle import (
     promote_due_actor_revisions as _promote_due_actor_revisions_impl,
     reconcile_and_enqueue_actor_discoveries as _reconcile_actor_discoveries_impl,
 )
+from .worker_actor_validation_handler import (
+    WorkerActorValidationPorts,
+    actor_freshness_check_id as _actor_freshness_check_id,
+    actor_validation_id as _actor_validation_id,
+    run_actor_freshness_check,
+    run_actor_validation,
+)
 from .worker_cycle import (
     PreparedWorkerCycle,
     StoppedWorkerCycle,
@@ -404,16 +411,6 @@ def _cache_run_source_avatars(
         )
 
 
-def _actor_validation_id(job: dict[str, Any]) -> str | None:
-    if str(job.get("job_type") or "") != "apify_actor_validation":
-        return None
-    payload = job.get("payload_json")
-    if not isinstance(payload, dict) or set(payload) != {"validation_id"}:
-        return None
-    validation_id = str(payload.get("validation_id") or "").strip()
-    return validation_id or None
-
-
 def _actor_canary_batch_id(job: dict[str, Any]) -> str | None:
     if str(job.get("job_type") or "") != "apify_actor_canary_batch":
         return None
@@ -422,16 +419,6 @@ def _actor_canary_batch_id(job: dict[str, Any]) -> str | None:
         return None
     batch_id = str(payload.get("batch_id") or "").strip()
     return batch_id or None
-
-
-def _actor_freshness_check_id(job: dict[str, Any]) -> str | None:
-    if str(job.get("job_type") or "") != "apify_actor_freshness_check":
-        return None
-    payload = job.get("payload_json")
-    if not isinstance(payload, dict) or set(payload) != {"check_id"}:
-        return None
-    check_id = str(payload.get("check_id") or "").strip()
-    return check_id or None
 
 
 def _terminalize_unstarted_actor_validation(
@@ -650,96 +637,28 @@ class _LeaseHeartbeat:
             self.store.close()
 
 
+def _actor_validation_ports() -> WorkerActorValidationPorts:
+    return WorkerActorValidationPorts(
+        apify_coordinator=apify_coordinator_for_workspace,
+        exception_code=_exception_code,
+        safe_machine_code=_safe_machine_code,
+    )
+
+
 def _run_apify_actor_validation(
     job: dict[str, Any],
     *,
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    import asyncio
+    """Compatibility façade for Worker tests and operational overrides."""
 
-    from ..scrapers.apify_client import ApifyClient
-    from .apify_actor_canary import (
-        ApifyActorCanaryRunner,
-        actor_canary_timeout_seconds,
-    )
-    from .apify_actor_ops import ApifyActorOpsService
-
-    validation_id = _actor_validation_id(job)
-    if (
-        not validation_id
-        or int(job.get("max_attempts") or 0) != 1
-        or int(job.get("priority") or 0) != 100
-    ):
-        raise PaidCanaryAuthorizationError(
-            "Actor validation job authorization metadata is invalid"
-        )
-    actor = store.get_user(str(job["user_id"]))
-    if (
-        actor is None
-        or not bool(actor.get("enabled"))
-        or actor.get("role") not in {"owner", "admin"}
-    ):
-        raise PaidCanaryAuthorizationError(
-            "Actor validation requires an active administrator"
-        )
-    coordinator = apify_coordinator_for_workspace(
-        store,
-        workspace_id=str(job["workspace_id"]),
+    return run_actor_validation(
+        job,
         data_dir=data_dir,
-        purpose="validation",
+        store=store,
+        ports=_actor_validation_ports(),
     )
-    if coordinator is None:
-        raise PaidCanaryUnavailableError(
-            "Actor validation requires the enabled Apify Key pool"
-        )
-    pool_state = coordinator.public_state(str(job["workspace_id"]))
-    validation_secret_id = str(
-        pool_state.get("validation_secret_id")
-        or pool_state.get("active_secret_id")
-        or ""
-    )
-    if not validation_secret_id:
-        raise PaidCanaryUnavailableError(
-            "Actor validation requires an active Apify credential"
-        )
-    metadata_credential = coordinator.quota_candidate(validation_secret_id)
-
-    async def execute() -> dict[str, Any]:
-        timeout = httpx.Timeout(30.0, connect=10.0)
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            trust_env=False,
-        ) as http_client:
-            client = ApifyClient(
-                tokens=[
-                    (
-                        metadata_credential.env_name,
-                        metadata_credential.token,
-                    )
-                ],
-                coordinator=coordinator,
-                http_client=http_client,
-                timeout_seconds=actor_canary_timeout_seconds(),
-            )
-            result = await ApifyActorCanaryRunner(
-                store,
-                ApifyActorOpsService(
-                    store,
-                    workspace_id=str(job["workspace_id"]),
-                ),
-                client,
-            ).run(
-                validation_id,
-                job_id=str(job["id"]),
-            )
-            return {
-                "ok": True,
-                "job_type": "apify_actor_validation",
-                **result.public_dict(),
-            }
-
-    return asyncio.run(execute())
 
 
 def _run_apify_actor_canary_batch(
@@ -1170,121 +1089,14 @@ def _run_apify_actor_freshness_check(
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    """Execute one manual or standing-authorized freshness round."""
+    """Compatibility façade for Worker tests and operational overrides."""
 
-    import asyncio
-
-    from ..scrapers.apify_client import ApifyClient
-    from .apify_actor_canary import actor_canary_timeout_seconds
-    from .apify_actor_freshness import ApifyActorFreshnessRunner
-    from .apify_actor_ops import ApifyActorOpsService
-    from .apify_actor_resilience import ApifyActorResilienceService
-
-    check_id = _actor_freshness_check_id(job)
-    resilience = ApifyActorResilienceService(
-        store,
-        workspace_id=str(job["workspace_id"]),
-    )
-    if (
-        not check_id
-        or int(job.get("max_attempts") or 0) != 1
-        or int(job.get("priority") or 0) != 100
-    ):
-        if check_id:
-            resilience.fail_freshness_check(
-                check_id,
-                reason_code="freshness_job_authorization_invalid",
-            )
-        raise PaidCanaryAuthorizationError(
-            "Actor freshness Job authorization metadata is invalid"
-        )
-    actor = store.get_user(str(job["user_id"]))
-    if (
-        actor is None
-        or not bool(actor.get("enabled"))
-        or actor.get("role") not in {"owner", "admin"}
-    ):
-        resilience.fail_freshness_check(
-            check_id,
-            reason_code="freshness_actor_unauthorized",
-        )
-        raise PaidCanaryAuthorizationError(
-            "Actor freshness check requires an active administrator"
-        )
-    coordinator = apify_coordinator_for_workspace(
-        store,
-        workspace_id=str(job["workspace_id"]),
+    return run_actor_freshness_check(
+        job,
         data_dir=data_dir,
-        purpose="validation",
-        require_validation_key=True,
+        store=store,
+        ports=_actor_validation_ports(),
     )
-    if coordinator is None:
-        resilience.fail_freshness_check(
-            check_id,
-            reason_code="validation_key_unavailable",
-        )
-        raise PaidCanaryUnavailableError(
-            "Actor freshness check requires the dedicated validation Key"
-        )
-    pool_state = coordinator.public_state(str(job["workspace_id"]))
-    validation_secret_id = str(pool_state.get("validation_secret_id") or "")
-    if not validation_secret_id:
-        resilience.fail_freshness_check(
-            check_id,
-            reason_code="validation_key_unavailable",
-        )
-        raise PaidCanaryUnavailableError(
-            "Actor freshness check requires the dedicated validation Key"
-        )
-    try:
-        credential = coordinator.quota_candidate(validation_secret_id)
-    except Exception:
-        resilience.fail_freshness_check(
-            check_id,
-            reason_code="validation_key_unavailable",
-        )
-        raise
-
-    async def execute() -> dict[str, Any]:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=10.0),
-            trust_env=False,
-        ) as http_client:
-            client = ApifyClient(
-                tokens=[(credential.env_name, credential.token)],
-                coordinator=coordinator,
-                http_client=http_client,
-                timeout_seconds=actor_canary_timeout_seconds(),
-            )
-            runner = ApifyActorFreshnessRunner(
-                store,
-                ApifyActorOpsService(
-                    store,
-                    workspace_id=str(job["workspace_id"]),
-                ),
-                client,
-            )
-            try:
-                result = await runner.run(check_id, job_id=str(job["id"]))
-            except Exception as exc:
-                runner.resilience.fail_freshness_check(
-                    check_id,
-                    reason_code=_safe_machine_code(
-                        _exception_code(exc),
-                        "freshness_job_failed",
-                    ).casefold(),
-                )
-                raise
-            return {
-                "ok": str(result["status"]) in {"succeeded", "partial"},
-                "job_type": "apify_actor_freshness_check",
-                "check_id": check_id,
-                "status": str(result["status"]),
-                "actual_cost_usd": result.get("actual_cost_usd"),
-                "cost_final": bool(result.get("cost_final")),
-            }
-
-    return asyncio.run(execute())
 
 
 def _run_apify_actor_discovery(

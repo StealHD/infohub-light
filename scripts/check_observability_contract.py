@@ -34,6 +34,7 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
     "src/services/worker_actor_cycle.py",
+    "src/services/worker_actor_validation_handler.py",
     "src/services/worker_cycle.py",
     "src/services/worker_finalization.py",
     "src/services/worker_feed_handler.py",
@@ -401,6 +402,7 @@ def check_repository(root: Path) -> list[Violation]:
     for relative in (
         "src/services/worker.py",
         "src/services/worker_actor_cycle.py",
+        "src/services/worker_actor_validation_handler.py",
         "src/services/worker_cycle.py",
         "src/services/worker_finalization.py",
         "src/services/worker_feed_handler.py",

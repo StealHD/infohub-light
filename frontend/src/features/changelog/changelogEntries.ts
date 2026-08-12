@@ -1,4 +1,4 @@
-// Reviewed after the API adapter and Worker cycle/finalization/handler splits; user-facing behavior is unchanged.
+// Reviewed after the API adapter and Worker cycle/finalization/Actor handler splits; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string
