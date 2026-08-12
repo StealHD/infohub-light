@@ -149,3 +149,6 @@
 | D143 | ActorOps legacy 默认升级原 Actor 且来源验证在审批前阻断不安全 Revision | 2026-08-10 | [查看](records/D126-D150.md#d143) |
 | D144 | React、FastAPI、Worker 与 Remote MCP 成为唯一运行面 | 2026-08-11 | [查看](records/D126-D150.md#d144) |
 | D145 | 提交与发布采用主动审查和前移 preflight | 2026-08-11 | [查看](records/D126-D150.md#d145) |
+| D146 | 一次性 MCP 令牌采用可复制的本地写入命令 | 2026-08-11 | [查看](records/D126-D150.md#d146) |
+| D147 | 新增来源采用平台别名，legacy X 只扩大当前三 Actor 召回 | 2026-08-11 | [查看](records/D126-D150.md#d147) |
+| D148 | ActorOps 采用显式单路兼容、新鲜度水位与专用校验面 | 2026-08-12 | [查看](records/D126-D150.md#d148) |
