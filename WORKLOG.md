@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "ActorOps 免费候选搜索改为有界进度与明确终态：提交后自动刷新并锁定重复操作，YouTube 可选第三路不足时说明现有 Atom Feed/fallback 不受影响；目标身份不匹配改为人类可读原因与恢复建议。",
-  "status": "completed",
-  "task_id": "2026-08-12-actorops-search-terminal-ui",
-  "unresolved": [
-    "8080 重建与真实浏览器验收将在完整门禁和任务提交后执行。"
-  ],
-  "validation": [
-    "前端 ActorOps 定向 Vitest 66/66、TypeScript 类型检查与 ESLint 通过（仅仓库既有 Fast Refresh 警告）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -409,6 +391,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Canary、pool staging、compatibility、Worker、ActorOps、通知和调度扩展定向回归全部通过，ResourceWarning 为 0。",
     "worker.py 由 1370 行降至 992 行并移除 Canary 389/298 行函数旧债；新模块 540 行，最大函数 52 行。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Worker lease heartbeat、终态/取消、retry、媒体与来源头像 savepoint/cleanup 拆入独立 lifecycle 和 media publication 模块，使 Worker façade 达到项目硬上限。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-worker-lifecycle",
+  "unresolved": [],
+  "validation": [
+    "Worker、lease、Feed/outbox、Actor validation/Canary、media/avatar、Source Health、通知与调度扩展定向回归全部通过，ResourceWarning 为 0。",
+    "worker.py 由 992 行降至 676 行并移除文件旧债，run_worker_once 为 154 行；新模块 357/148 行，最大函数 68/48 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
