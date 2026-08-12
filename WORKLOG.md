@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "修复 v2.2.14 发布 E2E：补齐 Linux 视觉基线和 ActorOps 安全候选 fixture，修正信息流新内容按钮层级与阅读锚点断言，并提高 Agent 抽屉中性状态的深色对比度。",
-  "status": "completed",
-  "task_id": "2026-08-11-release-e2e-stabilization",
-  "unresolved": [],
-  "validation": [
-    "完整发布 E2E 162/162 通过。",
-    "最终完整 Test Gate 24/24 命令通过（270.09 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "decisions",
     "interface",
@@ -415,6 +397,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "完整 141 条路由清单 SHA、规范化 OpenAPI SHA、4 条成员路由顺序与 handler 名均与基线一致。",
     "成员与权限定向测试 63 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
     "server.py 从 9182 行降至 9043 行，create_app 从 7961 行降至 7844 行；新 router 175 行且所有 callable 小于 80 行。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "b1a7948dab62527c68f712f3ca570cabbf72198b",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "observability"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成代码健康第五个 API 切片：将 Feed 读取、历史/搜索、收藏/忽略、item-state、dashboard/runtime 与受保护媒体端点抽取到独立 typed router，保持跨用户可见性、Feed wire、媒体路径授权和兼容路由顺序不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-feed-read-router-slice",
+  "unresolved": [
+    "父级代码健康 Goal 仍包含其余 API 路由、前端 ActorOps、Worker、ServiceStore、后端 ActorOps、Workbench/OpenClaw 与依赖环的分期重构。",
+    "本切片不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
+  ],
+  "validation": [
+    "完整 141 条路由清单 SHA、规范化 OpenAPI SHA 与 13 条相关路由顺序/handler 名均与基线一致；启动时序问题在提交前发现并修复。",
+    "Feed、媒体、item-state、权限、API 与多用户定向测试 177 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
+    "server.py 从 9043 行降至 8770 行，create_app 从 7844 行降至 7572 行；新 router 370 行，满足项目 400 行目标线。"
   ]
 }
 ```
