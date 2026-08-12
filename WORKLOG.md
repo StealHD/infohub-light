@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "将 codex/actorops-guided-flow-20260809 合入本地 main；保留既有登录、专题、成员更新，并将 ActorOps 决策登记为 D140–D143，避免决策编号冲突。",
-  "status": "completed",
-  "task_id": "2026-08-11-merge-actorops-guided-flow-main",
-  "unresolved": [],
-  "validation": [
-    "合并后完整 Test Gate 24/24 命令通过（265.70 秒）。",
-    "已执行 diff --check；冲突仅涉及决策索引、更新记录和 Changelog 测试，均保留两侧内容。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-11",
@@ -402,6 +383,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "完整路由清单、9 个 Jobs 路由顺序、规范化 OpenAPI SHA 与 app.state keys 均与基线一致；只读审查无高置信缺陷。",
     "staged 与精确提交 preflight 均为 16/16，完整 Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
     "release Playwright 三视口 107 passed、55 configured skipped、0 failed；首屏 JavaScript Brotli 为 235466 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "95fac73fd41c894939ad54a11209f8000c4d5395",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "observability"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成代码健康第三个低风险 API 切片：将当前用户的 5 个 Agent delegation HTTP 端点与请求模型抽取到独立 typed router，保持路由、OpenAPI、权限、一次性令牌、吊销和跨用户隔离语义不变，并同步收紧代码规模旧债。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-agent-delegation-router-slice",
+  "unresolved": [
+    "父级代码健康 Goal 仍包含剩余 API 路由、前端 ActorOps、Worker、ServiceStore、后端 ActorOps、Workbench/OpenClaw 与依赖环的分期重构。",
+    "本切片不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
+  ],
+  "validation": [
+    "完整 141 条路由清单 SHA、规范化 OpenAPI SHA、5 条 delegation 路由顺序、handler 名和 201 状态均与基线一致。",
+    "权限、令牌生命周期、operation log、lifespan、import boundary、observability 与规模定向测试 73 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0。",
+    "server.py 从 9326 行降至 9182 行，create_app 从 8073 行降至 7961 行；新 router 199 行且最长 handler 小于 80 行。"
   ]
 }
 ```
