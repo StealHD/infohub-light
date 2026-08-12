@@ -148,11 +148,6 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       last_test_error_code: null,
       updated_at: '2026-07-24T00:00:00Z',
     }),
-    notificationTargets: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      targets: [],
-      webhook_provider_options: webhookProviderOptions(),
-    }),
     notificationServices: vi.fn().mockResolvedValue({
       schema_version: 1,
       services: [],
@@ -1964,11 +1959,6 @@ describe('App routes', () => {
       last_test_error_code: null,
       updated_at: '2026-07-30T00:00:00Z',
     })
-    const notificationTargets = vi.fn().mockResolvedValue({
-      schema_version: 1,
-      targets: [],
-      webhook_provider_options: webhookProviderOptions(),
-    })
     const notificationServices = vi.fn().mockResolvedValue({
       schema_version: 1,
       services: [],
@@ -1995,7 +1985,6 @@ describe('App routes', () => {
       secrets,
       ignoredFeed,
       notificationSettings,
-      notificationTargets,
       notificationServices,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
       apifyActorRoutes: vi.fn(),
@@ -2022,7 +2011,6 @@ describe('App routes', () => {
     await browser.click(screen.getByRole('link', { name: '通知' }))
     await waitFor(() => {
       expect(notificationSettings).toHaveBeenCalledOnce()
-      expect(notificationTargets).not.toHaveBeenCalled()
       expect(notificationServices).toHaveBeenCalledOnce()
     })
     expect(config).not.toHaveBeenCalled()
@@ -2152,11 +2140,6 @@ describe('App routes', () => {
       last_test_error_code: null,
       updated_at: null,
     })
-    const notificationTargets = vi.fn().mockResolvedValue({
-      schema_version: 1,
-      targets: [],
-      webhook_provider_options: webhookProviderOptions(),
-    })
     const notificationServices = vi.fn().mockResolvedValue({
       schema_version: 1,
       services: [],
@@ -2193,7 +2176,6 @@ describe('App routes', () => {
       secrets,
       ignoredFeed,
       notificationSettings,
-      notificationTargets,
       notificationServices,
       storageSummary,
       storageArchives,
@@ -2213,7 +2195,6 @@ describe('App routes', () => {
     expect(config).toHaveBeenCalledOnce()
     expect(secrets).toHaveBeenCalledOnce()
     expect(notificationSettings).not.toHaveBeenCalled()
-    expect(notificationTargets).not.toHaveBeenCalled()
     expect(notificationServices).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
     expect(storageSummary).not.toHaveBeenCalled()
@@ -3215,11 +3196,10 @@ describe('App routes', () => {
     expect(secrets).not.toHaveBeenCalled()
   })
 
-  it('omits source usage lookup and confirms management transfer before sharing', async () => {
+  it('confirms management transfer before sharing a private source', async () => {
     const browser = userEvent.setup()
     const source = { id: 'private-share-source', type: 'rss', display_name: '私人研究源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const subscription = { id: 'private-share-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
-    const sourceUsage = vi.fn().mockResolvedValue({ source_id: source.id, subscriber_count: 3, enabled_subscriber_count: 2 })
     const shareSource = vi.fn().mockResolvedValue({
       source: { ...source, scope: 'public', owner_user_id: null },
       notice: '管理权已交给工作区管理员。',
@@ -3230,14 +3210,12 @@ describe('App routes', () => {
       sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
       config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
-      sourceUsage,
       shareSource,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(screen.queryByRole('button', { name: '查看 私人研究源 引用人数' })).not.toBeInTheDocument()
-    expect(sourceUsage).not.toHaveBeenCalled()
     await browser.click(await screen.findByRole('button', { name: '分享来源：私人研究源' }))
     const shareDialog = await screen.findByRole('dialog', { name: '分享 私人研究源' })
     expect(within(shareDialog).getByText('分享后管理权将发生变化')).toBeInTheDocument()

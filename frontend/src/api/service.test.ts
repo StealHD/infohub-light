@@ -39,17 +39,7 @@ describe('service api', () => {
     await api.updateSourceSchedule('sub/1', { enabled: true, interval_minutes: 30 })
     await api.notificationSettings()
     await api.updateNotificationSettings({ enabled: true, channels: ['email', 'webhook', 'telegram'], webhook_url: 'write-only' })
-    await api.testNotificationSettings('telegram')
-    await api.testNotificationSettings()
-    await api.notificationTargets()
-    await api.createNotificationTarget({
-      name: '值班群',
-      scope: 'shared',
-      channel: 'telegram',
-      telegram_chat_id: '@on_call',
-    })
     await api.updateNotificationTarget('target/1', { name: '主值班群', enabled: true })
-    await api.testNotificationTarget('target/1')
     await api.archiveNotificationTarget('target/1')
     await api.notificationServices()
     await api.createNotificationService({
@@ -68,8 +58,6 @@ describe('service api', () => {
       events: ['actor_switched', 'recovered'],
       webhook_url: 'write-only-actor-webhook',
     })
-    await api.testApifyActorAlertSettings('webhook')
-    await api.testApifyActorAlertSettings()
     await api.apifyActorAlertIncidents()
     await api.unsubscribe('sub/1')
     await api.sources(true)
@@ -115,20 +103,10 @@ describe('service api', () => {
       channels: ['email', 'webhook', 'telegram'],
       webhook_url: 'write-only',
     })
-    expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test', { channel: 'telegram' })
-    expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test', undefined)
-    expect(client.get).toHaveBeenCalledWith('/api/notification-targets', undefined)
-    expect(client.post).toHaveBeenCalledWith('/api/notification-targets', {
-      name: '值班群',
-      scope: 'shared',
-      channel: 'telegram',
-      telegram_chat_id: '@on_call',
-    })
     expect(client.patch).toHaveBeenCalledWith('/api/notification-targets/target%2F1', {
       name: '主值班群',
       enabled: true,
     })
-    expect(client.post).toHaveBeenCalledWith('/api/notification-targets/target%2F1/test')
     expect(client.delete).toHaveBeenCalledWith('/api/notification-targets/target%2F1')
     expect(client.get).toHaveBeenCalledWith('/api/notification-services', undefined)
     expect(client.post).toHaveBeenCalledWith('/api/admin/notification-services', {
@@ -151,8 +129,6 @@ describe('service api', () => {
       events: ['actor_switched', 'recovered'],
       webhook_url: 'write-only-actor-webhook',
     })
-    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings/test', { channel: 'webhook' })
-    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings/test', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-alert-incidents?limit=20', undefined)
     expect(client.delete).toHaveBeenCalledWith('/api/me/subscriptions/sub%2F1')
     expect(client.get).toHaveBeenCalledWith('/api/catalog/sources?include_disabled=true', undefined)

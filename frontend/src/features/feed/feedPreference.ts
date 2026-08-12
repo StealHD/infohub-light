@@ -35,7 +35,6 @@ const defaultPreference: FeedPreference = {
   dateScope: 'all',
   subscriptionScope: 'all',
 }
-const legacyDefaultPreference: LegacyFeedPreference = { mode: 'featured', unreadFirst: false }
 const storageKey = (userId: string) => `inteliscope.ui.feed.v2:${userId}`
 const legacyStorageKey = (userId: string) => `inteliscope.ui.feed.v1:${userId}`
 
@@ -72,20 +71,4 @@ export function readFeedPreference(userId: string): FeedPreference {
 export function writeFeedPreference(userId: string, value: FeedPreference): void {
   window.localStorage.setItem(storageKey(userId), JSON.stringify(sanitizePreference(value)))
   window.dispatchEvent(new CustomEvent(FEED_PREFERENCE_CHANGED_EVENT, { detail: { userId } }))
-}
-
-export function readLegacyFeedPreference(userId: string): LegacyFeedPreference {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(legacyStorageKey(userId)) || 'null') as Partial<LegacyFeedPreference> | null
-    const mode = value?.mode === 'all' || value?.mode === 'daily' || value?.mode === 'featured'
-      ? value.mode
-      : legacyDefaultPreference.mode
-    return { mode, unreadFirst: value?.unreadFirst === true }
-  } catch {
-    return { ...legacyDefaultPreference }
-  }
-}
-
-export function writeLegacyFeedPreference(userId: string, value: LegacyFeedPreference): void {
-  window.localStorage.setItem(legacyStorageKey(userId), JSON.stringify(value))
 }

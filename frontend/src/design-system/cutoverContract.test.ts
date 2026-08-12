@@ -36,6 +36,35 @@ describe('final HeroUI cutover contract', () => {
     expect(packages.filter((name) => name.startsWith('@mui/') || name.startsWith('@emotion/'))).toEqual([])
   })
 
+  it('keeps retired Python, MUI React and preview UI paths out of tracked files', () => {
+    const repositoryRoot = resolve(frontendRoot, '..')
+    const result = spawnSync('git', ['ls-files'], { cwd: repositoryRoot, encoding: 'utf8' })
+    const retiredPythonUiFiles = new Set([
+      'src/ui/__init__.py',
+      'src/ui/auth.py',
+      'src/ui/media_cache.py',
+      'src/ui/server.py',
+      'src/ui/site.py',
+    ])
+    const retiredPreviewSpecs = new Set([
+      'frontend/e2e/layout.spec.ts',
+      'frontend/e2e/main-flow.spec.ts',
+      'frontend/e2e/workbench-preview.spec.ts',
+    ])
+    const forbidden = result.stdout.split('\n').filter((path) => (
+      path === 'horizon-web'
+      || path.startsWith('horizon-web/')
+      || path.startsWith('src/ui/static/')
+      || retiredPythonUiFiles.has(path)
+      || path.startsWith('frontend/src/ui/')
+      || path.startsWith('frontend/src/features/workbench/')
+      || retiredPreviewSpecs.has(path)
+    ))
+
+    expect(result.status).toBe(0)
+    expect(forbidden).toEqual([])
+  })
+
   it('keeps only the fixed-data HeroUI preview route in the Vite entry', () => {
     const main = readFileSync(resolve(frontendRoot, 'src/main.tsx'), 'utf8')
     const app = readFileSync(resolve(frontendRoot, 'src/app/App.tsx'), 'utf8')

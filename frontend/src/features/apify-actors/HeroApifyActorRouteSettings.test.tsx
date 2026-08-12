@@ -570,7 +570,6 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     measureApifyActorDiscovery: vi.fn(),
     apifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     updateApifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
-    testApifyActorAlertSettings: vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' }),
     notificationServices: vi.fn().mockResolvedValue({
       schema_version: 1,
       services: [{ ...sharedTarget(), legacy_private: false, can_validate: true }],
@@ -1253,7 +1252,7 @@ describe('current ActorOps settings panels', () => {
       target_ids: [selected.id],
       selected_targets: [selected],
     }))
-    const { api } = renderFeature({
+    renderFeature({
       notificationServices: vi.fn().mockResolvedValue({
         schema_version: 1,
         services: [{ ...selected, legacy_private: false, can_validate: true }],
@@ -1287,7 +1286,6 @@ describe('current ActorOps settings panels', () => {
       target_ids: [selected.id],
       events: alertSettings().events,
     }))
-    expect(api.testApifyActorAlertSettings).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
   })
 

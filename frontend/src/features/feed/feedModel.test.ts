@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FeedItem, SourceHealthItem } from '../../api/types'
-import { filterFeedItems, isFeedItemToday, resolveItemHealth, safeExternalUrl, selectModeItems, sortWorkbenchItems } from './feedModel'
+import type { FeedItem } from '../../api/types'
+import { filterFeedItems, isFeedItemToday, safeExternalUrl, sortWorkbenchItems } from './feedModel'
 
 const item = (overrides: Partial<FeedItem> = {}): FeedItem => ({
   id: 'article-1',
@@ -19,27 +19,16 @@ const item = (overrides: Partial<FeedItem> = {}): FeedItem => ({
 })
 
 describe('feed model', () => {
-  it('selects featured, all and daily collections without inventing items', () => {
-    const all = [item({ id: 'all' })]
-    const featured = [item({ id: 'featured' })]
-    const daily = [item({ id: 'daily' })]
-    const snapshot = { schema_version: 2, items: all, featured_items: featured, daily_push_items: daily }
-
-    expect(selectModeItems(snapshot, 'all')).toEqual(all)
-    expect(selectModeItems(snapshot, 'featured')).toEqual(featured)
-    expect(selectModeItems(snapshot, 'daily')).toEqual(daily)
-  })
-
   it('orders all Feed items from older to newer while keeping invalid timestamps stable', () => {
     const invalidFirst = item({ id: 'invalid-first', published_at: 'unknown' })
     const newer = item({ id: 'newer', published_at: '2026-07-13T10:00:00Z' })
     const older = item({ id: 'older', published_at: '2026-07-13T08:00:00Z' })
     const invalidSecond = item({ id: 'invalid-second', published_at: '' })
 
-    expect(selectModeItems({
-      schema_version: 2,
-      items: [invalidFirst, newer, older, invalidSecond],
-    }, 'all').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
+    expect(sortWorkbenchItems(
+      [invalidFirst, newer, older, invalidSecond],
+      'oldest',
+    ).map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
   })
 
   it('supports a stable newest-first view while keeping invalid timestamps at the trailing edge', () => {
@@ -217,15 +206,6 @@ describe('feed model', () => {
       unreadFirst: false,
       sourceId: 'legacy-source',
     })).toEqual([legacy])
-  })
-
-  it('uses the most concerning source health across duplicate provenance', () => {
-    const health: SourceHealthItem[] = [
-      { subscription_id: 'sub-a', source_id: 'source-a', status: 'healthy', consecutive_failures: 0 },
-      { subscription_id: 'sub-b', source_id: 'source-b', status: 'failing', consecutive_failures: 3 },
-    ]
-
-    expect(resolveItemHealth(item({ subscription_ids: ['sub-a', 'sub-b'] }), health)?.status).toBe('failing')
   })
 
   it('rejects script, credential and non-http external URLs', () => {

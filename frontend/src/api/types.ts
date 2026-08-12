@@ -92,12 +92,6 @@ export type NotificationTarget = {
   webhook_verification_mode?: 'http_status' | 'provider_response'
 }
 
-export type NotificationTargets = {
-  schema_version: 1
-  targets: NotificationTarget[]
-  webhook_provider_options: WebhookProviderOption[]
-}
-
 export type NotificationService = NotificationTarget & {
   legacy_private: boolean
   can_validate: boolean
@@ -685,12 +679,6 @@ export type SubscriptionPatch = Partial<Pick<Subscription,
   'enabled' | 'override_channel' | 'override_topics' | 'personal_tags' | 'analysis_mode' | 'priority' | 'notify_on_new_items'
 >> & {
   on_disable?: SubscriptionDisableDisposition
-}
-
-export type SourceUsage = {
-  source_id: string
-  subscriber_count: number
-  enabled_subscriber_count: number
 }
 
 export type SourceShareResult = {

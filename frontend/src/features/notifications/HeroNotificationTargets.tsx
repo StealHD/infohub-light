@@ -246,9 +246,6 @@ export function HeroNotificationTargets({
         queryKey: queryKeys.notificationServices(user.id),
       }),
       queryClient.invalidateQueries({
-        queryKey: queryKeys.notificationTargets(user.id),
-      }),
-      queryClient.invalidateQueries({
         queryKey: queryKeys.notificationSettings(user.id),
       }),
       queryClient.invalidateQueries({

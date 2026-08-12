@@ -77,7 +77,7 @@
       {
         "path": "frontend/e2e/production-admin.spec.ts",
         "category": "test",
-        "max_lines": 2421
+        "max_lines": 2407
       },
       {
         "path": "frontend/e2e/production-workbench.spec.ts",
@@ -87,12 +87,12 @@
       {
         "path": "frontend/src/api/types.ts",
         "category": "production",
-        "max_lines": 1749
+        "max_lines": 1737
       },
       {
         "path": "frontend/src/app/App.test.tsx",
         "category": "test",
-        "max_lines": 4297
+        "max_lines": 4275
       },
       {
         "path": "frontend/src/features/admin-heroui/HeroSubscriptionsPage.tsx",
@@ -112,7 +112,7 @@
       {
         "path": "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.test.tsx",
         "category": "test",
-        "max_lines": 1346
+        "max_lines": 1344
       },
       {
         "path": "frontend/src/features/changelog/changelogEntries.ts",
@@ -122,7 +122,7 @@
       {
         "path": "frontend/src/features/notifications/HeroNotificationTargets.tsx",
         "category": "production",
-        "max_lines": 855
+        "max_lines": 852
       },
       {
         "path": "frontend/src/features/openclaw/OpenClawConversation.tsx",
@@ -147,7 +147,7 @@
       {
         "path": "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
         "category": "production",
-        "max_lines": 1601
+        "max_lines": 1592
       },
       {
         "path": "frontend/src/features/workbench-live/VirtualFeed.tsx",
@@ -400,13 +400,13 @@
         "path": "frontend/e2e/production-admin.spec.ts",
         "symbol": "mockAdminApi",
         "category": "test",
-        "max_lines": 951
+        "max_lines": 938
       },
       {
         "path": "frontend/e2e/production-admin.spec.ts",
         "symbol": "mockAdminApi.route:callback#4",
         "category": "test",
-        "max_lines": 560
+        "max_lines": 547
       },
       {
         "path": "frontend/e2e/production-admin.spec.ts",
@@ -430,7 +430,7 @@
         "path": "frontend/src/api/service.ts",
         "symbol": "createServiceApi",
         "category": "production",
-        "max_lines": 405
+        "max_lines": 385
       },
       {
         "path": "frontend/src/features/admin-heroui/HeroAgentsPage.tsx",
@@ -496,7 +496,7 @@
         "path": "frontend/src/features/notifications/HeroNotificationTargets.tsx",
         "symbol": "HeroNotificationTargets",
         "category": "production",
-        "max_lines": 605
+        "max_lines": 602
       },
       {
         "path": "frontend/src/features/openclaw/OpenClawConversation.tsx",

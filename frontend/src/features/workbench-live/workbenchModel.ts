@@ -306,10 +306,3 @@ export function cleanLegacyModeSearch(search: string): string {
   const value = params.toString()
   return value ? `?${value}` : ''
 }
-
-export function sampleTickIndexes(itemCount: number, limit = 12): number[] {
-  if (itemCount <= 0 || limit <= 0) return []
-  const count = Math.min(itemCount, limit)
-  if (count === 1) return [0]
-  return Array.from({ length: count }, (_, index) => Math.round(index * (itemCount - 1) / (count - 1)))
-}

@@ -37,7 +37,6 @@ export const queryKeys = {
   feedItem: (userId: string, articleId: string) => [...userKey(userId), 'feed-item', articleId] as const,
   subscriptions: (userId: string) => [...userKey(userId), 'subscriptions'] as const,
   sources: (userId: string) => [...userKey(userId), 'sources'] as const,
-  sourceUsage: (userId: string, sourceId: string) => [...userKey(userId), 'source-usage', sourceId] as const,
   sourceTypes: (userId: string) => [...userKey(userId), 'source-types'] as const,
   sourceCapabilities: (userId: string) => [
     ...userKey(userId), 'source-capabilities',
@@ -48,7 +47,6 @@ export const queryKeys = {
   job: (userId: string, jobId: string) => [...userKey(userId), 'job', jobId] as const,
   feedSchedule: (userId: string) => [...userKey(userId), 'feed-schedule'] as const,
   notificationSettings: (userId: string) => [...userKey(userId), 'notification-settings'] as const,
-  notificationTargets: (userId: string) => [...userKey(userId), 'notification-targets'] as const,
   notificationServices: (userId: string) => [...userKey(userId), 'notification-services'] as const,
   agentDelegations: (userId: string) => [...userKey(userId), 'agent-delegations'] as const,
   config: (userId: string) => [...userKey(userId), 'config'] as const,

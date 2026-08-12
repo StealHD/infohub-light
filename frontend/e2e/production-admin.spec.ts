@@ -650,11 +650,6 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       last_test_error_code: null,
       updated_at: null,
     }
-    else if (url.pathname === '/api/notification-targets') data = {
-      schema_version: 1,
-      targets: notificationTargets,
-      webhook_provider_options: notificationWebhookProviders,
-    }
     else if (url.pathname === '/api/notification-services') data = {
       schema_version: 1,
       services: notificationTargets.map((target) => ({
@@ -685,10 +680,6 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       },
       webhook_provider_options: notificationWebhookProviders,
       can_manage: true,
-    }
-    else if (url.pathname === '/api/me/notification-settings/test') {
-      const payload = route.request().postDataJSON() as { channel?: string }
-      data = { sent: true, channel: payload.channel ?? 'webhook' }
     }
     else if (url.pathname === '/api/jobs/source-fetch' && route.request().method() === 'POST') {
       if (sourceFetchGate) {
@@ -887,10 +878,6 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       data = actorRoute
     }
     else if (url.pathname === '/api/admin/apify-actor-routes/x/profile') data = actorRoute
-    else if (url.pathname === '/api/admin/apify-actor-alert-settings/test' && route.request().method() === 'POST') {
-      const payload = route.request().postDataJSON() as { channel?: string }
-      data = { sent: true, channel: payload.channel ?? actorAlertSettings.channel }
-    }
     else if (url.pathname === '/api/admin/apify-actor-alert-settings' && route.request().method() === 'PATCH') {
       const patch = route.request().postDataJSON() as Record<string, unknown>
       actorAlertSettings = {
@@ -1426,7 +1413,6 @@ test('settings landing defers hidden section requests and a direct hash loads on
     '/api/feed/end-messages',
     '/api/feed/ignored',
     '/api/me/notification-settings',
-    '/api/notification-targets',
     '/api/notification-services',
     '/api/admin/notification-email-transport',
     '/api/admin/notification-telegram-transport',

@@ -14,16 +14,6 @@ export const aiDefaultsForProvider = (provider: string) => providerDefaults[prov
 
 export const canAdministerWorkspace = (user: User) => user.role === 'owner' || user.role === 'admin'
 
-export const tagLibraryText = (tags: unknown) => Array.isArray(tags)
-  ? tags.filter((tag): tag is string => typeof tag === 'string').join('\n')
-  : ''
-
-export const settingsDataReady = ({ admin, configLoaded, secretsLoaded }: {
-  admin: boolean
-  configLoaded: boolean
-  secretsLoaded: boolean
-}) => configLoaded && (!admin || secretsLoaded)
-
 export function secretPresentation(secret: SecretRef) {
   return {
     name: secret.name,

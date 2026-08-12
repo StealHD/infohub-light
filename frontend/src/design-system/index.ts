@@ -103,4 +103,3 @@ export {
 } from './themePreference'
 export type { ThemeColorMode, ThemeName, ThemePreference } from './themePreference'
 export * as Icons from './icons'
-export { designSystemTheme } from './theme'

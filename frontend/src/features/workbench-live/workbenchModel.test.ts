@@ -4,7 +4,6 @@ import type { FeedItem, FeedPresentation, FeedSnapshot } from '../../api/types'
 import {
   cleanLegacyModeSearch,
   mergeDeepLinkedItem,
-  sampleTickIndexes,
   selectWorkbenchSourceItems,
   toWorkbenchCardModel,
 } from './workbenchModel'
@@ -215,13 +214,6 @@ describe('live workbench model', () => {
     expect(cleanLegacyModeSearch('?mode=daily&item=article-1&source=rss')).toBe('?item=article-1&source=rss')
   })
 
-  it('samples at most twelve stable tick targets across long feeds', () => {
-    const indexes = sampleTickIndexes(200)
-    expect(indexes).toHaveLength(12)
-    expect(indexes[0]).toBe(0)
-    expect(indexes.at(-1)).toBe(199)
-    expect(new Set(indexes).size).toBe(indexes.length)
-  })
 })
 
 function socialItemWithMedia(): FeedItem {

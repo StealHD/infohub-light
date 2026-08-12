@@ -513,15 +513,6 @@ export function calculateFeedInsightsLayout(
   return { panelLeft, readingShift, obstructsFeed }
 }
 
-type RectBounds = Pick<DOMRectReadOnly, 'left' | 'right' | 'top' | 'bottom'>
-
-export function rectanglesOverlap(first: RectBounds, second: RectBounds): boolean {
-  return first.left < second.right
-    && first.right > second.left
-    && first.top < second.bottom
-    && first.bottom > second.top
-}
-
 function AgentPanelContent({
   open,
   onClose,
