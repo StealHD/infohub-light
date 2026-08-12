@@ -295,11 +295,6 @@
         "max_lines": 1081
       },
       {
-        "path": "src/services/worker.py",
-        "category": "production",
-        "max_lines": 992
-      },
-      {
         "path": "src/storage/service_store.py",
         "category": "production",
         "max_lines": 11725

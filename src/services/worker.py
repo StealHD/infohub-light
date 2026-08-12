@@ -6,12 +6,9 @@ import argparse
 import logging
 import os
 import re
-import threading
 import time
-from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 from dotenv import load_dotenv
 
 from ..logging_utils import configure_logging, error_fingerprint
@@ -25,7 +22,6 @@ from .source_probe import run_source_test
 from .feed_end_messages import run_due_feed_end_messages_generation
 from .job_queue import JobQueue
 from .operation_log import safe_emit_operation_event
-from .quota import QuotaService
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .source_avatar import SourceAvatarService
 from .apify_pool_runtime import (
@@ -78,6 +74,20 @@ from .worker_finalization import (
     MediaPublicationState,
     WorkerFinalizationPorts,
     execute_claimed_job,
+)
+from .worker_lifecycle import (
+    LeaseHeartbeat,
+    WorkerLifecyclePorts,
+    cancel_claimed_job_with_validation,
+    emit_job_invalidation,
+    is_retryable_exception as _is_retryable_exception,
+    terminalize_failed_actor_discovery as _terminalize_failed_actor_discovery,
+    terminalize_unstarted_actor_validation,
+)
+from .worker_media_publication import (
+    WorkerMediaPorts,
+    cache_run_media,
+    cache_run_source_avatars,
 )
 from .source_acquisition import shared_acquisition_enabled
 from .apify_actor_monitoring import (
@@ -152,42 +162,6 @@ def _safe_machine_code(value: Any, fallback: str) -> str:
     )
 
 
-def _terminalize_failed_actor_discovery(
-    store: ServiceStore,
-    job: dict[str, Any],
-) -> bool:
-    """Fail a broken discovery run in the caller's job-finalization transaction."""
-
-    if str(job.get("job_type") or "") != "apify_actor_discovery":
-        return False
-    payload = (
-        job.get("payload_json")
-        if isinstance(job.get("payload_json"), dict)
-        else {}
-    )
-    run_id = str(payload.get("run_id") or "").strip()
-    if not run_id:
-        return False
-    cursor = store.connect().execute(
-        """
-        UPDATE apify_actor_discovery_runs
-        SET stage = 'failed', error_code = 'apify_actor_discovery_failed',
-            updated_at = ?
-        WHERE workspace_id = ? AND run_id = ?
-          AND stage IN (
-              'queued', 'searching', 'metadata', 'ranking',
-              'static_validation', 'input_validation'
-          )
-        """,
-        (
-            datetime.now(timezone.utc).isoformat(),
-            str(job.get("workspace_id") or ""),
-            run_id,
-        ),
-    )
-    return cursor.rowcount == 1
-
-
 def _emit_source_outcome_events(
     job: dict[str, Any],
     result_payload: dict[str, Any],
@@ -247,23 +221,31 @@ def _emit_source_outcome_events(
         )
 
 
-def _emit_job_invalidation(
+def _lifecycle_ports() -> WorkerLifecyclePorts:
+    return WorkerLifecyclePorts(
+        exception_code=_exception_code,
+        safe_machine_code=_safe_machine_code,
+        emit_operation_event=safe_emit_operation_event,
+    )
+
+
+def _emit_job_invalidation(job: dict[str, Any], *, reason: str) -> None:
+    emit_job_invalidation(job, reason=reason, ports=_lifecycle_ports())
+
+
+def _terminalize_unstarted_actor_validation(
+    store: ServiceStore,
     job: dict[str, Any],
     *,
-    reason: str,
-) -> None:
-    safe_emit_operation_event(
-        category="job",
-        action="invalidate",
-        outcome="cancelled",
-        level="warning",
-        workspace_id=str(job["workspace_id"]),
-        subject_user_id=str(job["user_id"]),
-        job_id=str(job["id"]),
-        source_id=job.get("source_id"),
-        subscription_id=job.get("subscription_id"),
-        stage="eligibility",
-        error_code=_safe_machine_code(reason, "job_invalidated"),
+    status: str,
+    semantic_outcome: str,
+) -> bool:
+    return terminalize_unstarted_actor_validation(
+        store,
+        job,
+        status=status,
+        semantic_outcome=semantic_outcome,
+        ports=_lifecycle_ports(),
     )
 
 
@@ -275,33 +257,23 @@ def _cancel_claimed_job_with_validation(
     reason: str,
     worker_id: str,
 ) -> dict[str, Any]:
-    """Atomically cancel a claim and any paid validation not yet attempted."""
+    return cancel_claimed_job_with_validation(
+        queue,
+        store,
+        job,
+        reason=reason,
+        worker_id=worker_id,
+        ports=_lifecycle_ports(),
+    )
 
-    connection = store.connect()
-    owns_transaction = not connection.in_transaction
-    try:
-        if owns_transaction:
-            connection.execute("BEGIN IMMEDIATE")
-        _terminalize_unstarted_actor_validation(
-            store,
-            job,
-            status="cancelled",
-            semantic_outcome=reason,
-        )
-        finalized = queue.cancel_claimed_job(
-            str(job["id"]),
-            reason=reason,
-            worker_id=worker_id,
-            claim_token=str(job["claim_token"]),
-            commit=False,
-        )
-        if owns_transaction:
-            connection.commit()
-        return finalized
-    except Exception:
-        if owns_transaction and connection.in_transaction:
-            connection.rollback()
-        raise
+
+def _media_ports() -> WorkerMediaPorts:
+    return WorkerMediaPorts(
+        media_cache_service=MediaCacheService,
+        source_avatar_service=SourceAvatarService,
+        emit_operation_event=safe_emit_operation_event,
+        log_warning=logger.warning,
+    )
 
 
 def _cache_run_media(
@@ -313,37 +285,15 @@ def _cache_run_media(
     commit: bool = True,
     publication_cleanup: PostCommitMediaCleanup | None = None,
 ) -> None:
-    """Best-effort media caching must never change the feed job outcome."""
-
-    conn = store.connect()
-    savepoint = not commit and conn.in_transaction
-    if not commit and publication_cleanup is None:
-        raise RuntimeError("publication_cleanup is required inside an outer transaction")
-    stage_cleanup = PostCommitMediaCleanup()
-    if savepoint:
-        conn.execute("SAVEPOINT actor_ops_media_cache")
-    try:
-        MediaCacheService(store, data_dir=data_dir).cache_items(
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-            items=items,
-            commit=commit,
-            media_cleanup=(stage_cleanup if not commit else None),
-        )
-        if savepoint:
-            conn.execute("RELEASE actor_ops_media_cache")
-            publication_cleanup.absorb(stage_cleanup)
-    except Exception:
-        if savepoint:
-            conn.execute("ROLLBACK TO actor_ops_media_cache")
-            conn.execute("RELEASE actor_ops_media_cache")
-        elif conn.in_transaction:
-            conn.rollback()
-        stage_cleanup.discard()
-        logger.warning(
-            "media cache failed job_id=%s; content finalization will continue",
-            job.get("id"),
-        )
+    cache_run_media(
+        job,
+        data_dir=data_dir,
+        store=store,
+        items=items,
+        commit=commit,
+        publication_cleanup=publication_cleanup,
+        ports=_media_ports(),
+    )
 
 
 def _cache_run_source_avatars(
@@ -355,286 +305,15 @@ def _cache_run_source_avatars(
     commit: bool = True,
     publication_cleanup: PostCommitMediaCleanup | None = None,
 ) -> None:
-    """Persist source-level avatar evidence without changing the Feed outcome."""
-
-    conn = store.connect()
-    savepoint = not commit and conn.in_transaction
-    if not commit and publication_cleanup is None:
-        raise RuntimeError("publication_cleanup is required inside an outer transaction")
-    stage_cleanup = PostCommitMediaCleanup()
-    if savepoint:
-        conn.execute("SAVEPOINT actor_ops_avatar_cache")
-    try:
-        refreshes = SourceAvatarService(
-            store,
-            data_dir=data_dir,
-        ).refresh_run_result(
-            workspace_id=str(job["workspace_id"]),
-            result=result,
-            commit=commit,
-            media_cleanup=(stage_cleanup if not commit else None),
-        )
-        if savepoint:
-            conn.execute("RELEASE actor_ops_avatar_cache")
-            publication_cleanup.absorb(stage_cleanup)
-    except Exception:
-        if savepoint:
-            conn.execute("ROLLBACK TO actor_ops_avatar_cache")
-            conn.execute("RELEASE actor_ops_avatar_cache")
-        elif conn.in_transaction:
-            conn.rollback()
-        stage_cleanup.discard()
-        logger.warning(
-            "source avatar cache failed job_id=%s; feed finalization will continue",
-            job.get("id"),
-        )
-        return
-    for refresh in refreshes:
-        event_outcome = {
-            "stored": "succeeded",
-            "unchanged": "skipped",
-            "candidate_missing": "skipped",
-            "kept_previous": "partial",
-            "failed": "failed",
-            "identity_mismatch": "denied",
-        }.get(refresh.status, "unavailable")
-        safe_emit_operation_event(
-            category="source",
-            action="avatar_cache",
-            outcome=event_outcome,
-            level=(
-                "warning"
-                if refresh.status
-                in {"kept_previous", "failed", "identity_mismatch"}
-                else "info"
-            ),
-            workspace_id=str(job["workspace_id"]),
-            subject_user_id=str(job["user_id"]),
-            job_id=str(job["id"]),
-            source_id=refresh.source_id,
-            error_code=(
-                refresh.status
-                if refresh.status
-                not in {"stored", "unchanged", "candidate_missing"}
-                else None
-            ),
-        )
-
-
-def _terminalize_unstarted_actor_validation(
-    store: ServiceStore,
-    job: dict[str, Any],
-    *,
-    status: str,
-    semantic_outcome: str,
-) -> bool:
-    """Release a paid approval when its Worker job ends before an Attempt."""
-
-    freshness_check_id = _actor_freshness_check_id(job)
-    if freshness_check_id is not None:
-        from .apify_actor_resilience import ApifyActorResilienceService
-
-        ApifyActorResilienceService(
-            store,
-            workspace_id=str(job.get("workspace_id") or ""),
-        ).fail_freshness_check(
-            freshness_check_id,
-            reason_code=semantic_outcome,
-        )
-        return True
-
-    batch_id = _actor_canary_batch_id(job)
-    if batch_id is not None:
-        if status not in {"failed", "cancelled"}:
-            raise ValueError("unstarted Actor batch must become terminal")
-        now = datetime.now(timezone.utc).isoformat()
-        connection = store.connect()
-        connection.execute(
-            """
-            UPDATE apify_actor_validations
-            SET status = ?, semantic_outcome = ?, cost_usd = 0,
-                cost_final = 1, counts_toward_canary = 0,
-                completed_at = ?
-            WHERE workspace_id = ? AND status = 'queued'
-              AND attempt_id IS NULL
-              AND validation_id IN (
-                  SELECT validation_id
-                  FROM apify_actor_canary_batch_items
-                  WHERE workspace_id = ? AND batch_id = ?
-              )
-            """,
-            (
-                status,
-                _safe_machine_code(
-                    semantic_outcome,
-                    "apify_actor_validation_not_started",
-                ),
-                now,
-                str(job.get("workspace_id") or ""),
-                str(job.get("workspace_id") or ""),
-                batch_id,
-            ),
-        )
-        connection.execute(
-            """
-            UPDATE apify_actor_canary_batch_items
-            SET status = 'not_needed_no_charge',
-                semantic_outcome = ?, actual_cost_usd = 0,
-                cost_final = 1, completed_at = ?, updated_at = ?
-            WHERE workspace_id = ? AND batch_id = ?
-              AND status IN ('planned', 'queued', 'preflight_passed')
-            """,
-            (
-                _safe_machine_code(
-                    semantic_outcome,
-                    "apify_actor_validation_not_started",
-                ),
-                now,
-                now,
-                str(job.get("workspace_id") or ""),
-                batch_id,
-            ),
-        )
-        updated = connection.execute(
-            """
-            UPDATE apify_actor_canary_batches
-            SET status = ?, stop_reason = ?, actual_cost_usd = 0,
-                cost_final = 1, completed_at = ?, updated_at = ?
-            WHERE workspace_id = ? AND batch_id = ?
-              AND status IN ('queued', 'preflighting')
-            """,
-            (
-                status,
-                _safe_machine_code(
-                    semantic_outcome,
-                    "apify_actor_validation_not_started",
-                ),
-                now,
-                now,
-                str(job.get("workspace_id") or ""),
-                batch_id,
-            ),
-        )
-        connection.execute(
-            """
-            UPDATE apify_actor_pool_stages
-            SET status = ?, last_error_code = ?, updated_at = ?
-            WHERE workspace_id = ?
-              AND stage_id = (
-                  SELECT pool_stage_id
-                  FROM apify_actor_canary_batches
-                  WHERE workspace_id = ? AND batch_id = ?
-              )
-              AND status IN ('queued', 'validating_route')
-            """,
-            (
-                status,
-                _safe_machine_code(
-                    semantic_outcome,
-                    "apify_actor_validation_not_started",
-                ),
-                now,
-                str(job.get("workspace_id") or ""),
-                str(job.get("workspace_id") or ""),
-                batch_id,
-            ),
-        )
-        return updated.rowcount == 1
-    validation_id = _actor_validation_id(job)
-    if validation_id is None:
-        return False
-    if status not in {"failed", "cancelled"}:
-        raise ValueError("unstarted Actor validation must become terminal")
-    now = datetime.now(timezone.utc).isoformat()
-    updated = store.connect().execute(
-        """
-        UPDATE apify_actor_validations
-        SET status = ?, semantic_outcome = ?, cost_usd = 0,
-            cost_final = 1, counts_toward_canary = 0,
-            completed_at = ?
-        WHERE workspace_id = ? AND validation_id = ?
-          AND status = 'queued' AND attempt_id IS NULL
-        """,
-        (
-            status,
-            _safe_machine_code(
-                semantic_outcome,
-                "apify_actor_validation_not_started",
-            ),
-            now,
-            str(job.get("workspace_id") or ""),
-            validation_id,
-        ),
+    cache_run_source_avatars(
+        job,
+        data_dir=data_dir,
+        store=store,
+        result=result,
+        commit=commit,
+        publication_cleanup=publication_cleanup,
+        ports=_media_ports(),
     )
-    return updated.rowcount == 1
-
-
-def _is_retryable_exception(exc: Exception) -> bool:
-    explicit = getattr(exc, "retryable", None)
-    if explicit is not None:
-        return bool(explicit)
-    if isinstance(exc, (ConnectionError, TimeoutError, httpx.TransportError)):
-        return True
-    if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code == 429 or exc.response.status_code >= 500
-    return False
-
-
-class _LeaseHeartbeat:
-    """Renew one job lease and publish worker liveness from a separate connection."""
-
-    def __init__(self, *, data_dir: str, job: dict[str, Any], lease_seconds: float):
-        self.store = ServiceStore(data_dir)
-        self.queue = JobQueue(self.store)
-        self.job = job
-        self.lease_seconds = lease_seconds
-        self.interval = min(10.0, max(1.0, lease_seconds / 3.0))
-        self.stop_event = threading.Event()
-        self.thread: threading.Thread | None = None
-        self.last_error_code: str | None = None
-
-    def __enter__(self) -> "_LeaseHeartbeat":
-        self.store.upsert_worker_heartbeat(
-            self.job["worker_id"],
-            "running",
-            current_job_id=self.job["id"],
-        )
-        self.thread = threading.Thread(target=self._run, name=f"lease-{self.job['id']}", daemon=True)
-        self.thread.start()
-        return self
-
-    def _run(self) -> None:
-        while not self.stop_event.wait(self.interval):
-            try:
-                self.queue.extend_job_lease(
-                    self.job["id"],
-                    worker_id=self.job["worker_id"],
-                    claim_token=self.job["claim_token"],
-                    lease_seconds=self.lease_seconds,
-                )
-                self.store.upsert_worker_heartbeat(
-                    self.job["worker_id"],
-                    "running",
-                    current_job_id=self.job["id"],
-                )
-            except Exception as exc:  # the guarded finalizer will reject a lost claim
-                self.last_error_code = _exception_code(exc)
-                self.stop_event.set()
-
-    def __exit__(self, exc_type, exc, _traceback) -> None:
-        self.stop_event.set()
-        if self.thread:
-            self.thread.join(timeout=max(self.interval * 2, 2.0))
-        error_code = _exception_code(exc) if exc is not None else self.last_error_code
-        try:
-            self.store.upsert_worker_heartbeat(
-                self.job["worker_id"],
-                "idle",
-                last_job_id=self.job["id"],
-                last_error_code=error_code,
-            )
-        finally:
-            self.store.close()
 
 
 def _actor_validation_ports() -> WorkerActorValidationPorts:
@@ -816,7 +495,12 @@ def run_worker_once(
         job = prepared_cycle.job
         lease = prepared_cycle.lease_seconds
         retry_base = prepared_cycle.retry_base_seconds
-        with _LeaseHeartbeat(data_dir=data_dir, job=job, lease_seconds=lease):
+        with LeaseHeartbeat(
+            data_dir=data_dir,
+            job=job,
+            lease_seconds=lease,
+            exception_code=_exception_code,
+        ):
             finalization = execute_claimed_job(
                 queue,
                 store,
