@@ -7,22 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-08-10",
-  "result": "将专题 AI 总结与同用户同内容最近成功结果缓存分支合入本地 main；保留真实失败、完成指标日志、V3 可读要点预算和已演进 ActorOps schema 的兼容判断。",
-  "status": "completed",
-  "task_id": "2026-08-10-main-source-summary-cache-integration",
-  "unresolved": [],
-  "validation": [
-    "main 合并 commit 无冲突，产品手册、更新日志、API/UI 合同与决策记录随功能一并进入集成结果。",
-    "main 完整 Test Gate 24/24 通过（406.768 秒），mapping_miss=false。"
-  ]
-}
-```
-
-
-```json
-{
   "control_topics": [
     "architecture",
     "decisions",
@@ -391,6 +375,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps compatibility 与 pool staging 定向后端回归 32/32 通过。",
     "待完成 preflight、8080 重建与浏览器只读验收。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-12",
+  "result": "补齐 X 历史严格 Stage 的兼容降级：upgrade_legacy 处于 replan_required 且严格候选不足时，只要存在单个兼容候选就投影降低要求入口，并保留安全失败摘要。",
+  "status": "completed",
+  "task_id": "2026-08-12-actorops-x-replan-compatibility-entry",
+  "unresolved": [
+    "按用户要求，完整 Test Gate 留到最终合并代码时执行。"
+  ],
+  "validation": [
+    "ActorOps compatibility 与 pool staging 定向后端回归 33/33 通过。",
+    "真实 service.db 只读诊断确认严格 1/3、兼容列表 6 个可选，未触发搜索、Actor 或付费动作。"
   ]
 }
 ```

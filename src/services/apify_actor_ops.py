@@ -7436,6 +7436,36 @@ class ApifyActorOpsService:
                 plan_progress, plan_blockers = candidate_selection_progress(
                     str(stage["goal"]),
                 )
+                if (
+                    str(stage["goal"]) == "upgrade_legacy"
+                    and "candidate_shortfall" in plan_blockers
+                ):
+                    compatibility_progress, compatibility_blockers = (
+                        candidate_selection_progress("compatibility_single")
+                    )
+                    if not compatibility_blockers:
+                        failure = self._pool_stage_last_failure(
+                            str(stage["stage_id"])
+                        )
+                        return {
+                            "kind": (
+                                "compatibility_candidate_selection_available"
+                            ),
+                            "goal": "compatibility_single",
+                            "stage_id": str(stage["stage_id"]),
+                            "run_id": str(stage["discovery_run_id"]),
+                            "plan_hash": str(stage["plan_hash"]),
+                            "progress": {
+                                **compatibility_progress,
+                                "strict_blockers": plan_blockers,
+                                **(
+                                    {"last_failure": failure}
+                                    if failure is not None
+                                    else {}
+                                ),
+                            },
+                            "blockers": [],
+                        }
                 kind = (
                     f"{prefix}_discovery_required"
                     if "candidate_shortfall" in plan_blockers

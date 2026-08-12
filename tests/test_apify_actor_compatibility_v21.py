@@ -226,6 +226,98 @@ def test_compatibility_candidates_reuse_prior_evidence_after_empty_inspection(
     assert workflow["progress"]["eligible_candidate_count"] >= 1
 
 
+def test_failed_legacy_stage_offers_single_actor_compatibility(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="compatibility-stage-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store)
+    route, run, revisions = _compatibility_discovery(store, ops)
+    now = "2026-08-12T03:00:00+00:00"
+    stage_id = "apify-stage-legacy-shortfall"
+    batch_id = "apify-batch-legacy-shortfall"
+    store.connect().execute(
+        """
+        INSERT INTO apify_actor_canary_batches (
+            batch_id, workspace_id, route_id, discovery_run_id,
+            approval_key_hash, approved_generation, plan_hash,
+            max_candidates, max_total_charge_usd, per_candidate_cap_usd,
+            status, planned_count, success_count, publisher_count,
+            actual_cost_usd, cost_final, stop_reason, created_by_user_id,
+            created_at, started_at, completed_at, updated_at, goal,
+            pool_stage_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 3, 0.06, 0.02, 'partial',
+                  3, 1, 1, 0.001, 1, 'candidate_shortfall', ?, ?, ?, ?, ?,
+                  'upgrade_legacy', ?)
+        """,
+        (
+            batch_id,
+            DEFAULT_WORKSPACE_ID,
+            str(route["route_id"]),
+            str(run["run_id"]),
+            "3" * 64,
+            int(route["generation"]),
+            "1" * 64,
+            str(owner["id"]),
+            now,
+            now,
+            now,
+            now,
+            stage_id,
+        ),
+    )
+    store.connect().execute(
+        """
+        INSERT INTO apify_actor_pool_stages (
+            stage_id, workspace_id, route_id, discovery_run_id,
+            initial_batch_id, goal, target_slot_count, selection_mode,
+            base_generation, base_pool_hash, plan_hash, approval_key_hash,
+            max_total_charge_usd, route_validation_cap_usd, status,
+            created_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'upgrade_legacy', 3, 'manual',
+                  ?, ?, ?, ?, 0.06, 0.06, 'replan_required', ?, ?, ?)
+        """,
+        (
+            stage_id,
+            DEFAULT_WORKSPACE_ID,
+            str(route["route_id"]),
+            str(run["run_id"]),
+            batch_id,
+            int(route["generation"]),
+            "0" * 64,
+            "1" * 64,
+            "2" * 64,
+            str(owner["id"]),
+            now,
+            now,
+        ),
+    )
+    store.connect().commit()
+
+    workflow = ops.workflow_state(str(route["route_id"]))
+
+    assert workflow["kind"] == "compatibility_candidate_selection_available"
+    assert workflow["goal"] == "compatibility_single"
+    assert workflow["stage_id"] == stage_id
+    assert workflow["run_id"] == run["run_id"]
+    assert workflow["progress"]["eligible_candidate_count"] >= 1
+    assert workflow["progress"]["required_selection_count"] == 1
+    assert workflow["progress"]["strict_blockers"] == ["candidate_shortfall"]
+    assert any(
+        row["candidate_id"] == _candidate_id(store, revisions["allowed"])
+        and row["selectable"] is True
+        for row in ops.list_pool_candidates(
+            str(route["route_id"]), goal="compatibility_single"
+        )["candidates"]
+    )
+
+
 def test_x_discovery_preserves_metadata_safe_compatibility_candidate(
     tmp_path,
 ) -> None:
