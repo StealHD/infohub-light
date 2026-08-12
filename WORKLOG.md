@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-11",
-  "result": "基于当前 main 串行重建并集成 Legacy 退役改动，保留成员管理、来源总结和 ActorOps schema 20–22，将唯一运行面决策登记为 D144，并在完整验证后 fast-forward 本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-11-integrate-retire-legacy-surfaces-main",
-  "unresolved": [],
-  "validation": [
-    "现役认证、配置、Feed、API、Store、Worker、来源总结、ActorOps、通知、冷归档和 Remote MCP 定向回归通过。",
-    "前端 check:ui、lint、typecheck、666 项 Vitest、production build 与 release Playwright（107 通过、55 按配置跳过）通过。",
-    "组合结果 Test Gate full 与 release、Compose/API-only smoke、控制文件校验、负向引用和 diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "context",
     "decisions",
     "instructions",
@@ -421,6 +399,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "完整 141 条路由清单 SHA、规范化 OpenAPI SHA 与 13 条相关路由顺序/handler 名均与基线一致；启动时序问题在提交前发现并修复。",
     "Feed、媒体、item-state、权限、API 与多用户定向测试 177 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
     "server.py 从 9043 行降至 8770 行，create_app 从 7844 行降至 7572 行；新 router 370 行，满足项目 400 行目标线。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Feed 和逐订阅周期 HTTP 适配及投影从 API composition root 拆入独立模块，保持路由、OpenAPI、权限、事务和任务语义不变，并同步收紧代码规模旧债。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-schedule-router-slice",
+  "unresolved": [],
+  "validation": [
+    "完整路由 141 条、route SHA 与 OpenAPI SHA 与拆分前一致。",
+    "Schedule、权限、操作日志、lifespan、导入边界等定向回归 183/183 通过，ResourceWarning 为 0。",
+    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
   ]
 }
 ```
