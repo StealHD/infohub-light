@@ -12,26 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-12",
-  "result": "修复 X 严格升级只保留 1 个合格 Actor 时无法进入下一步：compatibility_single 现跨免费检查复用同 Route 每个 Candidate 的最新安全 Revision，空搜索不再清掉已合格候选。",
-  "status": "completed",
-  "task_id": "2026-08-12-actorops-x-single-candidate-continuation",
-  "unresolved": [
-    "按用户要求，完整 Test Gate 留到最终合并代码时执行。"
-  ],
-  "validation": [
-    "ActorOps compatibility 与 pool staging 定向后端回归 32/32 通过。",
-    "待完成 preflight、8080 重建与浏览器只读验收。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
   "result": "补齐 X 历史严格 Stage 的兼容降级：upgrade_legacy 处于 replan_required 且严格候选不足时，只要存在单个兼容候选就投影降低要求入口，并保留安全失败摘要。",
   "status": "completed",
   "task_id": "2026-08-12-actorops-x-replan-compatibility-entry",
@@ -411,6 +391,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Worker、lease、Feed/outbox、Actor validation/Canary、media/avatar、Source Health、通知与调度扩展定向回归全部通过，ResourceWarning 为 0。",
     "worker.py 由 992 行降至 676 行并移除文件旧债，run_worker_once 为 154 行；新模块 357/148 行，最大函数 68/48 行。",
     "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将通知服务、目标和个人通知设置的 13 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、迁移门槛与存储语义保持不变，server.py 旧债同步收紧。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-notification-routes",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；后续继续小步拆分 transport/secrets、Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
+  ],
+  "validation": [
+    "全 API 路由、通知路由与 OpenAPI 规范 SHA 均与 c9a1519 基线一致；通知、权限、操作日志、API lifespan 与 React 服务定向回归通过。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235447 bytes。"
   ]
 }
 ```
