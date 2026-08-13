@@ -27,8 +27,15 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 
 from .agent_delegation_routes import register_agent_delegation_routes
 from .actor_alert_routes import register_actor_alert_routes
-from .actor_ops_projection import public_actor_ops_revision, public_actor_ops_route
+from .actor_ops_projection import (
+    public_actor_ops_revision,
+    public_actor_ops_route,
+    public_canary_batch,
+    public_canary_plan,
+)
 from .actor_ops_read_routes import (
+    register_actor_ops_canary_batch_read_route,
+    register_actor_ops_canary_plan_read_route,
     register_actor_ops_events_route,
     register_actor_ops_freshness_detail_route,
     register_actor_ops_freshness_plan_route,
@@ -4366,128 +4373,7 @@ def create_app(
             }
         )
 
-    def public_canary_plan(plan: dict[str, Any]) -> dict[str, Any]:
-        result = {
-            key: plan[key]
-            for key in (
-                "schema_version",
-                "run_id",
-                "route_id",
-                "route_key",
-                "platform",
-                "target_type",
-                "capability",
-                "mode",
-                "generation",
-                "status",
-                "ready",
-                "activation_ready",
-                "plan_hash",
-                "max_candidates",
-                "max_total_charge_usd",
-                "per_candidate_cap_usd",
-                "successful_actor_count",
-                "successful_publisher_count",
-                "attempts_used",
-                "attempts_remaining",
-                "budget_remaining_usd",
-                "items",
-            )
-        }
-        for key in (
-            "goal",
-            "selection_mode",
-            "target_slot_count",
-            "base_pool_hash",
-            "required_success_count",
-            "route_validation_cap_usd",
-            "source_validation_cap_usd",
-            "source_count",
-            "source_validation_count",
-        ):
-            if key in plan:
-                result[key] = plan[key]
-        return result
-
-    def public_canary_batch(batch: dict[str, Any]) -> dict[str, Any]:
-        result = {
-            "schema_version": 2,
-            **{
-                key: batch[key]
-                for key in (
-                    "batch_id",
-                    "route_id",
-                    "discovery_run_id",
-                    "approved_generation",
-                    "plan_hash",
-                    "max_candidates",
-                    "max_total_charge_usd",
-                    "per_candidate_cap_usd",
-                    "goal",
-                    "pool_stage_id",
-                    "status",
-                    "planned_count",
-                    "success_count",
-                    "publisher_count",
-                    "actual_cost_usd",
-                    "cost_final",
-                    "stop_reason",
-                    "created_at",
-                    "started_at",
-                    "completed_at",
-                    "updated_at",
-                )
-            },
-            "items": [
-                {
-                    key: item[key]
-                    for key in (
-                        "ordinal",
-                        "revision_id",
-                        "status",
-                        "semantic_outcome",
-                        "authorized_cap_usd",
-                        "actual_cost_usd",
-                        "cost_final",
-                        "preflight_checked_at",
-                        "started_at",
-                        "completed_at",
-                        "actor_id",
-                        "publisher",
-                        "build_id",
-                        "build_number",
-                        "lifecycle",
-                        "pricing",
-                    )
-                }
-                for item in batch["items"]
-            ],
-        }
-        if batch.get("pool_stage") is not None:
-            result["pool_stage"] = batch["pool_stage"]
-        if batch.get("route_validation_cap_usd") is not None:
-            result["route_validation_cap_usd"] = batch[
-                "route_validation_cap_usd"
-            ]
-        return result
-
-    @app.get(
-        "/api/admin/apify-discovery-runs/{run_id}/canary-plan"
-    )
-    async def admin_apify_canary_plan(
-        run_id: str,
-        response: Response,
-        goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
-        ] = Query(default="initial_pool"),
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        plan = apify_actor_ops_for(
-            str(user["workspace_id"])
-        ).get_canary_plan(run_id, goal=goal)
-        response.headers["Cache-Control"] = "no-store"
-        return ok(public_canary_plan(plan))
+    register_actor_ops_canary_plan_read_route(app)
 
     @app.post(
         "/api/admin/apify-discovery-runs/{run_id}/canary-plan"
@@ -4523,17 +4409,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok(public_canary_plan(plan))
 
-    @app.get("/api/admin/apify-canary-batches/{batch_id}")
-    async def admin_apify_canary_batch(
-        batch_id: str,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        batch = apify_actor_ops_for(
-            str(user["workspace_id"])
-        ).get_canary_batch(batch_id)
-        response.headers["Cache-Control"] = "no-store"
-        return ok(public_canary_batch(batch))
+    register_actor_ops_canary_batch_read_route(app)
 
     def queue_actor_validation(
         validation: dict[str, Any],

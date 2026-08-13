@@ -186,3 +186,110 @@ def public_actor_ops_revision(revision: dict[str, Any]) -> dict[str, Any]:
             in {"probationary", "certified"}
         ),
     }
+
+
+def public_canary_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    result = {
+        key: plan[key]
+        for key in (
+            "schema_version",
+            "run_id",
+            "route_id",
+            "route_key",
+            "platform",
+            "target_type",
+            "capability",
+            "mode",
+            "generation",
+            "status",
+            "ready",
+            "activation_ready",
+            "plan_hash",
+            "max_candidates",
+            "max_total_charge_usd",
+            "per_candidate_cap_usd",
+            "successful_actor_count",
+            "successful_publisher_count",
+            "attempts_used",
+            "attempts_remaining",
+            "budget_remaining_usd",
+            "items",
+        )
+    }
+    for key in (
+        "goal",
+        "selection_mode",
+        "target_slot_count",
+        "base_pool_hash",
+        "required_success_count",
+        "route_validation_cap_usd",
+        "source_validation_cap_usd",
+        "source_count",
+        "source_validation_count",
+    ):
+        if key in plan:
+            result[key] = plan[key]
+    return result
+
+
+def public_canary_batch(batch: dict[str, Any]) -> dict[str, Any]:
+    result = {
+        "schema_version": 2,
+        **{
+            key: batch[key]
+            for key in (
+                "batch_id",
+                "route_id",
+                "discovery_run_id",
+                "approved_generation",
+                "plan_hash",
+                "max_candidates",
+                "max_total_charge_usd",
+                "per_candidate_cap_usd",
+                "goal",
+                "pool_stage_id",
+                "status",
+                "planned_count",
+                "success_count",
+                "publisher_count",
+                "actual_cost_usd",
+                "cost_final",
+                "stop_reason",
+                "created_at",
+                "started_at",
+                "completed_at",
+                "updated_at",
+            )
+        },
+        "items": [
+            {
+                key: item[key]
+                for key in (
+                    "ordinal",
+                    "revision_id",
+                    "status",
+                    "semantic_outcome",
+                    "authorized_cap_usd",
+                    "actual_cost_usd",
+                    "cost_final",
+                    "preflight_checked_at",
+                    "started_at",
+                    "completed_at",
+                    "actor_id",
+                    "publisher",
+                    "build_id",
+                    "build_number",
+                    "lifecycle",
+                    "pricing",
+                )
+            }
+            for item in batch["items"]
+        ],
+    }
+    if batch.get("pool_stage") is not None:
+        result["pool_stage"] = batch["pool_stage"]
+    if batch.get("route_validation_cap_usd") is not None:
+        result["route_validation_cap_usd"] = batch[
+            "route_validation_cap_usd"
+        ]
+    return result
