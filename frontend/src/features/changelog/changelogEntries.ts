@@ -1,4 +1,4 @@
-// Reviewed after the Catalog membership HTTP adapter split; user-facing behavior is unchanged.
+// Reviewed after the Actor alert HTTP adapter split; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string
