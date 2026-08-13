@@ -9,6 +9,17 @@ from ..storage.service_store import ServiceStore
 from .feed_schedule import SCHEDULED_REFRESH_REASON
 
 
+def effective_manual_refresh_scope(
+    job: dict[str, Any], user: dict[str, Any]
+) -> str:
+    """Clamp a persisted manual refresh scope to the user's current role."""
+
+    requested = str((job.get("payload_json") or {}).get("refresh_scope") or "")
+    if requested in {"", "all"} and user.get("role") in {"owner", "admin"}:
+        return "all"
+    return "private"
+
+
 @dataclass(frozen=True, slots=True)
 class JobEligibilityDecision:
     allowed: bool
@@ -32,6 +43,8 @@ class JobEligibilityService:
         self.store = store
 
     def evaluate(self, job: dict[str, Any]) -> JobEligibilityDecision:
+        if job.get("status") == "running" and job.get("cancelled_at"):
+            return JobEligibilityDecision(False, "user_cancelled")
         user = self.store.get_user(str(job.get("user_id") or ""))
         if user is None or not user.get("enabled"):
             return JobEligibilityDecision(False, "user_disabled")
@@ -60,6 +73,18 @@ class JobEligibilityService:
             )
         ):
             return JobEligibilityDecision(False, "no_global_subscriptions")
+
+        if (
+            job.get("job_type") == "user_feed_refresh"
+            and (job.get("payload_json") or {}).get("reason")
+            == "manual_service_refresh"
+            and not self.store.has_enabled_user_subscriptions(
+                workspace_id=str(job.get("workspace_id") or ""),
+                user_id=str(user["id"]),
+                source_scope=effective_manual_refresh_scope(job, user),
+            )
+        ):
+            return JobEligibilityDecision(False, "no_enabled_subscriptions")
 
         if job.get("job_type") != "source_fetch" or not source_id:
             return JobEligibilityDecision(True)

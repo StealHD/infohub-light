@@ -7,6 +7,8 @@ import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import { describeFeedJob, feedJobNotice, latestFeedJob, pollingTimedOut, type FeedNotice } from './jobModel'
 import type { ActionGeneration, ActionToken } from '../../app/actionGeneration'
+import { useFeedCancellation } from './useFeedCancellation'
+import { useFeedRefreshRequest } from './useFeedRefreshRequest'
 
 type ScopedNotice = {
   userId: string
@@ -137,41 +139,9 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
       })
   }, [jobsQuery.data, jobsQuery.isSuccess, queryClient, reloadFeed, setJobNotice, user.id])
 
-  const refreshMutation = useMutation({
-    mutationFn: async (token: ActionToken) => {
-      void token
-      const currentSchedule = await api.feedSchedule()
-      queryClient.setQueryData(queryKeys.feedSchedule(user.id), currentSchedule)
-      if (currentSchedule.worker_status !== 'ready') {
-        throw new Error('后台获取服务当前不可用，未创建更新任务。请启动 Worker 后重试。')
-      }
-      return api.createFeedRefresh()
-    },
-    onMutate: () => {
-      setRequestNotice(undefined)
-      setJobNotice(undefined)
-    },
-    onSuccess: (job, token) => {
-      if (!guard.isCurrent(token)) return
-      queryClient.setQueryData(queryKeys.feedJobs(user.id), (previous: JobsResponse | undefined) => ({
-        jobs: [job, ...(previous?.jobs ?? []).filter((entry) => entry.id !== job.id)].slice(0, 20),
-      }))
-      queryClient.setQueryData(queryKeys.jobs(user.id), (previous: JobsResponse | undefined) => previous ? ({
-        ...previous,
-        jobs: [job, ...previous.jobs.filter((entry) => entry.id !== job.id)].slice(0, 100),
-      }) : previous)
-    },
-    onError: (error, token) => {
-      if (!guard.isCurrent(token)) return
-      blockedSequence.current += 1
-      setRequestNotice({
-        key: `refresh-blocked:${blockedSequence.current}`,
-        state: 'blocked',
-        message: error instanceof Error && error.message.includes('后台获取服务')
-          ? error.message
-          : '无法检查后台获取服务状态，未创建更新任务。请稍后重试。',
-      })
-    },
+  const refreshMutation = useFeedRefreshRequest({
+    api, userId: user.id, guard, queryClient, nextBlockedKey: (prefix) => `${prefix}:${++blockedSequence.current}`,
+    setRequestNotice, setJobNotice,
   })
   const retryMutation = useMutation({
     mutationFn: (token: ActionToken) => { void token; return currentJob ? api.retryJob(currentJob.id) : Promise.reject(new Error('没有可重试任务')) },
@@ -197,6 +167,16 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
       })
     },
   })
+  const cancellation = useFeedCancellation({
+    api,
+    userId: user.id,
+    guard,
+    currentJob,
+    queryClient,
+    refetchJobs: () => { void jobsQuery.refetch() },
+    nextBlockedKey: (prefix) => `${prefix}:${++blockedSequence.current}`,
+    setRequestNotice,
+  })
   const retryRequest = () => retryMutation.mutate(guard.capture())
   const retry = requestNotice?.key.startsWith('refresh-blocked:')
     ? () => refreshMutation.mutate(guard.capture())
@@ -207,14 +187,17 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   return {
     currentJob,
     activity,
+    canCancelRefresh: cancellation.canCancelRefresh,
+    isCancellingRefresh: cancellation.isCancellingRefresh,
     notice: requestNotice ?? (
       (currentJob?.status === 'queued' || currentJob?.status === 'running') && jobNotice?.state !== 'reload_failed'
         ? undefined
         : jobNotice
     ),
     refresh: () => refreshMutation.mutate(guard.capture()),
+    cancelRefresh: cancellation.cancelRefresh,
     reloadFeed,
     retry,
-    pending: refreshMutation.isPending || retryMutation.isPending,
+    pending: refreshMutation.isPending || retryMutation.isPending || cancellation.cancelPending,
   }
 }

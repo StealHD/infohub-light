@@ -205,11 +205,14 @@ def build_user_config_data(
     user_id: str,
     base_config: dict[str, Any] | Config,
     schedule_scope: Literal["all", "global"] = "all",
+    source_scope: Literal["all", "private"] = "all",
 ) -> dict[str, Any]:
     """Return a Config-compatible dict for one user's enabled subscriptions."""
 
     if schedule_scope not in {"all", "global"}:
         raise ValueError("schedule_scope must be 'all' or 'global'")
+    if source_scope not in {"all", "private"}:
+        raise ValueError("source_scope must be 'all' or 'private'")
     if isinstance(base_config, Config):
         data = base_config.model_dump(mode="json")
     else:
@@ -236,6 +239,13 @@ def build_user_config_data(
         filtering.get("rss_initial_fetch_window_hours", 168)
     )
     for record in records:
+        source_visibility = str(record.get("scope") or "")
+        if source_visibility == "private" and str(
+            record.get("owner_user_id") or ""
+        ) != str(user_id):
+            continue
+        if source_scope == "private" and source_visibility != "private":
+            continue
         if schedule_scope == "global" and record["source_schedule_enabled"]:
             continue
         _append_source(
@@ -256,6 +266,7 @@ def build_user_config(
     user_id: str,
     base_config: dict[str, Any] | Config,
     schedule_scope: Literal["all", "global"] = "all",
+    source_scope: Literal["all", "private"] = "all",
 ) -> Config:
     """Build and validate a Config for one user."""
 
@@ -266,5 +277,6 @@ def build_user_config(
             user_id=user_id,
             base_config=base_config,
             schedule_scope=schedule_scope,
+            source_scope=source_scope,
         )
     )

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComponentType, ReactNode } from 'react'
+import { StrictMode, type ComponentType, type ReactNode } from 'react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -661,6 +661,9 @@ describe('App routes', () => {
     for (const row of document.querySelectorAll<HTMLElement>('[data-workbench-feed-skeleton-row]')) {
       expect(row.style.height).toBe('156px')
       expect(row.querySelector('.inteliscope-skeleton-calm')).not.toBeNull()
+      const card = row.querySelector('[data-workbench-feed-skeleton-card]')
+      expect(card).not.toBeNull()
+      expect(card?.querySelectorAll('.inteliscope-skeleton-calm')).toHaveLength(11)
     }
     expect(screen.queryByText('0 条内容')).not.toBeInTheDocument()
     expect(document.querySelector('[data-feed-count-skeleton]')).not.toBeInTheDocument()
@@ -4247,6 +4250,26 @@ describe('App routes', () => {
     expect(message.closest('[data-slot="toast-region"]')).not.toBeNull()
     expect(message.closest('[data-page-frame]')).toBeNull()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
+  })
+
+  it('keeps a successful star fill current under Strict Mode and exposes the item in 收藏', async () => {
+    const browser = userEvent.setup()
+    const item = basicFeedItem('strict-save', 'Strict Mode 收藏条目')
+    const api = liveApi({
+      latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [item] }),
+      savedFeed: vi.fn().mockResolvedValue({
+        items: [{ ...item, user_state: { ...item.user_state, is_saved: true } }],
+      }),
+      updateItemState: vi.fn().mockResolvedValue({ ...item.user_state, is_saved: true }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<StrictMode><QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><DesignSystemProvider><AppRoutes api={api} /><NavigationProbe /></DesignSystemProvider></MemoryRouter></QueryClientProvider></StrictMode>)
+
+    const save = await screen.findByRole('button', { name: '收藏 Strict Mode 收藏条目' })
+    await browser.click(save)
+    await waitFor(() => expect(screen.getByRole('button', { name: '取消收藏 Strict Mode 收藏条目' })).toBeInTheDocument())
+    await browser.click(screen.getByRole('button', { name: '测试前往收藏' }))
+    expect(await screen.findByRole('article', { name: 'Strict Mode 收藏条目' })).toBeInTheDocument()
   })
 
   it('shows a recovery surface when a routed child crashes', async () => {

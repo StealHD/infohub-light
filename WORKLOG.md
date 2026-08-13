@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Feed 和逐订阅周期 HTTP 适配及投影从 API composition root 拆入独立模块，保持路由、OpenAPI、权限、事务和任务语义不变，并同步收紧代码规模旧债。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-schedule-router-slice",
-  "unresolved": [],
-  "validation": [
-    "完整路由 141 条、route SHA 与 OpenAPI SHA 与拆分前一致。",
-    "Schedule、权限、操作日志、lifespan、导入边界等定向回归 183/183 通过，ResourceWarning 为 0。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker 的迁移检查、Actor 恢复、maintenance、lease recovery、schedule/notification backlog 与 claim 前准备拆入两个小模块，保留 claim 后 eligibility、事务终结、Feed/outbox 原子性和 post-commit 外呼时序不变。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-preclaim-cycle",
@@ -413,6 +395,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 8e9a3c8 基线一致；订阅/API/source-health/schedule/权限/操作日志/lifespan/边界九组定向测试通过。",
     "server.py 由 6517 行降至 6330 行，create_app 由 5564 行降至 5402 行；新 subscription_routes.py 258 行，最大 handler 73 行。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235505 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "完成信息流真实卡片骨架、收藏即时同步、可访问的展开提示及受角色限域、可安全停止的手动刷新链路；服务端不信任客户端刷新范围，取消请求在 Worker 安全边界阻断后续副作用。",
+  "status": "completed",
+  "task_id": "2026-08-13-feed-refresh-polish",
+  "unresolved": [],
+  "validation": [
+    "新增角色范围、无订阅、取消与发布原子性后端覆盖，以及收藏、星标、溢出检测、骨架和按钮状态前端覆盖。",
+    "Feed Playwright 已覆盖 desktop/tablet/mobile 的骨架、收藏即时可见、刷新停止与布局锚点；预检 16/16 通过。",
+    "完整 Test Gate 18/18 通过（全量 Python、前端 lint/typecheck/Vitest/build、Compose 与控制面检查）。"
   ]
 }
 ```

@@ -47,6 +47,7 @@ import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './
 import { readCachedSourceSummaries, writeCachedSourceSummary } from './sourceSummaryCache'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
+import { FeedRefreshButton } from './FeedRefreshButton'
 import {
   builtinFeedEndMessages,
   selectEmptyFeedMessage,
@@ -68,7 +69,7 @@ function FeedModeLayer({ mode, children }: { mode: FeedViewMode; children: React
 }
 
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
-  const { api, user, query, setQuery, activity, refresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
+  const { api, user, query, setQuery, refresh, cancelRefresh, canCancelRefresh, isCancellingRefresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
   const queryClient = useQueryClient()
   const agent = useWorkbenchAgentContext()
   const location = useLocation()
@@ -414,7 +415,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     || (historyQuery.data ? null : historyQuery.error)
     || (sourceScopeRequested ? sourceCatalogQuery.error : null)
   const collectionRoute = kind !== 'feed'
-  const updating = activity.state === 'queued' || activity.state === 'running'
+  const stopping = isCancellingRefresh
+  const canStopUpdate = canCancelRefresh
   const reloading = kind === 'feed' && feedQuery.isFetching
   const activeFilterCount = globalSearchRequested ? 0 : [
     preference.unreadFirst,
@@ -739,7 +741,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               >
                 <span title="时间流"><Icons.Rows3 data-feed-mode-icon="timeline" size={15} aria-hidden="true" /></span>
                 <span className="sr-only">时间流</span>
-                <Tabs.Indicator />
+                <Tabs.Indicator className="!inset-x-auto !left-1/2 !w-[15px] !-translate-x-1/2" />
               </Tabs.Tab>
               <Tabs.Tab
                 id="source-overview"
@@ -749,7 +751,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               >
                 <span title="专题速览"><Icons.Layers3 data-feed-mode-icon="source-overview" size={15} aria-hidden="true" /></span>
                 <span className="sr-only">专题速览</span>
-                <Tabs.Indicator />
+                <Tabs.Indicator className="!inset-x-auto !left-1/2 !w-[15px] !-translate-x-1/2" />
               </Tabs.Tab>
             </Tabs.List>
           </Tabs.ListContainer>
@@ -829,16 +831,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></TooltipTriggerButton>
           <Tooltip.Content {...bottomAnchoredTooltipProps}>重新载入本地信息流数据</Tooltip.Content>
         </Tooltip>}
-        {!collectionRoute && <Tooltip delay={500}>
-          <TooltipTriggerButton
-            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
-            aria-label="获取新内容"
-            aria-busy={updating || undefined}
-            disabled={updating || user.role === 'viewer'}
-            onClick={updateFeed}
-          >{updating ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Download size={14} aria-hidden="true" />}</TooltipTriggerButton>
-          <Tooltip.Content {...bottomAnchoredTooltipProps}>{user.role === 'viewer' ? '只读账户不可获取新内容' : '触发所有已启用订阅获取新内容'}</Tooltip.Content>
-        </Tooltip>}
+        {!collectionRoute && <FeedRefreshButton role={user.role} stopping={stopping} canStop={canStopUpdate} onRefresh={updateFeed} onStop={cancelRefresh} />}
         <Popover>
           <Popover.Trigger
             aria-label={`筛选信息流${activeFilterCount > 0 ? `，已启用 ${activeFilterCount} 项` : ''}`}

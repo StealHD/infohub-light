@@ -106,6 +106,12 @@ describe('SourceOverviewFeed', () => {
 
     await browser.click(await screen.findByRole('button', { name: '打开详情 标题 a-detail' }))
     expect(onToggleExpanded).toHaveBeenCalledWith('a-detail')
+    const expandMarker = screen.getByRole('button', { name: '展开 标题 a-detail' })
+    expect(expandMarker).toHaveAttribute('data-expand-trigger')
+    expect(expandMarker).toHaveAttribute('aria-controls', 'card-details-a-detail')
+    expect(expandMarker).toHaveAttribute('aria-expanded', 'false')
+    await browser.click(expandMarker)
+    expect(onToggleExpanded).toHaveBeenLastCalledWith('a-detail')
     expect(screen.queryByRole('button', { name: '收藏 标题 a-detail' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '将 标题 a-detail 加入 Agent 上下文' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /原文/u })).not.toBeInTheDocument()

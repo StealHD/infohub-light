@@ -91,7 +91,7 @@ function Shell({
   path?: string
   onLogout?: () => void
   serviceApi?: ServiceApi
-  refreshState?: 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked' | 'reload_failed'
+  refreshState?: 'idle' | 'pending' | 'queued' | 'running' | 'stopping' | 'cancelled' | 'partial' | 'failed' | 'succeeded' | 'blocked' | 'reload_failed'
   refreshMessage?: string
   refreshEventKey?: string
   onRetry?: () => void

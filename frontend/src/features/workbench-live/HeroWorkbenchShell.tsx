@@ -75,12 +75,11 @@ import {
 import { settingsSectionsForRole } from '../admin-heroui/settingsSections'
 import { settingsReturnStateForLocation } from '../settings/settingsReturnState'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
+import { showFeedRefreshToast, type FeedRefreshState } from './showFeedRefreshToast'
 
 export type RightRailMode = 'closed' | 'agent'
 export type InsightsSurfaceState = 'closed' | 'auto' | 'manual' | 'closing'
 type AgentAttentionState = 'none' | 'running' | 'completed' | 'failed' | 'stopped'
-
-type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked' | 'reload_failed'
 
 type HeroWorkbenchShellProps = {
   api: ServiceApi
@@ -90,7 +89,7 @@ type HeroWorkbenchShellProps = {
   onRefresh?: () => void
   onRetry?: () => void
   onLogout: () => void
-  refreshState: RefreshState
+  refreshState: FeedRefreshState
   refreshMessage?: string
   refreshEventKey?: string
   children: ReactNode
@@ -715,7 +714,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     userId: props.user.id,
     defaultGatewayUrl: delegations.data?.openclaw_chat?.default_gateway_url ?? 'ws://127.0.0.1:18789',
   })
-  const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running'
+  const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running' || props.refreshState === 'stopping'
   const sidebarPreference = sidebarState.userId === props.user.id ? sidebarState.value : readSidebarPreference(props.user.id)
   const feedPreference = feedPreferenceState.userId === props.user.id ? feedPreferenceState.value : readFeedPreference(props.user.id)
   const activeQuickView = detectActiveQuickView(feedPreference)
@@ -1127,19 +1126,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       description: props.refreshMessage,
       onRetry: props.onRetry,
     }
-    if (props.refreshState === 'succeeded') {
-      actionToast.success('信息流已更新', options)
-    } else if (props.refreshState === 'partial') {
-      actionToast.warning('信息流部分更新', options)
-    } else if (props.refreshState === 'reload_failed') {
-      actionToast.danger('信息流加载失败', options)
-    } else if (props.refreshState === 'blocked') {
-      actionToast.danger('信息流更新未开始', options)
-    } else if (props.refreshState === 'failed') {
-      actionToast.danger('信息流更新失败', options)
-    } else {
-      actionToast.info('信息流更新状态', options)
-    }
+    showFeedRefreshToast(props.refreshState, options)
   }, [props.onRetry, props.refreshEventKey, props.refreshMessage, props.refreshState, props.user.id, refreshing])
 
   const updateRailWidthFromPointer = useCallback((clientX: number) => {

@@ -519,3 +519,53 @@ def test_global_schedule_scope_excludes_only_enabled_source_schedules(
     assert [
         source["source_id"] for source in global_sources["sources"]["rss"]
     ] == [source_ids[0]]
+
+
+def test_user_config_builder_limits_manual_member_scope_to_owned_private_sources(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    member = store.create_user(
+        workspace_id=workspace["id"],
+        username="member-scope",
+        password="member-password",
+        role="member",
+    )
+    source_ids = {}
+    for scope in ("private", "public", "workspace"):
+        source_id = store.create_source(
+            workspace_id=workspace["id"],
+            scope=scope,
+            owner_user_id=member["id"] if scope == "private" else None,
+            source_type="rss",
+            display_name=f"{scope.title()} Feed",
+            config={"url": f"https://example.com/{scope}.xml"},
+        )
+        source_ids[scope] = source_id
+        store.create_subscription(user_id=member["id"], source_id=source_id)
+
+    private = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        base_config=_base_config(),
+        source_scope="private",
+    )
+    all_sources = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        base_config=_base_config(),
+        source_scope="all",
+    )
+
+    assert [source["source_id"] for source in private["sources"]["rss"]] == [
+        source_ids["private"]
+    ]
+    assert {source["source_id"] for source in all_sources["sources"]["rss"]} == set(
+        source_ids.values()
+    )

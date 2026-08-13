@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..storage.service_store import JOB_STATUSES, ServiceStore
+from .job_cancellation import cancel_job as cancel_job_transaction
 
 
 def _now_iso() -> str:
@@ -360,6 +361,7 @@ class JobQueue:
                 "error_message",
                 "created_at",
                 "started_at",
+                "cancelled_at",
                 "finished_at",
             )
             if key in job
@@ -422,7 +424,7 @@ class JobQueue:
             id, user_id, source_id, subscription_id, job_type, status,
             substr(error_code, 1, 64) AS error_code,
             substr(error_message, 1, 240) AS error_message,
-            created_at, started_at, finished_at,
+            created_at, started_at, cancelled_at, finished_at,
             CASE
                 WHEN json_type({safe_result_json}, '$.message') = 'text'
                 THEN substr(json_extract({safe_result_json}, '$.message'), 1, 240)
@@ -712,6 +714,7 @@ class JobQueue:
         reason: str,
         worker_id: str,
         claim_token: str,
+        error_code: str = "job_invalidated",
         commit: bool = True,
     ) -> dict[str, Any]:
         """Cancel the current running claim after a lifecycle invalidation."""
@@ -722,18 +725,19 @@ class JobQueue:
             UPDATE fetch_jobs
             SET status = 'cancelled',
                 result_json = ?,
-                error_code = 'job_invalidated',
+                error_code = ?,
                 error_message = NULL,
                 worker_id = NULL,
                 claim_token = NULL,
                 locked_until = NULL,
-                cancelled_at = ?,
+                cancelled_at = COALESCE(cancelled_at, ?),
                 finished_at = ?,
                 updated_at = ?
             WHERE id = ? AND status = 'running' AND {guard_sql}
             """,
             (
                 _json_dumps({"invalidation_reason": reason}),
+                error_code,
                 now,
                 now,
                 now,
@@ -863,39 +867,12 @@ class JobQueue:
         return len(self.recover_stale_running_jobs(now=now))
 
     def cancel_job(self, job_id: str, *, user_id: str | None = None) -> dict[str, Any]:
-        now = _now_iso()
-        conn = self.store.connect()
-        params: list[Any] = [now, now, now, job_id]
-        user_guard = ""
-        if user_id is not None:
-            user_guard = " AND user_id = ?"
-            params.append(user_id)
-        updated_row = conn.execute(
-            f"""
-            UPDATE fetch_jobs
-            SET status = 'cancelled',
-                worker_id = NULL,
-                claim_token = NULL,
-                locked_until = NULL,
-                cancelled_at = ?,
-                finished_at = ?,
-                updated_at = ?
-            WHERE id = ? AND status = 'queued'{user_guard}
-            """,
-            params,
+        return cancel_job_transaction(
+            self.store,
+            self.get_job,
+            job_id,
+            user_id=user_id,
         )
-        conn.commit()
-        if updated_row.rowcount != 1:
-            current = self.get_job(job_id)
-            if current is None:
-                raise LookupError("job not found")
-            if user_id is not None and current["user_id"] != user_id:
-                raise PermissionError("cannot cancel another user's job")
-            raise ValueError("only queued jobs can be cancelled")
-        updated = self.get_job(job_id)
-        if updated is None:
-            raise LookupError("job not found after cancellation")
-        return updated
 
     def retry_job(
         self,

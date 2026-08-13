@@ -132,18 +132,35 @@ def _create_job(
     if payload.source_id:
         visible_source_or_404(store, payload.source_id, user)
     if job_type == "user_feed_refresh":
+        refresh_scope = "all" if is_admin(user) else "private"
+        refresh_payload = {
+            **payload.payload,
+            "reason": "manual_service_refresh",
+            "refresh_scope": refresh_scope,
+        }
         conn = store.connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             job, created = queue.create_user_feed_refresh_if_absent(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
-                payload=payload.payload,
+                payload=refresh_payload,
                 priority=payload.priority,
                 max_attempts=int(os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")),
                 retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
             )
             if created:
+                if not store.has_enabled_user_subscriptions(
+                    workspace_id=user["workspace_id"],
+                    user_id=user["id"],
+                    source_scope=refresh_scope,
+                ):
+                    raise ApiError(
+                        "no_enabled_subscriptions",
+                        "no enabled subscriptions are eligible for this refresh",
+                        status_code=409,
+                        action="Enable an eligible subscription and retry.",
+                    )
                 quota.ensure_job_allowed(
                     workspace_id=user["workspace_id"],
                     user_id=user["id"],

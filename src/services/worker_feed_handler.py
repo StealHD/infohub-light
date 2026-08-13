@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..storage.service_store import ServiceStore
+from .job_eligibility import JobEligibilityService, effective_manual_refresh_scope
 from .media_cache import PostCommitMediaCleanup
 
 if TYPE_CHECKING:
@@ -133,6 +134,7 @@ def _stage_user_feed_publication(
         publication.execute("BEGIN IMMEDIATE")
     cleanup = PostCommitMediaCleanup()
     try:
+        JobEligibilityService(store).require_current_attempt(str(job["id"]))
         if hasattr(orchestrator, "assert_service_apify_actor_ops_publishable"):
             orchestrator.assert_service_apify_actor_ops_publishable()
         ports.cache_source_avatars(
@@ -233,12 +235,19 @@ def run_user_feed_refresh(
     scheduled = (
         (job.get("payload_json") or {}).get("reason") == SCHEDULED_REFRESH_REASON
     )
+    current_user = store.get_user(str(job["user_id"]))
+    if current_user is None:
+        raise RuntimeError("refresh user no longer exists")
+    source_scope = (
+        "all" if scheduled else effective_manual_refresh_scope(job, current_user)
+    )
     config = build_user_config(
         store=store,
         workspace_id=job["workspace_id"],
         user_id=job["user_id"],
         base_config=storage.load_config(),
         schedule_scope="global" if scheduled else "all",
+        source_scope=source_scope,
     )
     cache = UserAnalysisCache(
         store,
@@ -266,6 +275,7 @@ def run_user_feed_refresh(
         )
         if hasattr(orchestrator, "assert_service_apify_actor_ops_publishable"):
             orchestrator.assert_service_apify_actor_ops_publishable()
+        JobEligibilityService(store).require_current_attempt(str(job["id"]))
     finally:
         cache.close()
     return _stage_user_feed_publication(

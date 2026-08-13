@@ -553,6 +553,7 @@ export type Job = {
   status: JobStatus
   created_at?: string
   started_at?: string | null
+  cancelled_at?: string | null
   finished_at?: string | null
   error_code?: string | null
   error_message?: string | null

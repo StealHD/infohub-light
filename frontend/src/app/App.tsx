@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -103,6 +103,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const [contentQueries, setContentQueries] = useState({ feed: '', saved: '', history: '' })
   const previousUserId = useRef(user.id)
   const actionGuard = useMemo(() => new ActionGeneration(user.id), [user.id])
+  const previousActionGuard = useRef(actionGuard)
   const feedActivity = useFeedActivity(api, user, actionGuard)
   const canMutate = user.role !== 'viewer'
   const settingsWorkspaceRoute = location.pathname === '/settings' || location.pathname.startsWith('/settings/')
@@ -122,17 +123,17 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   }, [contentRoute])
 
   useLayoutEffect(() => {
+    if (previousActionGuard.current !== actionGuard) {
+      previousActionGuard.current.invalidate()
+      previousActionGuard.current = actionGuard
+    }
     if (previousUserId.current !== user.id) {
       actionToast.clear()
       setContentQueries({ feed: '', saved: '', history: '' })
       void clearUserCache(queryClient, previousUserId.current)
     }
     previousUserId.current = user.id
-  }, [queryClient, user.id])
-
-  useEffect(() => {
-    return () => actionGuard.invalidate()
-  }, [actionGuard])
+  }, [actionGuard, queryClient, user.id])
 
   async function logout() {
     actionGuard.invalidate()
@@ -144,7 +145,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
 
   const outlet = <AppErrorBoundary key={location.pathname} surface="page">
     <Suspense fallback={<RouteLoadingState />}>
-      <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+      <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, cancelRefresh: canMutate ? feedActivity.cancelRefresh : () => undefined, canCancelRefresh: canMutate && feedActivity.canCancelRefresh, isCancellingRefresh: feedActivity.isCancellingRefresh, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
     </Suspense>
   </AppErrorBoundary>
 
@@ -157,7 +158,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
       onRefresh={canMutate ? feedActivity.refresh : undefined}
       onRetry={canMutate ? feedActivity.retry : undefined}
       onLogout={() => void logout()}
-      refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
+      refreshState={feedActivity.isCancellingRefresh ? 'stopping' : feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
       refreshMessage={feedActivity.notice?.message}
       refreshEventKey={feedActivity.notice?.key}
     >{outlet}</HeroWorkbenchShell>}

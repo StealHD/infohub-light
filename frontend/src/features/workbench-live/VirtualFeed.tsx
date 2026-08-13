@@ -19,6 +19,7 @@ import { cardLabelForViewer, workbenchSourceLabels, type WorkbenchCardModel } fr
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
+import { useMeasuredClampOverflow } from './useMeasuredClampOverflow'
 
 type VirtualFeedProps = {
   topInset?: number
@@ -65,39 +66,6 @@ function readViewportAnchor(scroll: HTMLDivElement, topInset: number): ViewportA
   const topRow = topCard?.closest<HTMLElement>('[data-item-id]')
   if (!topCard || !topRow?.dataset.itemId) return null
   return { id: topRow.dataset.itemId, offset: topCard.getBoundingClientRect().top - effectiveTop }
-}
-
-function useMeasuredClampOverflow(
-  cardId: string,
-  expanded: boolean,
-): {
-  overflow: boolean
-  primaryRef: (node: HTMLElement | null) => void
-  secondaryRef: (node: HTMLElement | null) => void
-} {
-  const primary = useRef<HTMLElement | null>(null)
-  const secondary = useRef<HTMLElement | null>(null)
-  const [overflow, setOverflow] = useState(false)
-
-  useLayoutEffect(() => {
-    if (expanded) return
-    const elements = [primary.current, secondary.current].filter((value): value is HTMLElement => Boolean(value))
-    const measure = () => setOverflow(elements.some((element) => element.scrollHeight > element.clientHeight + 1))
-    measure()
-    window.addEventListener('resize', measure)
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    elements.forEach((element) => observer?.observe(element))
-    return () => {
-      window.removeEventListener('resize', measure)
-      observer?.disconnect()
-    }
-  }, [cardId, expanded])
-
-  return {
-    overflow,
-    primaryRef: (node) => { primary.current = node },
-    secondaryRef: (node) => { secondary.current = node },
-  }
 }
 
 export function WorkbenchCard({
@@ -152,7 +120,7 @@ export function WorkbenchCard({
     overflow: measuredOverflow,
     primaryRef: measurePrimary,
     secondaryRef: measureSecondary,
-  } = useMeasuredClampOverflow(card.id, expanded)
+  } = useMeasuredClampOverflow(card.id, expanded, `${card.primaryText}\u0000${card.title}\u0000${card.summary ?? ''}`)
   const canExpand = measuredOverflow || card.hasDistinctDetail || card.mediaImages.length > 0
   const canToggleExpansion = canExpand || expanded
   const imageCountLabel = card.totalImageCount > 0
@@ -355,8 +323,19 @@ export function WorkbenchCard({
       </div>
     </div>
 
-    {sourceOverview ? <Card.Footer className="flex items-center px-0 pb-2 pt-1.5">
+    {sourceOverview ? <Card.Footer className="flex items-center gap-1 px-0 pb-2 pt-1.5">
       <span className="type-meta min-w-0 flex-1 text-muted">{relativeTime(card.publishedAt)}</span>
+      {canToggleExpansion && <Tooltip delay={600}>
+        <TooltipTriggerButton
+          data-expand-trigger
+          className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+          aria-label={`${expanded ? '收起' : '展开'} ${cardLabel}`}
+          aria-controls={detailsId}
+          aria-expanded={expanded}
+          onClick={onToggleExpanded}
+        >{expanded ? <Icons.FoldVertical size={15} aria-hidden="true" /> : <Icons.UnfoldVertical size={15} aria-hidden="true" />}</TooltipTriggerButton>
+        <Tooltip.Content {...topAnchoredTooltipProps}>{expanded ? '收起完整内容' : '展开完整内容'}</Tooltip.Content>
+      </Tooltip>}
     </Card.Footer> : <Card.Footer className="flex items-center gap-2 px-[19px] pb-[15px] pt-[10px]">
       <div
         data-card-expand-zone={canToggleExpansion ? 'true' : 'false'}
@@ -396,7 +375,7 @@ export function WorkbenchCard({
             disabled={readonly}
             aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
             onClick={onToggleSaved}
-          >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</TooltipTriggerButton>
+          ><Icons.Star size={15} fill={card.userState.is_saved ? 'currentColor' : 'none'} aria-hidden="true" /></TooltipTriggerButton>
           <Tooltip.Content {...topAnchoredTooltipProps}>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
         </Tooltip>
         <button

@@ -133,6 +133,7 @@ export function createServiceApi(client: ApiClient) {
       priority: 0,
     }),
     retryJob: (jobId: string) => client.post<Job>(`${resource('/api/jobs', jobId)}/retry`),
+    cancelJob: (jobId: string) => client.post<Job>(`${resource('/api/jobs', jobId)}/cancel`),
     createSourceTest: (sourceId: string, subscriptionId?: string) => client.post<Job>('/api/jobs/source-test', {
       source_id: sourceId,
       subscription_id: subscriptionId,

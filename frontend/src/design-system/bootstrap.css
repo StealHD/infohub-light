@@ -69,6 +69,10 @@ html[data-theme="light"] body {
 .bootstrap-shell-mark,
 .bootstrap-shell-nav-item,
 .bootstrap-shell-card,
+.bootstrap-shell-card-meta,
+.bootstrap-shell-card-title,
+.bootstrap-shell-card-line,
+.bootstrap-shell-card-footer i,
 .bootstrap-shell-agent-block,
 .bootstrap-shell-mobile-item {
   background: var(--inteliscope-bootstrap-surface-secondary);
@@ -118,7 +122,36 @@ html[data-theme="light"] body {
   gap: 12px;
 }
 
-.bootstrap-shell-card { height: 144px; border: 1px solid var(--inteliscope-bootstrap-separator); border-radius: 18px; }
+.bootstrap-shell-card {
+  display: grid;
+  height: 144px;
+  padding: 18px 19px 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--inteliscope-bootstrap-separator);
+  border-radius: 18px;
+  background: var(--inteliscope-bootstrap-surface);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 25px 16px 12px 12px 1fr;
+  gap: 6px;
+}
+.bootstrap-shell-card-meta { position: relative; width: 158px; background: transparent; }
+.bootstrap-shell-card-meta::before { position: absolute; top: 0; left: 0; width: 25px; height: 25px; border-radius: 50%; background: var(--inteliscope-bootstrap-surface-secondary); content: ""; }
+.bootstrap-shell-card-meta::after { position: absolute; top: 6px; left: 33px; width: 92px; height: 12px; border-radius: 999px; background: var(--inteliscope-bootstrap-surface-secondary); content: ""; }
+.bootstrap-shell-card-title { width: min(78%, 430px); border-radius: 6px; }
+.bootstrap-shell-card-line { width: 100%; border-radius: 5px; }
+.bootstrap-shell-card-line--short { width: 62%; }
+.bootstrap-shell-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 -19px;
+  padding: 8px 19px;
+  border-top: 1px solid var(--inteliscope-bootstrap-separator);
+}
+.bootstrap-shell-card-footer::before { width: 54px; height: 14px; margin-right: auto; border-radius: 999px; background: var(--inteliscope-bootstrap-surface-secondary); content: ""; }
+.bootstrap-shell-card-footer i { display: block; width: 24px; height: 24px; border-radius: 8px; }
 
 .bootstrap-shell-agent {
   min-height: 0;
@@ -151,6 +184,10 @@ html[data-theme="light"] body {
 .bootstrap-shell-control,
 .bootstrap-shell-nav-item,
 .bootstrap-shell-card,
+.bootstrap-shell-card-meta,
+.bootstrap-shell-card-title,
+.bootstrap-shell-card-line,
+.bootstrap-shell-card-footer i,
 .bootstrap-shell-agent-block,
 .bootstrap-shell-mobile-item {
   animation: bootstrap-shell-breathe var(--inteliscope-bootstrap-loading-duration) ease-in-out infinite;

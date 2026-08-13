@@ -12,6 +12,9 @@ export type AppOutletContext = {
   setQuery: (value: string) => void
   activity: FeedActivity
   refresh: () => void
+  cancelRefresh: () => void
+  canCancelRefresh: boolean
+  isCancellingRefresh: boolean
   reloadFeed: () => Promise<FeedSnapshot>
   beginAction: () => ActionToken
   isActionCurrent: (token: ActionToken) => boolean

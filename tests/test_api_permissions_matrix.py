@@ -65,6 +65,7 @@ def _seed_roles_and_sources(client, data_dir):
             "config": {"name": "Public Matrix RSS", "url": "https://example.com/public.xml"},
         },
     ).json()["data"]
+    client.post(f"/api/catalog/sources/{public_source['id']}/subscribe")
     owner_job = client.post("/api/jobs/user-feed-refresh", json={}).json()["data"]
 
     store = ServiceStore(data_dir)
@@ -77,6 +78,9 @@ def _seed_roles_and_sources(client, data_dir):
         source_type="rss",
         display_name="Member Private RSS",
         config={"name": "Member Private RSS", "url": "https://example.com/member.xml"},
+    )
+    store.create_subscription(
+        user_id=users["member"]["id"], source_id=member_private_id
     )
     UserFeedStore(store).save_snapshot(
         workspace_id=workspace["id"],

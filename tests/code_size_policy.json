@@ -82,17 +82,17 @@
       {
         "path": "frontend/e2e/production-workbench.spec.ts",
         "category": "test",
-        "max_lines": 1920
+        "max_lines": 2003
       },
       {
         "path": "frontend/src/api/types.ts",
         "category": "production",
-        "max_lines": 1737
+        "max_lines": 1738
       },
       {
         "path": "frontend/src/app/App.test.tsx",
         "category": "test",
-        "max_lines": 4275
+        "max_lines": 4298
       },
       {
         "path": "frontend/src/features/admin-heroui/HeroSubscriptionsPage.tsx",
@@ -117,7 +117,7 @@
       {
         "path": "frontend/src/features/changelog/changelogEntries.ts",
         "category": "production",
-        "max_lines": 818
+        "max_lines": 828
       },
       {
         "path": "frontend/src/features/notifications/HeroNotificationTargets.tsx",
@@ -142,17 +142,17 @@
       {
         "path": "frontend/src/features/workbench-live/HeroWorkbenchPage.tsx",
         "category": "production",
-        "max_lines": 1110
+        "max_lines": 1103
       },
       {
         "path": "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
         "category": "production",
-        "max_lines": 1554
+        "max_lines": 1541
       },
       {
         "path": "frontend/src/features/workbench-live/VirtualFeed.tsx",
         "category": "production",
-        "max_lines": 906
+        "max_lines": 885
       },
       {
         "path": "scripts/test_gate.py",
@@ -242,7 +242,7 @@
       {
         "path": "src/services/job_queue.py",
         "category": "production",
-        "max_lines": 1038
+        "max_lines": 1015
       },
       {
         "path": "src/services/media_cache.py",
@@ -297,12 +297,12 @@
       {
         "path": "src/storage/service_store.py",
         "category": "production",
-        "max_lines": 11725
+        "max_lines": 11737
       },
       {
         "path": "tests/test_api_service.py",
         "category": "test",
-        "max_lines": 5060
+        "max_lines": 5211
       },
       {
         "path": "tests/test_apify_actor_alerts.py",
@@ -422,10 +422,16 @@
         "max_lines": 259
       },
       {
+        "path": "frontend/e2e/production-workbench.spec.ts",
+        "symbol": "beforeEach:callback#39",
+        "category": "test",
+        "max_lines": 208
+      },
+      {
         "path": "frontend/src/api/service.ts",
         "symbol": "createServiceApi",
         "category": "production",
-        "max_lines": 385
+        "max_lines": 386
       },
       {
         "path": "frontend/src/features/admin-heroui/HeroAgentsPage.tsx",
@@ -485,7 +491,7 @@
         "path": "frontend/src/features/jobs/useFeedActivity.ts",
         "symbol": "useFeedActivity",
         "category": "production",
-        "max_lines": 196
+        "max_lines": 177
       },
       {
         "path": "frontend/src/features/notifications/HeroNotificationTargets.tsx",
@@ -545,7 +551,7 @@
         "path": "frontend/src/features/workbench-live/HeroWorkbenchPage.tsx",
         "symbol": "HeroWorkbenchPage",
         "category": "production",
-        "max_lines": 991
+        "max_lines": 983
       },
       {
         "path": "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
@@ -557,7 +563,7 @@
         "path": "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
         "symbol": "HeroWorkbenchShell",
         "category": "production",
-        "max_lines": 894
+        "max_lines": 882
       },
       {
         "path": "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
@@ -581,7 +587,7 @@
         "path": "frontend/src/features/workbench-live/VirtualFeed.tsx",
         "symbol": "WorkbenchCard",
         "category": "production",
-        "max_lines": 342
+        "max_lines": 353
       },
       {
         "path": "scripts/migrate_apify_actor_ops_v15.py",

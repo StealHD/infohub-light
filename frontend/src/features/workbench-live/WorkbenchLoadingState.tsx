@@ -10,7 +10,26 @@ export function WorkbenchFeedSkeleton() {
         className="pb-3"
         style={{ height: WORKBENCH_COLLAPSED_ROW_PX }}
       >
-        <CalmSkeleton className="h-full w-full rounded-[var(--inteliscope-radius-feed-card)] border border-separator" />
+        <div data-workbench-feed-skeleton-card className="h-full overflow-hidden rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary">
+          <div className="px-[19px] pt-[18px]">
+            <div className="mb-3 flex items-center gap-2">
+              <CalmSkeleton className="size-[25px] shrink-0 rounded-full" />
+              <CalmSkeleton className="h-3 w-28 rounded-md" />
+              <CalmSkeleton className="h-3 w-10 rounded-md" />
+            </div>
+            <CalmSkeleton className="h-5 w-[min(78%,34rem)] rounded-md" />
+            <CalmSkeleton className="mt-3 h-4 w-full rounded-md" />
+            <CalmSkeleton className="mt-2 h-4 w-[62%] rounded-md" />
+          </div>
+          <div className="mt-3 flex items-center gap-2 border-t border-separator px-[19px] py-3">
+            <CalmSkeleton className="h-5 w-12 rounded-full" />
+            <CalmSkeleton className="h-3 w-14 rounded-md" />
+            <span className="flex-1" />
+            <CalmSkeleton className="size-8 rounded-lg" />
+            <CalmSkeleton className="size-8 rounded-lg" />
+            <CalmSkeleton className="size-8 rounded-lg" />
+          </div>
+        </div>
         <span className="sr-only">{WORKBENCH_SKELETON_CARD_PX}px 内容卡片占位</span>
       </div>)}
     </div>

@@ -264,6 +264,9 @@ def cancel_claimed_job_with_validation(
             reason=reason,
             worker_id=worker_id,
             claim_token=str(job["claim_token"]),
+            error_code=(
+                "job_cancelled" if reason == "user_cancelled" else "job_invalidated"
+            ),
             commit=False,
         )
         if owns_transaction:

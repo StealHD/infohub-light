@@ -1,7 +1,7 @@
 import type { Job } from '../../api/types'
 
 export type FeedActivity = {
-  state: 'idle' | 'queued' | 'running' | 'succeeded' | 'partial' | 'failed'
+  state: 'idle' | 'queued' | 'running' | 'stopping' | 'cancelled' | 'succeeded' | 'partial' | 'failed'
   message?: string
   retryable: boolean
   terminal: boolean
@@ -40,6 +40,14 @@ export function latestFeedJob(jobs: Job[], userId: string): Job | undefined {
 
 export function describeFeedJob(job: Job | undefined, workerStatus = 'ready', now = Date.now()): FeedActivity {
   if (!job) return { state: 'idle', retryable: false, terminal: true }
+  if (job.status === 'running' && job.cancelled_at) {
+    return {
+      state: 'stopping',
+      message: '正在安全停止；已发出的请求会先到达安全边界，结果不会写入信息流。',
+      retryable: false,
+      terminal: false,
+    }
+  }
   if (pollingTimedOut(job, now)) {
     return {
       state: 'failed',
@@ -50,7 +58,7 @@ export function describeFeedJob(job: Job | undefined, workerStatus = 'ready', no
   }
   if (job.status === 'queued') {
     const message = workerStatus === 'ready'
-      ? '更新任务已开始，将从全部已启用订阅抓取并整理新内容。'
+      ? '更新任务已开始，将从当前账户有权刷新的订阅获取并整理新内容。'
       : '更新任务正在等待后台服务恢复。'
     return { state: 'queued', message, retryable: false, terminal: false }
   }
@@ -111,7 +119,7 @@ export function describeFeedJob(job: Job | undefined, workerStatus = 'ready', no
       terminal: true,
     }
   }
-  return { state: 'idle', message: '任务已取消。', retryable: false, terminal: true }
+  return { state: 'cancelled', message: '已安全停止，本次结果未写入信息流。', retryable: false, terminal: true }
 }
 
 /**
@@ -121,7 +129,7 @@ export function describeFeedJob(job: Job | undefined, workerStatus = 'ready', no
  * snapshot or an actionable partial/failure result.
  */
 export function feedJobNotice(job: Job | undefined): FeedNotice | undefined {
-  if (!job || (job.status !== 'succeeded' && job.status !== 'partial' && job.status !== 'failed')) return undefined
+  if (!job || (job.status !== 'succeeded' && job.status !== 'partial' && job.status !== 'failed' && job.status !== 'cancelled')) return undefined
   const result = resultOf(job)
   if (job.status === 'succeeded' && result.snapshot_created !== true) return undefined
   const activity = describeFeedJob(job)

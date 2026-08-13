@@ -32,16 +32,24 @@ function setup(workerStatus: string, initialJobs: Job[] = []) {
     schema_version: 2,
     items: [{ id: 'latest-item', title: '最新条目' }],
   })
+  const cancelJob = vi.fn().mockImplementation(async (jobId: string) => ({
+    ...queuedJob,
+    id: jobId,
+    status: 'cancelled' as const,
+    cancelled_at: '2026-07-14T06:00:01Z',
+    finished_at: '2026-07-14T06:00:01Z',
+  }))
   const api = {
     feedJobs: vi.fn().mockResolvedValue({ jobs: initialJobs }),
     feedSchedule,
     createFeedRefresh,
     latestFeed,
+    cancelJob,
   } as unknown as ServiceApi
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
   const result = renderHook(() => useFeedActivity(api, user, new ActionGeneration(user.id)), { wrapper })
-  return { ...result, client, feedSchedule, createFeedRefresh, latestFeed }
+  return { ...result, client, feedSchedule, createFeedRefresh, latestFeed, cancelJob }
 }
 
 describe('useFeedActivity', () => {
@@ -70,6 +78,34 @@ describe('useFeedActivity', () => {
 
     await waitFor(() => expect(hook.createFeedRefresh).toHaveBeenCalledTimes(1))
     expect(hook.feedSchedule).toHaveBeenCalledTimes(2)
+  })
+
+  it('submits the same active refresh for cancellation and reports the terminal state', async () => {
+    const hook = setup('ready', [queuedJob])
+    await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
+
+    act(() => hook.result.current.cancelRefresh())
+
+    await waitFor(() => expect(hook.cancelJob).toHaveBeenCalledWith('job-1'))
+    await waitFor(() => expect(hook.result.current.currentJob).toMatchObject({
+      status: 'cancelled', cancelled_at: '2026-07-14T06:00:01Z',
+    }))
+    expect(hook.result.current.activity.state).toBe('cancelled')
+    expect(hook.latestFeed).not.toHaveBeenCalled()
+  })
+
+  it('optimistically enters safe-stopping while a running cancellation is pending', async () => {
+    const running = { ...queuedJob, status: 'running' as const }
+    const cancellation = deferred<Job>()
+    const hook = setup('ready', [running])
+    hook.cancelJob.mockReturnValueOnce(cancellation.promise)
+    await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('running'))
+
+    act(() => hook.result.current.cancelRefresh())
+
+    await waitFor(() => expect(hook.result.current.activity.state).toBe('stopping'))
+    expect(hook.result.current.currentJob?.cancelled_at).toBeTruthy()
+    act(() => cancellation.resolve({ ...running, cancelled_at: '2026-07-14T06:00:01Z' }))
   })
 
   it('does not replay a historical terminal job when the page first loads', async () => {

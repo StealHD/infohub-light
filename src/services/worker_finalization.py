@@ -213,7 +213,7 @@ def _finalize_failed_job(
     if publication.cleanup is not None:
         publication.cleanup.discard()
         publication.cleanup = None
-    eligibility = JobEligibilityService(store).evaluate(job)
+    eligibility = JobEligibilityService(store).evaluate_current_attempt(str(job["id"]))
     if not eligibility.allowed:
         reason = str(eligibility.reason or "job_invalidated")
         finalized = _cancel_ineligible_job(
@@ -270,7 +270,7 @@ def _finalize_successful_job(
     ports: WorkerFinalizationPorts,
 ) -> FinalizedJob:
     update_observability_context(stage="finalize")
-    eligibility = JobEligibilityService(store).evaluate(job)
+    eligibility = JobEligibilityService(store).evaluate_current_attempt(str(job["id"]))
     if not eligibility.allowed:
         store.connect().rollback()
         if publication.cleanup is not None:
@@ -317,7 +317,7 @@ def execute_claimed_job(
     logger: logging.Logger,
 ) -> FinalizedJob:
     update_observability_context(stage="eligibility")
-    eligibility = JobEligibilityService(store).evaluate(job)
+    eligibility = JobEligibilityService(store).evaluate_current_attempt(str(job["id"]))
     if not eligibility.allowed:
         reason = str(eligibility.reason or "job_invalidated")
         finalized = _cancel_ineligible_job(

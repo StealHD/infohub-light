@@ -2,6 +2,7 @@ import { useMutation, useQueryClient, type QueryFilters, type QueryKey } from '@
 import { useRef } from 'react'
 
 import { ApiError } from '../../api/client'
+import { queryKeys } from '../../api/queryKeys'
 import type { ServiceApi } from '../../api/service'
 import type { User, UserItemState } from '../../api/types'
 import type { ActionToken } from '../../app/actionGeneration'
@@ -207,12 +208,30 @@ export function useOptimisticItemState(options: ItemStateMutationOptions) {
     onSuccess: (result, variables, context) => {
       if (!context) return
       const chain = chains.current.get(context.chainKey)
+      let chainSettled = false
       if (chain) {
         captureChainQueries(context.token.userId, variables.id, chain)
         chain.operations.delete(context.sequence)
         confirmItemStateOperation(chain, context.sequence, variables.patch, result)
         if (options.isActionCurrent(context.token)) applyChain(context.token.userId, variables.id, chain)
-        if (chain.operations.size === 0) chains.current.delete(context.chainKey)
+        chainSettled = chain.operations.size === 0
+        if (chainSettled) chains.current.delete(context.chainKey)
+      }
+      if (options.isActionCurrent(context.token) && (!chain || chainSettled)) {
+        // The response is authoritative once this item's mutation chain has
+        // settled. Reconcile every cached feed family as well as the
+        // optimistic snapshot, so a concurrent observer cannot leave the
+        // visible card showing the pre-save star until a full reload.
+        queryClient.setQueriesData(
+          itemStateQueryFilters(context.token.userId),
+          (data) => patchItemStateInData(data, variables.id, result),
+        )
+      }
+      // A saved collection may already be cached as an empty page. Patching
+      // item state cannot add this newly saved item to that response, so make
+      // the collection stale after the server accepts the save.
+      if (variables.patch.is_saved === true) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.saved(context.token.userId) })
       }
       if (!options.isActionCurrent(context.token)) return
       const action = String(Object.keys(variables.patch)[0] ?? 'state')

@@ -332,6 +332,27 @@ describe('VirtualFeed', () => {
     expect(agentAction).toHaveTextContent('问 Agent')
   })
 
+  it('uses the sidebar star icon and fills it only for saved content', () => {
+    const unsaved = toWorkbenchCardModel(makeItem(1))
+    const saved = toWorkbenchCardModel({
+      ...makeItem(2),
+      user_state: { is_read: false, is_saved: true, is_later: false, dismissed: false },
+    })
+    render(<VirtualFeed
+      cards={[unsaved, saved]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const unsavedIcon = screen.getByRole('button', { name: '收藏 信息 1' }).querySelector('.lucide-star')
+    const savedIcon = screen.getByRole('button', { name: '取消收藏 信息 2' }).querySelector('.lucide-star')
+    expect(unsavedIcon).toHaveAttribute('fill', 'none')
+    expect(savedIcon).toHaveAttribute('fill', 'currentColor')
+  })
+
   it('does not nest interactive card actions inside tooltip trigger controls', () => {
     const view = render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}

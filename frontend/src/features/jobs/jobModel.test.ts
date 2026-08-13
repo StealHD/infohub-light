@@ -92,4 +92,21 @@ describe('feed job model', () => {
     })
     expect(describeFeedJob(oldJob, 'ready', now).message).toContain('180 秒')
   })
+
+  it('distinguishes a persisted safe-stop request from a cancelled terminal state', () => {
+    const stopping = job({
+      status: 'running',
+      cancelled_at: '2026-07-13T10:02:30Z',
+      created_at: '2026-07-13T10:00:00Z',
+    })
+    expect(describeFeedJob(stopping, 'ready', Date.parse('2026-07-13T10:10:00Z'))).toMatchObject({
+      state: 'stopping', terminal: false, retryable: false,
+    })
+
+    const cancelled = job({ status: 'cancelled', cancelled_at: '2026-07-13T10:02:30Z' })
+    expect(describeFeedJob(cancelled)).toMatchObject({ state: 'cancelled', terminal: true })
+    expect(feedJobNotice(cancelled)).toMatchObject({
+      state: 'cancelled', message: '已安全停止，本次结果未写入信息流。',
+    })
+  })
 })

@@ -276,6 +276,8 @@ test.beforeEach(async ({ page }) => {
   let manualReloadGate: Promise<void> | null = null
   let releaseManualReload = () => undefined
   let feedbackRefreshRequested = false
+  let refreshCancelled = false
+  let savedDuringSessionId: string | null = null
   let feedbackRetryRequests = 0
   let latestFeedRequests = 0
   let feedUpdateRequests = 0
@@ -348,7 +350,16 @@ test.beforeEach(async ({ page }) => {
         item_count: body.article_ids.length,
       }
     }
-    else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
+    else if (url.pathname === '/api/feed/saved') {
+      const savedDuringSession = savedDuringSessionId
+        ? items.find((item) => item.id === savedDuringSessionId)
+        : undefined
+      data = {
+        items: savedDuringSession
+          ? [{ ...savedDuringSession, user_state: { ...savedDuringSession.user_state, is_saved: true } }]
+          : [savedRouteItem],
+      }
+    }
     else if (url.pathname === '/api/feed/history') {
       const sourceId = url.searchParams.get('source_id')
       const offset = Number(url.searchParams.get('offset') || '0')
@@ -403,6 +414,18 @@ test.beforeEach(async ({ page }) => {
         created_at: backgroundRefreshCreatedAt,
       }
     }
+    else if (url.pathname === '/api/jobs/refresh-1/cancel' && route.request().method() === 'POST') {
+      refreshCancelled = true
+      data = {
+        id: 'refresh-1',
+        user_id: 'e2e-user',
+        job_type: 'user_feed_refresh',
+        status: 'cancelled',
+        created_at: backgroundRefreshCreatedAt,
+        cancelled_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+      }
+    }
     else if (url.pathname === '/api/jobs') data = {
       jobs: !feedbackRefreshRequested
         ? []
@@ -410,9 +433,10 @@ test.beforeEach(async ({ page }) => {
             id: 'refresh-1',
             user_id: 'e2e-user',
             job_type: 'user_feed_refresh',
-            status: backgroundRefreshComplete ? (feedbackMode ? 'failed' : 'succeeded') : 'queued',
+            status: refreshCancelled ? 'cancelled' : backgroundRefreshComplete ? (feedbackMode ? 'failed' : 'succeeded') : 'queued',
             created_at: backgroundRefreshCreatedAt,
-            finished_at: backgroundRefreshComplete ? new Date().toISOString() : null,
+            cancelled_at: refreshCancelled ? new Date().toISOString() : null,
+            finished_at: backgroundRefreshComplete || refreshCancelled ? new Date().toISOString() : null,
             retryable: feedbackMode && backgroundRefreshComplete,
             error_message: feedbackMode && backgroundRefreshComplete ? '模拟信息流更新失败' : undefined,
             result: {},
@@ -434,6 +458,10 @@ test.beforeEach(async ({ page }) => {
       token_ttl_days: 90,
       max_active: 5,
       connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
+    }
+    else if (url.pathname.startsWith('/api/me/items/') && url.pathname.endsWith('/state') && route.request().method() === 'PATCH') {
+      savedDuringSessionId = decodeURIComponent(url.pathname.split('/')[4] || '')
+      data = { is_read: false, is_saved: true, is_later: false, dismissed: false }
     }
     else if (url.pathname.startsWith('/api/feed/items/')) {
       const item = [...items, rollingItem, savedRouteItem, historyRouteItem, ...tsuchaHistoryItems, socialRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
@@ -575,6 +603,35 @@ test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('manual refresh safely stops on a second click and a newly saved item is immediately authoritative', async ({ page }) => {
+  await page.goto('/feed')
+  const newestItem = items.at(-1)!
+  const card = page.getByRole('article', { name: newestItem.title, exact: true })
+  await expect(card).toBeVisible()
+
+  await page.getByRole('button', { name: '获取新内容' }).click()
+  const stop = page.getByRole('button', { name: '安全停止获取新内容' })
+  await expect(stop).toBeVisible()
+  const cancelRequest = page.waitForRequest((request) => (
+    request.method() === 'POST' && request.url().endsWith('/api/jobs/refresh-1/cancel')
+  ))
+  await stop.click()
+  await cancelRequest
+  await expect(page.getByText('信息流获取已停止', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '获取新内容' })).toBeVisible()
+
+  const save = card.getByRole('button', { name: `收藏 ${newestItem.title}` })
+  const saveRequest = page.waitForRequest((request) => (
+    request.method() === 'PATCH' && request.url().endsWith(`/api/me/items/${newestItem.id}/state`)
+  ))
+  await save.click()
+  await saveRequest
+  await expect(save.locator('.lucide-star')).toHaveAttribute('fill', 'currentColor')
+  await page.goto('/saved')
+  await expect(page.getByRole('article', { name: newestItem.title, exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 for (const viewport of [
   { width: 320, height: 700 },
   { width: 390, height: 844 },
@@ -603,11 +660,30 @@ for (const viewport of [
     expect(themeBox!.x).toBeLessThan(insightsBox!.x)
     expect(insightsBox!.x).toBeLessThan(agentBox!.x)
 
+    const timelineTab = page.getByRole('tab', { name: '时间流' })
+    const timelineIcon = timelineTab.locator('[data-feed-mode-icon="timeline"]')
+    const timelineIndicator = timelineTab.locator('[data-slot="tabs-indicator"]')
+    const [timelineTabBounds, timelineIconBounds, timelineIndicatorBounds] = await Promise.all([
+      timelineTab.boundingBox(),
+      timelineIcon.boundingBox(),
+      timelineIndicator.boundingBox(),
+    ])
+    expect(timelineTabBounds).not.toBeNull()
+    expect(timelineIconBounds).not.toBeNull()
+    expect(timelineIndicatorBounds).not.toBeNull()
+    expect(Math.abs(timelineIndicatorBounds!.width - timelineIconBounds!.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(
+      timelineIndicatorBounds!.x + timelineIndicatorBounds!.width / 2
+      - (timelineIconBounds!.x + timelineIconBounds!.width / 2),
+    )).toBeLessThanOrEqual(1)
+    expect(timelineIndicatorBounds!.x).toBeGreaterThanOrEqual(timelineTabBounds!.x)
+    expect(timelineIndicatorBounds!.x + timelineIndicatorBounds!.width).toBeLessThanOrEqual(timelineTabBounds!.x + timelineTabBounds!.width)
+
     const viewBarTooltipCases: Array<{ trigger: Locator; text: string }> = [
       { trigger: page.getByRole('button', { name: '排序依据：发布时间' }), text: '当前按发布时间；点击改为入库时间' },
       { trigger: page.getByRole('button', { name: '排序顺序：最新优先' }), text: '当前最新优先；点击改为最旧优先' },
       { trigger: page.getByRole('button', { name: '重新载入信息流数据' }), text: '重新载入本地信息流数据' },
-      { trigger: page.getByRole('button', { name: '获取新内容' }), text: '触发所有已启用订阅获取新内容' },
+      { trigger: page.getByRole('button', { name: '获取新内容' }), text: '仅刷新你自己的私人订阅' },
     ]
     if (viewport.width < 640) {
       viewBarTooltipCases.unshift({ trigger: page.getByRole('button', { name: '搜索信息流' }), text: '搜索信息流' })
@@ -817,6 +893,11 @@ test('a hard refresh preserves shell geometry and reveals only loaded content', 
   await expect(page.locator('[data-bootstrap-region="header"]')).toBeVisible()
   await expect(bootFeed).toBeVisible()
   await expect(bootAgent).toBeVisible()
+  await expect(bootFeed.locator('.bootstrap-shell-card')).toHaveCount(5)
+  await expect(bootFeed.locator('.bootstrap-shell-card-meta')).toHaveCount(5)
+  await expect(bootFeed.locator('.bootstrap-shell-card-title')).toHaveCount(5)
+  await expect(bootFeed.locator('.bootstrap-shell-card-line')).toHaveCount(10)
+  await expect(bootFeed.locator('.bootstrap-shell-card-footer i')).toHaveCount(15)
   await expect(page.locator('.app-loading')).toHaveCount(0)
   expect(await bootShell.evaluate((element) => getComputedStyle(element).opacity)).toBe('1')
   expect(await bootShell.evaluate((element) => element.getAnimations({ subtree: false }).length)).toBe(0)
@@ -832,6 +913,8 @@ test('a hard refresh preserves shell geometry and reveals only loaded content', 
   await expect(page.getByRole('status', { name: '正在读取信息流' })).toBeVisible()
   await expect(page.getByRole('status', { name: '正在读取 Agent 面板' })).toBeVisible()
   await expect(page.locator('[data-workbench-feed-skeleton-row]')).toHaveCount(5)
+  await expect(page.locator('[data-workbench-feed-skeleton-card]')).toHaveCount(5)
+  await expect(page.locator('[data-workbench-feed-skeleton-card]').first().locator('.inteliscope-skeleton-calm')).toHaveCount(11)
   await expect(page.locator('[data-agent-skeleton-block]')).toHaveCount(3)
 
   const feedReveal = page.locator('[data-loading-reveal="feed"]')
@@ -1738,7 +1821,7 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
     return anchor
   })
   expect(anchorBefore.name).not.toBe('')
-  await expect(page.getByRole('button', { name: '获取新内容' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '安全停止获取新内容' })).toBeEnabled()
   await page.evaluate(() => (window as typeof window & {
     completeBackgroundRefresh: () => Promise<void>
   }).completeBackgroundRefresh())

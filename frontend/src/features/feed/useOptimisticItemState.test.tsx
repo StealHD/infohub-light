@@ -129,6 +129,28 @@ describe('useOptimisticItemState', () => {
     expect(hook.client.getQueryData(queryKeys.feed(otherUser.id, feedOptions))).toBe(seeded.unrelated.otherUserFeed)
   })
 
+  it('invalidates a previously cached saved collection after a successful save', async () => {
+    const updateItemState = vi.fn().mockResolvedValue({
+      is_read: false,
+      is_saved: true,
+      is_later: false,
+      dismissed: false,
+    })
+    const hook = setup(updateItemState)
+    const feedKey = queryKeys.feed(user.id, feedOptions)
+    const savedKey = queryKeys.saved(user.id)
+    hook.client.setQueryData(feedKey, { schema_version: 1, items: [item()] })
+    hook.client.setQueryData(savedKey, {
+      pages: [{ schema_version: 1, scope: 'user', items: [], item_count: 0, limit: 50, offset: 0 }],
+      pageParams: [0],
+    })
+
+    act(() => hook.result.current.mutateItem('article-1', { is_saved: true }))
+
+    await waitFor(() => expect(updateItemState).toHaveBeenCalledWith('article-1', { is_saved: true }))
+    await waitFor(() => expect(hook.client.getQueryState(savedKey)?.isInvalidated).toBe(true))
+  })
+
   it('rolls back relevant caches without restoring or rewriting unrelated caches', async () => {
     const response = deferred<UserItemState>()
     const updateItemState = vi.fn().mockReturnValue(response.promise)

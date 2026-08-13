@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from src.services.feed_run import SourceOutcome
-from src.services.job_eligibility import JobIneligibleError
+from src.services.job_eligibility import JobIneligibleError, effective_manual_refresh_scope
 from src.services.job_queue import JobQueue
 from src.services.quota import QuotaExceeded, QuotaService
 from src.services.source_health import SourceHealthService
@@ -46,6 +46,23 @@ def test_job_queue_claims_and_completes_job(tmp_path, monkeypatch):
     assert loaded["status"] == "succeeded"
     assert loaded["result_json"] == {"count": 1}
     assert loaded["locked_until"] is None
+
+
+def test_retry_of_manual_refresh_preserves_its_narrowed_scope(tmp_path, monkeypatch):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    job, created = queue.create_user_feed_refresh_if_absent(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        payload={"reason": "manual_service_refresh", "refresh_scope": "private"},
+    )
+    assert created is True
+    queue.cancel_job(job["id"], user_id=owner["id"])
+
+    retried = queue.retry_job(job["id"], user_id=owner["id"])
+
+    assert retried["payload_json"]["refresh_scope"] == "private"
+    assert effective_manual_refresh_scope(retried, owner) == "private"
 
 
 def test_complete_job_can_join_publication_transaction(tmp_path, monkeypatch):
