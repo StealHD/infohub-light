@@ -29,6 +29,7 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 
 from .agent_delegation_routes import register_agent_delegation_routes
 from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
+from .catalog_metadata_routes import register_catalog_metadata_routes
 from .context import ApiContext
 from .feed_routes import (
     register_dashboard_runtime_routes,
@@ -165,7 +166,6 @@ from ..services.source_type_registry import (
     X_PROFILE_SETUP_TYPE,
     YOUTUBE_CHANNEL_SETUP_TYPE,
     catalog_source_setup_type,
-    list_source_setup_types,
     normalize_platform_profile_setup_config,
     platform_for_profile_setup_type,
     project_catalog_source_config_for_web,
@@ -2596,6 +2596,8 @@ def create_app(
         storage_governance=storage_governance,
         apify_key_pool=apify_key_pool,
         apify_actor_resilience_for=apify_actor_resilience_for,
+        apify_actor_ops_for=apify_actor_ops_for,
+        source_setup_availability=source_setup_availability,
         secret_values=secret_values,
         secret_quota=secret_quota,
         source_health=source_health,
@@ -6046,89 +6048,7 @@ def create_app(
         )
 
     register_secret_mutation_routes(app)
-
-    @app.get("/api/catalog/source-types")
-    async def catalog_source_types(
-        response: Response,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        generation, availability = source_setup_availability(
-            str(user["workspace_id"])
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            {
-                "schema_version": 1,
-                "generation": generation,
-                "source_types": list_source_setup_types(
-                    availability=availability
-                ),
-            }
-        )
-
-    @app.get("/api/catalog/source-capabilities")
-    async def catalog_source_capabilities(
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        ops = apify_actor_ops_for(str(user["workspace_id"]))
-        capabilities = []
-        for route in ops.list_routes():
-            if not ops.source_capability_ready(str(route["route_id"])):
-                continue
-            platform = str(route["platform"])
-            fields = (
-                [
-                    {
-                        "name": "url",
-                        "input_type": "text",
-                        "required": True,
-                    },
-                    {
-                        "name": "keep_latest_item",
-                        "input_type": "boolean",
-                        "required": False,
-                    },
-                ]
-                if platform == "youtube"
-                else [
-                    {
-                        "name": "profile_id",
-                        "input_type": "select",
-                        "required": True,
-                    },
-                    {
-                        "name": "target",
-                        "input_type": "text",
-                        "required": True,
-                    },
-                ]
-            )
-            capabilities.append(
-                {
-                    "profile_id": str(route["route_id"]),
-                    "platform": platform,
-                    "target_type": str(route["target_type"]),
-                    "capability": str(route["capability"]),
-                    "mode": str(route["mode"]),
-                    "generation": int(route["generation"]),
-                    "storage_type": (
-                        YOUTUBE_CHANNEL_SETUP_TYPE
-                        if platform == "youtube"
-                        else "apify_social"
-                    ),
-                    "fields": fields,
-                }
-            )
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            {
-                "schema_version": 1,
-                "generation": ops.catalog_generation(),
-                "support_profiles": supported_route_profiles(),
-                "capabilities": capabilities,
-            }
-        )
+    register_catalog_metadata_routes(app)
 
     @app.post("/api/catalog/import-config-sources")
     async def catalog_import_config_sources(

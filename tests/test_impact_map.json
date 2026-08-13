@@ -49,6 +49,7 @@
         "src/observability_context.py",
         "src/api/notification_routes.py",
         "src/api/notification_transport_routes.py",
+        "src/api/catalog_metadata_routes.py",
         "src/services/notification_telegram_transport.py",
         "src/services/operation_log.py",
         "src/services/workspace_telegram_transport.py",
@@ -109,6 +110,7 @@
       "globs": [
         "src/apify_actor_identity.py",
         "src/api/apify_key_pool_routes.py",
+        "src/api/catalog_metadata_routes.py",
         "src/services/apify_actor_ops.py",
         "src/services/apify_actor_resilience.py",
         "src/services/apify_actor_freshness.py",

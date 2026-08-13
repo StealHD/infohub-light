@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..auth import AuthSettings
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
@@ -33,10 +33,17 @@ from ..services.user_item_state import UserItemStateStore
 from ..services.workspace_telegram_transport import WorkspaceTelegramTransportService
 from ..storage.service_store import ServiceStore
 
+if TYPE_CHECKING:
+    from ..services.apify_actor_ops import ApifyActorOpsService
+
 
 ReadinessCheck = Callable[[], None]
 FeedWindowDays = Callable[[], int]
 ApifyActorResilienceFactory = Callable[[str], ApifyActorResilienceService]
+ApifyActorOpsFactory = Callable[[str], "ApifyActorOpsService"]
+SourceSetupAvailability = Callable[
+    [str], tuple[int, dict[str, tuple[str, str | None]]]
+]
 SecretProjection = Callable[[dict[str, Any]], dict[str, Any]]
 SecretUsage = Callable[[dict[str, Any]], list[dict[str, str]]]
 SecretMetadataValidator = Callable[[Any], tuple[str, str, str, str, str]]
@@ -66,6 +73,8 @@ class ApiContext:
     storage_governance: StorageGovernanceService
     apify_key_pool: ApifyKeyPoolService
     apify_actor_resilience_for: ApifyActorResilienceFactory
+    apify_actor_ops_for: ApifyActorOpsFactory
+    source_setup_availability: SourceSetupAvailability
     secret_values: SecretStore
     secret_quota: ApifySecretQuotaService
     source_health: SourceHealthService
