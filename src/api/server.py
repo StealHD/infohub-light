@@ -30,6 +30,10 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 from .agent_delegation_routes import register_agent_delegation_routes
 from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
 from .catalog_metadata_routes import register_catalog_metadata_routes
+from .catalog_membership_routes import (
+    register_catalog_list_route,
+    register_catalog_membership_routes,
+)
 from .context import ApiContext
 from .feed_routes import (
     register_dashboard_runtime_routes,
@@ -354,12 +358,6 @@ class SourcePatchRequest(BaseModel):
     config: dict[str, Any] | None = None
     secret_env: str | None = None
     enabled: bool | None = None
-
-
-class SourceShareRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    scope: Literal["public", "workspace"]
 
 
 class ApifyActorRouteOrderRequest(BaseModel):
@@ -2598,6 +2596,7 @@ def create_app(
         apify_actor_resilience_for=apify_actor_resilience_for,
         apify_actor_ops_for=apify_actor_ops_for,
         source_setup_availability=source_setup_availability,
+        public_source=public_source,
         secret_values=secret_values,
         secret_quota=secret_quota,
         source_health=source_health,
@@ -3812,25 +3811,7 @@ def create_app(
 
     register_user_routes(app)
 
-    @app.get("/api/catalog/sources")
-    async def catalog_sources(
-        include_disabled: bool = False,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        if include_disabled and not _is_admin(user):
-            raise ApiError(
-                "forbidden",
-                "admin role required to list disabled sources",
-                status_code=403,
-            )
-        return ok(
-            {
-                "sources": visible_sources(
-                    user,
-                    include_disabled=include_disabled,
-                )
-            }
-        )
+    register_catalog_list_route(app)
 
     register_storage_routes(app)
 
@@ -6712,93 +6693,7 @@ def create_app(
         request.state.operation_changed_fields = sorted(provided)
         return ok(public_source(updated, user))
 
-    @app.get("/api/catalog/sources/{source_id}/usage")
-    async def catalog_source_usage(
-        source_id: str,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        visible_source_or_404(source_id, user)
-        return ok({"source_id": source_id, **store.source_subscription_usage(source_id)})
-
-    @app.post("/api/catalog/sources/{source_id}/share")
-    async def catalog_source_share(
-        source_id: str,
-        payload: SourceShareRequest,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        shared = subscription_mutations.rest_share_source(
-            SubscriptionActor.from_user(user),
-            source_id=source_id,
-            target_scope=payload.scope,
-        )
-        request.state.operation_changed_fields = ["scope"]
-        return ok(
-            {
-                "source": public_source(shared, user),
-                "management_transferred": True,
-                "notice": "来源地址和管理权已转交工作区管理员；你的取消订阅不会影响其他成员。",
-            }
-        )
-
-    @app.delete("/api/catalog/sources/{source_id}")
-    async def catalog_delete(
-        source_id: str,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        source = manageable_source_or_404(source_id, user)
-        if source["scope"] != "private" and not _is_admin(user):
-            raise ApiError("forbidden", "only admins can delete shared sources", status_code=403)
-        if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
-            raise ApiError("forbidden", "cannot delete another user's private source", status_code=403)
-        updated = subscription_mutations.rest_update_source(
-            SubscriptionActor.from_user(user),
-            source_id=source_id,
-            updates={"enabled": False},
-        )
-        internal_safe = dict(updated)
-        internal_safe.pop("enforce_public_network", None)
-        request.state.operation_changed_fields = ["enabled"]
-        return ok(internal_safe)
-
-    @app.post("/api/catalog/sources/{source_id}/subscribe")
-    async def catalog_subscribe(
-        source_id: str,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        visible_source_or_404(source_id, user)
-        subscription = create_subscription_with_quota(
-            user=user,
-            source_id=source_id,
-        )
-        request.state.operation_subscription_id = str(subscription["id"])
-        return ok({"subscription": subscription})
-
-    @app.delete("/api/catalog/sources/{source_id}/subscription")
-    async def catalog_unsubscribe(
-        source_id: str,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        visible_source_or_404(source_id, user)
-        subscription = store.get_user_subscription_for_source(user["id"], source_id)
-        if not subscription:
-            raise ApiError("not_found", "subscription not found", status_code=404)
-        request.state.operation_subscription_id = str(subscription["id"])
-        return ok(
-            {
-                "deleted": subscription_mutations.rest_delete_subscription(
-                    SubscriptionActor.from_user(user),
-                    subscription_id=subscription["id"],
-                )
-            }
-        )
+    register_catalog_membership_routes(app)
 
     @app.get("/api/me/subscriptions")
     async def subscriptions_list(
