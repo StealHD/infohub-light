@@ -111,6 +111,7 @@
       "id": "ActorOps v15 control plane",
       "globs": [
         "src/apify_actor_identity.py",
+        "src/api/actor_ops_projection.py",
         "src/api/apify_key_pool_routes.py",
         "src/api/catalog_metadata_routes.py",
         "src/services/apify_actor_ops.py",

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
-import math
 import os
 import re
 import time
@@ -28,6 +27,7 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 
 from .agent_delegation_routes import register_agent_delegation_routes
 from .actor_alert_routes import register_actor_alert_routes
+from .actor_ops_projection import public_actor_ops_revision, public_actor_ops_route
 from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
 from .catalog_metadata_routes import register_catalog_metadata_routes
 from .catalog_membership_routes import (
@@ -1510,188 +1510,6 @@ def create_app(
                 status_code=409,
                 action="Manage Apify Keys in Settings and omit secret_env.",
             )
-
-    def public_actor_ops_route(
-        ops: ApifyActorOpsService,
-        route: dict[str, Any],
-    ) -> dict[str, Any]:
-        gate = ops.schedule_gate(str(route["route_id"]))
-        workflow = ops.workflow_state(str(route["route_id"]))
-        profile_status = str(route["status"])
-        if ops.source_capability_ready(str(route["route_id"])):
-            support_status = "supported"
-        elif profile_status == "candidate_shortfall":
-            support_status = "degraded"
-        elif profile_status in {
-            "ready",
-            "legacy_validation_pending",
-            "discovery_required",
-            "blocked_ai_unavailable",
-        }:
-            support_status = "pending"
-        else:
-            support_status = "blocked"
-        runtime_status = (
-            str(gate.status)
-            if gate.allowed
-            else (
-                "exhausted"
-                if str(gate.status) == "candidate_shortfall"
-                or profile_status == "candidate_shortfall"
-                else "budget_blocked"
-                if str(gate.status) == "budget_blocked"
-                else "blocked"
-            )
-        )
-        return {
-            "route_id": str(route["route_id"]),
-            "route_key": str(route["route_key"]),
-            "platform": str(route["platform"]),
-            "target_type": str(route["target_type"]),
-            "capability": str(route["capability"]),
-            "mode": str(route["mode"]),
-            "generation": int(route["generation"]),
-            "support_status": support_status,
-            "runtime_status": runtime_status,
-            "runnable_slots": int(gate.runnable_count),
-            "required_slots": int(route["required_slots"]),
-            "min_runtime_healthy": int(route["min_runtime_healthy"]),
-            "admission_mode": str(route.get("admission_mode") or "standard"),
-            "publisher_count": int(
-                len(
-                    {
-                        str(slot.get("publisher") or "").casefold()
-                        for slot in route.get("slots", [])
-                        if slot.get("publisher")
-                    }
-                )
-            ),
-            "per_run_cap_usd": float(route["per_run_cap_usd"]),
-            "blocked_reason": (
-                str(gate.error_code) if not gate.allowed and gate.error_code else None
-            ),
-            "updated_at": str(route["updated_at"]),
-            "workflow": workflow,
-        }
-
-    def public_actor_ops_revision(
-        revision: dict[str, Any],
-    ) -> dict[str, Any]:
-        pricing = (
-            revision.get("pricing")
-            if isinstance(revision.get("pricing"), dict)
-            else {}
-        )
-        listed = pricing.get("price_per_1000")
-
-        def safe_price(value: Any) -> float | None:
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                return None
-            number = float(value)
-            return number if math.isfinite(number) and number >= 0 else None
-
-        model = str(
-            pricing.get("pricingModel")
-            or pricing.get("model")
-            or ""
-        ).upper() or None
-        unit_prices: list[float] = []
-        direct_unit_price = safe_price(pricing.get("pricePerUnitUsd"))
-        if direct_unit_price is not None:
-            unit_prices.append(direct_unit_price)
-        tiered_pricing = pricing.get("tieredPricing")
-        if isinstance(tiered_pricing, dict):
-            for tier in tiered_pricing.values():
-                if not isinstance(tier, dict):
-                    continue
-                value = safe_price(tier.get("tieredPricePerUnitUsd"))
-                if value is not None:
-                    unit_prices.append(value)
-        event_pricing = pricing.get("pricingPerEvent")
-        events = (
-            event_pricing.get("actorChargeEvents")
-            if isinstance(event_pricing, dict)
-            else None
-        )
-        if isinstance(events, dict):
-            for event in events.values():
-                if not isinstance(event, dict):
-                    continue
-                value = safe_price(event.get("eventPriceUsd"))
-                if value is not None:
-                    unit_prices.append(value)
-                tiers = event.get("eventTieredPricingUsd")
-                if isinstance(tiers, dict):
-                    for tier in tiers.values():
-                        tier_value = (
-                            tier.get("tieredEventPriceUsd")
-                            if isinstance(tier, dict)
-                            else tier
-                        )
-                        value = safe_price(tier_value)
-                        if value is not None:
-                            unit_prices.append(value)
-        minimum_cap = safe_price(pricing.get("minimalMaxTotalChargeUsd"))
-        minimum_charge = next(
-            (
-                value
-                for key in (
-                    "minimumChargeUsd",
-                    "minChargeUsd",
-                    "minimumPriceUsd",
-                    "pricePerRunUsd",
-                )
-                if (value := safe_price(pricing.get(key))) is not None
-            ),
-            None,
-        )
-        return {
-            "revision_id": str(revision["revision_id"]),
-            "actor_id": str(revision["actor_id"]),
-            "actor_public_name": revision.get("actor_public_name"),
-            "publisher": str(revision["publisher"]),
-            "build_id": revision.get("build_id"),
-            "build_number": revision.get("build_number"),
-            "manifest_hash": revision.get("manifest_hash"),
-            "execution_mode": str(revision.get("execution_mode") or "pinned"),
-            "observed_manifest": bool(revision.get("observed_manifest") or False),
-            "lifecycle": str(revision["lifecycle"]),
-            "certification_progress": revision.get("certification_progress"),
-            "listed_price_usd_per_1000": (
-                float(listed)
-                if isinstance(listed, (int, float))
-                and not isinstance(listed, bool)
-                else None
-            ),
-            "pricing": {
-                "model": model,
-                "billing_unit": (
-                    "free"
-                    if model == "FREE"
-                    else "dataset_item"
-                    if model == "PRICE_PER_DATASET_ITEM"
-                    else "event"
-                    if model == "PAY_PER_EVENT"
-                    else "unknown"
-                ),
-                "unit_price_min_usd": min(unit_prices) if unit_prices else None,
-                "unit_price_max_usd": max(unit_prices) if unit_prices else None,
-                "minimum_charge_usd": minimum_charge,
-                "minimum_run_cap_usd": minimum_cap,
-            },
-            "last_canary_at": revision.get("canary_passed_at"),
-            "can_canary": str(revision["lifecycle"])
-            in {"static_valid", "probationary"},
-            "can_activate": str(revision["lifecycle"])
-            in {"probationary", "certified", "legacy_builtin"}
-            or (
-                str(revision["lifecycle"]) == "superseded"
-                and str(
-                    revision.get("superseded_from_lifecycle") or ""
-                )
-                in {"probationary", "certified"}
-            ),
-        }
 
     def public_actor_discovery_settings(
         settings: dict[str, Any],
