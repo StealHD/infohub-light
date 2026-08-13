@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "补齐 X 历史严格 Stage 的兼容降级：upgrade_legacy 处于 replan_required 且严格候选不足时，只要存在单个兼容候选就投影降低要求入口，并保留安全失败摘要。",
-  "status": "completed",
-  "task_id": "2026-08-12-actorops-x-replan-compatibility-entry",
-  "unresolved": [
-    "按用户要求，完整 Test Gate 留到最终合并代码时执行。"
-  ],
-  "validation": [
-    "ActorOps compatibility 与 pool staging 定向后端回归 33/33 通过。",
-    "真实 service.db 只读诊断确认严格 1/3、兼容列表 6 个可选，未触发搜索、Actor 或付费动作。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface",
@@ -412,6 +392,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "全 API 路由、通知路由与 OpenAPI 规范 SHA 均与 c9a1519 基线一致；通知、权限、操作日志、API lifespan 与 React 服务定向回归通过。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235447 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将工作区 Email 与 Telegram 通知 transport 的 8 个兼容 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、迁移门槛与 SecretStore/发送语义保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-notification-transports",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；后续继续小步拆分 secrets/key-pool、Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
+  ],
+  "validation": [
+    "全 API 路由、transport 路由与 OpenAPI 规范 SHA 均与 7cde2e6 基线一致；通知 transport、权限、操作日志与 lifespan 定向回归 78/78 通过。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235443 bytes。"
   ]
 }
 ```
