@@ -28,6 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
 from .agent_delegation_routes import register_agent_delegation_routes
+from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
 from .context import ApiContext
 from .feed_routes import (
     register_dashboard_runtime_routes,
@@ -379,20 +380,6 @@ class SecretConnectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     base_url: str = ""
-
-
-class ApifyKeyPoolOrderRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    secret_ids: list[str]
-    expected_generation: StrictInt = Field(ge=1)
-
-
-class ApifyValidationKeyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    secret_id: str | None = Field(default=None, min_length=1, max_length=128)
-    expected_generation: StrictInt = Field(ge=1)
 
 
 class ApifyActorRouteOrderRequest(BaseModel):
@@ -1585,19 +1572,6 @@ def create_app(
                 action="Manage Apify Keys in Settings and omit secret_env.",
             )
 
-    def pool_api_error(exc: ApifyKeyPoolError) -> ApiError:
-        return ApiError(
-            exc.code,
-            "The Apify Key pool cannot complete this transition safely.",
-            status_code=409,
-            retryable=bool(getattr(exc, "retryable", False)),
-            action=(
-                "Wait for active Actor Runs to reach a terminal state and retry."
-                if isinstance(exc, ApifyKeyDrainPendingError)
-                else "Refresh the Key pool state and retry."
-            ),
-        )
-
     def public_actor_ops_route(
         ops: ApifyActorOpsService,
         route: dict[str, Any],
@@ -2640,6 +2614,8 @@ def create_app(
         quota=quota,
         runtime_status=runtime_status,
         storage_governance=storage_governance,
+        apify_key_pool=apify_key_pool,
+        apify_actor_resilience_for=apify_actor_resilience_for,
         preferred_source_notifications=preferred_source_notifications,
         notification_targets=notification_targets,
         workspace_email_transport=workspace_email_transport,
@@ -2650,6 +2626,7 @@ def create_app(
         require_webhook_providers=require_webhook_providers_v14,
         require_notification_channels=require_notification_channels_v15,
         require_notification_targets=require_notification_targets_v16,
+        require_apify_actor_resilience=require_apify_actor_resilience_v21,
         readiness_checks=(
             require_apify_actor_routing_v13,
             require_webhook_providers_v14,
@@ -3875,89 +3852,7 @@ def create_app(
 
     register_notification_transport_routes(app)
 
-    @app.get("/api/admin/apify-key-pool")
-    async def admin_apify_key_pool(
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        require_apify_actor_resilience_v21()
-        return ok(apify_key_pool.public_state(str(user["workspace_id"])))
-
-    @app.put("/api/admin/apify-key-pool/order")
-    async def admin_apify_key_pool_order(
-        payload: ApifyKeyPoolOrderRequest,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        require_apify_actor_resilience_v21()
-        try:
-            state = apify_key_pool.reorder(
-                str(user["workspace_id"]),
-                expected_generation=int(payload.expected_generation),
-                secret_ids=payload.secret_ids,
-            )
-        except ValueError as exc:
-            raise ApiError(
-                "invalid_request",
-                "secret_ids must contain every pool member exactly once",
-                status_code=400,
-            ) from exc
-        except ApifyKeyPoolError as exc:
-            raise pool_api_error(exc) from exc
-        return ok(state)
-
-    @app.put("/api/admin/apify-key-pool/validation-key")
-    async def admin_apify_validation_key(
-        payload: ApifyValidationKeyRequest,
-        request: Request,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        require_apify_actor_resilience_v21()
-        try:
-            state = apify_key_pool.set_validation_key(
-                str(user["workspace_id"]),
-                secret_id=payload.secret_id,
-                expected_generation=int(payload.expected_generation),
-            )
-        except LookupError as exc:
-            raise ApiError(
-                "not_found", "Apify Key pool member not found", status_code=404
-            ) from exc
-        except ApifyKeyPoolError as exc:
-            raise pool_api_error(exc) from exc
-        resilience = apify_actor_resilience_for(str(user["workspace_id"]))
-        resilience.emit_event(
-            phase="validation_key",
-            outcome="succeeded",
-            reason_code=("assigned" if payload.secret_id else "unassigned"),
-            request_id=getattr(request.state, "operation_request_id", None),
-        )
-        request.state.operation_changed_fields = ["validation_key"]
-        response.headers["Cache-Control"] = "no-store"
-        return ok(state)
-
-    @app.post("/api/admin/apify-key-pool/{secret_id}/drain")
-    async def admin_apify_key_pool_drain(
-        secret_id: str,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        require_apify_actor_resilience_v21()
-        state = apify_key_pool.public_state(str(user["workspace_id"]))
-        if secret_id not in {
-            str(member["secret_id"]) for member in state["members"]
-        }:
-            raise ApiError("not_found", "Apify Key pool member not found", status_code=404)
-        try:
-            state = apify_key_pool.begin_drain(secret_id)
-            if state["status"] == "draining":
-                try:
-                    state = apify_key_pool.complete_drain_and_failover(
-                        str(user["workspace_id"])
-                    )
-                except ApifyKeyDrainPendingError:
-                    state = apify_key_pool.public_state(str(user["workspace_id"]))
-        except ApifyKeyPoolError as exc:
-            raise pool_api_error(exc) from exc
-        return ok(state)
+    register_apify_key_pool_routes(app)
 
     @app.get("/api/admin/apify-routes")
     async def admin_apify_routes(

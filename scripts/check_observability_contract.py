@@ -13,6 +13,7 @@ from typing import Iterable
 
 PROTECTED_RUNTIME_FILES = (
     "src/api/agent_delegation_routes.py",
+    "src/api/apify_key_pool_routes.py",
     "src/api/feed_routes.py",
     "src/api/job_routes.py",
     "src/api/notification_routes.py",

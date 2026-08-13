@@ -1,4 +1,4 @@
-// Reviewed after the notification transport HTTP adapter split; user workflows are unchanged.
+// Reviewed after the Apify Key Pool HTTP adapter split; user workflows are unchanged.
 export type ManualStep = {
   title: string
   description: string
@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-13',
-  change: 'v2.3.2 后的代码规模、资源生命周期、API/Worker 与通知/transport HTTP 分层收敛；用户工作流不变',
+  change: 'v2.3.2 后的代码规模、资源生命周期、API/Worker、通知与 Key Pool HTTP 分层收敛；用户工作流不变',
 } as const
 
 export const manualSections: ManualSection[] = [
