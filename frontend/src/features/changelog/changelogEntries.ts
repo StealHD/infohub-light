@@ -1,4 +1,4 @@
-// Reviewed after the Apify Key Pool HTTP adapter split; user-facing behavior is unchanged.
+// Reviewed after the SecretStore HTTP adapter split; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string

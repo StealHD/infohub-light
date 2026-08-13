@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..auth import AuthSettings
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
@@ -21,6 +22,9 @@ from ..services.preferred_source_notifications import (
 )
 from ..services.quota import QuotaService
 from ..services.runtime_status import RuntimeStatusService
+from ..services.secret_quota import ApifySecretQuotaService
+from ..services.secret_store import SecretStore
+from ..services.source_health import SourceHealthService
 from ..services.source_schedule import SourceScheduleService
 from ..services.storage_governance import StorageGovernanceService
 from ..services.subscription_mutation import SubscriptionMutationService
@@ -33,6 +37,13 @@ from ..storage.service_store import ServiceStore
 ReadinessCheck = Callable[[], None]
 FeedWindowDays = Callable[[], int]
 ApifyActorResilienceFactory = Callable[[str], ApifyActorResilienceService]
+SecretProjection = Callable[[dict[str, Any]], dict[str, Any]]
+SecretUsage = Callable[[dict[str, Any]], list[dict[str, str]]]
+SecretMetadataValidator = Callable[[Any], tuple[str, str, str, str, str]]
+BaseConfigReader = Callable[[], tuple[dict[str, Any], Any]]
+BaseConfigWriter = Callable[[dict[str, Any]], None]
+AiConnectionSynchronizer = Callable[[dict[str, Any], dict[str, Any]], None]
+AiBaseUrlNormalizer = Callable[[str], str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +66,16 @@ class ApiContext:
     storage_governance: StorageGovernanceService
     apify_key_pool: ApifyKeyPoolService
     apify_actor_resilience_for: ApifyActorResilienceFactory
+    secret_values: SecretStore
+    secret_quota: ApifySecretQuotaService
+    source_health: SourceHealthService
+    public_secret: SecretProjection
+    secret_usage: SecretUsage
+    validate_secret_metadata: SecretMetadataValidator
+    read_base_config: BaseConfigReader
+    write_base_config: BaseConfigWriter
+    synchronize_ai_connection: AiConnectionSynchronizer
+    normalize_ai_secret_base_url: AiBaseUrlNormalizer
     preferred_source_notifications: PreferredSourceNotificationService
     notification_targets: NotificationTargetService
     workspace_email_transport: WorkspaceEmailTransportService

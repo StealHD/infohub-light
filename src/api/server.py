@@ -51,6 +51,10 @@ from .schedule_routes import (
     register_subscription_schedule_routes,
     source_schedule_payload,
 )
+from .secret_routes import (
+    register_secret_list_route,
+    register_secret_mutation_routes,
+)
 from .storage_routes import register_storage_routes
 from .system_auth import (
     current_admin,
@@ -76,7 +80,7 @@ from ..services.feed_schedule import FeedScheduleService
 from ..services.job_queue import JobQueue
 from ..services.quota import QuotaExceeded, QuotaService
 from ..services.runtime_status import RuntimeStatusService
-from ..services.secret_quota import ApifySecretQuotaService, SecretQuotaError
+from ..services.secret_quota import ApifySecretQuotaService
 from ..services.apify_key_pool import (
     ApifyKeyBusyError,
     ApifyKeyDrainPendingError,
@@ -175,7 +179,6 @@ from ..services.youtube_channel import (
 )
 from ..storage.service_store import (
     SOURCE_SCOPES,
-    SecretEnvConflictError,
     ServiceStore,
     SourceKeyConflictError,
 )
@@ -357,29 +360,6 @@ class SourceShareRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scope: Literal["public", "workspace"]
-
-
-class SecretCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    kind: str
-    provider: str
-    env_name: str
-    value: str
-    base_url: str = ""
-
-
-class SecretRotateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    value: str
-
-
-class SecretConnectionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    base_url: str = ""
 
 
 class ApifyActorRouteOrderRequest(BaseModel):
@@ -1392,7 +1372,7 @@ def create_app(
         else:
             ai_settings.pop("base_url", None)
 
-    def validate_secret_metadata(payload: SecretCreateRequest) -> tuple[str, str, str, str, str]:
+    def validate_secret_metadata(payload: Any) -> tuple[str, str, str, str, str]:
         name = str(payload.name or "").strip()
         kind = str(payload.kind or "").strip().lower()
         provider = str(payload.provider or "").strip().lower()
@@ -2616,6 +2596,16 @@ def create_app(
         storage_governance=storage_governance,
         apify_key_pool=apify_key_pool,
         apify_actor_resilience_for=apify_actor_resilience_for,
+        secret_values=secret_values,
+        secret_quota=secret_quota,
+        source_health=source_health,
+        public_secret=public_secret,
+        secret_usage=secret_usage,
+        validate_secret_metadata=validate_secret_metadata,
+        read_base_config=lambda: read_base_config(),
+        write_base_config=lambda data: write_base_config(data),
+        synchronize_ai_connection=synchronize_ai_connection,
+        normalize_ai_secret_base_url=normalize_ai_secret_base_url,
         preferred_source_notifications=preferred_source_notifications,
         notification_targets=notification_targets,
         workspace_email_transport=workspace_email_transport,
@@ -3842,13 +3832,7 @@ def create_app(
 
     register_storage_routes(app)
 
-    @app.get("/api/admin/secrets")
-    async def admin_secrets_list(
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        secret_values.load_into_environ()
-        secrets = store.list_secret_refs(workspace_id=user["workspace_id"])
-        return ok({"secrets": [public_secret(secret) for secret in secrets]})
+    register_secret_list_route(app)
 
     register_notification_transport_routes(app)
 
@@ -6061,229 +6045,7 @@ def create_app(
             }
         )
 
-    @app.post("/api/admin/secrets")
-    async def admin_secrets_create(
-        payload: SecretCreateRequest,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        name, kind, provider, env_name, base_url = validate_secret_metadata(payload)
-        if store.get_secret_ref_by_env(workspace_id=user["workspace_id"], env_name=env_name):
-            raise ApiError(
-                "secret_env_conflict",
-                "the environment name is already registered",
-                status_code=409,
-            )
-        secret: dict[str, Any] | None = None
-        try:
-            secret_values.set(env_name, payload.value)
-            secret_values.load_into_environ()
-            secret = store.create_secret_ref(
-                workspace_id=user["workspace_id"],
-                owner_user_id=user["id"],
-                name=name,
-                env_name=env_name,
-                kind=kind,
-                provider=provider,
-                base_url=base_url,
-                scope="workspace",
-            )
-            if kind == "apify" and provider == "apify":
-                apify_key_pool.append_secret(secret["id"])
-            if kind == "ai":
-                base_data, base_config = read_base_config()
-                if base_config.ai.api_key_env == env_name:
-                    synchronized = deepcopy(base_data)
-                    synchronize_ai_connection(synchronized, secret)
-                    write_base_config(synchronized)
-        except SecretEnvConflictError as exc:
-            secret_values.delete(env_name)
-            secret_values.load_into_environ()
-            raise ApiError(
-                "secret_env_conflict",
-                "the environment name is already registered",
-                status_code=409,
-            ) from exc
-        except ApifyKeyPoolError as exc:
-            if secret is not None:
-                store.delete_secret_ref(str(secret["id"]))
-            secret_values.delete(env_name)
-            secret_values.load_into_environ()
-            raise pool_api_error(exc) from exc
-        except SecretValueError as exc:
-            raise ApiError("invalid_secret", str(exc), status_code=400) from exc
-        except Exception:
-            if secret is not None:
-                store.delete_secret_ref(str(secret["id"]))
-            secret_values.delete(env_name)
-            secret_values.load_into_environ()
-            raise
-        return ok(public_secret(secret))
-
-    @app.put("/api/admin/secrets/{secret_id}/value")
-    async def admin_secrets_rotate(
-        secret_id: str,
-        payload: SecretRotateRequest,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        secret = store.get_secret_ref(secret_id)
-        if secret is None or secret["workspace_id"] != user["workspace_id"]:
-            raise ApiError("not_found", "secret reference not found", status_code=404)
-        apify_lifecycle: dict[str, Any] | None = None
-        if is_apify_secret(secret):
-            apify_lifecycle = apify_key_pool.secret_lifecycle(secret_id)
-            try:
-                if apify_key_pool_enabled():
-                    apify_key_pool.ensure_secret_mutable(secret_id)
-                elif (
-                    apify_lifecycle["managed"]
-                    and (
-                        int(apify_lifecycle["active_run_count"]) > 0
-                        or apify_lifecycle["status"] == "draining"
-                    )
-                ):
-                    raise ApifyKeyBusyError()
-            except ApifyKeyPoolError as exc:
-                raise pool_api_error(exc) from exc
-        try:
-            secret_values.set(secret["env_name"], payload.value)
-            secret_values.load_into_environ()
-        except SecretValueError as exc:
-            raise ApiError("invalid_secret", str(exc), status_code=400) from exc
-        updated = store.touch_secret_ref(secret_id)
-        if is_apify_secret(secret):
-            if apify_lifecycle and apify_lifecycle["managed"]:
-                try:
-                    apify_key_pool.mark_secret_rotated(secret_id)
-                except ApifyKeyPoolError as exc:
-                    raise pool_api_error(exc) from exc
-            for source in store.list_sources_using_secret(
-                workspace_id=user["workspace_id"],
-                env_name=secret["env_name"],
-            ):
-                source_health.reset_source(
-                    workspace_id=user["workspace_id"],
-                    source_id=source["id"],
-                )
-        return ok(public_secret(updated))
-
-    @app.patch("/api/admin/secrets/{secret_id}/connection")
-    async def admin_secrets_update_connection(
-        secret_id: str,
-        payload: SecretConnectionRequest,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        secret = store.get_secret_ref(secret_id)
-        if secret is None or secret["workspace_id"] != user["workspace_id"]:
-            raise ApiError("not_found", "secret reference not found", status_code=404)
-        if str(secret.get("kind") or "").lower() != "ai":
-            raise ApiError(
-                "invalid_secret",
-                "Base URL is supported only for AI keys",
-                status_code=400,
-            )
-        base_url = normalize_ai_secret_base_url(payload.base_url)
-        updated = store.update_secret_base_url(
-            secret_id,
-            base_url=base_url,
-        )
-        base_data, base_config = read_base_config()
-        if base_config.ai.api_key_env == secret["env_name"]:
-            synchronized = deepcopy(base_data)
-            synchronize_ai_connection(synchronized, updated)
-            write_base_config(synchronized)
-        return ok(public_secret(updated))
-
-    @app.get("/api/admin/secrets/{secret_id}/quota")
-    async def admin_secrets_quota(
-        secret_id: str,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        secret = store.get_secret_ref(secret_id)
-        if secret is None or secret["workspace_id"] != user["workspace_id"]:
-            raise ApiError("not_found", "secret reference not found", status_code=404)
-        if not is_apify_secret(secret):
-            raise ApiError(
-                "quota_not_supported",
-                "该 Provider 暂不支持额度查询。",
-                status_code=400,
-            )
-        token = secret_values.read().get(secret["env_name"], "").strip()
-        if not token:
-            raise ApiError(
-                "secret_not_configured",
-                "该 Key 尚未配置真实值，无法查询额度。",
-                status_code=409,
-                action="请先轮换并保存有效的 Apify Token。",
-            )
-        try:
-            quota_data = await secret_quota.fetch(secret_id=secret_id, token=token)
-        except SecretQuotaError as exc:
-            raise ApiError(
-                exc.code,
-                exc.message,
-                status_code=exc.status_code,
-                retryable=exc.retryable,
-                action=exc.action,
-            ) from exc
-        lifecycle = apify_key_pool.secret_lifecycle(secret_id)
-        if lifecycle["managed"]:
-            apify_key_pool.record_member_quota(
-                workspace_id=str(user["workspace_id"]),
-                secret_id=secret_id,
-                remaining_included_credits_usd=float(
-                    quota_data["remaining_included_credits_usd"]
-                ),
-                checked_at=str(quota_data["checked_at"]),
-                cycle_start_at=str(quota_data["cycle_start_at"]),
-                cycle_end_at=str(quota_data["cycle_end_at"]),
-                monthly_included_credits_usd=float(
-                    quota_data["monthly_included_credits_usd"]
-                ),
-                monthly_usage_usd=float(quota_data["monthly_usage_usd"]),
-                max_monthly_usage_usd=float(
-                    quota_data["max_monthly_usage_usd"]
-                ),
-                remaining_hard_limit_usd=float(
-                    quota_data["remaining_hard_limit_usd"]
-                ),
-            )
-        return ok(quota_data)
-
-    @app.delete("/api/admin/secrets/{secret_id}")
-    async def admin_secrets_delete(
-        secret_id: str,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        secret = store.get_secret_ref(secret_id)
-        if secret is None or secret["workspace_id"] != user["workspace_id"]:
-            raise ApiError("not_found", "secret reference not found", status_code=404)
-        if secret_usage(secret):
-            raise ApiError(
-                "secret_in_use",
-                "secret is still referenced by AI or a catalog source",
-                status_code=409,
-                action="Reassign every reference before deleting this secret.",
-            )
-        if is_apify_secret(secret):
-            try:
-                lifecycle = apify_key_pool.secret_lifecycle(secret_id)
-                if lifecycle["managed"]:
-                    if apify_key_pool_enabled():
-                        apify_key_pool.ensure_secret_mutable(secret_id)
-                    elif lifecycle["busy"]:
-                        if int(lifecycle["active_run_count"]) > 0:
-                            raise ApifyKeyBusyError()
-                        apify_key_pool.begin_drain(secret_id)
-                        apify_key_pool.complete_drain_and_failover(
-                            str(user["workspace_id"])
-                        )
-                    apify_key_pool.remove_secret(secret_id)
-            except ApifyKeyPoolError as exc:
-                raise pool_api_error(exc) from exc
-        secret_values.delete(secret["env_name"])
-        secret_values.load_into_environ()
-        store.delete_secret_ref(secret_id)
-        return ok({"deleted": True, "id": secret_id})
+    register_secret_mutation_routes(app)
 
     @app.get("/api/catalog/source-types")
     async def catalog_source_types(

@@ -74,6 +74,7 @@
         "src/services/apify_actor_monitoring.py",
         "src/services/apify_actor_route.py",
         "src/services/apify_key_pool.py",
+        "src/api/secret_routes.py",
         "src/services/secret_store.py",
         "src/services/secret_quota.py",
         "src/services/storage_governance.py",
