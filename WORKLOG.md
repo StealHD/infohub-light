@@ -7,30 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "1920d16a5180f792794dce67484f9f67dc8f5d7f",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "observability"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "完成代码健康第四个低风险 API 切片：将 4 个成员管理端点与请求模型抽取到独立 typed router，保持角色、密码、Owner 保护、自删保护、运行任务阻断、责任转移与操作日志语义不变，并继续收紧代码规模旧债。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-member-router-slice",
-  "unresolved": [
-    "父级代码健康 Goal 仍包含其余 API 路由、前端 ActorOps、Worker、ServiceStore、后端 ActorOps、Workbench/OpenClaw 与依赖环的分期重构。",
-    "本切片不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
-  ],
-  "validation": [
-    "完整 141 条路由清单 SHA、规范化 OpenAPI SHA、4 条成员路由顺序与 handler 名均与基线一致。",
-    "成员与权限定向测试 63 项通过；staged preflight 16/16、Full Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
-    "server.py 从 9182 行降至 9043 行，create_app 从 7961 行降至 7844 行；新 router 175 行且所有 callable 小于 80 行。"
-  ]
-}
-```
-
-```json
-{
   "commit": "b1a7948dab62527c68f712f3ca570cabbf72198b",
   "control_topics": [
     "architecture",
@@ -415,6 +391,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 75a4748 基线一致；ActorOps、兼容、权限、操作日志、lifespan、import boundary 与代码规模定向回归 96/96 通过。",
     "server.py 由 6733 行降至 6641 行，create_app 由 5792 行降至 5695 行；新只读适配模块 170 行且所有新函数低于 80 行。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235543 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "17254a3",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 ActorOps Canary plan/batch 的纯公共投影与两个 GET 查询适配拆到既有安全模块；选择、审批、费用、批次创建和激活写路径保持原位不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-actorops-canary-reads",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；Discovery/public_actor_ops_detail 读模型、ActorOps 写路由、Catalog create/patch、ServiceStore 与 ApifyActorOpsService 仍需按独立高风险阶段处理。"
+  ],
+  "validation": [
+    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 530181e 基线一致；ActorOps、权限、操作日志、lifespan、observability 与 import boundary 定向回归 57/57 通过。",
+    "server.py 由 6641 行降至 6517 行，create_app 由 5695 行降至 5564 行；投影与只读适配模块分别为 295 与 226 行，新增函数均低于 80 行。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235398 bytes。"
   ]
 }
 ```
