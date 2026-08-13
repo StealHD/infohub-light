@@ -60,16 +60,20 @@ from .notification_routes import register_notification_routes
 from .notification_transport_routes import register_notification_transport_routes
 from .responses import ApiError, error_response, ok
 from .schedule_routes import (
-    bulk_source_schedule_jobs,
     register_feed_schedule_routes,
     register_subscription_schedule_routes,
-    source_schedule_payload,
 )
 from .secret_routes import (
     register_secret_list_route,
     register_secret_mutation_routes,
 )
 from .storage_routes import register_storage_routes
+from .subscription_routes import (
+    register_source_health_route,
+    register_subscription_delete_route,
+    register_subscription_list_route,
+    register_subscription_mutation_routes,
+)
 from .system_auth import (
     current_admin,
     current_user,
@@ -617,35 +621,6 @@ class ApifyDiscoveryMeasurementRequest(BaseModel):
         min_length=1,
         max_length=2,
     )
-
-
-class SubscriptionRequest(BaseModel):
-    source_id: str
-    enabled: bool = True
-    override_channel: str | None = None
-    override_topics: list[str] = Field(default_factory=list)
-    personal_tags: list[str] = Field(default_factory=list)
-    analysis_mode: str = "full"
-    priority: StrictInt = Field(default=0, ge=0, le=100)
-    notify_on_new_items: StrictBool = False
-
-
-class SubscriptionPatchRequest(BaseModel):
-    enabled: bool | None = None
-    override_channel: str | None = None
-    override_topics: list[str] | None = None
-    personal_tags: list[str] | None = None
-    analysis_mode: str | None = None
-    priority: StrictInt | None = Field(default=None, ge=0, le=100)
-    notify_on_new_items: StrictBool | None = None
-    on_disable: Literal["keep", "save", "dismiss"] | None = None
-
-    @field_validator("priority")
-    @classmethod
-    def validate_priority_is_not_null(cls, value: int | None) -> int:
-        if value is None:
-            raise ValueError("priority must be an integer between 0 and 100")
-        return value
 
 
 class ConfigImportSourcesRequest(BaseModel):
@@ -6138,181 +6113,19 @@ def create_app(
 
     register_catalog_membership_routes(app)
 
-    @app.get("/api/me/subscriptions")
-    async def subscriptions_list(
-        schedule_view: Literal["full", "summary"] = "full",
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        subscriptions = store.list_user_subscriptions(user["id"])
-        schedules = source_schedules.list_user_subscription_schedules(
-            workspace_id=user["workspace_id"],
-            user_id=user["id"],
-            subscriptions=subscriptions,
-        )
-        availability = runtime_status.availability()
-        last_jobs: dict[str, dict[str, Any]] = {}
-        active_jobs: dict[str, dict[str, Any]] = {}
-        if schedule_view == "full":
-            last_jobs, active_jobs = bulk_source_schedule_jobs(user, schedules, store)
-        return ok(
-            {
-                "subscriptions": [
-                    {
-                        **subscription,
-                        "schedule": source_schedule_payload(
-                            schedules[str(subscription["id"])],
-                            worker_status=str(availability["worker_status"]),
-                            view=schedule_view,
-                            last_job=last_jobs.get(str(subscription["id"])),
-                            active_job=active_jobs.get(str(subscription["id"])),
-                        ),
-                    }
-                    for subscription in subscriptions
-                ]
-            }
-        )
+    register_subscription_list_route(app)
 
     register_agent_delegation_routes(app)
 
-    @app.get("/api/me/source-health")
-    async def source_health_get(
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        return ok(
-            source_health.user_projection(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
-                feed_window_days=current_feed_window_days(),
-            )
-        )
+    register_source_health_route(app)
 
     register_feed_schedule_routes(app)
 
-    @app.post("/api/me/subscriptions")
-    async def subscriptions_create(
-        payload: SubscriptionRequest,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        if payload.notify_on_new_items and (
-            payload.analysis_mode == "personal_only" or not payload.enabled
-        ):
-            raise ApiError(
-                "invalid_subscription_notification",
-                "disabled or personal_only subscriptions cannot send new-item notifications",
-                status_code=400,
-                action="Enable the subscription in full analysis mode or leave notifications disabled.",
-            )
-        visible_source_or_404(payload.source_id, user)
-        notification_values = (
-            {"notify_on_new_items": payload.notify_on_new_items}
-            if "notify_on_new_items" in payload.model_fields_set
-            else {}
-        )
-        subscription = create_subscription_with_quota(
-            user=user,
-            source_id=payload.source_id,
-            enabled=payload.enabled,
-            override_channel=payload.override_channel,
-            override_topics=payload.override_topics,
-            personal_tags=payload.personal_tags,
-            analysis_mode=payload.analysis_mode,
-            priority=payload.priority,
-            **notification_values,
-        )
-        request.state.operation_source_id = str(subscription["source_id"])
-        request.state.operation_subscription_id = str(subscription["id"])
-        request.state.operation_changed_fields = sorted(payload.model_fields_set)
-        return ok(subscription)
-
-    @app.patch("/api/me/subscriptions/{subscription_id}")
-    async def subscriptions_patch(
-        subscription_id: str,
-        payload: SubscriptionPatchRequest,
-        request: Request,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        provided = payload.model_fields_set
-        updates = {
-            field: getattr(payload, field)
-            for field in (
-                "enabled",
-                "override_channel",
-                "override_topics",
-                "personal_tags",
-                "analysis_mode",
-                "priority",
-                "notify_on_new_items",
-            )
-            if field in provided
-        }
-        current_subscription = store.get_subscription(subscription_id)
-        if (
-            payload.notify_on_new_items is True
-            and (
-                payload.analysis_mode == "personal_only"
-                or payload.enabled is False
-                or (
-                    payload.enabled is not True
-                    and current_subscription is not None
-                    and current_subscription.get("user_id") == user["id"]
-                    and not bool(current_subscription.get("enabled"))
-                )
-            )
-        ):
-            raise ApiError(
-                "invalid_subscription_notification",
-                "disabled or personal_only subscriptions cannot send new-item notifications",
-                status_code=400,
-                action="Enable the subscription in full analysis mode before enabling notifications.",
-            )
-        if (
-            payload.notify_on_new_items is True
-            and payload.analysis_mode is None
-            and current_subscription is not None
-            and current_subscription.get("user_id") == user["id"]
-            and current_subscription.get("analysis_mode") == "personal_only"
-        ):
-            raise ApiError(
-                "invalid_subscription_notification",
-                "personal_only subscriptions cannot send new-item notifications",
-                status_code=400,
-                action="Use full analysis mode before enabling notifications.",
-            )
-        if payload.analysis_mode == "personal_only":
-            updates["notify_on_new_items"] = False
-        if "on_disable" in provided:
-            if payload.enabled is not False:
-                raise ApiError(
-                    "invalid_disable_disposition",
-                    "on_disable is only valid when disabling a subscription",
-                    status_code=400,
-                )
-            updates["disable_disposition"] = payload.on_disable or "remove"
-        updated = update_subscription_with_quota(
-            user=user,
-            subscription_id=subscription_id,
-            updates=updates,
-        )
-        request.state.operation_source_id = str(updated["source_id"])
-        request.state.operation_changed_fields = sorted(provided)
-        return ok(updated)
+    register_subscription_mutation_routes(app)
 
     register_subscription_schedule_routes(app)
 
-    @app.delete("/api/me/subscriptions/{subscription_id}")
-    async def subscriptions_delete(
-        subscription_id: str,
-        user: dict[str, Any] = Depends(current_user),
-    ) -> dict[str, Any]:
-        require_mutating_member(user)
-        subscription_mutations.rest_delete_subscription(
-            SubscriptionActor.from_user(user),
-            subscription_id=subscription_id,
-        )
-        return ok({"deleted": True})
+    register_subscription_delete_route(app)
 
     register_item_state_routes(app)
     register_job_routes(app)
