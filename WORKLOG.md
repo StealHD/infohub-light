@@ -7,30 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "d8ca3efc6d4f6a84232783df8892f15f12c4eac5",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "完成代码健康第二个低风险切片：将 9 个 Jobs 与兼容任务端点从 API composition root 抽取到独立 typed router，保持路由、OpenAPI、权限、事务、任务脱敏与操作日志语义不变，并同步收紧代码规模旧债。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-jobs-router-slice",
-  "unresolved": [
-    "父级代码健康 Goal 仍包含剩余 API 路由、前端 ActorOps、Worker、ServiceStore、后端 ActorOps、Workbench/OpenClaw 与依赖环的分期重构。",
-    "本切片不推送、不发布、不重建 8080，也不运行真实来源、AI、通知或付费 Actor。"
-  ],
-  "validation": [
-    "完整路由清单、9 个 Jobs 路由顺序、规范化 OpenAPI SHA 与 app.state keys 均与基线一致；只读审查无高置信缺陷。",
-    "staged 与精确提交 preflight 均为 16/16，完整 Test Gate 18/18，SQLite 未关闭连接警告为 0，mapping_miss=false。",
-    "release Playwright 三视口 107 passed、55 configured skipped、0 failed；首屏 JavaScript Brotli 为 235466 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "95fac73fd41c894939ad54a11209f8000c4d5395",
   "control_topics": [
     "architecture",
@@ -417,6 +393,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "全 API 路由、4 个 Actor 告警路由与 OpenAPI 规范 SHA 均与 0d11426 基线一致；告警、通知多渠道、权限、操作日志、lifespan 与 import boundary 定向回归 77/77 通过。",
     "server.py 由 7074 行降至 6915 行，create_app 由 6094 行降至 5974 行；新模块 188 行且所有新函数符合硬上限。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235519 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "4727531",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 ActorOps Route 与 Revision 的安全公共投影拆到独立纯模块；字段、价格过滤、运行状态、Canary 与激活资格保持不变，模块不含 SQL、远端调用、审批或写操作。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-actorops-public-projection",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；public_actor_ops_detail 的 SQL/来源校验与 ActorOps 控制路由仍需先分层后拆，不能机械迁移。"
+  ],
+  "validation": [
+    "全 API 路由与 OpenAPI 规范 SHA 均与 8254a72 基线一致；ActorOps API/service、compatibility、权限、操作日志、lifespan 与 import boundary 定向回归 108/108 通过。",
+    "server.py 由 6915 行降至 6733 行，create_app 由 5974 行降至 5792 行；新纯投影模块 188 行且最大函数低于 80 行。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235572 bytes。"
   ]
 }
 ```
