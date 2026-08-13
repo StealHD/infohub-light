@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "ActorOps 来源列表和详情现标记最近一次实际 Actor，并允许从下一次计划抓取起手动软切换；同时修复 X 单路兼容计划缺少 max_candidates 导致降低要求后返回 500 的问题，失败改为页面可见且不启动 Actor。",
-  "status": "completed",
-  "task_id": "2026-08-12-actorops-current-actor-switch-compatibility-plan",
-  "unresolved": [
-    "未执行任何付费 Canary、1/3 生效或生产部署；本地仅验证计划预览和现有来源状态。"
-  ],
-  "validation": [
-    "ActorOps compatibility、API 与 route 定向后端回归 79/79 通过。",
-    "ActorOps UI 与 changelog Vitest 73/73、TypeScript、UI 合同及 lint（0 error）通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-12",
@@ -410,6 +390,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "全 API 路由与 OpenAPI 规范 SHA 均与 f7cb6ac 基线一致；Secrets、Key Pool、ActorOps、quota、权限、操作日志与 lifespan 定向回归 71/71 通过。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235451 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "fd67ef7",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将来源类型与 Actor 管理能力清单的 2 个只读 Catalog HTTP 适配器从 FastAPI composition root 抽到独立模块；路由顺序、OpenAPI、权限、可用性与安全投影语义保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-catalog-metadata-routes",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；后续继续分片拆分 Catalog 写路径、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
+  ],
+  "validation": [
+    "全 API 路由、2 个 Catalog 路由与 OpenAPI 规范 SHA 均与 3ad639f 基线一致；Catalog、ActorOps、Key Pool、权限、操作日志、lifespan 与 import boundary 定向回归通过。",
+    "server.py 由 7259 行降至 7179 行，create_app 由 6277 行降至 6197 行；新模块 100 行。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235509 bytes。"
   ]
 }
 ```
