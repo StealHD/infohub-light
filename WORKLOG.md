@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "只读诊断生产订阅抓取并在本地修复 X 旧数据假成功：生产每小时任务正常运行且 Dami 连续返回旧帖，schema 22 尚无来源水位；schema 23 上连续三次 no_advance 后，下一次自然计划会只调用一个健康备用，备用推进水位后成为来源活动 Actor。",
-  "status": "completed",
-  "task_id": "2026-08-12-production-x-stale-acquisition-failover",
-  "unresolved": [
-    "生产仍运行 2.2.14/schema 22，本次按用户要求仅只读检查生产并在本地修复，未修改生产、未部署、未运行付费 Actor。",
-    "生产升级时必须先按离线流程应用 schema 23 migration，随后发布通过门禁的本地 main。"
-  ],
-  "validation": [
-    "生产只读确认 API/Worker 健康，X 每小时任务成功但最新内容停在 2026-08-10，最近生产 Actor 为 Dami 且重复 valid_nonempty。",
-    "Actor route、水位、resilience、source acquisition 与产品文档定向后端回归 83/83 通过；更新日志 Vitest 5/5、控制面校验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -411,6 +389,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "全 API 路由、Key Pool 路由与 OpenAPI 规范 SHA 均与 4e529f4 基线一致；Key Pool、resilience、权限、操作日志与 lifespan 定向回归 46/46 通过。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235453 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 SecretStore 列表、创建、轮换、连接、额度与删除的 6 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；全局路由顺序、OpenAPI、权限、配置同步、Key Pool/drain、quota 与 source-health 语义保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-secret-routes",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；后续继续小步拆分 Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
+  ],
+  "validation": [
+    "全 API 路由与 OpenAPI 规范 SHA 均与 f7cb6ac 基线一致；Secrets、Key Pool、ActorOps、quota、权限、操作日志与 lifespan 定向回归 71/71 通过。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235451 bytes。"
   ]
 }
 ```
