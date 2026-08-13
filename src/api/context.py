@@ -12,6 +12,11 @@ from ..services.feed_read import FeedReadService
 from ..services.feed_schedule import FeedScheduleService
 from ..services.job_queue import JobQueue
 from ..services.media_cache import MediaCacheService
+from ..services.notification_email_transport import WorkspaceEmailTransportService
+from ..services.notification_targets import NotificationTargetService
+from ..services.preferred_source_notifications import (
+    PreferredSourceNotificationService,
+)
 from ..services.quota import QuotaService
 from ..services.runtime_status import RuntimeStatusService
 from ..services.source_schedule import SourceScheduleService
@@ -19,6 +24,7 @@ from ..services.storage_governance import StorageGovernanceService
 from ..services.subscription_mutation import SubscriptionMutationService
 from ..services.user_content_store import UserContentStore
 from ..services.user_item_state import UserItemStateStore
+from ..services.workspace_telegram_transport import WorkspaceTelegramTransportService
 from ..storage.service_store import ServiceStore
 
 
@@ -44,7 +50,13 @@ class ApiContext:
     quota: QuotaService
     runtime_status: RuntimeStatusService
     storage_governance: StorageGovernanceService
+    preferred_source_notifications: PreferredSourceNotificationService
+    notification_targets: NotificationTargetService
+    workspace_email_transport: WorkspaceEmailTransportService
+    workspace_telegram_transport: WorkspaceTelegramTransportService
     auth_settings: AuthSettings
     remote_mcp_settings: RemoteMCPSettings
     openclaw_chat_settings: OpenClawChatSettings
+    require_webhook_providers: ReadinessCheck
+    require_notification_targets: ReadinessCheck
     readiness_checks: tuple[ReadinessCheck, ...]

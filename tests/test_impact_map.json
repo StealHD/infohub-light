@@ -47,6 +47,7 @@
       "globs": [
         "src/logging_utils.py",
         "src/observability_context.py",
+        "src/api/notification_routes.py",
         "src/services/notification_telegram_transport.py",
         "src/services/operation_log.py",
         "src/services/workspace_telegram_transport.py",

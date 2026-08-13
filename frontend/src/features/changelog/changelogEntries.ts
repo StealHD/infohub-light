@@ -1,4 +1,4 @@
-// Reviewed after the API adapter and Worker lifecycle/media split; user-facing behavior is unchanged.
+// Reviewed after the notification HTTP adapter split; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string
