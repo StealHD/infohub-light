@@ -1,4 +1,4 @@
-// Reviewed after the ActorOps public projection split; user-facing behavior is unchanged.
+// Reviewed after the ActorOps read-only HTTP adapter split; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 export type ChangelogItem = {
   title: string

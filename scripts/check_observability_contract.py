@@ -14,6 +14,7 @@ from typing import Iterable
 PROTECTED_RUNTIME_FILES = (
     "src/api/actor_alert_routes.py",
     "src/api/actor_ops_projection.py",
+    "src/api/actor_ops_read_routes.py",
     "src/api/agent_delegation_routes.py",
     "src/api/apify_key_pool_routes.py",
     "src/api/catalog_metadata_routes.py",

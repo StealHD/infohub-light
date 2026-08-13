@@ -28,6 +28,12 @@ from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityRes
 from .agent_delegation_routes import register_agent_delegation_routes
 from .actor_alert_routes import register_actor_alert_routes
 from .actor_ops_projection import public_actor_ops_revision, public_actor_ops_route
+from .actor_ops_read_routes import (
+    register_actor_ops_events_route,
+    register_actor_ops_freshness_detail_route,
+    register_actor_ops_freshness_plan_route,
+    register_actor_ops_route_read_routes,
+)
 from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
 from .catalog_metadata_routes import register_catalog_metadata_routes
 from .catalog_membership_routes import (
@@ -106,7 +112,6 @@ from ..services.apify_actor_ops import (
     ROUTE_CANARY_ATTEMPT_LIMIT,
     SOURCE_CANARY_BUDGET_USD,
     source_target_fingerprint,
-    supported_route_profiles,
 )
 from ..services.apify_actor_canary import actor_canary_timeout_seconds
 from ..services.apify_pool_runtime import apify_coordinator_for_workspace
@@ -2375,6 +2380,7 @@ def create_app(
         apify_actor_alerts=apify_actor_alerts,
         apify_actor_resilience_for=apify_actor_resilience_for,
         apify_actor_ops_for=apify_actor_ops_for,
+        public_actor_ops_detail=public_actor_ops_detail,
         source_setup_availability=source_setup_availability,
         public_source=public_source,
         secret_values=secret_values,
@@ -3602,57 +3608,7 @@ def create_app(
 
     register_apify_key_pool_routes(app)
 
-    @app.get("/api/admin/apify-routes")
-    async def admin_apify_routes(
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        ops = apify_actor_ops_for(str(user["workspace_id"]))
-        routes = [
-            public_actor_ops_route(
-                ops,
-                ops.get_route(str(route["route_id"])),
-            )
-            for route in ops.list_routes()
-        ]
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            {
-                "schema_version": 1,
-                "generation": ops.catalog_generation(),
-                "support_profiles": supported_route_profiles(),
-                "routes": routes,
-            }
-        )
-
-    @app.get("/api/admin/apify-routes/{route_id}")
-    async def admin_apify_route_detail(
-        route_id: str,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        result = public_actor_ops_detail(
-            apify_actor_ops_for(str(user["workspace_id"])),
-            route_id,
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return ok({"schema_version": 1, **result})
-
-    @app.get("/api/admin/apify-routes/{route_id}/pool-candidates")
-    async def admin_apify_pool_candidates(
-        route_id: str,
-        response: Response,
-        goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
-        ] = Query(...),
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        result = apify_actor_ops_for(
-            str(user["workspace_id"])
-        ).list_pool_candidates(route_id, goal=goal)
-        response.headers["Cache-Control"] = "no-store"
-        return ok(result)
+    register_actor_ops_route_read_routes(app)
 
     @app.patch("/api/admin/apify-routes/{route_id}/freshness-settings")
     async def admin_apify_freshness_settings(
@@ -3686,17 +3642,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok({"schema_version": 1, **result})
 
-    @app.get("/api/admin/apify-routes/{route_id}/freshness-plan")
-    async def admin_apify_freshness_plan(
-        route_id: str,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        result = apify_actor_resilience_for(
-            str(user["workspace_id"])
-        ).freshness_plan(route_id)
-        response.headers["Cache-Control"] = "no-store"
-        return ok({"schema_version": 1, **result})
+    register_actor_ops_freshness_plan_route(app)
 
     @app.post("/api/admin/apify-routes/{route_id}/freshness-checks")
     async def admin_apify_freshness_check(
@@ -3752,17 +3698,7 @@ def create_app(
             }
         )
 
-    @app.get("/api/admin/apify-freshness-checks/{check_id}")
-    async def admin_apify_freshness_check_detail(
-        check_id: str,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        result = apify_actor_resilience_for(
-            str(user["workspace_id"])
-        ).get_freshness_check(check_id)
-        response.headers["Cache-Control"] = "no-store"
-        return ok({"schema_version": 1, **result})
+    register_actor_ops_freshness_detail_route(app)
 
     @app.patch("/api/admin/sources/{source_id}/apify-preference")
     async def admin_apify_source_preference(
@@ -3784,35 +3720,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok({"schema_version": 1, **result})
 
-    @app.get("/api/admin/apify-actor-events")
-    async def admin_apify_actor_events(
-        response: Response,
-        route_id: str | None = Query(default=None, max_length=128),
-        source_id: str | None = Query(default=None, max_length=128),
-        candidate_id: str | None = Query(default=None, max_length=128),
-        phase: str | None = Query(default=None, max_length=96),
-        outcome: str | None = Query(default=None, max_length=96),
-        since: datetime | None = Query(default=None),
-        until: datetime | None = Query(default=None),
-        cursor: str | None = Query(default=None, max_length=512),
-        limit: int = Query(default=50, ge=1, le=100),
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        result = apify_actor_resilience_for(
-            str(user["workspace_id"])
-        ).list_events(
-            route_id=route_id,
-            source_id=source_id,
-            candidate_id=candidate_id,
-            phase=phase,
-            outcome=outcome,
-            since=since,
-            until=until,
-            cursor=cursor,
-            limit=limit,
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return ok(result)
+    register_actor_ops_events_route(app)
 
     @app.post(
         "/api/admin/apify-actor-evaluations/{evaluation_id}/retry"

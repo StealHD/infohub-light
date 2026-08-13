@@ -48,6 +48,9 @@ SourceSetupAvailability = Callable[
 CatalogSourceProjection = Callable[
     [dict[str, Any], dict[str, Any]], dict[str, Any]
 ]
+ActorOpsDetailProjection = Callable[
+    ["ApifyActorOpsService", str], dict[str, Any]
+]
 SecretProjection = Callable[[dict[str, Any]], dict[str, Any]]
 SecretUsage = Callable[[dict[str, Any]], list[dict[str, str]]]
 SecretMetadataValidator = Callable[[Any], tuple[str, str, str, str, str]]
@@ -79,6 +82,7 @@ class ApiContext:
     apify_actor_alerts: ApifyActorAlertService
     apify_actor_resilience_for: ApifyActorResilienceFactory
     apify_actor_ops_for: ApifyActorOpsFactory
+    public_actor_ops_detail: ActorOpsDetailProjection
     source_setup_availability: SourceSetupAvailability
     public_source: CatalogSourceProjection
     secret_values: SecretStore
