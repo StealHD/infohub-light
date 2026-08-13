@@ -7,23 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "将当前本地 main 准备为 v2.3.2，推送精确发布提交并在 main Test Gate 成功后创建不可变发布标签。",
-  "status": "completed",
-  "task_id": "2026-08-12-release-v2.3.2",
-  "unresolved": [],
-  "validation": [
-    "发布前检查和精确 main GitHub Test Gate 通过。",
-    "v2.3.2 标签解析到已验证的 main 提交，Release Tag workflow 通过。"
-  ]
-}
-```
-
-```json
-{
   "commit": "b131f0531ca8c00388171929eead87116e061ea4",
   "control_topics": [
     "architecture",
@@ -413,6 +396,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "全 API 路由、2 个 Catalog 路由与 OpenAPI 规范 SHA 均与 3ad639f 基线一致；Catalog、ActorOps、Key Pool、权限、操作日志、lifespan 与 import boundary 定向回归通过。",
     "server.py 由 7259 行降至 7179 行，create_app 由 6277 行降至 6197 行；新模块 100 行。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235509 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "5250ae3",
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Catalog 来源列表、使用量、共享、软删除、订阅和取消订阅的 6 个 HTTP 适配器拆到独立模块；接口、路由顺序、权限、跨用户隐藏、事务与操作日志语义保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-catalog-membership-routes",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；Catalog create/patch 与 ActorOps API 保持原位，后续先下沉验证和计划边界再拆。"
+  ],
+  "validation": [
+    "全 API 路由、Catalog 路由与 OpenAPI 规范 SHA 均与 0ec7740 基线一致；Catalog、SubscriptionMutation、权限、操作日志、lifespan 与 import boundary 定向回归 182/182 通过。",
+    "server.py 由 7179 行降至 7074 行，create_app 由 6197 行降至 6094 行；新模块 198 行且所有新函数符合硬上限。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235482 bytes。"
   ]
 }
 ```
