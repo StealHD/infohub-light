@@ -8,29 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-12",
-  "result": "将平台导向新增来源、ActorOps 功能优先兼容/新鲜度/诊断能力与 X 单 Actor 继续流程合入本地 main；同时保留既有 MCP 令牌复制改动并解决决策编号冲突。",
-  "status": "completed",
-  "task_id": "2026-08-12-main-actorops-platform-source-integration",
-  "unresolved": [
-    "未选择 validation Key、未授权自动新鲜度，也未运行兼容 Canary 或任何付费 Actor；这些动作继续由用户逐项确认。"
-  ],
-  "validation": [
-    "合并范围 preflight 13/13 通过（396.787 秒），mapping_miss=false。",
-    "本地 main 完整 Test Gate 15/15 通过（427.315 秒），mapping_miss=false。",
-    "决策记录保留 D146 MCP 复制，并将平台来源/ActorOps 韧性顺延为 D147/D148；WORKLOG 校验无 findings。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -413,6 +390,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "全 API 路由、transport 路由与 OpenAPI 规范 SHA 均与 7cde2e6 基线一致；通知 transport、权限、操作日志与 lifespan 定向回归 78/78 通过。",
     "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235443 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-13",
+  "result": "将 Apify Key Pool 的 4 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、migration gate、generation/CAS、drain 与 resilience event 语义保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-13-code-health-key-pool-routes",
+  "unresolved": [
+    "总代码健康 Goal 尚未完成；后续继续小步拆分 secrets、Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
+  ],
+  "validation": [
+    "全 API 路由、Key Pool 路由与 OpenAPI 规范 SHA 均与 4e529f4 基线一致；Key Pool、resilience、权限、操作日志与 lifespan 定向回归 46/46 通过。",
+    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235453 bytes。"
   ]
 }
 ```
