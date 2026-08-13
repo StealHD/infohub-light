@@ -16,6 +16,7 @@ PROTECTED_RUNTIME_FILES = (
     "src/api/feed_routes.py",
     "src/api/job_routes.py",
     "src/api/notification_routes.py",
+    "src/api/notification_transport_routes.py",
     "src/api/schedule_routes.py",
     "src/api/server.py",
     "src/api/user_routes.py",

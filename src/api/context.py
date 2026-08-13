@@ -58,5 +58,6 @@ class ApiContext:
     remote_mcp_settings: RemoteMCPSettings
     openclaw_chat_settings: OpenClawChatSettings
     require_webhook_providers: ReadinessCheck
+    require_notification_channels: ReadinessCheck
     require_notification_targets: ReadinessCheck
     readiness_checks: tuple[ReadinessCheck, ...]
