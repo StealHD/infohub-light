@@ -57,6 +57,7 @@ from .worker_cycle import (
     WorkerCyclePorts,
     prepare_worker_cycle,
 )
+from .worker_schedule_gate import worker_schedule_polling_enabled
 from .worker_post_commit import WorkerPostCommitPorts, run_worker_post_commit
 from .worker_feed_handler import (
     WorkerFeedPorts,
@@ -649,7 +650,7 @@ def main() -> None:
     try:
         while True:
             loop_started_at = time.monotonic()
-            check_schedules = (
+            check_schedules = worker_schedule_polling_enabled() and (
                 last_schedule_check is None
                 or loop_started_at - last_schedule_check >= max(args.schedule_poll_seconds, 0.5)
             )

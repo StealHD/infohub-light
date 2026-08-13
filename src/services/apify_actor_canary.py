@@ -29,6 +29,11 @@ from .apify_actor_ops import (
     revision_set_hash,
     source_target_fingerprint,
 )
+from .apify_actor_canary_compatibility import (
+    CompatibilityPreflightError,
+    preflight_compatibility_candidate,
+    run_compatibility_if_needed,
+)
 
 
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
@@ -273,28 +278,11 @@ class ApifyActorCanaryRunner:
                 "apify_actor_validation_not_queued",
                 "Actor validation is not queued",
             )
-        if bool(row["compatibility_validation"]):
-            if int(row["route_generation"]) != int(
-                row["approved_generation"] or -1
-            ):
-                self.ops.record_validation(
-                    validation_id,
-                    status="cancelled",
-                    semantic_outcome="approval_stale",
-                    cost_usd=0.0,
-                    cost_final=True,
-                    counts_toward_canary=False,
-                )
-                raise ActorOpsError(
-                    "apify_actor_canary_approval_stale",
-                    "Actor Route changed after compatibility approval",
-                    status_code=409,
-                )
-            return await self._run_compatibility_single(
-                row,
-                validation_id=validation_id,
-                job_id=job_id,
-            )
+        compatibility_result = await run_compatibility_if_needed(
+            self, row, validation_id=validation_id, job_id=job_id
+        )
+        if compatibility_result is not None:
+            return compatibility_result
         if (
             not row["build_id"]
             or not row["build_number"]
@@ -723,40 +711,9 @@ class ApifyActorCanaryRunner:
                 "Selected Actor is disabled",
                 status_code=412,
             )
-        from .apify_actor_discovery import (
-            ActorDiscoveryError,
-            ApifyActorDiscoveryService,
-            ApifyStoreRestClient,
-        )
-
         try:
-            verifier = ApifyActorDiscoveryService(
-                self.ops,
-                ApifyStoreRestClient(
-                    str(self.client.token or ""),
-                    base_url=str(self.client.base_url),
-                    client=self.client.http_client,
-                ),
-                lambda _prompt: {},
-            )
-            current_candidate = await verifier.load_compatibility_candidate(
-                str(row["actor_id"]),
-                per_run_cap_usd=min(
-                    float(row["approved_max_cost_usd"] or 0.02),
-                    0.02,
-                ),
-            )
-            if row["build_id"] and (
-                str(current_candidate.build_id or "") != str(row["build_id"])
-                or str(current_candidate.build_number or "")
-                != str(row["build_number"] or "")
-            ):
-                raise ActorDiscoveryError(
-                    "compatibility_candidate_changed",
-                    "Compatibility Actor Build changed after approval",
-                    status_code=412,
-                )
-        except (ActorDiscoveryError, ValueError) as exc:
+            current_candidate = await preflight_compatibility_candidate(self, row)
+        except CompatibilityPreflightError as exc:
             code = _safe_canary_code(
                 getattr(exc, "code", None),
                 "compatibility_preflight_failed",

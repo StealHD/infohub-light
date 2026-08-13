@@ -36,6 +36,11 @@ from .apify_actor_ops import (
     ApifyActorOpsService,
     actor_evidence_fingerprint,
 )
+from .apify_actor_discovery_store_policy import (
+    collect_store_candidates,
+    require_runnable_evidence,
+)
+from .apify_actor_pool_compatibility import persist_compatibility_candidates
 
 
 logger = logging.getLogger(__name__)
@@ -76,7 +81,6 @@ _DETERMINISTIC_METADATA_FAILURES = frozenset(
         "actor_deprecated",
         "actor_deprecation_unverifiable",
         "actor_not_runnable",
-        "actor_runnable_unverifiable",
         "actor_full_permission",
         "actor_permission_unverifiable",
         "actor_exact_build_missing",
@@ -498,14 +502,10 @@ class ApifyActorDiscoveryService:
         # Active compatibility Actors are looked up directly in the public
         # Store.  This is still discovery-only: metadata, exact Build, schema,
         # pricing, Manifest and input validation below remain mandatory.
-        store_hits: dict[str, Mapping[str, Any]] = {
-            actor_id: {"actorId": actor_id} for actor_id in preferred
-        }
-        for query in clean_queries:
-            for row in await _maybe_await(self.metadata_client.search_store(query)):
-                actor_id = _actor_id(row)
-                if actor_id and actor_id not in store_hits:
-                    store_hits[actor_id] = row
+        store_hits, store_search_actor_ids = await collect_store_candidates(
+            self.metadata_client, queries=clean_queries, preferred_actor_ids=preferred,
+            actor_id_from_row=_actor_id, maybe_await=_maybe_await,
+        )
         self.ops.update_discovery_run(
             run_id,
             expected_stage="searching",
@@ -539,6 +539,7 @@ class ApifyActorDiscoveryService:
                     target_type=str(route["target_type"]),
                     capability=str(route["capability"]),
                     evaluation_evidence=evaluation_evidence,
+                    allow_store_runnable_omission=actor_id in store_search_actor_ids,
                 )
             except ActorDiscoveryError as error:
                 if error.code == "apify_actor_metadata_authentication_failed":
@@ -549,6 +550,7 @@ class ApifyActorDiscoveryService:
                         compatibility_candidate = await self.load_compatibility_candidate(
                             actor_id,
                             per_run_cap_usd=float(route["per_run_cap_usd"]),
+                            allow_store_runnable_omission=actor_id in store_search_actor_ids,
                         )
                     except ActorDiscoveryError as compatibility_failure:
                         compatibility_error = compatibility_failure
@@ -642,44 +644,7 @@ class ApifyActorDiscoveryService:
         )
         accepted = accepted[:effective_candidate_limit]
         if str(route["platform"]) == "x":
-            # Keep every metadata-safe X Actor available for an explicitly
-            # confirmed controlled compatibility trial.  These placeholder
-            # revisions are not executable evidence and cannot activate on
-            # their own.
-            compatibility_candidates.sort(
-                key=lambda candidate: (
-                    0 if candidate.actor_id in preferred_set else 1,
-                    candidate.actor_id,
-                )
-            )
-            for candidate in compatibility_candidates[:effective_candidate_limit]:
-                self.ops.ensure_compatibility_trial_revision(
-                    route_id=str(run["route_id"]),
-                    discovery_run_id=run_id,
-                    actor_id=candidate.actor_id,
-                    publisher=candidate.publisher,
-                    build_id=candidate.build_id,
-                    build_number=candidate.build_number,
-                    pricing=_safe_pricing_summary(candidate.pricing),
-                    permission_level=str(
-                        candidate.actor.get("actorPermissionLevel") or "limited"
-                    ),
-                    input_schema_hash=_json_hash(candidate.input_schema),
-                    output_schema_hash=_json_hash(candidate.output_schema),
-                    deprecated=candidate.actor.get("isDeprecated") is True,
-                    permission_unverified=(
-                        str(
-                            candidate.actor.get("actorPermissionLevel") or ""
-                        ).casefold()
-                        not in {"limited_permissions", "limited"}
-                    ),
-                    input_dialect=_compatibility_input_dialect(
-                        candidate.input_schema
-                    ),
-                    input_count_field=_compatibility_count_field(
-                        candidate.input_schema
-                    ),
-                )
+            persist_compatibility_candidates(ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=_compatibility_input_dialect, input_count_field=_compatibility_count_field)
         candidate_evidence: dict[str, tuple[str, str]] = {}
         remembered: list[DiscoveryCandidate] = []
         for candidate in accepted:
@@ -1230,6 +1195,7 @@ class ApifyActorDiscoveryService:
         target_type: str,
         capability: str,
         evaluation_evidence: dict[str, Any] | None = None,
+        allow_store_runnable_omission: bool = False,
     ) -> DiscoveryCandidate:
         actor = dict(await _maybe_await(self.metadata_client.get_actor(actor_id)))
         evidence = evaluation_evidence if evaluation_evidence is not None else {}
@@ -1256,16 +1222,11 @@ class ApifyActorDiscoveryService:
                 if actor.get("isDeprecated") is True
                 else "actor_deprecation_unverifiable"
             )
-        if (
-            actor.get("isRunnable") is not True
-            and actor.get("canRun") is not True
-        ):
-            raise _reject(
-                "actor_not_runnable"
-                if actor.get("isRunnable") is False
-                or actor.get("canRun") is False
-                else "actor_runnable_unverifiable"
-            )
+        require_runnable_evidence(
+            actor,
+            allow_store_runnable_omission=allow_store_runnable_omission,
+            reject=_reject,
+        )
         permission = str(actor.get("actorPermissionLevel") or "").casefold()
         if permission != "limited_permissions":
             raise _reject(
@@ -1323,6 +1284,7 @@ class ApifyActorDiscoveryService:
         actor_id: str,
         *,
         per_run_cap_usd: float,
+        allow_store_runnable_omission: bool = False,
     ) -> DiscoveryCandidate:
         """Load only evidence required before a controlled X paid trial."""
 
@@ -1342,11 +1304,11 @@ class ApifyActorDiscoveryService:
             raise _reject("actor_metadata_identity_mismatch")
         if actor.get("isPublic") is not True:
             raise _reject("actor_not_public")
-        if (
-            actor.get("isRunnable") is not True
-            and actor.get("canRun") is not True
-        ):
-            raise _reject("actor_not_runnable")
+        require_runnable_evidence(
+            actor,
+            allow_store_runnable_omission=allow_store_runnable_omission,
+            reject=_reject,
+        )
         permission = str(actor.get("actorPermissionLevel") or "").casefold()
         if permission in {"full_permissions", "full", "administrator"}:
             raise _reject("actor_full_permission")

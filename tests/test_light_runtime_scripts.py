@@ -1164,8 +1164,13 @@ def test_compose_wires_user_feed_schedule_polling_without_a_new_default_service(
             "HORIZON_SCHEDULE_POLL_SECONDS: "
             "${HORIZON_SCHEDULE_POLL_SECONDS:-30}"
         ) in services["horizon-worker"]
+        assert (
+            "HORIZON_SCHEDULE_POLL_ENABLED: "
+            "${HORIZON_SCHEDULE_POLL_ENABLED:-true}"
+        ) in services["horizon-worker"]
 
     assert "HORIZON_SCHEDULE_POLL_SECONDS=30" in env_example
+    assert "HORIZON_SCHEDULE_POLL_ENABLED=true" in env_example
 
 
 def test_service_runtime_docs_require_owner_credentials_before_compose_startup():

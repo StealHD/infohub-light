@@ -1,7 +1,11 @@
 """Pool-management regressions stay isolated from the legacy staging suite."""
 
+import hashlib
+
 from test_apify_actor_ops_api import _client, _login, _ready_route
 from test_apify_actor_pool_staging_v18 import (
+    BATCH_CANARY_CONFIRMATION,
+    _discovery_with_revisions,
     FIXED_NOW,
     _revision,
     _route,
@@ -11,10 +15,11 @@ from test_apify_actor_pool_staging_v18 import (
 )
 
 from src.services.apify_actor_ops import ApifyActorOpsService
+from src.api.actor_ops_projection import public_canary_plan
 from src.services.apify_actor_pool_management import (
     ROUTE_POOL_REMOVE_CONFIRMATION,
 )
-from src.storage.service_store import ServiceStore
+from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
 def test_slot_operations_freeze_target_and_compact_pool(tmp_path) -> None:
@@ -74,6 +79,7 @@ def test_add_plan_binds_requested_slot_to_hash(tmp_path) -> None:
     assert (plan["operation_slot"], plan["target_slot_count"], plan["items"][0]["revision_id"]) == (
         "backup_2", 3, revision_id,
     )
+    assert public_canary_plan(plan)["operation_slot"] == "backup_2"
 
 
 def test_api_remove_is_cas_guarded_and_projects_slot_actions(tmp_path, monkeypatch) -> None:
@@ -121,6 +127,93 @@ def test_remove_reuses_only_retained_source_evidence(tmp_path) -> None:
     binding = ops.get_source_binding(source_id)
     assert ready["validation_status"] == "ready_2of2"
     assert binding["validation_status"] == "ready_1of1"
+
+
+def test_failed_replan_stage_does_not_lock_pool_removal(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="failed-replan-removal-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route, revisions = _two_actor_pool(store, ops)
+    run, staged = _discovery_with_revisions(
+        store,
+        ops,
+        route,
+        (("publisher-c/youtube-failed-replan", "publisher-c"),),
+        host="youtube.com",
+    )
+    candidate_id = str(store.connect().execute(
+        """SELECT candidate_id FROM apify_actor_adapter_revisions
+           WHERE workspace_id = ? AND revision_id = ?""",
+        (DEFAULT_WORKSPACE_ID, staged[0]),
+    ).fetchone()["candidate_id"])
+    candidate = next(
+        item for item in ops.list_pool_candidates(
+            str(route["route_id"]), goal="replace_slot", target_slot="backup_1"
+        )["candidates"]
+        if item["candidate_id"] == candidate_id
+    )
+    profile = {
+        "candidate_id": candidate_id,
+        **candidate["validation_options"],
+    }
+    plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="replace_slot",
+        target_slot="backup_1",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[profile],
+        target_slot_count=2,
+    )
+    batch = ops.create_canary_batch(
+        str(run["run_id"]),
+        goal="replace_slot",
+        target_slot="backup_1",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[profile],
+        target_slot_count=2,
+        expected_generation=int(plan["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        approval_id="failed-replan-removal-approval",
+        confirmation=BATCH_CANARY_CONFIRMATION,
+        max_candidates=1,
+        max_total_charge_usd=float(plan["max_total_charge_usd"]),
+        created_by_user_id=str(owner["id"]),
+        reference_fingerprints={
+            staged[0]: hashlib.sha256(
+                f"reference:{staged[0]}".encode()
+            ).hexdigest(),
+        },
+    )
+    stage_id = str(batch["pool_stage_id"])
+    store.connect().execute(
+        """UPDATE apify_actor_pool_stages
+           SET status = 'replan_required', last_error_code = 'candidate_shortfall'
+           WHERE workspace_id = ? AND stage_id = ?""",
+        (DEFAULT_WORKSPACE_ID, stage_id),
+    )
+    store.connect().commit()
+
+    finalized = ops.finalize_canary_batch(str(batch["batch_id"]))
+    assert finalized["status"] == "partial"
+    assert finalized["stop_reason"] == "candidate_replenishment_required"
+    assert ops.slot_operations(str(route["route_id"]))["backup_1"]["remove"]
+    removed = ops.remove_active_pool_slot(
+        str(route["route_id"]),
+        target_slot="backup_1",
+        expected_generation=int(route["generation"]),
+        confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
+    )
+
+    assert [slot["revision_id"] for slot in removed["slots"]] == [
+        revisions[0], None, None,
+    ]
+    assert ops.get_pool_stage(stage_id)["status"] == "stale"
 
 
 def test_remove_invalidates_ready_binding_when_retained_evidence_is_missing(tmp_path) -> None:

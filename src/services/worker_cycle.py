@@ -124,6 +124,13 @@ def _reconcile_actor_ops(
             workspace_id,
             costs["validations"],
         )
+    no_start_costs = actor_ops.reconcile_terminal_no_start_validation_costs()
+    if no_start_costs["validations"]:
+        logger.info(
+            "Apify Actor no-start validation costs settled workspace_id=%s count=%s",
+            workspace_id,
+            no_start_costs["validations"],
+        )
     freshness_costs = ApifyActorResilienceService(
         store,
         workspace_id=workspace_id,

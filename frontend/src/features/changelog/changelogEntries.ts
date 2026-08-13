@@ -1,4 +1,4 @@
-// Reviewed after the user subscription HTTP adapter split; user-facing behavior is unchanged.
+// Reviewed after the ActorOps pool failure-state update; entries remain grouped by user-visible release date.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

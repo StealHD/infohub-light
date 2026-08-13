@@ -196,7 +196,13 @@ async def _preflight_item(
     validation_id = str(item["validation_id"])
     revision_id = str(item["revision_id"])
     try:
-        if context.goal != "compatibility_single":
+        revision = context.ops.get_revision(revision_id)
+        compatibility_trial = bool(
+            (revision.get("security_evidence") or {}).get(
+                "compatibility_trial_only"
+            )
+        ) or bool(revision.get("observed_manifest"))
+        if context.goal != "compatibility_single" and not compatibility_trial:
             await context.client.preflight_actor_revision(
                 str(item["actor_id"]),
                 build_id=str(item["build_id"]),
@@ -234,7 +240,7 @@ async def _preflight_item(
         status="preflight_passed",
         semantic_outcome=(
             "compatibility_preflight_deferred"
-            if context.goal == "compatibility_single"
+            if context.goal == "compatibility_single" or compatibility_trial
             else "preflight_available"
         ),
     )

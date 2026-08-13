@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from src.services.apify_actor_canary import ApifyActorCanaryRunner
+from src.services.apify_actor_canary_compatibility import store_result_matches_actor
 from src.services.apify_actor_discovery import (
     ActorDiscoveryError,
     ApifyActorDiscoveryService,
@@ -34,6 +35,18 @@ def _candidate_id(store: ServiceStore, revision_id: str) -> str:
             """,
             (DEFAULT_WORKSPACE_ID, revision_id),
         ).fetchone()["candidate_id"]
+    )
+
+
+def test_store_runnable_provenance_requires_exact_actor_identity() -> None:
+    assert store_result_matches_actor(
+        {"actorId": "publisher~actor"}, "publisher/actor"
+    )
+    assert store_result_matches_actor(
+        {"username": "publisher", "name": "actor"}, "publisher/actor"
+    )
+    assert not store_result_matches_actor(
+        {"actorId": "publisher/other"}, "publisher/actor"
     )
 
 
@@ -443,7 +456,7 @@ def test_x_discovery_preserves_metadata_safe_compatibility_candidate(
     }
 
 
-def test_compatibility_candidate_requires_explicit_runnable_evidence(
+def test_store_candidate_without_legacy_runnable_flags_is_trial_selectable(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -471,6 +484,7 @@ def test_compatibility_candidate_requires_explicit_runnable_evidence(
                 "username": "compatibility",
                 "name": "unknown-runnable",
                 "isPublic": True,
+                "isDeprecated": False,
                 "actorPermissionLevel": "LIMITED_PERMISSIONS",
                 "pricingInfos": [
                     {
@@ -487,10 +501,10 @@ def test_compatibility_candidate_requires_explicit_runnable_evidence(
             }
 
         async def get_build(self, _build_id: str):
-            raise AssertionError("Unproven runnable Actor must stop first")
+            raise AssertionError("Missing tagged Builds must not be fetched")
 
         async def validate_input(self, *_args):
-            raise AssertionError("Unproven runnable Actor must not validate")
+            raise AssertionError("Compatibility placeholders skip static input validation")
 
     outcome = asyncio.run(
         ApifyActorDiscoveryService(ops, Metadata(), lambda _prompt: {}).run_discovery(
@@ -515,7 +529,7 @@ def test_compatibility_candidate_requires_explicit_runnable_evidence(
         WHERE workspace_id = ? AND candidate_id = ?
         """,
         (DEFAULT_WORKSPACE_ID, str(remembered["id"])),
-    ).fetchone()[0] == 0
+    ).fetchone()[0] == 1
     listed = ops.list_pool_candidates(
         str(route["route_id"]),
         goal="compatibility_single",
@@ -525,8 +539,72 @@ def test_compatibility_candidate_requires_explicit_runnable_evidence(
         for item in listed["candidates"]
         if item["candidate_id"] == str(remembered["id"])
     )
-    assert failed["selectable"] is False
-    assert failed["unavailable_reason"] == "actor_not_runnable"
+    assert failed["selectable"] is True
+    assert failed["unavailable_reason"] is None
+
+
+def test_direct_preferred_candidate_without_runnable_evidence_is_rejected(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    ops.patch_discovery_settings(
+        expected_generation=1,
+        enabled=True,
+        call_limit=3,
+    )
+    route = _x_route(ops)
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="compatibility-direct-runnable-proof",
+        expected_generation=int(route["generation"]),
+    )
+
+    class Metadata:
+        async def search_store(self, _query: str):
+            return []
+
+        async def get_actor(self, _actor_id: str):
+            return {
+                "actorId": "compatibility/direct-unknown-runnable",
+                "username": "compatibility",
+                "name": "direct-unknown-runnable",
+                "isPublic": True,
+                "isDeprecated": False,
+                "actorPermissionLevel": "LIMITED_PERMISSIONS",
+                "pricingInfos": [{
+                    "startedAt": "2020-01-01T00:00:00Z",
+                    "pricingModel": "PAY_PER_EVENT",
+                    "minimalMaxTotalChargeUsd": 0.01,
+                    "pricingPerEvent": {
+                        "actorChargeEvents": {"item": {"eventPriceUsd": 0.01}}
+                    },
+                }],
+            }
+
+        async def get_build(self, _build_id: str):
+            raise AssertionError("Unproven direct Actor must stop before Build lookup")
+
+        async def validate_input(self, *_args):
+            raise AssertionError("Unproven direct Actor must not validate")
+
+    outcome = asyncio.run(
+        ApifyActorDiscoveryService(ops, Metadata(), lambda _prompt: {}).run_discovery(
+            str(run["run_id"]),
+            queries=["x profile"],
+            preferred_actor_ids=["compatibility/direct-unknown-runnable"],
+            candidate_limit=30,
+        )
+    )
+
+    assert outcome.stage == "candidate_shortfall"
+    assert outcome.rejected == (
+        {
+            "actor_id": "compatibility/direct-unknown-runnable",
+            "reason": "actor_runnable_unverifiable",
+        },
+    )
 
 
 def test_single_nonempty_compatibility_proof_can_activate_x_without_redundancy(
@@ -618,6 +696,178 @@ def test_single_nonempty_compatibility_proof_can_activate_x_without_redundancy(
     workflow = ops.workflow_state(str(route["route_id"]))
     assert workflow["kind"] == "compatibility_operational"
     assert workflow["goal"] == "initial_pool"
+
+
+def test_x_compatibility_candidate_can_replace_one_legacy_slot(tmp_path) -> None:
+    """The X fallback is a true fixed-slot workflow, not a dead-end modal."""
+
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="compatibility-slot-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store)
+    route, run, revisions = _compatibility_discovery(store, ops)
+    original = [
+        ops.ensure_compatibility_trial_revision(
+            route_id=str(route["route_id"]),
+            discovery_run_id=str(run["run_id"]),
+            actor_id=f"legacy/{name}",
+            publisher=f"legacy-{name}",
+            build_id=f"legacy-build-{name}",
+            build_number="1.0.0",
+            pricing={"minimalMaxTotalChargeUsd": 0.01},
+            permission_level="limited",
+            input_schema_hash=None,
+            output_schema_hash=None,
+        )
+        for name in ("one", "two", "three")
+    ]
+    active = ops.replace_active_pool(
+        str(route["route_id"]),
+        slots=dict(zip(("primary", "backup_1", "backup_2"), original, strict=True)),
+        expected_generation=int(route["generation"]),
+        allow_compatibility_single=True,
+    )
+    candidate_id = _candidate_id(store, revisions["pinned"])
+    listed = ops.list_pool_candidates(
+        str(active["route_id"]), goal="replace_slot", target_slot="backup_1"
+    )
+    selected = next(
+        item for item in listed["candidates"] if item["candidate_id"] == candidate_id
+    )
+    assert selected["selectable"] is True
+    assert listed["operation_mode"] == "compatibility_slot"
+    profile = {"candidate_id": candidate_id, **selected["validation_options"]}
+    plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="replace_slot",
+        target_slot="backup_1",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[profile],
+        target_slot_count=3,
+    )
+    assert plan["operation_slot"] == "backup_1"
+    assert plan["target_slot_count"] == 3
+    assert plan["max_total_charge_usd"] == 0.02
+    batch = ops.create_canary_batch(
+        str(run["run_id"]),
+        goal="replace_slot",
+        target_slot="backup_1",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[profile],
+        target_slot_count=3,
+        expected_generation=int(plan["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        approval_id="compatibility-slot-replacement",
+        confirmation=BATCH_CANARY_CONFIRMATION,
+        max_candidates=1,
+        max_total_charge_usd=float(plan["max_total_charge_usd"]),
+        created_by_user_id=str(owner["id"]),
+        reference_fingerprints=dict(plan["_reference_fingerprints"]),
+    )
+    item = batch["items"][0]
+    ops.record_validation(
+        str(item["validation_id"]),
+        status="succeeded",
+        semantic_outcome="valid_nonempty",
+        cost_usd=0.005,
+        cost_final=True,
+        dataset_row_count=1,
+        mapped_item_count=1,
+    )
+    observed = ops.promote_compatibility_observation(
+        str(item["validation_id"]),
+        observed_fields=("identity", "url", "published_at", "content"),
+    )
+    ops.update_canary_batch_item(
+        str(batch["batch_id"]),
+        int(item["ordinal"]),
+        status="succeeded",
+        semantic_outcome="valid_nonempty",
+        actual_cost_usd=0.005,
+        cost_final=True,
+    )
+    assert ops.prepare_pool_stage_source_validations(str(batch["pool_stage_id"])) == []
+    ops.finalize_canary_batch(str(batch["batch_id"]))
+    activated = ops.apply_pool_stage(
+        str(batch["pool_stage_id"]),
+        expected_generation=int(plan["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        apply_id="compatibility-slot-activation",
+        confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
+    )
+    assert [slot["revision_id"] for slot in activated["slots"]] == [
+        original[0], observed, original[2]
+    ]
+    assert activated["min_runtime_healthy"] == 2
+    assert activated["admission_mode"] == "compatibility"
+
+
+def test_x_compatibility_slot_plan_includes_enabled_source_proofs(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route, run, revisions = _compatibility_discovery(store, ops)
+    original = [
+        ops.ensure_compatibility_trial_revision(
+            route_id=str(route["route_id"]),
+            discovery_run_id=str(run["run_id"]),
+            actor_id=f"legacy-source/{name}",
+            publisher=f"legacy-source-{name}",
+            build_id=f"legacy-source-build-{name}",
+            build_number="1.0.0",
+            pricing={"minimalMaxTotalChargeUsd": 0.01},
+            permission_level="limited",
+            input_schema_hash=None,
+            output_schema_hash=None,
+        )
+        for name in ("one", "two", "three")
+    ]
+    active = ops.replace_active_pool(
+        str(route["route_id"]),
+        slots=dict(zip(("primary", "backup_1", "backup_2"), original, strict=True)),
+        expected_generation=int(route["generation"]),
+        allow_compatibility_single=True,
+    )
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="X compatibility staged source",
+        config={"platform": "x", "kind": "profile", "target": "openai"},
+    )
+    ops.bind_source(
+        source_id=source_id,
+        route_id=str(active["route_id"]),
+        target_fingerprint="b" * 64,
+        mode="primary",
+    )
+    candidate_id = _candidate_id(store, revisions["pinned"])
+    selected = next(
+        item
+        for item in ops.list_pool_candidates(
+            str(active["route_id"]), goal="replace_slot", target_slot="primary"
+        )["candidates"]
+        if item["candidate_id"] == candidate_id
+    )
+    plan = ops.get_canary_plan(
+        str(run["run_id"]),
+        goal="replace_slot",
+        target_slot="primary",
+        candidate_ids=[candidate_id],
+        candidate_validation_profiles=[
+            {"candidate_id": candidate_id, **selected["validation_options"]}
+        ],
+        target_slot_count=3,
+    )
+    assert plan["source_validation_count"] == 3
+    assert plan["source_validation_cap_usd"] == 0.06
+    assert plan["max_total_charge_usd"] == 0.08
 
 
 def test_compatibility_cost_reconciliation_promotes_without_second_run(
@@ -879,7 +1129,8 @@ def test_compatibility_canary_rechecks_hard_fences_before_paid_start(
         reference_fingerprints=dict(plan["_reference_fingerprints"]),
     )
 
-    async def reject_changed_actor(*_args, **_kwargs):
+    async def reject_changed_actor(*_args, **kwargs):
+        assert kwargs["allow_store_runnable_omission"] is True
         raise ActorDiscoveryError(
             "actor_price_exceeds_route_cap",
             "Actor price changed after approval",
@@ -890,6 +1141,16 @@ def test_compatibility_canary_rechecks_hard_fences_before_paid_start(
         ApifyActorDiscoveryService,
         "load_compatibility_candidate",
         reject_changed_actor,
+    )
+    seen_store_queries: list[str] = []
+
+    async def store_search(_self, query):
+        seen_store_queries.append(query)
+        return [{"actorId": "compatibility/pinned-x"}]
+
+    monkeypatch.setattr(
+        "src.services.apify_actor_discovery.ApifyStoreRestClient.search_store",
+        store_search,
     )
 
     class NoPaidStartClient:
@@ -908,6 +1169,7 @@ def test_compatibility_canary_rechecks_hard_fences_before_paid_start(
                 job_id="compatibility-preflight-job",
             )
         )
+    assert seen_store_queries == ["compatibility/pinned-x", "second-publisher"]
     assert caught.value.code == "actor_price_exceeds_route_cap"
     persisted = store.connect().execute(
         """

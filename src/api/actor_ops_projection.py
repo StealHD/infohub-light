@@ -218,6 +218,7 @@ def public_canary_plan(plan: dict[str, Any]) -> dict[str, Any]:
     }
     for key in (
         "goal",
+        "operation_slot",
         "selection_mode",
         "target_slot_count",
         "base_pool_hash",
