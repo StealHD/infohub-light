@@ -126,6 +126,15 @@ from ..services.apify_actor_ops import (
 )
 from ..services.apify_actor_canary import actor_canary_timeout_seconds
 from ..services.apify_pool_runtime import apify_coordinator_for_workspace
+from .actor_ops_pool_management_gate import require_actor_pool_management_schema
+from .actor_ops_pool_management_routes import (
+    ApifyActorCanaryBatchRequest,
+    ApifyActorManualCanaryPlanRequest,
+    ApifyActorValidationProfileRequest,
+    register_actor_ops_pool_management_routes,
+    validate_pool_candidate_refresh,
+)
+from .actor_ops_detail_projection import public_actor_ops_detail as project_actor_ops_detail
 from ..scrapers.apify_client import ApifyClient
 from ..services.apify_discovery_ai import (
     list_global_discovery_ai_options,
@@ -474,77 +483,6 @@ class ApifyActorOpsCanaryRequest(BaseModel):
     max_total_charge_usd: float = Field(gt=0, le=100)
 
 
-class ApifyActorValidationProfileRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    candidate_id: str = Field(min_length=1, max_length=128)
-    timeout_seconds: StrictInt = Field(ge=180, le=900)
-    sample_items: Literal[1, 3, 5]
-    max_charge_usd: float = Field(gt=0, le=0.10)
-    options_hash: str = Field(
-        min_length=64,
-        max_length=64,
-        pattern=r"^[a-f0-9]{64}$",
-    )
-
-
-class ApifyActorCanaryBatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_generation: StrictInt = Field(ge=1)
-    expected_plan_hash: str = Field(
-        min_length=64,
-        max_length=64,
-        pattern=r"^[a-f0-9]{64}$",
-    )
-    approval_id: str = Field(
-        min_length=16,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9._:-]+$",
-    )
-    confirmation: Literal["确认付费验证主备"]
-    goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy",
-        "compatibility_single",
-    ] = "initial_pool"
-    max_candidates: StrictInt = Field(default=3, ge=1, le=3)
-    max_total_charge_usd: float = Field(default=0.06, gt=0, le=6.06)
-    candidate_ids: list[str] | None = Field(
-        default=None,
-        min_length=1,
-        max_length=3,
-    )
-    candidate_validation_profiles: list[
-        ApifyActorValidationProfileRequest
-    ] | None = Field(default=None, min_length=1, max_length=3)
-    target_slot_count: StrictInt | None = Field(default=None, ge=1, le=3)
-
-
-class ApifyActorManualCanaryPlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy",
-        "compatibility_single",
-    ]
-    candidate_ids: list[str] = Field(min_length=1, max_length=3)
-    candidate_validation_profiles: list[
-        ApifyActorValidationProfileRequest
-    ] = Field(min_length=1, max_length=3)
-    expected_generation: StrictInt = Field(ge=1)
-    target_slot_count: Literal[1, 2, 3] = 3
-
-
-class ApifyActorCandidateRefreshRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_generation: StrictInt = Field(ge=1)
-    goal: Literal[
-        "initial_pool", "complete_third", "upgrade_legacy",
-        "compatibility_single",
-    ] = "initial_pool"
-
-
 class ApifyFreshnessSettingsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -807,6 +745,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("PUT", "/api/admin/apify-routes/{route_id}/active-pool"): (
         "source",
         "actor_route_pool_replace",
+    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/active-pool/remove"): (
+        "source",
+        "actor_route_pool_remove",
     ),
     (
         "POST",
@@ -1087,6 +1029,7 @@ def create_app(
         require_apify_actor_manual_pool_selection_v19()
         require_apify_actor_validation_tuning_v20()
         require_apify_actor_resilience_v21()
+        require_actor_pool_management_schema(store)
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1107,6 +1050,7 @@ def create_app(
         require_apify_actor_manual_pool_selection_v19()
         require_apify_actor_validation_tuning_v20()
         require_apify_actor_resilience_v21()
+        require_actor_pool_management_schema(store)
         return ApifyActorOpsService(
             store,
             workspace_id=str(workspace_id),
@@ -1573,425 +1517,7 @@ def create_app(
         ops: ApifyActorOpsService,
         route_id: str,
     ) -> dict[str, Any]:
-        route = ops.get_route(route_id)
-        result = public_actor_ops_route(ops, route)
-        revisions: dict[str, dict[str, Any]] = {}
-        slots: list[dict[str, Any]] = []
-        for slot in route.get("slots", []):
-            revision_id = slot.get("revision_id")
-            revision = (
-                ops.get_revision(str(revision_id))
-                if revision_id is not None
-                else None
-            )
-            if revision is not None:
-                if str(revision.get("lifecycle")) in {
-                    "probationary", "certified"
-                }:
-                    revision["certification_progress"] = (
-                        ops.certification_progress(str(revision_id))
-                    )
-                revisions[str(revision_id)] = public_actor_ops_revision(revision)
-            candidate_state = str(slot.get("candidate_state") or "")
-            lifecycle = str(slot.get("lifecycle") or "")
-            slots.append(
-                {
-                    "slot": str(slot["slot_name"]),
-                    "revision_id": revision_id,
-                    "runnable": candidate_state
-                    in {"closed", "half_open", "probationary"}
-                    and lifecycle
-                    in {"certified", "probationary", "legacy_builtin"},
-                    "validation_status": lifecycle or "unconfigured",
-                    "revision": (
-                        revisions.get(str(revision_id))
-                        if revision_id is not None
-                        else None
-                    ),
-                }
-            )
-        connection = store.connect()
-        cost_cutoff = (
-            datetime.now(timezone.utc) - timedelta(hours=24)
-        ).isoformat()
-        revision_rows = connection.execute(
-            """
-            SELECT revision.revision_id, revision.created_at AS revision_created_at,
-                   candidate.display_name,
-                   (
-                       SELECT attempt.actual_cost_usd
-                       FROM apify_actor_attempts AS attempt
-                       WHERE attempt.workspace_id = revision.workspace_id
-                         AND attempt.adapter_revision_id = revision.revision_id
-                         AND attempt.actual_cost_usd IS NOT NULL
-                       ORDER BY COALESCE(
-                           attempt.terminal_at, attempt.updated_at
-                       ) DESC
-                       LIMIT 1
-                   ) AS last_charge_usd,
-                   (
-                       SELECT AVG(attempt.actual_cost_usd)
-                       FROM apify_actor_attempts AS attempt
-                       WHERE attempt.workspace_id = revision.workspace_id
-                         AND attempt.adapter_revision_id = revision.revision_id
-                         AND attempt.actual_cost_usd IS NOT NULL
-                         AND COALESCE(attempt.terminal_at, attempt.updated_at) >= ?
-                   ) AS avg_charge_24h_usd,
-                   (
-                       SELECT COALESCE(
-                           validation.semantic_outcome, validation.status
-                       )
-                       FROM apify_actor_validations AS validation
-                       WHERE validation.workspace_id = revision.workspace_id
-                         AND validation.revision_id = revision.revision_id
-                       ORDER BY COALESCE(
-                           validation.completed_at, validation.created_at
-                       ) DESC
-                       LIMIT 1
-                   ) AS last_canary_status,
-                   (
-                       SELECT COALESCE(
-                           validation.completed_at, validation.created_at
-                       )
-                       FROM apify_actor_validations AS validation
-                       WHERE validation.workspace_id = revision.workspace_id
-                         AND validation.revision_id = revision.revision_id
-                       ORDER BY COALESCE(
-                           validation.completed_at, validation.created_at
-                       ) DESC
-                       LIMIT 1
-                   ) AS last_canary_at
-            FROM apify_actor_adapter_revisions AS revision
-            JOIN apify_actor_candidates AS candidate
-              ON candidate.workspace_id = revision.workspace_id
-             AND candidate.id = revision.candidate_id
-            JOIN apify_actor_route_profiles AS profile
-              ON profile.workspace_id = candidate.workspace_id
-             AND profile.route_key = candidate.route_key
-            WHERE revision.workspace_id = ? AND profile.route_id = ?
-            ORDER BY revision.created_at DESC, revision.revision_id DESC
-            LIMIT 200
-            """,
-            (cost_cutoff, ops.workspace_id, route_id),
-        ).fetchall()
-        for row in revision_rows:
-            revision = ops.get_revision(str(row["revision_id"]))
-            revision["actor_public_name"] = str(row["display_name"] or "")
-            if str(revision.get("lifecycle")) in {
-                "probationary", "certified"
-            }:
-                revision["certification_progress"] = (
-                    ops.certification_progress(str(row["revision_id"]))
-                )
-            public_revision = public_actor_ops_revision(revision)
-            public_revision.update(
-                {
-                    "last_charge_usd": row["last_charge_usd"],
-                    "avg_charge_24h_usd": row["avg_charge_24h_usd"],
-                    "last_canary_at": row["last_canary_at"],
-                    "last_canary_status": row["last_canary_status"],
-                }
-            )
-            revisions[str(row["revision_id"])] = public_revision
-        for slot in slots:
-            revision_id = slot.get("revision_id")
-            slot["revision"] = (
-                revisions.get(str(revision_id))
-                if revision_id is not None
-                else None
-            )
-        result["slots"] = slots
-        result["revisions"] = list(revisions.values())
-        recommendation = ops.recommend_active_pool(route_id)
-        result["activation_recommendation"] = {
-            "ready": bool(recommendation["ready"]),
-            "already_active": bool(recommendation["already_active"]),
-            "confirmation": "确认启用 Actor 主备",
-            "problems": list(recommendation["problems"]),
-            "certified_actor_count": int(
-                recommendation["certified_actor_count"]
-            ),
-            "backup_2_actor_count": int(
-                recommendation["backup_2_actor_count"]
-            ),
-            "runnable_actor_count": int(
-                recommendation["runnable_actor_count"]
-            ),
-            "publisher_count": int(recommendation["publisher_count"]),
-            "activation_mode": recommendation["activation_mode"],
-            "slots": [
-                {
-                    "slot": slot_name,
-                    "revision_id": revision_id,
-                    "revision": (
-                        revisions.get(str(revision_id))
-                        if revision_id is not None
-                        else None
-                    ),
-                }
-                for slot_name, revision_id in recommendation["slots"].items()
-            ],
-        }
-        revision_order = {
-            str(row["revision_id"]): index
-            for index, row in enumerate(revision_rows)
-        }
-        active_revision_ids = {
-            str(slot["revision_id"])
-            for slot in slots
-            if slot.get("revision_id") is not None
-        }
-        revision_diffs: list[dict[str, Any]] = []
-        for slot in slots:
-            current_revision_id = slot.get("revision_id")
-            current = (
-                revisions.get(str(current_revision_id))
-                if current_revision_id is not None
-                else None
-            )
-            current_position = revision_order.get(str(current_revision_id))
-            if current is None or current_position is None:
-                continue
-            proposed = next(
-                (
-                    revisions[str(row["revision_id"])]
-                    for index, row in enumerate(revision_rows)
-                    if index < current_position
-                    and str(row["revision_id"]) not in active_revision_ids
-                    and str(
-                        revisions[str(row["revision_id"])]["actor_id"]
-                    ) == str(current["actor_id"])
-                    and str(
-                        revisions[str(row["revision_id"])]["lifecycle"]
-                    )
-                    in {
-                        "proposed",
-                        "static_valid",
-                        "probationary",
-                        "certified",
-                    }
-                ),
-                None,
-            )
-            if proposed is None:
-                continue
-            changes = [
-                field
-                for field in (
-                    "build_id",
-                    "build_number",
-                    "manifest_hash",
-                )
-                if proposed.get(field) != current.get(field)
-            ]
-            if not changes:
-                continue
-            revision_diffs.append(
-                {
-                    "slot": str(slot["slot"]),
-                    "current_revision_id": str(current_revision_id),
-                    "proposed_revision_id": str(proposed["revision_id"]),
-                    "changes": changes,
-                }
-            )
-        result["revision_diffs"] = revision_diffs
-        result["replacement_needed"] = int(result["runnable_slots"]) < int(
-            result["min_runtime_healthy"]
-        )
-        binding_rows = connection.execute(
-            """
-            SELECT binding.source_id, binding.validation_status,
-                   binding.generation, binding.target_fingerprint,
-                   binding.preferred_candidate_id,
-                   binding.active_candidate_id,
-                   binding.preference_suspended_at,
-                   preferred.display_name AS preferred_actor_name,
-                   active.display_name AS active_actor_name
-            FROM apify_source_route_bindings AS binding
-            LEFT JOIN apify_actor_candidates AS preferred
-              ON preferred.workspace_id = binding.workspace_id
-             AND preferred.id = binding.preferred_candidate_id
-            LEFT JOIN apify_actor_candidates AS active
-              ON active.workspace_id = binding.workspace_id
-             AND active.id = binding.active_candidate_id
-            WHERE binding.workspace_id = ? AND binding.route_id = ?
-            ORDER BY binding.updated_at DESC, binding.source_id
-            LIMIT 100
-            """,
-            (ops.workspace_id, route_id),
-        ).fetchall()
-        source_validations: list[dict[str, Any]] = []
-        source_summary = {"ready": 0, "pending": 0, "failed": 0}
-        for binding in binding_rows:
-            validation_slots: list[dict[str, Any]] = []
-            passed: set[str] = set()
-            latest_by_revision: dict[str, Any] = {}
-            for row in connection.execute(
-                """
-                SELECT revision_id, status, semantic_outcome,
-                       created_at, completed_at
-                FROM apify_actor_validations
-                WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                  AND kind = 'source_canary' AND target_fingerprint = ?
-                ORDER BY COALESCE(completed_at, created_at) DESC
-                """,
-                (
-                    ops.workspace_id,
-                    route_id,
-                    binding["source_id"],
-                    binding["target_fingerprint"],
-                ),
-            ).fetchall():
-                revision_id = str(row["revision_id"])
-                latest_by_revision.setdefault(revision_id, row)
-                if (
-                    str(row["status"]) == "succeeded"
-                    and str(row["semantic_outcome"])
-                    in {"valid_nonempty", "valid_empty"}
-                ):
-                    passed.add(revision_id)
-            pending_revision = next(
-                (
-                    str(slot["revision_id"])
-                    for slot in slots
-                    if slot.get("revision_id") is not None
-                    and str(slot["revision_id"]) not in passed
-                ),
-                None,
-            )
-            for slot in slots:
-                revision_id = (
-                    str(slot["revision_id"])
-                    if slot.get("revision_id") is not None
-                    else None
-                )
-                latest = (
-                    latest_by_revision.get(revision_id)
-                    if revision_id is not None
-                    else None
-                )
-                passed_slot = revision_id in passed if revision_id else False
-                validation_slots.append(
-                    {
-                        "slot": str(slot["slot"]),
-                        "revision_id": revision_id,
-                        "status": (
-                            "passed"
-                            if passed_slot
-                            else str(latest["status"])
-                            if latest is not None
-                            else "pending"
-                        ),
-                        "last_canary_at": (
-                            latest["completed_at"] or latest["created_at"]
-                            if latest is not None
-                            else None
-                        ),
-                        "last_canary_status": (
-                            latest["semantic_outcome"] or latest["status"]
-                            if latest is not None
-                            else None
-                        ),
-                        "can_canary": (
-                            revision_id is not None
-                            and revision_id == pending_revision
-                            and (
-                                latest is None
-                                or str(latest["status"])
-                                not in {"queued", "running"}
-                            )
-                        ),
-                    }
-                )
-            binding_status = str(binding["validation_status"])
-            bucket = (
-                "ready"
-                if binding_status in {"ready_1of1", "ready_2of2", "ready_3of3"}
-                else "failed"
-                if binding_status in {"failed", "blocked"}
-                else "pending"
-            )
-            source_summary[bucket] += 1
-            source_validations.append(
-                {
-                    "source_id": str(binding["source_id"]),
-                    "binding_status": binding_status,
-                    "generation": int(binding["generation"]),
-                    "actor_preference": {
-                        "mode": (
-                            "manual"
-                            if binding["preferred_candidate_id"]
-                            else "automatic"
-                        ),
-                        "preferred_candidate_id": binding[
-                            "preferred_candidate_id"
-                        ],
-                        "preferred_actor_name": binding[
-                            "preferred_actor_name"
-                        ],
-                        "active_candidate_id": binding["active_candidate_id"],
-                        "active_actor_name": binding["active_actor_name"],
-                        "preference_suspended": bool(
-                            binding["preference_suspended_at"]
-                        ),
-                    },
-                    "slots": validation_slots,
-                }
-            )
-        result["source_validations"] = source_validations
-        result["source_validation_summary"] = source_summary
-        stage = ops.active_pool_stage(route_id)
-        if stage is not None:
-            stage_sources = {
-                str(row["source_id"]): dict(row)
-                for row in connection.execute(
-                    """
-                    SELECT source_id, required_count, passed_count, status,
-                           last_error_code
-                    FROM apify_actor_pool_stage_sources
-                    WHERE workspace_id = ? AND stage_id = ?
-                    """,
-                    (ops.workspace_id, str(stage["stage_id"])),
-                ).fetchall()
-            }
-            for source_validation in source_validations:
-                staged = stage_sources.get(str(source_validation["source_id"]))
-                if staged is None:
-                    continue
-                source_validation["staged_validation"] = {
-                    "stage_id": str(stage["stage_id"]),
-                    "status": str(staged["status"]),
-                    "required_count": int(staged["required_count"]),
-                    "passed_count": int(staged["passed_count"]),
-                    "last_error_code": staged.get("last_error_code"),
-                }
-        result["workflow"] = ops.workflow_state(route_id)
-        discovery = connection.execute(
-            """
-            SELECT run_id, stage, error_code, updated_at
-            FROM apify_actor_discovery_runs
-            WHERE workspace_id = ? AND route_id = ?
-            ORDER BY created_at DESC, run_id DESC
-            LIMIT 1
-            """,
-            (ops.workspace_id, route_id),
-        ).fetchone()
-        result["discovery_run_id"] = (
-            str(discovery["run_id"]) if discovery is not None else None
-        )
-        result["discovery_status"] = (
-            str(discovery["stage"]) if discovery is not None else None
-        )
-        result["discovery_error_code"] = (
-            discovery["error_code"] if discovery is not None else None
-        )
-        result.update(
-            ApifyActorResilienceService(
-                store,
-                workspace_id=ops.workspace_id,
-            ).route_resilience(route_id)
-        )
-        return result
+        return project_actor_ops_detail(store, ops, route_id)
 
     def x_actor_ops_route(
         ops: ApifyActorOpsService,
@@ -2399,6 +1925,7 @@ def create_app(
             require_apify_actor_validation_tuning_v20,
         ),
     )
+    register_actor_ops_pool_management_routes(app, app.state.api_context)
 
     @app.middleware("http")
     async def _remote_mcp_body_limit(request: Request, call_next):
@@ -3725,103 +3252,6 @@ def create_app(
         return ok({"schema_version": 1, "evaluation": result})
 
     @app.post(
-        "/api/admin/apify-routes/{route_id}/pool-candidates/refresh"
-    )
-    async def admin_apify_refresh_pool_candidates(
-        route_id: str,
-        payload: ApifyActorCandidateRefreshRequest,
-        request: Request,
-        response: Response,
-        user: dict[str, Any] = Depends(current_admin),
-    ) -> dict[str, Any]:
-        quota.ensure_job_allowed(
-            workspace_id=str(user["workspace_id"]),
-            user_id=str(user["id"]),
-        )
-        ops = apify_actor_ops_for(str(user["workspace_id"]))
-        connection = store.connect()
-        owns_transaction = not connection.in_transaction
-        savepoint = f"actor_candidate_refresh_{uuid.uuid4().hex}"
-        try:
-            if owns_transaction:
-                connection.execute("BEGIN IMMEDIATE")
-            else:
-                connection.execute(f"SAVEPOINT {savepoint}")
-            active_discovery = connection.execute(
-                """
-                SELECT run_id
-                FROM apify_actor_discovery_runs
-                WHERE workspace_id = ? AND route_id = ?
-                  AND stage IN (
-                      'queued', 'searching', 'metadata', 'ranking',
-                      'static_validation', 'input_validation'
-                  )
-                ORDER BY created_at, rowid
-                LIMIT 1
-                """,
-                (str(user["workspace_id"]), route_id),
-            ).fetchone()
-            if active_discovery is not None:
-                raise ActorOpsError(
-                    "apify_actor_discovery_active",
-                    "The current Actor upgrade inspection is already running",
-                    status_code=409,
-                )
-            prefer_existing = payload.goal == "upgrade_legacy"
-            compatibility_single = payload.goal == "compatibility_single"
-            discovery = ops.create_discovery_run(
-                route_id,
-                trigger_reason=(
-                    "manual_legacy_upgrade_refresh"
-                    if prefer_existing
-                    else (
-                        "manual_compatibility_candidate_refresh"
-                        if compatibility_single
-                        else "manual_candidate_refresh"
-                    )
-                ),
-                expected_generation=int(payload.expected_generation),
-            )
-            queued = queue.create_job(
-                workspace_id=str(user["workspace_id"]),
-                user_id=str(user["id"]),
-                job_type="apify_actor_discovery",
-                payload={
-                    "run_id": str(discovery["run_id"]),
-                    "prefer_existing_legacy_actors": prefer_existing,
-                },
-                priority=50,
-                max_attempts=1,
-                retention_days=int(
-                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
-                ),
-                commit=False,
-            )
-            if owns_transaction:
-                connection.commit()
-            else:
-                connection.execute(f"RELEASE {savepoint}")
-        except Exception:
-            if owns_transaction and connection.in_transaction:
-                connection.rollback()
-            elif not owns_transaction:
-                connection.execute(f"ROLLBACK TO {savepoint}")
-                connection.execute(f"RELEASE {savepoint}")
-            raise
-        request.state.operation_job_id = str(queued["id"])
-        request.state.operation_changed_fields = ["candidate_refresh"]
-        request.state.operation_outcome = "queued"
-        response.headers["Cache-Control"] = "no-store"
-        return ok(
-            {
-                "schema_version": 1,
-                "route_id": route_id,
-                "run_id": str(discovery["run_id"]),
-                "status": "refreshing",
-            }
-        )
-
-    @app.post(
         "/api/admin/apify-routes/{route_id}/validations/reconcile"
     )
     async def admin_apify_reconcile_validation(
@@ -4371,6 +3801,7 @@ def create_app(
                 for item in payload.candidate_validation_profiles
             ],
             target_slot_count=int(payload.target_slot_count),
+            target_slot=payload.target_slot,
         )
         if int(plan["generation"]) != int(payload.expected_generation):
             raise ActorOpsError(
@@ -4593,6 +4024,7 @@ def create_app(
                 if payload.target_slot_count is not None
                 else None
             ),
+            target_slot=payload.target_slot,
         )
         if plan.get("_reference_fingerprints") is not None:
             reference_fingerprints = dict(plan["_reference_fingerprints"])
@@ -4635,6 +4067,7 @@ def create_app(
                     if payload.target_slot_count is not None
                     else None
                 ),
+                target_slot=payload.target_slot,
             ),
             user=user,
             request=request,

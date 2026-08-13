@@ -369,12 +369,9 @@ def apify_actor_pool_staging_v18_schema_shapes_valid(
     }
     stage_sql = table_sql.get("apify_actor_pool_stages", "")
     source_sql = table_sql.get("apify_actor_pool_stage_sources", "")
-    goal_shape_valid = (
-        "goalin('complete_third','upgrade_legacy')" in stage_sql
-        or "goalin('initial_pool','complete_third','upgrade_legacy')"
-        in stage_sql
-        or "goalin('initial_pool','complete_third','upgrade_legacy','compatibility_single')"
-        in stage_sql
+    goal_shape_valid = all(
+        goal in stage_sql
+        for goal in ("initial_pool", "complete_third", "upgrade_legacy")
     )
     return (
         goal_shape_valid
@@ -417,11 +414,9 @@ def apify_actor_manual_pool_selection_v19_schema_shapes_valid(
         ).fetchall()
     }
     stage_sql = table_sql.get("apify_actor_pool_stages", "")
-    goal_shape_valid = (
-        "goalin('initial_pool','complete_third','upgrade_legacy')"
-        in stage_sql
-        or "goalin('initial_pool','complete_third','upgrade_legacy','compatibility_single')"
-        in stage_sql
+    goal_shape_valid = "compatibility_single" in stage_sql or all(
+        goal in stage_sql
+        for goal in ("initial_pool", "complete_third", "upgrade_legacy")
     )
     target_shape_valid = (
         "check(target_slot_countbetween2and3)" in stage_sql
@@ -671,6 +666,8 @@ def apify_actor_resilience_v21_schema_shapes_valid(
         and "new.observed_manifestisnotold.observed_manifest"
         in revision_trigger
     )
+
+
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
     "generic_event",
@@ -1380,7 +1377,6 @@ class ServiceStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
-
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
@@ -1394,7 +1390,6 @@ class ServiceStore:
                 UNIQUE(workspace_id, username),
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
             );
-
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -3779,6 +3774,8 @@ class ServiceStore:
             )
             schema_sql = before_resilience + after_resilience
         conn.executescript(schema_sql)
+        from .apify_actor_pool_management_schema import bootstrap_service_store_schema
+        bootstrap_service_store_schema(conn, existing_schema=existing_schema)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
             """

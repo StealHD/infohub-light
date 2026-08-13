@@ -28,7 +28,7 @@ export type ActorOpsBatchConfirmationView = {
 }
 
 export type ActorOpsActivationConfirmationView = {
-  goal: 'initial_pool' | 'complete_third' | 'upgrade_legacy' | 'compatibility_single'
+  goal: 'initial_pool' | 'complete_third' | 'upgrade_legacy' | 'compatibility_single' | 'add_slot' | 'replace_slot'
   minimumActors: number
   currentSlotCount: number
 }

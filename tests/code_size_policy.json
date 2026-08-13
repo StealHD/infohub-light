@@ -107,7 +107,7 @@
       {
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "category": "production",
-        "max_lines": 2197
+        "max_lines": 2134
       },
       {
         "path": "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.test.tsx",
@@ -162,7 +162,7 @@
       {
         "path": "src/api/server.py",
         "category": "production",
-        "max_lines": 6330
+        "max_lines": 5763
       },
       {
         "path": "src/mcp/remote_diagnostics.py",
@@ -212,7 +212,7 @@
       {
         "path": "src/services/apify_actor_ops.py",
         "category": "production",
-        "max_lines": 13383
+        "max_lines": 13210
       },
       {
         "path": "src/services/apify_actor_resilience.py",
@@ -485,7 +485,7 @@
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "symbol": "HeroActorOpsControlPlane",
         "category": "production",
-        "max_lines": 1094
+        "max_lines": 1091
       },
       {
         "path": "frontend/src/features/jobs/useFeedActivity.ts",
@@ -629,7 +629,7 @@
         "path": "src/api/server.py",
         "symbol": "create_app",
         "category": "entrypoint",
-        "max_lines": 5402
+        "max_lines": 4893
       },
       {
         "path": "src/api/server.py",
@@ -666,12 +666,6 @@
         "symbol": "create_app.legacy_x_state_from_actor_ops",
         "category": "production",
         "max_lines": 202
-      },
-      {
-        "path": "src/api/server.py",
-        "symbol": "create_app.public_actor_ops_detail",
-        "category": "production",
-        "max_lines": 423
       },
       {
         "path": "src/mcp/remote_server.py",
@@ -761,7 +755,7 @@
         "path": "src/services/apify_actor_ops.py",
         "symbol": "ApifyActorOpsService._create_pool_stage_canary_batch",
         "category": "production",
-        "max_lines": 330
+        "max_lines": 326
       },
       {
         "path": "src/services/apify_actor_ops.py",
@@ -779,7 +773,7 @@
         "path": "src/services/apify_actor_ops.py",
         "symbol": "ApifyActorOpsService._get_pool_stage_canary_plan",
         "category": "production",
-        "max_lines": 930
+        "max_lines": 911
       },
       {
         "path": "src/services/apify_actor_ops.py",
@@ -792,12 +786,6 @@
         "symbol": "ApifyActorOpsService._pool_stage_last_failure",
         "category": "production",
         "max_lines": 202
-      },
-      {
-        "path": "src/services/apify_actor_ops.py",
-        "symbol": "ApifyActorOpsService._pool_stage_target_slots",
-        "category": "production",
-        "max_lines": 164
       },
       {
         "path": "src/services/apify_actor_ops.py",
@@ -863,7 +851,7 @@
         "path": "src/services/apify_actor_ops.py",
         "symbol": "ApifyActorOpsService.list_pool_candidates",
         "category": "production",
-        "max_lines": 597
+        "max_lines": 596
       },
       {
         "path": "src/services/apify_actor_ops.py",

@@ -16,7 +16,6 @@ import type {
   ApifyActorRouteDetail,
   ApifyActorRouteSummary,
   ApifyActorSlotName,
-  ApifyActorSourceSupport,
   ApifyActorSourceValidation,
   ApifyActorValidationProfileRequest,
 } from '../../api/types'
@@ -71,6 +70,16 @@ import {
   ActorOpsSourceCanaryConfirmationDialog,
   HumanActorErrorNotice,
 } from './ActorOpsWorkflowDialogs'
+import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog } from './ActorOpsPoolManagementControls'
+import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
+import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
+import {
+  actorPricingLabel,
+  poolCandidatePricingLabel,
+  poolCandidateUnavailableLabel,
+  routeMinimumActors,
+} from './actorOpsPoolPresentation'
+import { openActorOpsSourceCanary } from './actorOpsSourceCanary'
 import { toActivationConfirmationView, toBatchConfirmationView,
   toRollbackConfirmationView, toSourceCanaryConfirmationView } from './actorOpsWorkflowDialogModel'
 
@@ -162,7 +171,7 @@ type CanaryTarget =
     capUsd: number
   })
 
-type CanaryApprovalTarget = CanaryTarget & {
+export type CanaryApprovalTarget = CanaryTarget & {
   approvalId: string
 }
 
@@ -241,44 +250,6 @@ function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string
 }
 
 
-function actorPricingLabel(revision: ApifyActorRevisionSummary): string {
-  const pricing = revision.pricing
-  if (!pricing || pricing.billing_unit === 'unknown') return '定价快照不可用'
-  if (pricing.billing_unit === 'free') return '免费 Actor'
-  const minimum = pricing.unit_price_min_usd
-  const maximum = pricing.unit_price_max_usd
-  const price = minimum === null || minimum === undefined
-    ? '标价未提供'
-    : maximum !== null && maximum !== undefined && Math.abs(maximum - minimum) > 1e-9
-      ? `${formatActorUsd(minimum, true)}–${formatActorUsd(maximum, true)}`
-      : formatActorUsd(minimum, true)
-  const unit = pricing.billing_unit === 'dataset_item' ? '每 Dataset 行' : '每计费事件'
-  const cap = pricing.minimum_run_cap_usd
-  return `${price} ${unit}${cap !== null && cap !== undefined
-    ? ` · Actor 最低 Run 上限 ${formatActorUsd(cap, true)}`
-    : ''}`
-}
-
-function poolCandidatePricingLabel(candidate: ApifyActorPoolCandidate): string {
-  const pricing = candidate.pricing
-  if (!pricing || pricing.billing_unit === 'unknown') return '计费方式待验证计划确认'
-  if (pricing.billing_unit === 'free') return 'Actor 标价免费'
-  if (pricing.billing_unit === 'dataset_item') return '按结果条目计费'
-  return '按 Actor 计费事件计费'
-}
-
-function poolCandidateUnavailableLabel(reason: string | null | undefined): string {
-  if (reason === 'actor_already_active') return '已经在当前主备中'
-  if (reason === 'candidate_validation_in_progress') return '另一次验证正在进行'
-  if (reason === 'candidate_exact_build_missing') return '尚未固定可验证版本'
-  if (reason === 'candidate_not_validated') return '基础检查尚未通过'
-  if (reason === 'actor_upgrade_inspection_running') return '正在为这个当前 Actor 生成安全新版'
-  if (reason === 'actor_upgrade_revision_unavailable') return '尚未通过安全升级检查；当前兼容版本继续运行'
-  if (reason === 'actor_validation_sample_limit_reached') return '3 条样本仍未通过，升级已停止'
-  if (reason === 'actor_validation_retry_not_permitted') return '上次失败不允许通过提价、换 Actor 或重复付费绕过'
-  return '当前不满足安全条件'
-}
-
 function shortRevision(revisionId: string | null | undefined): string {
   if (!revisionId) return '未绑定'
   return revisionId.length > 16 ? `${revisionId.slice(0, 8)}…${revisionId.slice(-6)}` : revisionId
@@ -308,15 +279,6 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
     <p className="type-page-title mt-1 break-words tabular-nums">{value}</p>
     {detail && <p className="type-meta mt-1 break-words text-muted">{detail}</p>}
   </div>
-}
-
-function routeMinimumActors(
-  route: Pick<ApifyActorRouteSummary, 'min_runtime_healthy'> & {
-    actual_min_runtime_healthy?: number
-  },
-): number {
-  const value = route.actual_min_runtime_healthy ?? route.min_runtime_healthy
-  return Math.min(3, Math.max(1, Math.trunc(value)))
 }
 
 function routeMinimumPublishers(
@@ -855,28 +817,6 @@ function sourceActorSummary(source: ApifyActorSourceValidation): string {
   return `当前实际 Actor：${active} · 自动选择`
 }
 
-function guidedSlotStatus(
-  slot: ApifyActorSlotName,
-  revision: ApifyActorRevisionSummary | null | undefined,
-): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger'; note: string } {
-  if (!revision) return { label: '空缺', tone: 'neutral', note: '当前不参与运行，也不产生费用' }
-  if (revision.lifecycle === 'legacy_builtin') return { label: '兼容版本', tone: 'warning', note: '当前仍可运行；可在旁路完成升级' }
-  if (['quarantined', 'rejected'].includes(revision.lifecycle)) return { label: '需要处理', tone: 'danger', note: '当前不会参与新的运行' }
-  if (revision.lifecycle === 'probationary') {
-    return {
-      label: slot === 'primary' ? '运行中' : '备用可用',
-      tone: 'success',
-      note: '已验证，可运行；系统会继续观察稳定性，无需手动转正',
-    }
-  }
-  if (revision.lifecycle === 'certified') return {
-    label: slot === 'primary' ? '运行中' : '备用可用',
-    tone: 'success',
-    note: slot === 'primary' ? '当前主用 Actor' : '故障时自动切换',
-  }
-  return { label: '需要处理', tone: 'warning', note: '尚未完成实际验证' }
-}
-
 function SourceActorPreferenceControl({
   detail,
   source,
@@ -1179,6 +1119,18 @@ export function HeroActorOpsControlPlane({
     },
   })
   const detail = detailQuery.data
+  const refreshSelected = () => {
+    void routesQuery.refetch()
+    if (tab !== 'operations') void detailQuery.refetch()
+  }
+  const poolManagement = useActorOpsPoolManagement({
+    detail,
+    setCandidatePickerOpen,
+    setSelectedCandidateIds,
+    setCandidateError,
+    refreshSelected,
+  })
+  const { slotOperation, removeTarget, removePoolSlot } = poolManagement
   const workflow = detail?.workflow ?? selectedSummary?.workflow
   const minimumActors = detail
     ? routeMinimumActors(detail)
@@ -1186,7 +1138,8 @@ export function HeroActorOpsControlPlane({
       ? routeMinimumActors(selectedSummary)
       : 2
   const next = routeWorkflowPresentation(workflow?.kind || '', minimumActors)
-  const candidateGoal: ApifyActorPoolGoal = workflow?.goal || 'initial_pool'
+  const candidateGoal: ApifyActorPoolGoal = slotOperation?.goal || workflow?.goal || 'initial_pool'
+  const candidateTargetSlot = slotOperation?.targetSlot
   const workflowFailure = workflowFailureNotice(workflow?.progress, candidateGoal)
   const submittedDiscoveryRunId = submittedDiscovery?.routeId === selectedRouteId
     ? submittedDiscovery.runId
@@ -1217,24 +1170,20 @@ export function HeroActorOpsControlPlane({
     && (!trackedDiscoveryQuery.data || !terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)),
   )
   const discoveryRunRunning = workflowDiscoveryRunning || submittedDiscoveryRunning
-  const candidatesQuery = useQuery({
-    queryKey: queryKeys.apifyActorPoolCandidates(user.id, selectedRouteId, candidateGoal),
-    queryFn: ({ signal }) => api.apifyActorPoolCandidates(selectedRouteId, candidateGoal, signal),
-    enabled: queryEnabled && candidatePickerOpen && Boolean(selectedRouteId),
-    retry: false,
+  const {
+    candidatesQuery,
+    preferredCandidateIds,
+    hasPreferredActorUpgrades,
+    activeSelectedCandidateIds,
+    selectableCandidateCount,
+  } = useActorOpsPoolCandidates({
+    routeId: selectedRouteId,
+    goal: candidateGoal,
+    targetSlot: candidateTargetSlot,
+    queryEnabled,
+    pickerOpen: candidatePickerOpen,
+    selectedCandidateIds,
   })
-
-  const preferredCandidateIds = candidateGoal === 'upgrade_legacy' && candidatePickerOpen
-    ? (candidatesQuery.data?.candidates ?? [])
-      .filter((candidate) => candidate.selectable && candidate.existing_actor_upgrade)
-      .slice(0, candidatesQuery.data?.required_selection_count ?? 3)
-      .map((candidate) => candidate.candidate_id)
-    : []
-  const hasPreferredActorUpgrades = preferredCandidateIds.length > 0
-  const activeSelectedCandidateIds = selectedCandidateIds ?? preferredCandidateIds
-  const selectableCandidateCount = candidatesQuery.data
-    ? candidatesQuery.data.candidates.filter((candidate) => candidate.selectable).length
-    : null
 
   const batchQuery = useQuery({
     queryKey: queryKeys.apifyActorCanaryBatch(user.id, activeBatchId),
@@ -1318,11 +1267,6 @@ export function HeroActorOpsControlPlane({
     )?.focus())
   }
 
-  function refreshSelected() {
-    void routesQuery.refetch()
-    if (tab !== 'operations') void detailQuery.refetch()
-  }
-
   function profileDraft(candidate: ApifyActorPoolCandidate): CandidateProfileDraft {
     const options = candidate.validation_options ?? {
       timeout_seconds: 300,
@@ -1397,11 +1341,18 @@ export function HeroActorOpsControlPlane({
   const discovery = useMutation({
     mutationFn: async () => {
       if (!selectedSummary) throw new Error('route unavailable')
-      return api.refreshApifyActorPoolCandidates(
-        selectedSummary.route_id,
-        selectedSummary.generation,
-        candidateGoal,
-      )
+      return candidateTargetSlot
+        ? api.refreshApifyActorPoolCandidates(
+          selectedSummary.route_id,
+          selectedSummary.generation,
+          candidateGoal,
+          candidateTargetSlot,
+        )
+        : api.refreshApifyActorPoolCandidates(
+          selectedSummary.route_id,
+          selectedSummary.generation,
+          candidateGoal,
+        )
     },
     onSuccess: (response) => {
       setSubmittedDiscovery({
@@ -1409,11 +1360,12 @@ export function HeroActorOpsControlPlane({
         runId: response.run_id,
         previousRunId: workflow?.run_id || '',
       })
-      setCandidatePickerOpen(false)
+      if (!slotOperation) setCandidatePickerOpen(false)
       setSelectedCandidateIds([])
       setCandidateError(null)
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       if (selectedRouteId) void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
+      if (selectedRouteId) void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorPoolCandidates(user.id, selectedRouteId, candidateGoal, candidateTargetSlot) })
       actionToast.success('已开始免费搜索，页面会自动更新进度')
     },
     onError: (caught) => setCandidateError(humanActorError(caught)),
@@ -1437,9 +1389,13 @@ export function HeroActorOpsControlPlane({
         expected_generation: candidates.generation,
         target_slot_count: candidates.goal === 'compatibility_single'
           ? 1
+          : candidates.goal === 'add_slot' || candidates.goal === 'replace_slot'
+            ? ((detail?.slots.filter((slot) => Boolean(slot.revision_id)).length ?? 0)
+              + (candidates.goal === 'add_slot' ? 1 : 0)) as 1 | 2 | 3
           : candidates.goal === 'initial_pool'
             ? candidates.required_selection_count as 2 | 3
             : 3,
+        ...(candidates.target_slot ? { target_slot: candidates.target_slot } : {}),
       })
     },
     onSuccess: (plan) => {
@@ -1521,10 +1477,14 @@ export function HeroActorOpsControlPlane({
         target_slot_count: target.plan.target_slot_count || (
           target.plan.goal === 'compatibility_single'
             ? 1
+            : target.plan.goal === 'add_slot' || target.plan.goal === 'replace_slot'
+              ? ((detail?.slots.filter((slot) => Boolean(slot.revision_id)).length ?? 0)
+                + (target.plan.goal === 'add_slot' ? 1 : 0)) as 1 | 2 | 3
             : target.plan.goal === 'initial_pool'
               ? minimumActors as 1 | 2 | 3
               : 3
         ),
+        ...(target.plan.operation_slot ? { target_slot: target.plan.operation_slot } : {}),
       } : {}),
     }),
     onSuccess: (response) => {
@@ -1570,6 +1530,7 @@ export function HeroActorOpsControlPlane({
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourceTypes(user.id) })
       setActivationTarget(null)
       setActivationError(null)
+      poolManagement.clearSlotOperation()
       restoreFocus(activationTriggerRef)
       actionToast.success('Actor 主备已安全生效')
     },
@@ -1694,7 +1655,7 @@ export function HeroActorOpsControlPlane({
   })
 
   const actionPending = discovery.isPending || preparePlan.isPending || prepareManualPlan.isPending || canaryBatch.isPending
-    || activatePool.isPending || updatePool.isPending || sourceCanary.isPending || sourceActivate.isPending
+    || activatePool.isPending || updatePool.isPending || removePoolSlot.isPending || sourceCanary.isPending || sourceActivate.isPending
     || reconcileValidation.isPending || retryEvaluation.isPending
   const activePoolDraft = useMemo(() => detail ? Object.fromEntries(
     detail.slots.map((slot) => [slot.slot, slot.revision_id]),
@@ -1711,7 +1672,7 @@ export function HeroActorOpsControlPlane({
   const routeCapValid = Number.isFinite(routeCapValue) && routeCapValue > 0 && routeCapValue <= 100
   const routeCapChanged = Boolean(detail && routeCapValid && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9)
   const candidateRequiredCount = candidatesQuery.data?.required_selection_count
-    ?? (['complete_third', 'compatibility_single'].includes(candidateGoal)
+    ?? (['complete_third', 'compatibility_single', 'add_slot', 'replace_slot'].includes(candidateGoal)
       ? 1
       : candidateGoal === 'upgrade_legacy'
         ? 3
@@ -1802,26 +1763,6 @@ export function HeroActorOpsControlPlane({
     else if (next.action === 'refresh') refreshSelected()
   }
 
-  function openSourceCanary(slot: ApifyActorSourceSupport['slots'][number]) {
-    if (!detail || !sourceSupportQuery.data || !slot.revision_id) return
-    const revision = detail.revisions.find((item) => item.revision_id === slot.revision_id)
-    if (!revision) return
-    setCanaryError('')
-    setCanaryTarget({
-      kind: 'source',
-      sourceId: sourceSupportQuery.data.source_id,
-      revision,
-      expectedGeneration: sourceSupportQuery.data.generation,
-      capUsd: Math.min(detail.per_run_cap_usd, sourceSupportQuery.data.remaining_budget_usd),
-      routeKey: detail.route_key,
-      routeLabel: routeProductNames[selectedProfileId]?.label || selectedProfileId,
-      routeMode: detail.mode,
-      actorPricingLabel: actorPricingLabel(revision),
-      buildLabel: revision.build_number || revision.build_id || '未固定',
-      approvalId: crypto.randomUUID(),
-    })
-  }
-
   function toggleCandidate(candidateId: string, selected: boolean) {
     setCandidateError(null)
     setSelectedCandidateIds((current) => {
@@ -1883,7 +1824,7 @@ export function HeroActorOpsControlPlane({
           replaceQuery(String(key) as ActorOpsTaskTab)
         }
       }}>
-        <div className="sticky top-0 z-10 -mx-1 overflow-visible bg-transparent px-1 py-1 backdrop-blur-sm">
+        <div className="-mx-1 overflow-visible bg-transparent px-1 py-1">
           <Tabs.List aria-label="ActorOps 配置任务" className="grid w-full grid-cols-3 gap-1 rounded-control bg-accent/5 p-1 shadow-none">
             <Tabs.Tab id="pool" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center px-2">主备配置<Tabs.Indicator /></Tabs.Tab>
             <Tabs.Tab id="sources" isDisabled={actionPending} className="min-h-11 min-w-0 justify-center gap-1 px-2">来源启用{pendingSourceCount > 0 && <CountBadge count={pendingSourceCount} label={`${pendingSourceCount} 个来源待处理`} />}<Tabs.Indicator /></Tabs.Tab>
@@ -1896,26 +1837,15 @@ export function HeroActorOpsControlPlane({
             {detailQuery.isPending && <LoadingState label="正在读取当前主备" rows={3} />}
             {detailQuery.isError && <HeroNotice title="当前主备读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void detailQuery.refetch()}>重试</Button></HeroNotice>}
             {detail && <>
-              <Card variant="secondary" className="grid gap-4 border border-separator p-4 shadow-sm">
+              <Card variant="secondary" className="grid gap-4 border border-separator p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div><Card.Title>当前主备</Card.Title><Card.Description className="mt-1">{detail.runnable_slots}/3 路可用 · {detail.mode === 'fallback' ? '原生优先，Actor 故障回退' : 'Actor 主抓取'}</Card.Description></div>
                   <StatusIndicator label={next.status} tone={next.tone} />
                 </div>
-                <ol className="grid gap-3 min-[768px]:grid-cols-3" aria-label="当前 Actor 主备槽位">
-                  {slotOrder.map((name) => {
-                    const slot = detail.slots.find((item) => item.slot === name)
-                    const revision = slot?.revision
-                    const slotStatus = guidedSlotStatus(name, revision)
-                    return <li key={name} className="min-w-0 rounded-control border border-separator bg-default p-3">
-                      <div className="flex items-center justify-between gap-2"><span className="type-control">{slotDisplayLabels[name]}</span><StatusIndicator label={slotStatus.label} tone={slotStatus.tone} /></div>
-                      <p className="type-control mt-3 break-words">{revision?.actor_public_name || (revision ? `${revision.publisher} Actor` : '当前为空')}</p>
-                      <p className="type-meta mt-1 break-words text-muted">{revision ? `发布者 ${revision.publisher} · ${slotStatus.note}` : slotStatus.note}</p>
-                    </li>
-                  })}
-                </ol>
+                <ActorOpsPoolSlots detail={detail} pending={actionPending} onOperation={(goal, slot) => { if (!actionPending) poolManagement.startSlotOperation(goal, slot) }} onRemove={poolManagement.openRemoveDialog} />
               </Card>
 
-              <Card variant="secondary" className="grid gap-4 border border-separator p-4 shadow-sm" data-testid="actorops-next-action">
+              <Card variant="secondary" className="grid gap-4 border border-separator p-4" data-testid="actorops-next-action">
                 <div className="flex flex-col gap-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
                   <div className="min-w-0"><Card.Title>{nextTitle}</Card.Title><Card.Description className="mt-1 max-w-3xl">{nextDescription}</Card.Description></div>
                   {nextCta && <Button
@@ -2008,7 +1938,7 @@ export function HeroActorOpsControlPlane({
                     const waiting = sourceSupportQuery.data.slots.some((slot) => ['queued', 'running'].includes(slot.status))
                     const nextSlot = sourceSupportQuery.data.slots.find((slot) => slot.can_canary)
                     if (waiting) return <HeroNotice title="来源验证正在运行" status="warning" role="status">完成后会自动显示下一项安全操作。</HeroNotice>
-                    if (nextSlot) return <div className="flex flex-col gap-3 rounded-control border border-separator bg-default p-3 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between"><div><p className="type-control">下一步：验证{slotDisplayLabels[nextSlot.slot]}</p><p className="type-meta mt-1 text-muted">一次限额付费 Canary，不会并发调用其他 Actor。</p></div><Button ref={canaryTriggerRef} className="w-full min-[640px]:w-auto" onPress={() => openSourceCanary(nextSlot)}>查看并确认付费验证</Button></div>
+                    if (nextSlot) return <div className="flex flex-col gap-3 rounded-control border border-separator bg-default p-3 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between"><div><p className="type-control">下一步：验证{slotDisplayLabels[nextSlot.slot]}</p><p className="type-meta mt-1 text-muted">一次限额付费 Canary，不会并发调用其他 Actor。</p></div><Button ref={canaryTriggerRef} className="w-full min-[640px]:w-auto" onPress={() => openActorOpsSourceCanary(nextSlot, { detail, support: sourceSupportQuery.data, selectedProfileId, setError: setCanaryError, setTarget: setCanaryTarget })}>查看并确认付费验证</Button></div>
                     if (sourceSupportQuery.data.activation_confirmation) return <div className="flex flex-col gap-3 rounded-control border border-separator bg-default p-3 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between"><div><p className="type-control">所有槽位验证通过</p><p className="type-meta mt-1 text-muted">确认后首次启用这个来源。</p></div><Button ref={sourceActivationTriggerRef} className="w-full min-[640px]:w-auto" onPress={() => setSourceActivationOpen(true)}>查看并确认首次启用</Button></div>
                     return <HeroNotice title="来源已启用" status="success" role="status">后续槽位变化时，只会要求复验发生变化的部分。</HeroNotice>
                   })()}
@@ -2040,13 +1970,14 @@ export function HeroActorOpsControlPlane({
       if (!open && !prepareManualPlan.isPending && !discovery.isPending) {
         setCandidatePickerOpen(false)
         setSelectedCandidateIds([])
+        poolManagement.clearSlotOperation()
         setCandidateError(null)
         restoreFocus(candidateTriggerRef)
       }
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 候选列表</Modal.Trigger>
       <Modal.Backdrop isDismissable={!prepareManualPlan.isPending && !discovery.isPending} isKeyboardDismissDisabled={prepareManualPlan.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{candidateGoal === 'compatibility_single' ? '降低要求：选择 1 个兼容 Actor' : candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : `选择 ${candidateRequiredCount} 个 Actor`}</Modal.Heading></Modal.Header>
+        <Modal.Header><Modal.Heading>{candidateGoal === 'add_slot' ? `添加 ${slotDisplayLabels[candidateTargetSlot || 'backup_2']} Actor` : candidateGoal === 'replace_slot' ? `替换 ${slotDisplayLabels[candidateTargetSlot || 'primary']} Actor` : candidateGoal === 'compatibility_single' ? '降低要求：选择 1 个兼容 Actor' : candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : `选择 ${candidateRequiredCount} 个 Actor`}</Modal.Heading></Modal.Header>
         <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || prepareManualPlan.isPending || discovery.isPending}>
           {discoveryRunRunning && <HeroNotice title="正在搜索，无需重复点击" status="warning" role="status">
             {trackedDiscoveryProgress}。完成后页面会自动显示新候选或明确的失败原因。
@@ -2060,6 +1991,10 @@ export function HeroActorOpsControlPlane({
               : candidatesQuery.data
                 ? '上面的 3 个当前 Actor 已列出。确认 Actor / Build 已更新后再次检查，只会生成它们的安全新版，不会寻找替补。'
                 : '系统只检查上面的 3 个当前 Actor；无法形成安全新版时保持兼容池并停止。'
+            : candidateGoal === 'add_slot'
+              ? '将验证 1 个新 Actor，验证与所有已启用来源完成前，当前主备不会变化。'
+              : candidateGoal === 'replace_slot'
+                ? '将旁路验证 1 个替换 Actor，验证与所有已启用来源完成前，当前主备不会变化。'
             : candidateGoal === 'compatibility_single'
               ? '这是明确的功能优先降级：单个实测可用 Actor 即可启用，但没有主备冗余；选择本身免费，付费 Canary 和最终生效仍分别确认。'
             : minimumActors === 1
@@ -2159,12 +2094,14 @@ export function HeroActorOpsControlPlane({
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
         </div></Modal.Body>
         <Modal.Footer>
-          <Button variant="ghost" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
+          <Button variant="ghost" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); poolManagement.clearSlotOperation(); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
           <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending || discoveryRunRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : 'Actor / Build 已更新，再检查（免费）' : discovery.isPending ? '正在更新…' : candidateGoal === 'compatibility_single' ? '候选证据已更新，再检查（免费）' : 'Actor / Build 已更新，再检查（免费）'}</Button>
           <Button isDisabled={!candidateSelectionComplete || prepareManualPlan.isPending || discovery.isPending} onPress={() => prepareManualPlan.mutate()}>{prepareManualPlan.isPending ? '正在核对…' : '继续'}</Button>
         </Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
+
+    <ActorOpsRemovePoolDialog target={removeTarget} pending={removePoolSlot.isPending} onClose={poolManagement.closeRemoveDialog} onConfirm={(target) => removePoolSlot.mutate(target)} />
 
     <ActorOpsBatchConfirmationDialog
       view={toBatchConfirmationView(batchTarget?.plan ?? null)}

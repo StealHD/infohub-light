@@ -9,6 +9,9 @@ from typing import Any
 
 from ..observability_context import update_observability_context
 from ..storage.service_store import ServiceStore
+from .apify_actor_pool_management_runtime import (
+    actor_pool_management_migration_required,
+)
 from .feed_production import FeedRunFailed
 from .feed_run import safe_run_diagnostics
 from .job_eligibility import JobEligibilityService
@@ -96,6 +99,10 @@ def _require_job_migrations(store: ServiceStore, job_type: str) -> None:
     for required, message in checks:
         if required():
             raise MigrationRequiredError(message)
+    if actor_pool_management_migration_required(store):
+        raise MigrationRequiredError(
+            "Apify Actor pool management migration is required before jobs can run"
+        )
 
 
 def _stage_preferred_notifications(

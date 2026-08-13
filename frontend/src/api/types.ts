@@ -1,3 +1,8 @@
+import type {
+  ApifyActorCertificationProgress,
+  ApifyActorWorkflow,
+} from './actorOpsWorkflowTypes'
+
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer'
 
 export type User = {
@@ -777,75 +782,13 @@ export type ApifyActorRevisionLifecycle =
   | 'superseded'
   | 'rejected'
 
-export type ApifyActorCertificationProgress = {
-  auto_promotes: boolean
-  lifecycle: ApifyActorRevisionLifecycle
-  success_identities: { current: number; required: number }
-  reference_targets: { current: number; required: number }
-  valid_samples: { current: number; successful: number; required: number }
-  success_rate: { current: number; required: number }
-  observation_started_at: string | null
-  eligible_at: string | null
-  remaining_seconds: number | null
-  blockers: string[]
-}
-
-export type ApifyActorWorkflowKind =
-  | 'setup_discovery_required'
-  | 'setup_discovery_running'
-  | 'setup_candidate_selection_required'
-  | 'setup_canary_approval_required'
-  | 'setup_canary_running'
-  | 'setup_activation_approval_required'
-  | 'backup_2_discovery_required'
-  | 'backup_2_discovery_running'
-  | 'backup_2_candidate_selection_required'
-  | 'backup_2_canary_approval_required'
-  | 'backup_2_canary_running'
-  | 'backup_2_activation_approval_required'
-  | 'legacy_discovery_required'
-  | 'legacy_discovery_running'
-  | 'legacy_candidate_selection_required'
-  | 'legacy_canary_approval_required'
-  | 'legacy_canary_running'
-  | 'legacy_activation_approval_required'
-  | 'compatibility_candidate_selection_available'
-  | 'compatibility_discovery_required'
-  | 'compatibility_discovery_running'
-  | 'compatibility_candidate_selection_required'
-  | 'compatibility_canary_approval_required'
-  | 'compatibility_canary_running'
-  | 'compatibility_activation_approval_required'
-  | 'compatibility_operational'
-  | 'compatibility_standard_discovery_running'
-  | 'compatibility_standard_candidate_selection_required'
-  | 'probation_observing'
-  | 'source_validation_required'
-  | 'runtime_degraded_monitoring'
-  | 'blocked_unknown_start'
-  | 'budget_blocked'
-  | 'complete'
-
-export type ApifyActorWorkflowFailure = {
-  phase: 'route_validation' | 'source_validation'
-  code: string
-  actual_cost_usd: number | null
-  cost_final: boolean
-}
-
-export type ApifyActorWorkflowProgress = Record<string, unknown> & {
-  last_failure?: ApifyActorWorkflowFailure
-}
-
-export type ApifyActorWorkflow = {
-  kind: ApifyActorWorkflowKind | string
-  goal: ApifyActorPoolGoal | null
-  stage_id?: string | null
-  run_id?: string | null
-  plan_hash?: string | null
-  progress: ApifyActorWorkflowProgress
-  blockers: string[]
-}
+export type {
+  ApifyActorCertificationProgress,
+  ApifyActorWorkflow,
+  ApifyActorWorkflowFailure,
+  ApifyActorWorkflowKind,
+  ApifyActorWorkflowProgress,
+} from './actorOpsWorkflowTypes'
 
 export type ApifyActorRevisionSummary = {
   revision_id: string
@@ -882,6 +825,14 @@ export type ApifyActorRouteActiveSlot = {
   runnable: boolean
   validation_status?: string | null
   revision?: ApifyActorRevisionSummary | null
+  actions?: {
+    add: boolean
+    replace: boolean
+    remove: boolean
+    add_reason?: string | null
+    replace_reason?: string | null
+    remove_reason?: string | null
+  }
 }
 
 export type ApifyActorRouteSummary = {
@@ -1065,6 +1016,8 @@ export type ApifyActorPoolGoal =
   | 'complete_third'
   | 'upgrade_legacy'
   | 'compatibility_single'
+  | 'add_slot'
+  | 'replace_slot'
 
 export type ApifyActorPoolStage = {
   stage_id: string
@@ -1072,6 +1025,7 @@ export type ApifyActorPoolStage = {
   discovery_run_id: string
   initial_batch_id: string
   goal: ApifyActorPoolGoal
+  operation_slot?: ApifyActorSlotName | null
   target_slot_count: 1 | 2 | 3
   selection_mode: 'server' | 'manual'
   base_generation: number
@@ -1106,8 +1060,10 @@ export type ApifyActorPoolStage = {
 export type ApifyActorCanaryPlan = {
   schema_version: 1 | 2 | 3 | 4
   goal?: ApifyActorPoolGoal
+  operation_slot?: ApifyActorSlotName | null
   selection_mode?: 'server' | 'manual'
   target_slot_count?: 1 | 2 | 3
+  target_slot?: ApifyActorSlotName
   run_id: string
   route_id: string
   route_key: string
@@ -1148,6 +1104,7 @@ export type ApifyActorCanaryBatchRequest = {
   candidate_ids?: string[]
   candidate_validation_profiles?: ApifyActorValidationProfileRequest[]
   target_slot_count?: 1 | 2 | 3
+  target_slot?: ApifyActorSlotName
 }
 
 export type ApifyActorPoolCandidate = {
@@ -1191,6 +1148,7 @@ export type ApifyActorPoolCandidates = {
   route_id: string
   generation: number
   goal: ApifyActorPoolGoal
+  target_slot?: ApifyActorSlotName | null
   run_id: string | null
   required_selection_count: 1 | 2 | 3
   relaxed_requirements?: string[]
@@ -1228,6 +1186,7 @@ export type ApifyActorCanaryBatch = {
   route_validation_cap_usd?: number
   per_candidate_cap_usd: number
   goal?: ApifyActorPoolGoal
+  operation_slot?: ApifyActorSlotName | null
   pool_stage_id?: string | null
   pool_stage?: ApifyActorPoolStage | null
   status: string
@@ -1293,6 +1252,12 @@ export type ApifyActorActivePoolUpdate = {
     slot: ApifyActorSlotName
     revision_id: string | null
   }>
+}
+
+export type ApifyActorActivePoolRemove = {
+  target_slot: ApifyActorSlotName
+  expected_generation: number
+  confirmation: '确认移出 Actor 主备池'
 }
 
 export type ApifyActorRecommendedPoolActivation = {

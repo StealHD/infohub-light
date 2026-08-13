@@ -1,4 +1,5 @@
 import type { ApiClient } from './client'
+import { actorOpsPoolManagementApi } from './actorOpsPoolManagementService'
 import type {
   AuthStatus,
   AgentDelegation,
@@ -9,10 +10,6 @@ import type {
   ApifyActorAlertSettings,
   ApifyActorAlertSettingsPatch,
   ApifyActorActivePoolUpdate,
-  ApifyActorCanaryBatch,
-  ApifyActorCanaryBatchRequest,
-  ApifyActorCanaryBatchResponse,
-  ApifyActorCanaryPlan,
   ApifyActorDiscoveryRun,
   ApifyActorDiscoveryMeasurementRequest,
   ApifyActorDiscoveryMeasurementResponse,
@@ -25,9 +22,6 @@ import type {
   ApifyActorFreshnessPlan,
   ApifyActorPaidCanaryRequest,
   ApifyActorPaidCanaryResponse,
-  ApifyActorPoolGoal,
-  ApifyActorPoolCandidateRefresh,
-  ApifyActorPoolCandidates,
   ApifyActorRecommendedPoolActivation,
   ApifyActorRouteDetail,
   ApifyActorRoutesResponse,
@@ -38,7 +32,6 @@ import type {
   ApifyActorSourcePreference,
   ApifyActorSupportCheckRequest,
   ApifyActorSupportCheckResponse,
-  ApifyActorValidationProfileRequest,
   ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
@@ -84,6 +77,7 @@ const resource = (path: string, id: string) => `${path}/${encodeURIComponent(id)
 
 export function createServiceApi(client: ApiClient) {
   return {
+    ...actorOpsPoolManagementApi(client),
     authStatus: (signal?: AbortSignal) => client.get<AuthStatus>('/api/auth/status', signal),
     login: (username: string, password: string) => client.post<AuthStatus>('/api/auth/login', { username, password }),
     logout: () => client.post<AuthStatus>('/api/auth/logout'),
@@ -296,30 +290,6 @@ export function createServiceApi(client: ApiClient) {
       resource('/api/admin/apify-discovery-runs', runId),
       signal,
     ),
-    apifyActorCanaryPlan: (
-      runId: string,
-      goal: ApifyActorPoolGoal = 'initial_pool',
-      signal?: AbortSignal,
-    ) => client.get<ApifyActorCanaryPlan>(
-      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan?goal=${encodeURIComponent(goal)}`,
-      signal,
-    ),
-    apifyActorPoolCandidates: (
-      routeId: string,
-      goal: ApifyActorPoolGoal,
-      signal?: AbortSignal,
-    ) => client.get<ApifyActorPoolCandidates>(
-      `${resource('/api/admin/apify-routes', routeId)}/pool-candidates?goal=${encodeURIComponent(goal)}`,
-      signal,
-    ),
-    refreshApifyActorPoolCandidates: (
-      routeId: string,
-      expectedGeneration: number,
-      goal: ApifyActorPoolGoal = 'initial_pool',
-    ) => client.post<ApifyActorPoolCandidateRefresh>(
-      `${resource('/api/admin/apify-routes', routeId)}/pool-candidates/refresh`,
-      { expected_generation: expectedGeneration, goal },
-    ),
     reconcileApifyActorValidation: (
       routeId: string,
       expectedGeneration: number,
@@ -333,30 +303,6 @@ export function createServiceApi(client: ApiClient) {
     }>(
       `${resource('/api/admin/apify-routes', routeId)}/validations/reconcile`,
       { expected_generation: expectedGeneration, candidate_id: candidateId },
-    ),
-    createApifyActorManualCanaryPlan: (
-      runId: string,
-      payload: {
-        goal: ApifyActorPoolGoal
-        candidate_ids: string[]
-        candidate_validation_profiles: ApifyActorValidationProfileRequest[]
-        expected_generation: number
-        target_slot_count: 1 | 2 | 3
-      },
-    ) => client.post<ApifyActorCanaryPlan>(
-      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
-      payload,
-    ),
-    createApifyActorCanaryBatch: (
-      runId: string,
-      payload: ApifyActorCanaryBatchRequest,
-    ) => client.post<ApifyActorCanaryBatchResponse>(
-      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-batches`,
-      payload,
-    ),
-    apifyActorCanaryBatch: (batchId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryBatch>(
-      resource('/api/admin/apify-canary-batches', batchId),
-      signal,
     ),
     canaryApifyActorDiscoveryCandidate: (
       runId: string,

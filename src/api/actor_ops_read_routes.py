@@ -58,13 +58,16 @@ async def admin_apify_pool_candidates(
         "complete_third",
         "upgrade_legacy",
         "compatibility_single",
+        "add_slot",
+        "replace_slot",
     ] = Query(...),
+    target_slot: Literal["primary", "backup_1", "backup_2"] | None = Query(default=None),
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
     result = context.apify_actor_ops_for(
         str(user["workspace_id"])
-    ).list_pool_candidates(route_id, goal=goal)
+    ).list_pool_candidates(route_id, goal=goal, target_slot=target_slot)
     response.headers["Cache-Control"] = "no-store"
     return ok(result)
 
@@ -134,13 +137,16 @@ async def admin_apify_canary_plan(
         "complete_third",
         "upgrade_legacy",
         "compatibility_single",
+        "add_slot",
+        "replace_slot",
     ] = Query(default="initial_pool"),
+    target_slot: Literal["primary", "backup_1", "backup_2"] | None = Query(default=None),
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
     plan = context.apify_actor_ops_for(
         str(user["workspace_id"])
-    ).get_canary_plan(run_id, goal=goal)
+    ).get_canary_plan(run_id, goal=goal, target_slot=target_slot)
     response.headers["Cache-Control"] = "no-store"
     return ok(public_canary_plan(plan))
 

@@ -1,20 +1,7 @@
 // Reviewed after the user subscription HTTP adapter split; user-facing behavior is unchanged.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
-export type ChangelogItem = {
-  title: string
-  description: string
-}
-export type ChangelogEntry = {
-  date: string
-  title: string
-  summary: string
-  items: ChangelogItem[]
-}
-export type ChangelogMonth = {
-  id: `month-${number}-${string}`
-  label: string
-  entries: ChangelogEntry[]
-}
+import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
+import type { ChangelogMonth } from './changelogTypes'
 
 export const changelogMonths: ChangelogMonth[] = [
   {
@@ -22,6 +9,7 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       codeHealthMaintenanceEntry,
+      actorOpsPoolManagementChangelogEntry,
       {
         date: '2026-08-13',
         title: '信息流刷新与收藏更及时、更可控',

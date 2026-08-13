@@ -41,6 +41,7 @@ from .apify_actor_manifest import (
     canonical_manifest_json,
     parse_actor_manifest,
 )
+from .apify_actor_pool_management import ActorPoolManagementMixin
 from .apify_key_pool import APIFY_RUN_TERMINAL_STATUSES
 
 
@@ -398,7 +399,7 @@ def _supported_route_profile(
     )
 
 
-class ApifyActorOpsService:
+class ApifyActorOpsService(ActorPoolManagementMixin):
     """Own route profiles, immutable revisions, CAS activation, and fences."""
 
     def __init__(
@@ -2357,6 +2358,8 @@ class ApifyActorOpsService:
         per_run_cap_usd: float | None = None,
         allow_probationary_primary: bool = False,
         allow_compatibility_single: bool = False,
+        reject_active_stage: bool = False,
+        allow_legacy_compaction: bool = False,
     ) -> dict[str, Any]:
         if set(slots) != set(SLOT_NAMES):
             raise ActorOpsError(
@@ -2364,9 +2367,7 @@ class ApifyActorOpsService:
                 "Active pool requires all three named slots",
                 status_code=422,
             )
-        requested_slots = {
-            name: str(slots[name] or "") for name in SLOT_NAMES
-        }
+        requested_slots = {name: str(slots[name] or "") for name in SLOT_NAMES}
         populated_slot_names = [
             name for name in SLOT_NAMES if requested_slots[name]
         ]
@@ -2400,6 +2401,8 @@ class ApifyActorOpsService:
                     "Actor route changed; reload before retrying",
                 )
             self._require_no_active_freshness_check(connection, route_id)
+            if reject_active_stage:
+                self._require_pool_mutation_safe(connection, route)
             old_slot_rows = connection.execute(
                 """
                 SELECT slot_name, candidate_id, revision_id
@@ -2566,14 +2569,12 @@ class ApifyActorOpsService:
                             status_code=412,
                         )
                     lifecycle = prior_lifecycle
-                allowed_lifecycle = (
-                    {"certified", "probationary", "legacy_builtin"}
-                    if allow_compatibility_single
-                    else {"certified", "probationary"}
-                    if expedited or allow_probationary_primary
-                    else {"certified", "legacy_builtin"}
-                    if slot_name in {"primary", "backup_1"}
-                    else {"certified", "probationary", "legacy_builtin"}
+                allowed_lifecycle = self._pool_allowed_lifecycle(
+                    slot_name=slot_name,
+                    expedited=expedited,
+                    allow_probationary_primary=allow_probationary_primary,
+                    allow_compatibility_single=allow_compatibility_single,
+                    allow_legacy_compaction=allow_legacy_compaction,
                 )
                 if lifecycle not in allowed_lifecycle:
                     raise ActorOpsError(
@@ -3772,19 +3773,17 @@ class ApifyActorOpsService:
         self,
         route_id: str,
         *,
-        goal: Literal[
-            "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
-        ],
+        goal: str,
+        target_slot: str | None = None,
     ) -> dict[str, Any]:
-        """Return safe candidates for manual pool selection.
-
-        Legacy upgrades may reuse exact safe Revisions from earlier runs, but
-        only for the three Actors already occupying the compatibility pool.
-        """
+        """Return safe candidates for a manual pool selection."""
 
         connection = self.store.connect()
         route = self._require_route(connection, route_id)
+        if blocked := self.pool_candidate_operation_blocker(
+            connection, route, goal=goal, target_slot=target_slot
+        ):
+            return blocked
         if goal == "compatibility_single":
             return self._list_compatibility_candidates(connection, route)
         latest = connection.execute(
@@ -3800,7 +3799,7 @@ class ApifyActorOpsService:
         ).fetchone()
         required_count = (
             1
-            if goal == "complete_third"
+            if goal in {"complete_third", "add_slot", "replace_slot"}
             else 3
             if goal == "upgrade_legacy"
             else int(route["min_runtime_healthy"])
@@ -4360,6 +4359,7 @@ class ApifyActorOpsService:
             "route_id": route_id,
             "generation": int(route["generation"]),
             "goal": goal,
+            "target_slot": target_slot,
             "run_id": str(latest["run_id"]),
             "required_selection_count": required_count,
             "candidates": candidates,
@@ -4733,13 +4733,14 @@ class ApifyActorOpsService:
         *,
         goal: Literal[
             "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
+            "compatibility_single", "add_slot", "replace_slot",
         ] = "initial_pool",
         max_candidates: int = BATCH_CANARY_MAX_CANDIDATES,
         max_total_charge_usd: float | None = None,
         candidate_ids: Sequence[str] | None = None,
         candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
         target_slot_count: int | None = None,
+        target_slot: str | None = None,
     ) -> dict[str, Any]:
         """Return a server-selected or administrator-selected paid plan."""
 
@@ -4757,6 +4758,13 @@ class ApifyActorOpsService:
                 target_slot_count=target_slot_count,
             )
 
+        if goal in {"add_slot", "replace_slot"} and candidate_ids is None:
+            raise ActorOpsError(
+                "apify_actor_manual_candidate_set_incomplete",
+                "Slot operations require one explicitly selected Actor",
+                status_code=422,
+            )
+
         if candidate_ids is not None:
             return self._get_pool_stage_canary_plan(
                 run_id,
@@ -4766,6 +4774,7 @@ class ApifyActorOpsService:
                 candidate_ids=tuple(candidate_ids),
                 candidate_validation_profiles=candidate_validation_profiles,
                 target_slot_count=target_slot_count,
+                target_slot=target_slot,
             )
 
         if goal == "initial_pool":
@@ -4779,7 +4788,8 @@ class ApifyActorOpsService:
                 ),
             )
         if goal not in {
-            "initial_pool", "complete_third", "upgrade_legacy"
+            "initial_pool", "complete_third", "upgrade_legacy",
+            "add_slot", "replace_slot",
         }:
             raise ActorOpsError(
                 "apify_actor_pool_stage_goal_invalid",
@@ -4794,6 +4804,7 @@ class ApifyActorOpsService:
             candidate_ids=None,
             candidate_validation_profiles=candidate_validation_profiles,
             target_slot_count=target_slot_count,
+            target_slot=target_slot,
         )
 
     def _get_compatibility_canary_plan(
@@ -5023,13 +5034,14 @@ class ApifyActorOpsService:
         *,
         goal: Literal[
             "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
+            "compatibility_single", "add_slot", "replace_slot",
         ],
         max_candidates: int,
         max_total_charge_usd: float | None,
         candidate_ids: tuple[str, ...] | None = None,
         candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
         target_slot_count: int | None = None,
+        target_slot: str | None = None,
     ) -> dict[str, Any]:
         if isinstance(max_candidates, bool) or not 1 <= int(max_candidates) <= 3:
             raise ActorOpsError(
@@ -5070,55 +5082,14 @@ class ApifyActorOpsService:
                 "Actor discovery run is not ready for staged validation",
                 status_code=409,
             )
-        active_stage = connection.execute(
-            """
-            SELECT stage_id, status
-            FROM apify_actor_pool_stages
-            WHERE workspace_id = ? AND route_id = ?
-              AND status NOT IN ('applied', 'stale', 'failed', 'cancelled')
-            LIMIT 1
-            """,
-            (self.workspace_id, str(run["route_id"])),
-        ).fetchone()
-        if active_stage is not None and str(active_stage["status"]) != (
-            "replan_required"
-        ):
-            raise ActorOpsError(
-                "apify_actor_pool_stage_active",
-                "A staged Actor pool workflow is already active",
-                status_code=409,
-            )
-        slot_rows = connection.execute(
-            """
-            SELECT slot.slot_name, slot.revision_id, revision.actor_id,
-                   revision.publisher, revision.lifecycle, revision.build_id,
-                   revision.build_number, revision.manifest_hash
-            FROM apify_route_active_slots AS slot
-            LEFT JOIN apify_actor_adapter_revisions AS revision
-              ON revision.workspace_id = slot.workspace_id
-             AND revision.revision_id = slot.revision_id
-            WHERE slot.workspace_id = ? AND slot.route_id = ?
-            """,
-            (self.workspace_id, str(run["route_id"])),
-        ).fetchall()
-        active_slots = {str(row["slot_name"]): row for row in slot_rows}
-        populated = [row for row in slot_rows if row["revision_id"] is not None]
         manual_selection = candidate_ids is not None
-        resolved_target_slot_count = (
-            int(target_slot_count)
-            if target_slot_count is not None
-            else 3
-            if goal in {"complete_third", "upgrade_legacy"}
-            else int(run["min_runtime_healthy"])
+        active_slots, populated, resolved_target_slot_count = self.pool_stage_context(
+            connection,
+            run=run,
+            goal=goal,
+            target_slot=target_slot,
+            requested_count=target_slot_count,
         )
-        if resolved_target_slot_count not in {1, 2, 3} or (
-            resolved_target_slot_count == 1 and goal != "initial_pool"
-        ) or resolved_target_slot_count < int(run["min_runtime_healthy"]):
-            raise ActorOpsError(
-                "apify_actor_pool_target_count_invalid",
-                "Actor pool target slot count is invalid for this workflow",
-                status_code=422,
-            )
         if (
             goal in {"complete_third", "upgrade_legacy"}
             and resolved_target_slot_count != 3
@@ -5131,7 +5102,7 @@ class ApifyActorOpsService:
         if manual_selection:
             expected_count = (
                 1
-                if goal == "complete_third"
+                if goal in {"complete_third", "add_slot", "replace_slot"}
                 else 3
                 if goal == "upgrade_legacy"
                 else resolved_target_slot_count
@@ -5172,6 +5143,12 @@ class ApifyActorOpsService:
                 )
             required_successes = 1
             required_source_slots = 3
+        elif goal in {"add_slot", "replace_slot"}:
+            # The target slot has already been validated against the live
+            # fixed pool above. The one new revision is staged without
+            # changing any active slot until full source proof is complete.
+            required_successes = 1
+            required_source_slots = resolved_target_slot_count
         elif goal == "upgrade_legacy":
             if len(populated) != 3 or not all(
                 str(row["lifecycle"]) == "legacy_builtin" for row in populated
@@ -5377,17 +5354,14 @@ class ApifyActorOpsService:
                     "Legacy upgrade must keep the existing three Actors",
                     status_code=422,
                 )
-            selected_publishers = {
-                str(row["publisher"]).casefold() for row in selected
-            }
-            final_publishers = selected_publishers | {
-                str(row["publisher"]).casefold()
-                for row in populated
-                if row["publisher"]
-            }
+            final_publishers = self.pool_final_publishers(
+                goal=goal, target_slot=target_slot,
+                selected=list(selected), populated=populated,
+            )
             if (
                 goal in {"initial_pool", "upgrade_legacy"}
-                and len(selected_publishers) < int(run["min_publishers"])
+                and len(self.pool_selected_publishers(selected))
+                < int(run["min_publishers"])
             ) or len(final_publishers) < int(run["min_publishers"]):
                 raise ActorOpsError(
                     "apify_actor_manual_candidate_publishers_insufficient",
@@ -5725,6 +5699,22 @@ class ApifyActorOpsService:
                 [*base_revision_ids, revision_id]
                 for revision_id in staged_revision_ids
             ]
+        elif goal in {"add_slot", "replace_slot"}:
+            if target_slot not in SLOT_NAMES:
+                raise ActorOpsError(
+                    "apify_actor_pool_target_slot_invalid",
+                    "A safe target slot is required for this operation",
+                    status_code=422,
+                )
+            possible_target_sets = [
+                [
+                    *(str(active_slots[name]["revision_id"])
+                      for name in SLOT_NAMES
+                      if name != target_slot and active_slots[name]["revision_id"]),
+                    revision_id,
+                ]
+                for revision_id in staged_revision_ids
+            ]
         elif goal == "upgrade_legacy":
             possible_target_sets = [staged_revision_ids]
         elif manual_selection:
@@ -5858,6 +5848,7 @@ class ApifyActorOpsService:
         plan_payload = {
             "schema_version": plan_schema_version,
             "goal": goal,
+            "operation_slot": target_slot,
             "selection_mode": "manual" if manual_selection else "server",
             "target_slot_count": resolved_target_slot_count,
             "run_id": str(run["run_id"]),
@@ -5898,6 +5889,7 @@ class ApifyActorOpsService:
         return {
             "schema_version": plan_schema_version,
             "goal": goal,
+            "operation_slot": target_slot,
             "selection_mode": "manual" if manual_selection else "server",
             "target_slot_count": resolved_target_slot_count,
             "run_id": str(run["run_id"]),
@@ -6281,11 +6273,12 @@ class ApifyActorOpsService:
         reference_fingerprints: Mapping[str, str],
         goal: Literal[
             "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
+            "compatibility_single", "add_slot", "replace_slot",
         ] = "initial_pool",
         candidate_ids: Sequence[str] | None = None,
         candidate_validation_profiles: Sequence[Mapping[str, Any]] | None = None,
         target_slot_count: int | None = None,
+        target_slot: str | None = None,
     ) -> dict[str, Any]:
         if goal == "initial_pool" and candidate_ids is None:
             return self._create_initial_canary_batch(
@@ -6304,6 +6297,8 @@ class ApifyActorOpsService:
             "complete_third",
             "upgrade_legacy",
             "compatibility_single",
+            "add_slot",
+            "replace_slot",
         }:
             raise ActorOpsError(
                 "apify_actor_pool_stage_goal_invalid",
@@ -6326,6 +6321,7 @@ class ApifyActorOpsService:
             ),
             candidate_validation_profiles=candidate_validation_profiles,
             target_slot_count=target_slot_count,
+            target_slot=target_slot,
         )
 
     def _create_pool_stage_canary_batch(
@@ -6334,7 +6330,7 @@ class ApifyActorOpsService:
         *,
         goal: Literal[
             "initial_pool", "complete_third", "upgrade_legacy",
-            "compatibility_single",
+            "compatibility_single", "add_slot", "replace_slot",
         ],
         expected_generation: int,
         expected_plan_hash: str,
@@ -6347,6 +6343,7 @@ class ApifyActorOpsService:
         candidate_ids: tuple[str, ...] | None,
         candidate_validation_profiles: Sequence[Mapping[str, Any]] | None,
         target_slot_count: int | None,
+        target_slot: str | None,
     ) -> dict[str, Any]:
         if confirmation != BATCH_CANARY_CONFIRMATION:
             raise ActorOpsError(
@@ -6369,14 +6366,16 @@ class ApifyActorOpsService:
             candidate_ids=candidate_ids,
             candidate_validation_profiles=candidate_validation_profiles,
             target_slot_count=target_slot_count,
+            target_slot=target_slot,
         )
         with self._write() as connection:
             replay = connection.execute(
                 """
                 SELECT batch.batch_id, batch.approved_generation,
                        batch.plan_hash, batch.max_candidates, batch.goal,
-                       batch.pool_stage_id, stage.max_total_charge_usd,
-                       stage.target_slot_count, stage.selection_mode
+                       batch.pool_stage_id, batch.operation_slot,
+                       stage.max_total_charge_usd, stage.target_slot_count,
+                       stage.selection_mode, stage.operation_slot AS stage_operation_slot
                 FROM apify_actor_canary_batches AS batch
                 LEFT JOIN apify_actor_pool_stages AS stage
                   ON stage.workspace_id = batch.workspace_id
@@ -6387,20 +6386,11 @@ class ApifyActorOpsService:
                 (self.workspace_id, approval_hash),
             ).fetchone()
             if replay is not None:
-                if (
-                    int(replay["approved_generation"]) != int(expected_generation)
-                    or str(replay["plan_hash"]) != str(expected_plan_hash)
-                    or int(replay["max_candidates"]) != int(max_candidates)
-                    or str(replay["goal"]) != goal
-                    or replay["pool_stage_id"] is None
-                    or int(replay["target_slot_count"])
-                    != int(plan["target_slot_count"])
-                    or str(replay["selection_mode"])
-                    != str(plan["selection_mode"])
-                    or abs(
-                        float(replay["max_total_charge_usd"] or 0)
-                        - float(max_total_charge_usd)
-                    ) > 1e-9
+                if int(replay["approved_generation"]) != int(expected_generation) or not self.pool_stage_replay_matches(
+                    replay, goal=goal, target_slot=target_slot,
+                    expected_plan_hash=expected_plan_hash,
+                    max_candidates=max_candidates, plan=plan,
+                    max_total_charge_usd=max_total_charge_usd,
                 ):
                     raise ActorOpsError(
                         "apify_actor_approval_id_conflict",
@@ -6474,13 +6464,13 @@ class ApifyActorOpsService:
                     batch_id, workspace_id, route_id, discovery_run_id,
                     approval_key_hash, approved_generation, plan_hash,
                     max_candidates, max_total_charge_usd,
-                    per_candidate_cap_usd, goal, pool_stage_id,
+                    per_candidate_cap_usd, goal, operation_slot, pool_stage_id,
                     status, planned_count, success_count, publisher_count,
                     actual_cost_usd, cost_final, stop_reason,
                     created_by_user_id, created_at, started_at,
                     completed_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?,
                     0, 0, NULL, 0, NULL, ?, ?, NULL, NULL, ?
                 )
                 """,
@@ -6496,6 +6486,7 @@ class ApifyActorOpsService:
                     route_cap,
                     per_cap,
                     goal,
+                    plan.get("operation_slot"),
                     stage_id,
                     len(plan["items"]),
                     created_by_user_id,
@@ -6507,13 +6498,13 @@ class ApifyActorOpsService:
                 """
                 INSERT INTO apify_actor_pool_stages (
                     stage_id, workspace_id, route_id, discovery_run_id,
-                    initial_batch_id, goal, target_slot_count,
+                    initial_batch_id, goal, operation_slot, target_slot_count,
                     selection_mode, base_generation,
                     base_pool_hash, plan_hash, approval_key_hash,
                     max_total_charge_usd, route_validation_cap_usd,
                     status, created_by_user_id, created_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued',
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued',
                     ?, ?, ?
                 )
                 """,
@@ -6524,6 +6515,7 @@ class ApifyActorOpsService:
                     run_id,
                     batch_id,
                     goal,
+                    plan.get("operation_slot"),
                     int(plan["target_slot_count"]),
                     str(plan["selection_mode"]),
                     expected_generation,
@@ -6902,7 +6894,7 @@ class ApifyActorOpsService:
             SELECT batch_id, route_id, discovery_run_id,
                    approved_generation, plan_hash, max_candidates,
                    max_total_charge_usd, per_candidate_cap_usd,
-                   goal, pool_stage_id,
+                   goal, operation_slot, pool_stage_id,
                    status, planned_count, success_count, publisher_count,
                    actual_cost_usd, cost_final, stop_reason,
                    created_at, started_at, completed_at, updated_at
@@ -7681,171 +7673,6 @@ class ApifyActorOpsService:
             "progress": {},
             "blockers": [],
         }
-
-    def _pool_stage_target_slots(
-        self,
-        connection: sqlite3.Connection,
-        stage_id: str,
-    ) -> dict[str, str | None] | None:
-        stage = connection.execute(
-            """
-            SELECT stage.*, batch.batch_id
-            FROM apify_actor_pool_stages AS stage
-            JOIN apify_actor_canary_batches AS batch
-              ON batch.workspace_id = stage.workspace_id
-             AND batch.batch_id = stage.initial_batch_id
-            WHERE stage.workspace_id = ? AND stage.stage_id = ?
-            """,
-            (self.workspace_id, stage_id),
-        ).fetchone()
-        if stage is None:
-            raise ActorOpsError(
-                "apify_actor_pool_stage_not_found",
-                "Actor pool stage was not found",
-                status_code=404,
-            )
-        base_rows = connection.execute(
-            """
-            SELECT slot_name, revision_id
-            FROM apify_route_active_slots
-            WHERE workspace_id = ? AND route_id = ?
-            """,
-            (self.workspace_id, str(stage["route_id"])),
-        ).fetchall()
-        base = {str(row["slot_name"]): str(row["revision_id"] or "") for row in base_rows}
-        if revision_set_hash(base) != str(stage["base_pool_hash"]):
-            return None
-        if str(stage["goal"]) == "compatibility_single":
-            compatible = connection.execute(
-                """
-                SELECT item.revision_id
-                FROM apify_actor_canary_batch_items AS item
-                JOIN apify_actor_validations AS validation
-                  ON validation.workspace_id = item.workspace_id
-                 AND validation.validation_id = item.validation_id
-                WHERE item.workspace_id = ? AND item.batch_id = ?
-                  AND item.status = 'succeeded'
-                  AND validation.status = 'succeeded'
-                  AND validation.cost_final = 1
-                  AND (
-                      validation.semantic_outcome = 'valid_nonempty'
-                      OR validation.semantic_outcome = 'evidence_reused'
-                         AND EXISTS (
-                             SELECT 1 FROM apify_actor_validations AS proof
-                             WHERE proof.workspace_id = validation.workspace_id
-                               AND proof.route_id = validation.route_id
-                               AND proof.revision_id = validation.revision_id
-                               AND proof.kind = 'route_reference'
-                               AND proof.status = 'succeeded'
-                               AND proof.cost_final = 1
-                               AND proof.semantic_outcome = 'valid_nonempty'
-                         )
-                  )
-                ORDER BY item.ordinal
-                LIMIT 1
-                """,
-                (self.workspace_id, str(stage["batch_id"])),
-            ).fetchone()
-            if compatible is None:
-                return None
-            return {
-                "primary": str(compatible["revision_id"]),
-                "backup_1": None,
-                "backup_2": None,
-            }
-        successful = connection.execute(
-            """
-            SELECT revision.revision_id, revision.actor_id,
-                   revision.publisher, revision.lifecycle,
-                   revision.build_id, revision.build_number,
-                   revision.manifest_hash, item.ordinal
-            FROM apify_actor_canary_batch_items AS item
-            JOIN apify_actor_adapter_revisions AS revision
-              ON revision.workspace_id = item.workspace_id
-             AND revision.revision_id = item.revision_id
-            WHERE item.workspace_id = ? AND item.batch_id = ?
-              AND EXISTS (
-                  SELECT 1 FROM apify_actor_validations AS proof
-                  WHERE proof.workspace_id = item.workspace_id
-                    AND proof.route_id = ?
-                    AND proof.revision_id = item.revision_id
-                    AND proof.kind = 'route_reference'
-                    AND proof.status = 'succeeded'
-                    AND proof.cost_final = 1
-                    AND proof.semantic_outcome IN (
-                        'valid_nonempty', 'valid_empty'
-                    )
-              )
-              AND revision.lifecycle IN ('probationary', 'certified')
-              AND revision.build_id IS NOT NULL
-              AND revision.build_number IS NOT NULL
-              AND revision.manifest_hash IS NOT NULL
-            ORDER BY item.ordinal
-            """,
-            (
-                self.workspace_id,
-                str(stage["batch_id"]),
-                str(stage["route_id"]),
-            ),
-        ).fetchall()
-        if str(stage["goal"]) == "complete_third":
-            if len(successful) < 1:
-                return None
-            selected = successful[0]
-            target = {
-                "primary": base.get("primary") or None,
-                "backup_1": base.get("backup_1") or None,
-                "backup_2": str(selected["revision_id"]),
-            }
-        elif int(stage["target_slot_count"] or 2) == 1:
-            if len(successful) < 1:
-                return None
-            target = {
-                "primary": str(successful[0]["revision_id"]),
-                "backup_1": None,
-                "backup_2": None,
-            }
-        elif int(stage["target_slot_count"] or 2) == 3:
-            if len(successful) < 3:
-                return None
-            selected = successful[:3]
-            if len({str(row["actor_id"]) for row in selected}) != 3:
-                return None
-            if len(
-                {str(row["publisher"]).casefold() for row in selected}
-            ) < 2:
-                return None
-            target = {
-                slot_name: str(row["revision_id"])
-                for slot_name, row in zip(
-                    SLOT_NAMES,
-                    selected,
-                    strict=True,
-                )
-            }
-        else:
-            pair: tuple[sqlite3.Row, sqlite3.Row] | None = None
-            for primary, backup in combinations(successful, 2):
-                if str(primary["actor_id"]) == str(backup["actor_id"]):
-                    continue
-                if str(primary["publisher"]).casefold() == str(
-                    backup["publisher"]
-                ).casefold():
-                    continue
-                pair = (primary, backup)
-                break
-            if pair is None:
-                return None
-            target = {
-                "primary": str(pair[0]["revision_id"]),
-                "backup_1": str(pair[1]["revision_id"]),
-                "backup_2": None,
-            }
-        if len({value for value in target.values() if value}) != sum(
-            value is not None for value in target.values()
-        ):
-            return None
-        return target
 
     def _frozen_pool_stage_target(
         self,

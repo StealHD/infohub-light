@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from ..storage.service_store import ServiceStore
+from .apify_actor_pool_management_runtime import (
+    actor_pool_management_migration_required,
+)
 
 
 MigrationCheck = tuple[str, str]
@@ -49,4 +52,6 @@ def first_required_worker_startup_migration(store: ServiceStore) -> str | None:
     for migration, check_name in WORKER_STARTUP_MIGRATIONS:
         if getattr(store, check_name)():
             return migration
+    if actor_pool_management_migration_required(store):
+        return "apify_actor_pool_management_v22"
     return None

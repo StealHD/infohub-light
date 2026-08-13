@@ -1,4 +1,4 @@
-import type { ChangelogEntry } from './changelogEntries'
+import type { ChangelogEntry } from './changelogTypes'
 
 export const codeHealthMaintenanceEntry = {
   date: '2026-08-13',

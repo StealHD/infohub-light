@@ -81,11 +81,11 @@ export const queryKeys = {
   apifyActorDiscoveryRun: (userId: string, runId: string) => [
     ...userKey(userId), 'apify-actor-discovery-runs', runId,
   ] as const,
-  apifyActorCanaryPlan: (userId: string, runId: string, goal = 'initial_pool') => [
-    ...userKey(userId), 'apify-actor-discovery-runs', runId, 'canary-plan', goal,
+  apifyActorCanaryPlan: (userId: string, runId: string, goal = 'initial_pool', targetSlot = '') => [
+    ...userKey(userId), 'apify-actor-discovery-runs', runId, 'canary-plan', goal, targetSlot,
   ] as const,
-  apifyActorPoolCandidates: (userId: string, routeId: string, goal: string) => [
-    ...userKey(userId), 'apify-actor-routes', routeId, 'pool-candidates', goal,
+  apifyActorPoolCandidates: (userId: string, routeId: string, goal: string, targetSlot = '') => [
+    ...userKey(userId), 'apify-actor-routes', routeId, 'pool-candidates', goal, targetSlot,
   ] as const,
   apifyActorCanaryBatch: (userId: string, batchId: string) => [
     ...userKey(userId), 'apify-actor-canary-batches', batchId,

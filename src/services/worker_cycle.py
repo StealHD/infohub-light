@@ -10,6 +10,9 @@ from typing import Any
 
 from ..observability_context import update_observability_context
 from ..storage.service_store import ServiceStore
+from .apify_actor_pool_management_runtime import (
+    actor_pool_management_migration_required,
+)
 from .apify_actor_alerts import ApifyActorAlertService
 from .feed_schedule import FeedScheduleService
 from .job_queue import JobQueue
@@ -149,6 +152,7 @@ def _maintenance_is_safe(store: ServiceStore) -> bool:
         store.apify_actor_manual_pool_selection_v19_migration_required,
         store.apify_actor_validation_tuning_v20_migration_required,
         store.apify_actor_resilience_v21_migration_required,
+        lambda: actor_pool_management_migration_required(store),
     )
     return not any(check() for check in checks)
 

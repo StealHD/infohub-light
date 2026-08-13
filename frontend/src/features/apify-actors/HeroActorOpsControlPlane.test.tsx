@@ -508,8 +508,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(presented.impact).toContain(impact)
     expect(presented.next).toContain(next)
     expect(JSON.stringify(presented)).not.toContain('RAW_UPSTREAM_MESSAGE_MUST_NOT_RENDER')
-  })
-
+})
   it.each([
     ['setup_discovery_required', '尚未建立 Actor 主备', '开始建立主备'],
     ['setup_discovery_running', '正在搜索可用 Actor', null],
@@ -1962,4 +1961,5 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(await screen.findByText('已选 3/3')).toBeVisible()
     expect(screen.getAllByText('当前 Actor')).toHaveLength(3)
   })
+
 })

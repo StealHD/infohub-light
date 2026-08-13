@@ -227,7 +227,9 @@ for attempt in $(seq 1 90); do
       exit 1
     fi
     migration_script=""
-    if [[ "$ready_payload" == *"Apify Actor Canary batch"* ]]; then
+    if [[ "$ready_payload" == *"Apify Actor pool management v22"* ]]; then
+      migration_script="scripts/migrate_apify_actor_pool_management_v22.py"
+    elif [[ "$ready_payload" == *"Apify Actor Canary batch"* ]]; then
       migration_script="scripts/migrate_apify_actor_canary_batches_v17.py"
     elif [[ "$ready_payload" == *"Apify Discovery limits v16"* ]]; then
       migration_script="scripts/migrate_apify_discovery_limits_v16.py"
