@@ -17,7 +17,7 @@ Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为
 ### 3.8A Feed Schedule Boundary
 `src/services/feed_schedule.py::FeedScheduleService` 是每用户自动刷新计划的唯一服务边界；`ServiceStore` 只提供 additive 表和 SQLite 事务，API 只做当前用户鉴权、参数校验与响应投影。schedule 缺 row 投影为默认关闭/6 小时，不允许为了读取状态隐式开启。
 
-常驻 `horizon-worker` 在 claim 普通任务前调用 `FeedScheduleService.enqueue_due()`，主循环默认每 30 秒评估一次；该周期由 `HORIZON_SCHEDULE_POLL_SECONDS` 配置。到期读取、full-refresh 去重、配额 admission/usage、job 创建和 schedule 推进必须位于同一 `BEGIN IMMEDIATE` 写事务，保证两个 Worker/连接最多创建一个任务。自动 job 继续复用 `user_feed_refresh`、Feed v2 finalizer 和完整 `filtering.time_window_hours`，仅以 `reason=scheduled_service_refresh`、`priority=-10` 区分低优先级来源。
+常驻 `horizon-worker` 在 claim 普通任务前调用 `FeedScheduleService.enqueue_due()`，主循环默认每 30 秒评估一次；该周期由 `HORIZON_SCHEDULE_POLL_SECONDS` 配置。`HORIZON_SCHEDULE_POLL_ENABLED` 默认 `true`；显式设为 `false` 时 Worker 仍保持 heartbeat、领取既有显式 Job、处理 ActorOps/费用对账和 readiness，但不得评估或新建任何 Feed/source 自动计划 Job，供受控本地验收使用。到期读取、full-refresh 去重、配额 admission/usage、job 创建和 schedule 推进必须位于同一 `BEGIN IMMEDIATE` 写事务，保证两个 Worker/连接最多创建一个任务。自动 job 继续复用 `user_feed_refresh`、Feed v2 finalizer 和完整 `filtering.time_window_hours`，仅以 `reason=scheduled_service_refresh`、`priority=-10` 区分低优先级来源。
 
 自动与手动全量刷新共享“每用户最多一个 queued/running”约束；active `source_fetch` 和 migration gate 延后 5 分钟，其他不可运行状态记录明确 skip reason 并推进到下一周期，避免热循环。关闭计划只取消 queued 的自动 job，不强杀 running job；`partial/failed` 不改变 enabled 状态。
 
