@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 Worker claim-token 执行与事务终结拆入独立模块，保持二次 eligibility、Feed/outbox savepoint、retry/rollback、Source Health、媒体 cleanup 和 commit 后外呼时序不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-finalization",
-  "unresolved": [],
-  "validation": [
-    "高风险定向回归 169/169 与扩展 Worker 定向组全部通过，ResourceWarning 为 0。",
-    "worker.py 由 2513 行降至 2305 行，run_worker_once 由 357 行降至 149 行并移除旧债；新模块 369 行、最大函数 70 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface"
   ],
@@ -421,6 +403,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "preflight 16/16 与完整 Test Gate 18/18 通过；无 mapping miss。",
     "本地 8080 已切换到 5f6853cd1ee4，API/Worker healthy，worker_status=ready；新 promote/price-cap 路由和 ActorOps 前端产物已确认。",
     "本轮部署和验证没有发起付费 Actor Run。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-14",
+  "result": "修复 ActorOps 免费 Discovery 在候选含公开评分时写入不可变 Revision 引发的 AttributeError；评分/评分人数/使用人数改为同固定 Build 的静态证据一次冻结，并让旧池检查尊重管理员已保存的 Route 单次费用上限。",
+  "status": "completed",
+  "task_id": "2026-08-14-actorops-discovery-quality-free-refresh",
+  "unresolved": [],
+  "validation": [
+    "Actor candidate-quality 与 discovery 定向回归 56/56 通过。",
+    "完整 Test Gate preflight 16/16 通过，含 Python 全集、前端 lint/typecheck/Vitest/build、产品文档与代码规模门禁。",
+    "Discovery 主文件由 2373 行降至 2362 行，run_discovery 由 756 行降至 743 行；未增加历史单体文件。"
   ]
 }
 ```

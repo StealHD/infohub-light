@@ -41,29 +41,23 @@ def rank_discovery_candidates(
     )
 
 
-def persist_revision_store_quality(ops: Any, revision_id: str, actor: Mapping[str, Any]) -> None:
-    """Persist an optional public Store snapshot after static validation."""
+def discovery_revision_security_evidence(
+    actor: Mapping[str, Any],
+    *,
+    output_schema_proves_items: bool,
+) -> dict[str, Any]:
+    """Freeze Store quality with the immutable Revision's static evidence."""
 
-    evidence_update = store_quality_evidence(actor)
-    if not evidence_update:
-        return
-    with ops._write() as connection:
-        row = connection.execute(
-            """SELECT security_evidence_json FROM apify_actor_adapter_revisions
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (ops.workspace_id, revision_id),
-        ).fetchone()
-        if row is None:
-            return
-        evidence = ops._safe_json(row["security_evidence_json"], {})
-        if evidence.get("store_quality") == evidence_update["store_quality"]:
-            return
-        evidence.update(evidence_update)
-        connection.execute(
-            """UPDATE apify_actor_adapter_revisions SET security_evidence_json = ?
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (ops._bounded_safe_json(evidence, max_bytes=16 * 1024), ops.workspace_id, revision_id),
-        )
+    return {
+        "public": actor.get("isPublic") is True,
+        "store_unrunnable_actors_excluded": True,
+        "not_deprecated": actor.get("isDeprecated") is False,
+        "limited_permissions": True,
+        "exact_successful_build": True,
+        "input_validation": True,
+        "output_schema_proves_items": output_schema_proves_items,
+        **store_quality_evidence(actor),
+    }
 
 
-__all__ = ["persist_revision_store_quality", "rank_discovery_candidates"]
+__all__ = ["discovery_revision_security_evidence", "rank_discovery_candidates"]

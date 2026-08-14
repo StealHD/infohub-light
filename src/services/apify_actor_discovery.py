@@ -51,7 +51,10 @@ from .apify_actor_compatibility_discovery import (
     collect_x_compatibility_candidate,
     persist_x_compatibility_candidates,
 )
-from .apify_actor_discovery_quality import persist_revision_store_quality, rank_discovery_candidates
+from .apify_actor_discovery_quality import (
+    discovery_revision_security_evidence,
+    rank_discovery_candidates,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +65,6 @@ MAX_DISCOVERY_QUERIES = 3
 MAX_STORE_RESULTS_PER_QUERY = 20
 MAX_DISCOVERY_CANDIDATES = 30
 LEGACY_UPGRADE_DISCOVERY_CANDIDATE_LIMIT = 30
-LEGACY_UPGRADE_PRICE_CAP_USD = 0.02
 MIN_AI_PROPOSALS = 3
 MAX_AI_PROPOSALS = 6
 MAX_METADATA_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -530,14 +532,9 @@ class ApifyActorDiscoveryService:
         accepted: list[DiscoveryCandidate] = []
         compatibility_candidates: list[DiscoveryCandidate] = []
         rejected: list[dict[str, str]] = []
-        discovery_price_cap_usd = (
-            min(
-                float(route["per_run_cap_usd"]),
-                LEGACY_UPGRADE_PRICE_CAP_USD,
-            )
-            if preferred
-            else float(route["per_run_cap_usd"])
-        )
+        # The operator-adjustable Route cap applies to every discovery path.
+        # Legacy metadata checks must not silently restore a lower price gate.
+        discovery_price_cap_usd = float(route["per_run_cap_usd"])
         from .apify_actor_resilience import ApifyActorResilienceService
 
         resilience = ApifyActorResilienceService(
@@ -1138,26 +1135,18 @@ class ApifyActorDiscoveryService:
                 output_schema_hash=_json_hash(candidate.output_schema),
                 pricing=_safe_pricing_summary(candidate.pricing),
                 permission_level=str(candidate.actor["actorPermissionLevel"]),
-                security_evidence={
-                    "public": candidate.actor.get("isPublic") is True,
-                    "store_unrunnable_actors_excluded": True,
-                    "not_deprecated": (
-                        candidate.actor.get("isDeprecated") is False
-                    ),
-                    "limited_permissions": True,
-                    "exact_successful_build": True,
-                    "input_validation": True,
-                    "output_schema_proves_items": _output_schema_proves_items(
+                security_evidence=discovery_revision_security_evidence(
+                    candidate.actor,
+                    output_schema_proves_items=_output_schema_proves_items(
                         candidate.output_schema
                     ),
-                },
+                ),
                 lifecycle="static_valid",
                 ai_provider=self.ai_provider,
                 ai_model=self.ai_model,
                 prompt_version="actor_manifest_v1",
                 discovery_run_id=run_id,
             )
-            persist_revision_store_quality(self.ops, revision_id, candidate.actor)
             revisions.append(revision_id)
             revision_publishers.add(candidate.publisher)
         if len(revision_publishers) < required_publishers and revisions:

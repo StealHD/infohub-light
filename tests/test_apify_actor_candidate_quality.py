@@ -4,7 +4,10 @@ from src.services.apify_actor_candidate_quality import (
     store_actor_quality,
 )
 from src.services.apify_actor_discovery import DiscoveryCandidate
-from src.services.apify_actor_discovery_quality import rank_discovery_candidates
+from src.services.apify_actor_discovery_quality import (
+    discovery_revision_security_evidence,
+    rank_discovery_candidates,
+)
 
 
 def test_store_quality_normalizes_public_rating_reviews_and_users() -> None:
@@ -47,5 +50,15 @@ def test_discovery_enriches_and_ranks_only_already_safe_candidates() -> None:
         "publisher/established", "publisher/less-used",
     ]
     assert actor_store_quality(ranked[0].actor) == {
+        "rating": 4.7, "rating_count": 152, "user_count": 195_000,
+    }
+
+
+def test_revision_evidence_freezes_public_store_quality() -> None:
+    evidence = discovery_revision_security_evidence(
+        {"isPublic": True, "isDeprecated": False, "rating": 4.7, "ratingCount": 152, "totalUsers": 195_000},
+        output_schema_proves_items=True,
+    )
+    assert evidence["store_quality"] == {
         "rating": 4.7, "rating_count": 152, "user_count": 195_000,
     }

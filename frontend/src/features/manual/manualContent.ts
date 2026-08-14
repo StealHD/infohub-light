@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-14',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员可无费用切换已验证主用，并按公开 Store 质量选择安全候选',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员可无费用切换已验证主用，并按公开 Store 质量选择安全候选。保存的 Route 单次上限同样用于后续免费检查，候选评分会与其固定 Build 证据一起保留。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -100,7 +100,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '按内容类型发现 Actor',
-        description: '普通 Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，默认最多检查 12 个有效候选；旧 X 池升级例外使用最多 30 个的扩展召回，但最终只接受当前三个 Actor。YouTube 的 channelId/channelIds 输入使用已验证的 UC Channel ID；输出字段从 Dataset row 根映射，不会凭空增加 candidate/item/data 包装。定价事件和 Manifest 都只能证明频道资料、统计或主页身份时会在付费前淘汰；精确 Build Schema 已同时证明视频 ID、URL、发布时间和正文时，不会再被模糊的计费事件名称误杀。某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。少返回或单个 Manifest 不合格只记录安全原因，不会降低公开性、固定 Build、官方输入校验、Schema、Manifest、发布者多样性或费用门槛。',
+        description: '普通 Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，默认最多检查 12 个有效候选；旧 X 池升级例外使用最多 30 个的扩展召回，但最终只接受当前三个 Actor。免费检查不会启动 Actor；普通与旧池检查都使用当前 Route 已保存的单次上限，随后仍须人工确认才会付费。已通过静态检查的候选保留 Apify Store 的评分、评分人数和使用人数，帮助管理员排序选择，但不能放宽任何安全门槛。YouTube 的 channelId/channelIds 输入使用已验证的 UC Channel ID；输出字段从 Dataset row 根映射，不会凭空增加 candidate/item/data 包装。定价事件和 Manifest 都只能证明频道资料、统计或主页身份时会在付费前淘汰；精确 Build Schema 已同时证明视频 ID、URL、发布时间和正文时，不会再被模糊的计费事件名称误杀。某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。少返回或单个 Manifest 不合格只记录安全原因，不会降低公开性、固定 Build、官方输入校验、Schema、Manifest、发布者多样性或费用门槛。',
       },
       {
         title: '理解验证失败',

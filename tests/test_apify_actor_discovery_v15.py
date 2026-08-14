@@ -1101,7 +1101,7 @@ def test_legacy_override_expands_recall_to_thirty_without_changing_default(
     assert invalid.value.code == "apify_actor_discovery_candidate_limit_invalid"
 
 
-def test_legacy_direct_lookup_keeps_the_fixed_two_cent_price_gate(
+def test_legacy_direct_lookup_honors_the_configured_route_price_gate(
     tmp_path,
 ) -> None:
     store, ops, run = _ops(tmp_path)
@@ -1147,9 +1147,9 @@ def test_legacy_direct_lookup_keeps_the_fixed_two_cent_price_gate(
     )
 
     assert outcome.stage == "awaiting_canary_approval"
-    assert {
+    assert (expensive_current, "actor_price_above_route_cap") not in {
         (item["actor_id"], item["reason"]) for item in outcome.rejected
-    } >= {(expensive_current, "actor_price_above_route_cap")}
+    }
 
 
 def test_discovery_prefers_existing_legacy_actor_even_when_store_search_omits_it(
