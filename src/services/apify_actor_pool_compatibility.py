@@ -23,7 +23,7 @@ def persist_compatibility_candidates(
     store_search_actor_ids: set[str],
     pricing_summary: Callable[[Any], Mapping[str, Any]],
     schema_hash: Callable[[Mapping[str, Any]], str],
-    input_dialect: Callable[[Any], str],
+    input_dialect: Callable[[Any], str | None],
     input_count_field: Callable[[Any], str | None],
 ) -> None:
     """Persist bounded X compatibility candidates with Store runnable proof."""
@@ -52,6 +52,10 @@ def persist_compatibility_candidates(
             input_dialect=input_dialect(candidate.input_schema),
             input_count_field=input_count_field(candidate.input_schema),
             store_runnable_provenance=(candidate.actor_id in store_search_actor_ids),
+            compatibility_preflight_version=2,
+            free_input_validated=True,
+            output_schema_proves_items=True,
+            x_profile_semantics_proven=True,
         )
 
 
@@ -76,6 +80,10 @@ class ApifyActorPoolCompatibilityMixin:
         input_dialect: str = "controlled_default",
         input_count_field: str | None = None,
         store_runnable_provenance: bool = False,
+        compatibility_preflight_version: int = 0,
+        free_input_validated: bool = False,
+        output_schema_proves_items: bool = False,
+        x_profile_semantics_proven: bool = False,
     ) -> str:
         """Persist a controlled X trial and its exact Store runnable evidence."""
 
@@ -125,6 +133,10 @@ class ApifyActorPoolCompatibilityMixin:
                 input_dialect=input_dialect,
                 input_count_field=input_count_field,
                 store_runnable_provenance=store_runnable_provenance,
+                compatibility_preflight_version=compatibility_preflight_version,
+                free_input_validated=free_input_validated,
+                output_schema_proves_items=output_schema_proves_items,
+                x_profile_semantics_proven=x_profile_semantics_proven,
             )
             connection.execute(
                 """
@@ -156,6 +168,15 @@ class ApifyActorPoolCompatibilityMixin:
             self._upgrade_store_provenance(
                 connection, ops, revision_id, store_runnable_provenance
             )
+            self._upgrade_compatibility_preflight(
+                connection,
+                ops,
+                revision_id,
+                compatibility_preflight_version=compatibility_preflight_version,
+                free_input_validated=free_input_validated,
+                output_schema_proves_items=output_schema_proves_items,
+                x_profile_semantics_proven=x_profile_semantics_proven,
+            )
             connection.execute(
                 """INSERT OR IGNORE INTO apify_actor_discovery_run_revisions (
                        workspace_id, run_id, revision_id, created_at
@@ -175,6 +196,10 @@ class ApifyActorPoolCompatibilityMixin:
         input_dialect: str,
         input_count_field: str | None,
         store_runnable_provenance: bool,
+        compatibility_preflight_version: int,
+        free_input_validated: bool,
+        output_schema_proves_items: bool,
+        x_profile_semantics_proven: bool,
     ) -> str:
         return ops._bounded_safe_json(
             {
@@ -186,6 +211,12 @@ class ApifyActorPoolCompatibilityMixin:
                 "deprecated": bool(deprecated),
                 "permission_unverified": bool(permission_unverified),
                 "store_runnable_provenance": bool(store_runnable_provenance),
+                "compatibility_preflight_version": (
+                    2 if int(compatibility_preflight_version) >= 2 else 0
+                ),
+                "free_input_validated": bool(free_input_validated),
+                "output_schema_proves_items": bool(output_schema_proves_items),
+                "x_profile_semantics_proven": bool(x_profile_semantics_proven),
                 "input_dialect": input_dialect if input_dialect in {
                     "controlled_default", "twitter_handles", "start_urls",
                     "profile_urls", "handle", "username", "twitter_handle",
@@ -197,6 +228,53 @@ class ApifyActorPoolCompatibilityMixin:
                 } else None,
             },
             max_bytes=16 * 1024,
+        )
+
+    def _upgrade_compatibility_preflight(
+        self,
+        connection: sqlite3.Connection,
+        ops: Any,
+        revision_id: str,
+        *,
+        compatibility_preflight_version: int,
+        free_input_validated: bool,
+        output_schema_proves_items: bool,
+        x_profile_semantics_proven: bool,
+    ) -> None:
+        """Only a fresh discovery may upgrade an old compatibility revision."""
+
+        if not (
+            int(compatibility_preflight_version) >= 2
+            and free_input_validated
+            and output_schema_proves_items
+            and x_profile_semantics_proven
+        ):
+            return
+        row = connection.execute(
+            """SELECT security_evidence_json FROM apify_actor_adapter_revisions
+               WHERE workspace_id = ? AND revision_id = ?""",
+            (self.workspace_id, revision_id),
+        ).fetchone()
+        evidence = ops._safe_json(row["security_evidence_json"], {}) if row else {}
+        if int(evidence.get("compatibility_preflight_version") or 0) >= 2:
+            return
+        evidence.update(
+            {
+                "compatibility_preflight_version": 2,
+                "free_input_validated": True,
+                "output_schema_proves_items": True,
+                "x_profile_semantics_proven": True,
+            }
+        )
+        connection.execute(
+            """UPDATE apify_actor_adapter_revisions
+               SET security_evidence_json = ?
+               WHERE workspace_id = ? AND revision_id = ?""",
+            (
+                ops._bounded_safe_json(evidence, max_bytes=16 * 1024),
+                self.workspace_id,
+                revision_id,
+            ),
         )
 
     def _upgrade_store_provenance(

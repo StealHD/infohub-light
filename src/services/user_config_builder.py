@@ -11,6 +11,7 @@ from ..storage.service_store import ServiceStore
 from ..tag_policy import normalize_channel, normalize_tags
 from .source_health import SourceHealthService
 from .source_type_registry import is_youtube_channel_config
+from .apify_actor_source_runtime import with_actorops_runtime_profiles
 
 
 def _workspace_apify_pool_enabled() -> bool:
@@ -233,6 +234,11 @@ def build_user_config_data(
     records = store.list_enabled_user_subscriptions_with_sources(
         workspace_id=workspace_id,
         user_id=user_id,
+    )
+    records = with_actorops_runtime_profiles(
+        store,
+        workspace_id=workspace_id,
+        records=records,
     )
     filtering = data.get("filtering") if isinstance(data.get("filtering"), dict) else {}
     rss_initial_fetch_window_hours = int(

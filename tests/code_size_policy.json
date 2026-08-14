@@ -182,7 +182,7 @@
       {
         "path": "src/scrapers/apify_client.py",
         "category": "production",
-        "max_lines": 1870
+        "max_lines": 1845
       },
       {
         "path": "src/scrapers/apify_social.py",
@@ -202,7 +202,7 @@
       {
         "path": "src/services/apify_actor_discovery.py",
         "category": "production",
-        "max_lines": 2392
+        "max_lines": 2374
       },
       {
         "path": "src/services/apify_actor_manifest.py",
@@ -227,7 +227,7 @@
       {
         "path": "src/services/apify_key_pool.py",
         "category": "production",
-        "max_lines": 2688
+        "max_lines": 2609
       },
       {
         "path": "src/services/config_runtime.py",
@@ -677,7 +677,7 @@
         "path": "src/scrapers/apify_client.py",
         "symbol": "ApifyClient._run_actor_once",
         "category": "production",
-        "max_lines": 294
+        "max_lines": 291
       },
       {
         "path": "src/scrapers/apify_client.py",
@@ -725,7 +725,7 @@
         "path": "src/services/apify_actor_discovery.py",
         "symbol": "ApifyActorDiscoveryService.run_discovery",
         "category": "production",
-        "max_lines": 760
+        "max_lines": 758
       },
       {
         "path": "src/services/apify_actor_maintenance.py",

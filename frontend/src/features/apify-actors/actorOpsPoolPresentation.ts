@@ -40,6 +40,16 @@ export function poolCandidateUnavailableLabel(reason: string | null | undefined)
   if (reason === 'actor_upgrade_revision_unavailable') return '尚未通过安全升级检查；当前兼容版本继续运行'
   if (reason === 'actor_validation_sample_limit_reached') return '3 条样本仍未通过，升级已停止'
   if (reason === 'actor_validation_retry_not_permitted') return '上次失败不允许通过提价、换 Actor 或重复付费绕过'
+  if (reason === 'compatibility_preflight_required') return '这是旧发现结果，缺少免费 Build、输入和输出合同检查；请先免费更新候选'
+  if (reason === 'actor_exact_build_missing') return '没有可固定的成功 Build，不能安全配置'
+  if (reason === 'actor_schema_unverifiable') return 'Build 没有可验证的输入或输出 Schema'
+  if (reason === 'actor_input_schema_unmappable') return 'Build 的 X 账号输入无法安全生成'
+  if (reason === 'build_input_validation_failed' || reason === 'actor_input_validation_rejected') return '官方免费输入校验未通过'
+  if (reason === 'actor_output_contract_unverifiable') return '输出 Schema 不能证明会返回真实帖子'
+  if (reason === 'actor_x_profile_semantics_mismatch' || reason === 'actor_x_profile_semantics_unverifiable') return 'Actor 不是可验证的 X 账号帖子抓取器'
+  if (reason === 'actor_price_above_route_cap') return '官方标价可能超过本次单次费用上限'
+  if (reason === 'actor_requires_limited_permissions') return '需要受限权限的公开 Actor'
+  if (reason === 'actor_deprecated') return 'Actor 已弃用'
   return '当前不满足安全条件'
 }
 

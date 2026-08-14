@@ -40,7 +40,17 @@ from .apify_actor_discovery_store_policy import (
     collect_store_candidates,
     require_runnable_evidence,
 )
-from .apify_actor_pool_compatibility import persist_compatibility_candidates
+from .apify_actor_compatibility_preflight import (
+    compatibility_count_field,
+    compatibility_input_dialect,
+    compatibility_metadata_failure,
+    compatibility_preflight_failure,
+    render_compatibility_input,
+)
+from .apify_actor_compatibility_discovery import (
+    collect_x_compatibility_candidate,
+    persist_x_compatibility_candidates,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +93,7 @@ _DETERMINISTIC_METADATA_FAILURES = frozenset(
         "actor_not_runnable",
         "actor_full_permission",
         "actor_permission_unverifiable",
+        "actor_requires_limited_permissions",
         "actor_exact_build_missing",
         "actor_build_not_successful",
         "actor_build_identity_mismatch",
@@ -94,6 +105,9 @@ _DETERMINISTIC_METADATA_FAILURES = frozenset(
         "actor_pricing_invalid",
         "actor_price_above_route_cap",
         "actor_items_capability_unproven",
+        "actor_output_contract_unverifiable",
+        "actor_x_profile_semantics_mismatch",
+        "actor_x_profile_semantics_unverifiable",
     }
 )
 T = TypeVar("T")
@@ -629,8 +643,7 @@ class ApifyActorDiscoveryService:
                 rejected.append({"actor_id": actor_id, "reason": error.code})
                 continue
             accepted.append(candidate)
-            if str(route["platform"]) == "x":
-                compatibility_candidates.append(candidate)
+            await collect_x_compatibility_candidate(platform=str(route["platform"]), service=self, actor_id=actor_id, per_run_cap_usd=float(route["per_run_cap_usd"]), allow_store_runnable_omission=actor_id in store_search_actor_ids, candidates=compatibility_candidates, rejected=rejected)
         # Prefer Builds whose exact Dataset schema proves a content-item
         # contract.  Store result ordering is not a quality signal and used to
         # exclude valid YouTube video Actors merely because their opaque Actor
@@ -643,8 +656,7 @@ class ApifyActorDiscoveryService:
             )
         )
         accepted = accepted[:effective_candidate_limit]
-        if str(route["platform"]) == "x":
-            persist_compatibility_candidates(ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=_compatibility_input_dialect, input_count_field=_compatibility_count_field)
+        persist_x_compatibility_candidates(platform=str(route["platform"]), ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=compatibility_input_dialect, input_count_field=compatibility_count_field)
         candidate_evidence: dict[str, tuple[str, str]] = {}
         remembered: list[DiscoveryCandidate] = []
         for candidate in accepted:
@@ -1304,43 +1316,61 @@ class ApifyActorDiscoveryService:
             raise _reject("actor_metadata_identity_mismatch")
         if actor.get("isPublic") is not True:
             raise _reject("actor_not_public")
+        metadata_failure = compatibility_metadata_failure(actor)
+        if metadata_failure is not None:
+            raise _reject(metadata_failure)
         require_runnable_evidence(
             actor,
             allow_store_runnable_omission=allow_store_runnable_omission,
             reject=_reject,
         )
         permission = str(actor.get("actorPermissionLevel") or "").casefold()
-        if permission in {"full_permissions", "full", "administrator"}:
-            raise _reject("actor_full_permission")
+        if permission != "limited_permissions":
+            raise _reject("actor_requires_limited_permissions")
         pricing = _pricing(actor)
         _validate_pricing(pricing, per_run_cap_usd)
 
         build_id, build_number = _tagged_build(actor)
-        build: Mapping[str, Any] = {}
-        input_schema: Mapping[str, Any] = {}
-        output_schema: Mapping[str, Any] = {}
-        input_template: Mapping[str, Any] = {}
-        if build_id and build_number:
-            try:
-                fetched = dict(
-                    await _maybe_await(self.metadata_client.get_build(build_id))
-                )
-            except ActorDiscoveryError as error:
-                if error.code == "apify_actor_metadata_authentication_failed":
-                    raise
-                build_id = ""
-                build_number = ""
-            else:
-                actual_number = str(fetched.get("buildNumber") or "")
-                if str(fetched.get("status") or "").upper() == "SUCCEEDED" and (
-                    not actual_number or actual_number == build_number
-                ):
-                    build = fetched
-                    input_schema, output_schema = _schemas(build)
-                    input_template = _input_template_from_schema(input_schema)
-                else:
-                    build_id = ""
-                    build_number = ""
+        if not build_id or not build_number:
+            raise _reject("actor_exact_build_missing")
+        build = dict(await _maybe_await(self.metadata_client.get_build(build_id)))
+        input_schema, output_schema = _schemas(build)
+        input_template = _input_template_from_schema(input_schema)
+        failure = compatibility_preflight_failure(
+            actor_id=actor_id,
+            actor=actor,
+            build_id=build_id,
+            tagged_build_number=build_number,
+            build=build,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            input_template=input_template,
+            input_dialect=compatibility_input_dialect(input_schema),
+            output_schema_proves_items=_output_schema_proves_items(output_schema),
+        )
+        if failure is not None:
+            raise _reject(failure)
+        reference = _reference_target("x")
+        try:
+            rendered = render_compatibility_input(
+                input_template,
+                canonical_url=reference.canonical_url,
+                native_id=reference.native_id,
+                handle=reference.handle,
+                max_items=1,
+            )
+        except ValueError:
+            raise _reject("actor_input_schema_unmappable") from None
+        try:
+            input_valid = await _maybe_await(
+                self.metadata_client.validate_input(actor_id, build_number, rendered)
+            )
+        except ActorDiscoveryError as error:
+            if error.code in _FATAL_INPUT_VALIDATION_ERRORS:
+                raise
+            raise _reject(str(error.code)) from None
+        if not input_valid:
+            raise _reject("build_input_validation_failed")
         return DiscoveryCandidate(
             actor_id=actor_id,
             publisher=_publisher(actor_id, actor),
@@ -1452,54 +1482,6 @@ def _schemas(
         input_schema if isinstance(input_schema, Mapping) else {},
         output_schema if isinstance(output_schema, Mapping) else {},
     )
-
-
-def _compatibility_input_dialect(schema: Mapping[str, Any]) -> str:
-    """Select one value-free X input dialect from bounded schema field names."""
-
-    properties = schema.get("properties")
-    fields = properties if isinstance(properties, Mapping) else schema
-    normalized = {
-        re.sub(r"[^a-z0-9]+", "", str(name).casefold())
-        for name in list(fields)[:128]
-    }
-    if "twitterhandles" in normalized:
-        return "twitter_handles"
-    if "starturls" in normalized:
-        return "start_urls"
-    if "profileurls" in normalized:
-        return "profile_urls"
-    if "twitterhandle" in normalized:
-        return "twitter_handle"
-    if "username" in normalized:
-        return "username"
-    if "handle" in normalized:
-        return "handle"
-    if "directurls" in normalized:
-        return "direct_urls"
-    if "urls" in normalized:
-        return "urls"
-    if "url" in normalized:
-        return "url"
-    # Missing Store schemas are allowed only in explicitly confirmed
-    # compatibility trials.  Use the most portable value-free contract for an
-    # unknown Actor instead of leaking legacy, Actor-specific control fields.
-    return "start_urls"
-
-
-def _compatibility_count_field(schema: Mapping[str, Any]) -> str | None:
-    properties = schema.get("properties")
-    fields = properties if isinstance(properties, Mapping) else schema
-    allowed = (
-        "maxItems",
-        "max_items",
-        "maxResults",
-        "max_results",
-        "resultsLimit",
-        "limit",
-        "tweetsDesired",
-    )
-    return next((field for field in allowed if field in fields), None)
 
 
 def _schema_mapping(value: Any) -> Mapping[str, Any]:

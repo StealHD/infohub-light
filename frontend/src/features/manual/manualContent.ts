@@ -1,4 +1,4 @@
-// Reviewed for Feed refresh scope, safe-stop, skeleton and collection behavior.
+// Reviewed for ActorOps-bound source execution and safe paid-route fallback.
 export type ManualStep = {
   title: string
   description: string
@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-13',
-  change: 'Feed 获取按角色限域、可安全停止；卡片骨架、展开和收藏即时反馈同步更新',
+  reviewedAt: '2026-08-14',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；费用与失败边界不变',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -94,7 +94,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；严格候选不足时可查看被放宽项与仍保留底线，明确选择单个公开可运行 Actor 做兼容试跑。兼容 Canary 必须返回真实非空内容，付费试跑和 1/3 生效分别确认；每次 $0.02 上限、受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 始终先使用免费公开 Atom Feed，Actor fallback 一路即可运行，不会自动追逐第二或第三路。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；严格候选不足时可查看被放宽项与仍保留底线，明确选择单个公开可运行 Actor 做兼容试跑。兼容 Canary 必须返回真实非空内容，付费试跑和 1/3 生效分别确认；每次 $0.02 上限、受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 始终先使用免费公开 Atom Feed，Actor fallback 一路即可运行，不会自动追逐第二或第三路。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

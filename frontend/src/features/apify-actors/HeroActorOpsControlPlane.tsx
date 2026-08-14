@@ -2003,8 +2003,8 @@ export function HeroActorOpsControlPlane({
             <div><dt className="type-control">不可放宽底线</dt><dd className="mt-1 text-muted">必须公开可运行、精确成功 Build、输入与 Dataset Schema 可验证、Manifest 路径真实、单次不超过 $0.02；3 个 Actor 必须唯一且至少两个发布者，付费 Canary 必须返回有效内容或可信空结果。</dd></div>
           </dl>}
           {candidateGoal === 'compatibility_single' && <dl className="grid gap-3 rounded-control border border-warning/50 bg-surface-secondary p-3 type-meta">
-            <div><dt className="type-control">本次明确放宽</dt><dd className="mt-1 text-muted">Actor 数量、发布者多样性，以及 Canary 前必须具备 Store Schema、Tagged Build、可证明 Manifest。</dd></div>
-            <div><dt className="type-control">仍不可绕过</dt><dd className="mt-1 text-muted">公开可运行、受控目标输入、身份与发布时间、正文及占位检查、真实非空参考输出、每次最多 $0.02、费用展示和两次人工确认。</dd></div>
+            <div><dt className="type-control">本次明确放宽</dt><dd className="mt-1 text-muted">Actor 数量、发布者多样性，以及 Canary 前必须具备 AI Manifest。</dd></div>
+            <div><dt className="type-control">仍不可绕过</dt><dd className="mt-1 text-muted">公开可运行、精确成功 Build、输入与输出 Schema、官方免费输入校验、X 账号帖子语义、真实非空参考输出、每次最多 $0.02、费用展示和两次人工确认。</dd></div>
           </dl>}
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}

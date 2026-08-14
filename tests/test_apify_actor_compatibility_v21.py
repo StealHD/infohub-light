@@ -38,6 +38,15 @@ def _candidate_id(store: ServiceStore, revision_id: str) -> str:
     )
 
 
+def _compatibility_preflight_kwargs() -> dict[str, object]:
+    """Model evidence written only by the free v2 discovery preflight."""
+
+    return {
+        "compatibility_preflight_version": 2,
+        "free_input_validated": True,
+        "output_schema_proves_items": True,
+        "x_profile_semantics_proven": True,
+    }
 def test_store_runnable_provenance_requires_exact_actor_identity() -> None:
     assert store_result_matches_actor(
         {"actorId": "publisher~actor"}, "publisher/actor"
@@ -48,8 +57,6 @@ def test_store_runnable_provenance_requires_exact_actor_identity() -> None:
     assert not store_result_matches_actor(
         {"actorId": "publisher/other"}, "publisher/actor"
     )
-
-
 def _x_manifest(actor_id: str, build_number: str) -> dict:
     return {
         "version": 1,
@@ -81,8 +88,6 @@ def _x_manifest(actor_id: str, build_number: str) -> dict:
             "url_host_allowlist": ["x.com", "twitter.com"],
         },
     }
-
-
 def _compatibility_discovery(
     store: ServiceStore,
     ops: ApifyActorOpsService,
@@ -99,13 +104,13 @@ def _compatibility_discovery(
             discovery_run_id=str(run["run_id"]),
             actor_id="compatibility/allowed-x",
             publisher="compatibility",
-            build_id=None,
-            build_number=None,
+            build_id="allowed-build",
+            build_number="1.0.0",
             pricing={"minimalMaxTotalChargeUsd": 0.01},
             permission_level="limited",
             input_schema_hash=None,
             output_schema_hash=None,
-            deprecated=True,
+            **_compatibility_preflight_kwargs(),
         ),
         "pinned": ops.ensure_compatibility_trial_revision(
             route_id=str(route["route_id"]),
@@ -120,6 +125,7 @@ def _compatibility_discovery(
             output_schema_hash=None,
             input_dialect="twitter_handles",
             input_count_field="maxItems",
+            **_compatibility_preflight_kwargs(),
         ),
         "expensive": ops.ensure_compatibility_trial_revision(
             route_id=str(route["route_id"]),
@@ -132,6 +138,7 @@ def _compatibility_discovery(
             permission_level="limited",
             input_schema_hash=None,
             output_schema_hash=None,
+            **_compatibility_preflight_kwargs(),
         ),
         "full_permission": ops.ensure_compatibility_trial_revision(
             route_id=str(route["route_id"]),
@@ -144,6 +151,7 @@ def _compatibility_discovery(
             permission_level="full",
             input_schema_hash=None,
             output_schema_hash=None,
+            **_compatibility_preflight_kwargs(),
         ),
     }
     ops.update_discovery_run(
@@ -179,13 +187,13 @@ def test_compatibility_candidates_relax_evidence_but_keep_hard_fences(
 
     assert listed["goal"] == "compatibility_single"
     assert listed["required_selection_count"] == 1
-    assert "pre_canary_exact_build" in allowed["relaxed_requirements"]
+    assert "pre_canary_exact_build" not in allowed["relaxed_requirements"]
     assert allowed["selectable"] is True
     assert "observed_manifest_after_canary" in allowed["compatibility_warnings"]
-    assert "follows_current_build_if_unpinnable" in allowed[
+    assert "follows_current_build_if_unpinnable" not in allowed[
         "compatibility_warnings"
     ]
-    assert "deprecated_actor" in allowed["compatibility_warnings"]
+    assert "deprecated_actor" not in allowed["compatibility_warnings"]
     assert pinned["selectable"] is True
     assert "follows_current_build_if_unpinnable" not in pinned[
         "compatibility_warnings"
@@ -331,7 +339,7 @@ def test_failed_legacy_stage_offers_single_actor_compatibility(
     )
 
 
-def test_x_discovery_preserves_metadata_safe_compatibility_candidate(
+def test_x_discovery_does_not_preserve_metadata_only_compatibility_candidate(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -371,7 +379,7 @@ def test_x_discovery_preserves_metadata_safe_compatibility_candidate(
                 "name": name,
                 "isPublic": True,
                 "isRunnable": True,
-                "isDeprecated": True,
+                "isDeprecated": actor_id.endswith("store-x"),
                 "actorPermissionLevel": permission,
                 "pricingInfos": [
                     {
@@ -436,27 +444,26 @@ def test_x_discovery_preserves_metadata_safe_compatibility_candidate(
     ).fetchall()
     assert [tuple(row) for row in remembered_failures] == [
         ("compatibility/expensive-x", "actor_price_above_route_cap"),
-        ("compatibility/full-x", "actor_full_permission"),
+        ("compatibility/full-x", "actor_requires_limited_permissions"),
     ]
     candidate = next(
         item
         for item in listed["candidates"]
         if item["candidate_id"] == str(stored["id"])
     )
-    assert candidate["selectable"] is True
-    assert "pre_canary_exact_build" in candidate["relaxed_requirements"]
-    assert "deprecated_actor" in candidate["compatibility_warnings"]
+    assert candidate["selectable"] is False
+    assert candidate["unavailable_reason"] == "actor_deprecated"
     assert {
         item["unavailable_reason"]
         for item in listed["candidates"]
         if not item["selectable"]
-    } >= {
-        "actor_price_above_route_cap",
-        "actor_requires_full_permissions",
+        } >= {
+            "actor_price_above_route_cap",
+            "actor_requires_limited_permissions",
     }
 
 
-def test_store_candidate_without_legacy_runnable_flags_is_trial_selectable(
+def test_store_candidate_without_exact_build_is_not_trial_selectable(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -504,7 +511,7 @@ def test_store_candidate_without_legacy_runnable_flags_is_trial_selectable(
             raise AssertionError("Missing tagged Builds must not be fetched")
 
         async def validate_input(self, *_args):
-            raise AssertionError("Compatibility placeholders skip static input validation")
+            raise AssertionError("No Build means no free input validation")
 
     outcome = asyncio.run(
         ApifyActorDiscoveryService(ops, Metadata(), lambda _prompt: {}).run_discovery(
@@ -529,7 +536,7 @@ def test_store_candidate_without_legacy_runnable_flags_is_trial_selectable(
         WHERE workspace_id = ? AND candidate_id = ?
         """,
         (DEFAULT_WORKSPACE_ID, str(remembered["id"])),
-    ).fetchone()[0] == 1
+    ).fetchone()[0] == 0
     listed = ops.list_pool_candidates(
         str(route["route_id"]),
         goal="compatibility_single",
@@ -539,8 +546,8 @@ def test_store_candidate_without_legacy_runnable_flags_is_trial_selectable(
         for item in listed["candidates"]
         if item["candidate_id"] == str(remembered["id"])
     )
-    assert failed["selectable"] is True
-    assert failed["unavailable_reason"] is None
+    assert failed["selectable"] is False
+    assert failed["unavailable_reason"] == "actor_exact_build_missing"
 
 
 def test_direct_preferred_candidate_without_runnable_evidence_is_rejected(

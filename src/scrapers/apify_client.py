@@ -16,6 +16,8 @@ from urllib.parse import quote
 
 import httpx
 
+from ..services.apify_actor_run_reconciliation import prove_no_user_run_in_window
+from ..services.apify_actor_run_registration import reconcile_failed_run_registration
 logger = logging.getLogger(__name__)
 # httpx request-line INFO logs include Actor Run and dataset identifiers in URLs.
 # Pool lifecycle diagnostics use the safe logger above instead.
@@ -295,38 +297,14 @@ class ApifyClient:
         started_after: str,
         started_before: str,
     ) -> bool:
-        """Return true only when Apify proves an account-wide empty window.
+        """Return true only when Apify proves an account-wide empty window."""
 
-        This read is deliberately broader than one Actor.  A zero ``total``
-        from the authenticated user Run list proves that an ambiguous start
-        POST did not create any Run in the reservation window.  Any non-zero,
-        malformed, truncated, or unavailable response remains fail-closed.
-        """
-
-        payload = await self._request_json(
+        return await prove_no_user_run_in_window(
+            self._request_json,
             lease,
-            "GET",
-            "/actor-runs",
-            params={
-                "startedAfter": str(started_after),
-                "startedBefore": str(started_before),
-                "limit": "1000",
-                "offset": "0",
-            },
-            timeout=15.0,
-            classify_credential=False,
+            started_after=started_after,
+            started_before=started_before,
         )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        items = data.get("items") if isinstance(data, dict) else None
-        total = data.get("total") if isinstance(data, dict) else None
-        if (
-            isinstance(total, bool)
-            or not isinstance(total, int)
-            or total < 0
-            or not isinstance(items, list)
-        ):
-            raise ValueError("Apify user Run list was not authoritative")
-        return total == 0 and not items
 
     async def refresh_terminal_run_accounting(
         self,
@@ -999,28 +977,25 @@ class ApifyClient:
                 ):
                     raise _RetryRunAfterDrain() from None
                 raise
-            persisted_run = await self._coordinator_call(
-                "get_run",
-                lease.reservation_id,
-                optional=True,
+            recovered = await reconcile_failed_run_registration(
+                coordinator_call=self._coordinator_call,
+                abort_registered_run=self.abort_run,
+                abort_unregistered_run=self._abort_remote_without_ledger,
+                request_json=self._request_json,
+                lease=lease,
+                remote_run_id=run_id,
+                dataset_id=dataset_id,
             )
-            if (
-                isinstance(persisted_run, dict)
-                and str(persisted_run.get("remote_run_id") or "") == run_id
-            ):
-                await self.abort_run(lease, run_id)
+            if recovered:
                 raise ApifyClientError(
                     "apify_run_registration_failed",
                     "Apify Run registration did not complete cleanly",
                     retryable=False,
                 ) from None
-            try:
-                await self._abort_remote_without_ledger(lease, run_id)
-            finally:
-                await self._report_start_outcome_unknown(
-                    lease,
-                    error_code="apify_start_outcome_unknown",
-                )
+            await self._report_start_outcome_unknown(
+                lease,
+                error_code="apify_start_outcome_unknown",
+            )
             raise ApifyClientError(
                 "apify_start_outcome_unknown",
                 "Apify Run registration could not be reconciled",

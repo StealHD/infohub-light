@@ -213,6 +213,35 @@ def test_unknown_start_with_authoritative_empty_window_recovers_without_post(
     assert run["charge_final"] == 1
 
 
+def test_known_zero_cost_aborted_start_keeps_audit_and_releases_pool(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    _store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="canary-registration")
+    coordinator.report_start_outcome_unknown(lease)
+    before = coordinator.public_state(DEFAULT_WORKSPACE_ID)
+
+    run = coordinator.confirm_zero_cost_aborted_start(
+        lease,
+        "remoteAborted123",
+        "datasetAborted123",
+    )
+
+    assert run["status"] == "aborted"
+    assert run["remote_run_id"] == "remoteAborted123"
+    assert run["dataset_id"] == "datasetAborted123"
+    assert run["last_error_code"] == "apify_run_registration_aborted"
+    assert run["charge_actual_usd"] == 0
+    assert run["charge_final"] == 1
+    after = coordinator.public_state(DEFAULT_WORKSPACE_ID)
+    assert after["status"] == "ready"
+    assert after["generation"] == before["generation"] + 1
+    assert "remoteAborted123" not in repr(after)
+    assert "datasetAborted123" not in repr(after)
+
+
 def test_unknown_start_with_any_account_run_remains_blocked(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
     store, _secret_store, coordinator, _refs = _pool(tmp_path)

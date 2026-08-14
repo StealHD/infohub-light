@@ -10,13 +10,13 @@ from .apify_actor_pool_management import _ensure_ops_symbols
 _RELAXED_REQUIREMENTS = (
     "actor_count",
     "publisher_diversity",
-    "pre_canary_store_schema",
-    "pre_canary_exact_build",
     "pre_canary_manifest",
 )
 _RETAINED_REQUIREMENTS = (
     "public_runnable_actor",
     "controlled_input",
+    "exact_build_and_schema",
+    "free_input_validation",
     "identity_and_publication_fence",
     "nonempty_reference_output",
     "per_run_price_cap",
@@ -204,6 +204,13 @@ class ApifyActorPoolCompatibilityProjectionMixin:
         if row["terminal_failure_code"]:
             return str(row["terminal_failure_code"])
         compatibility_trial = bool(security.get("compatibility_trial_only"))
+        if compatibility_trial and not (
+            int(security.get("compatibility_preflight_version") or 0) >= 2
+            and bool(security.get("free_input_validated"))
+            and bool(security.get("output_schema_proves_items"))
+            and bool(security.get("x_profile_semantics_proven"))
+        ):
+            return "compatibility_preflight_required"
         if (
             str(row["candidate_state"]) == "disabled"
             and not compatibility_trial

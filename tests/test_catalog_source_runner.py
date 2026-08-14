@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import pytest
 
 from src.models import ContentItem, SourceType
+from src.apify_actor_identity import source_target_fingerprint
+from src.services.apify_actor_ops import ApifyActorOpsService
 from src.services.feed_run import FeedRunResult, SourceAvatarHint, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.catalog_source_runner import (
@@ -112,6 +114,54 @@ def test_catalog_rss_config_disables_global_hackernews(tmp_path, monkeypatch):
         "fetch_top_stories": 20,
         "min_score": 100,
     }
+
+
+def test_catalog_source_runner_injects_bound_actorops_route_for_legacy_x_source(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Bound X source",
+        config={"platform": "x", "kind": "profile", "target": "OpenAI"},
+    )
+    subscription = store.create_subscription(user_id=owner["id"], source_id=source_id)
+    route = store.connect().execute(
+        """
+        SELECT route_id FROM apify_actor_route_profiles
+        WHERE workspace_id = ? AND route_key = 'x/profile'
+        """,
+        (workspace["id"],),
+    ).fetchone()
+    assert route is not None
+    route_id = str(route["route_id"])
+    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
+        source_id=source_id,
+        route_id=route_id,
+        target_fingerprint=source_target_fingerprint(
+            workspace["id"], route_id, "OpenAI", platform="x"
+        ),
+        mode="primary",
+    )
+
+    data = build_catalog_source_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        base_config=_base_config(),
+    )
+
+    assert data["sources"]["apify_social"]["subscriptions"][0]["profile_id"] == route_id
 
 
 def test_catalog_runner_fallback_preserves_persisted_public_network_marker(

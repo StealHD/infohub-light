@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from ..scrapers.apify_client import ApifyCredentialLease
 from ..storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from .apify_key_pool_unknown_start import ApifyKeyPoolUnknownStartMixin
 from .secret_store import SecretStore
 
 
@@ -170,7 +171,7 @@ def _normalize_run_status(value: Any) -> str:
     return status
 
 
-class ApifyKeyPoolService:
+class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
     """Coordinate one sticky active Apify key and its ordered standbys."""
 
     def __init__(
@@ -1195,86 +1196,6 @@ class ApifyKeyPoolService:
             if owns_transaction and connection.in_transaction:
                 connection.rollback()
             raise
-
-    def confirm_start_not_created(
-        self,
-        lease: ApifyCredentialLease,
-    ) -> dict[str, Any]:
-        """Release an unknown start only after an authoritative remote proof.
-
-        The caller owns the authenticated Apify evidence check.  This CAS only
-        accepts an unregistered ``start_outcome_unknown`` row and never starts
-        or retries an Actor.
-        """
-
-        connection = self.store.connect()
-        owns_transaction = not connection.in_transaction
-        now_iso = self._current_time().isoformat()
-        try:
-            if owns_transaction:
-                connection.execute("BEGIN IMMEDIATE")
-            run = self._run_for_lease(connection, lease)
-            if (
-                str(run["status"]) != "start_outcome_unknown"
-                or run["remote_run_id"] is not None
-                or run["dataset_id"] is not None
-            ):
-                raise ApifyRunLeaseError()
-            connection.execute(
-                """
-                UPDATE apify_actor_runs
-                SET status = 'start_rejected',
-                    last_error_code = 'apify_start_not_created',
-                    charge_reserved_usd = 0,
-                    charge_actual_usd = 0, charge_final = 1,
-                    terminal_at = ?, updated_at = ?
-                WHERE id = ? AND status = 'start_outcome_unknown'
-                  AND remote_run_id IS NULL AND dataset_id IS NULL
-                """,
-                (now_iso, now_iso, run["id"]),
-            )
-            unresolved = int(
-                connection.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM apify_actor_runs
-                    WHERE workspace_id = ?
-                      AND status = 'start_outcome_unknown'
-                    """,
-                    (run["workspace_id"],),
-                ).fetchone()[0]
-            )
-            state = self._state_row(connection, str(run["workspace_id"]))
-            if (
-                unresolved == 0
-                and str(state["status"]) == "blocked"
-                and str(state["blocked_reason"] or "") in {
-                    "start_outcome_unknown",
-                    "apify_start_outcome_unknown",
-                    "apify_start_http_outcome_unknown",
-                    "apify_restart_start_outcome_unknown",
-                }
-            ):
-                next_status = "ready" if state["active_secret_id"] else "exhausted"
-                connection.execute(
-                    """
-                    UPDATE apify_key_pool_state
-                    SET generation = generation + 1, status = ?,
-                        blocked_reason = NULL, updated_at = ?
-                    WHERE workspace_id = ?
-                    """,
-                    (next_status, now_iso, run["workspace_id"]),
-                )
-            if owns_transaction:
-                connection.commit()
-        except Exception:
-            if owns_transaction and connection.in_transaction:
-                connection.rollback()
-            raise
-        result = self.get_run(str(run["id"]))
-        if result is None:
-            raise LookupError("reconciled Apify reservation not found")
-        return result
 
     def block_run_reconciliation(
         self,

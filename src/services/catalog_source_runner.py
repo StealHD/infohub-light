@@ -28,6 +28,7 @@ from .usage_attempt_meter import UsageAttemptMeter
 from .apify_pool_runtime import apify_coordinator_for_workspace
 from .apify_key_pool import apify_key_pool_enabled
 from .apify_actor_monitoring import build_apify_actor_route
+from .apify_actor_source_runtime import with_actorops_runtime_profiles
 from .operation_log import safe_emit_operation_event
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .source_avatar import SourceAvatarService
@@ -138,6 +139,11 @@ def build_catalog_source_config_data(
         source_id=source_id,
         subscription_id=subscription_id,
     )
+    record = with_actorops_runtime_profiles(
+        store,
+        workspace_id=workspace_id,
+        records=(record,),
+    )[0]
     filtering = data.get("filtering") if isinstance(data.get("filtering"), dict) else {}
     _append_source(
         sources,

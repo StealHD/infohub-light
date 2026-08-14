@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
 from src.models import Config
+from src.apify_actor_identity import source_target_fingerprint
+from src.services.apify_actor_ops import ApifyActorOpsService
 from src.services.feed_run import RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.source_health import SourceHealthService
@@ -362,6 +364,61 @@ def test_user_config_builder_ignores_legacy_apify_source_secret_in_pool_mode(
     subscription = data["sources"]["apify_social"]["subscriptions"][0]
     assert "token_env" not in subscription
     assert data["sources"]["apify_social"]["token_envs"] == ["APIFY_TOKEN"]
+
+
+def test_user_config_builder_injects_bound_actorops_route_for_legacy_x_source(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Bound X source",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "OpenAI",
+            "fetch_limit": 1,
+        },
+    )
+    store.create_subscription(user_id=owner["id"], source_id=source_id)
+    route = store.connect().execute(
+        """
+        SELECT route_id FROM apify_actor_route_profiles
+        WHERE workspace_id = ? AND route_key = 'x/profile'
+        """,
+        (workspace["id"],),
+    ).fetchone()
+    assert route is not None
+    route_id = str(route["route_id"])
+    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
+        source_id=source_id,
+        route_id=route_id,
+        target_fingerprint=source_target_fingerprint(
+            workspace["id"], route_id, "OpenAI", platform="x"
+        ),
+        mode="primary",
+    )
+
+    data = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=_base_config(),
+    )
+
+    subscription = data["sources"]["apify_social"]["subscriptions"][0]
+    assert subscription["profile_id"] == route_id
+    assert subscription["target"] == "OpenAI"
 
 
 def test_instagram_profile_details_is_requested_only_until_avatar_is_cached(tmp_path, monkeypatch):
