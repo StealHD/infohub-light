@@ -9,6 +9,7 @@ from typing import Any, Literal, Protocol
 from fastapi import Depends, FastAPI, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from .actor_ops_pool_operator_routes import register_actor_ops_pool_operator_routes
 from .responses import ok
 from .system_auth import current_admin
 from ..services.apify_actor_ops import ActorOpsError
@@ -129,6 +130,8 @@ def register_actor_ops_pool_management_routes(
     app: FastAPI, context: ActorOpsPoolManagementContext
 ) -> None:
     """Register the free, atomic active-pool removal endpoint."""
+
+    register_actor_ops_pool_operator_routes(app, context)
 
     @app.post("/api/admin/apify-routes/{route_id}/active-pool/remove")
     async def remove_active_pool_slot(

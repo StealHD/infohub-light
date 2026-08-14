@@ -14,6 +14,7 @@ import type {
 
 const resource = (path: string, id: string) => `${path}/${encodeURIComponent(id)}`
 type Slot = 'primary' | 'backup_1' | 'backup_2'
+type BackupSlot = Exclude<Slot, 'primary'>
 
 export function actorOpsPoolManagementApi(client: ApiClient) {
   return {
@@ -58,6 +59,18 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
     ),
     removeApifyActorRouteActivePoolSlot: (routeId: string, payload: ApifyActorActivePoolRemove) => (
       client.post<ApifyActorRouteDetail>(`${resource('/api/admin/apify-routes', routeId)}/active-pool/remove`, payload)
+    ),
+    promoteApifyActorRouteActivePoolSlot: (
+      routeId: string,
+      payload: { target_slot: BackupSlot; expected_generation: number; confirmation: '确认设为主用 Actor' },
+    ) => client.post<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/active-pool/promote`, payload,
+    ),
+    setApifyActorRoutePriceCap: (
+      routeId: string,
+      payload: { expected_generation: number; per_run_cap_usd: number },
+    ) => client.patch<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/price-cap`, payload,
     ),
   }
 }

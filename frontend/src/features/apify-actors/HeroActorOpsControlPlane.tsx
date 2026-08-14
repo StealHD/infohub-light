@@ -69,7 +69,7 @@ import {
   ActorOpsSourceCanaryConfirmationDialog,
   HumanActorErrorNotice,
 } from './ActorOpsWorkflowDialogs'
-import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog } from './ActorOpsPoolManagementControls'
+import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog, ActorStoreQuality } from './ActorOpsPoolManagementControls'
 import { actorOpsWorkflowIntent } from './actorOpsWorkflowIntent'
 import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
 import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
@@ -2026,7 +2026,7 @@ export function HeroActorOpsControlPlane({
                 ].includes(failure.code)
                 return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
                   <Checkbox isSelected={selected} isDisabled={!candidate.selectable || (candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected) || prepareManualPlan.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
-                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · {candidateGoal === 'upgrade_legacy' ? '固定单次上限' : '可调单次上限最高'} {formatActorUsd(candidate.max_validation_charge_usd, true)}</span></span></Checkbox.Content>
+                    <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}{candidate.existing_actor_upgrade && <span className="ml-2 rounded-full bg-success/15 px-2 py-0.5 type-meta text-success">当前 Actor</span>}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · {candidateGoal === 'upgrade_legacy' ? '固定单次上限' : '可调单次上限最高'} {formatActorUsd(candidate.max_validation_charge_usd, true)}</span><ActorStoreQuality quality={candidate.store_quality} /></span></Checkbox.Content>
                   </Checkbox>
                   {!candidate.selectable && <p className="type-meta mt-2 pl-7 text-warning">{candidate.existing_actor_upgrade ? '当前状态：' : '不可选择：'}{poolCandidateUnavailableLabel(candidate.unavailable_reason)}</p>}
                   {candidate.compatibility_warnings?.length ? <p className="type-meta mt-2 break-words pl-7 text-warning">兼容风险：{candidate.compatibility_warnings.join(' · ')}</p> : null}

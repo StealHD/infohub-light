@@ -2441,12 +2441,11 @@ def test_manual_compatibility_plan_projects_single_candidate_limit(
         discovery_run_id=str(run["run_id"]),
         actor_id="compatibility/api-x",
         publisher="compatibility",
-        build_id=None,
-        build_number=None,
+        build_id="compatibility-build", build_number="1.0.0",
         pricing={"minimalMaxTotalChargeUsd": 0.01},
         permission_level="limited",
-        input_schema_hash=None,
-        output_schema_hash=None,
+        input_schema_hash="a" * 64, output_schema_hash="b" * 64,
+        compatibility_preflight_version=2, free_input_validated=True, output_schema_proves_items=True, x_profile_semantics_proven=True,
     )
     ops.update_discovery_run(
         str(run["run_id"]),

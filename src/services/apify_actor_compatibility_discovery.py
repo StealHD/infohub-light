@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, MutableSequence
 from typing import Any
 
 from .apify_actor_pool_compatibility import persist_compatibility_candidates
+from .apify_actor_candidate_quality import with_store_quality
 
 
 async def collect_x_compatibility_candidate(
@@ -53,6 +54,7 @@ def persist_x_compatibility_candidates(
     candidates: list[Any],
     candidate_limit: int,
     preferred_actor_ids: set[str],
+    store_hits: Mapping[str, Mapping[str, Any]],
     store_search_actor_ids: set[str],
     pricing_summary: Callable[[Any], Mapping[str, Any]],
     schema_hash: Callable[[Mapping[str, Any]], str],
@@ -67,7 +69,10 @@ def persist_x_compatibility_candidates(
         ops=ops,
         route_id=route_id,
         discovery_run_id=discovery_run_id,
-        candidates=candidates,
+        candidates=(
+            with_store_quality(candidate, store_hits.get(candidate.actor_id))
+            for candidate in candidates
+        ),
         candidate_limit=candidate_limit,
         preferred_actor_ids=preferred_actor_ids,
         store_search_actor_ids=store_search_actor_ids,

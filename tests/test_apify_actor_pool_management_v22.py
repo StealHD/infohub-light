@@ -18,6 +18,7 @@ from src.services.apify_actor_ops import ApifyActorOpsService
 from src.api.actor_ops_projection import public_canary_plan
 from src.services.apify_actor_pool_management import (
     ROUTE_POOL_REMOVE_CONFIRMATION,
+    ROUTE_POOL_PROMOTE_CONFIRMATION,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
@@ -103,6 +104,49 @@ def test_api_remove_is_cas_guarded_and_projects_slot_actions(tmp_path, monkeypat
     stale = client.post(f"{url}/active-pool/remove", json={
         "target_slot": "backup_1", "expected_generation": route["generation"],
         "confirmation": "确认移出 Actor 主备池",
+    })
+    assert stale.status_code == 409
+
+
+def test_backup_can_be_selected_as_primary_without_spending(tmp_path, monkeypatch) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops, route, revisions = _ready_route(store, route_key="x/profile")
+    url = f"/api/admin/apify-routes/{route['route_id']}"
+    assert ops.slot_operations(str(route["route_id"]))["backup_1"]["promote"]
+    assert ops.slot_operations(str(route["route_id"]))["primary"]["promote_reason"] == "primary_slot"
+    denied = client.post(f"{url}/active-pool/promote", json={
+        "target_slot": "backup_1", "expected_generation": route["generation"],
+        "confirmation": "确认",
+    })
+    assert denied.status_code == 400
+    promoted = client.post(f"{url}/active-pool/promote", json={
+        "target_slot": "backup_1", "expected_generation": route["generation"],
+        "confirmation": ROUTE_POOL_PROMOTE_CONFIRMATION,
+    })
+    assert promoted.status_code == 200, promoted.text
+    assert [slot["revision_id"] for slot in promoted.json()["data"]["slots"]] == [
+        revisions[1], revisions[0], revisions[2],
+    ]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_runs"
+    ).fetchone()[0] == 0
+
+
+def test_route_price_cap_is_cas_guarded_and_does_not_replace_pool(tmp_path, monkeypatch) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, revisions = _ready_route(store, route_key="instagram/profile/items")
+    url = f"/api/admin/apify-routes/{route['route_id']}"
+    updated = client.patch(f"{url}/price-cap", json={
+        "expected_generation": route["generation"], "per_run_cap_usd": 0.10,
+    })
+    assert updated.status_code == 200, updated.text
+    data = updated.json()["data"]
+    assert data["per_run_cap_usd"] == 0.10
+    assert [slot["revision_id"] for slot in data["slots"]] == revisions
+    stale = client.patch(f"{url}/price-cap", json={
+        "expected_generation": route["generation"], "per_run_cap_usd": 0.05,
     })
     assert stale.status_code == 409
 

@@ -11,10 +11,31 @@ it('stages an add into the server-authorized empty slot', async () => {
   const browser = userEvent.setup()
   await browser.click(await screen.findByRole('button', { name: '添加 Actor' }))
   expect(await screen.findByRole('heading', { name: '添加 备用 2 Actor' })).toBeVisible()
+  expect(screen.getByText(/商城质量：4.7 分（152 条评分） · 195K 使用人数/)).toBeVisible()
   await waitFor(() => expect(api.apifyActorPoolCandidates).toHaveBeenCalledWith(selected.route_id, 'add_slot', expect.any(AbortSignal), 'backup_2'))
   await browser.click(screen.getByRole('checkbox', { name: /新 Actor/ }))
   await browser.click(screen.getByRole('button', { name: '继续' }))
   await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith('run-guided', expect.objectContaining({ goal: 'add_slot', target_slot: 'backup_2', target_slot_count: 3 })))
+})
+
+it('sets an occupied backup as primary and changes only the future run cap', async () => {
+  const selected = poolManagementDetail()
+  const { api } = renderPoolManagement(selected)
+  const browser = userEvent.setup()
+  await browser.click(await screen.findByRole('button', { name: '设为主用' }))
+  expect(await screen.findByRole('heading', { name: '设为当前主用 Actor' })).toBeVisible()
+  await browser.type(screen.getByRole('textbox', { name: '确认短语' }), '确认设为主用 Actor')
+  await browser.click(screen.getByRole('button', { name: '确认设为主用' }))
+  await waitFor(() => expect(api.promoteApifyActorRouteActivePoolSlot).toHaveBeenCalledWith(selected.route_id, {
+    target_slot: 'backup_1', expected_generation: selected.generation, confirmation: '确认设为主用 Actor',
+  }))
+  const cap = screen.getByRole('spinbutton', { name: '单次 Actor 费用上限（USD）' })
+  await browser.clear(cap)
+  await browser.type(cap, '0.1')
+  await browser.click(screen.getByRole('button', { name: '保存上限' }))
+  await waitFor(() => expect(api.setApifyActorRoutePriceCap).toHaveBeenCalledWith(selected.route_id, {
+    expected_generation: selected.generation, per_run_cap_usd: 0.1,
+  }))
 })
 
 it('stages a replacement and removes an Actor only after the no-cost confirmation', async () => {

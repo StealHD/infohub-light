@@ -18,7 +18,7 @@ class _Metadata:
         *,
         output_fields: dict[str, object],
         actor_name: str = "x-profile-tweets",
-        description: str = "Fetch posts from one X profile",
+        description: str = "Fetch posts from one X profile with follower context",
     ) -> None:
         self.output_fields = output_fields
         self.actor_name = actor_name

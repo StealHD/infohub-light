@@ -140,7 +140,7 @@
       "apify_quota_snapshot_max_age_seconds": 60,
       "apify_drain_timeout_seconds": 30,
       "apify_max_attempts_per_key_per_logical_run": 1,
-      "apify_actor_max_charge_per_run_usd": 0.02,
+      "apify_actor_max_charge_per_run_usd": 0.10,
       "apify_actor_max_reserved_per_job_usd": 0.06,
       "apify_actor_failed_spend_window_hours": 6,
       "apify_actor_failed_spend_limit_usd": 0.08,

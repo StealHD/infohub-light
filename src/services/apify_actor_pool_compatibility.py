@@ -10,6 +10,11 @@ from collections.abc import Callable, Iterable
 from typing import Any, Mapping
 
 from .apify_actor_pool_management import _ensure_ops_symbols
+from .apify_actor_candidate_quality import (
+    actor_store_quality,
+    quality_sort_key,
+    store_quality_evidence,
+)
 
 
 def persist_compatibility_candidates(
@@ -30,8 +35,9 @@ def persist_compatibility_candidates(
 
     for candidate in sorted(
         candidates,
-        key=lambda item: (
-            0 if item.actor_id in preferred_actor_ids else 1, item.actor_id
+        key=lambda item: quality_sort_key(
+            item.actor_id, actor_store_quality(item.actor),
+            preferred=item.actor_id in preferred_actor_ids,
         ),
     )[:candidate_limit]:
         ops.ensure_compatibility_trial_revision(
@@ -56,6 +62,7 @@ def persist_compatibility_candidates(
             free_input_validated=True,
             output_schema_proves_items=True,
             x_profile_semantics_proven=True,
+            store_quality=actor_store_quality(candidate.actor),
         )
 
 
@@ -84,6 +91,7 @@ class ApifyActorPoolCompatibilityMixin:
         free_input_validated: bool = False,
         output_schema_proves_items: bool = False,
         x_profile_semantics_proven: bool = False,
+        store_quality: Mapping[str, Any] | None = None,
     ) -> str:
         """Persist a controlled X trial and its exact Store runnable evidence."""
 
@@ -137,6 +145,7 @@ class ApifyActorPoolCompatibilityMixin:
                 free_input_validated=free_input_validated,
                 output_schema_proves_items=output_schema_proves_items,
                 x_profile_semantics_proven=x_profile_semantics_proven,
+                store_quality=store_quality,
             )
             connection.execute(
                 """
@@ -177,6 +186,9 @@ class ApifyActorPoolCompatibilityMixin:
                 output_schema_proves_items=output_schema_proves_items,
                 x_profile_semantics_proven=x_profile_semantics_proven,
             )
+            self._upgrade_store_quality(
+                connection, ops, revision_id, store_quality=store_quality
+            )
             connection.execute(
                 """INSERT OR IGNORE INTO apify_actor_discovery_run_revisions (
                        workspace_id, run_id, revision_id, created_at
@@ -200,6 +212,7 @@ class ApifyActorPoolCompatibilityMixin:
         free_input_validated: bool,
         output_schema_proves_items: bool,
         x_profile_semantics_proven: bool,
+        store_quality: Mapping[str, Any] | None,
     ) -> str:
         return ops._bounded_safe_json(
             {
@@ -217,6 +230,7 @@ class ApifyActorPoolCompatibilityMixin:
                 "free_input_validated": bool(free_input_validated),
                 "output_schema_proves_items": bool(output_schema_proves_items),
                 "x_profile_semantics_proven": bool(x_profile_semantics_proven),
+                **store_quality_evidence(store_quality),
                 "input_dialect": input_dialect if input_dialect in {
                     "controlled_default", "twitter_handles", "start_urls",
                     "profile_urls", "handle", "username", "twitter_handle",
@@ -292,6 +306,29 @@ class ApifyActorPoolCompatibilityMixin:
         if bool(evidence.get("store_runnable_provenance")):
             return
         evidence["store_runnable_provenance"] = True
+        connection.execute(
+            """UPDATE apify_actor_adapter_revisions
+               SET security_evidence_json = ?
+               WHERE workspace_id = ? AND revision_id = ?""",
+            (ops._bounded_safe_json(evidence, max_bytes=16 * 1024), self.workspace_id, revision_id),
+        )
+
+    def _upgrade_store_quality(
+        self, connection: sqlite3.Connection, ops: Any, revision_id: str,
+        *, store_quality: Mapping[str, Any] | None,
+    ) -> None:
+        row = connection.execute(
+            """SELECT security_evidence_json FROM apify_actor_adapter_revisions
+               WHERE workspace_id = ? AND revision_id = ?""",
+            (self.workspace_id, revision_id),
+        ).fetchone()
+        evidence = ops._safe_json(row["security_evidence_json"], {}) if row else {}
+        quality = actor_store_quality(store_quality)
+        if not any(value is not None for value in quality.values()):
+            return
+        if evidence.get("store_quality") == quality:
+            return
+        evidence["store_quality"] = quality
         connection.execute(
             """UPDATE apify_actor_adapter_revisions
                SET security_evidence_json = ?

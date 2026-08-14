@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .apify_actor_pool_management import _ensure_ops_symbols
+from .apify_actor_candidate_quality import actor_store_quality, quality_sort_key
 
 
 def _ensure_module_symbols() -> None:
@@ -80,6 +81,7 @@ class ApifyActorPoolCandidateProjectionMixin:
                    revision.manifest_hash, revision.manifest_json,
                    revision.input_schema_hash, revision.output_schema_hash,
                    revision.pricing_json, revision.lifecycle, revision.created_at,
+                   revision.security_evidence_json,
                    EXISTS (SELECT 1 FROM apify_actor_validations AS validation
                      WHERE validation.workspace_id = revision.workspace_id
                        AND validation.revision_id = revision.revision_id
@@ -112,6 +114,7 @@ class ApifyActorPoolCandidateProjectionMixin:
                    revision.manifest_hash, revision.manifest_json,
                    revision.input_schema_hash, revision.output_schema_hash,
                    revision.pricing_json, revision.lifecycle, revision.created_at,
+                   revision.security_evidence_json,
                    EXISTS (SELECT 1 FROM apify_actor_validations AS validation
                      WHERE validation.workspace_id = revision.workspace_id
                        AND validation.revision_id = revision.revision_id
@@ -372,6 +375,9 @@ class ApifyActorPoolCandidateProjectionMixin:
             "actor_public_name": _actor_public_name(row["display_name"], row["publisher"], row["actor_id"]),
             "publisher": str(row["publisher"]),
             "pricing": _safe_json(row["pricing_json"], {}),
+            "store_quality": actor_store_quality(
+                _safe_json(row["security_evidence_json"], {})
+            ),
             "max_validation_charge_usd": round(limit, 6),
             "validation_options": options,
             "last_failure": summary,
@@ -423,6 +429,7 @@ class ApifyActorPoolCandidateProjectionMixin:
                     "actor_public_name": _actor_public_name(failure["display_name"], publisher, actor_id),
                     "publisher": publisher,
                     "pricing": {},
+                    "store_quality": actor_store_quality(None),
                     "max_validation_charge_usd": round(
                         min(VALIDATION_MAX_CHARGE_USD_DEFAULT, float(route["per_run_cap_usd"])), 6
                     ),
@@ -474,6 +481,7 @@ class ApifyActorPoolCandidateProjectionMixin:
                     "actor_public_name": _actor_public_name(row["display_name"], row["publisher"], row["actor_id"]),
                     "publisher": str(row["publisher"]),
                     "pricing": _safe_json(row["pricing_json"], {}),
+                    "store_quality": actor_store_quality(None),
                     "max_validation_charge_usd": min(
                         VALIDATION_MAX_CHARGE_USD_DEFAULT, float(route["per_run_cap_usd"])
                     ),
@@ -497,6 +505,16 @@ class ApifyActorPoolCandidateProjectionMixin:
         required_count: int,
         candidates: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        candidates.sort(
+            key=lambda item: (
+                0 if bool(item.get("selectable")) else 1,
+                *quality_sort_key(
+                    str(item["candidate_id"]), item.get("store_quality"),
+                    preferred=bool(item.get("existing_actor_upgrade")),
+                )[:-1],
+                "" if bool(item.get("existing_actor_upgrade")) else str(item["candidate_id"]),
+            )
+        )
         blockers = []
         if sum(bool(item["selectable"]) for item in candidates) < required_count:
             blockers.append("candidate_shortfall")

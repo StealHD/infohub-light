@@ -1,8 +1,14 @@
 import { useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 
+import { ApiError } from '../../api/client'
+import { queryKeys } from '../../api/queryKeys'
 import type { ApifyActorRouteDetail, ApifyActorSlotName } from '../../api/types'
-import { Button, Input, Label, Modal, StatusIndicator, TextField } from '../../design-system'
+import { useAppContext } from '../../app/AppContext'
+import { actionToast, Button, Input, Label, Modal, StatusIndicator, TextField } from '../../design-system'
 import { HeroNotice } from '../admin-heroui/HeroAdminControls'
+
+export { ActorStoreQuality } from './ActorOpsCandidateQuality'
 
 const order: ApifyActorSlotName[] = ['primary', 'backup_1', 'backup_2']
 const labels: Record<ApifyActorSlotName, string> = {
@@ -47,6 +53,7 @@ function slotStatus(slot: ApifyActorRouteDetail['slots'][number] | undefined) {
 }
 
 export type ActorOpsPoolTarget = { slot: ApifyActorSlotName; label: string }
+type ActorOpsPrimaryTarget = { slot: Exclude<ApifyActorSlotName, 'primary'>; label: string }
 
 export function ActorOpsPoolSlots({
   detail, pending, onOperation, onRemove,
@@ -56,21 +63,56 @@ export function ActorOpsPoolSlots({
   onOperation: (goal: 'add_slot' | 'replace_slot', slot: ApifyActorSlotName) => void
   onRemove: (target: ActorOpsPoolTarget, trigger: HTMLButtonElement | null) => void
 }) {
-  return <ol className="grid gap-3 min-[768px]:grid-cols-3" aria-label="当前 Actor 主备槽位">
+  const { api, user } = useAppContext()
+  const queryClient = useQueryClient()
+  const [primaryTarget, setPrimaryTarget] = useState<ActorOpsPrimaryTarget | null>(null)
+  const primaryTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const promote = useMutation({
+    mutationFn: (target: ActorOpsPrimaryTarget) => api.promoteApifyActorRouteActivePoolSlot(detail.route_id, {
+      target_slot: target.slot,
+      expected_generation: detail.generation,
+      confirmation: '确认设为主用 Actor',
+    }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, updated.route_id), updated)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+      setPrimaryTarget(null)
+      window.requestAnimationFrame(() => primaryTriggerRef.current?.focus())
+      actionToast.success('已设为当前主用 Actor', { description: '没有启动 Actor，也没有产生费用。' })
+    },
+    onError: (caught) => {
+      if (caught instanceof ApiError && caught.code === 'apify_actor_route_generation_conflict') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, detail.route_id) })
+      }
+      actionToast.danger('未能切换主用 Actor')
+    },
+  })
+  const operationPending = pending || promote.isPending
+  return <>
+    <ol className="grid gap-3 min-[768px]:grid-cols-3" aria-label="当前 Actor 主备槽位">
     {order.map((name) => {
       const slot = detail.slots.find((item) => item.slot === name)
       const revision = slot?.revision
       const actions = slot?.actions
       const status = slotStatus(slot)
       return <PoolSlot
-        key={name} name={name} revision={revision} actions={actions} status={status} pending={pending}
+        key={name} name={name} revision={revision} actions={actions} status={status} pending={operationPending}
         onOperation={onOperation} onRemove={onRemove}
+        onPromote={(target, trigger) => { primaryTriggerRef.current = trigger; setPrimaryTarget(target) }}
       />
     })}
-  </ol>
+    </ol>
+    <ActorOpsRoutePriceCap key={`${detail.route_id}:${detail.generation}:${detail.per_run_cap_usd}`} detail={detail} pending={operationPending} />
+    <ActorOpsPromotePrimaryDialog
+      target={primaryTarget}
+      pending={promote.isPending}
+      onClose={() => { setPrimaryTarget(null); window.requestAnimationFrame(() => primaryTriggerRef.current?.focus()) }}
+      onConfirm={() => primaryTarget && promote.mutate(primaryTarget)}
+    />
+  </>
 }
 
-function PoolSlot({ name, revision, actions, status, pending, onOperation, onRemove }: {
+function PoolSlot({ name, revision, actions, status, pending, onOperation, onRemove, onPromote }: {
   name: ApifyActorSlotName
   revision: ApifyActorRouteDetail['slots'][number]['revision']
   actions: ApifyActorRouteDetail['slots'][number]['actions']
@@ -78,9 +120,11 @@ function PoolSlot({ name, revision, actions, status, pending, onOperation, onRem
   pending: boolean
   onOperation: (goal: 'add_slot' | 'replace_slot', slot: ApifyActorSlotName) => void
   onRemove: (target: ActorOpsPoolTarget, trigger: HTMLButtonElement | null) => void
+  onPromote: (target: ActorOpsPrimaryTarget, trigger: HTMLButtonElement | null) => void
 }) {
   const removeRef = useRef<HTMLButtonElement | null>(null)
-  const reason = !revision ? actions?.add_reason : actions?.replace_reason || actions?.remove_reason
+  const promoteRef = useRef<HTMLButtonElement | null>(null)
+  const reason = !revision ? actions?.add_reason : actions?.replace_reason || actions?.promote_reason || actions?.remove_reason
   return <li className="min-w-0 rounded-control border border-separator bg-default p-3">
     <div className="flex items-center justify-between gap-2"><span className="type-control">{labels[name]}</span><StatusIndicator label={status.label} tone={status.tone} /></div>
     <p className="type-control mt-3 break-words">{revision?.actor_public_name || (revision ? `${revision.publisher} Actor` : '当前为空')}</p>
@@ -88,10 +132,59 @@ function PoolSlot({ name, revision, actions, status, pending, onOperation, onRem
     <div className="mt-3 flex flex-wrap gap-2">
       {!revision && <Button size="sm" variant="secondary" isDisabled={!actions?.add || pending} onPress={() => onOperation('add_slot', name)}>添加 Actor</Button>}
       {revision && <Button size="sm" variant="secondary" isDisabled={!actions?.replace || pending} onPress={() => onOperation('replace_slot', name)}>替换</Button>}
+      {revision && name !== 'primary' && <Button ref={promoteRef} size="sm" variant="secondary" isDisabled={!actions?.promote || pending} onPress={() => onPromote({ slot: name, label: revision.actor_public_name || `${revision.publisher} Actor` }, promoteRef.current)}>设为主用</Button>}
       {revision && <Button ref={removeRef} size="sm" variant="ghost" isDisabled={!actions?.remove || pending} onPress={() => onRemove({ slot: name, label: revision.actor_public_name || `${revision.publisher} Actor` }, removeRef.current)}>移出主备池</Button>}
     </div>
     {reason && <p className="mt-2 type-meta text-muted">{unavailable(reason)}</p>}
   </li>
+}
+
+function ActorOpsRoutePriceCap({ detail, pending }: { detail: ApifyActorRouteDetail; pending: boolean }) {
+  const { api, user } = useAppContext()
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = useState(String(detail.per_run_cap_usd))
+  const cap = Number(draft)
+  const valid = Number.isFinite(cap) && cap > 0 && cap <= 0.10
+  const changed = valid && Math.abs(cap - detail.per_run_cap_usd) > 1e-9
+  const update = useMutation({
+    mutationFn: () => api.setApifyActorRoutePriceCap(detail.route_id, {
+      expected_generation: detail.generation,
+      per_run_cap_usd: cap,
+    }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, updated.route_id), updated)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+      actionToast.success('单次费用上限已更新', { description: '只影响之后由你确认的 Actor 运行。' })
+    },
+    onError: () => actionToast.danger('费用上限未更新，请刷新后重试。'),
+  })
+  return <div className="mt-3 flex flex-col gap-2 rounded-control border border-separator bg-default p-3 min-[640px]:flex-row min-[640px]:items-end">
+    <TextField fullWidth value={draft} onChange={setDraft} isDisabled={pending || update.isPending} isInvalid={Boolean(draft) && !valid}>
+      <Label>单次 Actor 费用上限（USD）</Label><Input type="number" min={0.000001} max={0.10} step={0.005} />
+      <p className="mt-1 type-meta text-muted">候选先按安全规则筛选；此上限最高 $0.10，不会自动运行。</p>
+    </TextField>
+    <Button size="sm" isDisabled={pending || update.isPending || !changed} onPress={() => update.mutate()}>{update.isPending ? '保存中…' : '保存上限'}</Button>
+  </div>
+}
+
+function ActorOpsPromotePrimaryDialog({ target, pending, onClose, onConfirm }: {
+  target: ActorOpsPrimaryTarget | null
+  pending: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const [confirmation, setConfirmation] = useState('')
+  return target ? <Modal isOpen onOpenChange={(open) => { if (!open && !pending) { setConfirmation(''); onClose() } }}>
+    <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">设为主用 Actor</Modal.Trigger>
+    <Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}><Modal.Container><Modal.Dialog>
+      <Modal.Header><Modal.Heading>设为当前主用 Actor</Modal.Heading></Modal.Header>
+      <Modal.Body><div className="grid gap-3" aria-busy={pending}>
+        <HeroNotice title="不收费，只调整当前主备顺序" status="warning" role="status">将把 {target.label} 设为主用，原主用会移动到对应备用槽。Actor、Revision、来源认证和费用历史都不变。</HeroNotice>
+        <TextField fullWidth value={confirmation} onChange={setConfirmation} isDisabled={pending}><Label>确认短语</Label><Input placeholder="确认设为主用 Actor" /><p className="mt-1 type-meta text-muted">输入“确认设为主用 Actor”后才会提交。</p></TextField>
+      </div></Modal.Body>
+      <Modal.Footer><Button variant="ghost" isDisabled={pending} onPress={() => { setConfirmation(''); onClose() }}>取消</Button><Button isDisabled={pending || confirmation !== '确认设为主用 Actor'} onPress={onConfirm}>{pending ? '切换中…' : '确认设为主用'}</Button></Modal.Footer>
+    </Modal.Dialog></Modal.Container></Modal.Backdrop>
+  </Modal> : null
 }
 
 export function ActorOpsRemovePoolDialog({ target, pending, onClose, onConfirm }: {

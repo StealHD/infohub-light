@@ -51,6 +51,7 @@ from .apify_actor_compatibility_discovery import (
     collect_x_compatibility_candidate,
     persist_x_compatibility_candidates,
 )
+from .apify_actor_discovery_quality import persist_revision_store_quality, rank_discovery_candidates
 
 
 logger = logging.getLogger(__name__)
@@ -643,20 +644,17 @@ class ApifyActorDiscoveryService:
                 rejected.append({"actor_id": actor_id, "reason": error.code})
                 continue
             accepted.append(candidate)
-            await collect_x_compatibility_candidate(platform=str(route["platform"]), service=self, actor_id=actor_id, per_run_cap_usd=float(route["per_run_cap_usd"]), allow_store_runnable_omission=actor_id in store_search_actor_ids, candidates=compatibility_candidates, rejected=rejected)
-        # Prefer Builds whose exact Dataset schema proves a content-item
-        # contract.  Store result ordering is not a quality signal and used to
-        # exclude valid YouTube video Actors merely because their opaque Actor
-        # ID sorted after metadata-only candidates.
-        accepted.sort(
-            key=lambda candidate: (
-                0 if candidate.actor_id in preferred_set else 1,
-                0 if _output_schema_proves_items(candidate.output_schema) else 1,
-                candidate.actor_id,
+            await collect_x_compatibility_candidate(
+                platform=str(route["platform"]), service=self, actor_id=actor_id,
+                per_run_cap_usd=float(route["per_run_cap_usd"]),
+                allow_store_runnable_omission=actor_id in store_search_actor_ids,
+                candidates=compatibility_candidates,
+                rejected=rejected,
             )
-        )
+        # Prioritize Builds with a proven item contract and public Store quality.
+        accepted = rank_discovery_candidates(accepted, store_hits, preferred_set, _output_schema_proves_items)
         accepted = accepted[:effective_candidate_limit]
-        persist_x_compatibility_candidates(platform=str(route["platform"]), ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=compatibility_input_dialect, input_count_field=compatibility_count_field)
+        persist_x_compatibility_candidates(platform=str(route["platform"]), ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_hits=store_hits, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=compatibility_input_dialect, input_count_field=compatibility_count_field)
         candidate_evidence: dict[str, tuple[str, str]] = {}
         remembered: list[DiscoveryCandidate] = []
         for candidate in accepted:
@@ -1159,6 +1157,7 @@ class ApifyActorDiscoveryService:
                 prompt_version="actor_manifest_v1",
                 discovery_run_id=run_id,
             )
+            persist_revision_store_quality(self.ops, revision_id, candidate.actor)
             revisions.append(revision_id)
             revision_publishers.add(candidate.publisher)
         if len(revision_publishers) < required_publishers and revisions:

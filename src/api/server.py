@@ -738,22 +738,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-discovery-runs/{run_id}/candidates/{revision_id}/canary",
     ): ("job", "actor_revision_canary_queue"),
-    (
-        "POST",
-        "/api/admin/apify-discovery-runs/{run_id}/canary-batches",
-    ): ("job", "actor_canary_batch_queue"),
-    ("PUT", "/api/admin/apify-routes/{route_id}/active-pool"): (
-        "source",
-        "actor_route_pool_replace",
-    ),
-    ("POST", "/api/admin/apify-routes/{route_id}/active-pool/remove"): (
-        "source",
-        "actor_route_pool_remove",
-    ),
-    (
-        "POST",
-        "/api/admin/apify-routes/{route_id}/active-pool/activate",
-    ): ("source", "actor_route_pool_activate"),
+    ("POST", "/api/admin/apify-discovery-runs/{run_id}/canary-batches"): ("job", "actor_canary_batch_queue"),
+    ("PUT", "/api/admin/apify-routes/{route_id}/active-pool"): ("source", "actor_route_pool_replace"),
+    ("POST", "/api/admin/apify-routes/{route_id}/active-pool/remove"): ("source", "actor_route_pool_remove"),
+    ("POST", "/api/admin/apify-routes/{route_id}/active-pool/activate"): ("source", "actor_route_pool_activate"),
     (
         "POST",
         "/api/admin/sources/{source_id}/apify-validations/{revision_id}/canary",

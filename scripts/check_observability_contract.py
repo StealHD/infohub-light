@@ -403,15 +403,14 @@ def check_repository(root: Path) -> list[Violation]:
     }
     relatives = sorted({*PROTECTED_RUNTIME_FILES, *api_files})
     server_path = root / "src" / "api" / "server.py"
-    mapped_mutations = (
-        _mutation_route_map(
-            ast.parse(
-                server_path.read_text(encoding="utf-8"),
-                filename="src/api/server.py",
+    mapped_mutations = set().union(
+        *(
+            _mutation_route_map(
+                ast.parse(path.read_text(encoding="utf-8"), filename=relative)
             )
+            for relative in api_files
+            if (path := root / relative).is_file()
         )
-        if server_path.is_file()
-        else set()
     )
     worker_event_pairs: set[tuple[str, str]] = set()
     for relative in (

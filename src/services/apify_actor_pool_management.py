@@ -11,6 +11,8 @@ from typing import Any, Literal, Mapping
 
 
 ROUTE_POOL_REMOVE_CONFIRMATION = "确认移出 Actor 主备池"
+ROUTE_POOL_PROMOTE_CONFIRMATION = "确认设为主用 Actor"
+MAX_OPERATOR_ROUTE_CAP_USD = 0.10
 
 
 def _ops_module():
@@ -407,15 +409,160 @@ class ActorPoolManagementMixin:
             add_reason = self._pool_slot_operation_blocker(connection, route, goal="add_slot", target_slot=name)
             replace_reason = self._pool_slot_operation_blocker(connection, route, goal="replace_slot", target_slot=name)
             remove_reason = self._pool_remove_blocker(connection, route, target_slot=name) if occupied else "slot_empty"
+            promote_reason = (
+                "primary_slot" if name == "primary" else "slot_empty" if not occupied
+                else "primary_slot_empty" if not slots.get("primary") else replace_reason
+            )
             result[name] = {
                 "add": not occupied and add_reason is None,
                 "replace": occupied and replace_reason is None,
                 "remove": occupied and remove_reason is None,
+                "promote": promote_reason is None,
                 "add_reason": add_reason,
                 "replace_reason": replace_reason,
                 "remove_reason": remove_reason,
+                "promote_reason": promote_reason,
             }
         return result
+
+    def promote_active_pool_slot(
+        self,
+        route_id: str,
+        *,
+        target_slot: Literal["backup_1", "backup_2"],
+        expected_generation: int,
+        confirmation: str,
+    ) -> dict[str, Any]:
+        """Atomically swap a current backup into primary without a paid run.
+
+        This deliberately moves only existing active revisions.  It neither
+        creates an Actor run nor changes the active revision set, so valid
+        source evidence remains valid.  Normal staged-work and unknown-start
+        fences still apply before the route generation can change.
+        """
+
+        ops = _ops_module()
+        if confirmation != ROUTE_POOL_PROMOTE_CONFIRMATION:
+            raise ops.ActorOpsError(
+                "apify_actor_pool_promote_confirmation_required",
+                "Setting a primary Actor requires the exact confirmation phrase",
+                status_code=422,
+            )
+        with self._write() as writer:
+            route = self._require_route(writer, route_id)
+            if int(route["generation"]) != int(expected_generation):
+                raise ops.ActorOpsError(
+                    "apify_actor_route_generation_conflict",
+                    "Actor route changed; reload before selecting the primary Actor",
+                    status_code=409,
+                )
+            self._require_pool_mutation_safe(writer, route)
+            self._require_no_active_freshness_check(writer, route_id)
+            rows = writer.execute(
+                """SELECT slot_name, candidate_id, revision_id
+                   FROM apify_route_active_slots
+                   WHERE workspace_id = ? AND route_id = ?""",
+                (self.workspace_id, route_id),
+            ).fetchall()
+            slots = {str(row["slot_name"]): row for row in rows}
+            primary, target = slots.get("primary"), slots.get(target_slot)
+            if primary is None or target is None or not primary["revision_id"] or not target["revision_id"]:
+                raise ops.ActorOpsError(
+                    "apify_actor_pool_promote_slot_empty",
+                    "Only an occupied backup slot can become the primary Actor",
+                    status_code=409,
+                )
+            for slot_name, row in (("primary", target), (target_slot, primary)):
+                writer.execute(
+                    """UPDATE apify_route_active_slots
+                       SET candidate_id = ?, revision_id = ?, updated_at = ?
+                       WHERE workspace_id = ? AND route_id = ? AND slot_name = ?""",
+                    (
+                        row["candidate_id"], row["revision_id"], self._now_iso(),
+                        self.workspace_id, route_id, slot_name,
+                    ),
+                )
+            active_candidate_ids = [
+                str(row["candidate_id"])
+                for row in slots.values()
+                if row["candidate_id"]
+            ]
+            if active_candidate_ids:
+                offset = int(
+                    writer.execute(
+                        """SELECT COALESCE(MAX(position), 0) + 4
+                           FROM apify_actor_candidates
+                           WHERE workspace_id = ? AND route_key = ?""",
+                        (self.workspace_id, route["route_key"]),
+                    ).fetchone()[0]
+                )
+                placeholders = ", ".join("?" for _ in active_candidate_ids)
+                writer.execute(
+                    f"""UPDATE apify_actor_candidates
+                        SET position = position + ?, updated_at = ?
+                        WHERE workspace_id = ? AND id IN ({placeholders})""",
+                    (offset, self._now_iso(), self.workspace_id, *active_candidate_ids),
+                )
+            for position, slot_name in enumerate(ops.SLOT_NAMES):
+                row = target if slot_name == "primary" else primary if slot_name == target_slot else slots.get(slot_name)
+                if row is not None and row["candidate_id"]:
+                    writer.execute(
+                        """UPDATE apify_actor_candidates SET position = ?, updated_at = ?
+                           WHERE workspace_id = ? AND id = ?""",
+                        (position, self._now_iso(), self.workspace_id, row["candidate_id"]),
+                    )
+            now = self._now_iso()
+            writer.execute(
+                """UPDATE apify_actor_route_profiles
+                   SET generation = generation + 1, updated_at = ?
+                   WHERE workspace_id = ? AND route_id = ? AND generation = ?""",
+                (now, self.workspace_id, route_id, expected_generation),
+            )
+            writer.execute(
+                """UPDATE apify_actor_routes
+                   SET generation = generation + 1, last_switch_reason = 'manual_primary_selection',
+                       last_switch_at = ?, updated_at = ?
+                   WHERE workspace_id = ? AND route_key = ?""",
+                (now, now, self.workspace_id, route["route_key"]),
+            )
+        return self.get_route(route_id)
+
+    def set_route_price_cap(
+        self,
+        route_id: str,
+        *,
+        per_run_cap_usd: float,
+        expected_generation: int,
+    ) -> dict[str, Any]:
+        """Change a Route's future-run ceiling without replacing its pool."""
+
+        ops = _ops_module()
+        cap = float(per_run_cap_usd)
+        if not math.isfinite(cap) or not 0 < cap <= MAX_OPERATOR_ROUTE_CAP_USD:
+            raise ops.ActorOpsError(
+                "apify_actor_route_price_cap_invalid",
+                "Actor Route price cap must be between zero and the operator ceiling",
+                status_code=422,
+            )
+        with self._write() as writer:
+            route = self._require_route(writer, route_id)
+            if int(route["generation"]) != int(expected_generation):
+                raise ops.ActorOpsError(
+                    "apify_actor_route_generation_conflict",
+                    "Actor route changed; reload before changing its price cap",
+                    status_code=409,
+                )
+            self._require_pool_mutation_safe(writer, route)
+            self._require_no_active_freshness_check(writer, route_id)
+            self._activation_update_cap(
+                writer,
+                route=route,
+                route_id=route_id,
+                expected_generation=expected_generation,
+                selected_cap=cap,
+                now=self._now_iso(),
+            )
+        return self.get_route(route_id)
 
     def _pool_stage_target_slots(
         self,

@@ -829,9 +829,10 @@ export type ApifyActorRouteActiveSlot = {
     add: boolean
     replace: boolean
     remove: boolean
+    promote?: boolean
     add_reason?: string | null
     replace_reason?: string | null
-    remove_reason?: string | null
+    remove_reason?: string | null; promote_reason?: string | null
   }
 }
 
@@ -1092,7 +1093,6 @@ export type ApifyActorCanaryPlan = {
   source_count?: number
   source_validation_count?: number
 }
-
 export type ApifyActorCanaryBatchRequest = {
   expected_generation: number
   expected_plan_hash: string
@@ -1106,12 +1106,12 @@ export type ApifyActorCanaryBatchRequest = {
   target_slot_count?: 1 | 2 | 3
   target_slot?: ApifyActorSlotName
 }
-
 export type ApifyActorPoolCandidate = {
   candidate_id: string
   actor_public_name: string
   publisher: string
   pricing?: ApifyActorRevisionSummary['pricing']
+  store_quality?: { rating: number | null; rating_count: number | null; user_count: number | null }
   max_validation_charge_usd: number
   validation_options?: ApifyActorValidationProfile & {
     timeout_min_seconds: number

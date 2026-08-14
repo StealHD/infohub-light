@@ -197,32 +197,40 @@ def render_compatibility_input(
 def _x_profile_semantic_failure(
     actor_id: str, actor: Mapping[str, Any]
 ) -> str | None:
-    values = (
+    identity_values = (
         actor_id,
         actor.get("name"),
         actor.get("actorName"),
         actor.get("title"),
-        actor.get("description"),
     )
-    words = set(
-        re.findall(r"[a-z0-9]+", " ".join(str(value or "") for value in values).casefold())
-    )
+    description = actor.get("description")
+    identity_words = _semantic_words(identity_values)
+    all_words = _semantic_words((*identity_values, description))
     if any(
         word == term or word.startswith(term)
-        for word in words
+        for word in identity_words
         for term in _X_PROFILE_NEGATIVE_TERMS
     ):
         return "actor_x_profile_semantics_mismatch"
     if not all(
         any(
             word == term or word.startswith(term)
-            for word in words
+            for word in all_words
             for term in group
         )
         for group in _X_PROFILE_REQUIRED_GROUPS
     ):
         return "actor_x_profile_semantics_unverifiable"
     return None
+
+
+def _semantic_words(values: tuple[Any, ...]) -> set[str]:
+    return set(
+        re.findall(
+            r"[a-z0-9]+",
+            " ".join(str(value or "") for value in values).casefold(),
+        )
+    )
 
 
 __all__ = [

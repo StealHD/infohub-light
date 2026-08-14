@@ -162,7 +162,7 @@
       {
         "path": "src/api/server.py",
         "category": "production",
-        "max_lines": 5763
+        "max_lines": 5751
       },
       {
         "path": "src/mcp/remote_diagnostics.py",
@@ -202,7 +202,7 @@
       {
         "path": "src/services/apify_actor_discovery.py",
         "category": "production",
-        "max_lines": 2374
+        "max_lines": 2373
       },
       {
         "path": "src/services/apify_actor_manifest.py",
@@ -317,7 +317,7 @@
       {
         "path": "tests/test_apify_actor_ops_api.py",
         "category": "test",
-        "max_lines": 2586
+        "max_lines": 2585
       },
       {
         "path": "tests/test_apify_actor_ops_v15.py",
@@ -725,7 +725,7 @@
         "path": "src/services/apify_actor_discovery.py",
         "symbol": "ApifyActorDiscoveryService.run_discovery",
         "category": "production",
-        "max_lines": 758
+        "max_lines": 756
       },
       {
         "path": "src/services/apify_actor_maintenance.py",

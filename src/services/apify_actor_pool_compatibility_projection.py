@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .apify_actor_pool_management import _ensure_ops_symbols
+from .apify_actor_candidate_quality import actor_store_quality
 
 
 _RELAXED_REQUIREMENTS = (
@@ -183,6 +184,7 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             ),
             "publisher": str(row["publisher"]),
             "pricing": pricing,
+            "store_quality": actor_store_quality(security),
             "max_validation_charge_usd": round(
                 min(VALIDATION_MAX_CHARGE_USD_DEFAULT, float(route["per_run_cap_usd"])), 6
             ),
