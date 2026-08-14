@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Worker 的个人通知、Actor 告警、finish/source/acquisition 遥测拆到独立 post-commit 模块，保持所有外呼只在 Job 事务提交后发生，且失败不改变 Job 终态。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-postcommit",
-  "unresolved": [],
-  "validation": [
-    "post-commit 定向回归 149/149 通过，完整 Worker 定向组 618/618 通过，ResourceWarning 为 0。",
-    "worker.py 由 2646 行降至 2513 行，run_worker_once 由 491 行降至 357 行；新模块 212 行、最大函数 78 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker claim-token 执行与事务终结拆入独立模块，保持二次 eligibility、Feed/outbox savepoint、retry/rollback、Source Health、媒体 cleanup 和 commit 后外呼时序不变。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-finalization",
@@ -419,6 +401,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps 定向 Pytest、前端定向 Vitest、typecheck、lint 和 production build 通过。",
     "完整 Test Gate 18/18 通过，mapping miss 为 false。",
     "本地 8080 已验证槽位替换路径和候选 Modal 使用主用槽；真实验证的身份不匹配候选已被后续列表禁用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-14",
+  "result": "补齐所有 Actor 路线的主备池手动主用切换、未来单次费用上限与安全候选质量排序；X 的 route identity 透传与严格免费预检保持付费验证前的零写入拒绝。",
+  "status": "completed",
+  "task_id": "2026-08-14-actorops-pool-management-controls",
+  "unresolved": [],
+  "validation": [
+    "定向后端回归、ActorOps 前端交互、lint 与 typecheck 通过。",
+    "preflight 16/16 与完整 Test Gate 18/18 通过；无 mapping miss。",
+    "本地 8080 已切换到 5f6853cd1ee4，API/Worker healthy，worker_status=ready；新 promote/price-cap 路由和 ActorOps 前端产物已确认。",
+    "本轮部署和验证没有发起付费 Actor Run。"
   ]
 }
 ```
