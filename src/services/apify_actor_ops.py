@@ -51,7 +51,9 @@ from .apify_actor_pool_management import ActorPoolManagementMixin
 from .apify_actor_pool_readiness import ApifyActorPoolReadinessMixin
 from .apify_actor_pool_stage_application import ApifyActorPoolStageApplicationMixin
 from .apify_actor_pool_staging import ApifyActorPoolStagingMixin
+from .apify_actor_pool_stage_read import load_pool_stage
 from .apify_actor_pool_slots import ApifyActorPoolSlotsMixin
+from .apify_actor_pool_workflow import project_active_pool_stage_workflow
 from .apify_key_pool import APIFY_RUN_TERMINAL_STATUSES
 
 
@@ -5194,92 +5196,7 @@ class ApifyActorOpsService(
         return result
 
     def get_pool_stage(self, stage_id: str) -> dict[str, Any]:
-        connection = self.store.connect()
-        row = connection.execute(
-            """
-            SELECT stage_id, route_id, discovery_run_id, initial_batch_id,
-                   goal, target_slot_count, selection_mode,
-                   base_generation, base_pool_hash, plan_hash,
-                   max_total_charge_usd, route_validation_cap_usd,
-                   target_primary_revision_id,
-                   target_backup_1_revision_id,
-                   target_backup_2_revision_id, target_pool_hash,
-                   status, applied_route_generation, last_error_code,
-                   created_at, updated_at, applied_at
-            FROM apify_actor_pool_stages
-            WHERE workspace_id = ? AND stage_id = ?
-            """,
-            (self.workspace_id, stage_id),
-        ).fetchone()
-        if row is None:
-            raise ActorOpsError(
-                "apify_actor_pool_stage_not_found",
-                "Actor pool stage was not found",
-                status_code=404,
-            )
-        counts = connection.execute(
-            """
-            SELECT COUNT(*) AS source_count,
-                   COALESCE(SUM(required_count), 0) AS required_count,
-                   COALESCE(SUM(passed_count), 0) AS passed_count,
-                   SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END)
-                       AS succeeded_sources,
-                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)
-                       AS failed_sources,
-                   SUM(CASE WHEN status IN ('queued', 'running') THEN 1 ELSE 0 END)
-                       AS active_sources
-            FROM apify_actor_pool_stage_sources
-            WHERE workspace_id = ? AND stage_id = ?
-            """,
-            (self.workspace_id, stage_id),
-        ).fetchone()
-        cost = connection.execute(
-            """
-            SELECT COALESCE(SUM(CASE
-                       WHEN validation.cost_final = 1
-                       THEN COALESCE(validation.cost_usd, 0)
-                       ELSE 0 END), 0) AS actual_cost_usd,
-                   COALESCE(SUM(CASE
-                       WHEN validation.cost_final = 0
-                            AND validation.status IN ('queued', 'running')
-                       THEN COALESCE(validation.approved_max_cost_usd, 0)
-                       ELSE 0 END), 0) AS reserved_cost_usd,
-                   COUNT(*) AS validation_count,
-                   COALESCE(SUM(validation.cost_final), 0) AS final_count
-            FROM apify_actor_pool_stage_sources AS source
-            JOIN apify_actor_validations AS validation
-              ON validation.workspace_id = source.workspace_id
-             AND validation.validation_id IN (
-                 source.primary_validation_id,
-                 source.backup_1_validation_id,
-                 source.backup_2_validation_id
-             )
-            WHERE source.workspace_id = ? AND source.stage_id = ?
-            """,
-            (self.workspace_id, stage_id),
-        ).fetchone()
-        result = dict(row)
-        result["target_slots"] = {
-            "primary": row["target_primary_revision_id"],
-            "backup_1": row["target_backup_1_revision_id"],
-            "backup_2": row["target_backup_2_revision_id"],
-        }
-        result["source_summary"] = {
-            key: int(counts[key] or 0)
-            for key in (
-                "source_count", "required_count", "passed_count",
-                "succeeded_sources", "failed_sources", "active_sources",
-            )
-        }
-        result["cost_summary"] = {
-            "actual_cost_usd": round(float(cost["actual_cost_usd"] or 0), 6),
-            "reserved_cost_usd": round(float(cost["reserved_cost_usd"] or 0), 6),
-            "validation_count": int(cost["validation_count"] or 0),
-            "cost_final": int(cost["validation_count"] or 0) == int(
-                cost["final_count"] or 0
-            ),
-        }
-        return result
+        return load_pool_stage(self, stage_id)
 
     def set_pool_stage_status(
         self,
@@ -5586,10 +5503,13 @@ class ApifyActorOpsService(
         def candidate_selection_progress(
             goal: Literal[
                 "initial_pool", "complete_third", "upgrade_legacy",
-                "compatibility_single",
+                "compatibility_single", "add_slot", "replace_slot",
             ],
+            target_slot: str | None = None,
         ) -> tuple[dict[str, int], list[str]]:
-            result = self.list_pool_candidates(route_id, goal=goal)
+            result = self.list_pool_candidates(
+                route_id, goal=goal, target_slot=target_slot
+            )
             eligible = sum(
                 bool(item.get("selectable"))
                 for item in result.get("candidates", [])
@@ -5626,84 +5546,11 @@ class ApifyActorOpsService(
                 "blockers": [str(gate.error_code or "budget_blocked")],
             }
         if stage is not None:
-            prefix = (
-                "setup"
-                if stage["goal"] == "initial_pool"
-                else "backup_2"
-                if stage["goal"] == "complete_third"
-                else "compatibility"
-                if stage["goal"] == "compatibility_single"
-                else "legacy"
+            return project_active_pool_stage_workflow(
+                self,
+                stage,
+                candidate_selection_progress=candidate_selection_progress,
             )
-            status = str(stage["status"])
-            progress = dict(stage["source_summary"])
-            blockers = (
-                [str(stage["last_error_code"])]
-                if stage.get("last_error_code")
-                else []
-            )
-            if status in {"queued", "validating_route", "validating_sources"}:
-                kind = f"{prefix}_canary_running"
-            elif status == "apply_ready":
-                kind = f"{prefix}_activation_approval_required"
-            elif status == "blocked_unknown_start":
-                kind = "blocked_unknown_start"
-            elif status == "replan_required":
-                plan_progress, plan_blockers = candidate_selection_progress(
-                    str(stage["goal"]),
-                )
-                if (
-                    str(stage["goal"]) == "upgrade_legacy"
-                    and "candidate_shortfall" in plan_blockers
-                ):
-                    compatibility_progress, compatibility_blockers = (
-                        candidate_selection_progress("compatibility_single")
-                    )
-                    if not compatibility_blockers:
-                        failure = self._pool_stage_last_failure(
-                            str(stage["stage_id"])
-                        )
-                        return {
-                            "kind": (
-                                "compatibility_candidate_selection_available"
-                            ),
-                            "goal": "compatibility_single",
-                            "stage_id": str(stage["stage_id"]),
-                            "run_id": str(stage["discovery_run_id"]),
-                            "plan_hash": str(stage["plan_hash"]),
-                            "progress": {
-                                **compatibility_progress,
-                                "strict_blockers": plan_blockers,
-                                **(
-                                    {"last_failure": failure}
-                                    if failure is not None
-                                    else {}
-                                ),
-                            },
-                            "blockers": [],
-                        }
-                kind = (
-                    f"{prefix}_discovery_required"
-                    if "candidate_shortfall" in plan_blockers
-                    else f"{prefix}_candidate_selection_required"
-                )
-                failure = self._pool_stage_last_failure(str(stage["stage_id"]))
-                progress = {
-                    **plan_progress,
-                    **({"last_failure": failure} if failure is not None else {}),
-                }
-                blockers = plan_blockers
-            else:
-                kind = f"{prefix}_canary_approval_required"
-            return {
-                "kind": kind,
-                "goal": str(stage["goal"]),
-                "stage_id": str(stage["stage_id"]),
-                "run_id": str(stage["discovery_run_id"]),
-                "plan_hash": str(stage["plan_hash"]),
-                "progress": progress,
-                "blockers": blockers,
-            }
         latest = self.store.connect().execute(
             """
             SELECT run_id, stage

@@ -1,4 +1,4 @@
-// Reviewed after the ActorOps pool failure-state update; entries remain grouped by user-visible release date.
+// Reviewed for slot workflow and terminal-candidate safety; entries remain grouped by user-visible release date.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

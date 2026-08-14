@@ -1,5 +1,7 @@
 """Store-runnable evidence remains attached to X compatibility revisions."""
 
+import pytest
+
 from src.services.apify_actor_ops import ApifyActorOpsService
 from src.storage.service_store import ServiceStore
 from test_apify_actor_compatibility_v21 import (
@@ -33,7 +35,13 @@ def test_compatibility_revision_retains_store_runnable_provenance(tmp_path) -> N
     assert ops.get_revision(revision_id)["security_evidence"]["store_runnable_provenance"] is True
 
 
-def test_start_rejected_compatibility_build_is_not_selectable_again(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "failure_code",
+    ["apify_actor_start_rejected", "apify_actor_identity_mismatch"],
+)
+def test_terminal_compatibility_build_is_not_selectable_again(
+    tmp_path, failure_code: str
+) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
     ops = ApifyActorOpsService(store)
@@ -45,7 +53,7 @@ def test_start_rejected_compatibility_build_is_not_selectable_again(tmp_path) ->
             target_fingerprint, status, semantic_outcome, cost_usd,
             cost_final, counts_toward_canary, created_at, completed_at
         ) VALUES (?, ?, ?, ?, 'route_reference', ?, 'failed',
-                  'apify_actor_start_rejected', 0, 1, 0, ?, ?)
+                  ?, 0, 1, 0, ?, ?)
         """,
         (
             "store-proven-start-rejected",
@@ -53,6 +61,7 @@ def test_start_rejected_compatibility_build_is_not_selectable_again(tmp_path) ->
             str(route["route_id"]),
             revisions["pinned"],
             "a" * 64,
+            failure_code,
             "2026-08-14T00:00:00+00:00",
             "2026-08-14T00:00:00+00:00",
         ),
@@ -68,4 +77,4 @@ def test_start_rejected_compatibility_build_is_not_selectable_again(tmp_path) ->
     )
 
     assert rejected["selectable"] is False
-    assert rejected["unavailable_reason"] == "apify_actor_start_rejected"
+    assert rejected["unavailable_reason"] == failure_code

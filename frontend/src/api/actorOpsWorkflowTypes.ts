@@ -1,4 +1,4 @@
-import type { ApifyActorPoolGoal, ApifyActorRevisionLifecycle } from './types'
+import type { ApifyActorPoolGoal, ApifyActorRevisionLifecycle, ApifyActorSlotName } from './types'
 
 export type ApifyActorWorkflowKind =
   | 'setup_discovery_required'
@@ -53,6 +53,7 @@ export type ApifyActorWorkflow = {
   stage_id?: string | null
   run_id?: string | null
   plan_hash?: string | null
+  operation_slot?: ApifyActorSlotName | null
   progress: ApifyActorWorkflowProgress
   blockers: string[]
 }

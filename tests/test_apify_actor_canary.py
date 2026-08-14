@@ -176,6 +176,122 @@ def test_paid_canary_uses_exact_revision_and_persists_only_semantic_evidence(
     ).fetchone()["generation"]
 
 
+def test_paid_canary_fails_closed_when_reported_charge_exceeds_approval(
+    tmp_path,
+) -> None:
+    """A provider overage must never strand a validation in ``running``."""
+
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = next(
+        route for route in ops.list_routes() if route["route_key"] == "x/profile"
+    )
+    candidate_id = ops.ensure_candidate(
+        route["route_id"], actor_id="publisher/over-cap-actor"
+    )
+    revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id="publisher/over-cap-actor",
+        publisher="publisher",
+        build_id="build-over-cap",
+        build_number="1.0.2",
+        manifest={
+            **_manifest(),
+            "actor_id": "publisher/over-cap-actor",
+            "build_number": "1.0.2",
+        },
+        input_schema_hash=hashlib.sha256(b"input-over-cap").hexdigest(),
+        output_schema_hash=hashlib.sha256(b"output-over-cap").hexdigest(),
+        lifecycle="static_valid",
+    )
+    validation = ops.approve_revision_canary(
+        route["route_id"],
+        revision_id,
+        expected_generation=route["generation"],
+        approval_id="approval-over-cap",
+        confirmation=PAID_CANARY_CONFIRMATION,
+        max_cost_usd=0.02,
+        reference_fingerprint=next_reference_fingerprint(
+            store,
+            workspace_id=ops.workspace_id,
+            platform="x",
+            route_id=str(route["route_id"]),
+            revision_id=revision_id,
+        ),
+    )
+    owner = store.create_user(
+        workspace_id=ops.workspace_id,
+        username="over-cap-admin",
+        password="safe-test-password",
+        role="admin",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=ops.workspace_id,
+        user_id=owner["id"],
+        job_type="apify_actor_validation",
+        payload={"validation_id": validation["validation_id"]},
+        priority=100,
+        max_attempts=1,
+    )
+
+    class OverCapClient:
+        async def run_actor_detailed(self, actor_id, actor_input, **kwargs):
+            assert actor_id == "publisher/over-cap-actor"
+            assert kwargs["max_total_charge_usd"] == 0.02
+            return SimpleNamespace(
+                items=[
+                    {
+                        "id": "post-over-cap",
+                        "url": "https://x.com/openai/status/2",
+                        "publishedAt": "2020-01-01T00:00:00Z",
+                        "title": "Over cap reference post",
+                        "handle": "openai",
+                    }
+                ],
+                actual_charge_usd=0.020001,
+            )
+
+    with pytest.raises(ActorOpsError) as over_cap:
+        asyncio.run(
+            ApifyActorCanaryRunner(store, ops, OverCapClient()).run(
+                validation["validation_id"], job_id=job["id"]
+            )
+        )
+
+    assert over_cap.value.code == "apify_actor_charge_above_approved_cap"
+    row = store.connect().execute(
+        """
+        SELECT status, semantic_outcome, cost_usd, cost_final
+        FROM apify_actor_validations WHERE validation_id = ?
+        """,
+        (validation["validation_id"],),
+    ).fetchone()
+    assert tuple(row) == (
+        "failed",
+        "apify_actor_charge_above_approved_cap",
+        pytest.approx(0.020001),
+        1,
+    )
+    attempt_id = store.connect().execute(
+        "SELECT attempt_id FROM apify_actor_validations WHERE validation_id = ?",
+        (validation["validation_id"],),
+    ).fetchone()["attempt_id"]
+    attempt = store.connect().execute(
+        """
+        SELECT status, semantic_outcome, actual_cost_usd, cost_final
+        FROM apify_actor_attempts WHERE id = ?
+        """,
+        (attempt_id,),
+    ).fetchone()
+    assert tuple(attempt) == (
+        "actor_failed",
+        "apify_actor_charge_above_approved_cap",
+        pytest.approx(0.020001),
+        1,
+    )
+
+
 def test_paid_canary_preflight_rejects_missing_build_without_attempt_or_cost(
     tmp_path,
 ) -> None:

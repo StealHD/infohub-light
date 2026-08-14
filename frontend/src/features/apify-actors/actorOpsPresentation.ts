@@ -1,5 +1,6 @@
 import { ApiError } from '../../api/client'
-import type { ApifyActorRouteSummary } from '../../api/types'
+import type { ApifyActorRouteSummary, ApifyActorSlotName } from '../../api/types'
+import { slotWorkflowPresentation } from './actorOpsSlotWorkflowPresentation'
 
 export type HumanActorError = {
   reason: string
@@ -327,7 +328,10 @@ const singleActorOverrides: Record<string, WorkflowPresentation> = {
 export function routeWorkflowPresentation(
   kind: string,
   minimumActors: number,
+  operationSlot?: ApifyActorSlotName | null,
 ): WorkflowPresentation {
+  const slotWorkflow = slotWorkflowPresentation(kind, operationSlot)
+  if (slotWorkflow) return slotWorkflow
   const standard = workflowPresentation[kind] ?? unknownWorkflowPresentation
   return minimumActors === 1 ? singleActorOverrides[kind] ?? standard : standard
 }

@@ -1,4 +1,8 @@
-FROM node:22-slim AS frontend-build
+# Docker Hub is intermittently unavailable from local operator networks.  Use
+# a reachable Node 22 build image for the frontend stage instead.
+FROM quay.io/fedora/nodejs-22:latest AS frontend-build
+
+USER root
 
 WORKDIR /workspace/frontend
 COPY frontend/package.json frontend/package-lock.json ./
@@ -6,8 +10,8 @@ RUN --mount=type=cache,target=/root/.npm npm ci --include=optional
 COPY frontend ./
 RUN npm run build
 
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Keep the original Python version and slim Debian contract via MCR's mirror.
+FROM mcr.microsoft.com/mirror/docker/library/python:3.11-slim
 
 ARG INTELISCOPE_VERSION=1.8.1
 ARG INTELISCOPE_BUILD_REVISION=unknown

@@ -57,7 +57,6 @@ import {
   routeProductNames,
   routeProfileId,
   routeProfileOrder,
-  routeWorkflowPresentation,
   taskTabs,
   type ActorOpsTaskTab,
   type HumanActorError,
@@ -71,6 +70,7 @@ import {
   HumanActorErrorNotice,
 } from './ActorOpsWorkflowDialogs'
 import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog } from './ActorOpsPoolManagementControls'
+import { actorOpsWorkflowIntent } from './actorOpsWorkflowIntent'
 import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
 import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
 import {
@@ -1137,9 +1137,7 @@ export function HeroActorOpsControlPlane({
     : selectedSummary
       ? routeMinimumActors(selectedSummary)
       : 2
-  const next = routeWorkflowPresentation(workflow?.kind || '', minimumActors)
-  const candidateGoal: ApifyActorPoolGoal = slotOperation?.goal || workflow?.goal || 'initial_pool'
-  const candidateTargetSlot = slotOperation?.targetSlot
+  const { next, candidateGoal, candidateTargetSlot } = actorOpsWorkflowIntent(workflow, slotOperation, minimumActors)
   const workflowFailure = workflowFailureNotice(workflow?.progress, candidateGoal)
   const submittedDiscoveryRunId = submittedDiscovery?.routeId === selectedRouteId
     ? submittedDiscovery.runId

@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Worker 的迁移检查、Actor 恢复、maintenance、lease recovery、schedule/notification backlog 与 claim 前准备拆入两个小模块，保留 claim 后 eligibility、事务终结、Feed/outbox 原子性和 post-commit 外呼时序不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-preclaim-cycle",
-  "unresolved": [],
-  "validation": [
-    "Worker 定向组 618/618 通过，另有首轮 76/76 和导入/规模/可观测性 30/30 通过，ResourceWarning 为 0。",
-    "worker.py 由 3072 行降至 2646 行，run_worker_once 由 743 行降至 491 行；新模块 390/209 行，最大新函数 102/100 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker 的个人通知、Actor 告警、finish/source/acquisition 遥测拆到独立 post-commit 模块，保持所有外呼只在 Job 事务提交后发生，且失败不改变 Job 终态。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-postcommit",
@@ -415,6 +397,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增角色范围、无订阅、取消与发布原子性后端覆盖，以及收藏、星标、溢出检测、骨架和按钮状态前端覆盖。",
     "Feed Playwright 已覆盖 desktop/tablet/mobile 的骨架、收藏即时可见、刷新停止与布局锚点；预检 16/16 通过。",
     "完整 Test Gate 18/18 通过（全量 Python、前端 lint/typecheck/Vitest/build、Compose 与控制面检查）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-14",
+  "result": "修正 ActorOps 槽位替换工作流的服务端 operation_slot 投影与前端标题/请求一致性，抽出阶段读取和工作流模块；补齐实际收费超授权后的终结对账，且将身份不匹配的固定 Build 记为不可再选。Docker 构建基础镜像改用可达的 Quay/Microsoft 源。",
+  "status": "completed",
+  "task_id": "2026-08-14-actorops-pool-workflow-cost-guard",
+  "unresolved": [
+    "X 的现有外部候选均未通过身份/契约安全验证，因此保持活动主备不变；等待新的安全候选或其 Build 证据变化后才能完成真实替换。"
+  ],
+  "validation": [
+    "ActorOps 定向 Pytest、前端定向 Vitest、typecheck、lint 和 production build 通过。",
+    "完整 Test Gate 18/18 通过，mapping miss 为 false。",
+    "本地 8080 已验证槽位替换路径和候选 Modal 使用主用槽；真实验证的身份不匹配候选已被后续列表禁用。"
   ]
 }
 ```

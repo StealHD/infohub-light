@@ -34,6 +34,7 @@ from .apify_actor_canary_compatibility import (
     preflight_compatibility_candidate,
     run_compatibility_if_needed,
 )
+from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
 
 
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
@@ -435,17 +436,12 @@ class ApifyActorCanaryRunner:
             return max(0, int(round(time.monotonic() - run_started)))
 
         try:
-            run = await self.client.run_actor_detailed(
-                slot.actor_id,
-                actor_input,
-                max_total_charge_usd=snapshot.per_run_cap_usd,
-                logical_run_id=attempt_id,
-                build_number=slot.build_number,
+            run = await run_actor_with_charge_guard(
+                self, validation_id=validation_id, attempt_id=attempt_id,
+                snapshot=snapshot, slot=slot, actor_input=actor_input,
                 max_paid_dataset_items=sample_items,
                 dataset_item_limit=sample_items + 1,
-                expected_pool_generation=snapshot.key_pool_generation,
-                max_remote_starts=1,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=timeout_seconds, duration_seconds=elapsed_seconds,
             )
             actual_charge_usd = run.actual_charge_usd
             mapped = map_actor_output(manifest, run.items, target, runtime)
@@ -849,20 +845,15 @@ class ApifyActorCanaryRunner:
 
         run = None
         try:
-            run = await self.client.run_actor_detailed(
-                slot.actor_id,
-                actor_input,
-                max_total_charge_usd=snapshot.per_run_cap_usd,
-                logical_run_id=attempt_id,
-                build_number=slot.build_number,
-                max_paid_dataset_items=1,
-                dataset_item_limit=3,
-                expected_pool_generation=snapshot.key_pool_generation,
-                max_remote_starts=1,
+            run = await run_actor_with_charge_guard(
+                self, validation_id=validation_id, attempt_id=attempt_id,
+                snapshot=snapshot, slot=slot, actor_input=actor_input,
+                max_paid_dataset_items=1, dataset_item_limit=3,
                 timeout_seconds=int(
                     row["validation_timeout_seconds"]
                     or actor_canary_timeout_seconds()
                 ),
+                duration_seconds=duration,
             )
             candidate_rows, semantic = scraper._validated_x_rows(run.items)
             if semantic != "valid_nonempty":

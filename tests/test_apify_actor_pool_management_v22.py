@@ -202,6 +202,10 @@ def test_failed_replan_stage_does_not_lock_pool_removal(tmp_path) -> None:
     finalized = ops.finalize_canary_batch(str(batch["batch_id"]))
     assert finalized["status"] == "partial"
     assert finalized["stop_reason"] == "candidate_replenishment_required"
+    workflow = ops.workflow_state(str(route["route_id"]))
+    assert workflow["kind"] == "replace_slot_discovery_required"
+    assert workflow["goal"] == "replace_slot"
+    assert workflow["operation_slot"] == "backup_1"
     assert ops.slot_operations(str(route["route_id"]))["backup_1"]["remove"]
     removed = ops.remove_active_pool_slot(
         str(route["route_id"]),

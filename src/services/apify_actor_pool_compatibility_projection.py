@@ -23,6 +23,7 @@ _RETAINED_REQUIREMENTS = (
     "explicit_paid_confirmation",
 )
 _TERMINAL_COMPATIBILITY_FAILURES = (
+    "apify_actor_identity_mismatch",
     "apify_actor_target_identity_mismatch",
     "apify_actor_contract_mismatch",
     "compatibility_nonempty_required",
@@ -30,6 +31,7 @@ _TERMINAL_COMPATIBILITY_FAILURES = (
     "actor_not_runnable",
     "apify_actor_start_rejected",
     "apify_actor_revision_unavailable",
+    "apify_actor_charge_above_approved_cap",
 )
 
 
@@ -82,12 +84,14 @@ class ApifyActorPoolCompatibilityProjectionMixin:
                          AND failed.status = 'failed'
                          AND failed.cost_final = 1
                          AND failed.semantic_outcome IN (
+                             'apify_actor_identity_mismatch',
                              'apify_actor_target_identity_mismatch',
                              'apify_actor_contract_mismatch',
                              'compatibility_nonempty_required',
                              'actor_disabled', 'actor_not_runnable',
                              'apify_actor_start_rejected',
-                             'apify_actor_revision_unavailable'
+                             'apify_actor_revision_unavailable',
+                             'apify_actor_charge_above_approved_cap'
                          )
                        ORDER BY failed.completed_at DESC, failed.created_at DESC,
                                 failed.validation_id DESC

@@ -43,6 +43,16 @@ describe('ActorOps presentation model', () => {
     })
   })
 
+  it('keeps a persisted slot replan distinct from a legacy upgrade', () => {
+    expect(routeWorkflowPresentation(
+      'replace_slot_candidate_selection_required', 3, 'primary',
+    )).toMatchObject({
+      title: '选择主用 Actor 的替换候选',
+      action: 'select_candidates',
+      cta: '选择替换主用 Actor',
+    })
+  })
+
   it('fails closed to a refresh action for an unknown workflow', () => {
     expect(routeWorkflowPresentation('future_unmapped_state', 3)).toEqual({
       title: '状态需要刷新',

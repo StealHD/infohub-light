@@ -107,7 +107,7 @@
       {
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "category": "production",
-        "max_lines": 2134
+        "max_lines": 2132
       },
       {
         "path": "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.test.tsx",
@@ -197,7 +197,7 @@
       {
         "path": "src/services/apify_actor_canary.py",
         "category": "production",
-        "max_lines": 1480
+        "max_lines": 1471
       },
       {
         "path": "src/services/apify_actor_discovery.py",
@@ -212,7 +212,7 @@
       {
         "path": "src/services/apify_actor_ops.py",
         "category": "production",
-        "max_lines": 10897
+        "max_lines": 10744
       },
       {
         "path": "src/services/apify_actor_resilience.py",
@@ -485,7 +485,7 @@
         "path": "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
         "symbol": "HeroActorOpsControlPlane",
         "category": "production",
-        "max_lines": 1091
+        "max_lines": 1089
       },
       {
         "path": "frontend/src/features/jobs/useFeedActivity.ts",
@@ -713,13 +713,13 @@
         "path": "src/services/apify_actor_canary.py",
         "symbol": "ApifyActorCanaryRunner._run_compatibility_single",
         "category": "production",
-        "max_lines": 428
+        "max_lines": 423
       },
       {
         "path": "src/services/apify_actor_canary.py",
         "symbol": "ApifyActorCanaryRunner.run",
         "category": "production",
-        "max_lines": 428
+        "max_lines": 423
       },
       {
         "path": "src/services/apify_actor_discovery.py",
@@ -881,7 +881,7 @@
         "path": "src/services/apify_actor_ops.py",
         "symbol": "ApifyActorOpsService.workflow_state",
         "category": "production",
-        "max_lines": 351
+        "max_lines": 281
       },
       {
         "path": "src/services/apify_actor_resilience.py",
