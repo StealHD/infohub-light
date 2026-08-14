@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Worker 的 Actor validation 与 freshness handler 拆入独立模块，通过 ports 保留协调器和错误码兼容 seam，不改变管理员授权、专用校验 Key、费用失败记账或终态语义。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-actor-validation",
-  "unresolved": [],
-  "validation": [
-    "Actor validation/freshness、Worker、ActorOps、resilience、通知和调度扩展定向回归全部通过，ResourceWarning 为 0。",
-    "worker.py 由 1893 行降至 1705 行；新模块 262 行，全部新增函数不超过 78 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker Actor discovery 的幂等/重复刷新、AI 适配、元数据客户端和失败阶段终结拆入两个独立模块，保留现有测试入口、输出投影与错误码语义。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-actor-discovery",
@@ -420,6 +401,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps quality、discovery、兼容与主备池定向 Pytest 81/81 通过。",
     "完整 Test Gate preflight 16/16 通过（全量 Python、前端 lint/typecheck/Vitest/build、代码规模与文档门禁）。",
     "未启动付费 Actor Run；待部署后只执行一次免费 X 候选刷新验证。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "将包含 ActorOps 主备池管理、单槽安全候选保留与前端平面化调整的本地 main 准备为 v2.3.3；正式发布仅在精确 SHA 的 GitHub Test Gate 和 Release Tag smoke 均成功后才切换 VPS。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.3",
+  "unresolved": [],
+  "validation": [
+    "v2.3.3 是在既有 v2.3.2 标签后的补丁版本；本地 main 已包含 ActorOps 完整门禁通过的精确功能提交。",
+    "发布脚本会执行相对 v2.3.2 的预检、等待 main Test Gate、创建 tag、等待 tag API smoke，并在 VPS 仅 docker load 后验证 API、Worker 与前端 revision。"
   ]
 }
 ```
