@@ -486,7 +486,10 @@ class ApifyActorPoolCompatibilityMixin:
         return {
             "timeout_seconds": int(options["timeout_seconds"]),
             "sample_items": int(options["sample_items"]),
-            "max_charge_usd": round(min(route_cap, 0.02), 6),
+            "max_charge_usd": round(
+                min(route_cap, float(ops.VALIDATION_MAX_CHARGE_USD_LIMIT)),
+                6,
+            ),
             "supports_sample_items": True,
             "options_hash": str(options["options_hash"]),
             "profile_hash": str(options["profile_hash"]),

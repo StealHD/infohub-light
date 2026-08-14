@@ -60,4 +60,21 @@ def discovery_revision_security_evidence(
     }
 
 
-__all__ = ["discovery_revision_security_evidence", "rank_discovery_candidates"]
+def discovery_minimum_requirements(
+    run: Mapping[str, Any], route: Mapping[str, Any]
+) -> tuple[int, int]:
+    """Allow a manually targeted slot refresh to produce one safe Revision."""
+
+    if str(run.get("trigger_reason") or "") == "manual_slot_candidate_refresh":
+        return 1, 1
+    return (
+        max(1, int(route["min_runtime_healthy"])),
+        max(1, int(route["min_publishers"])),
+    )
+
+
+__all__ = [
+    "discovery_minimum_requirements",
+    "discovery_revision_security_evidence",
+    "rank_discovery_candidates",
+]

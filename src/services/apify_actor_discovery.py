@@ -52,7 +52,7 @@ from .apify_actor_compatibility_discovery import (
     persist_x_compatibility_candidates,
 )
 from .apify_actor_discovery_quality import (
-    discovery_revision_security_evidence,
+    discovery_minimum_requirements, discovery_revision_security_evidence,
     rank_discovery_candidates,
 )
 
@@ -506,8 +506,8 @@ class ApifyActorDiscoveryService:
             query_count=len(clean_queries),
         )
         route = self.ops.get_route(str(run["route_id"]))
-        required_actors = max(1, int(route["min_runtime_healthy"]))
-        required_publishers = max(1, int(route["min_publishers"]))
+        requirements = discovery_minimum_requirements(run, route)
+        required_actors, required_publishers = requirements
         preferred = tuple(
             dict.fromkeys(
                 normalized

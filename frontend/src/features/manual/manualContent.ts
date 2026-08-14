@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-14',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员可无费用切换已验证主用，并按公开 Store 质量选择安全候选。保存的 Route 单次上限同样用于后续免费检查，候选评分会与其固定 Build 证据一起保留。',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员可无费用切换已验证主用，并按公开 Store 质量选择安全候选。完整标准池继续要求发布者多样性；单槽新增或替换只需一名已完成免费安全检查的候选。保存的 Route 单次上限同样用于后续免费检查，候选评分会与其固定 Build 证据一起保留。',
 } as const
 
 export const manualSections: ManualSection[] = [

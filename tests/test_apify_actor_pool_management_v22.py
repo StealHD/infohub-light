@@ -163,6 +163,125 @@ def test_route_price_cap_is_cas_guarded_and_does_not_replace_pool(tmp_path, monk
     assert stale.status_code == 409
 
 
+def test_x_slot_refresh_uses_one_candidate_and_retains_prior_safe_revision(tmp_path, monkeypatch) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops, route, _active = _ready_route(store, route_key="x/profile")
+    route = ops.set_route_price_cap(
+        str(route["route_id"]),
+        per_run_cap_usd=0.10,
+        expected_generation=int(route["generation"]),
+    )
+    prior = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_slot_candidate_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    revision_id = _revision(
+        ops,
+        str(route["route_id"]),
+        actor_id="publisher-slot/x-safe-replacement",
+        publisher="publisher-slot",
+        build_number="35.0.1",
+        host="x.com",
+        discovery_run_id=str(prior["run_id"]),
+    )
+    ops.update_discovery_run(
+        str(prior["run_id"]), expected_stage="queued", stage="candidate_shortfall"
+    )
+
+    response = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates/refresh",
+        json={
+            "expected_generation": int(route["generation"]),
+            "goal": "replace_slot",
+            "target_slot": "backup_1",
+        },
+    )
+    assert response.status_code == 200, response.text
+    latest_run_id = str(response.json()["data"]["run_id"])
+    latest = store.connect().execute(
+        "SELECT trigger_reason FROM apify_actor_discovery_runs WHERE run_id = ?",
+        (latest_run_id,),
+    ).fetchone()
+    assert latest["trigger_reason"] == "manual_slot_candidate_refresh"
+    ops.update_discovery_run(
+        latest_run_id, expected_stage="queued", stage="candidate_shortfall"
+    )
+
+    projected = ops.list_pool_candidates(
+        str(route["route_id"]), goal="replace_slot", target_slot="backup_1"
+    )
+    selected = next(
+        item for item in projected["candidates"] if item.get("revision_id") == revision_id
+    )
+    assert selected["selectable"] is True
+    assert selected["max_validation_charge_usd"] == 0.10
+    assert selected["validation_options"]["max_charge_limit_usd"] == 0.10
+    plan = ops.get_canary_plan(
+        latest_run_id,
+        goal="replace_slot",
+        target_slot="backup_1",
+        candidate_ids=[str(selected["candidate_id"])],
+        candidate_validation_profiles=[
+            {"candidate_id": str(selected["candidate_id"]), **selected["validation_options"]}
+        ],
+        target_slot_count=3,
+    )
+    assert plan["items"][0]["revision_id"] == revision_id
+    assert plan["items"][0]["authorized_cap_usd"] == 0.10
+
+
+def test_non_x_slot_refresh_retains_prior_safe_revision(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route, _active = _two_actor_pool(store, ops)
+    route_id = str(route["route_id"])
+    prior = ops.create_discovery_run(
+        route_id,
+        trigger_reason="manual_slot_candidate_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    revision_id = _revision(
+        ops,
+        route_id,
+        actor_id="publisher-slot/youtube-safe-addition",
+        publisher="publisher-slot",
+        build_number="36.0.1",
+        host="youtube.com",
+        discovery_run_id=str(prior["run_id"]),
+    )
+    candidate_id = str(
+        store.connect()
+        .execute(
+            "SELECT candidate_id FROM apify_actor_adapter_revisions WHERE revision_id = ?",
+            (revision_id,),
+        )
+        .fetchone()["candidate_id"]
+    )
+    ops.update_discovery_run(
+        str(prior["run_id"]), expected_stage="queued", stage="candidate_shortfall"
+    )
+    latest = ops.create_discovery_run(
+        route_id,
+        trigger_reason="manual_slot_candidate_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    ops.update_discovery_run(
+        str(latest["run_id"]), expected_stage="queued", stage="candidate_shortfall"
+    )
+
+    projected = ops.list_pool_candidates(
+        route_id, goal="add_slot", target_slot="backup_2"
+    )
+    assert any(item["candidate_id"] == candidate_id for item in projected["candidates"])
+    selected = next(
+        item for item in projected["candidates"] if item["candidate_id"] == candidate_id
+    )
+    assert selected["selectable"] is True
+
+
 def test_remove_reuses_only_retained_source_evidence(tmp_path) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()

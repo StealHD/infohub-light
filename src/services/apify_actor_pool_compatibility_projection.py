@@ -140,8 +140,16 @@ class ApifyActorPoolCompatibilityProjectionMixin:
              AND revision.revision_id = association.revision_id
             WHERE association.workspace_id = ? AND run.route_id = ?
               AND association.run_id <> ?
-              AND json_extract(revision.security_evidence_json,
+              AND (
+                  json_extract(revision.security_evidence_json,
                                '$.compatibility_trial_only') = 1
+                  OR (
+                      revision.lifecycle IN ('static_valid', 'probationary', 'certified')
+                      AND revision.build_id IS NOT NULL
+                      AND revision.build_number IS NOT NULL
+                      AND revision.manifest_hash IS NOT NULL
+                  )
+              )
             ORDER BY run.created_at DESC, run.rowid DESC LIMIT 1
             """,
             (self.workspace_id, str(route["route_id"]), current_run_id),
@@ -186,7 +194,7 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             "pricing": pricing,
             "store_quality": actor_store_quality(security),
             "max_validation_charge_usd": round(
-                min(VALIDATION_MAX_CHARGE_USD_DEFAULT, float(route["per_run_cap_usd"])), 6
+                min(VALIDATION_MAX_CHARGE_USD_LIMIT, float(route["per_run_cap_usd"])), 6
             ),
             "execution_mode": str(row["execution_mode"]),
             "already_validated": bool(row["already_validated"]),
@@ -241,7 +249,10 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             "allowed_sample_items": [1],
             "sample_items": 1,
             "max_charge_usd": round(float(route["per_run_cap_usd"]), 6),
-            "max_charge_limit_usd": 0.02,
+            "max_charge_limit_usd": round(
+                min(VALIDATION_MAX_CHARGE_USD_LIMIT, float(route["per_run_cap_usd"])),
+                6,
+            ),
             "supports_sample_items": True,
             "profile_hash": profile_hash,
             "options_hash": _validation_options_hash(
@@ -298,7 +309,7 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             "publisher": publisher,
             "pricing": {},
             "max_validation_charge_usd": round(
-                min(VALIDATION_MAX_CHARGE_USD_DEFAULT, float(route["per_run_cap_usd"])), 6
+                min(VALIDATION_MAX_CHARGE_USD_LIMIT, float(route["per_run_cap_usd"])), 6
             ),
             "execution_mode": "current",
             "already_validated": False,

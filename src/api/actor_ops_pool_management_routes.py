@@ -212,7 +212,11 @@ def register_actor_ops_pool_management_routes(
                     else (
                         "manual_compatibility_candidate_refresh"
                         if payload.goal == "compatibility_single"
-                        else "manual_candidate_refresh"
+                        else (
+                            "manual_slot_candidate_refresh"
+                            if payload.goal in {"add_slot", "replace_slot"}
+                            else "manual_candidate_refresh"
+                        )
                     )
                 ),
                 expected_generation=int(payload.expected_generation),

@@ -5,6 +5,7 @@ from src.services.apify_actor_candidate_quality import (
 )
 from src.services.apify_actor_discovery import DiscoveryCandidate
 from src.services.apify_actor_discovery_quality import (
+    discovery_minimum_requirements,
     discovery_revision_security_evidence,
     rank_discovery_candidates,
 )
@@ -62,3 +63,13 @@ def test_revision_evidence_freezes_public_store_quality() -> None:
     assert evidence["store_quality"] == {
         "rating": 4.7, "rating_count": 152, "user_count": 195_000,
     }
+
+
+def test_slot_refresh_requires_one_safe_candidate_without_weakening_pool_discovery() -> None:
+    route = {"min_runtime_healthy": 2, "min_publishers": 2}
+    assert discovery_minimum_requirements(
+        {"trigger_reason": "manual_slot_candidate_refresh"}, route
+    ) == (1, 1)
+    assert discovery_minimum_requirements(
+        {"trigger_reason": "manual_candidate_refresh"}, route
+    ) == (2, 2)

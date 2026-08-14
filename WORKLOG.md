@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Worker 的来源探测、来源抓取、Feed 刷新与显式 Job handler registry 拆到独立模块，保留现有 _run_job 和 catalog payload 兼容入口、付费 Canary 栅栏及 Feed/outbox 事务语义。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-handlers",
-  "unresolved": [],
-  "validation": [
-    "Worker、Feed、来源、ActorOps、通知、调度、订阅变更和导入边界定向回归全部通过，ResourceWarning 为 0。",
-    "worker.py 由 2305 行降至 1893 行，_run_job 由 159 行降至 49 行并移除旧债；新模块 279/238 行，最大新函数 105/93 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker 的 Actor validation 与 freshness handler 拆入独立模块，通过 ports 保留协调器和错误码兼容 seam，不改变管理员授权、专用校验 Key、费用失败记账或终态语义。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-actor-validation",
@@ -421,6 +402,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Actor candidate-quality 与 discovery 定向回归 56/56 通过。",
     "完整 Test Gate preflight 16/16 通过，含 Python 全集、前端 lint/typecheck/Vitest/build、产品文档与代码规模门禁。",
     "Discovery 主文件由 2373 行降至 2362 行，run_discovery 由 756 行降至 743 行；未增加历史单体文件。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-14",
+  "result": "修正 ActorOps 单槽新增/替换的候选发现：这类操作只在免费静态安全检查后要求一名候选，完整池仍维持多发布者门槛；X、Instagram 与 YouTube 均保留同 Route 先前已通过静态检查的固定 Build，不会被后一次空搜索清空。兼容验证计划与候选展示统一使用管理员保存的 Route 上限，最高 $0.10。",
+  "status": "completed",
+  "task_id": "2026-08-14-actorops-single-slot-candidate-flow",
+  "unresolved": [],
+  "validation": [
+    "ActorOps quality、discovery、兼容与主备池定向 Pytest 81/81 通过。",
+    "完整 Test Gate preflight 16/16 通过（全量 Python、前端 lint/typecheck/Vitest/build、代码规模与文档门禁）。",
+    "未启动付费 Actor Run；待部署后只执行一次免费 X 候选刷新验证。"
   ]
 }
 ```

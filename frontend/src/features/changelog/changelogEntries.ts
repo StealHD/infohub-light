@@ -1,4 +1,4 @@
-// Reviewed for slot workflow, manual primary, Store-quality candidates, configured Route caps during free discovery, and bound-source execution; entries remain grouped by user-visible release date.
+// Reviewed for slot workflow, manual primary, Store-quality candidates, single-slot safe-candidate retention, configured Route caps during free discovery, and bound-source execution; entries remain grouped by user-visible release date.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

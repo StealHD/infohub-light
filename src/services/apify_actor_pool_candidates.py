@@ -62,6 +62,13 @@ class ApifyActorPoolCandidatesMixin:
                 connection, route=route, run_id=str(latest["run_id"])
             )
         )
+        if not rows and goal in {"add_slot", "replace_slot"}:
+            rows = self._candidate_upgrade_rows(
+                connection,
+                route=route,
+                route_id=route_id,
+                run_id=str(latest["run_id"]),
+            )
         candidates: list[dict[str, Any]] = []
         seen_candidates: set[str] = set()
         seen_actors: set[str] = set()
