@@ -176,3 +176,9 @@ export async function installProductionWorkbenchApiMocks(page: Page, fixtures: W
   await page.exposeFunction('feedbackRetryCount', () => state.feedbackRetryRequests)
   await page.route((url) => url.pathname.startsWith('/api/'), createApiRoute(page, fixtures, state))
 }
+
+export async function suppressAutomaticWorkbenchInsights(page: Page) {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem('inteliscope.ui.insights-dismissed.v1:e2e-user', '1')
+  })
+}

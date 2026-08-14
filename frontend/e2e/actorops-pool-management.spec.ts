@@ -50,7 +50,9 @@ function actorDetail() {
 
 async function mockActorOpsPool(page: Page) {
   let removePayload: Record<string, unknown> | null = null
-  await page.route(/^http:\/\/127\.0\.0\.1:4173\/api\//, async (route) => {
+  // The release suite serves the built frontend on a different port. Route by
+  // API path so this contract mock exercises both dev and production bundles.
+  await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const detail = actorDetail()

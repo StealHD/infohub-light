@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Worker 的管理员付费 Canary batch 拆入独立 handler，保持一次性授权、串行免费预检、unknown-start 阻断、source validation、费用终结和补充 discovery 语义。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-actor-canary",
-  "unresolved": [],
-  "validation": [
-    "Canary、pool staging、compatibility、Worker、ActorOps、通知和调度扩展定向回归全部通过，ResourceWarning 为 0。",
-    "worker.py 由 1370 行降至 992 行并移除 Canary 389/298 行函数旧债；新模块 540 行，最大函数 52 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker lease heartbeat、终态/取消、retry、媒体与来源头像 savepoint/cleanup 拆入独立 lifecycle 和 media publication 模块，使 Worker façade 达到项目硬上限。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-lifecycle",
@@ -420,6 +401,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布基线 b0083d38 的 code-size policy 对比通过，四个历史文件和两个 callable 的债务上限均未增加。",
     "手动 Feed 刷新定向 Pytest 5/5、前端 typecheck、lint、VirtualFeed Vitest 36/36 与 Playwright test list 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "修复 ActorOps 发布包 E2E 的端口耦合、移动端视觉基线，并隔离 Insights 手动面板几何测试与首次自动展示之间的竞态。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.3-e2e-stability",
+  "unresolved": [],
+  "validation": [
+    "发布级 E2E 116 通过、55 按项目配置跳过；代码规模、控件与 diff 检查全部通过。",
+    "ActorOps 跨 desktop/tablet/mobile 的新增、替换、移出流程在生产构建端口上通过。"
   ]
 }
 ```

@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 
-import { installProductionWorkbenchApiMocks } from './productionWorkbenchApiMocks'
+import { installProductionWorkbenchApiMocks, suppressAutomaticWorkbenchInsights } from './productionWorkbenchApiMocks'
 
 const items = Array.from({ length: 200 }, (_, index) => ({
   id: `live-${index + 1}`,
@@ -1298,7 +1298,7 @@ test('the production theme defaults to night and persists explicit day and night
 })
 
 test('Insights shifts the reading column before overlap and only obstructing layouts softly exit', async ({ page }, testInfo) => {
-  test.setTimeout(60_000)
+  test.setTimeout(60_000); await suppressAutomaticWorkbenchInsights(page)
   test.skip(testInfo.project.name !== 'desktop', 'The floating surface geometry is exercised from the desktop project.')
   await page.goto('/feed')
   const shell = page.getByTestId('live-workbench-shell')
