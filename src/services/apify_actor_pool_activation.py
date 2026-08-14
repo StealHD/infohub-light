@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .apify_actor_pool_management import _ensure_ops_symbols

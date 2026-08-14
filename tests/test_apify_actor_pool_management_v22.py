@@ -23,6 +23,18 @@ from src.services.apify_actor_pool_management import (
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
+def test_route_price_cap_does_not_require_a_prior_pool_activation(tmp_path, monkeypatch) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    route = _route(store, "youtube/channel/items")
+    response = client.patch(
+        f"/api/admin/apify-routes/{route['route_id']}/price-cap",
+        json={"expected_generation": route["generation"], "per_run_cap_usd": 0.10},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["per_run_cap_usd"] == 0.10
+
+
 def test_slot_operations_freeze_target_and_compact_pool(tmp_path) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
