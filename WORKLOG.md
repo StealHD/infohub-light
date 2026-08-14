@@ -9,25 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 Worker lease heartbeat、终态/取消、retry、媒体与来源头像 savepoint/cleanup 拆入独立 lifecycle 和 media publication 模块，使 Worker façade 达到项目硬上限。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-lifecycle",
-  "unresolved": [],
-  "validation": [
-    "Worker、lease、Feed/outbox、Actor validation/Canary、media/avatar、Source Health、通知与调度扩展定向回归全部通过，ResourceWarning 为 0。",
-    "worker.py 由 992 行降至 676 行并移除文件旧债，run_worker_once 为 154 行；新模块 357/148 行，最大函数 68/48 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface",
     "ui"
   ],
@@ -418,6 +399,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布级 E2E 116 通过、55 按项目配置跳过；代码规模、控件与 diff 检查全部通过。",
     "ActorOps 跨 desktop/tablet/mobile 的新增、替换、移出流程在生产构建端口上通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "将 ActorOps 移动端深色发布截图更新为 Linux 实际基线，并移除 Insights 关闭动画卸载窗口中的易失 inert 读取。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.3-linux-e2e-followup",
+  "unresolved": [],
+  "validation": [
+    "GitHub Linux UI E2E 工件确认两个测试根因：深色基线过期和关闭动画竞态。",
+    "本地发布构建下 Insights 与 ActorOps visual 定向回归 3 通过、1 按桌面限定跳过。"
   ]
 }
 ```

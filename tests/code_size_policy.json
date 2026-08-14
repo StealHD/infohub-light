@@ -82,7 +82,7 @@
       {
         "path": "frontend/e2e/production-workbench.spec.ts",
         "category": "test",
-        "max_lines": 1802
+        "max_lines": 1801
       },
       {
         "path": "frontend/src/api/types.ts",

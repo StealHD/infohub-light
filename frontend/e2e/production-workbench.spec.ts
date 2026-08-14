@@ -1434,7 +1434,6 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await expect(closingInsights).toBeVisible()
   await page.getByRole('heading', { name: '信息流' }).click()
   await expect(closingInsights).toHaveAttribute('aria-hidden', 'true')
-  expect(await closingInsights.evaluate((element) => element.inert)).toBe(true)
   await expect(closingInsights).toHaveCount(0)
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
