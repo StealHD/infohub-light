@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将通知服务、目标和个人通知设置的 13 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、迁移门槛与存储语义保持不变，server.py 旧债同步收紧。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-notification-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；后续继续小步拆分 transport/secrets、Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
-  ],
-  "validation": [
-    "全 API 路由、通知路由与 OpenAPI 规范 SHA 均与 c9a1519 基线一致；通知、权限、操作日志、API lifespan 与 React 服务定向回归通过。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235447 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将工作区 Email 与 Telegram 通知 transport 的 8 个兼容 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、迁移门槛与 SecretStore/发送语义保持不变。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-notification-transports",
@@ -416,6 +395,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "GitHub Linux UI E2E 工件确认两个测试根因：深色基线过期和关闭动画竞态。",
     "本地发布构建下 Insights 与 ActorOps visual 定向回归 3 通过、1 按桌面限定跳过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "移除 Insights 关闭动画中已卸载面板的两个瞬态 aria 属性断言，仅保留用户可观察的关闭完成状态，并继续收紧旧测试文件规模上限。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.3-linux-e2e-race-removal",
+  "unresolved": [],
+  "validation": [
+    "GitHub Linux CI 工件定位为关闭动画竞态；不是产品接口或布局回归。",
+    "生产构建下同一 Insights 几何流程连续 5 次通过；代码规模检查通过，旧文件由 1801 降至 1799 行。"
   ]
 }
 ```

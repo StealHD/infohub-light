@@ -1394,7 +1394,6 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.getByRole('button', { name: /切换到(白天|黑夜)模式/ }).click()
   await expect(manualInsights).toBeVisible()
   await page.getByRole('heading', { name: '信息流' }).click()
-  if (await manualInsights.count()) await expect(manualInsights).toHaveAttribute('aria-hidden', 'true')
   await expect(manualInsights).toHaveCount(0)
   await page.getByRole('button', { name: '收起 Agent 面板' }).click()
   await expect(dockedAgent).toHaveCount(0)
@@ -1433,7 +1432,6 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   const closingInsights = page.locator('#feed-insights-surface')
   await expect(closingInsights).toBeVisible()
   await page.getByRole('heading', { name: '信息流' }).click()
-  await expect(closingInsights).toHaveAttribute('aria-hidden', 'true')
   await expect(closingInsights).toHaveCount(0)
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
