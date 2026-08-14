@@ -250,6 +250,10 @@ export const manualSections: ManualSection[] = [
         description: '正式镜像已经包含 API、Worker 与迁移需要的 Python 环境，容器启动直接使用镜像内可执行文件；标准发布会复用同一 main revision 已通过的完整门禁，在本地构建 Linux 镜像并由 VPS 直接载入，Tag 只追加隔离 smoke。切换前会备份并检查空闲任务，发现残留历史 scheduler 容器会阻断；失败自动恢复上一 API/Worker 版本，含迁移的版本会被普通流程阻断。代码结构维护只改变内部模块边界，健康、登录、登出、密码修改、来源类型、管理能力清单、来源列表、共享、订阅与 Actor 告警操作的 HTTP/OpenAPI 合同保持不变；用户订阅和来源健康 HTTP 适配独立后，通知约束、viewer 权限、停用处置、schedule 投影与用户隔离保持不变。ActorOps 的 Route/Revision/Canary 安全展示映射和只读查询适配分离后，现有字段、审批、权限、查询和付费动作也保持不变。登录、设置与 OpenClaw 对话视图按需加载，OpenClaw 后台运行和重连状态仍由常驻外壳保持；前端编译会拒绝未使用代码，Fast Refresh 合同也以零警告门禁执行。若运行日志出现解析或下载 Python 构建依赖，应停止切换并继续使用上一健康版本，而不是在 VPS 现场安装。',
       },
       {
+        title: '发布前的结构维护',
+        description: '代码规模门禁不会通过提高历史单体的上限来放行发布；需要维护时会先把独立查询、测试 fixture 或展示派生逻辑迁到专用模块。这个过程不改变页面流程、HTTP 接口、Actor 审批、费用或抓取结果。',
+      },
+      {
         title: '当前只有一套界面与数据路径',
         description: 'React 是唯一界面，FastAPI、Worker 与 Remote MCP 只读取 Service DB 和现役冷归档。旧静态站、Graph/Archive 分析、偏好反馈、本地 MCP 与日报发布已经退役；历史 data/site、horizon.db、summaries、MCP run 和 feedback 行会原样留在磁盘，不会由页面、初始化或迁移自动清理。',
       },

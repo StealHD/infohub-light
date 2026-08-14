@@ -82,7 +82,7 @@
       {
         "path": "frontend/e2e/production-workbench.spec.ts",
         "category": "test",
-        "max_lines": 2003
+        "max_lines": 1802
       },
       {
         "path": "frontend/src/api/types.ts",
@@ -92,7 +92,7 @@
       {
         "path": "frontend/src/app/App.test.tsx",
         "category": "test",
-        "max_lines": 4298
+        "max_lines": 4297
       },
       {
         "path": "frontend/src/features/admin-heroui/HeroSubscriptionsPage.tsx",
@@ -152,7 +152,7 @@
       {
         "path": "frontend/src/features/workbench-live/VirtualFeed.tsx",
         "category": "production",
-        "max_lines": 885
+        "max_lines": 870
       },
       {
         "path": "scripts/test_gate.py",
@@ -297,12 +297,12 @@
       {
         "path": "src/storage/service_store.py",
         "category": "production",
-        "max_lines": 11734
+        "max_lines": 11711
       },
       {
         "path": "tests/test_api_service.py",
         "category": "test",
-        "max_lines": 5211
+        "max_lines": 5048
       },
       {
         "path": "tests/test_apify_actor_alerts.py",
@@ -420,12 +420,6 @@
         "symbol": "test:production HeroUI workbench preserves responsive shell, virtualization and Agent handoff",
         "category": "test",
         "max_lines": 259
-      },
-      {
-        "path": "frontend/e2e/production-workbench.spec.ts",
-        "symbol": "beforeEach:callback#39",
-        "category": "test",
-        "max_lines": 208
       },
       {
         "path": "frontend/src/api/service.ts",
@@ -587,7 +581,7 @@
         "path": "frontend/src/features/workbench-live/VirtualFeed.tsx",
         "symbol": "WorkbenchCard",
         "category": "production",
-        "max_lines": 353
+        "max_lines": 337
       },
       {
         "path": "scripts/migrate_apify_actor_ops_v15.py",

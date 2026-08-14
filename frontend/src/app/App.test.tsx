@@ -12,7 +12,6 @@ import type { FeedItem, Job, WebhookProviderOption } from '../api/types'
 import { actionToast, DesignSystemProvider } from '../design-system'
 import { validateRegistryFields } from '../features/admin-heroui/sourceFormValidation'
 import { AppRoutes } from './App'
-
 const actorSupportProfiles = [
   { id: 'x/profile/items', route_key: 'x/profile', platform: 'x' as const, target_type: 'profile' as const, capability: 'items' as const, mode: 'primary' as const, label: 'X Profile' },
   { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube' as const, target_type: 'channel' as const, capability: 'items' as const, mode: 'fallback' as const, label: 'YouTube Channel' },

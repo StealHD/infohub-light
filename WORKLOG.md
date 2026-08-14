@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Worker Actor discovery 的幂等/重复刷新、AI 适配、元数据客户端和失败阶段终结拆入两个独立模块，保留现有测试入口、输出投影与错误码语义。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-worker-actor-discovery",
-  "unresolved": [],
-  "validation": [
-    "Actor discovery、Worker、ActorOps、manifest、resilience、pool staging 和 import boundary 定向回归全部通过，ResourceWarning 为 0。",
-    "worker.py 由 1705 行降至 1370 行并移除 332 行 discovery 函数旧债；新模块 420/135 行，最大函数 75/36 行。",
-    "受影响 preflight 16/16 与完整 Test Gate 18/18 通过，mapping miss 为 false，前端 typecheck、lint 和 UI contract 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Worker 的管理员付费 Canary batch 拆入独立 handler，保持一次性授权、串行免费预检、unknown-start 阻断、source validation、费用终结和补充 discovery 语义。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-worker-actor-canary",
@@ -418,6 +399,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "v2.3.3 是在既有 v2.3.2 标签后的补丁版本；本地 main 已包含 ActorOps 完整门禁通过的精确功能提交。",
     "发布脚本会执行相对 v2.3.2 的预检、等待 main Test Gate、创建 tag、等待 tag API smoke，并在 VPS 仅 docker load 后验证 API、Worker 与前端 revision。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "在 v2.3.3 发布门禁前拆分 ServiceStore 订阅查询、API 测试 fixture/手动刷新场景和 Workbench Playwright mock，并将卡片展示派生逻辑独立，恢复不可增长的代码规模债务上限。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.3-code-health-gate",
+  "unresolved": [
+    "需在推送后重跑精确 main 的 GitHub 完整 Test Gate，成功后才能创建 v2.3.3 tag 与 VPS 部署。"
+  ],
+  "validation": [
+    "发布基线 b0083d38 的 code-size policy 对比通过，四个历史文件和两个 callable 的债务上限均未增加。",
+    "手动 Feed 刷新定向 Pytest 5/5、前端 typecheck、lint、VirtualFeed Vitest 36/36 与 Playwright test list 通过。"
   ]
 }
 ```

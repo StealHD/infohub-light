@@ -26,6 +26,9 @@ from ..security import (
     url_contains_credentials,
 )
 from ..auth import hash_password, verify_password_hash
+from .service_store_subscription_queries import (
+    has_enabled_user_subscriptions as _has_enabled_user_subscriptions,
+)
 
 
 DEFAULT_WORKSPACE_ID = "default"
@@ -11206,38 +11209,12 @@ class ServiceStore:
         global_schedule_only: bool = False,
         source_scope: str = "all",
     ) -> bool:
-        if source_scope not in {"all", "private"}:
-            raise ValueError("source_scope must be 'all' or 'private'")
-        schedule_filter = (
-            "AND COALESCE(uss.enabled, 0) = 0"
-            if global_schedule_only
-            else ""
-        )
-        source_filter = (
-            "AND sc.scope = 'private' AND sc.owner_user_id = ?"
-            if source_scope == "private"
-            else ""
-        )
-        params: list[Any] = [user_id, workspace_id]
-        if source_scope == "private":
-            params.append(user_id)
-        return bool(
-            self.connect().execute(
-                f"""
-                SELECT 1
-                FROM user_subscriptions us
-                JOIN source_catalog sc ON sc.id = us.source_id
-                LEFT JOIN user_source_schedules uss ON uss.subscription_id = us.id
-                WHERE us.user_id = ?
-                  AND sc.workspace_id = ?
-                  AND us.enabled = 1
-                  AND sc.enabled = 1
-                  {schedule_filter}
-                  {source_filter}
-                LIMIT 1
-                """,
-                params,
-            ).fetchone()
+        return _has_enabled_user_subscriptions(
+            self,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            global_schedule_only=global_schedule_only,
+            source_scope=source_scope,
         )
 
     def list_user_subscriptions_with_sources(

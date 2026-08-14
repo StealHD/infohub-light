@@ -19,6 +19,7 @@ import { cardLabelForViewer, workbenchSourceLabels, type WorkbenchCardModel } fr
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
+import { workbenchMediaLabels, workbenchTimelineLabel } from './workbenchCardPresentation'
 import { useMeasuredClampOverflow } from './useMeasuredClampOverflow'
 
 type VirtualFeedProps = {
@@ -123,31 +124,15 @@ export function WorkbenchCard({
   } = useMeasuredClampOverflow(card.id, expanded, `${card.primaryText}\u0000${card.title}\u0000${card.summary ?? ''}`)
   const canExpand = measuredOverflow || card.hasDistinctDetail || card.mediaImages.length > 0
   const canToggleExpansion = canExpand || expanded
-  const imageCountLabel = card.totalImageCount > 0
-    ? card.mediaTruncated
-      ? `${card.totalImageCount} 张图片 · 可查看 ${card.displayImageCount} 张`
-      : `${card.totalImageCount} 张图片`
-    : ''
+  const { imageCountLabel, mediaPreviewActionLabel, mediaPreviewBadge } = workbenchMediaLabels(card)
   const mediaPreview = card.mediaImages[0]
-  const mediaPreviewActionLabel = card.mediaTruncated
-    ? `打开图片预览，从第 1 张开始，可查看 ${card.displayImageCount} 张，共 ${card.totalImageCount} 张`
-    : `打开图片预览，从第 1 张开始，共 ${card.displayImageCount} 张`
-  const mediaPreviewBadge = card.mediaTruncated
-    ? `可看 ${card.displayImageCount} / 共 ${card.totalImageCount}`
-    : `共 ${card.displayImageCount} 张`
   const mediaStackDepth = Math.min(Math.max(card.totalImageCount, card.displayImageCount) - 1, 2)
   const showCompactMedia = !expanded && Boolean(mediaPreview)
   const incompleteMessage = card.bodyCompleteness === 'excerpt_only' || card.bodyTruncated || card.excerptTruncated
     ? '仅获取到内容片段，打开原文查看完整内容。'
     : ''
   const detailsId = `card-details-${card.id}`
-  const timelineLabel = card.item.timeline_bucket === 'today'
-    ? '今天'
-    : card.item.timeline_bucket === 'feed'
-      ? `近${feedWindowDays ?? 7}天`
-      : card.item.timeline_bucket === 'history'
-        ? '历史'
-        : ''
+  const timelineLabel = workbenchTimelineLabel(card, feedWindowDays)
   const classificationMetadata = <>
       <span>{card.formatLabel}</span>
       {imageCountLabel && <>
