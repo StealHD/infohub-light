@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "fd67ef7",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将来源类型与 Actor 管理能力清单的 2 个只读 Catalog HTTP 适配器从 FastAPI composition root 抽到独立模块；路由顺序、OpenAPI、权限、可用性与安全投影语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-catalog-metadata-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；后续继续分片拆分 Catalog 写路径、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
-  ],
-  "validation": [
-    "全 API 路由、2 个 Catalog 路由与 OpenAPI 规范 SHA 均与 3ad639f 基线一致；Catalog、ActorOps、Key Pool、权限、操作日志、lifespan 与 import boundary 定向回归通过。",
-    "server.py 由 7259 行降至 7179 行，create_app 由 6277 行降至 6197 行；新模块 100 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235509 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "5250ae3",
   "control_topics": [
     "architecture",
@@ -404,6 +381,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "App 与来源表单 Vitest 共 123 项通过；ESLint 与 TypeScript 通过。",
     "影响范围 preflight、控制文件与代码规模检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "来源与订阅设置的提交、测试、获取和关闭操作收敛为同一底部操作行并统一紧凑高度；取消订阅改为独立确认弹窗，保留焦点回归与待处理锁定。",
+  "status": "completed",
+  "task_id": "subscription-dialog-footer-polish",
+  "unresolved": [],
+  "validation": [
+    "订阅表单与 App Vitest 共 123 项通过；最终受影响预检 12/12 通过。",
+    "前端生产构建、UI 合同、ESLint、TypeScript、代码规模与产品文档检查通过。"
   ]
 }
 ```

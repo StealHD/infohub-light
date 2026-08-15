@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type Key, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type FormEvent, type Key, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 
 import { ApiError } from '../../api/client'
 import type { CatalogField, CatalogSource, SecretRef, SourceTypeDefinition, Subscription, SubscriptionDisableDisposition, TaxonomyOptions } from '../../api/types'
@@ -26,6 +27,8 @@ import {
 import { formValuesForSource, sourceMutationPayload, sourceScopeLabel } from '../subscriptions/subscriptionModel'
 import { HeroNotice, HeroSelect } from './HeroAdminControls'
 import { validateRegistryFields } from './sourceFormValidation'
+
+const DialogFooterContext = createContext<HTMLDivElement | null>(null)
 
 function unique(values: string[]) {
   const seen = new Set<string>()
@@ -126,6 +129,8 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [registryValues, setRegistryValues] = useState<Record<string, unknown>>(() => formValuesForSource(definition, source))
   const lockedFieldNames = platformConnectionFieldNames(definition, configLocked)
+  const formId = useId()
+  const footerSlot = useContext(DialogFooterContext)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -194,7 +199,9 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     })
   }
 
-  return <form className="grid gap-4" noValidate onSubmit={submit} onInvalidCapture={captureInvalid}>
+  const submitAction = <Button type="submit" form={formId} size="sm" isDisabled={pending}>{pending ? '保存中…' : submitLabel}</Button>
+
+  return <><form id={formId} className="grid gap-4" noValidate onSubmit={submit} onInvalidCapture={captureInvalid}>
     <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
     <TextField fullWidth name="description" defaultValue={source?.description ?? ''}><Label>来源说明</Label><Input /></TextField>
     {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}
@@ -209,8 +216,29 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <Checkbox name="enabled" defaultSelected={source?.enabled ?? true} isDisabled={configLocked}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>
     {!configLocked && !platformManagedSourceTypes.has(definition.type) && <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>}
     {error && <HeroNotice title={error} />}
-    <Button type="submit" isDisabled={pending}>{pending ? '保存中…' : submitLabel}</Button>
-  </form>
+    {!footerSlot && submitAction}
+  </form>{footerSlot && createPortal(submitAction, footerSlot)}</>
+}
+
+function SubscriptionUnsubscribeConfirmation({ formId, isOpen, pending, onClose }: {
+  formId: string
+  isOpen: boolean
+  pending: boolean
+  onClose: () => void
+}) {
+  return <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开取消订阅确认</Modal.Trigger>
+    <Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}>
+      <Modal.Container size="sm"><Modal.Dialog>
+        <Modal.Header><Modal.Heading>确认取消这个订阅？</Modal.Heading></Modal.Header>
+        <Modal.Body><p className="type-body text-muted">这只影响你的订阅，不会删除共享来源或其他成员的数据。</p></Modal.Body>
+        <Modal.Footer>
+          <Button type="button" size="sm" variant="ghost" isDisabled={pending} onPress={onClose}>保留订阅</Button>
+          <Button type="submit" form={formId} size="sm" name="intent" value="unsubscribe" variant="danger" isDisabled={pending}>确认取消订阅</Button>
+        </Modal.Footer>
+      </Modal.Dialog></Modal.Container>
+    </Modal.Backdrop>
+  </Modal>
 }
 
 export function SubscriptionForm({ subscription, source, readonly, taxonomy, onDone, onJob, onPendingChange }: {
@@ -235,6 +263,9 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
   const [enabled, setEnabled] = useState(subscription.enabled)
   const [disableDisposition, setDisableDisposition] = useState<SubscriptionDisableDisposition>('dismiss')
   const [confirmUnsubscribe, setConfirmUnsubscribe] = useState(false)
+  const formId = useId()
+  const footerSlot = useContext(DialogFooterContext)
+  const unsubscribeTriggerRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     onPendingChange?.(pending)
@@ -285,7 +316,20 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
     finally { setPending(false) }
   }
 
-  return <form className="grid gap-4" onSubmit={submit}>
+  function closeUnsubscribeConfirmation() {
+    if (pending) return
+    setConfirmUnsubscribe(false)
+    window.requestAnimationFrame(() => unsubscribeTriggerRef.current?.focus())
+  }
+
+  const subscriptionActions = <>
+    <Button ref={unsubscribeTriggerRef} type="button" size="sm" variant="ghost" className="mr-auto text-danger" isDisabled={pending} onPress={() => setConfirmUnsubscribe(true)}>取消订阅…</Button>
+    <Button type="submit" form={formId} name="intent" value="test" variant="ghost" size="sm" isDisabled={pending}>仅测试连接</Button>
+    <Button type="submit" form={formId} name="intent" value="save" size="sm" isDisabled={pending}>保存</Button>
+    <Button type="submit" form={formId} name="intent" value="fetch" variant="secondary" size="sm" isDisabled={pending}>保存并获取</Button>
+  </>
+
+  return <><form id={formId} className="grid gap-4" onSubmit={submit}>
     <Fieldset disabled={readonly || pending} className="grid gap-4">
       <Fieldset.Legend>订阅配置</Fieldset.Legend>
       <HeroSelect name="override_channel" label="个人频道" value={channel} onChange={setChannel} options={[{ id: '', label: '继承来源默认频道' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
@@ -339,25 +383,9 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       />}
     </Fieldset>
     {error && <HeroNotice title={error} />}
-    {!readonly && <>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" name="intent" value="save" isDisabled={pending}>保存</Button>
-        <Button type="submit" name="intent" value="fetch" variant="secondary" isDisabled={pending}>保存并获取</Button>
-        <Button type="submit" name="intent" value="test" variant="ghost" size="sm" isDisabled={pending}>仅测试连接</Button>
-      </div>
-      <div className="border-t border-separator pt-3">
-        {confirmUnsubscribe
-          ? <HeroNotice title="确认取消这个订阅？" status="warning">
-            <p className="mb-2">这只影响你的订阅，不会删除共享来源或其他成员的数据。</p>
-            <span className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant="ghost" isDisabled={pending} onPress={() => setConfirmUnsubscribe(false)}>保留订阅</Button>
-              <Button type="submit" size="sm" name="intent" value="unsubscribe" variant="danger" isDisabled={pending}>确认取消订阅</Button>
-            </span>
-          </HeroNotice>
-          : <Button type="button" size="sm" variant="ghost" className="text-danger" isDisabled={pending} onPress={() => setConfirmUnsubscribe(true)}>取消订阅…</Button>}
-      </div>
-    </>}
-  </form>
+    {!readonly && !footerSlot && <div className="flex flex-wrap items-center gap-2">{subscriptionActions}</div>}
+  </form>{!readonly && footerSlot && createPortal(subscriptionActions, footerSlot)}
+  <SubscriptionUnsubscribeConfirmation formId={formId} isOpen={confirmUnsubscribe} pending={pending} onClose={closeUnsubscribeConfirmation} /></>
 }
 
 export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, children, locked = false }: {
@@ -371,6 +399,7 @@ export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, childr
   const wasOpen = useRef(isOpen)
   const pendingReturnFocus = useRef<HTMLElement | null>(null)
   const fallbackTimer = useRef<number | null>(null)
+  const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null)
   const finishReturnFocus = useCallback(() => {
     if (fallbackTimer.current !== null) {
       window.clearTimeout(fallbackTimer.current)
@@ -417,7 +446,7 @@ export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, childr
     return () => window.removeEventListener('keydown', closeOnEscape, true)
   }, [isOpen, locked, onOpenChange])
 
-  return <Modal isOpen={isOpen} onOpenChange={(open) => {
+  return <DialogFooterContext.Provider value={footerSlot}><Modal isOpen={isOpen} onOpenChange={(open) => {
     if (!open && locked) return
     onOpenChange(open)
   }}>
@@ -425,7 +454,7 @@ export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, childr
     <Modal.Backdrop isDismissable={!locked} onAnimationEnd={(event) => {
       if (event.target === event.currentTarget && event.currentTarget.dataset.exiting === 'true') finishReturnFocus()
     }}>
-      <Modal.Container size="lg" scroll="inside"><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body>{children}</Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={locked} onPress={() => onOpenChange(false)}>{locked ? '正在保存…' : '关闭'}</Button></Modal.Footer></Modal.Dialog></Modal.Container>
+      <Modal.Container size="lg" scroll="inside"><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body>{children}</Modal.Body><Modal.Footer className="flex flex-wrap items-center gap-2"><div ref={setFooterSlot} className="flex min-w-0 flex-1 flex-wrap items-center gap-2" /><Button size="sm" variant="ghost" isDisabled={locked} onPress={() => onOpenChange(false)}>{locked ? '正在保存…' : '关闭'}</Button></Modal.Footer></Modal.Dialog></Modal.Container>
     </Modal.Backdrop>
-  </Modal>
+  </Modal></DialogFooterContext.Provider>
 }

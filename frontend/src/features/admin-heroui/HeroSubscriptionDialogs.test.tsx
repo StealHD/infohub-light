@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -421,9 +421,14 @@ describe('SubscriptionForm notification ownership', () => {
     const api = renderSubscriptionForm(subscription)
 
     await browser.click(screen.getByRole('button', { name: '取消订阅…' }))
-    expect(screen.getByText('确认取消这个订阅？')).toBeInTheDocument()
+    const confirmation = await screen.findByRole('dialog', { name: '确认取消这个订阅？' })
+    expect(within(confirmation).getByText('这只影响你的订阅，不会删除共享来源或其他成员的数据。')).toBeInTheDocument()
     expect(api.unsubscribe).not.toHaveBeenCalled()
-    await browser.click(screen.getByRole('button', { name: '确认取消订阅' }))
+    await browser.click(within(confirmation).getByRole('button', { name: '保留订阅' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '取消订阅…' })).toHaveFocus())
+    await browser.click(screen.getByRole('button', { name: '取消订阅…' }))
+    const secondConfirmation = await screen.findByRole('dialog', { name: '确认取消这个订阅？' })
+    await browser.click(within(secondConfirmation).getByRole('button', { name: '确认取消订阅' }))
     await waitFor(() => expect(api.unsubscribe).toHaveBeenCalledWith(subscription.id))
   })
 
