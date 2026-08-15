@@ -202,117 +202,67 @@ echo "==> Recreating running services from freshly built images"
 base_url="http://127.0.0.1:${web_port}"
 live_url="http://127.0.0.1:${web_port}/api/health/live"
 ready_url="http://127.0.0.1:${web_port}/api/health/ready"
-echo "==> Waiting for API liveness and readiness"
-for attempt in $(seq 1 90); do
+echo "==> Waiting for target runtime health"
+health_python="${INTELISCOPE_HEALTH_PYTHON:-python3}"
+if [[ -x "$SOURCE_ROOT/.venv/bin/python" ]]; then
+  health_python="$SOURCE_ROOT/.venv/bin/python"
+fi
+set +e
+health_output="$(
+  "$health_python" "$SOURCE_ROOT/scripts/runtime_health.py" \
+    --base-url "$base_url" \
+    --expected-version "$INTELISCOPE_VERSION" \
+    --expected-revision "$INTELISCOPE_BUILD_REVISION" \
+    --api-container "$API_CONTAINER" \
+    --worker-container "$WORKER_CONTAINER" \
+    --timeout "${INTELISCOPE_HEALTH_TIMEOUT_SECONDS:-180}" \
+    --interval "${INTELISCOPE_HEALTH_INTERVAL_SECONDS:-2}" 2>&1
+)"
+health_status=$?
+set -e
+if [[ "$health_status" -eq 3 ]]; then
   live_payload="$(curl -fsS --max-time 3 "$live_url" 2>/dev/null || true)"
   ready_payload="$(curl -sS --max-time 3 "$ready_url" 2>/dev/null || true)"
-  if [[ "$ready_payload" == *'"migration_required"'* ]]; then
-    if [[ "$live_payload" != *"\"revision\":\"$INTELISCOPE_BUILD_REVISION\""* ]]; then
-      fail "migration response did not come from the target revision; refusing to stop services"
-    fi
-    if ! "${COMPOSE[@]}" stop "${SERVICES[@]}" >/dev/null 2>&1; then
-      echo "Database migration is required, but API and Worker could not be stopped." >&2
-      echo "Do not run a migration until both containers are confirmed stopped." >&2
-      exit 1
-    fi
-    api_running="$(
-      docker inspect --format '{{.State.Running}}' "$API_CONTAINER" 2>/dev/null || true
-    )"
-    worker_running="$(
-      docker inspect --format '{{.State.Running}}' "$WORKER_CONTAINER" 2>/dev/null || true
-    )"
-    if [[ "$api_running" != "false" || "$worker_running" != "false" ]]; then
-      echo "Database migration is required, but stopped-container verification failed." >&2
-      echo "Do not run a migration until both containers report State.Running=false." >&2
-      exit 1
-    fi
-    migration_script=""
-    if [[ "$ready_payload" == *"Apify Actor pool management v22"* ]]; then
-      migration_script="scripts/migrate_apify_actor_pool_management_v22.py"
-    elif [[ "$ready_payload" == *"Apify Actor Canary batch"* ]]; then
-      migration_script="scripts/migrate_apify_actor_canary_batches_v17.py"
-    elif [[ "$ready_payload" == *"Apify Discovery limits v16"* ]]; then
-      migration_script="scripts/migrate_apify_discovery_limits_v16.py"
-    elif [[ "$ready_payload" == *"Apify ActorOps v15"* ]]; then
-      migration_script="scripts/migrate_apify_actor_ops_v15.py"
-    elif [[ "$ready_payload" == *"notification targets v16"* ]]; then
-      migration_script="scripts/migrate_notification_targets_v16.py"
-    elif [[ "$ready_payload" == *"notification channels v15"* ]]; then
-      migration_script="scripts/migrate_notification_channels_v15.py"
-    elif [[ "$ready_payload" == *"Webhook providers v14"* ]]; then
-      migration_script="scripts/migrate_webhook_providers_v14.py"
-    elif [[ "$ready_payload" == *"Apify Actor routing v13"* ]]; then
-      migration_script="scripts/migrate_apify_actor_routing_v13.py"
-    elif [[ "$ready_payload" == *"content timeline v11"* ]]; then
-      migration_script="scripts/migrate_content_timeline_v11.py"
-    elif [[ "$ready_payload" == *"user content v4"* ]]; then
-      migration_script="scripts/migrate_user_content_v4.py"
-    elif [[ "$ready_payload" == *"user feed v2"* ]]; then
-      migration_script="scripts/migrate_user_feed_v2.py"
-    fi
-    echo "Database migration is required; API and Worker are confirmed stopped." >&2
-    if [[ -n "$migration_script" ]]; then
-      migration_python="python3"
-      if [[ -x "$RUNTIME_ROOT/.venv/bin/python" ]]; then
-        migration_python="$RUNTIME_ROOT/.venv/bin/python"
-      fi
-      printf 'Review the backup impact, then run:\n    cd %q && %q %q --data-dir %q --backup-dir %q --apply\n' \
-        "$SOURCE_ROOT" \
-        "$migration_python" \
-        "$migration_script" \
-        "$RUNTIME_DATA_DIR" \
-        "$RUNTIME_DATA_DIR/backups" >&2
-    else
-      echo "Inspect $ready_url for the required explicit migration action." >&2
-    fi
-    exit 1
+  [[ "$live_payload" == *"\"revision\":\"$INTELISCOPE_BUILD_REVISION\""* ]] \
+    || fail "migration response did not come from the target revision; refusing to stop services"
+  if ! "${COMPOSE[@]}" stop "${SERVICES[@]}" >/dev/null 2>&1; then
+    fail "database migration is required, but API and Worker could not be stopped"
   fi
-  if [[
-    "$live_payload" == *"\"revision\":\"$INTELISCOPE_BUILD_REVISION\""*
-    && "$ready_payload" == *'"status":"ready"'*
-    && "$ready_payload" == *'"worker_status":"ready"'*
-  ]]; then
-    break
+  api_running="$(docker inspect --format '{{.State.Running}}' "$API_CONTAINER" 2>/dev/null || true)"
+  worker_running="$(docker inspect --format '{{.State.Running}}' "$WORKER_CONTAINER" 2>/dev/null || true)"
+  [[ "$api_running" == "false" && "$worker_running" == "false" ]] \
+    || fail "database migration is required, but stopped-container verification failed"
+  migration_script=""
+  case "$ready_payload" in
+    *"Apify Actor pool management v22"*) migration_script="scripts/migrate_apify_actor_pool_management_v22.py" ;;
+    *"Apify Actor Canary batch"*) migration_script="scripts/migrate_apify_actor_canary_batches_v17.py" ;;
+    *"Apify Discovery limits v16"*) migration_script="scripts/migrate_apify_discovery_limits_v16.py" ;;
+    *"Apify ActorOps v15"*) migration_script="scripts/migrate_apify_actor_ops_v15.py" ;;
+    *"notification targets v16"*) migration_script="scripts/migrate_notification_targets_v16.py" ;;
+    *"notification channels v15"*) migration_script="scripts/migrate_notification_channels_v15.py" ;;
+    *"Webhook providers v14"*) migration_script="scripts/migrate_webhook_providers_v14.py" ;;
+    *"Apify Actor routing v13"*) migration_script="scripts/migrate_apify_actor_routing_v13.py" ;;
+    *"content timeline v11"*) migration_script="scripts/migrate_content_timeline_v11.py" ;;
+    *"user content v4"*) migration_script="scripts/migrate_user_content_v4.py" ;;
+    *"user feed v2"*) migration_script="scripts/migrate_user_feed_v2.py" ;;
+  esac
+  echo "Database migration is required; API and Worker are confirmed stopped." >&2
+  if [[ -n "$migration_script" ]]; then
+    migration_python="python3"
+    [[ -x "$RUNTIME_ROOT/.venv/bin/python" ]] && migration_python="$RUNTIME_ROOT/.venv/bin/python"
+    printf 'Review the backup impact, then run:\n    cd %q && %q %q --data-dir %q --backup-dir %q --apply\n' \
+      "$SOURCE_ROOT" "$migration_python" "$migration_script" \
+      "$RUNTIME_DATA_DIR" "$RUNTIME_DATA_DIR/backups" >&2
+  else
+    echo "Inspect $ready_url for the required explicit migration action." >&2
   fi
-  if [[ "$attempt" -eq 90 ]]; then
-    echo "API failed release identity/readiness verification" >&2
-    "${COMPOSE[@]}" logs --tail=200 "${SERVICES[@]}" >&2 || true
-    exit 1
-  fi
-  sleep 2
-done
-echo "    live revision: $INTELISCOPE_BUILD_REVISION"
-echo "    readiness: API and Worker ready"
-
-echo "==> Waiting for container health"
-for attempt in $(seq 1 90); do
-  api_health="$(docker inspect --format '{{.State.Health.Status}}' "$API_CONTAINER" 2>/dev/null || true)"
-  worker_health="$(docker inspect --format '{{.State.Health.Status}}' "$WORKER_CONTAINER" 2>/dev/null || true)"
-  if [[ "$api_health" == "healthy" && "$worker_health" == "healthy" ]]; then
-    break
-  fi
-  if [[ "$api_health" == "unhealthy" || "$worker_health" == "unhealthy" || "$attempt" -eq 90 ]]; then
-    echo "API/Worker containers failed health verification" >&2
-    "${COMPOSE[@]}" logs --tail=200 "${SERVICES[@]}" >&2 || true
-    exit 1
-  fi
-  sleep 1
-done
-echo "    containers: API healthy, Worker healthy"
-
-echo "==> Verifying the served frontend asset"
-root_html="$(curl -fsS --max-time 5 "$base_url/" 2>/dev/null || true)"
-asset_path="$(
-  printf '%s' "$root_html" \
-    | grep -oE '/assets/[^"[:space:]]+\.js' \
-    | head -n 1 \
-    || true
-)"
-[[ -n "$asset_path" ]] || fail "React frontend asset was not found in the served page"
-curl -fsS --max-time 10 "$base_url$asset_path" >/dev/null \
-  || fail "served frontend asset failed to load: $asset_path"
-echo "    served frontend asset: ${asset_path##*/}"
-
+  exit 1
+elif [[ "$health_status" -ne 0 ]]; then
+  echo "$health_output" >&2
+  "${COMPOSE[@]}" logs --tail=200 "${SERVICES[@]}" >&2 || true
+  fail "API/Worker runtime health verification failed"
+fi
+echo "    $health_output"
 if [[ "$(read_setting HORIZON_PRUNE_OLD_IMAGES true)" == "true" ]]; then
   echo "==> Removing old dangling images for this Compose project"
   docker image prune -f --filter "label=com.docker.compose.project=$PRUNE_PROJECT" >/dev/null || true

@@ -8,7 +8,7 @@
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps schema v17–v23、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。
 
-本任务代码基线为 `32fc41e`（发布流程优化）；最近记录的生产基线为 `8ef4c6bf6491` / `v2.2.13`，任何运行操作前必须以实际 API、Worker 和容器 revision 重新核对。
+当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
 ## 迁移与发布矩阵
 
@@ -26,7 +26,7 @@
 2. 只对免费公共来源启用 shared acquisition，观察自然周期和用户隔离。
 3. 经独立授权后再做 Key pool、Actor/AI 或真实通知的有界 canary。
 4. 维持 Feed/History、用户隔离、通知 outbox、存储预演/恢复和三视口 UI 回归。
-5. 后续十个独立 CI 提交记录 preflight 提前拦截数、full/CI/release 失败根因和 mapping miss；验收要求已知问题进入 full/release 为 0、同一根因重复为 0、VPS 上传前代码类失败为 0。观察期结束前完成门禁仍使用 full。
+5. 开发切片只运行直接受影响测试；任务末运行一次 impacted preflight，PR 的 Linux UI 只跑映射 spec，最终 main SHA 运行一次权威完整 Gate。已知问题进入 full/release、同根因重复和 VPS 上传前代码类失败均须为 0。
 
 ## 范围与非目标
 
@@ -36,10 +36,10 @@
 
 ## 验证门禁
 
-1. 每个任务按 `snapshot → 主动审查任务 diff → 修复已知问题 → preflight → 完整门禁` 推进；失败先定向修复和复验，禁止把 full/CI/部署当成首次发现明显问题的步骤。
-2. `preflight` 接受 snapshot、staged 或 base/head 范围，运行产品文档、控制、语法和受影响测试；未知可执行改动 fail closed 到无 Docker/Playwright 的全量代码检查。
-3. 任务完成、合并前和十提交观察期仍使用 `python scripts/test_gate.py run --mode full`；preflight/targeted 只负责快速反馈，不降低完成标准。
-4. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。VPS 只 `docker load`，不得构建本仓库。
+1. 每个任务按 `snapshot → 定向测试 → 主动审查 diff → 一次 impacted preflight` 推进；冻结单体相对 snapshot `base_sha` 不得净增长，缩小不修改策略文件。
+2. `preflight` 接受 snapshot、staged 或 base/head 范围；未知可执行改动 fail closed 到无 Docker/Playwright 的全量代码检查。新文件/函数遵守 `tests/code_size_policy.json` 的唯一硬上限；目标行数、复杂度和嵌套只报告。
+3. PR 的 UI 门禁按 ActorOps、Workbench、视觉归属选择 Playwright spec；应用外壳、设计系统、全局路由与未知 UI 才跑全套。最终 main SHA 运行一次权威完整 Gate；完整失败后先复验失败 spec，修复后最多再完整运行一次。
+4. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。VPS 只 `docker load`，不得构建本仓库。共享健康检查等待 API/Worker、双容器 healthy、前端与公网 revision；`starting` 不触发回滚。
 5. 控制面变更必须运行 Markdown 控制检查、schema-v3 validator、worklog validator、JSON 校验和 `git diff --check`。
 
 ## 历史入口

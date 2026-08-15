@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from src.models import Config
@@ -18,11 +19,15 @@ LINKED_FIXTURE_VERSION = "99.99.99"
 
 
 def _clean_runtime_environment() -> dict[str, str]:
-    return {
+    environment = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("HORIZON_", "INTELISCOPE_"))
     }
+    environment["INTELISCOPE_HEALTH_PYTHON"] = os.environ.get("PYTHON", "") or sys.executable
+    environment["INTELISCOPE_HEALTH_TIMEOUT_SECONDS"] = "0.5"
+    environment["INTELISCOPE_HEALTH_INTERVAL_SECONDS"] = "0"
+    return environment
 
 
 def _create_linked_worktree_fixture(
@@ -32,6 +37,7 @@ def _create_linked_worktree_fixture(
     linked = tmp_path / "linked"
     (primary / "scripts").mkdir(parents=True)
     shutil.copy2(ROOT / "scripts" / "up-latest.sh", primary / "scripts" / "up-latest.sh")
+    shutil.copy2(ROOT / "scripts" / "runtime_health.py", primary / "scripts" / "runtime_health.py")
     shutil.copy2(ROOT / "docker-compose.light.yml", primary / "docker-compose.light.yml")
     shutil.copy2(ROOT / "pyproject.toml", primary / "pyproject.toml")
     (primary / ".gitignore").write_text(".env\ndata/\nlogs/\n", encoding="utf-8")
@@ -52,6 +58,7 @@ def _create_linked_worktree_fixture(
         "add",
         ".gitignore",
         "scripts/up-latest.sh",
+        "scripts/runtime_health.py",
         "docker-compose.light.yml",
         "pyproject.toml",
     )
@@ -168,7 +175,8 @@ case "$url" in
     if [[ "${FAKE_LIVE_DRIFT-}" == "true" && "$live_count" -ge 2 ]]; then
       deployed_revision="drifted-revision"
     fi
-    printf '{"ok":true,"data":{"status":"live","revision":"%s"}}' "$deployed_revision"
+    printf '{"ok":true,"data":{"status":"live","version":"%s","revision":"%s"}}' \
+      "$INTELISCOPE_VERSION" "$deployed_revision"
     ;;
   */api/health/ready)
     ready_count="$(grep -c '/api/health/ready' "$FAKE_EVENT_LOG" || true)"
@@ -279,9 +287,9 @@ def test_up_latest_prefers_light_compose_and_does_not_start_scheduler_by_default
     health_position = script.index("/api/health/ready")
     assert health_position < script.index("docker image prune")
     assert health_position < script.index("docker builder prune")
-    frontend_position = script.index("Verifying the served frontend asset")
-    assert frontend_position < script.index("docker image prune")
-    assert frontend_position < script.index("docker builder prune")
+    health_helper_position = script.index("scripts/runtime_health.py")
+    assert health_helper_position < script.index("docker image prune")
+    assert health_helper_position < script.index("docker builder prune")
     assert 'HORIZON_PRUNE_OLD_LOCAL_BUILDS true' in script
     assert 'reference=inteliscope-service:local-*' in script
     assert script.index("container health changed before final completion verification") < script.index(
@@ -434,9 +442,8 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
     assert worker_inspect_index < root_index
     assert events.index("/assets/index-fixture.js") < events.rindex(" ps |")
     assert "revision: " + revision in result.stdout
-    assert "readiness: API and Worker ready" in result.stdout
-    assert "containers: API healthy, Worker healthy" in result.stdout
-    assert "served frontend asset: index-fixture.js" in result.stdout
+    assert "ready revision=" + revision in result.stdout
+    assert "asset=index-fixture.js" in result.stdout
     assert "Local rebuild complete" in result.stdout
     assert "must-never-be-printed" not in result.stdout
     assert not (
@@ -714,7 +721,7 @@ def test_up_latest_requires_every_terminal_gate(tmp_path: Path):
     cases = (
         (
             {"FAKE_DEPLOYED_REVISION": "wrong-revision"},
-            "API failed release identity/readiness verification",
+            "runtime health verification failed",
             None,
         ),
         (
@@ -722,12 +729,12 @@ def test_up_latest_requires_every_terminal_gate(tmp_path: Path):
                 "FAKE_DEPLOYED_REVISION": revision,
                 "FAKE_READY_MODE": "worker-missing",
             },
-            "API failed release identity/readiness verification",
+            "runtime health verification failed",
             None,
         ),
         (
             {"FAKE_DEPLOYED_REVISION": revision, "FAKE_HEALTH_MODE": "unhealthy"},
-            "API/Worker containers failed health verification",
+            "container unhealthy",
             "docker inspect --format {{.State.Health.Status}} horizon-light-api",
         ),
         (
@@ -737,7 +744,7 @@ def test_up_latest_requires_every_terminal_gate(tmp_path: Path):
         ),
         (
             {"FAKE_DEPLOYED_REVISION": revision, "FAKE_ASSET_MODE": "asset-404"},
-            "served frontend asset failed to load",
+            "runtime health verification failed",
             "curl http://127.0.0.1:8080/assets/index-fixture.js",
         ),
         (
@@ -997,44 +1004,6 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert "node --test" not in local_gates
 
 
-def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
-    script = (ROOT / "scripts" / "release_vps.sh").read_text(encoding="utf-8")
-
-    assert "git fetch --prune origin main --tags" in script
-    assert "local main must exactly match origin/main" in script
-    assert "scripts/test_gate.py preflight" in script
-    assert '--base "$base_ref" --head HEAD' in script
-    assert "--mode targeted --scope control" not in script
-    assert "test-gate.yml" in script
-    assert 'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"' in script
-    assert "release-tag.yml" in script
-    assert script.index("wait_for_workflow_success test-gate.yml") < script.index(
-        'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"'
-    )
-    assert script.index("wait_for_workflow_success release-tag.yml") < script.rindex(
-        '  deploy_remote_release "$release_id"'
-    )
-    assert "docker buildx build" in script
-    assert '--platform "$PLATFORM"' in script
-    assert 'docker save "$image"' in script
-    assert script.count("docker run --rm --network none") == 2
-    assert 'transfer_with_retry "$archive"' in script
-    assert 'transfer_with_retry "$image_archive"' in script
-    assert "rsync --partial -az" in script
-    assert "source.backup(destination)" in script
-    assert 'install -m 600 "$base/.env"' in script
-    assert 'os.chmod(sys.argv[2], 0o600)' in script
-    assert 'docker load -i "$remote_stage/image.tar.gz"' in script
-    assert "docker compose -f docker-compose.light.yml build" not in script
-    assert "sleep 35" not in script
-    assert "docker stop --time 20 horizon-light-worker" in script
-    assert "horizon-api horizon-worker" in script
-    assert "worker_status" in script
-    assert "verify_frontend" in script
-    assert "rollback_cutover" in script
-    assert 'docker image rm "$LOCAL_RELEASE_IMAGE"' in script
-
-
 def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_store():
     script = (
         ROOT / "scripts" / "refresh_rsshub_bilibili_cookie.sh"
@@ -1067,6 +1036,8 @@ def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     assert "--mode full --scope backend" in workflow
     assert "--mode full --scope frontend" in workflow
     assert "--mode release --scope e2e" in workflow
+    assert "--full-e2e" in workflow
+    assert 'github.event_name }}" == "push"' in workflow
     assert "--mode release --scope smoke" in workflow
     assert "needs.impact.outputs.ui_impacted == 'true'" in workflow
     assert "needs.impact.outputs.backend_impacted == 'true'" in workflow

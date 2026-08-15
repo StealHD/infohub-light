@@ -276,42 +276,59 @@ set_env() {
   fi
 }
 
-wait_until_ready() {
-  local attempt live_payload ready_payload
-  for attempt in $(seq 1 60); do
-    live_payload="$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/health/live 2>/dev/null || true)"
-    ready_payload="$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/health/ready 2>/dev/null || true)"
-    if [[ "$live_payload" == *"\"version\":\"$version\""* \
-      && "$live_payload" == *"\"revision\":\"$revision\""* \
-      && "$ready_payload" == *'"worker_status":"ready"'* ]]; then
-      return 0
-    fi
-    sleep 2
-  done
-  docker compose -f "$release_dir/docker-compose.light.yml" logs horizon-api horizon-worker || true
-  return 1
-}
-
-verify_frontend() {
-  local asset_path
-  asset_path="$(
-    curl -fsS --max-time 10 http://127.0.0.1:8080/ \
-      | grep -oE '/assets/[^"[:space:]]+\.js' \
-      | sed -n '1p'
-  )"
-  [[ -n "$asset_path" ]]
-  curl -fsS --max-time 10 "http://127.0.0.1:8080$asset_path" >/dev/null
+wait_runtime() {
+  local target_release="$1" target_public_url="$2"
+  local target_version target_revision public_args=()
+  target_version="$(grep '^INTELISCOPE_VERSION=' "$target_release/release-metadata.env" | cut -d= -f2-)"
+  target_revision="$(grep '^INTELISCOPE_BUILD_REVISION=' "$target_release/release-metadata.env" | cut -d= -f2-)"
+  [[ -n "$target_version" && -n "$target_revision" ]]
+  if [[ -n "$target_public_url" ]]; then
+    public_args=(--public-url "$target_public_url")
+  fi
+  python3 "$release_dir/scripts/runtime_health.py" \
+    --base-url http://127.0.0.1:8080 \
+    --expected-version "$target_version" \
+    --expected-revision "$target_revision" \
+    --api-container horizon-light-api \
+    --worker-container horizon-light-worker \
+    "${public_args[@]}" \
+    --timeout 180 \
+    --interval 2
 }
 
 rollback_cutover() {
-  local status=$?
+  local status=$? migration_backup=""
   trap - ERR INT TERM
   echo "cutover failed; restoring $previous_release" >&2
-  install -m 600 "$backup_dir/env.before" "$base/.env" || true
+  install -m 600 "$backup_dir/env.before" "$base/.env" || {
+    echo "rollback failed; canonical environment could not be restored" >&2
+    exit 1
+  }
+  migration_backup="$(
+    grep '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$backup_dir/env.before" \
+      | tail -n 1 | cut -d= -f2- || true
+  )"
+  docker stop --time 20 horizon-light-worker horizon-light-api >/dev/null 2>&1 || true
+  if [[ -n "$migration_backup" ]]; then
+    [[ "$migration_backup" == "$base/data/backups/"* \
+      && -f "$migration_backup" && ! -L "$migration_backup" \
+      && "$(stat -c '%a' "$migration_backup")" == "600" ]] || {
+      echo "rollback database backup is invalid: $migration_backup" >&2
+      exit 1
+    }
+    install -m 600 "$migration_backup" "$base/data/service.db"
+    validate_database
+  fi
   cd "$previous_release"
-  docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
-    horizon-api horizon-worker || true
-  ln -sfn "$previous_release" "$base/current"
+  if ! docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
+    horizon-api horizon-worker \
+    || ! wait_runtime "$previous_release" "$public_url"; then
+    docker compose -f docker-compose.light.yml logs horizon-api horizon-worker || true
+    echo "rollback failed; previous runtime is not healthy" >&2
+    exit 1
+  fi
+  ln -sfn "$previous_release" "$base/current" || exit 1
+  echo "rollback restored healthy runtime: $previous_release" >&2
   exit "$status"
 }
 
@@ -380,14 +397,8 @@ chmod 600 "$base/.env"
 cd "$release_dir"
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
   horizon-api horizon-worker
-wait_until_ready
-[[ "$(docker inspect horizon-light-api --format '{{.State.Health.Status}}')" == healthy ]]
-[[ "$(docker inspect horizon-light-worker --format '{{.State.Health.Status}}')" == healthy ]]
-verify_frontend
+wait_runtime "$release_dir" "$public_url"
 validate_database
-if [[ -n "$public_url" ]]; then
-  curl -fsS --max-time 15 "$public_url/api/health/live" | grep -Fq "\"revision\":\"$revision\""
-fi
 ln -sfn "$release_dir" "$base/current"
 rm -rf "$remote_stage"
 trap - ERR INT TERM
@@ -431,10 +442,11 @@ release() {
 
 rollback_release() {
   local requested_release="${1:-}"
-  ssh "$REMOTE_HOST" bash -s -- "$REMOTE_BASE" "$requested_release" <<'REMOTE'
+  ssh "$REMOTE_HOST" bash -s -- "$REMOTE_BASE" "$requested_release" "$PUBLIC_URL" <<'REMOTE'
 set -euo pipefail
 base="$1"
 requested_release="$2"
+public_url="$3"
 current_release="$(readlink -f "$base/current")"
 if [[ -z "$requested_release" ]]; then
   requested_release="$(basename "$(<"$current_release/previous_release")")"
@@ -457,22 +469,49 @@ for key in INTELISCOPE_IMAGE INTELISCOPE_VERSION INTELISCOPE_BUILD_REVISION INTE
   [[ -n "$value" ]]
   set_env "$key" "$value"
 done
+migration_backup="$(
+  grep '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$base/.env" \
+    | tail -n 1 | cut -d= -f2- || true
+)"
+docker stop --time 20 horizon-light-worker horizon-light-api >/dev/null 2>&1 || true
+if [[ -n "$migration_backup" ]]; then
+  [[ "$migration_backup" == "$base/data/backups/"* \
+    && -f "$migration_backup" && ! -L "$migration_backup" \
+    && "$(stat -c '%a' "$migration_backup")" == "600" ]] \
+    || { echo "rollback database backup is invalid" >&2; exit 1; }
+  install -m 600 "$migration_backup" "$base/data/service.db"
+  python3 - "$base/data/service.db" <<'PY'
+import sqlite3
+import sys
+
+connection = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+try:
+    assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert not connection.execute("PRAGMA foreign_key_check").fetchall()
+finally:
+    connection.close()
+PY
+fi
 cd "$target"
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
   horizon-api horizon-worker
+health_script="$current_release/scripts/runtime_health.py"
+[[ -f "$health_script" ]] || { echo "shared runtime health checker is unavailable" >&2; exit 1; }
 revision="$(grep '^INTELISCOPE_BUILD_REVISION=' "$target/release-metadata.env" | cut -d= -f2-)"
-for attempt in $(seq 1 60); do
-  live="$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/health/live 2>/dev/null || true)"
-  ready="$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/health/ready 2>/dev/null || true)"
-  if [[ "$live" == *"\"revision\":\"$revision\""* \
-    && "$ready" == *'"worker_status":"ready"'* ]]; then
-    ln -sfn "$target" "$base/current"
-    echo "rolled back to $requested_release"
-    exit 0
-  fi
-  sleep 2
-done
-exit 1
+version="$(grep '^INTELISCOPE_VERSION=' "$target/release-metadata.env" | cut -d= -f2-)"
+public_args=()
+[[ -n "$public_url" ]] && public_args=(--public-url "$public_url")
+python3 "$health_script" \
+  --base-url http://127.0.0.1:8080 \
+  --expected-version "$version" \
+  --expected-revision "$revision" \
+  --api-container horizon-light-api \
+  --worker-container horizon-light-worker \
+  "${public_args[@]}" \
+  --timeout 180 \
+  --interval 2
+ln -sfn "$target" "$base/current"
+echo "rolled back to $requested_release"
 REMOTE
 }
 

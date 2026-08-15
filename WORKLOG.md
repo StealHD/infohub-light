@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将工作区 Email 与 Telegram 通知 transport 的 8 个兼容 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、迁移门槛与 SecretStore/发送语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-notification-transports",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；后续继续小步拆分 secrets/key-pool、Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
-  ],
-  "validation": [
-    "全 API 路由、transport 路由与 OpenAPI 规范 SHA 均与 7cde2e6 基线一致；通知 transport、权限、操作日志与 lifespan 定向回归 78/78 通过。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235443 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 Apify Key Pool 的 4 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、migration gate、generation/CAS、drain 与 resilience event 语义保持不变。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-key-pool-routes",
@@ -412,6 +391,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "GitHub Linux CI 工件定位为关闭动画竞态；不是产品接口或布局回归。",
     "生产构建下同一 Insights 几何流程连续 5 次通过；代码规模检查通过，旧文件由 1801 降至 1799 行。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "以冻结历史单体、任务基线净增长比较、新文件/函数硬上限和风险映射选测替代精确行数债务，并让本地与 VPS 共用可等待 Docker starting 的发布健康检查与一致性回滚。",
+  "status": "completed",
+  "task_id": "2026-08-15-lightweight-code-test-gates",
+  "unresolved": [],
+  "validation": [
+    "定向规模、影响选择、E2E 合同、共享健康、发布与产品文档测试全部通过。",
+    "staged preflight 18/18、完整 Test Gate 19/19 通过，均无 SQLite 资源告警；未运行付费 Actor、AI、真实通知或来源抓取。"
   ]
 }
 ```

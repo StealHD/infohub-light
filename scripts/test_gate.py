@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -17,7 +16,6 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -32,48 +30,20 @@ from scripts.test_gate_log import (
     sqlite_warning_gate_failure as _sqlite_warning_gate_failure,
     unclosed_sqlite_connection_warnings as _unclosed_sqlite_connection_warnings,
 )
-
-SNAPSHOT_VERSION = 1
-EXCLUDED_PARTS = {
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".superpowers",
-    ".test-results",
-    ".uv",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-    "logs",
-    "node_modules",
-    "playwright-report",
-    "test-results",
-    "venv",
-}
-EXCLUDED_PREFIXES = ("data/", "docs/_posts/", "src/ui/service_static/")
-SECRET_NAME_PARTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
-SECRET_DATA_SUFFIXES = {".env", ".json", ".txt", ".yaml", ".yml"}
-KNOWN_GROUPS = {
-    "control",
-    "frontend_checks",
-    "frontend_full",
-    "frontend_related",
-    "full",
-    "python_ai_orchestrator",
-    "python_api_store",
-    "python_feed",
-    "python_queue_worker",
-    "python_scrapers",
-    "python_scripts",
-    "python_source_acquisition",
-    "python_test_files",
-}
-
-
-class GateConfigError(RuntimeError):
-    """Raised for invalid snapshots, mappings, or environment configuration."""
+from scripts.test_gate_changes import (
+    EXCLUDED_PARTS,
+    SECRET_NAME_PARTS,
+    GateConfigError,
+    build_plan,
+    build_snapshot,
+    changed_files_from_git,
+    changed_files_from_snapshot,
+    changed_files_from_staged,
+    code_size_policy_domains,
+    load_mapping,
+    load_snapshot,
+    _is_safe_relative_path,
+)
 
 
 @dataclass(frozen=True)
@@ -83,266 +53,6 @@ class CommandSpec:
     cwd: Path
     env: dict[str, str] | None = None
     domain: str = "backend"
-
-
-def _is_safe_relative_path(relative: str) -> bool:
-    path = PurePosixPath(relative)
-    if path.is_absolute() or ".." in path.parts:
-        return False
-    if any(part in EXCLUDED_PARTS for part in path.parts):
-        return False
-    if relative.startswith(EXCLUDED_PREFIXES):
-        return False
-    name_upper = path.name.upper()
-    if path.name == ".env" or path.name.startswith(".env."):
-        return False
-    if path.suffix.lower() in SECRET_DATA_SUFFIXES and any(
-        marker in name_upper for marker in SECRET_NAME_PARTS
-    ):
-        return False
-    if path.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".pem", ".key", ".p12"}:
-        return False
-    return True
-
-
-def _git_file_paths(root: Path) -> list[str]:
-    result = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-        cwd=root,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise GateConfigError("snapshot root is not a readable Git worktree")
-    paths = result.stdout.decode("utf-8", errors="surrogateescape").split("\0")
-    return sorted(path for path in paths if path and _is_safe_relative_path(path))
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def build_snapshot(root: Path) -> dict[str, Any]:
-    files: dict[str, str] = {}
-    for relative in _git_file_paths(root):
-        path = root / relative
-        if path.is_symlink():
-            files[relative] = hashlib.sha256(os.readlink(path).encode("utf-8")).hexdigest()
-        elif path.is_file():
-            files[relative] = _sha256(path)
-    return {"version": SNAPSHOT_VERSION, "files": files}
-
-
-def load_snapshot(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise GateConfigError(f"snapshot not found: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise GateConfigError("invalid snapshot JSON") from exc
-    if not isinstance(payload, dict):
-        raise GateConfigError("snapshot must be an object")
-    if payload.get("version") != SNAPSHOT_VERSION:
-        raise GateConfigError("unsupported snapshot version")
-    files = payload.get("files")
-    if not isinstance(files, dict):
-        raise GateConfigError("snapshot files must be an object")
-    for relative, digest in files.items():
-        if not isinstance(relative, str) or not _is_safe_relative_path(relative):
-            raise GateConfigError(f"unsafe snapshot path: {relative!r}")
-        if (
-            not isinstance(digest, str)
-            or len(digest) != 64
-            or any(character not in "0123456789abcdef" for character in digest)
-        ):
-            raise GateConfigError(f"invalid snapshot digest for {relative}")
-    return payload
-
-
-def changed_files_from_snapshot(root: Path, snapshot: dict[str, Any]) -> list[str]:
-    before = snapshot["files"]
-    after = build_snapshot(root)["files"]
-    return sorted(
-        relative
-        for relative in set(before) | set(after)
-        if before.get(relative) != after.get(relative)
-    )
-
-
-def changed_files_from_git(root: Path, base: str, head: str) -> list[str]:
-    if not base or not head or base.startswith("-") or head.startswith("-"):
-        raise GateConfigError("base and head must be valid Git revisions")
-    result = subprocess.run(
-        ["git", "diff", "--name-status", "-z", "-M", base, head, "--"],
-        cwd=root,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise GateConfigError(f"unable to diff base/head: {detail[:300]}")
-    fields = result.stdout.decode("utf-8", errors="surrogateescape").split("\0")
-    changed: list[str] = []
-    index = 0
-    while index < len(fields) and fields[index]:
-        status = fields[index]
-        index += 1
-        path_count = 2 if status.startswith(("R", "C")) else 1
-        if index + path_count > len(fields):
-            raise GateConfigError("malformed Git name-status output")
-        for relative in fields[index : index + path_count]:
-            if _is_safe_relative_path(relative):
-                changed.append(relative)
-        index += path_count
-    return sorted(set(changed))
-
-
-def changed_files_from_staged(root: Path) -> list[str]:
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--name-status", "-z", "-M", "--"],
-        cwd=root,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise GateConfigError(f"unable to inspect staged changes: {detail[:300]}")
-    fields = result.stdout.decode("utf-8", errors="surrogateescape").split("\0")
-    changed: list[str] = []
-    index = 0
-    while index < len(fields) and fields[index]:
-        status = fields[index]
-        index += 1
-        path_count = 2 if status.startswith(("R", "C")) else 1
-        if index + path_count > len(fields):
-            raise GateConfigError("malformed staged Git name-status output")
-        for relative in fields[index : index + path_count]:
-            if _is_safe_relative_path(relative):
-                changed.append(relative)
-        index += path_count
-    return sorted(set(changed))
-
-
-def _matches(relative: str, patterns: list[str]) -> bool:
-    return any(fnmatchcase(relative, pattern) for pattern in patterns)
-
-
-def load_mapping(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise GateConfigError(f"mapping not found: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise GateConfigError("invalid mapping JSON") from exc
-    if not isinstance(payload, dict) or payload.get("version") != 1:
-        raise GateConfigError("unsupported mapping version")
-    rules = payload.get("rules")
-    if not isinstance(rules, list):
-        raise GateConfigError("mapping rules must be an array")
-    for rule in rules:
-        if not isinstance(rule, dict) or not isinstance(rule.get("id"), str):
-            raise GateConfigError("each mapping rule requires an id")
-        globs = rule.get("globs")
-        groups = rule.get("groups")
-        if not isinstance(globs, list) or not all(isinstance(item, str) for item in globs):
-            raise GateConfigError(f"mapping rule {rule['id']} has invalid globs")
-        if not isinstance(groups, list) or not all(isinstance(item, str) for item in groups):
-            raise GateConfigError(f"mapping rule {rule['id']} has invalid groups")
-        unknown = sorted(set(groups) - KNOWN_GROUPS)
-        if unknown:
-            raise GateConfigError(f"mapping rule {rule['id']} uses unknown group: {', '.join(unknown)}")
-    for field in ("docs_only_globs", "full_globs", "fail_closed_globs", "ui_globs"):
-        values = payload.get(field, [])
-        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
-            raise GateConfigError(f"mapping {field} must be an array of globs")
-    group_tests = payload.get("group_tests", {})
-    if not isinstance(group_tests, dict):
-        raise GateConfigError("mapping group_tests must be an object")
-    unknown_test_groups = sorted(set(group_tests) - KNOWN_GROUPS)
-    if unknown_test_groups:
-        raise GateConfigError(f"mapping group_tests uses unknown group: {', '.join(unknown_test_groups)}")
-    return payload
-
-
-def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, Any]:
-    changed = sorted(dict.fromkeys(changed_files))
-    groups = {"control"}
-    reasons: list[str] = []
-    python_test_targets: list[str] = []
-    frontend_related_files: list[str] = []
-    mapping_miss = False
-
-    for relative in changed:
-        if not _is_safe_relative_path(relative):
-            raise GateConfigError(f"unsafe changed path: {relative!r}")
-        ui_path = _matches(relative, mapping.get("ui_globs", []))
-        matching_rules = [
-            rule for rule in mapping["rules"] if _matches(relative, rule["globs"])
-        ]
-        if _matches(relative, mapping.get("docs_only_globs", [])) and not matching_rules:
-            reasons.append(f"{relative}: documentation/control formatting only")
-            continue
-        if _matches(relative, mapping.get("full_globs", [])):
-            groups.add("full")
-            reasons.append(f"{relative}: dependency/build/global configuration requires full gate")
-            continue
-        if relative.startswith("tests/") and relative.endswith(".py"):
-            groups.add("python_test_files")
-            python_test_targets.append(relative)
-            reasons.append(f"{relative}: changed Python test runs itself")
-            continue
-        matched = bool(matching_rules)
-        for rule in matching_rules:
-            groups.update(rule["groups"])
-            reasons.append(f"{relative}: {rule['id']}")
-        if "frontend_related" in groups and relative.startswith("frontend/src/"):
-            frontend_related_files.append(relative.removeprefix("frontend/"))
-        if not matched and _matches(relative, mapping.get("fail_closed_globs", [])):
-            groups.add("full")
-            mapping_miss = True
-            reasons.append(f"{relative}: unmapped executable path; fail-closed to full")
-        elif not matched:
-            reasons.append(f"{relative}: formatting/control validation")
-        if ui_path and not any(reason.startswith(f"{relative}:") for reason in reasons):
-            reasons.append(f"{relative}: UI impact")
-
-    if "full" in groups:
-        groups = {"control", "full"}
-    elif "frontend_full" in groups:
-        groups.discard("frontend_checks")
-        groups.discard("frontend_related")
-    ui_impacted = any(_matches(relative, mapping.get("ui_globs", [])) for relative in changed)
-    selected = sorted(groups)
-    backend_impacted = "full" in groups or any(
-        group.startswith("python_") for group in groups
-    )
-    frontend_impacted = "full" in groups or any(
-        group.startswith("frontend_") for group in groups
-    )
-    return {
-        "mode": "targeted",
-        "status": "planned",
-        "changed_files": changed,
-        "selected_groups": selected,
-        "reasons": reasons,
-        "counts": {
-            "changed_files": len(changed),
-            "selected_groups": len(selected),
-        },
-        "duration": 0.0,
-        "first_failure": None,
-        "log_paths": [],
-        "ui_impacted": ui_impacted,
-        "backend_impacted": backend_impacted,
-        "frontend_impacted": frontend_impacted,
-        "mapping_miss": mapping_miss,
-        "python_test_targets": sorted(set(python_test_targets)),
-        "frontend_related_files": sorted(set(frontend_related_files)),
-    }
 
 
 def _python(root: Path) -> str:
@@ -361,11 +71,14 @@ def _spec(
     return CommandSpec(command_id, tuple(str(item) for item in argv), cwd, env, domain)
 
 
-def _code_size_spec(root: Path, scope: str) -> CommandSpec:
+def _code_size_spec(root: Path, scope: str, compare_base: str | None = None) -> CommandSpec:
     domain = {"policy": "control", "backend": "backend", "frontend": "frontend"}[scope]
+    argv = [_python(root), "scripts/check_code_size.py", "--scope", scope]
+    if compare_base:
+        argv.extend(["--compare-base", compare_base])
     return _spec(
         f"code_size_{scope}",
-        [_python(root), "scripts/check_code_size.py", "--scope", scope],
+        argv,
         root,
         domain=domain,
     )
@@ -375,6 +88,7 @@ def _control_specs(
     root: Path,
     *,
     diff_check_argv: list[str] | tuple[str, ...] | None = None,
+    compare_base: str | None = None,
 ) -> list[CommandSpec]:
     python = _python(root)
     return [
@@ -384,7 +98,7 @@ def _control_specs(
             root,
             domain="control",
         ),
-        _code_size_spec(root, "policy"),
+        _code_size_spec(root, "policy", compare_base),
         _spec(
             "observability_contract",
             [python, "scripts/check_observability_contract.py"],
@@ -439,11 +153,23 @@ def _changed_shell_spec(root: Path, changed_files: list[str]) -> CommandSpec | N
     )
 
 
-def _full_backend_specs(root: Path) -> list[CommandSpec]:
+def _e2e_contract_spec(
+    root: Path,
+    changed_files: list[str] | None = None,
+    *,
+    domain: str = "frontend",
+) -> CommandSpec:
+    argv = [_python(root), "scripts/check_e2e_contract.py"]
+    if changed_files:
+        argv.extend(f"--changed-file={relative}" for relative in changed_files)
+    return _spec("e2e_contract", argv, root, domain=domain)
+
+
+def _full_backend_specs(root: Path, compare_base: str | None = None) -> list[CommandSpec]:
     python = _python(root)
     script = str(Path(__file__).resolve())
     return [
-        _code_size_spec(root, "backend"),
+        _code_size_spec(root, "backend", compare_base),
         _spec(
             "python_full",
             [
@@ -471,10 +197,11 @@ def _full_backend_specs(root: Path) -> list[CommandSpec]:
     ]
 
 
-def _full_frontend_specs(root: Path) -> list[CommandSpec]:
+def _full_frontend_specs(root: Path, compare_base: str | None = None) -> list[CommandSpec]:
     frontend = root / "frontend"
     return [
-        _code_size_spec(root, "frontend"),
+        _code_size_spec(root, "frontend", compare_base),
+        _e2e_contract_spec(root),
         _spec("frontend_contract", ["npm", "run", "check:ui"], frontend, domain="frontend"),
         _spec("frontend_lint", ["npm", "run", "lint"], frontend, domain="frontend"),
         _spec("frontend_typecheck", ["npm", "run", "typecheck"], frontend, domain="frontend"),
@@ -499,8 +226,8 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
     targets = set(plan.get("python_test_targets", []))
     for group in sorted(groups & python_groups):
         targets.update(mapping.get("group_tests", {}).get(group, []))
-    if groups & python_groups or targets:
-        specs.append(_code_size_spec(root, "backend"))
+    if groups & python_groups or targets or "code_size_backend" in groups:
+        specs.append(_code_size_spec(root, "backend", plan.get("base_sha")))
     if targets:
         specs.append(
             _spec(
@@ -528,8 +255,12 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
         specs.append(_spec("python_changed_syntax", [python, "-m", "py_compile", *changed_python], root))
 
     frontend = root / "frontend"
+    if groups & {
+        "code_size_frontend", "frontend_checks", "frontend_full", "frontend_related",
+    }:
+        specs.append(_code_size_spec(root, "frontend", plan.get("base_sha")))
     if groups & {"frontend_checks", "frontend_full", "frontend_related"}:
-        specs.append(_code_size_spec(root, "frontend"))
+        specs.append(_e2e_contract_spec(root, plan["changed_files"]))
     if "frontend_checks" in groups:
         specs.extend(
             [
@@ -558,13 +289,18 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
             )
         )
     elif "frontend_related" in groups and related and not related_files_exist:
-        specs.extend(_full_frontend_specs(root)[-5:])
+        specs.extend(_full_frontend_specs(root, plan.get("base_sha"))[-5:])
     if "frontend_full" in groups:
-        specs.extend(_full_frontend_specs(root))
+        specs.extend(_full_frontend_specs(root, plan.get("base_sha")))
     return specs
 
 
-def _release_specs(root: Path) -> list[CommandSpec]:
+def _release_specs(
+    root: Path,
+    plan: dict[str, Any],
+    *,
+    full_e2e: bool = False,
+) -> list[CommandSpec]:
     password = secrets.token_urlsafe(24)
     smoke_env = {
         "HORIZON_AUTH_USER": "admin",
@@ -574,10 +310,14 @@ def _release_specs(root: Path) -> list[CommandSpec]:
         "HORIZON_TEST_LOG_DIR": "{run_dir}/docker-logs",
         "HORIZON_TEST_WEB_PORT": "18081",
     }
+    playwright_argv = ["npm", "run", "e2e:release"]
+    if not full_e2e and not plan.get("e2e_full") and plan.get("e2e_targets"):
+        playwright_argv.extend(["--", *plan["e2e_targets"]])
     return [
+        _e2e_contract_spec(root, plan.get("changed_files"), domain="e2e"),
         _spec(
             "release_playwright",
-            ["npm", "run", "e2e:release"],
+            playwright_argv,
             root / "frontend",
             domain="e2e",
         ),
@@ -614,12 +354,18 @@ def build_command_specs(
     mode: str,
     scope: str = "all",
     diff_check_argv: list[str] | tuple[str, ...] | None = None,
+    full_e2e: bool = False,
 ) -> list[CommandSpec]:
     if mode not in {"preflight", "targeted", "full", "release"}:
         raise GateConfigError(f"unsupported run mode: {mode}")
     if scope not in {"all", "control", "backend", "frontend", "e2e", "smoke"}:
         raise GateConfigError(f"unsupported run scope: {scope}")
-    specs = _control_specs(root, diff_check_argv=diff_check_argv)
+    compare_base = plan.get("base_sha")
+    specs = _control_specs(
+        root,
+        diff_check_argv=diff_check_argv,
+        compare_base=compare_base,
+    )
     if mode == "preflight":
         product_docs = _product_docs_spec(root, plan["changed_files"])
         if product_docs is not None:
@@ -630,7 +376,10 @@ def build_command_specs(
         if "full" in set(plan["selected_groups"]):
             specs.extend(
                 spec
-                for spec in [*_full_backend_specs(root), *_full_frontend_specs(root)]
+                for spec in [
+                    *_full_backend_specs(root, compare_base),
+                    *_full_frontend_specs(root, compare_base),
+                ]
                 if not spec.command_id.startswith("compose_")
             )
         else:
@@ -638,10 +387,10 @@ def build_command_specs(
     elif mode == "targeted" and "full" not in set(plan["selected_groups"]):
         specs.extend(_targeted_specs(root, plan, mapping))
     else:
-        specs.extend(_full_backend_specs(root))
-        specs.extend(_full_frontend_specs(root))
+        specs.extend(_full_backend_specs(root, compare_base))
+        specs.extend(_full_frontend_specs(root, compare_base))
     if mode == "release":
-        specs.extend(_release_specs(root))
+        specs.extend(_release_specs(root, plan, full_e2e=full_e2e))
     deduplicated: list[CommandSpec] = []
     seen: set[str] = set()
     for spec in specs:
@@ -938,6 +687,40 @@ def _selector_changed_files(args: argparse.Namespace, root: Path) -> list[str]:
     )
 
 
+def _selector_base_sha(args: argparse.Namespace, root: Path) -> str:
+    if getattr(args, "snapshot", None):
+        return str(load_snapshot(args.snapshot)["base_sha"])
+    if getattr(args, "staged", False):
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise GateConfigError("unable to resolve HEAD for staged comparison")
+        return result.stdout.strip()
+    if getattr(args, "base", None):
+        return str(args.base)
+    raise GateConfigError("a comparison base is required")
+
+
+def _selector_impact_plan(
+    args: argparse.Namespace,
+    root: Path,
+    mapping: dict[str, Any],
+) -> dict[str, Any]:
+    changed_files = _selector_changed_files(args, root)
+    base_sha = _selector_base_sha(args, root)
+    policy_domains = None
+    if "tests/code_size_policy.json" in changed_files:
+        policy_domains = code_size_policy_domains(root, base_sha)
+    plan = build_plan(changed_files, mapping, code_size_domains=policy_domains)
+    plan["base_sha"] = base_sha
+    return plan
+
+
 def _preflight_diff_check_argv(
     args: argparse.Namespace,
     root: Path,
@@ -1041,6 +824,9 @@ def _blank_plan(mode: str) -> dict[str, Any]:
         "mapping_miss": False,
         "python_test_targets": [],
         "frontend_related_files": [],
+        "e2e_full": mode == "release",
+        "e2e_targets": [],
+        "base_sha": None,
     }
 
 
@@ -1159,6 +945,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--result-root", type=Path)
     run.add_argument("--run-id")
+    run.add_argument(
+        "--full-e2e",
+        action="store_true",
+        help="run every Playwright spec for the final main/release revision",
+    )
     subparsers.add_parser("_validate-json", help=argparse.SUPPRESS)
     snapshot_diff = subparsers.add_parser("_check-snapshot-diff", help=argparse.SUPPRESS)
     snapshot_diff.add_argument("--changed-file", action="append", default=[])
@@ -1182,7 +973,7 @@ def main(argv: list[str] | None = None) -> int:
         mapping_path = args.mapping or root / "tests" / "test_impact_map.json"
         mapping = load_mapping(mapping_path)
         if args.command == "plan":
-            plan = build_plan(_selector_changed_files(args, root), mapping)
+            plan = _selector_impact_plan(args, root, mapping)
             if args.output:
                 _write_json_private(args.output, plan)
             if args.json:
@@ -1194,8 +985,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 0
         if args.command == "preflight":
-            changed_files = _selector_changed_files(args, root)
-            impact_plan = build_plan(changed_files, mapping)
+            impact_plan = _selector_impact_plan(args, root, mapping)
+            changed_files = impact_plan["changed_files"]
             plan = _run_plan("preflight", impact_plan)
             specs = build_command_specs(
                 root,
@@ -1229,11 +1020,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.impact_plan:
                 impact_plan = _load_plan_file(args.impact_plan)
             elif args.snapshot or args.base or args.head:
-                impact_plan = build_plan(_selector_changed_files(args, root), mapping)
+                impact_plan = _selector_impact_plan(args, root, mapping)
             elif args.mode == "targeted":
                 raise GateConfigError("targeted mode requires --snapshot, --base/--head, or --impact-plan")
             plan = _run_plan(args.mode, impact_plan or _blank_plan(args.mode))
-            specs = build_command_specs(root, plan, mapping, mode=args.mode, scope=args.scope)
+            specs = build_command_specs(
+                root,
+                plan,
+                mapping,
+                mode=args.mode,
+                scope=args.scope,
+                full_e2e=args.full_e2e,
+            )
             result = execute_specs(
                 root,
                 specs,

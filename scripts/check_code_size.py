@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -20,7 +22,7 @@ from scripts.code_size_policy import (
     POLICY_RELATIVE,
     PolicyError,
     compare_policy,
-    debt_maps,
+    frozen_files,
     load_policy,
 )
 
@@ -157,10 +159,9 @@ class _PythonShape(ast.NodeVisitor):
 
 
 class _PythonCallables(ast.NodeVisitor):
-    def __init__(self, relative: str, category: str, entrypoints: set[tuple[str, str]]) -> None:
+    def __init__(self, relative: str, category: str) -> None:
         self.relative = relative
         self.category = category
-        self.entrypoints = entrypoints
         self.parents: list[str] = []
         self.metrics: list[CallableMetric] = []
 
@@ -169,12 +170,11 @@ class _PythonCallables(ast.NodeVisitor):
         start = min([node.lineno, *(item.lineno for item in node.decorator_list)])
         shape = _PythonShape(node)
         shape.visit(node)
-        category = "entrypoint" if (self.relative, symbol) in self.entrypoints else self.category
         self.metrics.append(
             CallableMetric(
                 path=self.relative,
                 symbol=symbol,
-                category=category,
+                category=self.category,
                 lines=(node.end_lineno or node.lineno) - start + 1,
                 complexity=shape.complexity,
                 max_nesting=shape.max_nesting,
@@ -200,13 +200,12 @@ def _python_callables(
     root: Path,
     relative: str,
     category: str,
-    entrypoints: set[tuple[str, str]],
 ) -> list[CallableMetric]:
     try:
         tree = ast.parse((root / relative).read_text(encoding="utf-8"), filename=relative)
     except (OSError, SyntaxError, UnicodeError) as exc:
         raise PolicyError(f"unable to parse {relative}: {exc}") from exc
-    visitor = _PythonCallables(relative, category, entrypoints)
+    visitor = _PythonCallables(relative, category)
     visitor.visit(tree)
     return visitor.metrics
 
@@ -215,13 +214,23 @@ def _typescript_callables(
     root: Path,
     relatives: list[str],
     categories: dict[str, str],
-    entrypoints: set[tuple[str, str]],
+    *,
+    analyzer_root: Path | None = None,
 ) -> list[CallableMetric]:
     if not relatives:
         return []
     result = subprocess.run(
-        ["node", "scripts/code_size_ts_ast.mjs", str(root), *relatives],
-        cwd=root,
+        [
+            "node",
+            str((analyzer_root or root) / "scripts/code_size_ts_ast.mjs"),
+            str(root),
+            *relatives,
+        ],
+        cwd=analyzer_root or root,
+        env={
+            **os.environ,
+            "INTELISCOPE_TYPESCRIPT_ROOT": str(analyzer_root or root),
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -237,12 +246,11 @@ def _typescript_callables(
     for record in records:
         relative = record["path"]
         symbol = record["symbol"]
-        category = "entrypoint" if (relative, symbol) in entrypoints else categories[relative]
         metrics.append(
             CallableMetric(
                 path=relative,
                 symbol=symbol,
-                category=category,
+                category=categories[relative],
                 lines=int(record["lines"]),
                 complexity=int(record["complexity"]),
                 max_nesting=int(record["max_nesting"]),
@@ -256,12 +264,22 @@ def collect_metrics(
     policy: dict[str, Any],
     scope: str,
 ) -> tuple[list[FileMetric], list[CallableMetric]]:
-    entrypoints = {(item["path"], item["symbol"]) for item in policy["entrypoints"]}
+    return collect_metrics_for_paths(root, policy, _git_paths(root), scope=scope)
+
+
+def collect_metrics_for_paths(
+    root: Path,
+    policy: dict[str, Any],
+    relatives: list[str],
+    *,
+    scope: str = "all",
+    analyzer_root: Path | None = None,
+) -> tuple[list[FileMetric], list[CallableMetric]]:
     files: list[FileMetric] = []
     callables: list[CallableMetric] = []
     typescript_paths: list[str] = []
     categories: dict[str, str] = {}
-    for relative in _git_paths(root):
+    for relative in sorted(relatives):
         path = root / relative
         if (
             not _in_scope(relative, scope)
@@ -274,10 +292,17 @@ def collect_metrics(
         categories[relative] = category
         files.append(FileMetric(relative, category, _physical_lines(path)))
         if path.suffix.lower() == ".py":
-            callables.extend(_python_callables(root, relative, category, entrypoints))
+            callables.extend(_python_callables(root, relative, category))
         elif relative.startswith("frontend/") and path.suffix.lower() in TYPESCRIPT_SUFFIXES:
             typescript_paths.append(relative)
-    callables.extend(_typescript_callables(root, typescript_paths, categories, entrypoints))
+    callables.extend(
+        _typescript_callables(
+            root,
+            typescript_paths,
+            categories,
+            analyzer_root=analyzer_root,
+        )
+    )
     return files, callables
 
 
@@ -285,21 +310,11 @@ def _evaluate_metric(
     label: str,
     lines: int,
     hard: int,
-    debt: dict[str, Any] | None,
+    frozen: bool,
     errors: list[str],
 ) -> None:
-    if lines > hard and debt is None:
-        errors.append(f"{label}: {lines} lines exceeds hard limit {hard} without baseline debt")
-        return
-    if debt is None:
-        return
-    maximum = debt["max_lines"]
-    if lines <= hard:
-        errors.append(f"{label}: now {lines} lines; remove obsolete debt allowance {maximum}")
-    elif lines < maximum:
-        errors.append(f"{label}: shrank to {lines} lines; lower debt allowance from {maximum}")
-    elif lines > maximum:
-        errors.append(f"{label}: grew from debt allowance {maximum} to {lines} lines")
+    if lines > hard and not frozen:
+        errors.append(f"{label}: {lines} lines exceeds hard limit {hard}")
 
 
 def evaluate(
@@ -310,28 +325,18 @@ def evaluate(
 ) -> dict[str, Any]:
     errors: list[str] = []
     soft: list[dict[str, Any]] = []
-    file_debt, callable_debt = debt_maps(policy)
-    seen_files: set[str] = set()
-    seen_callables: set[tuple[str, str, str]] = set()
+    frozen = frozen_files(policy)
     for metric in files:
-        seen_files.add(metric.path)
         limit = policy["limits"]["files"][metric.category]
-        _evaluate_metric(metric.path, metric.lines, limit["hard"], file_debt.get(metric.path), errors)
+        _evaluate_metric(metric.path, metric.lines, limit["hard"], metric.path in frozen, errors)
         if metric.lines > limit["soft"]:
             soft.append({"kind": "file", **asdict(metric), "soft": limit["soft"]})
     for metric in callables:
-        seen_callables.add(metric.key)
         limit = policy["limits"]["callables"][metric.category]
         label = f"{metric.path}::{metric.symbol}::{metric.category}"
-        _evaluate_metric(label, metric.lines, limit["hard"], callable_debt.get(metric.key), errors)
+        _evaluate_metric(label, metric.lines, limit["hard"], metric.path in frozen, errors)
         if metric.lines > limit["soft"]:
             soft.append({"kind": "callable", **asdict(metric), "soft": limit["soft"]})
-    for path in sorted(file_debt):
-        if _in_scope(path, scope) and path not in seen_files:
-            errors.append(f"{path}: debt entry is stale because the file is absent or excluded")
-    for key in sorted(callable_debt):
-        if _in_scope(key[0], scope) and key not in seen_callables:
-            errors.append(f"{key[0]}::{key[1]}::{key[2]}: stale callable debt entry")
     complexity_target = policy["limits"]["complexity"]["target"]
     nesting_target = policy["limits"]["nesting"]["target"]
     complex_metrics = [metric for metric in callables if metric.complexity > complexity_target]
@@ -361,6 +366,60 @@ def evaluate(
     }
 
 
+def compare_frozen_metrics(
+    root: Path,
+    policy: dict[str, Any],
+    base: str,
+    *,
+    scope: str = "all",
+    include_callables: bool = True,
+) -> list[str]:
+    paths = sorted(path for path in frozen_files(policy) if _in_scope(path, scope))
+    base_contents: dict[str, bytes] = {}
+    errors: list[str] = []
+    for relative in paths:
+        result = subprocess.run(
+            ["git", "show", f"{base}:{relative}"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            continue
+        base_contents[relative] = result.stdout
+        current = root / relative
+        if current.is_file():
+            before = len(result.stdout.decode("utf-8", errors="surrogateescape").splitlines())
+            after = _physical_lines(current)
+            if after > before:
+                errors.append(f"frozen file grew from {before} to {after} lines: {relative}")
+    if not include_callables:
+        return errors
+    _current_files, current_callables = collect_metrics_for_paths(root, policy, paths)
+    with tempfile.TemporaryDirectory(prefix="inteliscope-code-size-") as temporary:
+        base_root = Path(temporary)
+        for relative, content in base_contents.items():
+            target = base_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        _base_files, base_callables = collect_metrics_for_paths(
+            base_root,
+            policy,
+            sorted(base_contents),
+            scope=scope,
+            analyzer_root=root,
+        )
+    base_callable_keys = {metric.key for metric in base_callables}
+    for metric in current_callables:
+        hard = policy["limits"]["callables"][metric.category]["hard"]
+        if metric.lines > hard and metric.key not in base_callable_keys:
+            errors.append(
+                f"new callable in frozen file exceeds hard limit {hard}: "
+                f"{metric.path}::{metric.symbol}::{metric.category} ({metric.lines} lines)"
+            )
+    return errors
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -376,7 +435,18 @@ def main(argv: list[str] | None = None) -> int:
     policy_path = args.policy or root / POLICY_RELATIVE
     try:
         policy = load_policy(policy_path)
-        comparison_errors = compare_policy(root, policy, args.compare_base) if args.compare_base else []
+        comparison_errors = []
+        if args.compare_base:
+            comparison_errors.extend(compare_policy(root, policy, args.compare_base))
+            comparison_errors.extend(
+                compare_frozen_metrics(
+                    root,
+                    policy,
+                    args.compare_base,
+                    scope="all" if args.scope == "policy" else args.scope,
+                    include_callables=args.scope != "policy",
+                )
+            )
         if args.scope == "policy":
             result = {
                 "status": "failed" if comparison_errors else "passed",

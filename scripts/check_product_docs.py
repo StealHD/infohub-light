@@ -17,13 +17,17 @@ DOCUMENTATION_SOURCES = {
 
 NON_PRODUCT_SCRIPT_PATHS = {
     "scripts/check_code_size.py",
+    "scripts/check_e2e_contract.py",
     "scripts/code_size_policy.py",
     "scripts/check_product_docs.py",
     "scripts/check_markdown_controls.py",
     "scripts/release_rc1.sh",
     "scripts/release_vps.sh",
+    "scripts/runtime_health.py",
     "scripts/test_gate.py",
+    "scripts/test_gate_changes.py",
     "scripts/test_gate_log.py",
+    "scripts/up-latest.sh",
 }
 
 PRODUCT_ROOT_FILES = {

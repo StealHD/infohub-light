@@ -24,8 +24,7 @@ BASE_POLICY = json.loads(
 def _policy() -> dict:
     policy = copy.deepcopy(BASE_POLICY)
     policy["baseline_sha"] = "0" * 40
-    policy["entrypoints"] = []
-    policy["debt"] = {"files": [], "callables": []}
+    policy["frozen_files"] = []
     return policy
 
 
@@ -85,10 +84,11 @@ def test_repository_policy_schema_passes() -> None:
     assert policy["baseline_sha"] == "e10adf1a347105f4327a763ca4a84d2fe8bb34b1"
     assert policy["limits"]["files"]["production"]["hard"] == 800
     assert policy["limits"]["callables"]["production"]["hard"] == 150
+    assert "src/api/server.py" in policy["frozen_files"]
     assert policy["exceptions"] == []
 
 
-def test_new_oversized_python_callable_fails_without_debt(tmp_path: Path) -> None:
+def test_new_oversized_python_callable_fails(tmp_path: Path) -> None:
     policy = _policy()
     _init_repository(tmp_path)
     _write(tmp_path, "src/example.py", _function("oversized", 151))
@@ -97,97 +97,72 @@ def test_new_oversized_python_callable_fails_without_debt(tmp_path: Path) -> Non
     result = CODE_SIZE.evaluate(policy, files, callables, "backend")
 
     assert result["status"] == "failed"
-    assert any("without baseline debt" in error for error in result["errors"])
+    assert any("exceeds hard limit" in error for error in result["errors"])
 
 
-def test_callable_debt_passes_exactly_and_ratchets_on_change(tmp_path: Path) -> None:
+def test_frozen_file_allows_legacy_size_without_exact_allowance(tmp_path: Path) -> None:
     policy = _policy()
     _init_repository(tmp_path)
     _write(tmp_path, "src/example.py", _function("legacy", 151))
-    metric = _callable(policy, tmp_path, "legacy")
-    policy["debt"]["callables"] = [
-        {
-            "path": metric.path,
-            "symbol": metric.symbol,
-            "category": metric.category,
-            "max_lines": metric.lines,
-        }
-    ]
+    policy["frozen_files"] = ["src/example.py"]
 
     files, callables = _metrics(tmp_path, policy)
     assert CODE_SIZE.evaluate(policy, files, callables, "backend")["status"] == "passed"
 
-    _write(tmp_path, "src/example.py", _function("legacy", 149))
-    files, callables = _metrics(tmp_path, policy)
-    shrink = CODE_SIZE.evaluate(policy, files, callables, "backend")
-    assert any("remove obsolete debt" in error for error in shrink["errors"])
 
-    _write(tmp_path, "src/example.py", _function("legacy", 152))
-    files, callables = _metrics(tmp_path, policy)
-    growth = CODE_SIZE.evaluate(policy, files, callables, "backend")
-    assert any("grew from debt allowance" in error for error in growth["errors"])
-
-
-def test_renamed_oversized_callable_cannot_inherit_debt(tmp_path: Path) -> None:
+def test_frozen_file_growth_fails_and_shrink_needs_no_policy_change(tmp_path: Path) -> None:
     policy = _policy()
     _init_repository(tmp_path)
-    _write(tmp_path, "src/old.py", _function("legacy", 151))
-    metric = _callable(policy, tmp_path, "legacy")
-    policy["debt"]["callables"] = [
-        {
-            "path": metric.path,
-            "symbol": metric.symbol,
-            "category": metric.category,
-            "max_lines": metric.lines,
-        }
-    ]
-    (tmp_path / "src/old.py").unlink()
-    _write(tmp_path, "src/new.py", _function("legacy", 151))
+    policy["frozen_files"] = ["src/legacy.py"]
+    _write(tmp_path, "src/legacy.py", _function("legacy", 151))
+    _write(tmp_path, "tests/code_size_policy.json", json.dumps(policy))
+    base = _commit(tmp_path)
 
-    files, callables = _metrics(tmp_path, policy)
-    result = CODE_SIZE.evaluate(policy, files, callables, "backend")
+    _write(tmp_path, "src/legacy.py", _function("legacy", 152))
+    growth = CODE_SIZE.compare_frozen_metrics(tmp_path, policy, base)
+    assert any("frozen file grew" in error for error in growth)
 
-    assert any("src/new.py::legacy" in error and "without baseline debt" in error for error in result["errors"])
-    assert any("src/old.py::legacy" in error and "stale" in error for error in result["errors"])
+    _write(tmp_path, "src/legacy.py", _function("legacy", 149))
+    assert CODE_SIZE.compare_frozen_metrics(tmp_path, policy, base) == []
 
 
-def test_registered_entrypoint_uses_coordinator_limit(tmp_path: Path) -> None:
+def test_new_oversized_callable_in_frozen_file_fails(tmp_path: Path) -> None:
     policy = _policy()
-    policy["entrypoints"] = [
-        {
-            "path": "src/coordinator.py",
-            "symbol": "coordinate",
-            "reason": "test composition root",
-        }
-    ]
+    policy["frozen_files"] = ["src/legacy.py"]
     _init_repository(tmp_path)
-    _write(tmp_path, "src/coordinator.py", _function("coordinate", 179))
+    _write(tmp_path, "src/legacy.py", "VALUE = 1\n")
+    _write(tmp_path, "tests/code_size_policy.json", json.dumps(policy))
+    base = _commit(tmp_path)
+    _write(tmp_path, "src/legacy.py", _function("new_oversized", 151))
 
-    files, callables = _metrics(tmp_path, policy)
-    metric = next(item for item in callables if item.symbol == "coordinate")
-    result = CODE_SIZE.evaluate(policy, files, callables, "backend")
-
-    assert metric.category == "entrypoint"
-    assert metric.lines == 180
-    assert result["status"] == "passed"
+    errors = CODE_SIZE.compare_frozen_metrics(tmp_path, policy, base)
+    assert any("new callable in frozen file" in error for error in errors)
 
 
-def test_file_debt_requires_immediate_downward_update(tmp_path: Path) -> None:
+def test_release_regression_reports_all_frozen_growth_and_new_callables(tmp_path: Path) -> None:
     policy = _policy()
-    _init_repository(tmp_path)
-    _write(tmp_path, "scripts/legacy.sh", "line\n" * 801)
-    files, callables = _metrics(tmp_path, policy)
-    metric = next(item for item in files if item.path == "scripts/legacy.sh")
-    policy["debt"]["files"] = [
-        {"path": metric.path, "category": metric.category, "max_lines": metric.lines}
+    paths = [
+        "src/storage/service_store.py",
+        "tests/test_api_service.py",
+        "frontend-placeholder.py",
+        "scripts/test_gate.py",
     ]
-    assert CODE_SIZE.evaluate(policy, files, callables, "backend")["status"] == "passed"
+    policy["frozen_files"] = sorted(paths)
+    _init_repository(tmp_path)
+    for path in paths:
+        _write(tmp_path, path, "VALUE = 1\n")
+    _write(tmp_path, "tests/code_size_policy.json", json.dumps(policy))
+    base = _commit(tmp_path)
+    _write(tmp_path, paths[0], "VALUE = 1\n" + _function("new_store_method", 151))
+    _write(tmp_path, paths[1], "VALUE = 1\n" + _function("new_api_fixture", 201))
+    for path in paths[2:]:
+        _write(tmp_path, path, "VALUE = 1\nVALUE_2 = 2\n")
 
-    _write(tmp_path, "scripts/legacy.sh", "line\n" * 800)
-    files, callables = _metrics(tmp_path, policy)
-    result = CODE_SIZE.evaluate(policy, files, callables, "backend")
+    errors = CODE_SIZE.compare_frozen_metrics(tmp_path, policy, base)
 
-    assert any("remove obsolete debt allowance" in error for error in result["errors"])
+    assert len(errors) == 6
+    assert sum("frozen file grew" in error for error in errors) == 4
+    assert sum("new callable in frozen file" in error for error in errors) == 2
 
 
 def test_policy_rejects_nonempty_exceptions(tmp_path: Path) -> None:
@@ -204,7 +179,7 @@ def test_policy_rejects_nonempty_exceptions(tmp_path: Path) -> None:
         raise AssertionError("nonempty exceptions must fail")
 
 
-def test_compare_policy_rejects_limit_increase_and_new_debt(tmp_path: Path) -> None:
+def test_compare_policy_rejects_limit_increase_and_new_frozen_file(tmp_path: Path) -> None:
     _init_repository(tmp_path)
     previous = _policy()
     _write(tmp_path, "tests/code_size_policy.json", json.dumps(previous))
@@ -214,9 +189,7 @@ def test_compare_policy_rejects_limit_increase_and_new_debt(tmp_path: Path) -> N
     current["limits"]["complexity"]["target"] += 1
     current["limits"]["complexity"]["future_hard"] += 1
     current["limits"]["nesting"]["target"] += 1
-    current["debt"]["files"] = [
-        {"path": "src/new.py", "category": "production", "max_lines": 900}
-    ]
+    current["frozen_files"] = ["src/new.py"]
 
     errors = CODE_SIZE.compare_policy(tmp_path, current, base)
 
@@ -224,7 +197,7 @@ def test_compare_policy_rejects_limit_increase_and_new_debt(tmp_path: Path) -> N
     assert "limits.complexity.target cannot increase" in errors
     assert "limits.complexity.future_hard cannot increase" in errors
     assert "limits.nesting.target cannot increase" in errors
-    assert "new file debt is forbidden: src/new.py" in errors
+    assert "new frozen file is forbidden: src/new.py" in errors
 
 
 def test_initial_policy_must_bind_to_trusted_base(tmp_path: Path) -> None:
@@ -299,15 +272,13 @@ def test_delayed_policy_integration_accepts_ancestor_and_keeps_ratchet(
     relaxed["limits"]["files"]["production"]["hard"] += 1
     relaxed["limits"]["complexity"]["future_hard"] += 1
     relaxed["limits"]["nesting"]["target"] += 1
-    relaxed["debt"]["files"] = [
-        {"path": "src/new.py", "category": "production", "max_lines": 900}
-    ]
+    relaxed["frozen_files"] = ["src/new.py"]
     errors = CODE_SIZE.compare_policy(tmp_path, relaxed, compare_base)
 
     assert "limits.files.production.hard cannot increase" in errors
     assert "limits.complexity.future_hard cannot increase" in errors
     assert "limits.nesting.target cannot increase" in errors
-    assert "new file debt is forbidden: src/new.py" in errors
+    assert "new frozen file is forbidden: src/new.py" in errors
 
 
 def test_initial_policy_rejects_unknown_descendant_and_unrelated_baselines(

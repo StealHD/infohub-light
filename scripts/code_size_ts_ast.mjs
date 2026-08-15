@@ -11,7 +11,8 @@ if (!rootArgument) {
 }
 
 const root = path.resolve(rootArgument)
-const typescriptPath = path.join(root, "frontend", "node_modules", "typescript", "lib", "typescript.js")
+const dependencyRoot = path.resolve(process.env.INTELISCOPE_TYPESCRIPT_ROOT || root)
+const typescriptPath = path.join(dependencyRoot, "frontend", "node_modules", "typescript", "lib", "typescript.js")
 if (!fs.existsSync(typescriptPath)) {
   process.stderr.write("TypeScript compiler not found; run npm --prefix frontend ci\n")
   process.exit(2)

@@ -10,7 +10,7 @@ from typing import Any
 
 
 POLICY_RELATIVE = "tests/code_size_policy.json"
-CALLABLE_CATEGORIES = {"entrypoint", "migration", "production", "test"}
+CALLABLE_CATEGORIES = {"migration", "production", "test"}
 FILE_CATEGORIES = {"migration", "production", "test"}
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 
@@ -75,41 +75,23 @@ def _safe_relative(value: Any, label: str, *, allow_prefix: bool = False) -> str
     return value
 
 
-def _validate_debt(policy: dict[str, Any]) -> None:
-    debt = policy.get("debt")
-    if not isinstance(debt, dict) or set(debt) != {"files", "callables"}:
-        raise PolicyError("debt must define files and callables")
-    file_keys: set[str] = set()
-    for index, entry in enumerate(debt["files"]):
-        if not isinstance(entry, dict) or set(entry) != {"path", "category", "max_lines"}:
-            raise PolicyError(f"debt.files[{index}] has an invalid shape")
-        path = _safe_relative(entry["path"], f"debt.files[{index}].path")
-        if entry["category"] not in FILE_CATEGORIES:
-            raise PolicyError(f"debt.files[{index}] has an invalid category")
-        _positive_int(entry["max_lines"], f"debt.files[{index}].max_lines")
-        if path in file_keys:
-            raise PolicyError(f"duplicate file debt: {path}")
-        file_keys.add(path)
-    callable_keys: set[tuple[str, str, str]] = set()
-    for index, entry in enumerate(debt["callables"]):
-        required = {"path", "symbol", "category", "max_lines"}
-        if not isinstance(entry, dict) or set(entry) != required:
-            raise PolicyError(f"debt.callables[{index}] has an invalid shape")
-        path = _safe_relative(entry["path"], f"debt.callables[{index}].path")
-        symbol = entry["symbol"]
-        category = entry["category"]
-        if not isinstance(symbol, str) or not symbol or category not in CALLABLE_CATEGORIES:
-            raise PolicyError(f"debt.callables[{index}] has an invalid symbol or category")
-        _positive_int(entry["max_lines"], f"debt.callables[{index}].max_lines")
-        key = (path, symbol, category)
-        if key in callable_keys:
-            raise PolicyError(f"duplicate callable debt: {path}::{symbol}::{category}")
-        callable_keys.add(key)
+def _validate_frozen_files(policy: dict[str, Any]) -> None:
+    frozen_files = policy.get("frozen_files")
+    if not isinstance(frozen_files, list):
+        raise PolicyError("frozen_files must be an array")
+    seen: set[str] = set()
+    for index, value in enumerate(frozen_files):
+        path = _safe_relative(value, f"frozen_files[{index}]")
+        if path in seen:
+            raise PolicyError(f"duplicate frozen file: {path}")
+        seen.add(path)
+    if frozen_files != sorted(frozen_files):
+        raise PolicyError("frozen_files must be sorted")
 
 
 def load_policy(path: Path) -> dict[str, Any]:
     policy = _read_json(path)
-    if policy.get("version") != 1:
+    if policy.get("version") != 2:
         raise PolicyError("unsupported code-size policy version")
     if not isinstance(policy.get("baseline_sha"), str) or not SHA_PATTERN.fullmatch(
         policy["baseline_sha"]
@@ -125,35 +107,24 @@ def load_policy(path: Path) -> dict[str, Any]:
         _safe_relative(value, f"exclusions.paths[{index}]")
     for index, value in enumerate(exclusions["prefixes"]):
         _safe_relative(value, f"exclusions.prefixes[{index}]", allow_prefix=True)
-    entrypoints = policy.get("entrypoints")
-    if not isinstance(entrypoints, list):
-        raise PolicyError("entrypoints must be an array")
-    seen_entrypoints: set[tuple[str, str]] = set()
-    for index, entry in enumerate(entrypoints):
-        if not isinstance(entry, dict) or set(entry) != {"path", "symbol", "reason"}:
-            raise PolicyError(f"entrypoints[{index}] has an invalid shape")
-        key = (
-            _safe_relative(entry["path"], f"entrypoints[{index}].path"),
-            entry["symbol"],
-        )
-        if not isinstance(key[1], str) or not key[1] or not isinstance(entry["reason"], str):
-            raise PolicyError(f"entrypoints[{index}] requires symbol and reason")
-        if key in seen_entrypoints:
-            raise PolicyError(f"duplicate entrypoint: {key[0]}::{key[1]}")
-        seen_entrypoints.add(key)
-    _validate_debt(policy)
+    _validate_frozen_files(policy)
     return policy
 
 
-def debt_maps(
-    policy: dict[str, Any],
-) -> tuple[dict[str, dict[str, Any]], dict[tuple[str, str, str], dict[str, Any]]]:
-    files = {item["path"]: item for item in policy["debt"]["files"]}
-    callables = {
-        (item["path"], item["symbol"], item["category"]): item
-        for item in policy["debt"]["callables"]
-    }
-    return files, callables
+def frozen_files(policy: dict[str, Any]) -> set[str]:
+    if policy.get("version") == 1:
+        debt = policy.get("debt", {})
+        return {
+            item["path"]
+            for group in ("files", "callables")
+            for item in debt.get(group, [])
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        } | {
+            item["path"]
+            for item in policy.get("entrypoints", [])
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+    return set(policy["frozen_files"])
 
 
 def _git_policy(root: Path, revision: str) -> dict[str, Any] | None:
@@ -239,8 +210,6 @@ def compare_policy(root: Path, policy: dict[str, Any], base: str) -> list[str]:
         errors.append("baseline_sha cannot change")
     if policy["exclusions"] != previous.get("exclusions"):
         errors.append("exclusions cannot change in an ordinary code change")
-    if policy["entrypoints"] != previous.get("entrypoints"):
-        errors.append("entrypoints cannot change in an ordinary code change")
     for group in ("files", "callables"):
         for category, current in policy["limits"][group].items():
             before = previous["limits"][group][category]
@@ -256,17 +225,7 @@ def compare_policy(root: Path, policy: dict[str, Any], base: str) -> list[str]:
         for name in names:
             if current[name] > before[name]:
                 errors.append(f"limits.{group}.{name} cannot increase")
-    previous_files, previous_callables = debt_maps(previous)
-    current_files, current_callables = debt_maps(policy)
-    for path, debt in current_files.items():
-        if path not in previous_files:
-            errors.append(f"new file debt is forbidden: {path}")
-        elif debt["max_lines"] > previous_files[path]["max_lines"]:
-            errors.append(f"file debt cannot increase: {path}")
-    for key, debt in current_callables.items():
-        label = f"{key[0]}::{key[1]}::{key[2]}"
-        if key not in previous_callables:
-            errors.append(f"new callable debt is forbidden: {label}")
-        elif debt["max_lines"] > previous_callables[key]["max_lines"]:
-            errors.append(f"callable debt cannot increase: {label}")
+    previous_frozen = frozen_files(previous)
+    for path in sorted(frozen_files(policy) - previous_frozen):
+        errors.append(f"new frozen file is forbidden: {path}")
     return errors

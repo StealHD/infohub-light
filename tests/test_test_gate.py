@@ -25,6 +25,7 @@ from scripts.test_gate import (
     _reconcile_mapping_miss,
     _prepare_release_smoke_data,
 )
+from scripts.test_gate_changes import code_size_policy_domains
 from scripts.check_observability_contract import PROTECTED_RUNTIME_FILES
 
 
@@ -44,6 +45,14 @@ def test_snapshot_cli_records_only_safe_relative_file_hashes(tmp_path):
     (repo / "data" / "service.db").write_text("private", encoding="utf-8")
     (repo / ".env").write_text("API_TOKEN=do-not-read\n", encoding="utf-8")
     subprocess.run(["git", "add", "src/module.py", "src/secret_store.py"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-qm", "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
     output = tmp_path / "snapshot.json"
 
     result = subprocess.run(
@@ -63,7 +72,8 @@ def test_snapshot_cli_records_only_safe_relative_file_hashes(tmp_path):
 
     assert result.returncode == 0, result.stderr
     snapshot = json.loads(output.read_text(encoding="utf-8"))
-    assert snapshot["version"] == 1
+    assert snapshot["version"] == 2
+    assert len(snapshot["base_sha"]) == 40
     assert list(snapshot["files"]) == ["src/module.py", "src/secret_store.py"]
     assert len(snapshot["files"]["src/module.py"]) == 64
     serialized = output.read_text(encoding="utf-8")
@@ -85,11 +95,21 @@ def test_snapshot_diff_is_task_scoped_and_detects_add_modify_delete(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     subprocess.run(["git", "add", "src"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-qm", "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     snapshot_path = tmp_path / "snapshot.json"
     snapshot_path.write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": 2,
+                "base_sha": base_sha,
                 "files": {
                     relative: __import__("hashlib").sha256(content.encode()).hexdigest()
                     for relative, content in {
@@ -129,8 +149,8 @@ def test_json_validation_ignores_deleted_tracked_json(tmp_path):
     [
         ("not-json", "invalid snapshot JSON"),
         ('{"version":99,"files":{}}', "unsupported snapshot version"),
-        ('{"version":1,"files":[]}', "snapshot files must be an object"),
-        ('{"version":1,"files":{"../escape.py":"bad"}}', "unsafe snapshot path"),
+        ('{"version":2,"base_sha":"0000000000000000000000000000000000000000","files":[]}', "snapshot files must be an object"),
+        ('{"version":2,"base_sha":"0000000000000000000000000000000000000000","files":{"../escape.py":"bad"}}', "unsafe snapshot path"),
     ],
 )
 def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
@@ -231,6 +251,7 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         (["docs/contracts/ui/README.md"], {"control", "frontend_full"}, True, False),
         (["tests/test_worker.py"], {"control", "python_test_files"}, False, False),
         (["tests/conftest.py"], {"control", "full"}, False, False),
+        (["tests/code_size_policy.json"], {"control"}, False, False),
         (["pyproject.toml"], {"control", "full"}, False, False),
         (["src/new_subsystem/module.py"], {"control", "full"}, False, True),
     ],
@@ -260,7 +281,7 @@ def test_mapping_file_rejects_unknown_group(tmp_path):
     mapping_path.write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": 2,
                 "rules": [
                     {"id": "bad", "globs": ["src/**"], "groups": ["does_not_exist"]}
                 ],
@@ -271,6 +292,105 @@ def test_mapping_file_rejects_unknown_group(tmp_path):
 
     with pytest.raises(GateConfigError, match="unknown group"):
         load_mapping(mapping_path)
+
+
+@pytest.mark.parametrize(
+    ("changed_file", "targets", "full"),
+    [
+        (
+            "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
+            {"e2e/actorops-pool-management.spec.ts", "e2e/production-admin.spec.ts"},
+            False,
+        ),
+        (
+            "frontend/src/features/workbench-live/VirtualFeed.tsx",
+            {"e2e/heroui-workbench-preview.spec.ts", "e2e/production-workbench.spec.ts"},
+            False,
+        ),
+        (
+            "frontend/e2e/production-admin.spec.ts-snapshots/actorops-guided-light-mobile-linux.png",
+            {"e2e/production-admin.spec.ts"},
+            False,
+        ),
+        ("frontend/src/app/App.tsx", set(), True),
+        ("frontend/src/features/new-area/Unknown.tsx", set(), True),
+    ],
+)
+def test_e2e_impact_selection(changed_file, targets, full):
+    plan = build_plan([changed_file], load_mapping(MAPPING))
+
+    assert set(plan["e2e_targets"]) == targets
+    assert plan["e2e_full"] is full
+
+
+def test_code_size_policy_change_selects_only_its_domain(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    policy_path = repo / "tests" / "code_size_policy.json"
+    policy_path.parent.mkdir()
+    policy = {
+        "version": 2,
+        "limits": {"unchanged": True},
+        "frozen_files": ["frontend/src/Legacy.tsx", "src/legacy.py"],
+    }
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-qm", "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    policy["frozen_files"].remove("frontend/src/Legacy.tsx")
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    domains = code_size_policy_domains(repo, base)
+    plan = build_plan(
+        ["tests/code_size_policy.json"],
+        load_mapping(MAPPING),
+        code_size_domains=domains,
+    )
+
+    assert domains == {"frontend"}
+    assert set(plan["selected_groups"]) == {"control", "code_size_frontend"}
+    assert plan["frontend_impacted"] is True
+    assert plan["backend_impacted"] is False
+
+
+def test_code_size_limit_change_fails_closed_to_full_impact(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    policy_path = repo / "tests" / "code_size_policy.json"
+    policy_path.parent.mkdir()
+    policy = {"version": 2, "limits": {"hard": 800}, "frozen_files": []}
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-qm", "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    policy["limits"]["hard"] = 799
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    domains = code_size_policy_domains(repo, base)
+    plan = build_plan(
+        ["tests/code_size_policy.json"],
+        load_mapping(MAPPING),
+        code_size_domains=domains,
+    )
+
+    assert domains == {"full"}
+    assert set(plan["selected_groups"]) == {"control", "full"}
 
 
 def test_git_diff_reports_rename_as_old_and_new_paths(tmp_path):
@@ -436,6 +556,49 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
         for name, value in smoke.env.items()
         if any(marker in name for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
     )
+
+
+def test_release_playwright_uses_impacted_specs_until_final_full_gate():
+    mapping = load_mapping(MAPPING)
+    plan = build_plan(
+        ["frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx"],
+        mapping,
+    )
+    plan["base_sha"] = "1" * 40
+
+    targeted = build_command_specs(ROOT, plan, mapping, mode="release", scope="e2e")
+    full = build_command_specs(
+        ROOT,
+        plan,
+        mapping,
+        mode="release",
+        scope="e2e",
+        full_e2e=True,
+    )
+
+    targeted_playwright = next(spec for spec in targeted if spec.command_id == "release_playwright")
+    full_playwright = next(spec for spec in full if spec.command_id == "release_playwright")
+    assert targeted_playwright.argv == (
+        "npm",
+        "run",
+        "e2e:release",
+        "--",
+        "e2e/actorops-pool-management.spec.ts",
+        "e2e/production-admin.spec.ts",
+    )
+    assert full_playwright.argv == ("npm", "run", "e2e:release")
+
+
+def test_snapshot_base_is_forwarded_to_code_size_preflight(tmp_path):
+    mapping = load_mapping(MAPPING)
+    plan = build_plan(["src/api/server.py"], mapping)
+    plan["base_sha"] = "a" * 40
+
+    specs = build_command_specs(ROOT, plan, mapping, mode="preflight")
+    code_size = [spec for spec in specs if spec.command_id.startswith("code_size_")]
+
+    assert code_size
+    assert all(("--compare-base", "a" * 40) == spec.argv[-2:] for spec in code_size)
 
 
 def test_preflight_fail_closed_runs_full_code_checks_without_docker_or_playwright():

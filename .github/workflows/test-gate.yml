@@ -159,10 +159,15 @@ jobs:
           name: impact-plan
           path: /tmp/impact
       - id: gate
-        name: UI release gate
+        name: UI impacted/final gate
         run: |
           set -o pipefail
+          e2e_mode=()
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event.inputs.release }}" == "true" ]]; then
+            e2e_mode+=(--full-e2e)
+          fi
           python scripts/test_gate.py run --mode release --scope e2e \
+            "${e2e_mode[@]}" \
             --impact-plan /tmp/impact/impact-plan.json | tee /tmp/e2e-summary.json
       - if: always()
         run: cat /tmp/e2e-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true

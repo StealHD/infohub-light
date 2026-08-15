@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "docs_only_globs": [
     "*.md",
     "deploy/*.md",
@@ -20,9 +20,9 @@
     "scripts/check_code_size.py",
     "scripts/code_size_policy.py",
     "scripts/code_size_ts_ast.mjs",
+    "scripts/test_gate_changes.py",
     "scripts/test_gate_log.py",
     "src/__init__.py",
-    "tests/code_size_policy.json",
     "tests/test_code_size.py",
     "tests/conftest.py",
     "tests/test_impact_map.json",
@@ -41,7 +41,71 @@
     "docs/contracts/ui/**",
     "frontend/**"
   ],
+  "e2e_all_globs": [
+    "docs/contracts/ui/**",
+    "frontend/index.html",
+    "frontend/package*.json",
+    "frontend/playwright*.ts",
+    "frontend/src/AppBootstrap*",
+    "frontend/src/app/**",
+    "frontend/src/design-system/**",
+    "frontend/src/main.tsx",
+    "frontend/src/styles/**",
+    "frontend/vite.config.*"
+  ],
+  "e2e_rules": [
+    {
+      "id": "ActorOps",
+      "globs": [
+        "frontend/src/features/apify-actors/**",
+        "frontend/e2e/actorops-pool-management.spec.ts",
+        "frontend/e2e/actorops-pool-management.spec.ts-snapshots/**"
+      ],
+      "specs": [
+        "e2e/actorops-pool-management.spec.ts",
+        "e2e/production-admin.spec.ts"
+      ]
+    },
+    {
+      "id": "Workbench",
+      "globs": [
+        "frontend/src/features/workbench-heroui/**",
+        "frontend/src/features/workbench-live/**",
+        "frontend/e2e/heroui-workbench-preview.spec.ts",
+        "frontend/e2e/production-workbench.spec.ts",
+        "frontend/e2e/production-workbench.spec.ts-snapshots/**"
+      ],
+      "specs": [
+        "e2e/heroui-workbench-preview.spec.ts",
+        "e2e/production-workbench.spec.ts"
+      ]
+    },
+    {
+      "id": "Settings",
+      "globs": [
+        "frontend/src/features/admin-heroui/**",
+        "frontend/src/features/settings/**",
+        "frontend/src/features/notifications/**",
+        "frontend/e2e/production-admin.spec.ts",
+        "frontend/e2e/production-admin.spec.ts-snapshots/**"
+      ],
+      "specs": ["e2e/production-admin.spec.ts"]
+    },
+    {
+      "id": "Design system visual",
+      "globs": [
+        "frontend/e2e/design-system-contract.spec.ts",
+        "frontend/e2e/design-system-contract.spec.ts-snapshots/**"
+      ],
+      "specs": ["e2e/design-system-contract.spec.ts"]
+    }
+  ],
   "rules": [
+    {
+      "id": "code-size policy data",
+      "globs": ["tests/code_size_policy.json"],
+      "groups": []
+    },
     {
       "id": "observability logging",
       "globs": [
@@ -444,6 +508,9 @@
       "tests/test_remote_mcp_subscription_http.py",
       "tests/test_openclaw_skill.py",
       "tests/test_light_runtime_scripts.py",
+      "tests/test_release_runtime_scripts.py",
+      "tests/test_runtime_health.py",
+      "tests/test_e2e_contract.py",
       "tests/test_react_service_ui.py",
       "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_notification_channels_v15.py",
