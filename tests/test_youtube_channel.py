@@ -34,11 +34,12 @@ def test_direct_channel_identities_canonicalize_without_network(value):
     fetcher = AsyncMock()
     resolver = YouTubeChannelResolver(fetcher=fetcher)
 
-    config = asyncio.run(resolver.resolve_config({"url": value}))
+    config = asyncio.run(resolver.resolve_config({"url": value, "fetch_limit": 3}))
 
     assert config["url"] == CANONICAL_URL
     assert config["name"] == CANONICAL_URL
     assert config["keep_latest_item"] is True
+    assert config["fetch_limit"] == 3
     fetcher.assert_not_awaited()
 
 

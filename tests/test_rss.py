@@ -25,6 +25,7 @@ def _fetch_selection_feed(
     *,
     keep_latest_item: bool,
     since: datetime,
+    fetch_limit: int = 20,
 ):
     xml_items = "".join(
         f"""
@@ -46,6 +47,7 @@ def _fetch_selection_feed(
         name="Selection",
         url="https://example.com/selection.xml",
         keep_latest_item=keep_latest_item,
+        fetch_limit=fetch_limit,
     )
     return asyncio.run(RSSScraper([source], client).fetch(since))
 
@@ -139,6 +141,21 @@ def test_personal_rss_returns_all_in_window_items_and_marks_only_newest() -> Non
         ]
         == "time_window"
     )
+
+
+def test_rss_keeps_only_the_configured_newest_items_in_the_window() -> None:
+    items = _fetch_selection_feed(
+        [
+            ("Oldest", "Wed, 15 Jul 2026 08:00:00 GMT"),
+            ("Second", "Wed, 15 Jul 2026 09:00:00 GMT"),
+            ("Latest", "Wed, 15 Jul 2026 10:00:00 GMT"),
+        ],
+        keep_latest_item=False,
+        since=datetime(2026, 7, 15, tzinfo=timezone.utc),
+        fetch_limit=2,
+    )
+
+    assert [item.title for item in items] == ["Latest", "Second"]
 
 
 YOUTUBE_ATOM_FEED = """<?xml version="1.0" encoding="UTF-8"?>

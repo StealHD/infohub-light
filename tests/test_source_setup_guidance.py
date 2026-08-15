@@ -98,6 +98,18 @@ def test_setup_guide_summaries_include_safe_minimum_required_fields():
     }
 
 
+def test_agent_rss_setup_preserves_the_configured_fetch_limit():
+    normalized = normalize_source_setup_input(
+        "rss",
+        {"url": "https://example.com/feed.xml", "fetch_limit": 3},
+    )
+
+    assert normalized["config"]["fetch_limit"] == 3
+    assert validate_normalized_source_setup(
+        "rss", "rss", normalized["config"]
+    ) == normalized
+
+
 def test_bilibili_setup_guide_exposes_semantic_route_without_service_url():
     zh = get_source_setup_guide("bilibili", "zh-CN")["source_type"]
     en = get_source_setup_guide("bilibili", "en")["source_type"]

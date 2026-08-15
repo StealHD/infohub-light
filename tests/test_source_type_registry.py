@@ -304,6 +304,10 @@ def test_source_type_registry_exposes_safe_canonical_field_metadata():
         "max": None,
         "help": "HTTP or HTTPS RSS/Atom URL without embedded credentials.",
     }
+    for source_type in ("rss", "github_release", "github_user"):
+        assert by_field[source_type]["fetch_limit"] | {
+            "name": "fetch_limit", "default": 20, "min": 1, "max": 100,
+        } == by_field[source_type]["fetch_limit"]
     assert by_field["reddit_subreddit"]["sort"]["default"] == "hot"
     assert by_field["reddit_subreddit"]["sort"]["options"] == [
         "hot",
@@ -350,13 +354,15 @@ def test_source_type_registry_exposes_safe_canonical_field_metadata():
 
 
 def test_source_type_registry_validates_config_and_builds_stable_keys():
-    rss = validate_source_config("rss", {"url": "https://example.com/feed.xml"})
-    github = validate_source_config("github_release", {"owner": "OpenAI", "repo": "Codex"})
+    rss = validate_source_config("rss", {"url": "https://example.com/feed.xml", "fetch_limit": 4})
+    github = validate_source_config("github_release", {"owner": "OpenAI", "repo": "Codex", "fetch_limit": 5})
     reddit = validate_source_config("reddit_subreddit", {"subreddit": "r/LocalLLaMA"})
     telegram = validate_source_config("telegram_channel", {"channel": "@durov"})
 
     assert rss["name"] == "https://example.com/feed.xml"
+    assert rss["fetch_limit"] == 4
     assert github["type"] == "repo_releases"
+    assert github["fetch_limit"] == 5
     assert reddit["subreddit"] == "LocalLLaMA"
     assert telegram["channel"] == "durov"
     assert source_key("rss", rss) == "rss:https://example.com/feed.xml"

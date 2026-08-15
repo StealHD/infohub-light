@@ -205,6 +205,7 @@ class GitHubSourceConfig(ServiceSourceConfig):
     username: Optional[str] = None
     owner: Optional[str] = None
     repo: Optional[str] = None
+    fetch_limit: int = Field(default=20, ge=1, le=100)
     enabled: bool = True
     channel: Optional[str] = None
     topics: List[str] = Field(default_factory=list)
@@ -237,6 +238,7 @@ class RSSSourceConfig(ServiceSourceConfig):
     personal_tags: List[str] = Field(default_factory=list)
     enforce_public_network: bool = False
     keep_latest_item: bool = False
+    fetch_limit: int = Field(default=20, ge=1, le=100)
 
     @model_validator(mode="after")
     def validate_provider_contract(self) -> "RSSSourceConfig":

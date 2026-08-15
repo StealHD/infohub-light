@@ -297,7 +297,7 @@ class ApifySocialScraper(BaseScraper):
                 source_id=str(sub.source_id),
                 target=actor_target_for_route(platform, sub.target),
                 runtime=ActorRuntime(
-                    max_items=1,
+                    max_items=sub.fetch_limit,
                     since_iso=since.astimezone(timezone.utc).isoformat(),
                     until_iso=datetime.now(timezone.utc).isoformat(),
                 ),

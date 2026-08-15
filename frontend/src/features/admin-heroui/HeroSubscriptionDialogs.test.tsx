@@ -35,6 +35,16 @@ const youtubeDefinition: SourceTypeDefinition = {
       help: '支持公开频道链接、@handle、频道 ID 或规范 Feed 地址。',
     },
     {
+      name: 'fetch_limit',
+      label: '每次获取条数',
+      input_type: 'number',
+      required: false,
+      default: 20,
+      min: 1,
+      max: 100,
+      help: '每次最多保留的公开视频数量。',
+    },
+    {
       name: 'keep_latest_item',
       label: '保留最新内容',
       input_type: 'boolean',
@@ -133,6 +143,8 @@ describe('YouTube SourceForm', () => {
       screen.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' }),
       '@GoogleDevelopers',
     )
+    await browser.clear(screen.getByRole('spinbutton', { name: '每次获取条数' }))
+    await browser.type(screen.getByRole('spinbutton', { name: '每次获取条数' }), '3')
     await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
@@ -142,6 +154,7 @@ describe('YouTube SourceForm', () => {
         display_name: 'Google Developers',
         config: expect.objectContaining({
           url: '@GoogleDevelopers',
+          fetch_limit: 3,
           keep_latest_item: true,
         }),
       }),

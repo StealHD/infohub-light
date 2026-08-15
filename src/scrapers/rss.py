@@ -130,16 +130,13 @@ class RSSScraper(BaseScraper):
                 if published_at is not None:
                     dated_entries.append((published_at, entry))
 
-            selected = [
-                candidate for candidate in dated_entries if candidate[0] >= since
-            ]
+            selected = sorted((candidate for candidate in dated_entries if candidate[0] >= since), key=lambda candidate: candidate[0], reverse=True)[: source.fetch_limit]
             if not selected and source.keep_latest_item and dated_entries:
                 selected = [max(dated_entries, key=lambda candidate: candidate[0])]
-            latest = max(selected, key=lambda candidate: candidate[0], default=None)
+            latest = selected[0] if selected else None
 
             for published_at, entry in selected:
 
-                # Generate unique ID from feed URL and entry ID
                 if source.provider == RSSHUB_PROVIDER:
                     feed_identity = source.source_key or rsshub_source_key(
                         {
@@ -159,7 +156,6 @@ class RSSScraper(BaseScraper):
                     :16
                 ]
 
-                # Extract content
                 content = self._extract_content(entry)
                 entry_url = entry.get("link", str(source.url))
                 media = self._extract_media_inventory(entry, content, entry_url)

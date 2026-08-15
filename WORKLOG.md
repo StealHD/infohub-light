@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-13",
-  "result": "将 Apify Key Pool 的 4 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；接口、路由顺序、OpenAPI、鉴权、migration gate、generation/CAS、drain 与 resilience event 语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-key-pool-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；后续继续小步拆分 secrets、Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
-  ],
-  "validation": [
-    "全 API 路由、Key Pool 路由与 OpenAPI 规范 SHA 均与 4e529f4 基线一致；Key Pool、resilience、权限、操作日志与 lifespan 定向回归 46/46 通过。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235453 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
   "result": "将 SecretStore 列表、创建、轮换、连接、额度与删除的 6 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；全局路由顺序、OpenAPI、权限、配置同步、Key Pool/drain、quota 与 source-health 语义保持不变。",
   "status": "completed",
   "task_id": "2026-08-13-code-health-secret-routes",
@@ -408,6 +387,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "定向规模、影响选择、E2E 合同、共享健康、发布与产品文档测试全部通过。",
     "staged preflight 18/18、完整 Test Gate 19/19 通过，均无 SQLite 资源告警；未运行付费 Actor、AI、真实通知或来源抓取。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "统一来源单次获取条数：RSS、YouTube、GitHub、Reddit、Telegram 与受控社交来源均可设置 1–100 条；X 的 ActorOps 执行不再固定为 1 条。",
+  "status": "partial",
+  "task_id": "2026-08-15-source-fetch-limit-settings",
+  "unresolved": [
+    "完整受影响预检在修复前的远程 MCP 设置指引回归处中断；该用例已单独通过，但未第三次运行完整预检，以遵守完整门禁重跑上限。"
+  ],
+  "validation": [
+    "来源注册、RSS、YouTube、GitHub、ActorOps、MCP 设置指引与订阅服务的定向 Pytest 均通过。",
+    "YouTube 来源表单 Vitest、前端 lint 和 typecheck 通过；Python 语法、代码大小、产品文档与控制文件检查通过。"
   ]
 }
 ```

@@ -118,6 +118,10 @@ def test_runtime_uses_frozen_build_cap_and_maps_content_without_actor_metadata()
     asyncio.run(_runtime_uses_frozen_build_cap_and_maps_content())
 
 
+def test_controlled_x_runtime_honors_the_source_item_limit():
+    asyncio.run(_controlled_x_runtime_honors_the_source_item_limit())
+
+
 def test_runtime_separates_target_key_and_actor_failures():
     def scope(code):
         return _client_failure_scope(
@@ -227,6 +231,7 @@ async def _runtime_uses_frozen_build_cap_and_maps_content():
             handle="openai",
         ),
         runtime=ActorRuntime(
+            max_items=3,
             since_iso="2026-07-29T00:00:00Z",
             until_iso="2026-07-31T00:00:00Z",
         ),
@@ -241,7 +246,8 @@ async def _runtime_uses_frozen_build_cap_and_maps_content():
     )
 
     assert client.kwargs["build_number"] == "1.2.3"
-    assert client.kwargs["max_paid_dataset_items"] == 1
+    assert client.kwargs["max_paid_dataset_items"] == 3
+    assert client.kwargs["dataset_item_limit"] == 4
     assert client.kwargs["max_total_charge_usd"] == 0.02
     assert result.semantic_outcome == "valid_nonempty"
     item = result.value[0]
@@ -249,3 +255,40 @@ async def _runtime_uses_frozen_build_cap_and_maps_content():
     assert item.metadata["source_id"] == "source"
     assert "actor_id" not in item.metadata
     assert "revision_id" not in item.metadata
+
+
+async def _controlled_x_runtime_honors_the_source_item_limit():
+    slot = RouteSlotSnapshot(
+        slot_name="primary", candidate_id="candidate", revision_id="revision",
+        actor_id="xquik/x-tweet-scraper", publisher="vendor", build_id=None,
+        build_number=None, manifest_hash=None, lifecycle="legacy_builtin",
+        candidate_state="closed", manifest=None, execution_mode="current",
+    )
+
+    class ControlledXClient:
+        timeout_seconds = 5
+        http_client = None
+        coordinator = None
+
+        def __init__(self):
+            self.kwargs = None
+
+        async def run_actor_detailed(self, actor_id, actor_input, **kwargs):
+            self.kwargs = {"actor_id": actor_id, "input": actor_input, **kwargs}
+            return SimpleNamespace(items=[
+                {"id": "post-1", "createdAt": "2026-07-30T00:00:00Z", "text": "one", "user": {"screen_name": "openai"}},
+                {"id": "post-2", "createdAt": "2026-07-30T00:01:00Z", "text": "two", "user": {"screen_name": "openai"}},
+            ], actual_charge_usd=0.01)
+
+    client = ControlledXClient()
+    result = await ApifyActorRuntimeService(_FakeOps(slot), client).fetch(
+        route_id="route", source_id="source",
+        target=ActorTarget(canonical_url="https://x.com/openai", handle="openai"),
+        runtime=ActorRuntime(max_items=3, since_iso="2026-07-29T00:00:00Z"),
+        content=ActorContentContext(platform="x", source_id="source", source_key="x:openai", source_name="OpenAI"),
+    )
+
+    assert client.kwargs["input"] == {"twitterHandles": ["openai"], "maxItems": 3}
+    assert client.kwargs["max_paid_dataset_items"] == 3
+    assert client.kwargs["dataset_item_limit"] == 4
+    assert len(result.value or []) == 2

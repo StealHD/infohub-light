@@ -88,7 +88,7 @@ class GitHubScraper(BaseScraper):
             remote_url=f"https://github.com/{quote(username, safe='')}.png?size=128",
             origin="github_user",
         )
-        url = f"{self.base_url}/users/{username}/events/public"
+        url = f"{self.base_url}/users/{username}/events/public?per_page={source.fetch_limit}"
         items = []
 
         try:
@@ -116,6 +116,8 @@ class GitHubScraper(BaseScraper):
                 item = self._parse_event(event, source)
                 if item:
                     items.append(item)
+                if len(items) >= source.fetch_limit:
+                    break
 
         except httpx.HTTPError as e:
             logger.warning(
@@ -207,7 +209,7 @@ class GitHubScraper(BaseScraper):
             remote_url=f"https://github.com/{quote(owner, safe='')}.png?size=128",
             origin="github_owner",
         )
-        url = f"{self.base_url}/repos/{owner}/{repo}/releases"
+        url = f"{self.base_url}/repos/{owner}/{repo}/releases?per_page={source.fetch_limit}"
         items = []
 
         try:
@@ -240,6 +242,8 @@ class GitHubScraper(BaseScraper):
                     }
                 )
                 items.append(item)
+                if len(items) >= source.fetch_limit:
+                    break
 
         except httpx.HTTPError as e:
             logger.warning(

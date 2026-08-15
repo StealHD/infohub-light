@@ -268,13 +268,19 @@ def _field(
     )
 
 
+def _fetch_limit_field(
+    default: int = 20, *, label: str = "Fetch limit", help: str
+) -> SourceFieldDefinition:
+    return _field("fetch_limit", label, "number", default=default, minimum=1, maximum=100, help=help)
+
+
 _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
     SourceTypeDefinition(
         type="rss",
         label="RSS/Atom",
         description="Direct RSS or Atom feed URL.",
         required_fields=("url",),
-        template={"name": "Example Feed", "url": "https://example.com/feed.xml"},
+        template={"name": "Example Feed", "url": "https://example.com/feed.xml", "fetch_limit": 20},
         fields=(
             _field(
                 "url",
@@ -289,6 +295,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                 "text",
                 help="Optional display name; the feed URL is used when omitted.",
             ),
+            _fetch_limit_field(help="Maximum feed entries retained per fetch."),
             _field(
                 "keep_latest_item",
                 "Keep latest item",
@@ -304,7 +311,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         label="GitHub Releases",
         description="Repository release feed from the GitHub REST API.",
         required_fields=("owner", "repo"),
-        template={"owner": "openai", "repo": "codex"},
+        template={"owner": "openai", "repo": "codex", "fetch_limit": 20},
         fields=(
             _field(
                 "owner",
@@ -320,6 +327,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                 required=True,
                 help="GitHub repository name without the owner prefix.",
             ),
+            _fetch_limit_field(help="Maximum releases retained per fetch."),
         ),
         supports_secret_env=True,
     ),
@@ -328,7 +336,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         label="GitHub User Events",
         description="Public GitHub user activity events.",
         required_fields=("username",),
-        template={"username": "openai"},
+        template={"username": "openai", "fetch_limit": 20},
         fields=(
             _field(
                 "username",
@@ -337,6 +345,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                 required=True,
                 help="Public GitHub account name.",
             ),
+            _fetch_limit_field(help="Maximum public events retained per fetch."),
         ),
         supports_secret_env=True,
     ),
@@ -370,15 +379,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                 options=("hour", "day", "week", "month", "year", "all"),
                 help="Time range used by Reddit ranking modes.",
             ),
-            _field(
-                "fetch_limit",
-                "Fetch limit",
-                "number",
-                default=25,
-                minimum=1,
-                maximum=100,
-                help="Maximum posts requested per fetch.",
-            ),
+            _fetch_limit_field(25, help="Maximum posts requested per fetch."),
             _field(
                 "min_score",
                 "Minimum score",
@@ -411,15 +412,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                 options=("hot", "new", "top", "rising", "controversial"),
                 help="Reddit listing order.",
             ),
-            _field(
-                "fetch_limit",
-                "Fetch limit",
-                "number",
-                default=10,
-                minimum=1,
-                maximum=100,
-                help="Maximum posts requested per fetch.",
-            ),
+            _fetch_limit_field(10, help="Maximum posts requested per fetch."),
         ),
     ),
     SourceTypeDefinition(
@@ -436,15 +429,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                 required=True,
                 help="Public Telegram channel name, with or without @.",
             ),
-            _field(
-                "fetch_limit",
-                "Fetch limit",
-                "number",
-                default=20,
-                minimum=1,
-                maximum=100,
-                help="Maximum channel posts requested per fetch.",
-            ),
+            _fetch_limit_field(help="Maximum channel posts requested per fetch."),
         ),
     ),
     SourceTypeDefinition(
@@ -496,15 +481,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                     "or channel identifier."
                 ),
             ),
-            _field(
-                "fetch_limit",
-                "Fetch limit",
-                "number",
-                default=20,
-                minimum=1,
-                maximum=100,
-                help="Maximum social items requested per fetch.",
-            ),
+            _fetch_limit_field(help="Maximum social items requested per fetch."),
             _field(
                 "analysis_mode",
                 "Analysis mode",
@@ -554,6 +531,7 @@ _YOUTUBE_CHANNEL_SETUP_DEFINITION = SourceTypeDefinition(
     template={
         "url": "@GoogleDevelopers",
         "keep_latest_item": True,
+        "fetch_limit": 20,
     },
     fields=(
         _field(
@@ -566,6 +544,7 @@ _YOUTUBE_CHANNEL_SETUP_DEFINITION = SourceTypeDefinition(
                 "或规范 YouTube Feed 地址。"
             ),
         ),
+        _fetch_limit_field(label="每次获取条数", help="每次最多保留的公开视频数量。"),
         _field(
             "keep_latest_item",
             "保留最新内容",
@@ -591,15 +570,7 @@ _PLATFORM_PROFILE_SETUP_DEFINITIONS = (
                 required=True,
                 help="输入公开 X 用户名、@handle 或主页链接。",
             ),
-            _field(
-                "fetch_limit",
-                "每次获取条数",
-                "number",
-                default=20,
-                minimum=1,
-                maximum=100,
-                help="每次最多获取的公开动态数量。",
-            ),
+            _fetch_limit_field(label="每次获取条数", help="每次最多获取的公开动态数量。"),
             _field(
                 "analysis_mode",
                 "分析模式",
@@ -627,15 +598,7 @@ _PLATFORM_PROFILE_SETUP_DEFINITIONS = (
                 required=True,
                 help="输入公开 Instagram 用户名、@handle 或主页链接。",
             ),
-            _field(
-                "fetch_limit",
-                "每次获取条数",
-                "number",
-                default=20,
-                minimum=1,
-                maximum=100,
-                help="每次最多获取的公开内容数量。",
-            ),
+            _fetch_limit_field(label="每次获取条数", help="每次最多获取的公开内容数量。"),
             _field(
                 "analysis_mode",
                 "分析模式",
@@ -743,6 +706,13 @@ _GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
                 ("plain text",), ("普通文本",),
                 ("Example Feed",), ("示例订阅",),
                 "Use a short name that helps you recognize the feed.", "填写便于识别的简短名称。",
+            ),
+            "fetch_limit": _guide_field(
+                "Fetch limit", "每次获取条数",
+                "Maximum feed entries retained per fetch.", "每次最多保留的订阅条目数。",
+                ("integer from 1 to 100",), ("1 到 100 的整数",),
+                ("20",), ("20",),
+                "Use a smaller value for a narrower feed.", "希望内容更精简时使用较小数值。",
             ),
             "keep_latest_item": _guide_field(
                 "Keep latest item", "保留最新内容",
@@ -1991,7 +1961,7 @@ def validate_normalized_source_setup(
     if source_type == "rss":
         reverse_input = {
             key: config[key]
-            for key in ("url", "name", "keep_latest_item")
+            for key in ("url", "name", "fetch_limit", "keep_latest_item")
             if key in config
         }
     elif source_type == "bilibili":
@@ -2286,6 +2256,7 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
                 "url",
                 "name",
                 "keep_latest_item",
+                "fetch_limit",
                 "enabled",
                 "category",
                 "channel",
@@ -2308,6 +2279,8 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
             data["keep_latest_item"] = _bool(
                 data.get("keep_latest_item"), default=False
             )
+            if "fetch_limit" in data:
+                data["fetch_limit"] = _int(data, "fetch_limit", default=20, minimum=1, maximum=100)
             return data
         if data.get("provider", "direct") != "direct":
             raise SourceConfigError("unsupported RSS provider")
@@ -2325,17 +2298,23 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
         data["keep_latest_item"] = _bool(
             data.get("keep_latest_item"), default=False
         )
+        if "fetch_limit" in data:
+            data["fetch_limit"] = _int(data, "fetch_limit", default=20, minimum=1, maximum=100)
         return data
 
     if source_type == "github_release":
         data["owner"] = _text(data, "owner", "owner")
         data["repo"] = _text(data, "repo", "repo")
         data["type"] = "repo_releases"
+        if "fetch_limit" in data:
+            data["fetch_limit"] = _int(data, "fetch_limit", default=20, minimum=1, maximum=100)
         return data
 
     if source_type == "github_user":
         data["username"] = _text(data, "username", "username")
         data["type"] = "user_events"
+        if "fetch_limit" in data:
+            data["fetch_limit"] = _int(data, "fetch_limit", default=20, minimum=1, maximum=100)
         return data
 
     if source_type == "reddit_subreddit":

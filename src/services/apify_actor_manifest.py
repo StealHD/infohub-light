@@ -38,7 +38,7 @@ MAX_INPUT_NODES = 512
 MAX_INPUT_STRING_CHARS = 2_048
 MAX_OUTPUT_POINTERS = 128
 MAX_POINTER_CHARS = 512
-MAX_DATASET_ROWS = 50
+MAX_DATASET_ROWS = 100
 
 ALLOWED_REFERENCES = frozenset(
     {
@@ -432,7 +432,7 @@ class ActorRuntime(BaseModel):
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
-    max_items: Literal[1, 3, 5] = 1
+    max_items: int = Field(default=1, ge=1, le=100)
     since_iso: str | None = None
     until_iso: str | None = None
 

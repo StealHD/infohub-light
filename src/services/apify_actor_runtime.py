@@ -118,8 +118,8 @@ class ApifyActorRuntimeService:
                     max_total_charge_usd=snapshot.per_run_cap_usd,
                     logical_run_id=snapshot.attempt_id or job_id or source_id,
                     build_number=slot.build_number,
-                    max_paid_dataset_items=1,
-                    dataset_item_limit=2,
+                    max_paid_dataset_items=max(1, int(runtime.max_items)),
+                    dataset_item_limit=min(max(2, int(runtime.max_items) + 1), 100),
                     expected_pool_generation=snapshot.key_pool_generation,
                 )
                 actual_charge_usd = run.actual_charge_usd
@@ -132,7 +132,7 @@ class ApifyActorRuntimeService:
                 items = [
                     _content_item_from_mapped(item, content=content)
                     for item in mapped.items
-                ]
+                ][: int(runtime.max_items)]
                 return RouteInvocationResult(
                     value=items,
                     semantic_outcome=mapped.semantic_outcome,

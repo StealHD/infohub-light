@@ -41,6 +41,7 @@ _ALLOWED_CONFIG_KEYS = {
     "category",
     "channel",
     "enabled",
+    "fetch_limit",
     "keep_latest_item",
     "name",
     "personal_tags",

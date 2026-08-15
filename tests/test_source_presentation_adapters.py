@@ -176,3 +176,21 @@ def test_all_catalog_adapters_project_to_one_presentation_contract() -> None:
         assert presentation["timing"]["published_at"]
         assert presentation["links"]["canonical_url"].startswith("http")
         assert "reason" not in presentation["analysis"]
+
+
+def test_github_scraper_passes_and_enforces_the_configured_fetch_limit() -> None:
+    response = MagicMock()
+    response.json.return_value = [
+        {"id": index, "tag_name": f"v{index}", "html_url": f"https://github.com/openai/codex/releases/tag/v{index}", "body": "", "author": {"login": "openai"}, "published_at": NOW.isoformat().replace("+00:00", "Z")}
+        for index in range(1, 4)
+    ]
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+
+    items = asyncio.run(GitHubScraper([
+        GitHubSourceConfig(type="repo_releases", owner="openai", repo="codex", fetch_limit=2),
+    ], client).fetch(SINCE))
+
+    assert len(items) == 2
+    assert client.get.await_args.args[0].endswith("/releases?per_page=2")
