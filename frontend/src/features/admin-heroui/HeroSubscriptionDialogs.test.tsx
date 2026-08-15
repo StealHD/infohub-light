@@ -55,6 +55,42 @@ const youtubeDefinition: SourceTypeDefinition = {
   ],
 }
 
+const xProfileDefinition: SourceTypeDefinition = {
+  type: 'x_profile',
+  catalog_source_type: 'apify_social',
+  label: 'X 账号',
+  credential_mode: undefined,
+  fields: [
+    {
+      name: 'target',
+      label: 'X 用户名或主页链接',
+      input_type: 'text',
+      required: true,
+      default: null,
+      help: '输入公开 X 用户名、@handle 或主页链接。',
+    },
+    {
+      name: 'fetch_limit',
+      label: '每次获取条数',
+      input_type: 'number',
+      required: false,
+      default: 20,
+      min: 1,
+      max: 100,
+      help: '每次最多获取的公开动态数量。',
+    },
+    {
+      name: 'analysis_mode',
+      label: '分析模式',
+      input_type: 'select',
+      required: false,
+      default: 'full',
+      options: [{ value: 'full', label: '完整分析' }, { value: 'personal_only', label: '仅收集' }],
+      help: '选择完整分析或仅收集到个人信息流。',
+    },
+  ],
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => { resolve = next })
@@ -129,6 +165,28 @@ function renderYouTubeSourceForm(
   </MemoryRouter>)
 }
 
+function renderLockedXSourceForm(
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>,
+) {
+  render(<MemoryRouter>
+    <DesignSystemProvider>
+      <ActionFeedbackProvider userId="user-1">
+        <SourceForm
+          definition={xProfileDefinition}
+          source={{ ...source, type: 'apify_social', config: { target: 'openai', fetch_limit: 6, analysis_mode: 'full' } }}
+          secrets={[]}
+          allowSecret={false}
+          scopes={['private']}
+          taxonomy={{ channels: [], topics: [] }}
+          submitLabel="保存来源"
+          configLocked
+          onSubmit={onSubmit}
+        />
+      </ActionFeedbackProvider>
+    </DesignSystemProvider>
+  </MemoryRouter>)
+}
+
 describe('YouTube SourceForm', () => {
   it('submits the first-class setup type with the default latest-item policy', async () => {
     const browser = userEvent.setup()
@@ -191,6 +249,27 @@ describe('YouTube SourceForm', () => {
       '未找到这个 YouTube 频道，请检查链接或改用频道 ID。',
     )).toBeInTheDocument()
     expect(screen.queryByText('upstream detail')).not.toBeInTheDocument()
+  })
+})
+
+describe('locked platform SourceForm', () => {
+  it('keeps the platform target locked while saving a new fetch limit', async () => {
+    const browser = userEvent.setup()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderLockedXSourceForm(onSubmit)
+
+    expect(screen.getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled()
+    const fetchLimit = screen.getByRole('spinbutton', { name: '每次获取条数' })
+    expect(fetchLimit).toBeEnabled()
+    await browser.clear(fetchLimit)
+    await browser.type(fetchLimit, '3')
+    await browser.click(screen.getByRole('button', { name: '保存来源' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ target: 'openai', fetch_limit: 3, analysis_mode: 'full' }),
+      }),
+    ))
   })
 })
 

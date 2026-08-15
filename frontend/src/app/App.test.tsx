@@ -3116,7 +3116,7 @@ describe('App routes', () => {
     expect(secrets).not.toHaveBeenCalled()
   })
 
-  it('locks an unavailable X target while preserving metadata-only edits', async () => {
+  it('locks an unavailable X target while allowing the fetch limit to change', async () => {
     const browser = userEvent.setup()
     const source = { id: 'x-existing', type: 'apify_social', setup_type: 'x_profile', display_name: 'OpenAI 旧名称', description: '', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', default_topics: [], enabled: true, config: { target: 'openai', fetch_limit: 20, analysis_mode: 'full' } }
     const subscription = { id: 'x-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
@@ -3140,19 +3140,18 @@ describe('App routes', () => {
 
     await browser.click(await screen.findByRole('button', { name: '编辑来源：OpenAI 旧名称' }))
     const dialog = await screen.findByRole('dialog', { name: 'OpenAI 旧名称 · 来源设置' })
-    expect(within(dialog).getByText('平台连接字段暂时锁定')).toBeVisible()
-    expect(within(dialog).getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled()
-    expect(within(dialog).getByRole('checkbox', { name: '启用来源' })).toBeDisabled()
+    expect(within(dialog).getByText('平台连接字段暂时锁定')).toBeVisible(); expect(within(dialog).getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled(); expect(within(dialog).getByRole('checkbox', { name: '启用来源' })).toBeDisabled()
+    const fetchLimit = within(dialog).getByRole('spinbutton', { name: '每次获取条数' })
+    expect(fetchLimit).toBeEnabled()
+    await browser.clear(fetchLimit); await browser.type(fetchLimit, '3')
     const name = within(dialog).getByRole('textbox', { name: '来源名称' })
     await browser.clear(name)
     await browser.type(name, 'OpenAI X')
     await browser.click(within(dialog).getByRole('button', { name: '保存来源' }))
     await waitFor(() => expect(updateSource).toHaveBeenCalledOnce())
-    expect(updateSource).toHaveBeenCalledWith('x-existing', expect.objectContaining({ display_name: 'OpenAI X' }))
-    expect(updateSource.mock.calls[0][1]).not.toHaveProperty('config')
+    expect(updateSource).toHaveBeenCalledWith('x-existing', expect.objectContaining({ display_name: 'OpenAI X', config: { target: 'openai', fetch_limit: 3, analysis_mode: 'full' } }))
     expect(updateSource.mock.calls[0][1]).not.toHaveProperty('enabled')
   })
-
   it('keeps legacy social sources editable as metadata without exposing implementation controls', async () => {
     const browser = userEvent.setup()
     const source = {

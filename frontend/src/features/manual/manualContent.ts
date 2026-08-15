@@ -90,7 +90,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '新增 X 或 Instagram 账号',
-        description: '新增来源时直接选择“X 账号”或“Instagram 账号”，只需填写公开用户名或主页链接、每次获取条数和分析模式。RSS、YouTube、GitHub、Reddit、Telegram 与 Hacker News 也会在各自的来源表单提供相应的每次获取数量设置；保存后从下一次手动或周期获取生效。页面不会要求选择 Apify、Actor、Route 或 Key，也不显示高级 JSON；平台线路由工作区管理员统一维护。若平台显示“正在准备中”或“暂不可用”，现有来源和历史内容不受影响；此时不能新建或更换账号目标，但仍可编辑既有来源的名称、说明、默认频道和主题。来源卡、筛选和编辑都使用平台名称，不再显示“社交平台”。',
+        description: '新增来源时直接选择“X 账号”或“Instagram 账号”，只需填写公开用户名或主页链接、每次获取条数和分析模式。RSS、YouTube、GitHub、Reddit、Telegram 与 Hacker News 也会在各自的来源表单提供相应的每次获取数量设置；保存后从下一次手动或周期获取生效。页面不会要求选择 Apify、Actor、Route 或 Key，也不显示高级 JSON；平台线路由工作区管理员统一维护。若平台显示“正在准备中”或“暂不可用”，现有来源和历史内容不受影响；此时不能新建或更换账号目标，但仍可编辑既有来源的名称、说明、每次获取条数、分析模式、默认频道和主题。来源卡、筛选和编辑都使用平台名称，不再显示“社交平台”。',
       },
       {
         title: '验证 Actor 来源',

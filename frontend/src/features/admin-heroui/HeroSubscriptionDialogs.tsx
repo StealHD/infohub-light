@@ -82,12 +82,15 @@ function fieldValue(field: CatalogField, form: FormData, registryValues: Record<
   return field.input_type === 'number' ? raw === '' ? field.default : Number(raw) : raw
 }
 
-function RegistryFields({ definition, values, errors, disabled = false, onOptionChange, onFieldChange }: { definition: SourceTypeDefinition; values: Record<string, unknown>; errors: Record<string, string>; disabled?: boolean; onOptionChange: (name: string, value: string) => void; onFieldChange: (name: string) => void }) {
-  return <>{definition.fields.map((field) => field.options?.length
-    ? <RegistryOptionField key={field.name} field={field} value={String(values[field.name] ?? '')} error={errors[field.name]} disabled={disabled} onChange={(value) => onOptionChange(field.name, value)} />
-    : field.input_type === 'checkbox' || field.input_type === 'boolean'
-      ? <div key={field.name} className="grid gap-1"><Checkbox name={field.name} defaultSelected={Boolean(values[field.name])} isDisabled={disabled} isInvalid={Boolean(errors[field.name])} onChange={() => onFieldChange(field.name)}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>{field.label}</Checkbox.Content></Checkbox>{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</div>
-      : <TextField key={field.name} fullWidth name={field.name} defaultValue={String(values[field.name] ?? '')} isDisabled={disabled} isRequired={field.required && !disabled} isInvalid={Boolean(errors[field.name])}><Label>{field.label}</Label><Input type={field.input_type === 'number' ? 'number' : field.input_type === 'url' ? 'url' : 'text'} min={field.min ?? undefined} max={field.max ?? undefined} step={field.input_type === 'number' ? 1 : undefined} onChange={() => onFieldChange(field.name)} />{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</TextField>)}</>
+function RegistryFields({ definition, values, errors, disabled = false, lockedFieldNames = [], onOptionChange, onFieldChange }: { definition: SourceTypeDefinition; values: Record<string, unknown>; errors: Record<string, string>; disabled?: boolean; lockedFieldNames?: string[]; onOptionChange: (name: string, value: string) => void; onFieldChange: (name: string) => void }) {
+  return <>{definition.fields.map((field) => {
+    const fieldDisabled = disabled || lockedFieldNames.includes(field.name)
+    return field.options?.length
+      ? <RegistryOptionField key={field.name} field={field} value={String(values[field.name] ?? '')} error={errors[field.name]} disabled={fieldDisabled} onChange={(value) => onOptionChange(field.name, value)} />
+      : field.input_type === 'checkbox' || field.input_type === 'boolean'
+        ? <div key={field.name} className="grid gap-1"><Checkbox name={field.name} defaultSelected={Boolean(values[field.name])} isDisabled={fieldDisabled} isInvalid={Boolean(errors[field.name])} onChange={() => onFieldChange(field.name)}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>{field.label}</Checkbox.Content></Checkbox>{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</div>
+        : <TextField key={field.name} fullWidth name={field.name} defaultValue={String(values[field.name] ?? '')} isDisabled={fieldDisabled} isRequired={field.required && !fieldDisabled} isInvalid={Boolean(errors[field.name])}><Label>{field.label}</Label><Input type={field.input_type === 'number' ? 'number' : field.input_type === 'url' ? 'url' : 'text'} min={field.min ?? undefined} max={field.max ?? undefined} step={field.input_type === 'number' ? 1 : undefined} onChange={() => onFieldChange(field.name)} />{field.help && <Description>{field.help}</Description>}{errors[field.name] && <FieldError>{errors[field.name]}</FieldError>}</TextField>
+  })}</>
 }
 
 function RegistryOptionField({ field, value, error, disabled, onChange }: { field: CatalogField; value: string; error?: string; disabled: boolean; onChange: (value: string) => void }) {
@@ -95,6 +98,11 @@ function RegistryOptionField({ field, value, error, disabled, onChange }: { fiel
 }
 
 const platformManagedSourceTypes = new Set(['x_profile', 'instagram_profile', 'youtube_channel'])
+
+function platformConnectionFieldNames(definition: SourceTypeDefinition, configLocked: boolean) {
+  if (!configLocked) return []
+  return definition.fields.filter((field) => field.name === 'target' || field.name === 'url').map((field) => field.name)
+}
 
 export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, configLocked = false, onSubmit }: {
   definition: SourceTypeDefinition
@@ -117,15 +125,15 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   const [advanced, setAdvanced] = useState(JSON.stringify(source?.config ?? {}, null, 2))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [registryValues, setRegistryValues] = useState<Record<string, unknown>>(() => formValuesForSource(definition, source))
+  const lockedFieldNames = platformConnectionFieldNames(definition, configLocked)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const entity = source?.id ?? 'new'
     setError(''); setFieldErrors({})
     const form = new FormData(event.currentTarget)
-    const nextFieldErrors = configLocked
-      ? {}
-      : validateRegistryFields(definition, form, registryValues)
+    for (const fieldName of lockedFieldNames) form.set(fieldName, String(registryValues[fieldName] ?? ''))
+    const nextFieldErrors = validateRegistryFields(definition, form, registryValues)
     if (!String(form.get('display_name') ?? '').trim()) nextFieldErrors.display_name = '来源名称不能为空。'
     if (Object.keys(nextFieldErrors).length) {
       setFieldErrors(nextFieldErrors)
@@ -133,7 +141,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     }
     setPending(true); feedback.begin('source-save', entity)
     try {
-      const config = configLocked
+      const config = configLocked && lockedFieldNames.length === 0
         ? undefined
         : advanced.trim()
           ? JSON.parse(advanced) as Record<string, unknown>
@@ -190,7 +198,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
     <TextField fullWidth name="description" defaultValue={source?.description ?? ''}><Label>来源说明</Label><Input /></TextField>
     {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}
-    <RegistryFields definition={definition} values={registryValues} errors={fieldErrors} disabled={configLocked} onOptionChange={(name, value) => {
+    <RegistryFields definition={definition} values={registryValues} errors={fieldErrors} lockedFieldNames={lockedFieldNames} onOptionChange={(name, value) => {
       setRegistryValues((current) => ({ ...current, [name]: value }))
       clearFieldError(name)
     }} onFieldChange={clearFieldError} />

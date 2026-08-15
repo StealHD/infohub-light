@@ -7,27 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 SecretStore 列表、创建、轮换、连接、额度与删除的 6 个 HTTP 适配器从 FastAPI composition root 抽到独立模块；全局路由顺序、OpenAPI、权限、配置同步、Key Pool/drain、quota 与 source-health 语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-secret-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；后续继续小步拆分 Catalog、ActorOps API、ServiceStore 与 ApifyActorOpsService。"
-  ],
-  "validation": [
-    "全 API 路由与 OpenAPI 规范 SHA 均与 f7cb6ac 基线一致；Secrets、Key Pool、ActorOps、quota、权限、操作日志与 lifespan 定向回归 71/71 通过。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235451 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "fd67ef7",
   "control_topics": [
     "architecture",
@@ -407,6 +386,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "来源注册、RSS、YouTube、GitHub、ActorOps、MCP 设置指引与订阅服务的定向 Pytest 均通过。",
     "YouTube 来源表单 Vitest、前端 lint 和 typecheck 通过；Python 语法、代码大小、产品文档与控制文件检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "平台连接暂不可用时，既有 X、Instagram、YouTube 来源的账号目标与启用状态继续锁定，但可修改每次获取条数和分析模式；无字段定义的历史社交来源仍只允许元数据编辑。",
+  "status": "completed",
+  "task_id": "fix-platform-fetch-limit-editing",
+  "unresolved": [],
+  "validation": [
+    "App 与来源表单 Vitest 共 123 项通过；ESLint 与 TypeScript 通过。",
+    "影响范围 preflight、控制文件与代码规模检查通过。"
   ]
 }
 ```
