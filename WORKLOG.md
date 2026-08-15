@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "5250ae3",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 Catalog 来源列表、使用量、共享、软删除、订阅和取消订阅的 6 个 HTTP 适配器拆到独立模块；接口、路由顺序、权限、跨用户隐藏、事务与操作日志语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-catalog-membership-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；Catalog create/patch 与 ActorOps API 保持原位，后续先下沉验证和计划边界再拆。"
-  ],
-  "validation": [
-    "全 API 路由、Catalog 路由与 OpenAPI 规范 SHA 均与 0ec7740 基线一致；Catalog、SubscriptionMutation、权限、操作日志、lifespan 与 import boundary 定向回归 182/182 通过。",
-    "server.py 由 7179 行降至 7074 行，create_app 由 6197 行降至 6094 行；新模块 198 行且所有新函数符合硬上限。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235482 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "4f8ec2e",
   "control_topics": [
     "architecture",
@@ -399,6 +376,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "订阅表单与 App Vitest 共 123 项通过；最终受影响预检 12/12 通过。",
     "前端生产构建、UI 合同、ESLint、TypeScript、代码规模与产品文档检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "完成 v2.3.4 的发布准备与发布链路审查：统一各来源单次获取条数、恢复平台暂不可用时的可编辑限额，并收敛来源/订阅设置操作区和取消订阅确认交互。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.4",
+  "unresolved": [],
+  "validation": [
+    "相对 v2.3.3 的完整 preflight 18/18 通过，覆盖后端、前端、产品文档、控制文件、代码规模及发布约束。",
+    "发布脚本审查确认使用本地 linux/amd64 构建、VPS docker load、精确 main CI/Tag smoke、API/Worker/前端 revision 健康验证与可验证回滚。"
   ]
 }
 ```
