@@ -1030,6 +1030,7 @@ def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
 
     assert 'python-version: "3.12"' in workflow
     assert 'node-version: "22"' in workflow
+    assert workflow.count("fetch-depth: 0") == 5
     assert "impact:" in workflow
     assert "backend-full:" in workflow
     assert "frontend-full:" in workflow

@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "4f8ec2e",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 Apify Actor 告警设置、测试发送与 incident 的 4 个 HTTP 适配器拆到独立模块；接口、路由顺序、权限、迁移门槛、threadpool 发送时机与安全投影保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actor-alert-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；ActorOps 控制路由、Catalog create/patch、ServiceStore 与 ApifyActorOpsService 继续按独立高风险阶段处理。"
-  ],
-  "validation": [
-    "全 API 路由、4 个 Actor 告警路由与 OpenAPI 规范 SHA 均与 0d11426 基线一致；告警、通知多渠道、权限、操作日志、lifespan 与 import boundary 定向回归 77/77 通过。",
-    "server.py 由 7074 行降至 6915 行，create_app 由 6094 行降至 5974 行；新模块 188 行且所有新函数符合硬上限。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235519 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "4727531",
   "control_topics": [
     "architecture",
@@ -395,6 +372,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "相对 v2.3.3 的完整 preflight 18/18 通过，覆盖后端、前端、产品文档、控制文件、代码规模及发布约束。",
     "发布脚本审查确认使用本地 linux/amd64 构建、VPS docker load、精确 main CI/Tag smoke、API/Worker/前端 revision 健康验证与可验证回滚。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture"
+  ],
+  "recorded_on": "2026-08-15",
+  "result": "修复 v2.3.4 发布门禁在浅克隆 CI 中无法解析代码规模初始基线的问题：所有 Test Gate Job 统一完整历史检出，使策略祖先验证在 impact、后端、前端、E2E 和 tag smoke 路径一致可用。",
+  "status": "completed",
+  "task_id": "2026-08-15-release-v2.3.4-ci-history",
+  "unresolved": [],
+  "validation": [
+    "发布工作流回归断言与代码规模策略定向 Pytest 14 项通过。",
+    "相对 v2.3.3 的完整 preflight 18/18 通过，包含后端、前端、产品文档、控制文件和代码规模检查。"
   ]
 }
 ```
