@@ -210,6 +210,7 @@ def test_actor_target_rejects_non_profile_routes_and_preserves_youtube_id_case()
         ),
     )
     assert target.native_id == channel_id
+    assert target.canonical_url == f"https://www.youtube.com/channel/{channel_id}"
 
 
 async def _runtime_uses_frozen_build_cap_and_maps_content():

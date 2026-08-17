@@ -1179,6 +1179,7 @@ class ApifyActorOpsService(
         try:
             manifest_error = actor_manifest_capability_error(
                 manifest,
+                platform=str(row["platform"]),
                 target_type=str(row["target_type"]),
                 capability=str(row["capability"]),
             )
@@ -1196,12 +1197,7 @@ class ApifyActorOpsService(
             return None
         evidence = _safe_json(row["security_evidence_json"], {})
         schema_proof = evidence.get("output_schema_proves_items") is True
-        # Revisions created before the explicit proof flag can still carry a
-        # conservative, immutable proof: an exact output-schema hash, the
-        # successful Build/input checks, and item-specific identity pointers.
-        # This keeps Canary admission consistent with Discovery without
-        # mutating an existing Revision or trusting a price-event label over
-        # the exact Build contract.
+        # Old immutable revisions need exact schema, input, and item proof.
         legacy_schema_proof = (
             bool(row["output_schema_hash"])
             and evidence.get("exact_successful_build") is True
@@ -2593,18 +2589,13 @@ class ApifyActorOpsService(
             (self.workspace_id, route_id),
         ).fetchall()
         validated_revision_ids: set[str] | None = None
+        source_verified = False
         if binding is not None:
             validation_status = str(binding["validation_status"])
-            if validation_status in _READY_BINDING_STATUSES:
-                expected_hash = revision_set_hash(
-                    {
-                        str(row["slot_name"]): str(row["revision_id"])
-                        for row in rows
-                        if row["revision_id"]
-                    }
-                )
-                if str(binding["verified_revision_set_hash"] or "") != expected_hash:
-                    validation_status = "revalidation_pending"
+            expected_slots = {str(row["slot_name"]): str(row["revision_id"]) for row in rows if row["revision_id"]}
+            if validation_status in _READY_BINDING_STATUSES and str(binding["verified_revision_set_hash"] or "") != revision_set_hash(expected_slots):
+                validation_status = "revalidation_pending"
+            source_verified = validation_status in _READY_BINDING_STATUSES
             if validation_status not in {
                 "ready_1of1",
                 "ready_2of2",
@@ -2644,6 +2635,7 @@ class ApifyActorOpsService(
                         if row["revision_id"]
                         and str(row["lifecycle"]) == "legacy_builtin"
                     )
+                source_verified = len(expected_slots) >= int(route["min_runtime_healthy"]) and set(expected_slots.values()) <= validated_revision_ids
         if (
             binding is not None
             and binding["preferred_candidate_id"]
@@ -2810,7 +2802,8 @@ class ApifyActorOpsService(
                     retryable=True,
                     status_code=503,
                 )
-            if len(frozen) < int(route["min_runtime_healthy"]):
+            required_slots = 1 if source_verified else int(route["min_runtime_healthy"])
+            if len(frozen) < required_slots:
                 raise ActorOpsError(
                     "apify_actor_route_candidate_shortfall",
                     "The route does not have its required runnable Actor revisions",
@@ -6781,6 +6774,8 @@ class ApifyActorOpsService(
                     "Compatibility Actor revisions must be upgraded before source validation",
                     status_code=412,
                 )
+            if block_reason := self._revision_canary_block_reason(connection, str(binding["route_id"]), revision_id):
+                raise ActorOpsError(block_reason, "Actor revision does not prove the source item contract", status_code=412)
             if cap > float(route["per_run_cap_usd"]):
                 raise ActorOpsError(
                     "apify_actor_budget_invalid",

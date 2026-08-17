@@ -11,6 +11,7 @@ export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
     { title: '超出批准上限会终态拒绝', description: '上游最终费用若高于本次批准上限，验证、尝试与批次会以同一安全原因终结并保留实际账目；不会卡在运行中、不会激活候选，也不会自动重试。' },
     { title: '失败不会再伪装成已就绪', description: '候选启动被上游拒绝、返回错误内容或无法核对费用时会保留安全失败原因并立即停止该流程；不会把未完成的验证写成“可以生效”。' },
     { title: '绑定的主备池会进入真实抓取', description: '已有 X、Instagram 或 YouTube 来源绑定 ActorOps Route 后，单来源获取和信息流刷新都会使用该 Route 的当前主备顺序；不会再因旧配置形状静默回退到历史路由。' },
+    { title: '单个来源的健康主用不会被暂停备用连带阻断', description: '来源已完成主备实测后，某一 Actor 只对该目标临时暂停时，Worker 会继续用其余已验证健康槽获取最新内容；不会把这条来源误报为“缺少两个 Actor”，也不会临时启动未经验证的替代者。' },
     { title: '移出不收费且保留历史', description: '移出主备池会展示压紧后的顺序，要求固定确认词，不启动 Actor，也不会删除 Revision、Canary 或费用证据。未知启动、运行中验证和门槛不足会安全阻止操作。' },
     { title: '已验证备用可直接设为主用', description: '备用槽可通过精确确认词直接成为当前主用；该操作只交换已认证槽位顺序，不启动 Actor、不重新验证，也不产生费用。' },
     { title: '候选质量可见且不放宽安全门槛', description: '已通过免费可执行性检查的候选会显示 Apify Store 的评分、评分人数和使用人数，并据此稳定排序。公开质量数据只帮助选择，不能让未通过 Build、输入、内容或价格检查的 Actor 变得可配置。' },

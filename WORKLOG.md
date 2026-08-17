@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "960514b",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 6 个 ActorOps 只读 route、pool、新鲜度与事件查询 HTTP 适配拆到独立模块；路由顺序、OpenAPI、权限、字段和缓存语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actorops-read-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；public_actor_ops_detail、ActorOps 写路由、Catalog create/patch、ServiceStore 与 ApifyActorOpsService 仍需按独立高风险阶段处理。"
-  ],
-  "validation": [
-    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 75a4748 基线一致；ActorOps、兼容、权限、操作日志、lifespan、import boundary 与代码规模定向回归 96/96 通过。",
-    "server.py 由 6733 行降至 6641 行，create_app 由 5792 行降至 5695 行；新只读适配模块 170 行且所有新函数低于 80 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235543 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "17254a3",
   "control_topics": [
     "architecture",
@@ -384,6 +361,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Pytest 39 项定向回归通过，覆盖 YouTube 来源绑定、Actor 主抓取、失败阻断、X/通用最新排序与缓存上下文。",
     "代码规模、控制文件、产品文档、TypeScript 与 ESLint 检查通过；受影响完整 preflight 首轮发现旧订阅事务约束，修复后对应失败用例通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复已验证来源的目标级备用暂停误触发全 Route shortfall；X 可继续使用已实测成功主槽，YouTube 只接受能以 UC Channel ID 输入并证明频道身份的 Actor 合同。",
+  "status": "completed",
+  "task_id": "2026-08-17-source-bound-actor-runtime",
+  "unresolved": [
+    "完整受影响预检在未改动的 Remote MCP 用例出现一次偶发失败，单独重跑通过；未重复整套预检。"
+  ],
+  "validation": [
+    "X 两个真实 source binding 本地冻结验证：受影响来源保留主 Actor，另一来源保留主备。",
+    "ActorOps/来源采集/Worker 定向 Pytest 182 项、TypeScript、ESLint、控制文件和产品文档检查通过。"
   ]
 }
 ```

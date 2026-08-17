@@ -1,4 +1,4 @@
-// Reviewed for slot workflow, manual primary, Store-quality candidates, single-slot safe-candidate retention, editable source fetch limits, bound-source execution, and the v2.3.3 release health split; entries remain grouped by user-visible release date.
+// Reviewed for source-bound healthy-slot execution, manual primary, Store-quality candidates, and release health; entries remain grouped by user-visible release date.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

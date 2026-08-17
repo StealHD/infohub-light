@@ -4356,15 +4356,14 @@ def create_app(
             if slot.get("revision_id") is not None
         }
 
-        def revision_requires_upgrade(revision_id: str) -> bool:
+        def revision_canary_block_reason(revision_id: str) -> str | None:
             revision = revision_by_id.get(revision_id)
-            return bool(
-                not revision
-                or str(revision.get("lifecycle") or "") == "legacy_builtin"
-                or not revision.get("build_id")
-                or not revision.get("build_number")
-                or not revision.get("manifest_hash")
-            )
+            if not revision or any(
+                not revision.get(field)
+                for field in ("build_id", "build_number", "manifest_hash")
+            ) or str(revision.get("lifecycle") or "") == "legacy_builtin":
+                return "apify_actor_source_requires_pool_upgrade"
+            return ops.revision_canary_block_reason(str(binding["route_id"]), revision_id)
 
         pending_revision = next(
             (
@@ -4380,9 +4379,7 @@ def create_app(
             revision_id = str(slot.get("revision_id") or "")
             validation = latest.get(revision_id)
             passed_slot = revision_id in passed
-            requires_upgrade = bool(
-                revision_id and revision_requires_upgrade(revision_id)
-            )
+            block_reason = revision_canary_block_reason(revision_id) if revision_id else None
             slots.append(
                 {
                     "slot": slot["slot"],
@@ -4391,7 +4388,7 @@ def create_app(
                         "passed"
                         if passed_slot
                         else "blocked"
-                        if requires_upgrade
+                        if block_reason
                         else str(validation["status"])
                         if validation
                         else "pending"
@@ -4404,10 +4401,11 @@ def create_app(
                         if validation
                         else None
                     ),
+                    "block_reason": block_reason,
                     "can_canary": bool(
                         revision_id
                         and revision_id == pending_revision
-                        and not requires_upgrade
+                        and not block_reason
                         and (
                             validation is None
                             or str(validation["status"])

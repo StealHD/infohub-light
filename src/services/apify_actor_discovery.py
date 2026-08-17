@@ -758,11 +758,11 @@ class ApifyActorDiscoveryService:
             stage="ranking",
         )
         proposal_target = min(MAX_AI_PROPOSALS, len(accepted))
-        identity_example = {
-            "output_field": "author_handle",
-            "target_ref": "target.handle",
-            "match": "handle",
-        }
+        identity_example = (
+            {"output_field": "source_native_id", "target_ref": "target.native_id", "match": "exact"}
+            if str(route["platform"]) == "youtube"
+            else {"output_field": "author_handle", "target_ref": "target.handle", "match": "handle"}
+        )
         prompt = {
             "task": "rank_candidates_and_generate_manifest_v1",
             "route": {
@@ -973,11 +973,7 @@ class ApifyActorDiscoveryService:
                         "apify_manifest_published_at_transform_required",
                         "Discovery manifests must parse the publication timestamp",
                     )
-                _validate_manifest_route_identity(
-                    manifest,
-                    target_type=str(route["target_type"]),
-                    capability=str(route["capability"]),
-                )
+                _validate_manifest_route_identity(manifest, platform=str(route["platform"]), target_type=str(route["target_type"]), capability=str(route["capability"]))
             except ActorManifestError as error:
                 rejected.append(
                     {"actor_id": candidate.actor_id, "reason": error.code}
@@ -2273,10 +2269,8 @@ def _validate_manifest_output_schema(
 
 
 def _validate_manifest_route_identity(
-    manifest: Any,
-    *,
-    target_type: str,
-    capability: str,
+    manifest: Any, *, target_type: str, capability: str,
+    platform: str | None = None,
 ) -> None:
     """Keep item identity separate from the content item's own URL."""
 
@@ -2296,6 +2290,7 @@ def _validate_manifest_route_identity(
     if target_type in {"profile", "channel"} and capability == "items":
         error_code = actor_manifest_capability_error(
             manifest,
+            platform=platform,
             target_type=target_type,
             capability=capability,
         )
