@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "9a9f1fa",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将用户订阅 list/create/patch/delete、source-health 与两个请求模型完整拆到独立 HTTP 适配模块；通知约束、viewer 权限、停用处置、schedule 投影和用户隔离保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-subscription-routes",
-  "unresolved": [
-    "按用户要求本轮在完整测试后结束；server.py 剩余 ActorOps/Catalog 写路径、ServiceStore、ApifyActorOpsService 与依赖环留待后续独立任务。"
-  ],
-  "validation": [
-    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 8e9a3c8 基线一致；订阅/API/source-health/schedule/权限/操作日志/lifespan/边界九组定向测试通过。",
-    "server.py 由 6517 行降至 6330 行，create_app 由 5564 行降至 5402 行；新 subscription_routes.py 258 行，最大 handler 73 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235505 bytes。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "decisions",
     "interface",
@@ -374,6 +351,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "YouTube fallback、来源采集、Worker 与 Actor runtime 定向 Pytest 61 项通过。",
     "产品文档与代码规模检查通过；8080 将在提交后重建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复 ActorOps 候选与执行链路：候选选择区只显示已完成 Canary、费用对账和来源验证的固定 Build；未实测但免费合格的候选由服务端受控试跑。来源返回旧内容仅记录该来源目标退化，不再全局熔断 Actor；新增/替换 Canary 始终携带冻结的目标槽位，避免计划重算冲突。",
+  "status": "completed",
+  "task_id": "2026-08-17-actorops-certified-candidates",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 通过：完整 Pytest、79 个 Vitest 文件（684 项）、TypeScript、ESLint、生产前端构建、控制文件、产品文档与代码规模检查均通过。",
+    "本地容器重建后将进行无费用执行快照和受控 Canary 验收；Canary 是否成功取决于第三方 Actor 的实际返回与账单对账。"
   ]
 }
 ```

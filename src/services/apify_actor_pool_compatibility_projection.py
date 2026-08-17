@@ -27,6 +27,7 @@ _TERMINAL_COMPATIBILITY_FAILURES = (
     "apify_actor_identity_mismatch",
     "apify_actor_target_identity_mismatch",
     "apify_actor_contract_mismatch",
+    "apify_actor_metadata_only",
     "compatibility_nonempty_required",
     "actor_disabled",
     "actor_not_runnable",
@@ -52,6 +53,13 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             SELECT candidate.id AS candidate_id, candidate.display_name,
                    candidate.state AS candidate_state,
                    candidate.last_error_code, candidate.position,
+                   EXISTS (
+                       SELECT 1
+                       FROM apify_route_active_slots AS active_slot
+                       WHERE active_slot.workspace_id = candidate.workspace_id
+                         AND active_slot.route_id = ?
+                         AND active_slot.candidate_id = candidate.id
+                   ) AS active_in_route,
                    revision.revision_id, revision.actor_id, revision.publisher,
                    revision.build_id, revision.build_number,
                    revision.manifest_hash, revision.manifest_json,
@@ -88,6 +96,7 @@ class ApifyActorPoolCompatibilityProjectionMixin:
                              'apify_actor_identity_mismatch',
                              'apify_actor_target_identity_mismatch',
                              'apify_actor_contract_mismatch',
+                             'apify_actor_metadata_only',
                              'compatibility_nonempty_required',
                              'actor_disabled', 'actor_not_runnable',
                              'apify_actor_start_rejected',
@@ -111,6 +120,7 @@ class ApifyActorPoolCompatibilityProjectionMixin:
                      revision.revision_id DESC
             """,
             (
+                str(route["route_id"]),
                 str(route["route_id"]),
                 str(route["route_id"]),
                 self.workspace_id,
@@ -198,6 +208,7 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             ),
             "execution_mode": str(row["execution_mode"]),
             "already_validated": bool(row["already_validated"]),
+            "active_in_route": bool(row["active_in_route"]),
             "compatibility_warnings": warnings,
             "relaxed_requirements": list(_RELAXED_REQUIREMENTS),
             "validation_options": self._compatibility_validation_options(

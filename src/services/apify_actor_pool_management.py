@@ -91,8 +91,19 @@ class ActorPoolManagementMixin:
             if blocked is not None:
                 return blocked
             result = self._list_compatibility_candidates(connection, route)
+            candidates = [
+                {
+                    **item,
+                    "selectable": False,
+                    "unavailable_reason": "actor_already_active",
+                }
+                if bool(item.get("active_in_route"))
+                else item
+                for item in result["candidates"]
+            ]
             return {
                 **result,
+                "candidates": candidates,
                 "schema_version": 3,
                 "goal": goal,
                 "target_slot": target_slot,

@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-14',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员可无费用切换已验证主用，并按公开 Store 质量选择安全候选。完整标准池继续要求发布者多样性；单槽新增或替换只需一名已完成免费安全检查的候选。保存的 Route 单次上限同样用于后续免费检查，候选评分会与其固定 Build 证据一起保留。',
+  reviewedAt: '2026-08-17',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员只会看到已实测成功的候选，服务器先对通过免费安全检查的候选进行受控 Canary。完整标准池继续要求发布者多样性；单槽新增或替换只需一名已完成来源验证的候选。保存的 Route 单次上限同样用于后续免费检查与 Canary，候选评分会与其固定 Build 证据一起保留。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -94,7 +94,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；严格候选不足时可查看被放宽项与仍保留底线，明确选择单个公开可运行 Actor 做兼容试跑。兼容 Canary 必须返回真实非空内容，付费试跑和 1/3 生效分别确认；默认每次 $0.02 上限可由管理员只为后续确认的 Run 调整至最高 $0.10，受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。某个来源的备用因该目标暂时暂停时，已实测成功的健康主用仍会继续获取，不会把整条订阅误判为不可用。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 来源 Canary 未完成时继续使用免费 Atom/RSS；成功后优先用认证 Actor，保存的 UC Channel ID 会作为频道身份和 Actor 输入，公开 Feed 只在该次 Actor 失败时无费用降级，不会自动追逐第二或第三路。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；免费筛选通过的候选先由服务器按页面费用上限进行受控 Canary，只有固定 Build 返回真实非空内容、费用完成对账并验证全部已启用来源后，才显示为可选/可加入。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。付费试跑和最终生效分别确认；默认每次 $0.02 上限可由管理员只为后续确认的 Run 调整至最高 $0.10，受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。某个来源返回旧内容时，只暂停该来源与该 Actor 的组合并继续尝试同一来源的其他冻结槽位，不会把整条 Route 或该 Actor 在其他来源的运行误判为不可用。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 来源 Canary 未完成时继续使用免费 Atom/RSS；成功后优先用认证 Actor，保存的 UC Channel ID 会作为频道身份和 Actor 输入，公开 Feed 只在该次 Actor 失败时无费用降级，不会自动追逐第二或第三路。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

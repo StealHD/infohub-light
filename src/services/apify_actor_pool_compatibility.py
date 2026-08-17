@@ -349,6 +349,25 @@ class ApifyActorPoolCompatibilityMixin:
     ) -> dict[str, Any]:
         """Freeze one X trial candidate into one unchanged pool slot."""
 
+        automatic = not candidate_ids
+        if automatic:
+            connection = self.store.connect()
+            route = self._require_route(connection, str(run["route_id"]))
+            available = self._list_compatibility_candidates(connection, route)
+            trial = next(
+                (
+                    item for item in available["candidates"]
+                    if bool(item.get("selectable"))
+                    and not bool(item.get("already_validated"))
+                    and not bool(item.get("active_in_route"))
+                ),
+                None,
+            )
+            if trial is None:
+                return self._x_slot_insufficient_plan(
+                    run, goal=goal, target_slot=target_slot
+                )
+            candidate_ids = (str(trial["candidate_id"]),)
         context = self._x_slot_compatibility_context(
             run,
             goal=goal,
@@ -359,8 +378,93 @@ class ApifyActorPoolCompatibilityMixin:
         )
         sources = self._x_slot_source_budget(context)
         return self._x_slot_plan_response(
-            context, sources, max_total_charge_usd=max_total_charge_usd
+            context,
+            sources,
+            max_total_charge_usd=max_total_charge_usd,
+            selection_mode="server" if automatic else "manual",
         )
+
+    def _x_slot_insufficient_plan(
+        self,
+        run: sqlite3.Row,
+        *,
+        goal: str,
+        target_slot: str | None,
+    ) -> dict[str, Any]:
+        """Return a stable no-spend response when no trial remains.
+
+        The public picker intentionally hides unverified Actors.  A server
+        plan must therefore say "insufficient" instead of asking a user to
+        select a rejected or already-active Actor just to discover that later.
+        """
+
+        ops = _ensure_ops_symbols()
+        connection = self.store.connect()
+        route = self._require_route(connection, str(run["route_id"]))
+        target_count = self.pool_stage_operation_target_count(
+            connection,
+            route_id=str(route["route_id"]),
+            goal=goal,
+            target_slot=target_slot,
+            populated_count=sum(
+                row["revision_id"] is not None
+                for row in connection.execute(
+                    """SELECT revision_id FROM apify_route_active_slots
+                       WHERE workspace_id = ? AND route_id = ?""",
+                    (self.workspace_id, str(route["route_id"])),
+                ).fetchall()
+            ),
+            requested_count=None,
+            minimum_healthy=int(route["min_runtime_healthy"]),
+        )
+        payload = {
+            "schema_version": 4,
+            "goal": goal,
+            "operation_mode": "compatibility_slot",
+            "operation_slot": target_slot,
+            "selection_mode": "server",
+            "target_slot_count": target_count,
+            "run_id": str(run["run_id"]),
+            "route_id": str(route["route_id"]),
+            "generation": int(route["generation"]),
+            "items": [],
+            "required_success_count": 1,
+            "required_source_slots": target_count,
+            "max_total_charge_usd": 0.0,
+        }
+        plan_hash = hashlib.sha256(
+            json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        return {
+            **payload,
+            "route_key": str(route["route_key"]),
+            "platform": "x",
+            "target_type": str(route["target_type"]),
+            "capability": str(route["capability"]),
+            "mode": str(route["mode"]),
+            "status": "insufficient_candidates",
+            "ready": False,
+            "activation_ready": False,
+            "plan_hash": plan_hash,
+            "max_candidates": 1,
+            "route_validation_cap_usd": 0.0,
+            "source_validation_cap_usd": 0.0,
+            "source_count": 0,
+            "source_validation_count": 0,
+            "per_candidate_cap_usd": min(
+                float(route["per_run_cap_usd"]), float(ops.VALIDATION_MAX_CHARGE_USD_LIMIT)
+            ),
+            "successful_actor_count": 0,
+            "successful_publisher_count": 0,
+            "attempts_used": 0,
+            "attempts_remaining": 0,
+            "budget_remaining_usd": float(ops.POOL_STAGE_MAX_TOTAL_USD),
+            "_eligible_candidate_count": 0,
+            "_source_snapshot": [],
+            "_reference_fingerprints": {},
+        }
 
     def _x_slot_compatibility_context(
         self,
@@ -408,7 +512,11 @@ class ApifyActorPoolCompatibilityMixin:
             ),
             None,
         )
-        if selected is None or not bool(selected.get("selectable")):
+        if (
+            selected is None
+            or not bool(selected.get("selectable"))
+            or bool(selected.get("active_in_route"))
+        ):
             raise ops.ActorOpsError(
                 "apify_actor_candidate_not_selectable",
                 "Selected Actor no longer satisfies the compatibility fences",
@@ -461,6 +569,18 @@ class ApifyActorPoolCompatibilityMixin:
         ops = _ensure_ops_symbols()
         options = dict(selected.get("validation_options") or {})
         requested = list(profiles or ())
+        if not requested:
+            return {
+                "timeout_seconds": int(options["timeout_seconds"]),
+                "sample_items": int(options["sample_items"]),
+                "max_charge_usd": round(
+                    min(route_cap, float(ops.VALIDATION_MAX_CHARGE_USD_LIMIT)),
+                    6,
+                ),
+                "supports_sample_items": True,
+                "options_hash": str(options["options_hash"]),
+                "profile_hash": str(options["profile_hash"]),
+            }
         same = (
             len(requested) == 1
             and str(requested[0].get("candidate_id") or "") == candidate_id
@@ -555,6 +675,7 @@ class ApifyActorPoolCompatibilityMixin:
         sources: dict[str, Any],
         *,
         max_total_charge_usd: float | None,
+        selection_mode: str = "manual",
     ) -> dict[str, Any]:
         ops = _ensure_ops_symbols()
         route, run, selected, revision = (
@@ -583,7 +704,9 @@ class ApifyActorPoolCompatibilityMixin:
             }
             for row in sources["rows"]
         ]
-        payload = self._x_slot_plan_payload(context, item, snapshot, total_cap)
+        payload = self._x_slot_plan_payload(
+            context, item, snapshot, total_cap, selection_mode=selection_mode
+        )
         plan_hash = hashlib.sha256(
             json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
@@ -631,13 +754,13 @@ class ApifyActorPoolCompatibilityMixin:
 
     def _x_slot_plan_payload(
         self, context: dict[str, Any], item: dict[str, Any],
-        snapshot: list[dict[str, Any]], total_cap: float,
+        snapshot: list[dict[str, Any]], total_cap: float, *, selection_mode: str,
     ) -> dict[str, Any]:
         ops = _ensure_ops_symbols()
         return {
             "schema_version": 4, "goal": context["goal"],
             "operation_mode": "compatibility_slot", "operation_slot": context["target_slot"],
-            "selection_mode": "manual", "target_slot_count": context["target_count"],
+            "selection_mode": selection_mode, "target_slot_count": context["target_count"],
             "run_id": str(context["run"]["run_id"]), "route_id": str(context["route"]["route_id"]),
             "generation": int(context["route"]["generation"]),
             "base_pool_hash": ops.revision_set_hash(context["active_slots"]),

@@ -789,7 +789,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     )
   })
 
-  it('offers one-Actor compatibility after strict shortfall and preserves failure memory', async () => {
+  it('offers an already verified compatibility Actor after strict shortfall', async () => {
     const browser = userEvent.setup()
     const compatibility = detail({
       workflow: workflow('compatibility_candidate_selection_available', {
@@ -837,7 +837,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
           publisher: 'publisher-compatible',
           pricing: {},
           execution_mode: 'current',
-          already_validated: false,
+          already_validated: true,
           compatibility_warnings: ['deprecated_actor', 'follows_current_build_if_unpinnable'],
           relaxed_requirements: ['pre_canary_exact_build'],
           validation_options: validationOptions(),
@@ -873,9 +873,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
     expect(await screen.findByRole('heading', { name: '降低要求：选择 1 个兼容 Actor' })).toBeVisible()
     expect(screen.getByText(/Actor 数量、发布者多样性/)).toBeVisible()
     expect(screen.getByText(/兼容风险：deprecated_actor/)).toBeVisible()
-    expect(screen.getByText(/曾失败 1 次/)).toBeVisible()
-    await browser.click(screen.getByRole('button', { name: '重新尝试一次' }))
-    await waitFor(() => expect(api.retryApifyActorEvaluation).toHaveBeenCalledWith('evaluation-guided'))
+    expect(screen.queryByText('曾失败 Actor')).not.toBeInTheDocument()
     await browser.click(screen.getByRole('checkbox', { name: /兼容抓取 Actor/ }))
     await browser.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith(
@@ -917,7 +915,7 @@ describe('HeroActorOpsControlPlane guided workflows', () => {
           publisher: 'publisher-compatible',
           pricing: {},
           execution_mode: 'current',
-          already_validated: false,
+          already_validated: true,
           compatibility_warnings: [],
           relaxed_requirements: [],
           validation_options: validationOptions(),

@@ -70,6 +70,7 @@ import {
   HumanActorErrorNotice,
 } from './ActorOpsWorkflowDialogs'
 import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog, ActorStoreQuality } from './ActorOpsPoolManagementControls'
+import { actorPickerCandidates } from './actorOpsCandidatePicker'
 import { actorOpsWorkflowIntent } from './actorOpsWorkflowIntent'
 import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
 import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
@@ -82,7 +83,6 @@ import {
 import { openActorOpsSourceCanary } from './actorOpsSourceCanary'
 import { toActivationConfirmationView, toBatchConfirmationView,
   toRollbackConfirmationView, toSourceCanaryConfirmationView } from './actorOpsWorkflowDialogModel'
-
 const slotOrder: ApifyActorSlotName[] = ['primary', 'backup_1', 'backup_2']
 const slotLabels: Record<ApifyActorSlotName, string> = {
   primary: 'Primary',
@@ -94,7 +94,6 @@ const slotDisplayLabels: Record<ApifyActorSlotName, string> = {
   backup_1: '备用 1',
   backup_2: '备用 2',
 }
-
 const lifecycleLabels: Record<ApifyActorRevisionSummary['lifecycle'], string> = {
   proposed: '检查中',
   static_valid: '基础检查通过 · 待实际验证',
@@ -1429,8 +1428,8 @@ export function HeroActorOpsControlPlane({
       const goal = workflow?.goal || 'initial_pool'
       if (!runId) throw new Error('plan unavailable')
       return queryClient.fetchQuery({
-        queryKey: queryKeys.apifyActorCanaryPlan(user.id, runId, goal),
-        queryFn: ({ signal }) => api.apifyActorCanaryPlan(runId, goal, signal),
+        queryKey: queryKeys.apifyActorCanaryPlan(user.id, runId, goal, candidateTargetSlot),
+        queryFn: ({ signal }) => api.apifyActorCanaryPlan(runId, goal, signal, candidateTargetSlot),
         staleTime: 0,
       })
     },
@@ -1482,8 +1481,8 @@ export function HeroActorOpsControlPlane({
               ? minimumActors as 1 | 2 | 3
               : 3
         ),
-        ...(target.plan.operation_slot ? { target_slot: target.plan.operation_slot } : {}),
       } : {}),
+      ...(target.plan.operation_slot ? { target_slot_count: target.plan.target_slot_count, target_slot: target.plan.operation_slot } : {}),
     }),
     onSuccess: (response) => {
       setActiveBatchId(response.batch.batch_id)
@@ -1678,10 +1677,11 @@ export function HeroActorOpsControlPlane({
   const selectedCandidates = activeSelectedCandidateIds.map((candidateId) => (
     candidatesQuery.data?.candidates.find((candidate) => candidate.candidate_id === candidateId)
   )).filter((candidate): candidate is ApifyActorPoolCandidate => Boolean(candidate))
+  const { visibleCandidates: verifiedCandidates, pendingCanaryCandidateCount } = actorPickerCandidates(candidatesQuery.data?.candidates ?? [], candidateGoal)
   const candidateSelectionComplete = activeSelectedCandidateIds.length === candidateRequiredCount
     && selectedCandidates.length === activeSelectedCandidateIds.length
     && selectedCandidates.every((candidate) => (
-      candidateProfileRequest(candidate) !== null
+      candidate.already_validated !== false && candidateProfileRequest(candidate) !== null
       && candidateHasUsefulProfileChange(candidate)
     ))
   const sourceCatalog = new Map((catalogQuery.data?.sources ?? []).map((source) => [source.id, source]))
@@ -1983,18 +1983,18 @@ export function HeroActorOpsControlPlane({
           {!discoveryRunRunning && trackedDiscovery && terminalDiscoveryStatuses.has(trackedDiscovery.status) && <HeroNotice title="最近一轮免费搜索已结束" status="default" role="status">
             完成于 {formatActorDateTime(trackedDiscovery.updated_at ?? null)} · 查询 {trackedDiscovery.queries_completed ?? 0}/{trackedDiscovery.queries_limit ?? 0} 轮 · 本轮记录 {trackedDiscovery.candidate_count ?? trackedDiscovery.candidates.length} 个原始候选{selectableCandidateCount !== null ? `，当前 ${selectableCandidateCount} 个可选择` : ''}。原始候选仍可能因固定版本、输入、输出或失败记忆而不可选择；立即重复搜索不会让它通过。只有确认 Store 中的 Actor / Build 已更新后，才需要再次检查。
           </HeroNotice>}
-          <HeroNotice title="选择候选不会产生费用" status="default" role="status">{candidateGoal === 'upgrade_legacy'
+          <HeroNotice title="这里只显示已实测成功的 Actor" status="default" role="status">{candidateGoal === 'upgrade_legacy'
             ? hasPreferredActorUpgrades
               ? '可安全升级的当前 Actor 已自动选中。只允许这 3 个当前 Actor；任一未通过就停止。'
               : candidatesQuery.data
                 ? '上面的 3 个当前 Actor 已列出。确认 Actor / Build 已更新后再次检查，只会生成它们的安全新版，不会寻找替补。'
                 : '系统只检查上面的 3 个当前 Actor；无法形成安全新版时保持兼容池并停止。'
             : candidateGoal === 'add_slot'
-              ? '将验证 1 个新 Actor，验证与所有已启用来源完成前，当前主备不会变化。'
-              : candidateGoal === 'replace_slot'
-                ? '将旁路验证 1 个替换 Actor，验证与所有已启用来源完成前，当前主备不会变化。'
+              ? '未实测的免费候选由服务器优先验证；只有成功后才会出现在这里，验证与所有已启用来源完成前，当前主备不会变化。'
+            : candidateGoal === 'replace_slot'
+                ? '未实测的免费候选由服务器优先验证；只有成功后才会出现在这里，验证与所有已启用来源完成前，当前主备不会变化。'
             : candidateGoal === 'compatibility_single'
-              ? '这是明确的功能优先降级：单个实测可用 Actor 即可启用，但没有主备冗余；选择本身免费，付费 Canary 和最终生效仍分别确认。'
+              ? '这是明确的功能优先降级：只有实测成功的单个 Actor 才会显示；未实测者由服务器受控 Canary，不会混进选择项。'
             : minimumActors === 1
               ? '系统已经按当前抓取类型和费用上限完成免费筛选。1 个 Actor 即可作为故障 fallback；不会自动追逐第二或第三路。'
               : '系统已经按当前抓取类型、发布者分散和费用上限完成免费筛选。2 个不同发布者即可标准启用；第三路可在运行后由管理员主动补充。'}</HeroNotice>
@@ -2010,8 +2010,8 @@ export function HeroActorOpsControlPlane({
           {candidatesQuery.isError && <HumanActorErrorNotice error={humanActorError(candidatesQuery.error)} />}
           {candidatesQuery.data && <>
             <div className="flex items-center justify-between gap-3 type-meta text-muted"><span>请选择 {candidateRequiredCount} 个</span><span aria-live="polite">已选 {activeSelectedCandidateIds.length}/{candidateRequiredCount}</span></div>
-            {candidatesQuery.data.candidates.length > 0 ? <div className="grid gap-2" role="group" aria-label="可选 Actor">
-              {candidatesQuery.data.candidates.map((candidate) => {
+            {verifiedCandidates.length > 0 ? <div className="grid gap-2" role="group" aria-label="可选 Actor">
+              {verifiedCandidates.map((candidate) => {
                 const selected = activeSelectedCandidateIds.includes(candidate.candidate_id)
                 const failure = candidate.last_failure
                 const draft = profileDraft(candidate)
@@ -2087,18 +2087,18 @@ export function HeroActorOpsControlPlane({
                   </div>}
                 </div>
               })}
-            </div> : <HeroNotice title="暂时没有可选 Actor" status="warning">{candidateGoal === 'upgrade_legacy' ? '当前 3 个 Actor 尚未全部满足安全升级条件。升级已停止，现有兼容池不会改变。' : candidateGoal === 'compatibility_single' ? '当前没有满足公开可运行、受控输入和 $0.02 硬底线的候选。可继续免费扩大召回。' : '当前没有同时满足来源能力、发布者分散和费用上限的候选。现有线路不会改变。'}</HeroNotice>}
+            </div> : <HeroNotice title="暂时没有已实测成功的 Actor" status="warning">{pendingCanaryCandidateCount > 0 ? `已有 ${pendingCanaryCandidateCount} 个通过免费筛选的候选等待服务器受控实测；它们不会显示为可选项。` : candidateGoal === 'upgrade_legacy' ? '当前 3 个 Actor 尚未全部满足安全升级条件。升级已停止，现有兼容池不会改变。' : candidateGoal === 'compatibility_single' ? '当前没有满足公开可运行、受控输入和 $0.02 硬底线的候选。可继续免费扩大召回。' : '当前没有通过完整实测的候选。现有线路不会改变。'}</HeroNotice>}
           </>}
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
         </div></Modal.Body>
         <Modal.Footer>
           <Button variant="ghost" isDisabled={prepareManualPlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); poolManagement.clearSlotOperation(); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
           <Button variant="secondary" isDisabled={prepareManualPlan.isPending || discovery.isPending || discoveryRunRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : candidateGoal === 'upgrade_legacy' ? discovery.isPending ? '正在检查当前 Actor…' : 'Actor / Build 已更新，再检查（免费）' : discovery.isPending ? '正在更新…' : candidateGoal === 'compatibility_single' ? '候选证据已更新，再检查（免费）' : 'Actor / Build 已更新，再检查（免费）'}</Button>
+          {pendingCanaryCandidateCount > 0 && candidateGoal !== 'upgrade_legacy' && <Button variant="secondary" isDisabled={preparePlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); preparePlan.mutate() }}>{preparePlan.isPending ? '正在生成实测计划…' : '服务器受控实测候选'}</Button>}
           <Button isDisabled={!candidateSelectionComplete || prepareManualPlan.isPending || discovery.isPending} onPress={() => prepareManualPlan.mutate()}>{prepareManualPlan.isPending ? '正在核对…' : '继续'}</Button>
         </Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
-
     <ActorOpsRemovePoolDialog target={removeTarget} pending={removePoolSlot.isPending} onClose={poolManagement.closeRemoveDialog} onConfirm={(target) => removePoolSlot.mutate(target)} />
 
     <ActorOpsBatchConfirmationDialog

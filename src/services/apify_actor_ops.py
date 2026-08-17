@@ -9872,16 +9872,13 @@ class ApifyActorOpsService(
             if freshness_outcome == "stale_regression":
                 self.finish_attempt(
                     attempt_id,
-                    status="actor_failed",
+                    status="target_failed",
                     semantic_outcome="stale_regression",
                     actual_cost_usd=result.cost_usd,
                     error_code="apify_actor_stale_regression",
                 )
-                self._record_actor_failure(
-                    slot,
-                    "apify_actor_stale_regression",
-                    source_id=source_id,
-                )
+                # Freshness regressions are scoped to this source, not the Actor.
+                self._record_target_failure(snapshot, slot, "stale_regression")
                 last_semantic = "stale_regression"
                 continue
             if freshness_outcome == "no_advance":
