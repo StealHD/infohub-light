@@ -19,3 +19,22 @@ export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
     { title: '页面更平整', description: 'ActorOps 页签和主备表面移除多余阴影与模糊效果，保留细边框和适度圆角；手机单列不会横向溢出。' },
   ],
 }
+
+export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
+  {
+    date: '2026-08-17',
+    title: 'ActorOps 重新发现候选在重建后保持可用',
+    summary: '免费 Actor 搜索与受控 Canary 现在使用同一份运行时凭据，避免容器重建后出现“能验证、却搜索不到候选”的断链。',
+    items: [
+      {
+        title: '免费搜索复用受控密钥',
+        description: 'ActorOps 的 Store 元数据搜索从运行时 SecretStore 读取当前 Apify Key，不依赖容器环境变量是否注入。重建本地 API/Worker 后，重新检查仍会按 Route 类型免费搜索最新候选。',
+      },
+      {
+        title: '未证明内容的 Actor 仍不会出现为可用',
+        description: '名称、评分、使用人数或资料 Schema 不能替代真实内容证据。只有受控 Canary 返回目标账号/频道的内容、费用完成对账并通过来源验证后，Actor 才显示为可选或可加入主备。',
+      },
+    ],
+  },
+  actorOpsPoolManagementChangelogEntry,
+]

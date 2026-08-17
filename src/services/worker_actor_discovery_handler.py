@@ -6,13 +6,14 @@ import asyncio
 import inspect
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
 import httpx
 
 from ..storage.service_store import ServiceStore
+from .secret_store import SecretStore
 from .worker_actor_discovery_ai import generate_manifest
 
 
@@ -31,6 +32,7 @@ class _DiscoveryContext:
     expanded_compatibility: bool
     global_ai: Any
     apify_env: str
+    apify_token: str = field(repr=False)
     output_limit: int
     ai_client: Any
     route: dict[str, Any]
@@ -201,6 +203,19 @@ def _metadata_token_env(
     return str(pool_secret["env_name"]) if pool_secret else ""
 
 
+def _metadata_token(data_dir: str, env_name: str) -> str:
+    """Resolve discovery metadata credentials through the same secret path as runs.
+
+    Containers intentionally do not receive every secret as an environment
+    variable.  Actor execution already resolves key-pool credentials from the
+    runtime SecretStore; Discovery must do the same or a rebuild silently turns
+    a paid-capable route into a permanently empty free-search result.
+    """
+
+    configured = SecretStore(data_dir).read().get(env_name)
+    return str(configured or os.getenv(env_name) or "").strip()
+
+
 def _prepare_runtime(
     job: dict[str, Any],
     *,
@@ -241,7 +256,8 @@ def _prepare_runtime(
             error_code="discovery_global_ai_unavailable",
         )
     apify_env = _metadata_token_env(store, workspace_id=str(job["workspace_id"]))
-    if not apify_env or not os.getenv(apify_env):
+    apify_token = _metadata_token(data_dir, apify_env) if apify_env else ""
+    if not apify_token:
         return _transition_from_queued(
             ops,
             run_id,
@@ -269,6 +285,7 @@ def _prepare_runtime(
         expanded_compatibility=expanded_compatibility,
         global_ai=global_ai,
         apify_env=apify_env,
+        apify_token=apify_token,
         output_limit=output_limit,
         ai_client=create_ai_client(
             ai_config,
@@ -312,7 +329,7 @@ async def _execute_discovery(
             service = ApifyActorDiscoveryService(
                 context.ops,
                 ApifyStoreRestClient(
-                    os.environ[context.apify_env],
+                    context.apify_token,
                     client=http_client,
                 ),
                 partial(generate_manifest, context),

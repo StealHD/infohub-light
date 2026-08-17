@@ -1,6 +1,6 @@
 // Reviewed for source-bound healthy-slot execution, certified-candidate visibility, pending-Canary YouTube Feed safety, and release health; entries remain grouped by user-visible release date.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
-import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
+import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
 
 export const changelogMonths: ChangelogMonth[] = [
@@ -9,7 +9,7 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       codeHealthMaintenanceEntry,
-      actorOpsPoolManagementChangelogEntry,
+      ...actorOpsPoolManagementChangelogEntries,
       {
         date: '2026-08-13',
         title: '信息流刷新与收藏更及时、更可控',

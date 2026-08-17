@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "完成信息流真实卡片骨架、收藏即时同步、可访问的展开提示及受角色限域、可安全停止的手动刷新链路；服务端不信任客户端刷新范围，取消请求在 Worker 安全边界阻断后续副作用。",
-  "status": "completed",
-  "task_id": "2026-08-13-feed-refresh-polish",
-  "unresolved": [],
-  "validation": [
-    "新增角色范围、无订阅、取消与发布原子性后端覆盖，以及收藏、星标、溢出检测、骨架和按钮状态前端覆盖。",
-    "Feed Playwright 已覆盖 desktop/tablet/mobile 的骨架、收藏即时可见、刷新停止与布局锚点；预检 16/16 通过。",
-    "完整 Test Gate 18/18 通过（全量 Python、前端 lint/typecheck/Vitest/build、Compose 与控制面检查）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "ui"
@@ -368,6 +348,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整 impacted preflight 通过：完整 Pytest、79 个 Vitest 文件（684 项）、TypeScript、ESLint、生产前端构建、控制文件、产品文档与代码规模检查均通过。",
     "本地容器重建后将进行无费用执行快照和受控 Canary 验收；Canary 是否成功取决于第三方 Actor 的实际返回与账单对账。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复 ActorOps 免费 Discovery 只读取容器环境变量、而 Canary 从 SecretStore 读取 Apify Key 的断链；Discovery 现在复用运行时 SecretStore，重建后可继续按 Route 类型免费发现候选。同步更新候选实测规则说明与变更日志。",
+  "status": "completed",
+  "task_id": "2026-08-17-actorops-discovery-secretstore",
+  "unresolved": [
+    "本轮 X 的三个不同发布者候选均经受控 Canary 确认未返回可订阅动态，已终态排除；当前没有可安全加入 backup_2 的外部 Actor。"
+  ],
+  "validation": [
+    "新增 SecretStore 凭据解析单测；Actor Discovery 定向回归 53 项通过。",
+    "受影响 preflight 全部命令通过：全量受影响 Python、前端 lint/typecheck/Vitest、产品文档、代码规模与 E2E 合同检查。",
+    "待提交后重建 8080，并验证 API/Worker 健康、前端资产和 Discovery 的 SecretStore 凭据读取。"
   ]
 }
 ```
