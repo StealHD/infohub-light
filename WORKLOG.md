@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "17254a3",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 ActorOps Canary plan/batch 的纯公共投影与两个 GET 查询适配拆到既有安全模块；选择、审批、费用、批次创建和激活写路径保持原位不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actorops-canary-reads",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；Discovery/public_actor_ops_detail 读模型、ActorOps 写路由、Catalog create/patch、ServiceStore 与 ApifyActorOpsService 仍需按独立高风险阶段处理。"
-  ],
-  "validation": [
-    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 530181e 基线一致；ActorOps、权限、操作日志、lifespan、observability 与 import boundary 定向回归 57/57 通过。",
-    "server.py 由 6641 行降至 6517 行，create_app 由 5695 行降至 5564 行；投影与只读适配模块分别为 295 与 226 行，新增函数均低于 80 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235398 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "9a9f1fa",
   "control_topics": [
     "architecture",
@@ -380,6 +357,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "X 两个真实 source binding 本地冻结验证：受影响来源保留主 Actor，另一来源保留主备。",
     "ActorOps/来源采集/Worker 定向 Pytest 182 项、TypeScript、ESLint、控制文件和产品文档检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复 YouTube pending_validation binding 在启动 Actor 前直接失败的问题：未完成来源 Canary 时仍走免费 Atom/RSS，认证后才 Actor-first。",
+  "status": "completed",
+  "task_id": "2026-08-17-youtube-pending-binding-fallback",
+  "unresolved": [],
+  "validation": [
+    "YouTube fallback、来源采集、Worker 与 Actor runtime 定向 Pytest 61 项通过。",
+    "产品文档与代码规模检查通过；8080 将在提交后重建。"
   ]
 }
 ```

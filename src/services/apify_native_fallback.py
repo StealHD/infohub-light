@@ -222,9 +222,6 @@ class YouTubeNativeActorFallbackScraper:
             and str(binding["validation_status"])
             in {"ready_1of1", "ready_2of2", "ready_3of3", "revalidation_pending"}
         )
-        if binding is not None and not validated:
-            from ..scrapers.base import SourceFetchError
-            raise SourceFetchError("YouTube Actor source is not source-validated", retryable=True, code="apify_actor_source_binding_not_ready")
         if validated and binding is not None:
             try:
                 route = self.actor_ops.get_route(str(binding["route_id"]))

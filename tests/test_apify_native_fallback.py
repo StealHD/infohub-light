@@ -213,7 +213,7 @@ def test_youtube_actor_runs_before_native_feed(monkeypatch):
     assert scraper.publication_snapshots == snapshots
 
 
-def test_pending_youtube_actor_binding_never_uses_native_feed():
+def test_pending_youtube_actor_binding_uses_native_feed():
     source = SimpleNamespace(
         url=YOUTUBE_FEED, source_id="source-youtube", fetch_limit=2,
     )
@@ -227,7 +227,17 @@ def test_pending_youtube_actor_binding_never_uses_native_feed():
             scraper = YouTubeNativeActorFallbackScraper(
                 source, client, actor_ops=ActorOps(), apify_coordinator=object(),
             )
-            with pytest.raises(SourceFetchError, match="not source-validated"):
-                await scraper.fetch(datetime(2026, 7, 30, tzinfo=timezone.utc))
+            marker = object()
+
+            class Native:
+                upstream_response_schema = None
+                source_avatar_hints = ()
+                strict_errors = True
+
+                async def fetch(self, _since):
+                    return [marker]
+
+            scraper.native = Native()
+            assert await scraper.fetch(datetime(2026, 7, 30, tzinfo=timezone.utc)) == [marker]
 
     asyncio.run(check())
