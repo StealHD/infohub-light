@@ -674,9 +674,7 @@ class ApifySocialScraper(BaseScraper):
             parsed = self._parse_row(row, sub, since)
             if parsed:
                 items.append(parsed)
-            if len(items) >= sub.fetch_limit:
-                break
-        return items
+        return sorted(items, key=lambda item: (item.published_at, item.id), reverse=True)[:sub.fetch_limit]
 
     def _observe_candidate_avatar(
         self,

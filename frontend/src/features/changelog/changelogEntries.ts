@@ -397,7 +397,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '完整 2+1 优先、两路可先上线', description: '每条 Route 保留 Primary、Backup 1、Backup 2；完整认证池优先，但两个不同发布者的固定 Build 各成功一次 Canary 后即可降级上线，第三槽留空热补位，少于两路仍阻断。' },
           { title: 'Route 试跑一次确认', description: 'AI 只搜索公开 Actor、排序并生成受限 JSON Manifest；Route 认证由管理员核对服务端候选和批次上限后一次确认，来源级试跑、首次来源启用、新 Build 或新 Manifest 激活仍保持各自明确审批。同一次确认若因网络超时重放只返回原任务，不会再次扣费。' },
           { title: '新来源逐槽验证', description: '每个新账号或频道依次验证当前实际运行的两个或三个 Actor，全部确认身份并返回真实内容或可信空结果后才启用；只更换一个 Revision 时只重验对应槽。' },
-          { title: '原生链路优先', description: 'YouTube 继续保存为 RSS 来源，原生成功或可信空结果不调用 Apify；只有允许回退的超时、429、5xx、合同漂移等故障才进入三槽，来源身份和 Feed 稳定编号不变。' },
+          { title: '认证 Actor 优先', description: 'YouTube 仍保存为 RSS 来源，但来源 Canary 成功后先走认证 Actor；公开 Atom 仅在该次 Actor 失败时无费用降级，来源身份和稳定编号不变。' },
           { title: '人工选择工作区 AI Key', description: 'Actor Discovery 继承工作区 provider 与 model；管理员从同 Provider 的已登记 Key 中固定一个安全选项，并使用该 Key 自己的连接地址，下一次发现任务热生效，不另设模型配置，也不会自动换用其他 Key。' },
           { title: '可测量的输出容量', description: 'Discovery 单次 AI 超时提高至 180 秒；管理员可确认后顺序执行 YouTube/Instagram 32K 容量测试，安全查看 Token、耗时、finish reason 与 Manifest 校验，系统给出但不会自动采用生产上限建议。测试不会运行 Actor 或付费 Canary。' },
           { title: '候选不足不再归零', description: 'AI 一次排序并生成 3–6 个候选，系统逐项验证并让后序候选补位；已通过的 1/3 或 2/3 Revision 会保留展示，只有凑齐三个 Actor和两个发布者才开放付费 Canary。' },

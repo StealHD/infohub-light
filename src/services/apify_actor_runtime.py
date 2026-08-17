@@ -129,10 +129,10 @@ class ApifyActorRuntimeService:
                     target,
                     runtime,
                 )
-                items = [
-                    _content_item_from_mapped(item, content=content)
-                    for item in mapped.items
-                ][: int(runtime.max_items)]
+                items = sorted(
+                    (_content_item_from_mapped(item, content=content) for item in mapped.items),
+                    key=lambda item: (item.published_at, item.id), reverse=True,
+                )[: int(runtime.max_items)]
                 return RouteInvocationResult(
                     value=items,
                     semantic_outcome=mapped.semantic_outcome,

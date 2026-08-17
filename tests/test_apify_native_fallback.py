@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from src.models import ContentItem, SourceType
+from src.scrapers.base import SourceFetchError
 from src.services.apify_native_fallback import (
     NativeFallbackDecision,
     NativeFetchEvidence,
@@ -14,6 +16,7 @@ from src.services.apify_native_fallback import (
     YouTubeNativeActorFallbackScraper,
 )
 from src.services.apify_actor_ops import RouteInvocationResult
+from src.services.apify_actor_route import ApifyActorRoutedList
 
 
 YOUTUBE_FEED = (
@@ -89,12 +92,19 @@ def test_actor_fallback_keeps_rss_source_and_stable_youtube_item_id():
         metadata={"native_id": "video-123"},
     )
 
-    first = reattribute_youtube_fallback_items(
-        [item],
+    routed = ApifyActorRoutedList(
+        [item], route_generation=4, workspace_id="workspace-youtube",
+        source_id="source-youtube", candidate_id="candidate-youtube",
+        latest_published_at="2026-07-30T00:00:00+00:00",
+        latest_item_id="video-123", semantic_outcome="advanced",
+    )
+    first_items = reattribute_youtube_fallback_items(
+        routed,
         source_id="source-youtube",
         source_key="rss:youtube-channel",
         canonical_feed_url=YOUTUBE_FEED,
-    )[0]
+    )
+    first = first_items[0]
     second = reattribute_youtube_fallback_items(
         [item],
         source_id="source-youtube",
@@ -106,10 +116,12 @@ def test_actor_fallback_keeps_rss_source_and_stable_youtube_item_id():
     assert first.id.startswith("rss:")
     assert first.source_type == SourceType.RSS
     assert first.metadata["source_id"] == "source-youtube"
-    assert first.metadata["acquisition_origin"] == "apify_fallback"
+    assert first.metadata["acquisition_origin"] == "apify_actor"
+    assert isinstance(first_items, ApifyActorRoutedList)
+    assert first_items._apify_actor_route_generation == 4
 
 
-def test_youtube_fallback_freezes_route_before_native_fetch(monkeypatch):
+def test_youtube_actor_runs_before_native_feed(monkeypatch):
     snapshots = []
 
     class ActorOps:
@@ -150,6 +162,7 @@ def test_youtube_fallback_freezes_route_before_native_fetch(monkeypatch):
         tags=(),
         personal_tags=(),
         analysis_mode="full",
+        fetch_limit=2,
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: None))
     scraper = YouTubeNativeActorFallbackScraper(
@@ -166,8 +179,7 @@ def test_youtube_fallback_freezes_route_before_native_fetch(monkeypatch):
         strict_errors = True
 
         async def fetch(self, _since):
-            actor_ops.generation = 8
-            raise httpx.ReadTimeout("native timed out")
+            raise AssertionError("a source-certified Actor must run first")
 
     scraper.native = Native()
     scraper._had_historical_content = lambda: False
@@ -182,6 +194,7 @@ def test_youtube_fallback_freezes_route_before_native_fetch(monkeypatch):
 
         async def fetch(self, **kwargs):
             assert kwargs["frozen_snapshot"].generation == 7
+            assert kwargs["runtime"].max_items == 2
             return RouteInvocationResult(value=[])
 
     monkeypatch.setattr("src.scrapers.apify_client.ApifyClient", DummyClient)
@@ -198,3 +211,23 @@ def test_youtube_fallback_freezes_route_before_native_fetch(monkeypatch):
     assert result == []
     assert len(snapshots) == 1
     assert scraper.publication_snapshots == snapshots
+
+
+def test_pending_youtube_actor_binding_never_uses_native_feed():
+    source = SimpleNamespace(
+        url=YOUTUBE_FEED, source_id="source-youtube", fetch_limit=2,
+    )
+
+    class ActorOps:
+        def get_source_binding(self, _source_id):
+            return {"route_id": "route-youtube", "validation_status": "pending_validation"}
+
+    async def check() -> None:
+        async with httpx.AsyncClient() as client:
+            scraper = YouTubeNativeActorFallbackScraper(
+                source, client, actor_ops=ActorOps(), apify_coordinator=object(),
+            )
+            with pytest.raises(SourceFetchError, match="not source-validated"):
+                await scraper.fetch(datetime(2026, 7, 30, tzinfo=timezone.utc))
+
+    asyncio.run(check())

@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "4727531",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 ActorOps Route 与 Revision 的安全公共投影拆到独立纯模块；字段、价格过滤、运行状态、Canary 与激活资格保持不变，模块不含 SQL、远端调用、审批或写操作。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actorops-public-projection",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；public_actor_ops_detail 的 SQL/来源校验与 ActorOps 控制路由仍需先分层后拆，不能机械迁移。"
-  ],
-  "validation": [
-    "全 API 路由与 OpenAPI 规范 SHA 均与 8254a72 基线一致；ActorOps API/service、compatibility、权限、操作日志、lifespan 与 import boundary 定向回归 108/108 通过。",
-    "server.py 由 6915 行降至 6733 行，create_app 由 5974 行降至 5792 行；新纯投影模块 188 行且最大函数低于 80 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235572 bytes。"
-  ]
-}
-```
-
-```json
-{
   "commit": "960514b",
   "control_topics": [
     "architecture",
@@ -389,6 +366,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布工作流回归断言与代码规模策略定向 Pytest 14 项通过。",
     "相对 v2.3.3 的完整 preflight 18/18 通过，包含后端、前端、产品文档、控制文件和代码规模检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "YouTube 已改为来源 Canary 成功后的认证 Actor 主抓取，Atom 仅在该次 Actor 失败时降级；X 与通用 Actor 统一按发布时间倒序返回，并保留 Actor 水位证明。",
+  "status": "completed",
+  "task_id": "2026-08-17-stable-actor-subscriptions",
+  "unresolved": [],
+  "validation": [
+    "Pytest 39 项定向回归通过，覆盖 YouTube 来源绑定、Actor 主抓取、失败阻断、X/通用最新排序与缓存上下文。",
+    "代码规模、控制文件、产品文档、TypeScript 与 ESLint 检查通过；受影响完整 preflight 首轮发现旧订阅事务约束，修复后对应失败用例通过。"
   ]
 }
 ```

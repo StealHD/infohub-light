@@ -1537,6 +1537,8 @@ def create_app(
             str(route["target_type"]),
             str(route["capability"]),
         )
+        if primary and identity == ("youtube", "channel", "items"):
+            primary = False
         allowed = (
             {("x", "profile", "items"), ("instagram", "profile", "items")}
             if primary
@@ -5004,14 +5006,11 @@ def create_app(
                 ),
                 None,
             )
-            if actor_ops_route is not None:
-                actor_ops_target = str(normalized_config["url"])
-                validate_actor_ops_source_target(
-                    actor_ops_route,
-                    actor_ops_target,
-                    primary=False,
-                )
-                actor_ops_mode = "fallback"
+            if actor_ops_route is None:
+                raise ApiError("apify_actor_route_not_ready", "The selected Actor Route is not certified for new sources", status_code=409)
+            actor_ops_target = str(normalized_config["url"])
+            validate_actor_ops_source_target(actor_ops_route, actor_ops_target, primary=True)
+            actor_ops_mode = "primary"
         enforce_public_network = (
             catalog_source_setup_type(catalog_type, normalized_config)
             == YOUTUBE_CHANNEL_SETUP_TYPE
@@ -5019,6 +5018,7 @@ def create_app(
         source_enabled = bool(payload.enabled)
         if (
             actor_ops_mode == "primary"
+            and catalog_type == "apify_social"
             and str((actor_ops_route or {}).get("admission_mode") or "standard")
             != "compatibility"
         ):
@@ -5419,17 +5419,10 @@ def create_app(
                         ),
                         None,
                     )
-                    if route is not None:
-                        validate_actor_ops_source_target(
-                            route,
-                            str(normalized_config["url"]),
-                            primary=False,
-                        )
-                        actor_binding_plan = (
-                            route,
-                            str(normalized_config["url"]),
-                            "fallback",
-                        )
+                    if route is None:
+                        raise ApiError("apify_actor_route_not_ready", "The selected Actor Route is not certified for this source", status_code=409)
+                    validate_actor_ops_source_target(route, str(normalized_config["url"]), primary=True)
+                    actor_binding_plan = (route, str(normalized_config["url"]), "primary")
         if "secret_env" in provided:
             updates["secret_env"] = _validate_secret_env(payload.secret_env)
         if "enabled" in provided:

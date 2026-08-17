@@ -896,7 +896,7 @@ def test_support_catalog_and_checks_are_owner_admin_only(
     assert denied.status_code == 403
 
 
-def test_youtube_source_stays_native_enabled_and_gets_pending_fallback_binding(
+def test_youtube_source_requires_actor_validation_and_gets_primary_binding(
     tmp_path,
     monkeypatch,
 ):
@@ -922,7 +922,7 @@ def test_youtube_source_stays_native_enabled_and_gets_pending_fallback_binding(
         store,
         workspace_id=DEFAULT_WORKSPACE_ID,
     ).get_source_binding(source["id"])
-    assert binding["mode"] == "fallback"
+    assert binding["mode"] == "primary"
     assert binding["validation_status"] == "pending_validation"
     support = client.get(
         f"/api/admin/sources/{source['id']}/apify-support"

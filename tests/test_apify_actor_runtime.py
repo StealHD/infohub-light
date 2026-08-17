@@ -103,10 +103,17 @@ class _FakeClient:
         return SimpleNamespace(
             items=[
                 {
-                    "videoId": "video-1",
-                    "url": "https://www.youtube.com/watch?v=video-1",
+                    "videoId": "video-old",
+                    "url": "https://www.youtube.com/watch?v=video-old",
+                    "published": "2026-07-29T00:00:00Z",
+                    "title": "Older video",
+                    "channelUrl": "https://www.youtube.com/@openai",
+                },
+                {
+                    "videoId": "video-new",
+                    "url": "https://www.youtube.com/watch?v=video-new",
                     "published": "2026-07-30T00:00:00Z",
-                    "title": "Video",
+                    "title": "Newest video",
                     "channelUrl": "https://www.youtube.com/@openai",
                 }
             ],
@@ -251,6 +258,7 @@ async def _runtime_uses_frozen_build_cap_and_maps_content():
     assert client.kwargs["max_total_charge_usd"] == 0.02
     assert result.semantic_outcome == "valid_nonempty"
     item = result.value[0]
+    assert item.title == "Newest video"
     assert item.source_type == SourceType.RSS
     assert item.metadata["source_id"] == "source"
     assert "actor_id" not in item.metadata
@@ -292,3 +300,4 @@ async def _controlled_x_runtime_honors_the_source_item_limit():
     assert client.kwargs["max_paid_dataset_items"] == 3
     assert client.kwargs["dataset_item_limit"] == 4
     assert len(result.value or []) == 2
+    assert result.value[0].published_at > result.value[1].published_at
