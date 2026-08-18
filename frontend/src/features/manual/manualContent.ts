@@ -94,7 +94,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。三条 Route 的标准配置都以两个不同发布者的实测 Actor 为运行门槛，第三槽只由管理员主动补充；只有通过免费检查、精确 Build Canary、全部已启用来源验证和费用对账的 Actor 才出现在选择目录，选择不会重跑 Canary。不同平台分别绑定执行器、输入和输出合同；YouTube 的频道地址仅作身份，运行时直接使用认证 Actor，不回退 Atom/RSS。通过公开、固定 Build、权限、输入和费用门槛但输出 Schema 不透明的 YouTube Actor 不会显示给你或由 AI 猜字段，只能先由服务端执行一次受控观察 Canary；返回目标频道视频后才固化不可变映射。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。费用待对账或启动结果未知时系统只免费核对原运行，不会重复启动。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。三条 Route 的标准配置都以两个不同发布者的实测 Actor 为运行门槛，第三槽只由管理员主动补充；只有通过免费检查、精确 Build Canary、全部已启用来源验证和费用对账的 Actor 才出现在选择目录，选择不会重跑 Canary。已有一条已验证线路但仍低于两路门槛时，可先对一个新 Actor 完成同样的受控验证再原子补到第二槽，不会因当前线路不足而卡住补位。不同平台分别绑定执行器、输入和输出合同；YouTube 的频道地址仅作身份，运行时直接使用认证 Actor，不回退 Atom/RSS。通过公开、固定 Build、权限、输入和费用门槛但输出 Schema 不透明的 YouTube Actor 不会显示给你或由 AI 猜字段，只能先由服务端执行一次受控观察 Canary；返回目标频道视频后才固化不可变映射。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。费用待对账或启动结果未知时系统只免费核对原运行，不会重复启动。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

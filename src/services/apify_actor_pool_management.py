@@ -461,8 +461,6 @@ class ActorPoolManagementMixin:
                 return "pool_full"
             if target_slot != first_empty:
                 return "add_requires_first_empty_slot"
-            if sum(bool(slots.get(name)) for name in ops.SLOT_NAMES) < int(route["min_runtime_healthy"]):
-                return "pool_runtime_minimum_incomplete"
         elif not slots.get(target_slot):
             return "replace_requires_occupied_slot"
         return None

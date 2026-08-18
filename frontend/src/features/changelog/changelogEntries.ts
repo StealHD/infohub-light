@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog.
+// Reviewed: verified-only ActorOps catalog and partial-pool recovery.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

@@ -284,6 +284,38 @@ def test_non_x_slot_refresh_retains_prior_safe_revision(tmp_path) -> None:
     assert selected["selectable"] is True
 
 
+def test_partial_youtube_pool_can_add_the_second_verified_actor(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = _route(store, "youtube/channel/items")
+    primary = _revision(
+        ops, str(route["route_id"]), actor_id="publisher-a/youtube-primary",
+        publisher="publisher-a", build_number="36.1.0", host="youtube.com",
+    )
+    _set_lifecycle(store, primary, "probationary")
+    candidate_id = store.connect().execute(
+        "SELECT candidate_id FROM apify_actor_adapter_revisions WHERE revision_id = ?",
+        (primary,),
+    ).fetchone()["candidate_id"]
+    store.connect().execute(
+        """UPDATE apify_route_active_slots
+           SET candidate_id = ?, revision_id = ?
+           WHERE workspace_id = ? AND route_id = ? AND slot_name = 'primary'""",
+        (candidate_id, primary, ops.workspace_id, str(route["route_id"])),
+    )
+    store.connect().commit()
+    active = ops.get_route(str(route["route_id"]))
+
+    assert ops.slot_operations(str(active["route_id"]))["backup_1"]["add"]
+    target_slot_count = ops.pool_stage_operation_target_count(
+        store.connect(), route_id=str(active["route_id"]), goal="add_slot",
+        target_slot="backup_1", populated_count=1, requested_count=None,
+        minimum_healthy=int(active["min_runtime_healthy"]),
+    )
+    assert target_slot_count == 2
+
+
 def test_remove_reuses_only_retained_source_evidence(tmp_path) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()

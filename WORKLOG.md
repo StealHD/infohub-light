@@ -11,23 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-15",
-  "result": "将 ActorOps 移动端深色发布截图更新为 Linux 实际基线，并移除 Insights 关闭动画卸载窗口中的易失 inert 读取。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-linux-e2e-followup",
-  "unresolved": [],
-  "validation": [
-    "GitHub Linux UI E2E 工件确认两个测试根因：深色基线过期和关闭动画竞态。",
-    "本地发布构建下 Insights 与 ActorOps visual 定向回归 3 通过、1 按桌面限定跳过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
   "result": "移除 Insights 关闭动画中已卸载面板的两个瞬态 aria 属性断言，仅保留用户可观察的关闭完成状态，并继续收紧旧测试文件规模上限。",
   "status": "completed",
   "task_id": "2026-08-15-release-v2.3.3-linux-e2e-race-removal",
@@ -374,6 +357,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发现、Canary、池变更相关 Pytest 111 项通过。",
     "前端类型、lint 与已验证候选筛选 Vitest 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "允许历史遗留的单条已验证 Actor 池按第一个空槽受控补足第二条；补位仍须完成 Canary、费用对账和来源验证，当前池不会提前切换。",
+  "status": "completed",
+  "task_id": "2026-08-18-partial-pool-recovery",
+  "unresolved": [],
+  "validation": [
+    "Pool management、staging 与 API 回归 69 项通过。",
+    "前端 typecheck、lint、产品文档与代码规模检查通过。"
   ]
 }
 ```
