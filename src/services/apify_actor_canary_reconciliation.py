@@ -67,6 +67,23 @@ async def _reconcile_workspace(
                         AND batch.status IN ('blocked_unknown_start', 'running')
                   )
               )
+              OR (
+                  profile.status = 'ready'
+                  AND validation.kind = 'route_reference'
+                  AND validation.cost_final = 1
+                  AND EXISTS (
+                      SELECT 1
+                      FROM apify_actor_canary_batch_items AS failed_item
+                      JOIN apify_actor_canary_batches AS batch
+                        ON batch.workspace_id = failed_item.workspace_id
+                       AND batch.batch_id = failed_item.batch_id
+                      WHERE failed_item.workspace_id = validation.workspace_id
+                        AND failed_item.validation_id = validation.validation_id
+                        AND failed_item.status = 'failed'
+                        AND batch.status = 'partial'
+                        AND batch.stop_reason = 'candidate_replenishment_required'
+                  )
+              )
           )
         ORDER BY validation.completed_at, validation.validation_id
         LIMIT 20

@@ -247,6 +247,7 @@ def test_restart_marks_batch_item_and_job_unknown_without_replay(tmp_path) -> No
         route_id=str(route["route_id"]),
         attempt_id=attempt_id,
         validation_id=str(validation["validation_id"]),
+        next_validation_id=str(next_validation["validation_id"]),
         batch_id=batch_id,
         stage_id=stage_id,
         expected_generation=int(route["generation"]),
@@ -317,6 +318,7 @@ def _assert_terminal_failure_continues_frozen_batch(
     route_id: str,
     attempt_id: str,
     validation_id: str,
+    next_validation_id: str,
     batch_id: str,
     stage_id: str,
     expected_generation: int,
@@ -352,12 +354,45 @@ def _assert_terminal_failure_continues_frozen_batch(
         """,
         (validation_id,),
     )
-    # This is the persisted shape observed in the canonical runtime: the
-    # profile is blocked while the Stage remained in its former active state.
+    # This is the persisted shape observed in the canonical runtime after the
+    # old Worker cleared the barrier but left its synthetic +1 generation:
+    # the remaining original approvals were cancelled at zero cost.
     connection.execute(
-        """UPDATE apify_actor_pool_stages SET status = 'validating_route'
+        """UPDATE apify_actor_route_profiles SET status = 'ready'
+           WHERE workspace_id = ? AND route_id = ?""",
+        (DEFAULT_WORKSPACE_ID, route_id),
+    )
+    connection.execute(
+        """UPDATE apify_actor_routes
+           SET status = 'degraded', blocked_reason = NULL
+           WHERE workspace_id = ? AND route_key = 'instagram/profile/items'""",
+        (DEFAULT_WORKSPACE_ID,),
+    )
+    connection.execute(
+        """UPDATE apify_actor_canary_batches
+           SET status = 'partial', stop_reason = 'candidate_replenishment_required'
+           WHERE workspace_id = ? AND batch_id = ?""",
+        (DEFAULT_WORKSPACE_ID, batch_id),
+    )
+    connection.execute(
+        """UPDATE apify_actor_pool_stages
+           SET status = 'replan_required', last_error_code = 'candidate_shortfall'
            WHERE workspace_id = ? AND stage_id = ?""",
-        (DEFAULT_WORKSPACE_ID, stage_id),
+       (DEFAULT_WORKSPACE_ID, stage_id),
+   )
+    connection.execute(
+        """UPDATE apify_actor_validations
+           SET status = 'cancelled', semantic_outcome = 'approval_stale',
+               cost_usd = 0, cost_final = 1
+           WHERE workspace_id = ? AND validation_id = ?""",
+        (DEFAULT_WORKSPACE_ID, next_validation_id),
+    )
+    connection.execute(
+        """UPDATE apify_actor_canary_batch_items
+           SET status = 'failed', semantic_outcome = 'approval_stale',
+               actual_cost_usd = 0, cost_final = 1
+           WHERE workspace_id = ? AND validation_id = ?""",
+        (DEFAULT_WORKSPACE_ID, next_validation_id),
     )
     connection.commit()
 
@@ -372,6 +407,8 @@ def _assert_terminal_failure_continues_frozen_batch(
     assert ops.get_pool_stage(stage_id)["status"] == "queued"
     assert ops.get_route(route_id)["status"] == "ready"
     assert int(ops.get_route(route_id)["generation"]) == expected_generation
+    assert ops.get_validation(next_validation_id)["status"] == "queued"
+    assert ops.get_canary_batch(batch_id)["items"][1]["status"] == "planned"
 
 
 def test_resumed_batch_skips_terminal_failure_and_runs_only_next_item() -> None:

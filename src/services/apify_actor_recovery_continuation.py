@@ -73,9 +73,18 @@ def continue_terminal_route_failure(
              AND status IN ('planned', 'preflight_passed') LIMIT 1""",
         (service.workspace_id, batch_id),
     ).fetchone()
-    if remaining is None or not _restore_recovery_generation(
-        service, connection, row
-    ):
+    recovery_mode = _restore_recovery_generation(service, connection, row)
+    if recovery_mode is None:
+        return None
+    if remaining is None and recovery_mode == "stale":
+        _restore_zero_cost_stale_items(service, connection, batch_id)
+        remaining = connection.execute(
+            """SELECT 1 FROM apify_actor_canary_batch_items
+               WHERE workspace_id = ? AND batch_id = ?
+                 AND status IN ('planned', 'preflight_passed') LIMIT 1""",
+            (service.workspace_id, batch_id),
+        ).fetchone()
+    if remaining is None:
         return None
     if not clear_start_unknown_barrier(service, connection, row):
         return None
@@ -87,7 +96,9 @@ def continue_terminal_route_failure(
                SET status = 'queued', last_error_code = NULL,
                    updated_at = ?
                WHERE workspace_id = ? AND stage_id = ?
-                 AND status IN ('blocked_unknown_start', 'validating_route')""",
+                 AND status IN (
+                     'blocked_unknown_start', 'validating_route', 'replan_required'
+                 )""",
             (now, service.workspace_id, stage_id),
         )
     connection.execute(
@@ -108,7 +119,9 @@ def continue_terminal_route_failure(
     }
 
 
-def _restore_recovery_generation(service: Any, connection: Any, row: Any) -> bool:
+def _restore_recovery_generation(
+    service: Any, connection: Any, row: Any
+) -> str | None:
     """Undo only the one generation step written by unknown-start recovery.
 
     A frozen paid approval must never survive a user configuration change.  It
@@ -120,7 +133,7 @@ def _restore_recovery_generation(service: Any, connection: Any, row: Any) -> boo
 
     approved_generation = row["batch_approved_generation"]
     if approved_generation is None:
-        return False
+        return None
     approved = int(approved_generation)
     route = connection.execute(
         """SELECT profile.generation AS profile_generation, profile.status,
@@ -134,37 +147,93 @@ def _restore_recovery_generation(service: Any, connection: Any, row: Any) -> boo
     ).fetchone()
     if (
         route is None
-        or str(route["status"]) != "blocked_unknown_start"
-        or str(route["blocked_reason"]) != "start_outcome_unknown"
         or int(route["profile_generation"]) != approved + 1
         or int(route["route_generation"]) != approved + 1
     ):
-        return False
+        return None
     stage_id = str(row["pool_stage_id"] or "")
+    stage = None
     if stage_id:
         stage = connection.execute(
-            """SELECT base_generation FROM apify_actor_pool_stages
+            """SELECT base_generation, status, last_error_code
+               FROM apify_actor_pool_stages
                WHERE workspace_id = ? AND stage_id = ?""",
             (service.workspace_id, stage_id),
         ).fetchone()
         if stage is None or int(stage["base_generation"]) != approved:
-            return False
+            return None
+    blocked = (
+        str(route["status"]) == "blocked_unknown_start"
+        and str(route["blocked_reason"]) == "start_outcome_unknown"
+    )
+    stale = (
+        stage is not None
+        and str(route["status"]) == "ready"
+        and str(route["blocked_reason"] or "") == ""
+        and str(stage["status"]) == "replan_required"
+        and str(stage["last_error_code"]) == "candidate_shortfall"
+    )
+    if not blocked and not stale:
+        return None
     now = service._now_iso()
     connection.execute(
         """UPDATE apify_actor_route_profiles
            SET generation = ?, updated_at = ?
            WHERE workspace_id = ? AND route_id = ?
-             AND generation = ? AND status = 'blocked_unknown_start'""",
+             AND generation = ?
+             AND status IN ('blocked_unknown_start', 'ready')""",
         (approved, now, service.workspace_id, str(row["route_id"]), approved + 1),
     )
     connection.execute(
         """UPDATE apify_actor_routes
            SET generation = ?, updated_at = ?
            WHERE workspace_id = ? AND route_key = ?
-             AND generation = ? AND blocked_reason = 'start_outcome_unknown'""",
+             AND generation = ?
+             AND (
+                 blocked_reason = 'start_outcome_unknown' OR blocked_reason IS NULL
+             )""",
         (approved, now, service.workspace_id, str(row["route_key"]), approved + 1),
     )
-    return True
+    return "stale" if stale else "blocked"
+
+
+def _restore_zero_cost_stale_items(
+    service: Any, connection: Any, batch_id: str
+) -> None:
+    """Reopen only entries cancelled by the old recovery-generation defect."""
+
+    connection.execute(
+        """UPDATE apify_actor_validations
+           SET status = 'queued', semantic_outcome = NULL, cost_usd = NULL,
+               cost_final = 0, completed_at = NULL
+           WHERE workspace_id = ?
+             AND validation_id IN (
+                 SELECT item.validation_id
+                 FROM apify_actor_canary_batch_items AS item
+                 WHERE item.workspace_id = ? AND item.batch_id = ?
+                   AND item.status = 'failed'
+                   AND item.semantic_outcome = 'approval_stale'
+                   AND COALESCE(item.actual_cost_usd, 0) = 0
+                   AND item.cost_final = 1
+             )
+             AND status = 'cancelled'
+             AND semantic_outcome = 'approval_stale'
+             AND COALESCE(cost_usd, 0) = 0
+             AND cost_final = 1""",
+        (service.workspace_id, service.workspace_id, batch_id),
+    )
+    now = service._now_iso()
+    connection.execute(
+        """UPDATE apify_actor_canary_batch_items
+           SET status = 'planned', semantic_outcome = NULL,
+               actual_cost_usd = NULL, cost_final = 0,
+               preflight_checked_at = NULL, started_at = NULL,
+               completed_at = NULL, updated_at = ?
+           WHERE workspace_id = ? AND batch_id = ?
+             AND status = 'failed' AND semantic_outcome = 'approval_stale'
+             AND COALESCE(actual_cost_usd, 0) = 0 AND cost_final = 1""",
+        (now, service.workspace_id, batch_id),
+    )
 
 
 __all__ = ["clear_start_unknown_barrier", "continue_terminal_route_failure"]
