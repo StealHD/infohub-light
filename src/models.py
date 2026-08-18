@@ -335,6 +335,7 @@ class ApifySocialPlatform(str, Enum):
     """Social platforms fetched through Apify actors."""
 
     X = "x"
+    YOUTUBE = "youtube"
     INSTAGRAM = "instagram"
     FACEBOOK = "facebook"
     TELEGRAM = "telegram"
@@ -399,6 +400,7 @@ class ApifySocialSubscriptionConfig(ServiceSourceConfig):
     def validate_platform_kind(self) -> "ApifySocialSubscriptionConfig":
         allowed = {
             ApifySocialPlatform.X: {"profile", "keyword"},
+            ApifySocialPlatform.YOUTUBE: {"channel"},
             ApifySocialPlatform.INSTAGRAM: {"profile", "hashtag"},
             ApifySocialPlatform.FACEBOOK: {"page", "group", "post"},
             ApifySocialPlatform.TELEGRAM: {"channel"},

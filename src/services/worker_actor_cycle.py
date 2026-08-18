@@ -36,6 +36,9 @@ def reconcile_and_enqueue_actor_discoveries(
 ) -> dict[str, int]:
     """Recover free discovery work without replaying any paid Canary."""
 
+    from .youtube_actor_source import provision_youtube_actor_sources
+
+    provision_youtube_actor_sources(store)
     connection = store.connect()
     now = datetime.now(timezone.utc).isoformat()
     enqueued = 0

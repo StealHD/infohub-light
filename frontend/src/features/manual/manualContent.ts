@@ -86,7 +86,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '订阅 YouTube 公开频道',
-        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。普通视频、Shorts、公开直播及回放都沿用频道 Feed 收录；可设置每次保留的最新条数。“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
+        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。频道地址只用于确认频道身份，普通视频、Shorts、公开直播及回放均由已认证的 Apify Actor 直接获取；可设置每次保留的最新条数。“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
       },
       {
         title: '新增 X 或 Instagram 账号',
@@ -94,7 +94,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；免费筛选通过的候选先由服务器按页面费用上限进行受控 Canary，只有固定 Build 返回真实非空内容、费用完成对账并验证全部已启用来源后，才显示为可选/可加入。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。付费试跑和最终生效分别确认；默认每次 $0.02 上限可由管理员只为后续确认的 Run 调整至最高 $0.10，受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。某个来源返回旧内容时，只暂停该来源与该 Actor 的组合并继续尝试同一来源的其他冻结槽位，不会把整条 Route 或该 Actor 在其他来源的运行误判为不可用。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 来源 Canary 未完成时继续使用免费 Atom/RSS；成功后优先用认证 Actor，保存的 UC Channel ID 会作为频道身份和 Actor 输入，公开 Feed 只在该次 Actor 失败时无费用降级，不会自动追逐第二或第三路。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；免费筛选通过的候选先由服务器按页面费用上限进行受控 Canary，只有固定 Build 返回真实非空内容、费用完成对账并验证全部已启用来源后，才显示为可选/可加入。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。付费试跑和最终生效分别确认；默认每次 $0.02 上限可由管理员只为后续确认的 Run 调整至最高 $0.10，受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。某个来源返回旧内容时，只暂停该来源与该 Actor 的组合并继续尝试同一来源的其他冻结槽位，不会把整条 Route 或该 Actor 在其他来源的运行误判为不可用。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 来源会自动建立 Route 绑定，Canary 未完成时明确等待认证；成功后只使用认证 Actor，保存的 UC Channel ID 会作为频道身份和 Actor 输入，不再回退到 Atom/RSS。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
@@ -214,7 +214,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看 ActorOps 运行与告警',
-        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor；候选经过免费检查、受控 Canary 与来源级验证后才可运行。主备池固定三槽，新增、替换、移出、调序与单次费用上限均由服务端按 Route generation、Build、Manifest、来源证据和审批边界执行。YouTube 保留 RSS 身份和稳定内容 ID，但来源 Canary 成功后先使用认证 Actor，公开 Atom 仅在本次 Actor 失败时无费用降级；验证前会明确阻止获取，不会伪装成成功。',
+        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor；候选经过免费检查、受控 Canary 与来源级验证后才可运行。主备池固定三槽，新增、替换、移出、调序与单次费用上限均由服务端按 Route generation、Build、Manifest、来源证据和审批边界执行。YouTube 保留公开频道地址和稳定内容 ID 作为身份，但运行时只使用认证 Actor；验证前会明确阻止获取，不会回退 Atom/RSS 或伪装成成功。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
