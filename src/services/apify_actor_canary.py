@@ -33,6 +33,7 @@ from .apify_actor_canary_compatibility import (
     preflight_compatibility_candidate,
     run_compatibility_if_needed,
 )
+from .apify_actor_candidate_authorization import route_reference_candidate_authorized
 from .apify_actor_observed_probe import map_canary_output_for_revision, settled_observed_validation
 from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
@@ -1296,12 +1297,11 @@ class ApifyActorCanaryRunner:
         return str(staged["slot_name"]) if staged is not None else "primary"
 
     def _approval_still_authorized(self, row: Any) -> bool:
-        lifecycle = str(row["lifecycle"])
-        state = str(row["candidate_state"])
+        lifecycle, state = map(str, (row["lifecycle"], row["candidate_state"]))
         if str(row["kind"]) == "route_reference":
-            return (
-                lifecycle in {"static_valid", "probationary"}
-                and state != "open"
+            return route_reference_candidate_authorized(
+                self.store.connect(), self.ops.workspace_id,
+                str(row["revision_id"]), lifecycle, state,
             )
         staged = self._staged_source_context(row)
         if staged is not None:

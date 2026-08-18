@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog, YouTube input/output contract, revision recovery and pool workflow.
+// Reviewed: verified-only ActorOps catalog, revision-aware Canary authorization and pool workflow.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
