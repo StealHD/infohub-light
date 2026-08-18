@@ -34,8 +34,10 @@ from .apify_actor_canary_compatibility import (
     run_compatibility_if_needed,
 )
 from .apify_actor_candidate_authorization import route_reference_candidate_authorized
+from .apify_actor_source_canary_authorization import source_canary_candidate_authorized
 from .apify_actor_observed_probe import map_canary_output_for_revision, settled_observed_validation
 from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
+
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
     "x": (
         ActorTarget(canonical_url="https://x.com/openai", handle="openai"),
@@ -76,13 +78,9 @@ _HARD_OUTPUT_CONTRACT_FAILURES = frozenset(
     }
 )
 _SAFE_CANARY_CODE = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
-
-
 def _safe_canary_code(value: Any, fallback: str) -> str:
     code = str(value or "").strip().casefold().replace("-", "_")
     return code if _SAFE_CANARY_CODE.fullmatch(code) else fallback
-
-
 def actor_canary_timeout_seconds() -> int:
     """Return the bounded per-Actor Canary timeout hot-loaded per job."""
 
@@ -142,8 +140,6 @@ def reference_target_fingerprint(
         identity,
         platform=platform,
     )
-
-
 def next_reference_fingerprint(
     store: ServiceStore,
     *,
@@ -242,8 +238,9 @@ class ApifyActorCanaryRunner:
                    revision.manifest_hash, revision.lifecycle,
                    revision.execution_mode, revision.observed_manifest,
                    revision.security_evidence_json,
-                   candidate.state AS candidate_state
-                   , EXISTS (
+                   candidate.state AS candidate_state,
+                   candidate.last_error_code AS candidate_last_error_code,
+                   EXISTS (
                        SELECT 1
                        FROM apify_actor_canary_batch_items AS batch_item
                        JOIN apify_actor_canary_batches AS batch
@@ -1322,9 +1319,9 @@ class ApifyActorCanaryRunner:
                 str(row["revision_id"]),
             ),
         ).fetchone()
-        if slot is None or state not in {"closed", "half_open", "probationary"}:
+        if slot is None:
             return False
-        return lifecycle in {"certified", "probationary", "legacy_builtin"}
+        return source_canary_candidate_authorized(row)
 
     def _staged_source_context(self, row: Any) -> dict[str, Any] | None:
         if row["source_id"] is None:

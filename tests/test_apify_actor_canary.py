@@ -129,7 +129,6 @@ def test_paid_canary_uses_exact_revision_and_persists_only_semantic_evidence(
         priority=100,
         max_attempts=1,
     )
-
     actor_client = _Client()
     result = asyncio.run(
         ApifyActorCanaryRunner(store, ops, actor_client).run(
@@ -857,6 +856,14 @@ def test_active_probationary_primary_can_complete_source_canary(tmp_path) -> Non
         priority=100,
         max_attempts=1,
     )
+    store.connect().execute(
+        """UPDATE apify_actor_candidates
+           SET state = 'open', last_error_code = 'apify_actor_revision_not_executable'
+           WHERE id = (SELECT candidate_id FROM apify_actor_adapter_revisions
+                       WHERE revision_id = ?)""",
+        (revisions[0],),
+    )
+    store.connect().commit()
 
     actor_client = _Client()
     result = asyncio.run(

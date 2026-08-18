@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-19',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记，YouTube 的 stringList 输入不得套用 X 的对象格式，视频行的 channel.id 也会作为严格来源身份验证。已失败的同一 Revision 保持排除；只有新 Build/Manifest 成功通过免费检查时才会重新开放候选，且其当前 Revision 没有失败证据时才可启动 Canary。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor；当前原审批批次的恢复优先于历史核对积压，且兼容旧 Worker 写入的零费用待运行状态，避免可继续的已授权候选长期卡住。Worker 在领取任务后、调用来源或 Actor 前若无法启动心跳，会原样归还任务而不消耗重试次数、额度或费用；阶段对全部来源验证完成后，原子生效也会恢复该阶段目标槽的可运行熔断状态，绝不出现“Route 就绪但运行时没有 Actor”。若旧熔断只记录为“Revision 不可执行”，系统仅在当前 Revision 的每个已启用来源均有晚于该失败的成功结算 Canary 时恢复这个槽；历史 Canary 因而不会伪装为当前已通过，页面会明确要求按主备顺序重新实测；旧证据、其他错误或未验证来源绝不自动解除。',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记，YouTube 的 stringList 输入不得套用 X 的对象格式，视频行的 channel.id 也会作为严格来源身份验证。已失败的同一 Revision 保持排除；只有新 Build/Manifest 成功通过免费检查时才会重新开放候选，且其当前 Revision 没有失败证据时才可启动 Canary。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor；当前原审批批次的恢复优先于历史核对积压，且兼容旧 Worker 写入的零费用待运行状态，避免可继续的已授权候选长期卡住。Worker 在领取任务后、调用来源或 Actor 前若无法启动心跳，会原样归还任务而不消耗重试次数、额度或费用；阶段对全部来源验证完成后，原子生效也会恢复该阶段目标槽的可运行熔断状态，绝不出现“Route 就绪但运行时没有 Actor”。若旧熔断只记录为“Revision 不可执行”，系统仅在当前 Revision 的每个已启用来源均有晚于该失败的成功结算 Canary 时恢复这个槽；这条重验是唯一允许该旧熔断槽执行的路径，合同、权限、身份或内容失败仍绝不重放；历史 Canary 因而不会伪装为当前已通过，页面会明确要求按主备顺序重新实测。',
 } as const
 
 export const manualSections: ManualSection[] = [
