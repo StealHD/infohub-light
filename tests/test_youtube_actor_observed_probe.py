@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 
 import pytest
 
@@ -12,6 +14,7 @@ from src.services.apify_actor_manifest import (
     ActorTarget,
     map_actor_output,
 )
+from src.services.apify_actor_discovery import ApifyActorDiscoveryService
 from src.services.apify_actor_observed_probe import (
     can_observe_youtube_probe,
     map_canary_output,
@@ -21,6 +24,10 @@ from src.services.apify_actor_observed_probe import (
 from src.services.apify_actor_ops import (
     PAID_CANARY_CONFIRMATION,
     ApifyActorOpsService,
+)
+from src.services.apify_actor_youtube_observation_discovery import (
+    observation_probe_deterministic_failure,
+    observation_probe_eligible,
 )
 from src.storage.service_store import ServiceStore
 from test_apify_actor_pool_staging_v18 import FIXED_NOW, _route
@@ -173,3 +180,202 @@ def test_promoting_observed_output_repoints_settled_validation_to_immutable_buil
     assert (row["lifecycle"], row["observed_manifest"]) == ("probationary", 1)
     assert (row["build_id"], row["build_number"]) == ("build-1.2.3", BUILD_NUMBER)
     assert "__probe" not in str(row["manifest_json"])
+
+
+def test_discovery_sends_only_safe_opaque_youtube_build_to_observed_canary(tmp_path) -> None:
+    class OpaqueYoutubeMetadata:
+        def __init__(self) -> None:
+            self.validations: list[dict] = []
+
+        async def search_store(self, _query: str):
+            return [{"actorId": ACTOR_ID}]
+
+        async def get_actor(self, _actor_id: str):
+            return {
+                "id": "youtube-opaque-actor",
+                "username": "grow_media",
+                "name": "youtube-channel",
+                "isPublic": True,
+                "isRunnable": True,
+                "isDeprecated": False,
+                "actorPermissionLevel": "LIMITED_PERMISSIONS",
+                "taggedBuilds": {"latest": {"buildId": "build-1.2.3", "buildNumber": BUILD_NUMBER}},
+                "pricingInfos": [{
+                    "startedAt": "2020-01-01T00:00:00Z",
+                    "pricingModel": "PAY_PER_EVENT",
+                    "minimalMaxTotalChargeUsd": 0.01,
+                    "pricingPerEvent": {"actorChargeEvents": {"video": {"eventPriceUsd": 0.001}}},
+                }],
+            }
+
+        async def get_build(self, _build_id: str):
+            return {
+                "status": "SUCCEEDED",
+                "buildNumber": BUILD_NUMBER,
+                "inputSchema": json.dumps({"type": "object", "properties": {"url": {"type": "string"}, "maxItems": {"type": "integer"}}}),
+                "actorDefinition": {"storages": {"dataset": {"actorSpecification": 1, "fields": {}}}},
+            }
+
+        async def validate_input(self, _actor_id: str, _build_number: str, actor_input: dict):
+            self.validations.append(dict(actor_input))
+            return True
+
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    ops.patch_discovery_settings(
+        expected_generation=1,
+        enabled=True,
+        call_limit=3,
+    )
+    route = _route(store, "youtube/channel/items")
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_slot_candidate_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    metadata = OpaqueYoutubeMetadata()
+
+    async def unexpected_ai(_prompt: dict):
+        raise AssertionError("opaque YouTube Build must not spend an AI proposal")
+
+    outcome = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, unexpected_ai).run_discovery(
+            str(run["run_id"]), queries=["youtube channel"]
+        )
+    )
+
+    assert outcome.stage == "awaiting_canary_approval"
+    assert outcome.rejected == ()
+    assert len(outcome.revision_ids) == 1
+    revision_id = outcome.revision_ids[0]
+    revision = ops.get_revision(revision_id)
+    manifest = json.loads(store.connect().execute(
+        "SELECT manifest_json FROM apify_actor_adapter_revisions WHERE revision_id = ?",
+        (revision_id,),
+    ).fetchone()["manifest_json"])
+    assert "__probe_" in str(manifest)
+    assert revision["security_evidence"]["output_schema_proves_items"] is False
+    assert metadata.validations and metadata.validations[0]["maxItems"] == 1
+    history = store.connect().execute(
+        """SELECT policy_mode, stage, outcome FROM apify_actor_evaluation_history
+           WHERE workspace_id = ? AND candidate_id = ? ORDER BY rowid""",
+        (ops.workspace_id, str(revision["candidate_id"])),
+    ).fetchall()
+    assert {(row["policy_mode"], row["stage"], row["outcome"]) for row in history} >= {
+        ("standard", "static_validation", "passed"),
+        ("standard", "input_validation", "passed"),
+    }
+    candidate = store.connect().execute(
+        "SELECT state FROM apify_actor_candidates WHERE id = ?",
+        (str(revision["candidate_id"]),),
+    ).fetchone()
+    assert candidate is not None and candidate["state"] == "disabled"
+
+    approval = ops.approve_revision_canary(
+        str(route["route_id"]), revision_id,
+        expected_generation=int(route["generation"]),
+        approval_id="opaque-youtube-test",
+        confirmation=PAID_CANARY_CONFIRMATION,
+        max_cost_usd=0.01,
+        reference_fingerprint=hashlib.sha256(b"youtube-reference").hexdigest(),
+        discovery_run_id=str(run["run_id"]),
+    )
+    ops.record_validation(
+        str(approval["validation_id"]), status="succeeded",
+        semantic_outcome="valid_nonempty", cost_usd=0.01, cost_final=True,
+    )
+    _, draft = map_canary_output(
+        manifest, [_content_row()], TARGET, ActorRuntime(max_items=1),
+        platform="youtube", target_type="channel", capability="items",
+        security_evidence=revision["security_evidence"],
+    )
+    assert draft is not None
+    promoted = promote_observed_youtube_revision(
+        ops,
+        validation_id=str(approval["validation_id"]),
+        manifest=observed_manifest_with_identity(
+            draft, actor_id=ACTOR_ID, build_number=BUILD_NUMBER,
+            input_template=manifest["input"],
+        ),
+    )
+    assert promoted["revision_id"] != revision_id
+    assert store.connect().execute(
+        "SELECT state FROM apify_actor_candidates WHERE id = ?",
+        (str(revision["candidate_id"]),),
+    ).fetchone()["state"] == "probationary"
+
+    failed_run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_slot_candidate_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    failed_revision = ops.create_adapter_revision(
+        candidate_id=str(revision["candidate_id"]), actor_id=ACTOR_ID,
+        publisher="grow_media", build_id=str(revision["build_id"]),
+        build_number=BUILD_NUMBER, manifest=manifest,
+        input_schema_hash=str(revision["input_schema_hash"]),
+        output_schema_hash=str(revision["output_schema_hash"]),
+        pricing=revision["pricing"],
+        security_evidence=revision["security_evidence"],
+        discovery_run_id=str(failed_run["run_id"]),
+    )
+    ops.update_discovery_run(
+        str(failed_run["run_id"]), expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+    failed_approval = ops.approve_revision_canary(
+        str(route["route_id"]), failed_revision,
+        expected_generation=int(route["generation"]),
+        approval_id="opaque-youtube-failure", confirmation=PAID_CANARY_CONFIRMATION,
+        max_cost_usd=0.01,
+        reference_fingerprint=hashlib.sha256(b"youtube-reference-failure").hexdigest(),
+        discovery_run_id=str(failed_run["run_id"]),
+    )
+    ops.record_validation(
+        str(failed_approval["validation_id"]), status="failed",
+        semantic_outcome="apify_actor_contract_mismatch",
+        cost_usd=0.01, cost_final=True,
+    )
+    assert observation_probe_deterministic_failure(
+        store.connect(), workspace_id=ops.workspace_id, route_id=str(route["route_id"]),
+        candidate_id=str(revision["candidate_id"]), actor_id=ACTOR_ID,
+        build_id=str(revision["build_id"]), build_number=BUILD_NUMBER,
+        input_schema_hash=str(revision["input_schema_hash"]),
+        output_schema_hash=str(revision["output_schema_hash"]),
+        pricing={**revision["pricing"], "minimalMaxTotalChargeUsd": 0.009},
+    ) is None
+    replay = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="manual_slot_candidate_refresh",
+        expected_generation=int(route["generation"]),
+    )
+    repeated = asyncio.run(
+        ApifyActorDiscoveryService(ops, metadata, unexpected_ai).run_discovery(
+            str(replay["run_id"]), queries=["youtube channel"]
+        )
+    )
+    assert repeated.stage == "candidate_shortfall"
+    assert repeated.revision_ids == ()
+    assert repeated.rejected == ({
+        "actor_id": ACTOR_ID,
+        "reason": "actor_evaluation_deterministic_failure",
+    },)
+    assert len(metadata.validations) == 1
+
+
+def test_observation_probe_is_unavailable_to_other_actor_route_combinations() -> None:
+    assert observation_probe_eligible(
+        platform="youtube", target_type="channel", capability="items",
+        output_schema_proves_items=False,
+    )
+    for platform, target_type, capability in (
+        ("x", "profile", "items"),
+        ("instagram", "profile", "items"),
+        ("youtube", "profile", "items"),
+        ("youtube", "channel", "profile"),
+    ):
+        assert not observation_probe_eligible(
+            platform=platform, target_type=target_type, capability=capability,
+            output_schema_proves_items=False,
+        )

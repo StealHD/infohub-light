@@ -55,6 +55,15 @@ from .apify_actor_discovery_quality import (
     discovery_minimum_requirements, discovery_revision_security_evidence,
     rank_discovery_candidates,
 )
+from .apify_actor_discovery_fingerprints import mapping_hash as _json_hash
+from .apify_actor_discovery_pricing import safe_pricing_summary
+from .apify_actor_youtube_observation_discovery import (
+    candidate_observation_probe_failure,
+    observation_probe_evidence_fingerprint,
+    observation_probe_eligible,
+    observation_probe_manifest,
+    output_schema_supports_youtube_item_contract,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -653,6 +662,7 @@ class ApifyActorDiscoveryService:
         accepted = accepted[:effective_candidate_limit]
         persist_x_compatibility_candidates(platform=str(route["platform"]), ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_hits=store_hits, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=compatibility_input_dialect, input_count_field=compatibility_count_field)
         candidate_evidence: dict[str, tuple[str, str]] = {}
+        observation_candidates: set[str] = set()
         remembered: list[DiscoveryCandidate] = []
         for candidate in accepted:
             candidate_id = self.ops.ensure_candidate(
@@ -675,10 +685,19 @@ class ApifyActorDiscoveryService:
                     _json_hash(candidate.output_schema) or ""
                 ),
             )
-            candidate_evidence[candidate.actor_id] = (
-                candidate_id,
-                evidence_fingerprint,
-            )
+            if observation_probe_eligible(
+                platform=str(route["platform"]),
+                target_type=str(route["target_type"]),
+                capability=str(route["capability"]),
+                output_schema_proves_items=output_schema_supports_youtube_item_contract(
+                    candidate.output_schema
+                ),
+            ):
+                evidence_fingerprint = observation_probe_evidence_fingerprint(
+                    evidence_fingerprint
+                )
+                observation_candidates.add(candidate.actor_id)
+            candidate_evidence[candidate.actor_id] = (candidate_id, evidence_fingerprint)
             prior_metadata_failure = self.ops.store.connect().execute(
                 """
                 SELECT 1 FROM apify_actor_evaluation_history
@@ -706,7 +725,7 @@ class ApifyActorDiscoveryService:
                     deterministic=False,
                 )
             prior_failure = None
-            for stage in ("static_validation", "input_validation"):
+            for stage in ("static_validation", "input_validation", "canary"):
                 prior_failure = resilience.deterministic_failure(
                     route_id=str(run["route_id"]),
                     candidate_id=candidate_id,
@@ -730,6 +749,31 @@ class ApifyActorDiscoveryService:
                     outcome="skipped",
                     reason_code=str(prior_failure["reason_code"]),
                 )
+                continue
+            if candidate.actor_id in observation_candidates and (
+                failure_reason := candidate_observation_probe_failure(
+                    self.ops.store.connect(),
+                    workspace_id=self.ops.workspace_id,
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    candidate=candidate,
+                )
+            ):
+                resilience.record_evaluation(
+                    route_id=str(run["route_id"]),
+                    candidate_id=candidate_id,
+                    revision_id=None,
+                    evidence_fingerprint=evidence_fingerprint,
+                    policy_mode="standard",
+                    stage="canary",
+                    outcome="failed",
+                    reason_code=failure_reason,
+                    deterministic=True,
+                )
+                rejected.append({
+                    "actor_id": candidate.actor_id,
+                    "reason": "actor_evaluation_deterministic_failure",
+                })
                 continue
             remembered.append(candidate)
         accepted = remembered
@@ -757,7 +801,11 @@ class ApifyActorDiscoveryService:
             expected_stage="metadata",
             stage="ranking",
         )
-        proposal_target = min(MAX_AI_PROPOSALS, len(accepted))
+        ai_candidates = tuple(
+            candidate for candidate in accepted
+            if candidate.actor_id not in observation_candidates
+        )
+        proposal_target = min(MAX_AI_PROPOSALS, len(ai_candidates))
         identity_example = (
             {"output_field": "source_native_id", "target_ref": "target.native_id", "match": "exact"}
             if str(route["platform"]) == "youtube"
@@ -869,30 +917,33 @@ class ApifyActorDiscoveryService:
                     "Reject profile metadata-only Dataset schemas for the items capability.",
                 ],
             },
-            "candidates": [candidate.ai_summary() for candidate in accepted],
+            "candidates": [candidate.ai_summary() for candidate in ai_candidates],
         }
-        try:
-            ai_result = await _maybe_await(self.ai_generate(prompt))
-        except Exception as error:
-            error_code = str(
-                getattr(error, "code", "discovery_ai_unavailable")
-            )[:128]
-            self.ops.update_discovery_run(
-                run_id,
-                expected_stage="ranking",
-                stage="blocked_ai_unavailable",
-                error_code=error_code,
-                candidate_count=len(accepted),
-                rejections=tuple(rejected),
-                failure_phase="ai_generation",
-            )
-            return DiscoveryOutcome(
-                run_id,
-                str(run["route_id"]),
-                "blocked_ai_unavailable",
-                (),
-                tuple(rejected),
-            )
+        if proposal_target:
+            try:
+                ai_result = await _maybe_await(self.ai_generate(prompt))
+            except Exception as error:
+                error_code = str(
+                    getattr(error, "code", "discovery_ai_unavailable")
+                )[:128]
+                self.ops.update_discovery_run(
+                    run_id,
+                    expected_stage="ranking",
+                    stage="blocked_ai_unavailable",
+                    error_code=error_code,
+                    candidate_count=len(accepted),
+                    rejections=tuple(rejected),
+                    failure_phase="ai_generation",
+                )
+                return DiscoveryOutcome(
+                    run_id,
+                    str(run["route_id"]),
+                    "blocked_ai_unavailable",
+                    (),
+                    tuple(rejected),
+                )
+        else:
+            ai_result = {"proposals": ()}
         self.ops.update_discovery_run(
             run_id,
             expected_stage="ranking",
@@ -975,6 +1026,11 @@ class ApifyActorDiscoveryService:
                     )
                 _validate_manifest_route_identity(manifest, platform=str(route["platform"]), target_type=str(route["target_type"]), capability=str(route["capability"]))
             except ActorManifestError as error:
+                if candidate.actor_id in observation_candidates:
+                    # The opaque schema is deliberately not treated as a
+                    # permanent failure.  A bounded Canary will either prove
+                    # a real YouTube item contract or reject this Build.
+                    continue
                 rejected.append(
                     {"actor_id": candidate.actor_id, "reason": error.code}
                 )
@@ -1012,6 +1068,35 @@ class ApifyActorDiscoveryService:
                 stage="static_validation",
                 outcome="passed",
                 reason_code="static_validation_passed",
+                deterministic=False,
+            )
+            validated.append((candidate, manifest))
+            seen_actors.add(candidate.actor_id)
+        for candidate in accepted:
+            if (
+                candidate.actor_id in seen_actors
+                or candidate.actor_id not in observation_candidates
+            ):
+                continue
+            manifest = parse_actor_manifest(
+                observation_probe_manifest(
+                    actor_id=candidate.actor_id,
+                    build_number=candidate.build_number,
+                    input_template=candidate.input_template,
+                )
+            )
+            candidate_id, evidence_fingerprint = candidate_evidence[
+                candidate.actor_id
+            ]
+            resilience.record_evaluation(
+                route_id=str(run["route_id"]),
+                candidate_id=candidate_id,
+                revision_id=None,
+                evidence_fingerprint=evidence_fingerprint,
+                policy_mode="standard",
+                stage="static_validation",
+                outcome="passed",
+                reason_code="youtube_observation_probe_eligible",
                 deterministic=False,
             )
             validated.append((candidate, manifest))
@@ -1248,7 +1333,10 @@ class ApifyActorDiscoveryService:
         evidence["output_schema_hash"] = (
             _json_hash(output_schema) if output_schema else ""
         )
-        if not input_schema or not output_schema:
+        if not input_schema or (
+            not output_schema
+            and (platform, target_type, capability) != ("youtube", "channel", "items")
+        ):
             raise _reject("actor_schema_unverifiable")
         input_template = _input_template_from_schema(input_schema)
         if not input_template:
@@ -1748,83 +1836,7 @@ def _validate_capability_pricing(
         raise _reject(error_code)
 
 
-def _safe_pricing_summary(pricing: Mapping[str, Any]) -> dict[str, Any]:
-    allowed = (
-        "pricingModel",
-        "model",
-        "minimumChargeUsd",
-        "minChargeUsd",
-        "minimumPriceUsd",
-        "pricePerRunUsd",
-        "minimalMaxTotalChargeUsd",
-        "pricePerUnitUsd",
-    )
-    summary: dict[str, Any] = {}
-    for key in allowed:
-        value = pricing.get(key)
-        if isinstance(value, str):
-            summary[key] = value
-        elif _finite_price_number(value) is not None:
-            summary[key] = value
-    pricing_per_event = pricing.get("pricingPerEvent")
-    events = (
-        pricing_per_event.get("actorChargeEvents")
-        if isinstance(pricing_per_event, Mapping)
-        else None
-    )
-    if not isinstance(events, Mapping):
-        # Accept the first implementation's flattened safe snapshot so that
-        # the canonicalizer remains idempotent across an in-place v15 upgrade.
-        events = pricing.get("actorChargeEvents")
-    if isinstance(events, Mapping):
-        safe_events: dict[str, Any] = {}
-        for event_name, event in sorted(events.items())[:64]:
-            if not isinstance(event_name, str) or not isinstance(
-                event,
-                Mapping,
-            ):
-                continue
-            safe_event: dict[str, Any] = {}
-            value = event.get("eventPriceUsd")
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                safe_event["eventPriceUsd"] = value
-            tiered = event.get("eventTieredPricingUsd")
-            if isinstance(tiered, Mapping):
-                safe_tiers: dict[str, float] = {}
-                for tier_name, tier in sorted(tiered.items())[:32]:
-                    tier_value = (
-                        tier.get("tieredEventPriceUsd")
-                        if isinstance(tier, Mapping)
-                        else tier
-                    )
-                    safe_value = _finite_price_number(tier_value)
-                    if isinstance(tier_name, str) and safe_value is not None:
-                        safe_tiers[tier_name] = safe_value
-                if safe_tiers:
-                    safe_event["eventTieredPricingUsd"] = safe_tiers
-            if safe_event:
-                safe_events[event_name[:128]] = safe_event
-        if safe_events:
-            summary["pricingPerEvent"] = {
-                "actorChargeEvents": safe_events,
-            }
-    tiered_dataset = pricing.get("tieredPricing")
-    if isinstance(tiered_dataset, Mapping):
-        safe_dataset_tiers: dict[str, dict[str, float]] = {}
-        for tier_name, tier in sorted(tiered_dataset.items())[:32]:
-            value = (
-                tier.get("tieredPricePerUnitUsd")
-                if isinstance(tier, Mapping)
-                else None
-            )
-            safe_value = _finite_price_number(value)
-            if isinstance(tier_name, str) and safe_value is not None:
-                safe_dataset_tiers[tier_name[:64]] = {
-                    "tieredPricePerUnitUsd": safe_value
-                }
-        if safe_dataset_tiers:
-            summary["tieredPricing"] = safe_dataset_tiers
-    return summary
+_safe_pricing_summary = safe_pricing_summary
 
 
 def _finite_price_number(value: Any) -> float | None:
@@ -2325,18 +2337,6 @@ def _reference_target(platform: str) -> ActorTarget:
         "Actor discovery platform is not supported",
         status_code=422,
     )
-
-
-def _json_hash(value: Mapping[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            dict(value),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
 
 
 def _reject(code: str) -> ActorDiscoveryError:

@@ -11,23 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-15",
-  "result": "修复 ActorOps 发布包 E2E 的端口耦合、移动端视觉基线，并隔离 Insights 手动面板几何测试与首次自动展示之间的竞态。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-e2e-stability",
-  "unresolved": [],
-  "validation": [
-    "发布级 E2E 116 通过、55 按项目配置跳过；代码规模、控件与 diff 检查全部通过。",
-    "ActorOps 跨 desktop/tablet/mobile 的新增、替换、移出流程在生产构建端口上通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
   "result": "将 ActorOps 移动端深色发布截图更新为 Linux 实际基线，并移除 Insights 关闭动画卸载窗口中的易失 inert 读取。",
   "status": "completed",
   "task_id": "2026-08-15-release-v2.3.3-linux-e2e-followup",
@@ -372,6 +355,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整 impacted preflight 17/17 通过，包含全量 Pytest、前端 typecheck/Vitest/build、E2E 合同、控制与产品文档检查。",
     "新增重启恢复回归覆盖：未知启动会同时阻断 Validation、Batch item、Batch、Stage 和 Job；YouTube 旧 1/3 fallback 配置会收敛到注册的 primary 2/3 策略。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "为输出 Schema 不透明但免费安全条件已通过的 YouTube channel/items Actor 增加受控观察路径：先以真实目标进行一次受控 Canary，只有返回内容、身份和费用均完成核验后才生成可选的固定 Revision；同一 Build/Schema/价格的确定性付费失败会在免费发现阶段拦截。",
+  "status": "completed",
+  "task_id": "2026-08-18-youtube-observed-candidate-certification",
+  "unresolved": [],
+  "validation": [
+    "发现、Canary、池变更相关 Pytest 111 项通过。",
+    "前端类型、lint 与已验证候选筛选 Vitest 通过。"
   ]
 }
 ```
