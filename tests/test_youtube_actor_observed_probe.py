@@ -28,6 +28,7 @@ from src.services.apify_actor_ops import (
 from src.services.apify_actor_youtube_observation_discovery import (
     observation_probe_deterministic_failure,
     observation_probe_eligible,
+    observation_probe_manifest_hash,
 )
 from src.storage.service_store import ServiceStore
 from test_apify_actor_pool_staging_v18 import FIXED_NOW, _route
@@ -343,7 +344,21 @@ def test_discovery_sends_only_safe_opaque_youtube_build_to_observed_canary(tmp_p
         build_id=str(revision["build_id"]), build_number=BUILD_NUMBER,
         input_schema_hash=str(revision["input_schema_hash"]),
         output_schema_hash=str(revision["output_schema_hash"]),
+        manifest_hash=observation_probe_manifest_hash(
+            actor_id=ACTOR_ID,
+            build_number=BUILD_NUMBER,
+            input_template=manifest["input"],
+        ),
         pricing={**revision["pricing"], "minimalMaxTotalChargeUsd": 0.009},
+    ) is None
+    assert observation_probe_deterministic_failure(
+        store.connect(), workspace_id=ops.workspace_id, route_id=str(route["route_id"]),
+        candidate_id=str(revision["candidate_id"]), actor_id=ACTOR_ID,
+        build_id=str(revision["build_id"]), build_number=BUILD_NUMBER,
+        input_schema_hash=str(revision["input_schema_hash"]),
+        output_schema_hash=str(revision["output_schema_hash"]),
+        manifest_hash=hashlib.sha256(b"changed-youtube-input-contract").hexdigest(),
+        pricing=revision["pricing"],
     ) is None
     replay = ops.create_discovery_run(
         str(route["route_id"]),

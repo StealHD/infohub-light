@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from .apify_actor_manifest import actor_manifest_hash
 from .apify_actor_discovery_pricing import safe_pricing_summary
 
 
@@ -86,6 +87,20 @@ def observation_probe_evidence_fingerprint(evidence_fingerprint: str) -> str:
     ).hexdigest()
 
 
+def observation_probe_manifest_hash(
+    *, actor_id: str, build_number: str, input_template: Mapping[str, Any]
+) -> str:
+    """Fingerprint the exact paid probe contract, not only its Build schema."""
+
+    return actor_manifest_hash(
+        observation_probe_manifest(
+            actor_id=actor_id,
+            build_number=build_number,
+            input_template=input_template,
+        )
+    )
+
+
 def observation_probe_deterministic_failure(
     connection: Any,
     *,
@@ -97,6 +112,7 @@ def observation_probe_deterministic_failure(
     build_number: str,
     input_schema_hash: str,
     output_schema_hash: str,
+    manifest_hash: str,
     pricing: Mapping[str, Any],
 ) -> str | None:
     """Return a paid terminal result only when its free evidence still matches."""
@@ -120,11 +136,12 @@ def observation_probe_deterministic_failure(
           AND revision.actor_id = ? AND revision.build_id = ?
           AND revision.build_number = ? AND revision.input_schema_hash = ?
           AND revision.output_schema_hash = ?
+          AND revision.manifest_hash = ?
         ORDER BY validation.completed_at DESC, validation.validation_id DESC
         """,
         (
             workspace_id, route_id, candidate_id, actor_id, build_id,
-            build_number, input_schema_hash, output_schema_hash,
+            build_number, input_schema_hash, output_schema_hash, manifest_hash,
         ),
     ).fetchall()
     for row in rows:
@@ -158,6 +175,11 @@ def candidate_observation_probe_failure(
         build_number=str(candidate.build_number),
         input_schema_hash=_mapping_hash(candidate.input_schema),
         output_schema_hash=_mapping_hash(candidate.output_schema),
+        manifest_hash=observation_probe_manifest_hash(
+            actor_id=str(candidate.actor_id),
+            build_number=str(candidate.build_number),
+            input_template=candidate.input_template,
+        ),
         pricing=safe_pricing_summary(candidate.pricing),
     )
 
@@ -178,5 +200,6 @@ __all__ = [
     "observation_probe_deterministic_failure",
     "observation_probe_eligible",
     "observation_probe_manifest",
+    "observation_probe_manifest_hash",
     "output_schema_supports_youtube_item_contract",
 ]

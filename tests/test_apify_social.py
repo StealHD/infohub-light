@@ -798,7 +798,7 @@ def test_apify_terminal_error_does_not_expose_remote_identifiers():
     finally:
         asyncio.run(client.aclose())
 
-    assert raised.value.code == "apify_run_status_unavailable"
+    assert raised.value.code == "apify_actor_run_failed"
     assert remote_run_id not in str(raised.value)
     assert remote_dataset_id not in str(raised.value)
 

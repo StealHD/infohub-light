@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-18',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor；当前原审批批次的恢复优先于历史核对积压，且兼容旧 Worker 写入的零费用待运行状态，避免可继续的已授权候选长期卡住。',
+  reviewedAt: '2026-08-19',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记，YouTube 的 stringList 输入不得套用 X 的对象格式。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor；当前原审批批次的恢复优先于历史核对积压，且兼容旧 Worker 写入的零费用待运行状态，避免可继续的已授权候选长期卡住。',
 } as const
 
 export const manualSections: ManualSection[] = [

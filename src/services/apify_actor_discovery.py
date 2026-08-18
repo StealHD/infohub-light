@@ -1,10 +1,4 @@
-"""Safe Actor discovery and declarative adapter proposal workflow.
-
-Discovery is intentionally proposal-only: it searches public Store metadata,
-applies deterministic filters, asks AI for bounded JSON manifests, validates
-those manifests against fetched identities and exact Builds, and stops at
-``awaiting_canary_approval``.  It never starts a paid Actor Run.
-"""
+"""Safe, proposal-only Actor discovery; it never starts a paid Actor Run."""
 
 from __future__ import annotations
 
@@ -64,7 +58,7 @@ from .apify_actor_youtube_observation_discovery import (
     observation_probe_manifest,
     output_schema_supports_youtube_item_contract,
 )
-
+from .apify_actor_youtube_input import input_template_for_registered_route
 
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -676,7 +670,7 @@ class ApifyActorDiscoveryService:
                 actor_id=candidate.actor_id,
                 build_id=candidate.build_id,
                 build_number=candidate.build_number,
-                manifest_hash=str(_json_hash(candidate.output_schema) or ""),
+                manifest_hash=str(_json_hash(candidate.input_template) or ""),
                 pricing=_safe_pricing_summary(candidate.pricing),
                 input_schema_hash=str(
                     _json_hash(candidate.input_schema) or ""
@@ -1338,7 +1332,13 @@ class ApifyActorDiscoveryService:
             and (platform, target_type, capability) != ("youtube", "channel", "items")
         ):
             raise _reject("actor_schema_unverifiable")
-        input_template = _input_template_from_schema(input_schema)
+        input_template = input_template_for_registered_route(
+            platform,
+            target_type,
+            capability,
+            input_schema,
+            _input_template_from_schema,
+        )
         if not input_template:
             raise _reject("actor_input_schema_unmappable")
         _validate_pricing(pricing, per_run_cap_usd)

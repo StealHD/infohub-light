@@ -6276,26 +6276,8 @@ class ApifyActorOpsService(
                 """,
                 (self.workspace_id, batch_id),
             ).fetchone()
-            prior = connection.execute(
-                """
-                SELECT COUNT(DISTINCT revision.actor_id) AS actors,
-                       COUNT(DISTINCT lower(revision.publisher)) AS publishers
-                FROM apify_actor_validations AS validation
-                JOIN apify_actor_adapter_revisions AS revision
-                  ON revision.workspace_id = validation.workspace_id
-                 AND revision.revision_id = validation.revision_id
-                WHERE validation.workspace_id = ?
-                  AND validation.route_id = ?
-                  AND validation.kind = 'route_reference'
-                  AND validation.status = 'succeeded'
-                  AND validation.semantic_outcome IN (
-                      'valid_nonempty', 'valid_empty'
-                  )
-                """,
-                (self.workspace_id, str(batch["route_id"])),
-            ).fetchone()
-            actor_count = int(prior["actors"] or 0)
-            publisher_count = int(prior["publishers"] or 0)
+            actor_count = int(evidence["actors"] or 0)
+            publisher_count = int(evidence["publishers"] or 0)
             source_evidence = None
             if batch["pool_stage_id"] is not None:
                 source_evidence = connection.execute(
