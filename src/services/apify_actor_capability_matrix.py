@@ -99,10 +99,10 @@ def reconcile_registered_route_policies(
     """Converge persisted legacy routes without changing an in-flight Stage.
 
     The legacy YouTube 1/3 fallback rule was a product-policy bug, not a
-    schema difference.  Existing in-flight stages retain their generation so
-    their already-authorized exact Build evidence can finish or reconcile; the
-    final activation writes the common 2/3 minimum.  Idle routes converge in
-    one transaction and never create a discovery or paid Actor Run.
+    schema difference.  Existing in-flight stages retain their generation and
+    source bindings, but immediately expose the common 2/3 minimum.  Idle
+    routes converge in one transaction and never create a discovery or paid
+    Actor Run.
     """
 
     updated_routes = 0
@@ -142,18 +142,16 @@ def reconcile_registered_route_policies(
             )
         )
         if active_stage:
-            if needs_mode or needs_policy:
-                connection.execute(
-                    """
-                    UPDATE apify_actor_route_profiles
-                    SET mode = ?, policy_version = ?, updated_at = ?
-                    WHERE workspace_id = ? AND route_id = ?
-                    """,
-                    (entry.mode, "actor_ops_v3", now, workspace_id, route_id),
+            if needs_mode or needs_policy or needs_minimum:
+                _converge_active_profile(
+                    connection,
+                    workspace_id=workspace_id,
+                    route_id=route_id,
+                    entry=entry,
+                    is_compatibility=is_compatibility,
+                    now=now,
                 )
                 updated_routes += 1
-            if needs_minimum:
-                deferred_routes += 1
             continue
         binding_cursor = connection.execute(
             """
@@ -239,6 +237,34 @@ def reconcile_registered_route_policies(
         "bindings": updated_bindings,
         "deferred": deferred_routes,
     }
+
+
+def _converge_active_profile(
+    connection: sqlite3.Connection,
+    *,
+    workspace_id: str,
+    route_id: str,
+    entry: ActorRouteCapability,
+    is_compatibility: bool,
+    now: str,
+) -> None:
+    """Update display policy without invalidating an approved frozen Stage."""
+
+    connection.execute(
+        """UPDATE apify_actor_route_profiles
+           SET mode = ?, min_runtime_healthy = ?, min_publishers = ?,
+               policy_version = ?, updated_at = ?
+           WHERE workspace_id = ? AND route_id = ?""",
+        (
+            entry.mode,
+            1 if is_compatibility else entry.min_runtime_healthy,
+            1 if is_compatibility else entry.min_publishers,
+            "actor_ops_v3",
+            now,
+            workspace_id,
+            route_id,
+        ),
+    )
 
 
 __all__ = [

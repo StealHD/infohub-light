@@ -33,11 +33,15 @@ async def _reconcile_workspace(
     ops = ApifyActorOpsService(store, workspace_id=workspace_id)
     rows = store.connect().execute(
         """
-        SELECT validation.validation_id
+        SELECT validation.validation_id,
+               CASE WHEN validation.semantic_outcome IN (?, ?, ?, ?)
+                    THEN 1 ELSE 0 END AS requires_remote_read
         FROM apify_actor_validations AS validation
+        JOIN apify_actor_route_profiles AS profile
+          ON profile.workspace_id = validation.workspace_id
+         AND profile.route_id = validation.route_id
         WHERE validation.workspace_id = ?
           AND validation.status IN ('failed', 'cancelled')
-          AND validation.semantic_outcome IN (?, ?, ?, ?)
           AND validation.attempt_id IS NOT NULL
           AND EXISTS (
               SELECT 1 FROM apify_actor_runs AS run
@@ -45,66 +49,106 @@ async def _reconcile_workspace(
                 AND run.logical_run_id = validation.attempt_id
                 AND run.remote_run_id IS NOT NULL
           )
+          AND (
+              validation.semantic_outcome IN (?, ?, ?, ?)
+              OR (
+                  profile.status = 'blocked_unknown_start'
+                  AND validation.kind = 'route_reference'
+                  AND validation.cost_final = 1
+                  AND EXISTS (
+                      SELECT 1
+                      FROM apify_actor_canary_batch_items AS item
+                      JOIN apify_actor_canary_batches AS batch
+                        ON batch.workspace_id = item.workspace_id
+                       AND batch.batch_id = item.batch_id
+                      WHERE item.workspace_id = validation.workspace_id
+                        AND item.validation_id = validation.validation_id
+                        AND item.status = 'failed'
+                        AND batch.status IN ('blocked_unknown_start', 'running')
+                  )
+              )
+          )
         ORDER BY validation.completed_at, validation.validation_id
         LIMIT 20
         """,
-        (workspace_id, *_RECOVERABLE_OUTCOMES),
+        (*_RECOVERABLE_OUTCOMES, workspace_id, *_RECOVERABLE_OUTCOMES),
     ).fetchall()
     if not rows:
         return {"checked": 0, "reconciled": 0, "continued": 0}
-    coordinator = apify_coordinator_for_workspace(
-        store,
-        workspace_id=workspace_id,
-        data_dir=data_dir,
-        purpose="validation",
-    )
-    if coordinator is None:
-        return {"checked": len(rows), "reconciled": 0, "continued": 0}
-    state = coordinator.public_state(workspace_id)
-    secret_id = str(
-        state.get("validation_secret_id") or state.get("active_secret_id") or ""
-    )
-    if not secret_id:
-        return {"checked": len(rows), "reconciled": 0, "continued": 0}
-    credential = coordinator.quota_candidate(secret_id)
     reconciled = 0
     continuation_batches: set[str] = set()
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(30.0, connect=10.0),
-        trust_env=False,
-    ) as http_client:
-        runner = ApifyActorCanaryRunner(
-            store,
-            ops,
-            ApifyClient(
-                tokens=[(credential.env_name, credential.token)],
-                coordinator=coordinator,
-                http_client=http_client,
-                timeout_seconds=actor_canary_timeout_seconds(),
-            ),
-        )
-        for row in rows:
-            validation_id = str(row["validation_id"])
-            try:
-                await runner.reconcile(validation_id)
-            except ActorOpsError:
-                # The remote Run may still be active or unavailable.  It stays
-                # blocked and no Actor POST is attempted.
-                continue
-            ops.reconcile_terminal_validation_costs()
-            recovery = ops.resume_reconciled_validation(validation_id)
-            reconciled += 1
+    remote_rows = [row for row in rows if bool(row["requires_remote_read"])]
+    for row in rows:
+        if not bool(row["requires_remote_read"]):
+            recovery = ops.resume_reconciled_validation(str(row["validation_id"]))
             if recovery["enqueue_batch"] and recovery["batch_id"]:
                 continuation_batches.add(str(recovery["batch_id"]))
-    continued = _enqueue_originally_approved_batches(
+    if remote_rows:
+        coordinator = apify_coordinator_for_workspace(
+            store, workspace_id=workspace_id, data_dir=data_dir, purpose="validation"
+        )
+        if coordinator is None:
+            return _reconciliation_result(
+                store,
+                workspace_id=workspace_id,
+                checked=len(rows),
+                reconciled=0,
+                continuation_batches=continuation_batches,
+            )
+        state = coordinator.public_state(workspace_id)
+        secret_id = str(state.get("validation_secret_id") or state.get("active_secret_id") or "")
+        if not secret_id:
+            return _reconciliation_result(
+                store,
+                workspace_id=workspace_id,
+                checked=len(rows),
+                reconciled=0,
+                continuation_batches=continuation_batches,
+            )
+        credential = coordinator.quota_candidate(secret_id)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), trust_env=False) as http_client:
+            runner = ApifyActorCanaryRunner(
+                store, ops,
+                ApifyClient(tokens=[(credential.env_name, credential.token)], coordinator=coordinator, http_client=http_client, timeout_seconds=actor_canary_timeout_seconds()),
+            )
+            for row in remote_rows:
+                validation_id = str(row["validation_id"])
+                try:
+                    await runner.reconcile(validation_id)
+                except ActorOpsError:
+                    # The remote Run may still be active or unavailable.  It stays
+                    # blocked and no Actor POST is attempted.
+                    continue
+                ops.reconcile_terminal_validation_costs()
+                recovery = ops.resume_reconciled_validation(validation_id)
+                reconciled += 1
+                if recovery["enqueue_batch"] and recovery["batch_id"]:
+                    continuation_batches.add(str(recovery["batch_id"]))
+    return _reconciliation_result(
         store,
         workspace_id=workspace_id,
-        batch_ids=continuation_batches,
+        checked=len(rows),
+        reconciled=reconciled,
+        continuation_batches=continuation_batches,
     )
+
+
+def _reconciliation_result(
+    store: ServiceStore,
+    *,
+    workspace_id: str,
+    checked: int,
+    reconciled: int,
+    continuation_batches: set[str],
+) -> dict[str, int]:
     return {
-        "checked": len(rows),
+        "checked": checked,
         "reconciled": reconciled,
-        "continued": continued,
+        "continued": _enqueue_originally_approved_batches(
+            store,
+            workspace_id=workspace_id,
+            batch_ids=continuation_batches,
+        ),
     }
 
 

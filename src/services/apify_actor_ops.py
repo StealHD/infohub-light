@@ -56,6 +56,10 @@ from .apify_actor_pool_slots import ApifyActorPoolSlotsMixin
 from .apify_actor_pool_workflow import project_active_pool_stage_workflow
 from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
 from .apify_actor_capability_matrix import route_profiles
+from .apify_actor_recovery_continuation import (
+    clear_start_unknown_barrier,
+    continue_terminal_route_failure,
+)
 
 
 SLOT_NAMES = ("primary", "backup_1", "backup_2")
@@ -7457,11 +7461,10 @@ class ApifyActorOpsService(
     ) -> dict[str, Any]:
         """Resume only work already covered by the original paid approval.
 
-        Re-reading a known Run is free.  When that read proves a Route Canary
-        succeeded, the old batch may continue with its already-approved source
-        checks; the candidate Actor itself is never started again.  A source
-        read can likewise move its frozen stage to apply-ready without another
-        paid request.
+        Re-reading a known Run is free.  A recovered Route success continues
+        its source checks; a terminal Route failure continues only the
+        remaining candidates in the same frozen approval.  Neither path starts
+        the previously attempted Actor again.
         """
 
         with self._write() as connection:
@@ -7511,6 +7514,11 @@ class ApifyActorOpsService(
                 not in {"valid_nonempty", "valid_empty"}
                 or not bool(row["cost_final"])
             ):
+                continuation = continue_terminal_route_failure(
+                    self, connection, row
+                )
+                if continuation is not None:
+                    return continuation
                 return {
                     "resumed": False,
                     "batch_id": row["batch_id"] or row["source_batch_id"],
@@ -7546,60 +7554,7 @@ class ApifyActorOpsService(
                             stage_id,
                         ),
                     )
-                route_id = str(row["route_id"])
-                route_key = str(row["route_key"])
-                unresolved = connection.execute(
-                    """
-                    SELECT 1 FROM apify_actor_attempts
-                    WHERE workspace_id = ? AND route_key = ?
-                      AND status = 'start_outcome_unknown'
-                    LIMIT 1
-                    """,
-                    (self.workspace_id, route_key),
-                ).fetchone()
-                if unresolved is None:
-                    connection.execute(
-                        """
-                        UPDATE apify_actor_route_profiles
-                        SET status = 'ready', updated_at = ?
-                        WHERE workspace_id = ? AND route_id = ?
-                          AND status = 'blocked_unknown_start'
-                        """,
-                        (self._now_iso(), self.workspace_id, route_id),
-                    )
-                    connection.execute(
-                        """
-                        UPDATE apify_actor_routes
-                        SET status = 'degraded', blocked_reason = NULL,
-                            updated_at = ?
-                        WHERE workspace_id = ? AND route_key = ?
-                          AND blocked_reason IN (
-                              'start_outcome_unknown',
-                              'apify_start_outcome_unknown',
-                              'apify_run_reconcile_required'
-                          )
-                        """,
-                        (self._now_iso(), self.workspace_id, route_key),
-                    )
-                    connection.execute(
-                        """
-                        UPDATE apify_key_pool_state
-                        SET status = 'ready', blocked_reason = NULL,
-                            generation = generation + 1, updated_at = ?
-                        WHERE workspace_id = ?
-                          AND blocked_reason = 'start_outcome_unknown'
-                          AND NOT EXISTS (
-                              SELECT 1 FROM apify_actor_attempts
-                              WHERE workspace_id = ?
-                                AND status = 'start_outcome_unknown'
-                          )
-                        """,
-                        (
-                            self._now_iso(),
-                            self.workspace_id,
-                            self.workspace_id,
-                        ),
-                    )
+                clear_start_unknown_barrier(self, connection, row)
                 connection.execute(
                     """
                     UPDATE apify_actor_canary_batches
