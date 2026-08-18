@@ -2676,7 +2676,6 @@ class ApifyActorOpsService(
                 None
                 if lifecycle == "legacy_builtin"
                 or str(row["execution_mode"] or "pinned") == "current"
-                or bool(row["observed_manifest"])
                 else parse_actor_manifest(str(row["manifest_json"]))
             )
             security_evidence = _safe_json(

@@ -201,6 +201,17 @@ def test_promoting_observed_output_repoints_settled_validation_to_immutable_buil
     assert (row["lifecycle"], row["observed_manifest"]) == ("probationary", 1)
     assert (row["build_id"], row["build_number"]) == ("build-1.2.3", BUILD_NUMBER)
     assert "__probe" not in str(row["manifest_json"])
+    store.connect().execute(
+        """UPDATE apify_route_active_slots
+           SET candidate_id = ?, revision_id = ?
+           WHERE workspace_id = ? AND route_id = ? AND slot_name = 'primary'""",
+        (candidate_id, str(promoted["revision_id"]), ops.workspace_id, route_id),
+    )
+    store.connect().commit()
+    frozen = ops.freeze_execution(route_id, enforce_gate=False)
+    assert frozen.slots[0].observed_manifest is True
+    assert frozen.slots[0].manifest is not None
+    assert frozen.slots[0].manifest.build_number == BUILD_NUMBER
 
 
 def test_discovery_sends_only_safe_opaque_youtube_build_to_observed_canary(tmp_path) -> None:
