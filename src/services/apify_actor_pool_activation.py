@@ -324,6 +324,7 @@ class ApifyActorPoolActivationMixin:
         requested_slots: Mapping[str, str],
         revision_rows: Mapping[str, sqlite3.Row],
         effective_lifecycles: Mapping[str, str],
+        reactivate_verified_slots: bool,
         now: str,
     ) -> None:
         position_offset = int(
@@ -364,7 +365,7 @@ class ApifyActorPoolActivationMixin:
             unchanged = old_slots.get(slot_name) == str(row["revision_id"])
             selected_state = (
                 str(row["state"])
-                if unchanged
+                if unchanged and not reactivate_verified_slots
                 else "probationary"
                 if effective_lifecycles[slot_name] == "probationary"
                 else "closed"
@@ -513,6 +514,7 @@ class ApifyActorPoolActivationMixin:
         allow_compatibility_slot: bool = False,
         reject_active_stage: bool = False,
         allow_legacy_compaction: bool = False,
+        reactivate_verified_slots: bool = False,
     ) -> dict[str, Any]:
         _ensure_module_symbols()
         requested_slots, populated_slot_names, selected_cap = (
@@ -579,6 +581,7 @@ class ApifyActorPoolActivationMixin:
                 requested_slots=requested_slots,
                 revision_rows=revision_rows,
                 effective_lifecycles=effective_lifecycles,
+                reactivate_verified_slots=reactivate_verified_slots,
                 now=now,
             )
             self._activation_finalize_route(

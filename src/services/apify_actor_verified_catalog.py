@@ -283,6 +283,7 @@ def activate_verified_pool_candidates(
             allow_probationary_primary=True,
             allow_compatibility_single=(str(plan["platform"]) == "x" and goal == "compatibility_single"),
             allow_compatibility_slot=compatibility_slot,
+            reactivate_verified_slots=True,
         )
         target_hash = symbols.revision_set_hash(
             {name: slots[name] or "" for name in _SLOTS}

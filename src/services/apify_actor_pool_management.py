@@ -63,6 +63,7 @@ class ActorPoolManagementMixin:
         allow_compatibility_slot: bool = False,
         reject_active_stage: bool = False,
         allow_legacy_compaction: bool = False,
+        reactivate_verified_slots: bool = False,
     ) -> dict[str, Any]:
         """Activate an ordinary immutable pool through the extracted facade."""
 
@@ -78,6 +79,7 @@ class ActorPoolManagementMixin:
             allow_compatibility_slot=allow_compatibility_slot,
             reject_active_stage=reject_active_stage,
             allow_legacy_compaction=allow_legacy_compaction,
+            reactivate_verified_slots=reactivate_verified_slots,
         )
 
     def list_pool_candidates(
