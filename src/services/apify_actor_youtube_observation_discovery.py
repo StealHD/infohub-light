@@ -12,7 +12,7 @@ from .apify_actor_manifest import actor_manifest_hash
 from .apify_actor_discovery_pricing import safe_pricing_summary
 
 
-YOUTUBE_OBSERVATION_POLICY = "youtube_observation_probe_v1"
+YOUTUBE_OBSERVATION_POLICY = "youtube_observation_probe_v2"
 
 
 def observation_probe_eligible(
@@ -62,11 +62,11 @@ def observation_probe_manifest(
         "build_number": build_number,
         "input": dict(input_template),
         "output": {
-            "native_id": {"pointers": ["/__probe_native_id"]},
-            "url": {"pointers": ["/__probe_url"]},
-            "published_at": {"pointers": ["/__probe_published_at"]},
-            "title": {"pointers": ["/__probe_title"]},
-            "source_native_id": {"pointers": ["/__probe_source_native_id"]},
+            "native_id": {"pointers": ["/__probe_native_id_v2"]},
+            "url": {"pointers": ["/__probe_url_v2"]},
+            "published_at": {"pointers": ["/__probe_published_at_v2"]},
+            "title": {"pointers": ["/__probe_title_v2"]},
+            "source_native_id": {"pointers": ["/__probe_source_native_id_v2"]},
         },
         "semantics": {
             "identity": {

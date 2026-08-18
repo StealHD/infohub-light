@@ -313,7 +313,13 @@ def _observe_youtube_row(
         native_path = url_path
     published_path, published = _pick(paths, ("publishedat", "publisheddate", "uploaddate", "date", "timestamp"), _datetime)
     title_path, title = _pick(paths, ("videotitle", "title", "name"), _text)
-    source_path, source = _pick(paths, ("channelid", "sourceid", "authorid"), _text)
+    source_path, source = _pick(
+        paths,
+        ("channelid", "sourceid", "authorid"),
+        _text,
+    )
+    if source is None:
+        source_path, source = _nested_source_id(paths)
     if not all((url_path, url, native_path, native, published_path, published, title_path, title, source_path, source)):
         return None
     if _video_id(url) != native:
@@ -332,6 +338,27 @@ def _observe_youtube_row(
         "published_at": str(published_path), "title": str(title_path),
         "source_native_id": str(source_path),
     }
+
+
+def _nested_source_id(paths: Mapping[str, Any]) -> tuple[str | None, Any | None]:
+    """Accept only an explicit nested channel/author native ID.
+
+    Several YouTube Actors return a video row with ``channel.id`` rather than
+    a flat ``channelId``.  Do not broadly accept any nested ``id``: the parent
+    name must prove that it identifies the content source.
+    """
+
+    for pointer, value in paths.items():
+        parts = pointer.strip("/").split("/")
+        if len(parts) < 2:
+            continue
+        parent = parts[-2].replace("_", "").replace("-", "").casefold()
+        child = parts[-1].replace("_", "").replace("-", "").casefold()
+        if parent not in {"channel", "author", "owner"} or child != "id":
+            continue
+        if converted := _text(value):
+            return pointer, converted
+    return None, None
 
 
 def _observed_manifest(*, actor_id: str, build_number: str, input_template: Mapping[str, Any], selected: Mapping[str, str]) -> dict[str, Any]:

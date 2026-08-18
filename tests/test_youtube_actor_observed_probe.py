@@ -108,6 +108,26 @@ def test_observed_probe_accepts_only_matching_content_and_mints_standard_manifes
     assert "__probe" not in str(observed)
 
 
+def test_observed_probe_accepts_a_video_row_with_nested_channel_identity() -> None:
+    row = _content_row()
+    row.pop("channelId")
+    row["channel"] = {
+        "id": TARGET.native_id,
+        "handle": "@YouTube",
+        "url": TARGET.canonical_url,
+    }
+
+    mapped, draft = map_canary_output(
+        _placeholder_manifest(), [row], TARGET, ActorRuntime(max_items=1),
+        platform="youtube", target_type="channel", capability="items",
+        security_evidence=_evidence(),
+    )
+
+    assert mapped.semantic_outcome == "valid_nonempty"
+    assert draft is not None
+    assert draft["output"]["source_native_id"]["pointers"] == ["/channel/id"]
+
+
 @pytest.mark.parametrize(
     "row",
     [
