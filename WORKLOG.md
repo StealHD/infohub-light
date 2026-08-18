@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "补齐所有 Actor 路线的主备池手动主用切换、未来单次费用上限与安全候选质量排序；X 的 route identity 透传与严格免费预检保持付费验证前的零写入拒绝。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-pool-management-controls",
-  "unresolved": [],
-  "validation": [
-    "定向后端回归、ActorOps 前端交互、lint 与 typecheck 通过。",
-    "preflight 16/16 与完整 Test Gate 18/18 通过；无 mapping miss。",
-    "本地 8080 已切换到 5f6853cd1ee4，API/Worker healthy，worker_status=ready；新 promote/price-cap 路由和 ActorOps 前端产物已确认。",
-    "本轮部署和验证没有发起付费 Actor Run。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-14",
@@ -367,6 +347,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "X 候选计数、Discovery 与兼容 Canary 定向 Pytest 69 项通过。",
     "受影响 preflight 15/15 命令通过；待本地 8080 重建后进行实际免费 Discovery 验收。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "完成本地 X ActorOps 的端到端受控验收：免费 Discovery 仅保留一个安全候选，Canary 通过 Route 与两个启用来源验证后以原子方式补入 backup_2；随后真实来源更新成功，旧的 runnable Revision 失败不再复现。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-x-runtime-canary",
+  "unresolved": [
+    "当前来源持久化 fetch_limit 为 20；若 UI 仍显示 10，需要另行修复表单显示与保存值的同步。",
+    "YouTube 的外部 RSS/Atom 可靠性未包含在本次 X 验收内。"
+  ],
+  "validation": [
+    "付费 Canary：Route 与 2 个已启用 X 来源均为 valid_nonempty，实际结算 $0.0133746，低于 $0.30 上限。",
+    "真实 source_fetch 成功：抓取 20 条，入库 13 条，新增 8 条，并生成用户快照。",
+    "本地 8080 API/Worker 健康，运行 e0a4149b603d；此前定向 Pytest 69 项与受影响 preflight 15/15 通过。"
   ]
 }
 ```
