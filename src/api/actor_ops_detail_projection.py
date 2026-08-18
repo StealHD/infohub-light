@@ -8,6 +8,10 @@ from typing import Any
 from .actor_ops_projection import public_actor_ops_revision, public_actor_ops_route
 from ..services.apify_actor_resilience import ApifyActorResilienceService
 from ..services.apify_actor_ops import ApifyActorOpsService
+from ..services.apify_actor_source_proof import (
+    current_source_validation_ids,
+    source_validation_failure_cutoffs,
+)
 from ..storage.service_store import ServiceStore
 
 
@@ -161,6 +165,10 @@ def _add_source_validations(
         pending = next((str(slot["revision_id"]) for slot in slots if slot.get("revision_id") is not None and str(slot["revision_id"]) not in passed), None)
         validation_slots = [_source_validation_slot(slot, latest, passed, pending) for slot in slots]
         status = str(binding["validation_status"])
+        if status.startswith("ready_") and pending is not None and source_validation_failure_cutoffs(
+            connection, workspace_id=ops.workspace_id, route_id=route_id
+        ):
+            status = "revalidation_pending"
         bucket = "ready" if status in {"ready_1of1", "ready_2of2", "ready_3of3"} else "failed" if status in {"failed", "blocked"} else "pending"
         summary[bucket] += 1
         source_validations.append({
@@ -184,12 +192,14 @@ def _source_validation_evidence(connection: Any, ops: ApifyActorOpsService, rout
         (ops.workspace_id, route_id, binding["source_id"], binding["target_fingerprint"]),
     ).fetchall()
     latest: dict[str, Any] = {}
-    passed: set[str] = set()
+    passed = current_source_validation_ids(
+        connection, workspace_id=ops.workspace_id, route_id=route_id,
+        source_id=str(binding["source_id"]),
+        target_fingerprint=str(binding["target_fingerprint"]),
+    )
     for row in rows:
         revision_id = str(row["revision_id"])
         latest.setdefault(revision_id, row)
-        if str(row["status"]) == "succeeded" and str(row["semantic_outcome"]) in {"valid_nonempty", "valid_empty"}:
-            passed.add(revision_id)
     return latest, passed
 
 

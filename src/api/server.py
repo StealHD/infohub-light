@@ -124,6 +124,7 @@ from ..services.apify_actor_ops import (
     SOURCE_CANARY_BUDGET_USD,
     source_target_fingerprint,
 )
+from ..services.apify_actor_source_proof import current_source_validation_ids
 from ..services.apify_actor_canary import actor_canary_timeout_seconds
 from ..services.apify_pool_runtime import apify_coordinator_for_workspace
 from .actor_ops_pool_management_gate import require_actor_pool_management_schema
@@ -4288,6 +4289,10 @@ def create_app(
             raise ApiError("not_found", "source not found", status_code=404)
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         binding = ops.get_source_binding(source_id)
+        target_fingerprint = str(store.connect().execute(
+            "SELECT target_fingerprint FROM apify_source_route_bindings WHERE workspace_id = ? AND source_id = ?",
+            (str(user["workspace_id"]), source_id),
+        ).fetchone()["target_fingerprint"])
         detail = public_actor_ops_detail(ops, str(binding["route_id"]))
         spent_row = store.connect().execute(
             """
@@ -4336,13 +4341,8 @@ def create_app(
         latest = {}
         for row in validation_rows:
             latest.setdefault(str(row["revision_id"]), dict(row))
-        passed = {
-            revision_id
-            for revision_id, validation in latest.items()
-            if str(validation["status"]) == "succeeded"
-            and str(validation["semantic_outcome"])
-            in {"valid_nonempty", "valid_empty"}
-        }
+        passed = current_source_validation_ids(store.connect(), workspace_id=str(user["workspace_id"]),
+            route_id=str(binding["route_id"]), source_id=source_id, target_fingerprint=target_fingerprint)
         revision_by_id = {
             str(slot.get("revision_id") or ""): slot.get("revision")
             for slot in detail["slots"]

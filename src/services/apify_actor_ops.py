@@ -57,6 +57,10 @@ from .apify_actor_pool_workflow import project_active_pool_stage_workflow
 from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
 from .apify_actor_capability_matrix import route_profiles
 from .apify_actor_candidate_recovery import reopen_candidate_for_new_static_revision
+from .apify_actor_source_proof import (
+    current_source_validation_ids,
+    source_validation_failure_cutoffs,
+)
 from .apify_actor_recovery_continuation import (
     clear_start_unknown_barrier,
     continue_terminal_route_failure,
@@ -2569,7 +2573,18 @@ class ApifyActorOpsService(
         if binding is not None:
             validation_status = str(binding["validation_status"])
             expected_slots = {str(row["slot_name"]): str(row["revision_id"]) for row in rows if row["revision_id"]}
-            if validation_status in _READY_BINDING_STATUSES and str(binding["verified_revision_set_hash"] or "") != revision_set_hash(expected_slots):
+            current_validations = current_source_validation_ids(
+                connection, workspace_id=self.workspace_id, route_id=route_id,
+                source_id=source_id, target_fingerprint=str(binding["target_fingerprint"]),
+            )
+            stale_source_proof = bool(source_validation_failure_cutoffs(
+                connection, workspace_id=self.workspace_id, route_id=route_id,
+            ))
+            if validation_status in _READY_BINDING_STATUSES and (
+                str(binding["verified_revision_set_hash"] or "") != revision_set_hash(expected_slots)
+                or stale_source_proof
+                and not set(expected_slots.values()) <= current_validations
+            ):
                 validation_status = "revalidation_pending"
             source_verified = validation_status in _READY_BINDING_STATUSES
             if validation_status not in {
@@ -2585,25 +2600,7 @@ class ApifyActorOpsService(
                     status_code=412,
                 )
             if validation_status == "revalidation_pending":
-                validated_revision_ids = {
-                    str(row["revision_id"])
-                    for row in connection.execute(
-                        """
-                        SELECT revision_id FROM apify_actor_validations
-                        WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                          AND kind = 'source_canary' AND status = 'succeeded'
-                          AND target_fingerprint = ?
-                          AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                        """,
-                        (
-                            self.workspace_id,
-                            route_id,
-                            source_id,
-                            str(binding["target_fingerprint"]),
-                        ),
-                    ).fetchall()
-                    if row["revision_id"]
-                }
+                validated_revision_ids = current_validations
                 if binding["verified_revision_set_hash"] is None:
                     validated_revision_ids.update(
                         str(row["revision_id"])
@@ -6797,24 +6794,11 @@ class ApifyActorOpsService(
                 """,
                 (self.workspace_id, binding["route_id"]),
             ).fetchall()
-            succeeded = {
-                str(row["revision_id"])
-                for row in connection.execute(
-                    """
-                    SELECT revision_id FROM apify_actor_validations
-                    WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                      AND kind = 'source_canary' AND status = 'succeeded'
-                      AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                      AND target_fingerprint = ?
-                    """,
-                    (
-                        self.workspace_id,
-                        binding["route_id"],
-                        source_id,
-                        binding["target_fingerprint"],
-                    ),
-                ).fetchall()
-            }
+            succeeded = current_source_validation_ids(
+                connection, workspace_id=self.workspace_id,
+                route_id=str(binding["route_id"]), source_id=source_id,
+                target_fingerprint=str(binding["target_fingerprint"]),
+            )
             pending = [
                 str(row["revision_id"])
                 for row in active_rows
@@ -7632,24 +7616,11 @@ class ApifyActorOpsService(
                     "The route does not have its required active Actor revisions",
                     status_code=412,
                 )
-            succeeded = {
-                str(row["revision_id"])
-                for row in connection.execute(
-                    """
-                    SELECT revision_id FROM apify_actor_validations
-                    WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                      AND kind = 'source_canary' AND status = 'succeeded'
-                      AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                      AND target_fingerprint = ?
-                    """,
-                    (
-                        self.workspace_id,
-                        binding["route_id"],
-                        source_id,
-                        binding["target_fingerprint"],
-                    ),
-                ).fetchall()
-            }
+            succeeded = current_source_validation_ids(
+                connection, workspace_id=self.workspace_id,
+                route_id=str(binding["route_id"]), source_id=source_id,
+                target_fingerprint=str(binding["target_fingerprint"]),
+            )
             if str(route["admission_mode"]) == "compatibility":
                 succeeded = {
                     str(row["revision_id"])

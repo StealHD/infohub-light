@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ..storage.service_store import ServiceStore
+from .apify_actor_source_proof import current_source_validation_ids
 
 
 def recover_source_proven_slots(
@@ -23,9 +24,10 @@ def recover_source_proven_slots(
     now = datetime.now(timezone.utc).isoformat()
     try:
         connection.execute("BEGIN IMMEDIATE")
-        rows = connection.execute(
+        slots = connection.execute(
             """
-            SELECT slot.candidate_id, revision.lifecycle
+            SELECT slot.route_id, slot.candidate_id, slot.revision_id,
+                   revision.lifecycle
             FROM apify_route_active_slots AS slot
             JOIN apify_actor_adapter_revisions AS revision
               ON revision.workspace_id = slot.workspace_id
@@ -38,42 +40,35 @@ def recover_source_proven_slots(
               AND candidate.last_error_code = 'apify_actor_revision_not_executable'
               AND candidate.last_failure_at IS NOT NULL
               AND revision.lifecycle IN ('probationary', 'certified')
-              AND EXISTS (
-                  SELECT 1
-                  FROM apify_source_route_bindings AS binding
-                  JOIN source_catalog AS source
-                    ON source.workspace_id = binding.workspace_id
-                   AND source.id = binding.source_id
-                  WHERE binding.workspace_id = slot.workspace_id
-                    AND binding.route_id = slot.route_id AND source.enabled = 1
-              )
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM apify_source_route_bindings AS binding
-                  JOIN source_catalog AS source
-                    ON source.workspace_id = binding.workspace_id
-                   AND source.id = binding.source_id
-                  WHERE binding.workspace_id = slot.workspace_id
-                    AND binding.route_id = slot.route_id AND source.enabled = 1
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM apify_actor_validations AS validation
-                        WHERE validation.workspace_id = slot.workspace_id
-                          AND validation.route_id = slot.route_id
-                          AND validation.source_id = binding.source_id
-                          AND validation.revision_id = slot.revision_id
-                          AND validation.kind = 'source_canary'
-                          AND validation.status = 'succeeded'
-                          AND validation.cost_final = 1
-                          AND validation.semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                          AND validation.target_fingerprint = binding.target_fingerprint
-                          AND validation.completed_at >= candidate.last_failure_at
-                    )
-              )
             """,
             (workspace_id,),
         ).fetchall()
-        for row in rows:
+        recovered = 0
+        for row in slots:
+            bindings = connection.execute(
+                """
+                SELECT binding.source_id, binding.target_fingerprint
+                FROM apify_source_route_bindings AS binding
+                JOIN source_catalog AS source
+                  ON source.workspace_id = binding.workspace_id
+                 AND source.id = binding.source_id
+                WHERE binding.workspace_id = ? AND binding.route_id = ?
+                  AND source.enabled = 1
+                """,
+                (workspace_id, str(row["route_id"])),
+            ).fetchall()
+            if not bindings or not all(
+                str(row["revision_id"])
+                in current_source_validation_ids(
+                    connection,
+                    workspace_id=workspace_id,
+                    route_id=str(row["route_id"]),
+                    source_id=str(binding["source_id"]),
+                    target_fingerprint=str(binding["target_fingerprint"]),
+                )
+                for binding in bindings
+            ):
+                continue
             state = "probationary" if str(row["lifecycle"]) == "probationary" else "closed"
             connection.execute(
                 """
@@ -86,9 +81,10 @@ def recover_source_proven_slots(
                 """,
                 (state, now, workspace_id, str(row["candidate_id"])),
             )
+            recovered += 1
         connection.commit()
     except Exception:
         if connection.in_transaction:
             connection.rollback()
         raise
-    return len(rows)
+    return recovered
