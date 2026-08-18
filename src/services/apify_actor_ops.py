@@ -1176,6 +1176,7 @@ class ApifyActorOpsService(
             return "apify_actor_revision_output_incompatible"
         manifest = _safe_json(row["manifest_json"], {})
         pricing = _safe_json(row["pricing_json"], {})
+        evidence = _safe_json(row["security_evidence_json"], {})
         try:
             manifest_error = actor_manifest_capability_error(
                 manifest,
@@ -1185,7 +1186,7 @@ class ApifyActorOpsService(
             )
         except ActorManifestError as exc:
             return str(exc.code)
-        if manifest_error is not None:
+        if manifest_error is not None and not self.observation_probe_allowed(row, manifest, evidence):
             return manifest_error
         pricing_error = actor_pricing_capability_error(
             pricing,
@@ -1195,7 +1196,6 @@ class ApifyActorOpsService(
         )
         if pricing_error is None:
             return None
-        evidence = _safe_json(row["security_evidence_json"], {})
         schema_proof = evidence.get("output_schema_proves_items") is True
         # Old immutable revisions need exact schema, input, and item proof.
         legacy_schema_proof = (
@@ -3471,8 +3471,8 @@ class ApifyActorOpsService(
                    revision.revision_id, revision.actor_id,
                    revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_hash,
-                   revision.manifest_json,
-                   revision.pricing_json, revision.lifecycle,
+                   revision.manifest_json, revision.pricing_json,
+                   revision.lifecycle,
                    candidate.position, candidate.state AS candidate_state,
                    candidate.last_error_code AS candidate_error_code,
                    revision.created_at,
@@ -3524,7 +3524,7 @@ class ApifyActorOpsService(
                     AND active_validation.kind = 'route_reference'
                     AND active_validation.status IN ('queued', 'running')
               )
-            ORDER BY already_validated DESC, candidate.position,
+            ORDER BY already_validated DESC, COALESCE(json_extract(revision.security_evidence_json, '$.store_quality.rating'), 0) DESC, COALESCE(json_extract(revision.security_evidence_json, '$.store_quality.rating_count'), 0) DESC, COALESCE(json_extract(revision.security_evidence_json, '$.store_quality.user_count'), 0) DESC, candidate.position,
                      revision.created_at, revision.revision_id
             """,
             (
@@ -3563,7 +3563,7 @@ class ApifyActorOpsService(
                 ),
             )
         else:
-            candidate_rows = candidates
+            candidate_rows = candidates if goal == "upgrade_legacy" else ([row for row in candidates if bool(row["in_current_run"])] or candidates)
 
         distinct: list[sqlite3.Row] = []
         seen_actors = set(active_actor_ids)
@@ -3668,7 +3668,7 @@ class ApifyActorOpsService(
                     continue
                 score = (
                     -len(validated),
-                    sum(int(row["position"] or 0) for row in option),
+                    sum(distinct.index(row) for row in option),
                     *(str(row["revision_id"]) for row in option),
                 )
                 if best is None or score < best:
@@ -3990,12 +3990,9 @@ class ApifyActorOpsService(
                     status_code=422,
                 )
             possible_target_sets = [
-                [
-                    *(str(active_slots[name]["revision_id"])
-                      for name in SLOT_NAMES
-                      if name != target_slot and active_slots[name]["revision_id"]),
-                    revision_id,
-                ]
+                [revision_id] if goal == "replace_slot" and resolved_target_slot_count == 1 else [
+                    *(str(active_slots[name]["revision_id"]) for name in SLOT_NAMES
+                      if name != target_slot and active_slots[name]["revision_id"]), revision_id]
                 for revision_id in staged_revision_ids
             ]
         elif goal == "upgrade_legacy":

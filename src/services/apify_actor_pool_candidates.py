@@ -62,6 +62,13 @@ class ApifyActorPoolCandidatesMixin:
                 connection, route=route, run_id=str(latest["run_id"])
             )
         )
+        if not rows:
+            prior = self._candidate_prior_safe_run(connection, route, latest)
+            if prior is not None:
+                latest = prior
+                rows = self._candidate_discovery_rows(
+                    connection, route=route, run_id=str(latest["run_id"])
+                )
         if not rows and goal in {"add_slot", "replace_slot"}:
             rows = self._candidate_upgrade_rows(
                 connection,
@@ -128,3 +135,36 @@ class ApifyActorPoolCandidatesMixin:
             required_count=required_count,
             candidates=candidates,
         )
+
+    def _candidate_prior_safe_run(
+        self, connection: Any, route: Any, latest: Any
+    ) -> Any:
+        """Keep the newest untested exact-Build run after an empty refresh."""
+
+        return connection.execute(
+            """
+            SELECT run.run_id, run.stage
+            FROM apify_actor_discovery_runs AS run
+            WHERE run.workspace_id = ? AND run.route_id = ?
+              AND run.run_id <> ?
+              AND EXISTS (
+                  SELECT 1
+                  FROM apify_actor_discovery_run_revisions AS association
+                  JOIN apify_actor_adapter_revisions AS revision
+                    ON revision.workspace_id = association.workspace_id
+                   AND revision.revision_id = association.revision_id
+                  JOIN apify_actor_candidates AS candidate
+                    ON candidate.workspace_id = revision.workspace_id
+                   AND candidate.id = revision.candidate_id
+                  WHERE association.workspace_id = run.workspace_id
+                    AND association.run_id = run.run_id
+                    AND candidate.route_key = ?
+                    AND revision.lifecycle IN ('static_valid', 'probationary', 'certified')
+                    AND revision.build_id IS NOT NULL
+                    AND revision.build_number IS NOT NULL
+                    AND revision.manifest_hash IS NOT NULL
+              )
+            ORDER BY run.created_at DESC, run.rowid DESC LIMIT 1
+            """,
+            (self.workspace_id, str(route["route_id"]), str(latest["run_id"]), str(route["route_key"])),
+        ).fetchone()

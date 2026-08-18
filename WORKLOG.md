@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-14",
-  "result": "修复 ActorOps 免费 Discovery 在候选含公开评分时写入不可变 Revision 引发的 AttributeError；评分/评分人数/使用人数改为同固定 Build 的静态证据一次冻结，并让旧池检查尊重管理员已保存的 Route 单次费用上限。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-discovery-quality-free-refresh",
-  "unresolved": [],
-  "validation": [
-    "Actor candidate-quality 与 discovery 定向回归 56/56 通过。",
-    "完整 Test Gate preflight 16/16 通过，含 Python 全集、前端 lint/typecheck/Vitest/build、产品文档与代码规模门禁。",
-    "Discovery 主文件由 2373 行降至 2362 行，run_discovery 由 756 行降至 743 行；未增加历史单体文件。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-14",
   "result": "修正 ActorOps 单槽新增/替换的候选发现：这类操作只在免费静态安全检查后要求一名候选，完整池仍维持多发布者门槛；X、Instagram 与 YouTube 均保留同 Route 先前已通过静态检查的固定 Build，不会被后一次空搜索清空。兼容验证计划与候选展示统一使用管理员保存的 Route 上限，最高 $0.10。",
   "status": "completed",
   "task_id": "2026-08-14-actorops-single-slot-candidate-flow",
@@ -369,6 +351,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "付费 Canary：Route 与 2 个已启用 X 来源均为 valid_nonempty，实际结算 $0.0133746，低于 $0.30 上限。",
     "真实 source_fetch 成功：抓取 20 条，入库 13 条，新增 8 条，并生成用户快照。",
     "本地 8080 API/Worker 健康，运行 e0a4149b603d；此前定向 Pytest 69 项与受影响 preflight 15/15 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "修复跨平台 Actor Canary 边界：X 专用兼容流程已禁止用于非 X Route；YouTube 旧占位输出仅可在通过免费 Build/输入/价格/权限检查后，对固定公开频道执行一次受控 Canary，并从匹配的真实视频行生成无值、不可变 Manifest。自动计划只使用当前或安全回退 Discovery Run，并按公开评分/使用量选择，单槽替换只验证目标新槽。",
+  "status": "completed",
+  "task_id": "2026-08-18-youtube-observed-canary-routing",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 17/17 通过：全量 Pytest、Python 编译、前端 lint/typecheck/Vitest/build、控制文件、产品文档、代码规模与 E2E 合同检查。",
+    "对运行数据库只读演算：YouTube replace plan 正确排序 grow_media、scrapesmith、scrapestorm，单候选总批准上限 $0.04；尚未执行外部付费 Canary。"
   ]
 }
 ```

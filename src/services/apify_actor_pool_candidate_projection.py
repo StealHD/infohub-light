@@ -82,6 +82,15 @@ class ApifyActorPoolCandidateProjectionMixin:
                    revision.input_schema_hash, revision.output_schema_hash,
                    revision.pricing_json, revision.lifecycle, revision.created_at,
                    revision.security_evidence_json,
+                   EXISTS (SELECT 1 FROM apify_actor_validations AS proof
+                     WHERE proof.workspace_id = revision.workspace_id
+                       AND proof.route_id = ?
+                       AND proof.revision_id = revision.revision_id
+                       AND proof.kind = 'route_reference'
+                       AND proof.status = 'succeeded'
+                       AND proof.cost_final = 1
+                       AND proof.semantic_outcome IN ('valid_nonempty', 'valid_empty'))
+                     AS already_validated,
                    EXISTS (SELECT 1 FROM apify_actor_validations AS validation
                      WHERE validation.workspace_id = revision.workspace_id
                        AND validation.revision_id = revision.revision_id
@@ -98,7 +107,12 @@ class ApifyActorPoolCandidateProjectionMixin:
               AND candidate.route_key = ?
             ORDER BY candidate.position, revision.created_at DESC, revision.revision_id DESC
             """,
-            (self.workspace_id, run_id, str(route["route_key"])),
+            (
+                str(route["route_id"]),
+                self.workspace_id,
+                run_id,
+                str(route["route_key"]),
+            ),
         ).fetchall()
 
     def _candidate_upgrade_rows(
@@ -382,6 +396,7 @@ class ApifyActorPoolCandidateProjectionMixin:
             "validation_options": options,
             "last_failure": summary,
             "evaluation_history": dict(evaluation) if evaluation is not None else None,
+            "already_validated": bool(row["already_validated"]),
             "requires_profile_change": bool(failure is not None and failure["failure_fingerprint"]),
             "existing_actor_upgrade": existing_upgrade,
             "selectable": unavailable is None,

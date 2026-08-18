@@ -124,9 +124,33 @@ class ApifyActorPoolSlotsMixin:
                 "The requested Actor slot operation is not safe to stage",
                 status_code=409,
             )
+        compact_unverified_youtube = (
+            requested_count is None
+            and goal == "replace_slot"
+            and str(route["platform"]) == "youtube"
+            and int(route["min_runtime_healthy"]) == 1
+            and connection.execute(
+                """
+                SELECT 1
+                FROM apify_source_route_bindings AS binding
+                JOIN source_catalog AS source
+                  ON source.workspace_id = binding.workspace_id
+                 AND source.id = binding.source_id
+                WHERE binding.workspace_id = ? AND binding.route_id = ?
+                  AND source.enabled = 1
+                  AND binding.validation_status NOT IN (
+                      'ready_1of1', 'ready_2of2', 'ready_3of3'
+                  )
+                LIMIT 1
+                """,
+                (self.workspace_id, route_id),
+            ).fetchone() is not None
+        )
         count = (
             int(requested_count)
             if requested_count is not None
+            else 1
+            if compact_unverified_youtube
             else populated_count + 1
             if goal == "add_slot"
             else populated_count

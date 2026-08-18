@@ -28,11 +28,11 @@ export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
     items: [
       {
         title: '免费搜索复用受控密钥',
-        description: 'ActorOps 的 Store 元数据搜索从运行时 SecretStore 读取当前 Apify Key，不依赖容器环境变量是否注入。重建本地 API/Worker 后，重新检查仍会按 Route 类型免费搜索最新候选。',
+        description: 'ActorOps 的 Store 元数据搜索从运行时 SecretStore 读取当前 Apify Key，不依赖容器环境变量是否注入。重建本地 API/Worker 后，重新检查仍会按 Route 类型免费搜索最新候选，并只将该 Route 的本轮候选用于自动试跑。',
       },
       {
         title: '未证明内容的 Actor 仍不会出现为可用',
-        description: '名称、评分、使用人数或资料 Schema 不能替代真实内容证据。只有受控 Canary 返回目标账号/频道的内容、费用完成对账并通过来源验证后，Actor 才显示为可选或可加入主备。',
+        description: '名称、评分、使用人数或资料 Schema 不能替代真实内容证据。只有受控 Canary 返回目标账号/频道的内容、费用完成对账并通过来源验证后，Actor 才显示为可选或可加入主备；各平台使用各自输入和输出适配，YouTube 旧占位合同只会从真实内容行生成固定映射。',
       },
       {
         title: '发现计数与候选选择保持一致',

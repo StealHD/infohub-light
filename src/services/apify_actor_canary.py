@@ -17,7 +17,6 @@ from .apify_actor_manifest import (
     ActorManifestError,
     ActorRuntime,
     ActorTarget,
-    map_actor_output,
     parse_actor_manifest,
     render_actor_input,
 )
@@ -34,9 +33,8 @@ from .apify_actor_canary_compatibility import (
     preflight_compatibility_candidate,
     run_compatibility_if_needed,
 )
+from .apify_actor_observed_probe import map_canary_output_for_revision, settled_observed_validation
 from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
-
-
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
     "x": (
         ActorTarget(canonical_url="https://x.com/openai", handle="openai"),
@@ -444,7 +442,7 @@ class ApifyActorCanaryRunner:
                 timeout_seconds=timeout_seconds, duration_seconds=elapsed_seconds,
             )
             actual_charge_usd = run.actual_charge_usd
-            mapped = map_actor_output(manifest, run.items, target, runtime)
+            mapped, observed_manifest = map_canary_output_for_revision(manifest, run.items, target, runtime, row)
         except TimeoutError:
             error_code = "apify_actor_run_timed_out"
             actual_charge_usd = self.ops.finalized_actor_run_cost(attempt_id)
@@ -634,8 +632,9 @@ class ApifyActorCanaryRunner:
             dataset_row_count=len(run.items),
             mapped_item_count=len(mapped.items),
         )
+        validation = settled_observed_validation(self.ops, validation, validation_id, observed_manifest)
         if str(row["kind"]) == "route_reference":
-            self._advance_revision(str(row["revision_id"]))
+            self._advance_revision(str(validation["revision_id"]))
         return CanaryResult(
             validation_id=str(validation["validation_id"]),
             revision_id=str(validation["revision_id"]),
@@ -1077,11 +1076,11 @@ class ApifyActorCanaryRunner:
 
         row = self.store.connect().execute(
             """
-            SELECT validation.*, profile.platform,
+            SELECT validation.*, profile.route_key, profile.platform,
                    revision.candidate_id, revision.actor_id,
                    revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_json,
-                   revision.manifest_hash, revision.lifecycle,
+                   revision.manifest_hash, revision.lifecycle, revision.security_evidence_json,
                    candidate.state AS candidate_state
             FROM apify_actor_validations AS validation
             JOIN apify_actor_route_profiles AS profile
@@ -1144,7 +1143,7 @@ class ApifyActorCanaryRunner:
                 dataset_item_limit=int(row["validation_sample_items"] or 1) + 1,
                 reserved_cost_usd=float(row["approved_max_cost_usd"]),
             )
-            mapped = map_actor_output(manifest, run.items, target, runtime)
+            mapped, observed_manifest = map_canary_output_for_revision(manifest, run.items, target, runtime, row)
             semantic = str(mapped.semantic_outcome)
         except ActorManifestError as exc:
             run_value = locals().get("run")
@@ -1180,11 +1179,12 @@ class ApifyActorCanaryRunner:
             dataset_row_count=len(run.items),
             mapped_item_count=len(mapped.items),
         )
+        validation = settled_observed_validation(self.ops, validation, validation_id, observed_manifest)
         if (
             str(row["kind"]) == "route_reference"
             and str(validation["status"]) == "succeeded"
         ):
-            self._advance_revision(str(row["revision_id"]))
+            self._advance_revision(str(validation["revision_id"]))
         return CanaryResult(
             validation_id=str(validation["validation_id"]),
             revision_id=str(validation["revision_id"]),
