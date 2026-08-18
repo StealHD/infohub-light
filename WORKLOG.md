@@ -9,28 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "修正 ActorOps 槽位替换工作流的服务端 operation_slot 投影与前端标题/请求一致性，抽出阶段读取和工作流模块；补齐实际收费超授权后的终结对账，且将身份不匹配的固定 Build 记为不可再选。Docker 构建基础镜像改用可达的 Quay/Microsoft 源。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-pool-workflow-cost-guard",
-  "unresolved": [
-    "X 的现有外部候选均未通过身份/契约安全验证，因此保持活动主备不变；等待新的安全候选或其 Build 证据变化后才能完成真实替换。"
-  ],
-  "validation": [
-    "ActorOps 定向 Pytest、前端定向 Vitest、typecheck、lint 和 production build 通过。",
-    "完整 Test Gate 18/18 通过，mapping miss 为 false。",
-    "本地 8080 已验证槽位替换路径和候选 Modal 使用主用槽；真实验证的身份不匹配候选已被后续列表禁用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface"
   ],
   "recorded_on": "2026-08-14",
@@ -369,6 +347,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增 SecretStore 凭据解析单测；Actor Discovery 定向回归 53 项通过。",
     "受影响 preflight 全部命令通过：全量受影响 Python、前端 lint/typecheck/Vitest、产品文档、代码规模与 E2E 合同检查。",
     "待提交后重建 8080，并验证 API/Worker 健康、前端资产和 Discovery 的 SecretStore 凭据读取。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "修复 X 免费 Discovery 的终态候选计数：它现在复用候选选择器的资格判定，固定 Build 若有确定性 Canary 失败或已在当前主备池运行，会作为已排除计为 0，不再显示为可验证后又在下一步拒绝。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-x-candidate-count",
+  "unresolved": [
+    "当前 X 没有可安全加入 backup_2 的新 Build；已证伪的候选不会再触发付费验证。"
+  ],
+  "validation": [
+    "X 候选计数、Discovery 与兼容 Canary 定向 Pytest 69 项通过。",
+    "受影响 preflight 15/15 命令通过；待本地 8080 重建后进行实际免费 Discovery 验收。"
   ]
 }
 ```
