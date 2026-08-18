@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog, YouTube input/output contract and pool recovery.
+// Reviewed: verified-only ActorOps catalog, YouTube input/output contract, revision recovery and pool workflow.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

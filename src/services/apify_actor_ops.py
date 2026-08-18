@@ -56,6 +56,7 @@ from .apify_actor_pool_slots import ApifyActorPoolSlotsMixin
 from .apify_actor_pool_workflow import project_active_pool_stage_workflow
 from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
 from .apify_actor_capability_matrix import route_profiles
+from .apify_actor_candidate_recovery import reopen_candidate_for_new_static_revision
 from .apify_actor_recovery_continuation import (
     clear_start_unknown_barrier,
     continue_terminal_route_failure,
@@ -1490,20 +1491,6 @@ class ApifyActorOpsService(
                     status_code=422,
                 )
             _assert_manifest_route_hosts(parsed, str(candidate["platform"]))
-            if lifecycle == "static_valid" and discovery_run_id is not None:
-                # A legacy seed can carry the historical ``canary_required``
-                # marker on its Candidate.  A newly fetched exact Build and
-                # validated Manifest supersede that placeholder evidence while
-                # leaving the active legacy Revision untouched until apply.
-                connection.execute(
-                    """
-                    UPDATE apify_actor_candidates
-                    SET last_error_code = NULL, updated_at = ?
-                    WHERE workspace_id = ? AND id = ?
-                      AND last_error_code = 'canary_required'
-                    """,
-                    (now, self.workspace_id, candidate_id),
-                )
             if discovery_run_id is not None:
                 discovery = connection.execute(
                     """
@@ -1583,6 +1570,12 @@ class ApifyActorOpsService(
                 ).fetchone()
                 if existing is not None:
                     existing_revision_id = str(existing["revision_id"])
+                    if lifecycle == "static_valid" and discovery_run_id is not None:
+                        reopen_candidate_for_new_static_revision(
+                            connection, workspace_id=self.workspace_id,
+                            candidate_id=candidate_id,
+                            revision_id=existing_revision_id, now=now,
+                        )
                     if discovery_run_id is not None:
                         connection.execute(
                             """
@@ -1605,6 +1598,11 @@ class ApifyActorOpsService(
                     "apify_actor_revision_conflict",
                     "Actor adapter revision conflicts with existing state",
                 ) from error
+            if lifecycle == "static_valid" and discovery_run_id is not None:
+                reopen_candidate_for_new_static_revision(
+                    connection, workspace_id=self.workspace_id,
+                    candidate_id=candidate_id, revision_id=revision_id, now=now,
+                )
             if discovery_run_id is not None:
                 connection.execute(
                     """
