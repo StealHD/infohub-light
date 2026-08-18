@@ -61,7 +61,6 @@ from .apify_actor_recovery_continuation import (
     continue_terminal_route_failure,
 )
 
-
 SLOT_NAMES = ("primary", "backup_1", "backup_2")
 SUPPORTED_ROUTE_PROFILES = route_profiles()
 PAID_CANARY_CONFIRMATION = "确认付费试跑"
@@ -7475,6 +7474,7 @@ class ApifyActorOpsService(
                        validation.cost_final, validation.route_id,
                        profile.route_key,
                        item.batch_id, batch.pool_stage_id,
+                       batch.approved_generation AS batch_approved_generation,
                        source.stage_id AS source_stage_id,
                        source_stage.initial_batch_id AS source_batch_id
                 FROM apify_actor_validations AS validation

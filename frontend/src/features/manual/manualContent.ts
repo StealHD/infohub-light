@@ -214,7 +214,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看 ActorOps 运行与告警',
-        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor；候选经过免费检查、受控 Canary 与来源级验证后才可运行。主备池固定三槽，新增、替换、移出、调序与单次费用上限均由服务端按 Route generation、Build、Manifest、来源证据和审批边界执行。Worker 中断的已启动 Run 只会免费查询原 Run；若它已终态失败，只继续同一审批内尚未运行的候选，不会重发失败 Actor。YouTube 保留公开频道地址和稳定内容 ID 作为身份，但运行时只使用认证 Actor；验证前会明确阻止获取，不会回退 Atom/RSS 或伪装成成功。',
+        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor；候选经过免费检查、受控 Canary 与来源级验证后才可运行。主备池固定三槽，新增、替换、移出、调序与单次费用上限均由服务端按 Route generation、Build、Manifest、来源证据和审批边界执行。Worker 中断的已启动 Run 只会免费查询原 Run；若它已终态失败，只会在确认版本号仅由该中断保护步骤改变后继续同一审批内尚未运行的候选，绝不重发失败 Actor 或跨越真实配置变化。YouTube 保留公开频道地址和稳定内容 ID 作为身份，但运行时只使用认证 Actor；验证前会明确阻止获取，不会回退 Atom/RSS 或伪装成成功。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

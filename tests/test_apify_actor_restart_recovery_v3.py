@@ -222,9 +222,7 @@ def test_restart_marks_batch_item_and_job_unknown_without_replay(tmp_path) -> No
         job_id=str(job["id"]),
         now=now,
     )
-
     result = ops.reconcile_unfinished_attempts()
-
     assert result == {
         "cancelled": 0,
         "blocked": 1,
@@ -238,8 +236,10 @@ def test_restart_marks_batch_item_and_job_unknown_without_replay(tmp_path) -> No
     assert ops.get_validation(str(validation["validation_id"]))["semantic_outcome"] == (
         "apify_worker_restart_reconcile_required"
     )
+    assert int(ops.get_route(str(route["route_id"]))["generation"]) == (
+        int(route["generation"]) + 1
+    )
     assert JobQueue(store).get_job(str(job["id"]))["status"] == "failed"
-
     _assert_terminal_failure_continues_frozen_batch(
         store=store,
         ops=ops,
@@ -249,6 +249,7 @@ def test_restart_marks_batch_item_and_job_unknown_without_replay(tmp_path) -> No
         validation_id=str(validation["validation_id"]),
         batch_id=batch_id,
         stage_id=stage_id,
+        expected_generation=int(route["generation"]),
         data_dir=str(tmp_path),
     )
 
@@ -318,6 +319,7 @@ def _assert_terminal_failure_continues_frozen_batch(
     validation_id: str,
     batch_id: str,
     stage_id: str,
+    expected_generation: int,
     data_dir: str,
 ) -> None:
 
@@ -369,6 +371,7 @@ def _assert_terminal_failure_continues_frozen_batch(
     assert ops.get_canary_batch(batch_id)["status"] == "queued"
     assert ops.get_pool_stage(stage_id)["status"] == "queued"
     assert ops.get_route(route_id)["status"] == "ready"
+    assert int(ops.get_route(route_id)["generation"]) == expected_generation
 
 
 def test_resumed_batch_skips_terminal_failure_and_runs_only_next_item() -> None:
