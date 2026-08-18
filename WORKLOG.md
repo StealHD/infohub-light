@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "移除 Insights 关闭动画中已卸载面板的两个瞬态 aria 属性断言，仅保留用户可观察的关闭完成状态，并继续收紧旧测试文件规模上限。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-linux-e2e-race-removal",
-  "unresolved": [],
-  "validation": [
-    "GitHub Linux CI 工件定位为关闭动画竞态；不是产品接口或布局回归。",
-    "生产构建下同一 Insights 几何流程连续 5 次通过；代码规模检查通过，旧文件由 1801 降至 1799 行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture"
   ],
   "recorded_on": "2026-08-15",
@@ -376,6 +359,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Pool management、staging 与 API 回归 69 项通过。",
     "前端 typecheck、lint、产品文档与代码规模检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-19",
+  "result": "已登记的 X、Instagram 与 YouTube ActorOps Route 以“每次获取条数”直接请求最新 N 条，不再把 Feed 的短显示窗口当作 Actor 抓取窗口；未知平台组合在创建 Actor 客户端前拒绝。YouTube 与此前失败的 X 来源均完成本地真实任务验收并返回 valid_nonempty。",
+  "status": "completed",
+  "task_id": "2026-08-19-actorops-latest-items-runtime",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 17/17 通过（完整 Python、Vitest、类型检查、构建与产品文档）。",
+    "本地 8080 revision 5301e4b4e070 健康；YouTube 获取 2 条/新增 1 条，X 获取 20 条/新增 1 条，最终 Actor 尝试均为 valid_nonempty。"
   ]
 }
 ```
