@@ -145,11 +145,7 @@ def _restore_recovery_generation(
            WHERE profile.workspace_id = ? AND profile.route_id = ?""",
         (service.workspace_id, str(row["route_id"])),
     ).fetchone()
-    if (
-        route is None
-        or int(route["profile_generation"]) != approved + 1
-        or int(route["route_generation"]) != approved + 1
-    ):
+    if route is None:
         return None
     stage_id = str(row["pool_stage_id"] or "")
     stage = None
@@ -173,6 +169,23 @@ def _restore_recovery_generation(
         and str(stage["status"]) == "replan_required"
         and str(stage["last_error_code"]) == "candidate_shortfall"
     )
+    profile_generation = int(route["profile_generation"])
+    route_generation = int(route["route_generation"])
+    # Older recovery code could restore the synthetic generation increment
+    # before noticing that it had written zero-cost approval_stale items with
+    # cost_final=0.  This exact staged shape is safe to finish, because a real
+    # Route change cannot decrement back to the original approval generation.
+    if (
+        profile_generation == approved
+        and route_generation == approved
+        and stale
+    ):
+        return "stale"
+    if (
+        profile_generation != approved + 1
+        or route_generation != approved + 1
+    ):
+        return None
     if not blocked and not stale:
         return None
     now = service._now_iso()
@@ -214,12 +227,12 @@ def _restore_zero_cost_stale_items(
                    AND item.status = 'failed'
                    AND item.semantic_outcome = 'approval_stale'
                    AND COALESCE(item.actual_cost_usd, 0) = 0
-                   AND item.cost_final = 1
+                   AND item.cost_final IN (0, 1)
              )
              AND status = 'cancelled'
              AND semantic_outcome = 'approval_stale'
              AND COALESCE(cost_usd, 0) = 0
-             AND cost_final = 1""",
+             AND cost_final IN (0, 1)""",
         (service.workspace_id, service.workspace_id, batch_id),
     )
     now = service._now_iso()
@@ -231,7 +244,8 @@ def _restore_zero_cost_stale_items(
                completed_at = NULL, updated_at = ?
            WHERE workspace_id = ? AND batch_id = ?
              AND status = 'failed' AND semantic_outcome = 'approval_stale'
-             AND COALESCE(actual_cost_usd, 0) = 0 AND cost_final = 1""",
+             AND COALESCE(actual_cost_usd, 0) = 0
+             AND cost_final IN (0, 1)""",
         (now, service.workspace_id, batch_id),
     )
 

@@ -383,16 +383,29 @@ def _assert_terminal_failure_continues_frozen_batch(
     connection.execute(
         """UPDATE apify_actor_validations
            SET status = 'cancelled', semantic_outcome = 'approval_stale',
-               cost_usd = 0, cost_final = 1
+               cost_usd = 0, cost_final = 0
            WHERE workspace_id = ? AND validation_id = ?""",
         (DEFAULT_WORKSPACE_ID, next_validation_id),
     )
     connection.execute(
         """UPDATE apify_actor_canary_batch_items
            SET status = 'failed', semantic_outcome = 'approval_stale',
-               actual_cost_usd = 0, cost_final = 1
+               actual_cost_usd = 0, cost_final = 0
            WHERE workspace_id = ? AND validation_id = ?""",
         (DEFAULT_WORKSPACE_ID, next_validation_id),
+    )
+    # The original recovery release restored the synthetic generation step,
+    # then stopped because it only recognized cost_final=1 stale entries.
+    # Reproduce that half-recovered production shape exactly.
+    connection.execute(
+        """UPDATE apify_actor_route_profiles SET generation = ?
+           WHERE workspace_id = ? AND route_id = ?""",
+        (expected_generation, DEFAULT_WORKSPACE_ID, route_id),
+    )
+    connection.execute(
+        """UPDATE apify_actor_routes SET generation = ?
+           WHERE workspace_id = ? AND route_key = 'instagram/profile/items'""",
+        (expected_generation, DEFAULT_WORKSPACE_ID),
     )
     _insert_historical_recovery_backlog(
         connection=connection,
