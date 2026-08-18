@@ -18,6 +18,40 @@ it('stages an add into the server-authorized empty slot', async () => {
   await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith('run-guided', expect.objectContaining({ goal: 'add_slot', target_slot: 'backup_2', target_slot_count: 3 })))
 })
 
+it('plans a server-controlled slot canary from the slot candidate run, not stale route workflow', async () => {
+  const selected = {
+    ...poolManagementDetail(),
+    workflow: { ...poolManagementDetail().workflow!, run_id: 'run-stale', goal: 'complete_third' as const },
+  }
+  const { api } = renderPoolManagement(selected, {
+    apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      route_id: selected.route_id,
+      generation: selected.generation,
+      goal: 'add_slot',
+      target_slot: 'backup_2',
+      run_id: 'run-slot',
+      required_selection_count: 1,
+      blockers: [],
+      candidates: [{
+        candidate_id: 'candidate-pending', actor_public_name: '待实测 Actor', publisher: 'publisher-c', pricing: {},
+        store_quality: { rating: 4.7, rating_count: 152, user_count: 195000 }, max_validation_charge_usd: 0.02,
+        already_validated: false,
+        validation_options: { timeout_seconds: 300, timeout_min_seconds: 180, timeout_max_seconds: 900, sample_items: 1, allowed_sample_items: [1, 3, 5], max_charge_usd: 0.02, max_charge_limit_usd: 0.02, supports_sample_items: true, options_hash: 'a'.repeat(64), profile_hash: 'f'.repeat(64) },
+        selectable: true, unavailable_reason: null,
+      }],
+    }),
+  })
+  const browser = userEvent.setup()
+
+  await browser.click(await screen.findByRole('button', { name: '添加 Actor' }))
+  await browser.click(await screen.findByRole('button', { name: '服务器受控实测候选' }))
+
+  await waitFor(() => expect(api.apifyActorCanaryPlan).toHaveBeenCalledWith(
+    'run-slot', 'add_slot', expect.any(AbortSignal), 'backup_2',
+  ))
+})
+
 it('sets an occupied backup as primary and changes only the future run cap', async () => {
   const selected = poolManagementDetail()
   const { api } = renderPoolManagement(selected)

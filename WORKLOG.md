@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "修正 ActorOps 单槽新增/替换的候选发现：这类操作只在免费静态安全检查后要求一名候选，完整池仍维持多发布者门槛；X、Instagram 与 YouTube 均保留同 Route 先前已通过静态检查的固定 Build，不会被后一次空搜索清空。兼容验证计划与候选展示统一使用管理员保存的 Route 上限，最高 $0.10。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-single-slot-candidate-flow",
-  "unresolved": [],
-  "validation": [
-    "ActorOps quality、discovery、兼容与主备池定向 Pytest 81/81 通过。",
-    "完整 Test Gate preflight 16/16 通过（全量 Python、前端 lint/typecheck/Vitest/build、代码规模与文档门禁）。",
-    "未启动付费 Actor Run；待部署后只执行一次免费 X 候选刷新验证。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-15",
@@ -369,6 +351,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整 impacted preflight 17/17 通过：全量 Pytest、Python 编译、前端 lint/typecheck/Vitest/build、控制文件、产品文档、代码规模与 E2E 合同检查。",
     "对运行数据库只读演算：YouTube replace plan 正确排序 grow_media、scrapesmith、scrapestorm，单候选总批准上限 $0.04；尚未执行外部付费 Canary。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "修复 ActorOps 槽位实测计划的 Run 一致性：添加/替换槽位始终以当前槽位候选投影的 run_id 与 goal 生成 Canary 计划，不再误用旧工作流；同时禁止 YouTube/Instagram 将旧 legacy shortfall 投影为仅限 X 的 compatibility_single 流程。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-slot-plan-consistency",
+  "unresolved": [],
+  "validation": [
+    "YouTube/X ActorOps 定向 Pytest 41 项通过。",
+    "ActorOps 前端 Vitest 74 项、TypeScript typecheck 与 ESLint 通过。",
+    "后端与前端冻结文件代码规模检查、git diff --check 通过；待提交后重建 8080 验收当前遗留兼容阶段清理与实际 Canary 计划。"
   ]
 }
 ```

@@ -38,6 +38,7 @@ def project_active_pool_stage_workflow(
     operation_slot = str(stage.get("operation_slot") or "")
     target_slot = operation_slot if goal in _SLOT_GOALS and operation_slot in _SLOT_NAMES else None
     status = str(stage["status"])
+    compatibility_supported = str(stage.get("route_platform") or "") == "x"
     progress = dict(stage["source_summary"])
     blockers = [str(stage["last_error_code"])] if stage.get("last_error_code") else []
     if status in {"queued", "validating_route", "validating_sources"}:
@@ -48,7 +49,11 @@ def project_active_pool_stage_workflow(
         kind = "blocked_unknown_start"
     elif status == "replan_required":
         plan_progress, plan_blockers = candidate_selection_progress(goal, target_slot)
-        if goal == "upgrade_legacy" and "candidate_shortfall" in plan_blockers:
+        if (
+            compatibility_supported
+            and goal == "upgrade_legacy"
+            and "candidate_shortfall" in plan_blockers
+        ):
             compatibility_progress, compatibility_blockers = candidate_selection_progress(
                 "compatibility_single", None
             )

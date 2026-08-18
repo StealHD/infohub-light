@@ -5,6 +5,7 @@ import hashlib
 import pytest
 
 from src.services.apify_actor_ops import ActorOpsError, ApifyActorOpsService
+from src.services.apify_actor_pool_workflow import project_active_pool_stage_workflow
 from src.storage.service_store import ServiceStore
 from test_apify_actor_pool_staging_v18 import FIXED_NOW, _manifest, _revision, _route, _two_actor_pool
 
@@ -45,6 +46,34 @@ def test_youtube_never_projects_or_plans_x_compatibility_trials(tmp_path) -> Non
             candidate_ids=["candidate-not-used"],
         )
     assert caught.value.code == "compatibility_route_unsupported"
+
+
+def test_youtube_legacy_shortfall_never_projects_the_x_compatibility_workflow() -> None:
+    requested_goals: list[str] = []
+
+    class Service:
+        @staticmethod
+        def _pool_stage_last_failure(_stage_id: str) -> None:
+            return None
+
+    def progress(goal: str, _slot: str | None) -> tuple[dict[str, int], list[str]]:
+        requested_goals.append(goal)
+        return {"eligible_candidate_count": 0, "required_selection_count": 3}, ["candidate_shortfall"]
+
+    workflow = project_active_pool_stage_workflow(
+        Service(),
+        {
+            "goal": "upgrade_legacy", "status": "replan_required",
+            "source_summary": {}, "stage_id": "stage-youtube", "discovery_run_id": "run-youtube",
+            "plan_hash": "a" * 64, "operation_slot": None, "last_error_code": None,
+            "route_platform": "youtube",
+        },
+        candidate_selection_progress=progress,
+    )
+
+    assert workflow["kind"] == "legacy_discovery_required"
+    assert workflow["goal"] == "upgrade_legacy"
+    assert requested_goals == ["upgrade_legacy"]
 
 
 def test_youtube_keeps_prior_static_candidate_pending_for_server_canary(tmp_path) -> None:

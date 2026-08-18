@@ -71,6 +71,7 @@ import {
 } from './ActorOpsWorkflowDialogs'
 import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog, ActorStoreQuality } from './ActorOpsPoolManagementControls'
 import { actorPickerCandidates } from './actorOpsCandidatePicker'
+import { actorOpsPoolPlanTarget } from './actorOpsPoolPlanTarget'
 import { actorOpsWorkflowIntent } from './actorOpsWorkflowIntent'
 import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
 import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
@@ -1424,8 +1425,7 @@ export function HeroActorOpsControlPlane({
 
   const preparePlan = useMutation({
     mutationFn: async () => {
-      const runId = workflow?.run_id || detail?.discovery_run_id
-      const goal = workflow?.goal || 'initial_pool'
+      const { runId, goal } = actorOpsPoolPlanTarget(candidatesQuery.data, workflow, detail)
       if (!runId) throw new Error('plan unavailable')
       return queryClient.fetchQuery({
         queryKey: queryKeys.apifyActorCanaryPlan(user.id, runId, goal, candidateTargetSlot),

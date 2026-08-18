@@ -5584,7 +5584,7 @@ class ApifyActorOpsService(
                 if approval_discovery
                 else ({}, [])
             )
-            if approval_discovery and "candidate_shortfall" in plan_blockers:
+            if approval_discovery and "candidate_shortfall" in plan_blockers and str(route.get("platform") or "") == "x":
                 compatibility_progress, compatibility_blockers = (
                     candidate_selection_progress("compatibility_single")
                 )
@@ -5671,7 +5671,7 @@ class ApifyActorOpsService(
                 if approval_discovery
                 else ({}, [])
             )
-            if approval_discovery and "candidate_shortfall" in plan_blockers:
+            if approval_discovery and "candidate_shortfall" in plan_blockers and str(route.get("platform") or "") == "x":
                 compatibility_progress, compatibility_blockers = (
                     candidate_selection_progress("compatibility_single")
                 )
