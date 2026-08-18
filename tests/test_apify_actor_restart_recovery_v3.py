@@ -394,6 +394,11 @@ def _assert_terminal_failure_continues_frozen_batch(
            WHERE workspace_id = ? AND validation_id = ?""",
         (DEFAULT_WORKSPACE_ID, next_validation_id),
     )
+    _insert_historical_recovery_backlog(
+        connection=connection,
+        route_id=route_id,
+        revision_id=ops.get_validation(validation_id)["revision_id"],
+    )
     connection.commit()
 
     recovery = reconcile_interrupted_canary_runs(
@@ -402,13 +407,101 @@ def _assert_terminal_failure_continues_frozen_batch(
         data_dir=data_dir,
     )
 
-    assert recovery == {"checked": 1, "reconciled": 0, "continued": 1}
+    # Old remote-status reconciliation rows must not starve the current
+    # frozen batch behind the global scan limit.
+    assert recovery == {"checked": 20, "reconciled": 0, "continued": 1}
     assert ops.get_canary_batch(batch_id)["status"] == "queued"
     assert ops.get_pool_stage(stage_id)["status"] == "queued"
     assert ops.get_route(route_id)["status"] == "ready"
     assert int(ops.get_route(route_id)["generation"]) == expected_generation
     assert ops.get_validation(next_validation_id)["status"] == "queued"
     assert ops.get_canary_batch(batch_id)["items"][1]["status"] == "planned"
+
+
+def _insert_historical_recovery_backlog(
+    *, connection, route_id: str, revision_id: str
+) -> None:
+    """Insert stale remote-read rows that would fill an unprioritized LIMIT."""
+
+    revision = connection.execute(
+        """SELECT candidate_id, actor_id, build_id, build_number, manifest_hash
+           FROM apify_actor_adapter_revisions
+           WHERE workspace_id = ? AND revision_id = ?""",
+        (DEFAULT_WORKSPACE_ID, revision_id),
+    ).fetchone()
+    route = connection.execute(
+        """SELECT route_key, generation FROM apify_actor_route_profiles
+           WHERE workspace_id = ? AND route_id = ?""",
+        (DEFAULT_WORKSPACE_ID, route_id),
+    ).fetchone()
+    assert revision is not None
+    assert route is not None
+    created_at = "2000-01-01T00:00:00+00:00"
+    for index in range(25):
+        attempt_id = f"historical-reconcile-attempt-{index:02d}"
+        validation_id = f"historical-reconcile-validation-{index:02d}"
+        connection.execute(
+            """INSERT INTO apify_actor_attempts (
+                   id, workspace_id, route_key, route_generation, candidate_id,
+                   attempt_group_id, attempt_index, status, semantic_outcome,
+                   reserved_usd, actual_cost_usd, cost_final, adapter_revision_id,
+                   build_id, build_number, manifest_hash, target_fingerprint,
+                   created_at, terminal_at, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, 1, 'actor_failed',
+                         'apify_run_reconcile_required', 0.02, 0.02, 1, ?, ?, ?, ?,
+                         ?, ?, ?, ?)""",
+            (
+                attempt_id,
+                DEFAULT_WORKSPACE_ID,
+                route["route_key"],
+                route["generation"],
+                revision["candidate_id"],
+                f"historical-reconcile-group-{index:02d}",
+                revision_id,
+                revision["build_id"],
+                revision["build_number"],
+                revision["manifest_hash"],
+                hashlib.sha256(f"historical-target-{index}".encode()).hexdigest(),
+                created_at,
+                created_at,
+                created_at,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO apify_actor_validations (
+                   validation_id, workspace_id, route_id, revision_id, attempt_id,
+                   kind, status, semantic_outcome, cost_usd, cost_final,
+                   created_at, completed_at
+               ) VALUES (?, ?, ?, ?, ?, 'source_canary', 'failed',
+                         'apify_run_reconcile_required', 0.02, 1, ?, ?)""",
+            (
+                validation_id,
+                DEFAULT_WORKSPACE_ID,
+                route_id,
+                revision_id,
+                attempt_id,
+                created_at,
+                created_at,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO apify_actor_runs (
+                   id, workspace_id, logical_run_id, secret_id, secret_version,
+                   pool_generation, remote_run_id, status, charge_reserved_usd,
+                   charge_actual_usd, charge_final, purpose, created_at,
+                   terminal_at, updated_at
+               ) VALUES (?, ?, ?, 'historical-secret', 1, 1, ?, 'succeeded',
+                         0.02, 0.02, 1, 'validation', ?, ?, ?)""",
+            (
+                f"historical-reconcile-run-{index:02d}",
+                DEFAULT_WORKSPACE_ID,
+                attempt_id,
+                f"historical-remote-{index:02d}",
+                created_at,
+                created_at,
+                created_at,
+            ),
+        )
 
 
 def test_resumed_batch_skips_terminal_failure_and_runs_only_next_item() -> None:

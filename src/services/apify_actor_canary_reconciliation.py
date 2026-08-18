@@ -31,8 +31,9 @@ async def _reconcile_workspace(
     from .apify_actor_ops import ActorOpsError, ApifyActorOpsService
 
     ops = ApifyActorOpsService(store, workspace_id=workspace_id)
+    priority_ordering = _active_batch_priority_ordering()
     rows = store.connect().execute(
-        """
+        f"""
         SELECT validation.validation_id,
                CASE WHEN validation.semantic_outcome IN (?, ?, ?, ?)
                     THEN 1 ELSE 0 END AS requires_remote_read
@@ -85,7 +86,7 @@ async def _reconcile_workspace(
                   )
               )
           )
-        ORDER BY validation.completed_at, validation.validation_id
+        ORDER BY {priority_ordering}, validation.completed_at DESC, validation.validation_id
         LIMIT 20
         """,
         (*_RECOVERABLE_OUTCOMES, workspace_id, *_RECOVERABLE_OUTCOMES),
@@ -148,6 +149,43 @@ async def _reconcile_workspace(
         reconciled=reconciled,
         continuation_batches=continuation_batches,
     )
+
+
+def _active_batch_priority_ordering() -> str:
+    """Order current restart-recovery batches ahead of historical backlog."""
+
+    return """CASE
+        WHEN profile.status = 'blocked_unknown_start'
+         AND validation.kind = 'route_reference'
+         AND validation.cost_final = 1
+         AND EXISTS (
+             SELECT 1
+             FROM apify_actor_canary_batch_items AS item
+             JOIN apify_actor_canary_batches AS batch
+               ON batch.workspace_id = item.workspace_id
+              AND batch.batch_id = item.batch_id
+             WHERE item.workspace_id = validation.workspace_id
+               AND item.validation_id = validation.validation_id
+               AND item.status = 'failed'
+               AND batch.status IN ('blocked_unknown_start', 'running')
+         ) THEN 0
+        WHEN profile.status = 'ready'
+         AND validation.kind = 'route_reference'
+         AND validation.cost_final = 1
+         AND EXISTS (
+             SELECT 1
+             FROM apify_actor_canary_batch_items AS failed_item
+             JOIN apify_actor_canary_batches AS batch
+               ON batch.workspace_id = failed_item.workspace_id
+              AND batch.batch_id = failed_item.batch_id
+             WHERE failed_item.workspace_id = validation.workspace_id
+               AND failed_item.validation_id = validation.validation_id
+               AND failed_item.status = 'failed'
+               AND batch.status = 'partial'
+               AND batch.stop_reason = 'candidate_replenishment_required'
+         ) THEN 0
+        ELSE 1
+    END"""
 
 
 def _reconciliation_result(
