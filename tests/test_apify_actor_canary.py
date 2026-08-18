@@ -821,7 +821,7 @@ def test_active_probationary_primary_can_complete_source_canary(tmp_path) -> Non
         source_type="apify_social",
         display_name="Probationary source Canary",
         config={"profile_id": route["route_id"], "target": "@openai"},
-        enabled=False,
+        enabled=True,
     )
     binding = ops.bind_source(
         source_id=source_id,
@@ -858,7 +858,8 @@ def test_active_probationary_primary_can_complete_source_canary(tmp_path) -> Non
     )
     store.connect().execute(
         """UPDATE apify_actor_candidates
-           SET state = 'open', last_error_code = 'apify_actor_revision_not_executable'
+           SET state = 'open', last_error_code = 'apify_actor_revision_not_executable',
+               last_failure_at = '2000-01-01T00:00:00+00:00'
            WHERE id = (SELECT candidate_id FROM apify_actor_adapter_revisions
                        WHERE revision_id = ?)""",
         (revisions[0],),
@@ -885,6 +886,13 @@ def test_active_probationary_primary_can_complete_source_canary(tmp_path) -> Non
         (validation["validation_id"],),
     ).fetchone()
     assert tuple(persisted) == ("succeeded", "valid_nonempty", 0.01)
+    candidate_state = store.connect().execute(
+        """SELECT state, last_error_code FROM apify_actor_candidates
+           WHERE id = (SELECT candidate_id FROM apify_actor_adapter_revisions
+                       WHERE revision_id = ?)""",
+        (revisions[0],),
+    ).fetchone()
+    assert tuple(candidate_state) == ("probationary", None)
 
 
 def test_source_canary_generation_change_cancels_same_timestamp_approval(

@@ -35,6 +35,7 @@ from .apify_actor_canary_compatibility import (
 )
 from .apify_actor_candidate_authorization import route_reference_candidate_authorized
 from .apify_actor_source_canary_authorization import source_canary_candidate_authorized
+from .apify_actor_slot_recovery import recover_source_proven_slots
 from .apify_actor_observed_probe import map_canary_output_for_revision, settled_observed_validation
 from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
 
@@ -633,6 +634,7 @@ class ApifyActorCanaryRunner:
         validation = settled_observed_validation(self.ops, validation, validation_id, observed_manifest)
         if str(row["kind"]) == "route_reference":
             self._advance_revision(str(validation["revision_id"]))
+        if str(row["kind"]) == "source_canary": recover_source_proven_slots(self.store, workspace_id=self.ops.workspace_id)
         return CanaryResult(
             validation_id=str(validation["validation_id"]),
             revision_id=str(validation["revision_id"]),
@@ -653,7 +655,6 @@ class ApifyActorCanaryRunner:
         job_id: str,
     ) -> CanaryResult:
         """Run one controlled X adapter and require a real nonempty result."""
-
         from urllib.parse import urlparse
 
         from ..models import (
@@ -665,7 +666,6 @@ class ApifyActorCanaryRunner:
             ApifySocialScraper,
             ApifySocialSemanticError,
         )
-
         if str(row["platform"]) != "x":
             self.ops.record_validation(
                 validation_id,
