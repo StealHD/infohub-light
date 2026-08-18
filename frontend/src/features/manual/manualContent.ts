@@ -1,4 +1,4 @@
-// Reviewed for ActorOps-bound source execution and safe paid-route fallback.
+// Reviewed for ActorOps-bound source execution and verified-catalog selection.
 export type ManualStep = {
   title: string
   description: string
@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-17',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；服务器在后台对免费库存受控 Canary，管理员仅看到已实测、已对账且选择后不重跑的候选。不同平台各用自己的输入映射和内容验证，不会复用 X 路径；YouTube 的旧占位输出只能由一次目标频道实测生成无值、固定 Build 的映射，失败即排除。免费 Discovery 与 Canary 复用运行时 SecretStore 的受控 Apify 凭据，因此本地重建后仍能重新发现候选；Discovery 计数与选择列表复用同一资格判定，固定 Build 已被 Canary 证伪时会计为已排除而非可验证。完整标准池继续要求发布者多样性，单槽新增或替换只需一名已完成来源验证的候选。保存的 Route 单次上限同样用于后续免费检查与 Canary，候选评分会与其固定 Build 证据一起保留。',
+  reviewedAt: '2026-08-18',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -94,7 +94,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；免费库存只在服务器按页面费用上限受控 Canary，固定 Build、真实内容、费用对账和全部已启用来源验证完成后才进入选择目录，选择不会重跑 Canary。不同平台分别渲染输入和校验内容；YouTube 的历史占位输出只可通过一次目标频道 Canary 从实际内容行生成无值、不可变映射，频道资料、错误行或身份不符会直接淘汰。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。默认每次 $0.02 上限可由管理员只为后续确认的 Run 调整至最高 $0.10，受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。某个来源返回旧内容时，只暂停该来源与该 Actor 的组合并继续尝试同一来源的其他冻结槽位，不会把整条 Route 或该 Actor 在其他来源的运行误判为不可用。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 来源会自动建立 Route 绑定，Canary 未完成时明确等待认证；成功后只使用认证 Actor，保存的 UC Channel ID 会作为频道身份和 Actor 输入，不再回退到 Atom/RSS。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。三条 Route 的标准配置都以两个不同发布者的实测 Actor 为运行门槛，第三槽只由管理员主动补充；只有通过免费检查、精确 Build Canary、全部已启用来源验证和费用对账的 Actor 才出现在选择目录，选择不会重跑 Canary。不同平台分别绑定执行器、输入和输出合同；YouTube 的频道地址仅作身份，运行时直接使用认证 Actor，不回退 Atom/RSS。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。费用待对账或启动结果未知时系统只免费核对原运行，不会重复启动。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

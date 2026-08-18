@@ -901,7 +901,7 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     assert prompt_seen["constraints"]["min_proposals"] == 3
     assert prompt_seen["constraints"]["target_proposals"] == 3
     assert prompt_seen["constraints"]["required_proposals"] == 3
-    assert prompt_seen["constraints"]["min_distinct_publishers"] == 1
+    assert prompt_seen["constraints"]["min_distinct_publishers"] == 2
     assert prompt_seen["response_contract"]["properties"]["proposals"][
         "min_items"
     ] == 3
@@ -932,8 +932,6 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     assert all(payload["maxItems"] == 1 for _, _, payload in metadata.validations)
     serialized_prompt = json.dumps(prompt_seen)
     assert "README" not in serialized_prompt
-
-
     assert "malicious" not in serialized_prompt
     assert "private.example" not in serialized_prompt
     first_summary = prompt_seen["candidates"][0]
@@ -992,7 +990,7 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     )
 
 
-def test_youtube_discovery_accepts_one_safe_fallback_actor(tmp_path) -> None:
+def test_youtube_discovery_requires_two_distinct_publishers(tmp_path) -> None:
     _store, ops, run = _ops(tmp_path)
 
     class SingleActorMetadata(_Metadata):
@@ -1023,10 +1021,9 @@ def test_youtube_discovery_accepts_one_safe_fallback_actor(tmp_path) -> None:
         ).run_discovery(run["run_id"], queries=["youtube channel"])
     )
 
-    assert outcome.stage == "awaiting_canary_approval"
-    assert len(outcome.revision_ids) == 1
-    assert prompt_seen["constraints"]["target_proposals"] == 1
-    assert prompt_seen["constraints"]["min_distinct_publishers"] == 1
+    assert outcome.stage == "candidate_shortfall"
+    assert outcome.revision_ids == ()
+    assert prompt_seen == {}
 
 
 def test_legacy_override_expands_recall_to_thirty_without_changing_default(
@@ -1224,7 +1221,9 @@ def test_discovery_preserves_valid_partial_manifests_on_ai_shortfall(
                         candidate["build_number"],
                     ),
                 }
-                for candidate in prompt["candidates"][:2]
+                    for candidate in (
+                        prompt["candidates"][0], prompt["candidates"][2]
+                    )
             ]
         }
 

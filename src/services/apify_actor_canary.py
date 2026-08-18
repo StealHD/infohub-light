@@ -1106,7 +1106,7 @@ class ApifyActorCanaryRunner:
         if row["attempt_id"] is None or str(row["semantic_outcome"] or "") not in {
             "apify_run_status_unavailable",
             "apify_actor_run_status_unavailable",
-            "apify_run_reconcile_required",
+            "apify_run_reconcile_required", "apify_worker_restart_reconcile_required",
         }:
             raise ActorOpsError(
                 "apify_actor_validation_reconcile_not_allowed",

@@ -50,8 +50,8 @@ export function humanActorError(
   if (['apify_actor_run_timed_out', 'apify_actor_canary_timeout'].includes(code)) {
     return { reason: 'Actor 验证超时', impact: '运行已停止且不会自动重试；费用以页面最终对账结果为准。', next: '费用完成对账后，重新选择并再次确认。', diagnostic: code }
   }
-  if (['apify_start_outcome_unknown', 'apify_actor_start_outcome_unknown', 'apify_run_reconcile_required'].includes(code)) {
-    return { reason: '无法确认 Actor 是否已启动', impact: '为避免重复扣费，系统已锁定新的验证。', next: '先在 Apify 控制台核对，再返回本页刷新状态；不要重试付费请求。', diagnostic: code }
+  if (['apify_start_outcome_unknown', 'apify_actor_start_outcome_unknown', 'apify_run_reconcile_required', 'apify_worker_restart_reconcile_required'].includes(code)) {
+    return { reason: '无法确认 Actor 是否已启动', impact: '为避免重复扣费，系统已锁定新的验证。', next: '系统会免费核对已知 Run；刷新状态即可，不要重试付费请求。', diagnostic: code }
   }
   if (['apify_run_status_unavailable', 'apify_actor_run_status_unavailable', 'apify_actor_validation_reconcile_required'].includes(code)) {
     return { reason: '原运行结果还没有确认', impact: '系统没有重新启动 Actor，也没有将它加入主备；现有配置保持不变。', next: '免费重新核对同一个 Run 和 Dataset；不要重新发起付费验证。', diagnostic: code }
@@ -83,7 +83,7 @@ export const routeProfileOrder = ['x/profile/items', 'instagram/profile/items', 
 export const routeProductNames: Record<string, { label: string; description: string }> = {
   'x/profile/items': { label: 'X 用户动态', description: 'Actor 主抓取' },
   'instagram/profile/items': { label: 'Instagram 主页内容', description: 'Actor 主抓取' },
-  'youtube/channel/items': { label: 'YouTube 频道视频', description: '原生优先 · Actor 故障回退' },
+  'youtube/channel/items': { label: 'YouTube 频道视频', description: 'Actor 主抓取' },
 }
 
 export type WorkflowPresentation = {
@@ -277,63 +277,16 @@ const unknownWorkflowPresentation: WorkflowPresentation = {
   cta: '刷新状态',
 }
 
-const singleActorOverrides: Record<string, WorkflowPresentation> = {
-  setup_discovery_required: {
-    title: '尚未建立 Actor fallback',
-    description: 'YouTube 继续优先使用公开 Atom；系统先免费检查一个故障 fallback，不会自动追逐第二或第三路。',
-    status: '未建立', tone: 'neutral', action: 'start_discovery', cta: '开始建立 fallback',
-  },
-  setup_discovery_running: {
-    title: '正在搜索 fallback Actor',
-    description: '系统正在免费检查候选；不会启动 Actor，也不会为了补满三槽重复搜索。',
-    status: '建立中', tone: 'warning', action: 'none',
-  },
-  setup_candidate_selection_required: {
-    title: '选择 1 个 Actor 作为故障 fallback',
-    description: '候选已经完成免费检查。选择 1 个 Actor 即可；系统不会自动追逐第二或第三路，额外备用只由管理员主动补充。',
-    status: '待选择', tone: 'warning', action: 'select_candidates', cta: '选择 Actor',
-  },
-  setup_canary_approval_required: {
-    title: '候选已选择，下一步验证单路 fallback',
-    description: '系统只验证所选的 1 个 Actor；验证期间 YouTube 原生 Atom 链路不受影响。',
-    status: '待付费验证', tone: 'warning', action: 'approve_canary', cta: '查看并确认付费验证',
-  },
-  setup_canary_running: {
-    title: '正在验证单路 fallback',
-    description: '系统正在按计划串行执行；没有成功确认前不会启用 Actor fallback。',
-    status: '待付费验证', tone: 'warning', action: 'none',
-  },
-  setup_activation_approval_required: {
-    title: '单路 fallback 验证通过',
-    description: '确认后以 1/3 fallback 运行；YouTube 原生 Atom 仍是主链路，系统不会自动补更多 Actor。',
-    status: '待生效', tone: 'success', action: 'approve_activation', cta: '查看并确认启用',
-  },
-  probation_observing: {
-    title: 'Actor fallback 配置完成',
-    description: '单路 fallback 已验证并可运行；YouTube 原生 Atom 始终优先，额外备用只由管理员主动补充。',
-    status: '配置完成', tone: 'success', action: 'none',
-  },
-  source_validation_required: {
-    title: '有来源等待启用',
-    description: '单路 fallback 已可运行，下一步只需验证具体频道。',
-    status: '配置完成', tone: 'success', action: 'open_sources', cta: '前往来源启用',
-  },
-  complete: {
-    title: 'Actor fallback 配置完成',
-    description: 'YouTube 原生 Atom 优先，单路 Actor 仅在允许回退的故障发生时运行。',
-    status: '配置完成', tone: 'success', action: 'none',
-  },
-}
-
 export function routeWorkflowPresentation(
   kind: string,
   minimumActors: number,
   operationSlot?: ApifyActorSlotName | null,
 ): WorkflowPresentation {
+  void minimumActors
   const slotWorkflow = slotWorkflowPresentation(kind, operationSlot)
   if (slotWorkflow) return slotWorkflow
   const standard = workflowPresentation[kind] ?? unknownWorkflowPresentation
-  return minimumActors === 1 ? singleActorOverrides[kind] ?? standard : standard
+  return standard
 }
 
 export function routeProfileId(

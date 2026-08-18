@@ -1499,7 +1499,7 @@ export function HeroActorOpsControlPlane({
     ? workflow?.goal === 'upgrade_legacy'
       ? '上面的当前 Actor 仍继续运行。重新检查只会尝试为这 3 个 Actor 生成安全新版；任一 Actor 未通过就停止，不选择替补。免费检查不会启动 Actor。'
       : youtubeOptionalThirdShortfall
-        ? `${trackedDiscovery?.updated_at ? `完成于 ${formatActorDateTime(trackedDiscovery.updated_at)}。` : ''}本轮找到 ${eligibleCandidateCount ?? 0}/${requiredSuccessCount ?? 1} 个符合条件的候选。YouTube 仍优先使用 Atom Feed，已有 fallback 不受影响；第三路是可选备份。相同 Actor / Build 的失败已记录，立即重复搜索不会改变结果。`
+        ? `${trackedDiscovery?.updated_at ? `完成于 ${formatActorDateTime(trackedDiscovery.updated_at)}。` : ''}本轮找到 ${eligibleCandidateCount ?? 0}/${requiredSuccessCount ?? 1} 个符合条件的候选。YouTube 使用认证 Actor 主抓取；第三路是可选备份。相同 Actor / Build 的失败已记录，立即重复搜索不会改变结果。`
       : `${eligibleCandidateCount !== null && requiredSuccessCount !== null
         ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
         : '当前符合条件的候选还不足。'}本轮已终结，已通过的候选会保留。请先查看候选与失败原因；只在 Actor / Build 证据变化后再发起新检查。`

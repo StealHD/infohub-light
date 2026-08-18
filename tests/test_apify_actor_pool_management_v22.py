@@ -2,6 +2,8 @@
 
 import hashlib
 
+import pytest
+
 from test_apify_actor_ops_api import _client, _login, _ready_route
 from test_apify_actor_pool_staging_v18 import (
     BATCH_CANARY_CONFIRMATION,
@@ -14,7 +16,7 @@ from test_apify_actor_pool_staging_v18 import (
     _two_actor_pool,
 )
 
-from src.services.apify_actor_ops import ApifyActorOpsService
+from src.services.apify_actor_ops import ActorOpsError, ApifyActorOpsService
 from src.api.actor_ops_projection import public_canary_plan
 from src.services.apify_actor_pool_management import (
     ROUTE_POOL_REMOVE_CONFIRMATION,
@@ -290,18 +292,17 @@ def test_remove_reuses_only_retained_source_evidence(tmp_path) -> None:
     source_id, ready = _ready_source(
         store, ops, route, revisions, suffix="pool-remove-evidence"
     )
-    removed = ops.remove_active_pool_slot(
-        str(route["route_id"]),
-        target_slot="backup_1",
-        expected_generation=int(route["generation"]),
-        confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
-    )
-    assert [slot["revision_id"] for slot in removed["slots"]] == [
-        revisions[0], None, None,
-    ]
+    with pytest.raises(ActorOpsError) as caught:
+        ops.remove_active_pool_slot(
+            str(route["route_id"]),
+            target_slot="backup_1",
+            expected_generation=int(route["generation"]),
+            confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
+        )
+    assert caught.value.code == "apify_actor_pool_remove_pool_runtime_minimum"
     binding = ops.get_source_binding(source_id)
     assert ready["validation_status"] == "ready_2of2"
-    assert binding["validation_status"] == "ready_1of1"
+    assert binding["validation_status"] == "ready_2of2"
 
 
 def test_failed_replan_stage_does_not_lock_pool_removal(tmp_path) -> None:
@@ -381,18 +382,16 @@ def test_failed_replan_stage_does_not_lock_pool_removal(tmp_path) -> None:
     assert workflow["kind"] == "replace_slot_discovery_required"
     assert workflow["goal"] == "replace_slot"
     assert workflow["operation_slot"] == "backup_1"
-    assert ops.slot_operations(str(route["route_id"]))["backup_1"]["remove"]
-    removed = ops.remove_active_pool_slot(
-        str(route["route_id"]),
-        target_slot="backup_1",
-        expected_generation=int(route["generation"]),
-        confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
-    )
-
-    assert [slot["revision_id"] for slot in removed["slots"]] == [
-        revisions[0], None, None,
-    ]
-    assert ops.get_pool_stage(stage_id)["status"] == "stale"
+    assert not ops.slot_operations(str(route["route_id"]))["backup_1"]["remove"]
+    with pytest.raises(ActorOpsError) as caught:
+        ops.remove_active_pool_slot(
+            str(route["route_id"]),
+            target_slot="backup_1",
+            expected_generation=int(route["generation"]),
+            confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
+        )
+    assert caught.value.code == "apify_actor_pool_remove_pool_runtime_minimum"
+    assert ops.get_pool_stage(stage_id)["status"] == "replan_required"
 
 
 def test_remove_invalidates_ready_binding_when_retained_evidence_is_missing(tmp_path) -> None:
@@ -409,12 +408,14 @@ def test_remove_invalidates_ready_binding_when_retained_evidence_is_missing(tmp_
         (ops.workspace_id, source_id, revisions[0]),
     )
     store.connect().commit()
-    ops.remove_active_pool_slot(
-        str(route["route_id"]),
-        target_slot="backup_1",
-        expected_generation=int(route["generation"]),
-        confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
-    )
+    with pytest.raises(ActorOpsError) as caught:
+        ops.remove_active_pool_slot(
+            str(route["route_id"]),
+            target_slot="backup_1",
+            expected_generation=int(route["generation"]),
+            confirmation=ROUTE_POOL_REMOVE_CONFIRMATION,
+        )
+    assert caught.value.code == "apify_actor_pool_remove_pool_runtime_minimum"
     binding = ops.get_source_binding(source_id)
-    assert binding["validation_status"] == "pending"
-    assert binding["verified_revision_set_hash"] is None
+    assert binding["validation_status"] == "ready_2of2"
+    assert binding["verified_revision_set_hash"] is not None

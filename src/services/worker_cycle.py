@@ -77,7 +77,12 @@ def _reconcile_actor_providers(
                 "Apify Actor route reconcile blocked workspace_id=%s",
                 outcome["workspace_id"],
             )
-        _reconcile_actor_ops(store, workspace_id=workspace_id, logger=logger)
+        _reconcile_actor_ops(
+            store,
+            workspace_id=workspace_id,
+            data_dir=data_dir,
+            logger=logger,
+        )
         try:
             ports.sync_actor_quota_alert(
                 store,
@@ -98,6 +103,7 @@ def _reconcile_actor_ops(
     store: ServiceStore,
     *,
     workspace_id: str,
+    data_dir: str,
     logger: logging.Logger,
 ) -> None:
     from .apify_actor_ops import ApifyActorOpsService
@@ -116,6 +122,19 @@ def _reconcile_actor_ops(
         logger.warning(
             "Apify ActorOps reconcile blocked workspace_id=%s",
             workspace_id,
+        )
+    from .apify_actor_canary_reconciliation import reconcile_interrupted_canary_runs
+
+    reconciled = reconcile_interrupted_canary_runs(
+        store,
+        workspace_id=workspace_id,
+        data_dir=data_dir,
+    )
+    if reconciled["reconciled"]:
+        logger.info(
+            "Apify Actor interrupted runs reconciled workspace_id=%s count=%s",
+            workspace_id,
+            reconciled["reconciled"],
         )
     costs = actor_ops.reconcile_terminal_validation_costs()
     if costs["validations"]:

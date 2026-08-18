@@ -221,8 +221,8 @@ def test_v21_migration_is_offline_backed_up_and_idempotent(tmp_path: Path) -> No
         (DEFAULT_WORKSPACE_ID,),
     ).fetchone()
     assert dict(youtube) == {
-        "min_runtime_healthy": 1,
-        "min_publishers": 1,
+            "min_runtime_healthy": 2,
+            "min_publishers": 2,
         "admission_mode": "standard",
         "freshness_enabled": 0,
     }

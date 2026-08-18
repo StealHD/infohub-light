@@ -566,7 +566,7 @@ def test_capability_catalog_requires_fully_certified_three_slot_route(
     ]
 
 
-def test_youtube_fallback_capability_uses_native_source_fields(
+def test_youtube_primary_actor_capability_uses_channel_source_fields(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -586,7 +586,7 @@ def test_youtube_fallback_capability_uses_native_source_fields(
         if item["profile_id"] == route["route_id"]
     )
     assert capability["storage_type"] == "youtube_channel"
-    assert capability["mode"] == "fallback"
+    assert capability["mode"] == "primary"
     assert [field["name"] for field in capability["fields"]] == [
         "url",
         "keep_latest_item",
@@ -1676,7 +1676,7 @@ def test_route_cap_hot_update_and_manual_rediscovery_are_cas_guarded(
     assert rediscovery_data["job"]["status"] == "queued"
 
 
-def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
+def test_youtube_active_pool_api_requires_two_publishers(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1694,7 +1694,7 @@ def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
             "expected_generation": route["generation"],
             "slots": [
                 {"slot": "primary", "revision_id": revisions[0]},
-                {"slot": "backup_1", "revision_id": None},
+                {"slot": "backup_1", "revision_id": revisions[1]},
                 {"slot": "backup_2", "revision_id": None},
             ],
         },
@@ -1702,12 +1702,12 @@ def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
 
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    assert data["min_runtime_healthy"] == 1
-    assert data["runnable_slots"] == 1
+    assert data["min_runtime_healthy"] == 2
+    assert data["runnable_slots"] == 2
     assert data["slots"][0]["runnable"] is True
     assert [slot["revision_id"] for slot in data["slots"]] == [
         revisions[0],
-        None,
+        revisions[1],
         None,
     ]
 

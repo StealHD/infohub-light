@@ -54,39 +54,12 @@ from .apify_actor_pool_staging import ApifyActorPoolStagingMixin
 from .apify_actor_pool_stage_read import load_pool_stage
 from .apify_actor_pool_slots import ApifyActorPoolSlotsMixin
 from .apify_actor_pool_workflow import project_active_pool_stage_workflow
-from .apify_key_pool import APIFY_RUN_TERMINAL_STATUSES
+from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
+from .apify_actor_capability_matrix import route_profiles
 
 
 SLOT_NAMES = ("primary", "backup_1", "backup_2")
-SUPPORTED_ROUTE_PROFILES = (
-    {
-        "id": "x/profile/items",
-        "route_key": "x/profile",
-        "platform": "x",
-        "target_type": "profile",
-        "capability": "items",
-        "mode": "primary",
-        "label": "X Profile",
-    },
-    {
-        "id": "youtube/channel/items",
-        "route_key": "youtube/channel/items",
-        "platform": "youtube",
-        "target_type": "channel",
-        "capability": "items",
-        "mode": "fallback",
-        "label": "YouTube Channel",
-    },
-    {
-        "id": "instagram/profile/items",
-        "route_key": "instagram/profile/items",
-        "platform": "instagram",
-        "target_type": "profile",
-        "capability": "items",
-        "mode": "primary",
-        "label": "Instagram Profile",
-    },
-)
+SUPPORTED_ROUTE_PROFILES = route_profiles()
 PAID_CANARY_CONFIRMATION = "确认付费试跑"
 BATCH_CANARY_CONFIRMATION = "确认付费验证主备"
 FIRST_ACTIVATION_CONFIRMATION = "确认首次启用"
@@ -562,8 +535,8 @@ class ApifyActorOpsService(
 
         A complete certified/certified/probationary 2+1 pool is always
         preferred. When it is unavailable, the Route's declared runtime and
-        publisher minimums apply: X and Instagram still require two, while
-        YouTube fallback can run with one exact-Build Canary-proven Actor.
+        publisher minimums apply.  Compatibility mode is the sole explicitly
+        authorized one-Actor exception.
         """
 
         return self._recommend_active_pool(self.store.connect(), route_id)
@@ -736,7 +709,9 @@ class ApifyActorOpsService(
             best = None
         single_best = (
             expedited_rows[0]
-            if int(route["min_runtime_healthy"]) == 1 and expedited_rows
+            if str(route["admission_mode"] or "") == "compatibility"
+            and int(route["min_runtime_healthy"]) == 1
+            and expedited_rows
             else None
         )
 
@@ -3599,15 +3574,6 @@ class ApifyActorOpsService(
 
         selected: tuple[sqlite3.Row, ...] = ()
         maximum = min(int(max_candidates), len(distinct))
-        if (
-            not manual_selection
-            and goal == "initial_pool"
-            and required_successes == 1
-        ):
-            # YouTube's public Atom feed is the primary path. One proven
-            # fallback Actor restores the capability; extra paid fallback
-            # trials are initiated only by an administrator.
-            maximum = min(maximum, 1)
         if manual_selection:
             eligible_by_id = {
                 str(row["candidate_id"]): row
@@ -3653,7 +3619,7 @@ class ApifyActorOpsService(
                 )
         elif maximum >= required_successes:
             best: tuple[Any, ...] | None = None
-            # Freeze every available fallback covered by this approval. The
+            # Freeze every available candidate covered by this approval. The
             # Worker still stops at the first safe target, but a failed first
             # candidate must not force another paid approval when the same
             # plan already disclosed and capped later candidates.
@@ -3892,6 +3858,7 @@ class ApifyActorOpsService(
                 "apify_run_status_unavailable",
                 "apify_actor_run_status_unavailable",
                 "apify_run_reconcile_required",
+                "apify_worker_restart_reconcile_required",
             }:
                 raise ActorOpsError(
                     "apify_actor_validation_reconcile_required",
@@ -5323,6 +5290,7 @@ class ApifyActorOpsService(
                     if normalized in {
                         "apify_run_status_unavailable",
                         "apify_run_reconcile_required",
+                        "apify_worker_restart_reconcile_required",
                     }
                     else "adjust_timeout"
                     if normalized == "apify_actor_run_timed_out"
@@ -5519,6 +5487,7 @@ class ApifyActorOpsService(
             "start_outcome_unknown",
             "apify_start_outcome_unknown",
             "apify_run_reconcile_required",
+            "apify_worker_restart_reconcile_required",
         }:
             return {
                 "kind": "blocked_unknown_start",
@@ -5613,11 +5582,6 @@ class ApifyActorOpsService(
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        youtube_fallback_operational = (
-            str(route.get("platform") or "") == "youtube"
-            and str(route.get("mode") or "") == "fallback"
-            and len(slots) >= 1
-        )
         if source_pending:
             return {
                 "kind": "source_validation_required",
@@ -5645,7 +5609,7 @@ class ApifyActorOpsService(
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        if len(slots) == 2 and not youtube_fallback_operational:
+        if len(slots) == 2:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("complete_third")
                 if approval_discovery
@@ -5665,7 +5629,7 @@ class ApifyActorOpsService(
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        if len(slots) < 2 and not compatibility_operational and not youtube_fallback_operational:
+        if len(slots) < 2 and not compatibility_operational:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("initial_pool")
                 if approval_discovery
@@ -7385,6 +7349,7 @@ class ApifyActorOpsService(
                 "apify_run_status_unavailable",
                 "apify_actor_run_status_unavailable",
                 "apify_run_reconcile_required",
+                "apify_worker_restart_reconcile_required",
             }:
                 raise ActorOpsError(
                     "apify_actor_validation_reconcile_not_allowed",
@@ -7504,11 +7469,15 @@ class ApifyActorOpsService(
                 """
                 SELECT validation.status, validation.semantic_outcome,
                        validation.kind, validation.cost_usd,
-                       validation.cost_final,
+                       validation.cost_final, validation.route_id,
+                       profile.route_key,
                        item.batch_id, batch.pool_stage_id,
                        source.stage_id AS source_stage_id,
                        source_stage.initial_batch_id AS source_batch_id
                 FROM apify_actor_validations AS validation
+                JOIN apify_actor_route_profiles AS profile
+                  ON profile.workspace_id = validation.workspace_id
+                 AND profile.route_id = validation.route_id
                 LEFT JOIN apify_actor_canary_batch_items AS item
                   ON item.workspace_id = validation.workspace_id
                  AND item.validation_id = validation.validation_id
@@ -7559,15 +7528,77 @@ class ApifyActorOpsService(
                     connection.execute(
                         """
                         UPDATE apify_actor_pool_stages
-                        SET status = 'queued', last_error_code = NULL,
-                            target_primary_revision_id = NULL,
-                            target_backup_1_revision_id = NULL,
-                            target_backup_2_revision_id = NULL,
-                            target_pool_hash = NULL, updated_at = ?
+                        SET status = 'queued', base_generation = (
+                                SELECT generation
+                                FROM apify_actor_route_profiles
+                                WHERE workspace_id = ? AND route_id = ?
+                            ),
+                            last_error_code = NULL,
+                            updated_at = ?
                         WHERE workspace_id = ? AND stage_id = ?
-                          AND status = 'replan_required'
+                          AND status IN ('replan_required', 'blocked_unknown_start')
                         """,
-                        (self._now_iso(), self.workspace_id, stage_id),
+                        (
+                            self.workspace_id,
+                            str(row["route_id"]),
+                            self._now_iso(),
+                            self.workspace_id,
+                            stage_id,
+                        ),
+                    )
+                route_id = str(row["route_id"])
+                route_key = str(row["route_key"])
+                unresolved = connection.execute(
+                    """
+                    SELECT 1 FROM apify_actor_attempts
+                    WHERE workspace_id = ? AND route_key = ?
+                      AND status = 'start_outcome_unknown'
+                    LIMIT 1
+                    """,
+                    (self.workspace_id, route_key),
+                ).fetchone()
+                if unresolved is None:
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_route_profiles
+                        SET status = 'ready', updated_at = ?
+                        WHERE workspace_id = ? AND route_id = ?
+                          AND status = 'blocked_unknown_start'
+                        """,
+                        (self._now_iso(), self.workspace_id, route_id),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_routes
+                        SET status = 'degraded', blocked_reason = NULL,
+                            updated_at = ?
+                        WHERE workspace_id = ? AND route_key = ?
+                          AND blocked_reason IN (
+                              'start_outcome_unknown',
+                              'apify_start_outcome_unknown',
+                              'apify_run_reconcile_required'
+                          )
+                        """,
+                        (self._now_iso(), self.workspace_id, route_key),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE apify_key_pool_state
+                        SET status = 'ready', blocked_reason = NULL,
+                            generation = generation + 1, updated_at = ?
+                        WHERE workspace_id = ?
+                          AND blocked_reason = 'start_outcome_unknown'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM apify_actor_attempts
+                              WHERE workspace_id = ?
+                                AND status = 'start_outcome_unknown'
+                          )
+                        """,
+                        (
+                            self._now_iso(),
+                            self.workspace_id,
+                            self.workspace_id,
+                        ),
                     )
                 connection.execute(
                     """
@@ -7575,7 +7606,7 @@ class ApifyActorOpsService(
                     SET status = 'queued', stop_reason = NULL,
                         completed_at = NULL, updated_at = ?
                     WHERE workspace_id = ? AND batch_id = ?
-                      AND status IN ('partial', 'failed')
+                      AND status IN ('partial', 'failed', 'blocked_unknown_start')
                     """,
                     (self._now_iso(), self.workspace_id, batch_id),
                 )
@@ -7602,7 +7633,7 @@ class ApifyActorOpsService(
                     SET status = 'validating_sources', last_error_code = NULL,
                         updated_at = ?
                     WHERE workspace_id = ? AND stage_id = ?
-                      AND status = 'replan_required'
+                      AND status IN ('replan_required', 'blocked_unknown_start')
                     """,
                     (self._now_iso(), self.workspace_id, stage_id),
                 )
@@ -7961,7 +7992,7 @@ class ApifyActorOpsService(
                     metadata_check_interval_seconds, policy_version,
                     generation, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 3, 2, 2, 0.02,
-                          'discovery_required', 604800, 'actor_ops_v1', 1, ?, ?)
+                          'discovery_required', 604800, 'actor_ops_v3', 1, ?, ?)
                 """,
                 (
                     route_id,
@@ -9296,7 +9327,8 @@ class ApifyActorOpsService(
                       AND blocked_reason IN (
                           'start_outcome_unknown',
                           'apify_start_outcome_unknown',
-                          'apify_run_reconcile_required'
+                          'apify_run_reconcile_required',
+                          'apify_worker_restart_reconcile_required'
                       )
                     """,
                     (
@@ -9982,129 +10014,7 @@ class ApifyActorOpsService(
     def reconcile_unfinished_attempts(self) -> dict[str, int]:
         """Fail closed after a Worker restart without replaying paid starts."""
 
-        now = self._now_iso()
-        cancelled = 0
-        blocked = 0
-        blocked_routes: set[tuple[str, str]] = set()
-        with self._write() as connection:
-            rows = connection.execute(
-                """
-                SELECT attempt.id, attempt.job_id, attempt.route_key,
-                       profile.route_id,
-                       GROUP_CONCAT(run.status) AS run_statuses
-                FROM apify_actor_attempts AS attempt
-                JOIN apify_actor_route_profiles AS profile
-                  ON profile.workspace_id = attempt.workspace_id
-                 AND profile.route_key = attempt.route_key
-                LEFT JOIN apify_actor_runs AS run
-                  ON run.workspace_id = attempt.workspace_id
-                 AND run.logical_run_id = attempt.id
-                WHERE attempt.workspace_id = ?
-                  AND attempt.status = 'running'
-                  AND attempt.adapter_revision_id IS NOT NULL
-                GROUP BY attempt.id, attempt.job_id, attempt.route_key,
-                         profile.route_id
-                """,
-                (self.workspace_id,),
-            ).fetchall()
-            for row in rows:
-                statuses = {
-                    value
-                    for value in str(row["run_statuses"] or "").split(",")
-                    if value
-                }
-                unsafe = any(
-                    status not in APIFY_RUN_TERMINAL_STATUSES
-                    for status in statuses
-                )
-                attempt_status = (
-                    "start_outcome_unknown" if unsafe else "cancelled"
-                )
-                error_code = (
-                    "apify_worker_restart_reconcile_required"
-                    if unsafe
-                    else "apify_worker_restart_result_lost"
-                )
-                connection.execute(
-                    """
-                    UPDATE apify_actor_attempts
-                    SET status = ?, semantic_outcome = ?,
-                        last_error_code = ?, terminal_at = ?, updated_at = ?
-                    WHERE workspace_id = ? AND id = ? AND status = 'running'
-                    """,
-                    (
-                        attempt_status,
-                        error_code,
-                        error_code,
-                        now,
-                        now,
-                        self.workspace_id,
-                        row["id"],
-                    ),
-                )
-                connection.execute(
-                    """
-                    UPDATE apify_actor_validations
-                    SET status = 'failed', semantic_outcome = ?,
-                        completed_at = ?
-                    WHERE workspace_id = ? AND attempt_id = ?
-                      AND status = 'running'
-                    """,
-                    (error_code, now, self.workspace_id, row["id"]),
-                )
-                if row["job_id"]:
-                    connection.execute(
-                        """
-                        UPDATE fetch_jobs
-                        SET max_attempts = attempts, updated_at = ?
-                        WHERE workspace_id = ? AND id = ?
-                          AND status = 'running'
-                        """,
-                        (now, self.workspace_id, row["job_id"]),
-                    )
-                if unsafe:
-                    blocked += 1
-                    blocked_routes.add(
-                        (str(row["route_id"]), str(row["route_key"]))
-                    )
-                else:
-                    cancelled += 1
-            for route_id, route_key in blocked_routes:
-                connection.execute(
-                    """
-                    UPDATE apify_actor_route_profiles
-                    SET status = 'blocked_unknown_start',
-                        generation = generation + 1, updated_at = ?
-                    WHERE workspace_id = ? AND route_id = ?
-                    """,
-                    (now, self.workspace_id, route_id),
-                )
-                connection.execute(
-                    """
-                    UPDATE apify_actor_routes
-                    SET status = 'blocked',
-                        blocked_reason = 'start_outcome_unknown',
-                        generation = generation + 1, updated_at = ?
-                    WHERE workspace_id = ? AND route_key = ?
-                    """,
-                    (now, self.workspace_id, route_key),
-                )
-            if blocked_routes:
-                connection.execute(
-                    """
-                    UPDATE apify_key_pool_state
-                    SET status = 'blocked',
-                        blocked_reason = 'start_outcome_unknown',
-                        generation = generation + 1, updated_at = ?
-                    WHERE workspace_id = ?
-                    """,
-                    (now, self.workspace_id),
-                )
-        return {
-            "cancelled": cancelled,
-            "blocked": blocked,
-            "routes_blocked": len(blocked_routes),
-        }
+        return reconcile_unfinished_actor_attempts(self)
 
     def _record_actor_failure(
         self,

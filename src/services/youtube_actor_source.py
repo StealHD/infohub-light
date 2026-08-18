@@ -117,7 +117,7 @@ def provision_youtube_actor_sources(store: ServiceStore) -> dict[str, int]:
                     str(config["url"]),
                     platform="youtube",
                 ),
-                mode="fallback",
+                mode="primary",
             )
             bound += 1
         if ops.source_capability_ready(route_id):

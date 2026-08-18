@@ -1535,13 +1535,7 @@ def create_app(
             str(route["target_type"]),
             str(route["capability"]),
         )
-        if primary and identity == ("youtube", "channel", "items"):
-            primary = False
-        allowed = (
-            {("x", "profile", "items"), ("instagram", "profile", "items")}
-            if primary
-            else {("youtube", "channel", "items")}
-        )
+        allowed = {("x", "profile", "items"), ("instagram", "profile", "items"), ("youtube", "channel", "items")} if primary else set()
         expected_mode = "primary" if primary else "fallback"
         if identity not in allowed or str(route["mode"]) != expected_mode:
             raise ApiError(
@@ -3273,7 +3267,8 @@ def create_app(
               AND validation.semantic_outcome IN (
                   'apify_run_status_unavailable',
                   'apify_actor_run_status_unavailable',
-                  'apify_run_reconcile_required'
+                  'apify_run_reconcile_required',
+                  'apify_worker_restart_reconcile_required'
               )
               AND validation.attempt_id IS NOT NULL
             ORDER BY validation.completed_at DESC,

@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "在 v2.3.3 发布门禁前拆分 ServiceStore 订阅查询、API 测试 fixture/手动刷新场景和 Workbench Playwright mock，并将卡片展示派生逻辑独立，恢复不可增长的代码规模债务上限。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-code-health-gate",
-  "unresolved": [
-    "需在推送后重跑精确 main 的 GitHub 完整 Test Gate，成功后才能创建 v2.3.3 tag 与 VPS 部署。"
-  ],
-  "validation": [
-    "发布基线 b0083d38 的 code-size policy 对比通过，四个历史文件和两个 callable 的债务上限均未增加。",
-    "手动 Feed 刷新定向 Pytest 5/5、前端 typecheck、lint、VirtualFeed Vitest 36/36 与 Playwright test list 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-15",
@@ -372,6 +351,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "定向 Pytest 63 通过，前端 typecheck 与定向 Vitest 7 通过。",
     "影响范围 preflight 17/17 通过，覆盖后端、前端、可观测性、控制面、文档和尺寸门禁。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "统一 ActorOps 三平台能力矩阵：X、Instagram、YouTube 均使用显式主抓取契约与 2 个不同发布者的最低健康池；YouTube 不再以 Atom/RSS fallback 或单 Actor 作为标准运行态。恢复流程会把 Worker 重启中断的 Run、验证、批次项、阶段与 Job 一起投影为可对账阻断，并仅以 GET 方式对已存在远端 Run 对账后继续原批准批次。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-unified-primary-recovery",
+  "unresolved": [
+    "本地 YouTube 已存在的远端 Canary Run 会在新 Worker 启动后仅做状态/费用对账；若远端仍未终态，系统保持阻断且不新发付费 Run。"
+  ],
+  "validation": [
+    "完整 impacted preflight 17/17 通过，包含全量 Pytest、前端 typecheck/Vitest/build、E2E 合同、控制与产品文档检查。",
+    "新增重启恢复回归覆盖：未知启动会同时阻断 Validation、Batch item、Batch、Stage 和 Job；YouTube 旧 1/3 fallback 配置会收敛到注册的 primary 2/3 策略。"
   ]
 }
 ```

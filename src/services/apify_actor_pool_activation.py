@@ -415,12 +415,13 @@ class ApifyActorPoolActivationMixin:
         connection.execute(
             """
             UPDATE apify_actor_route_profiles
-            SET generation = generation + 1,
+            SET generation = generation + 1, mode = 'primary',
+                policy_version = 'actor_ops_v3',
                 status = CASE WHEN status = 'blocked_unknown_start' THEN status ELSE 'ready' END,
                 per_run_cap_usd = COALESCE(?, per_run_cap_usd),
                 admission_mode = CASE WHEN ? THEN 'compatibility' ELSE 'standard' END,
-                min_runtime_healthy = CASE WHEN ? THEN 1 WHEN route_key = 'youtube/channel/items' THEN 1 ELSE 2 END,
-                min_publishers = CASE WHEN ? THEN 1 WHEN route_key = 'youtube/channel/items' THEN 1 ELSE 2 END,
+                min_runtime_healthy = CASE WHEN ? THEN 1 ELSE 2 END,
+                min_publishers = CASE WHEN ? THEN 1 ELSE 2 END,
                 compatibility_risk_code = CASE WHEN ? THEN 'single_actor_no_redundancy' ELSE NULL END,
                 updated_at = ?
             WHERE workspace_id = ? AND route_id = ? AND generation = ?

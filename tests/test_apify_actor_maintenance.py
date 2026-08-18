@@ -445,7 +445,7 @@ def test_exact_schema_drift_quarantines_and_fences_route_and_binding(
         raise AssertionError("quarantined revision did not fence publication")
 
 
-def test_youtube_fallback_remains_available_with_one_safe_revision(
+def test_youtube_direct_actor_route_requires_two_safe_revisions(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -467,7 +467,7 @@ def test_youtube_fallback_remains_available_with_one_safe_revision(
     assert ops.get_revision(revisions[0])["lifecycle"] == "quarantined"
     assert ops.get_revision(revisions[1])["lifecycle"] == "quarantined"
     current = ops.get_route(str(route["route_id"]))
-    assert current["runtime"]["allowed"] is True
+    assert current["runtime"]["allowed"] is False
     assert current["runtime"]["runnable_count"] == 1
 
 
@@ -560,5 +560,5 @@ def test_oversized_tier_prices_quarantine_instead_of_aborting_maintenance(
     assert ops.get_revision(revisions[0])["lifecycle"] == "quarantined"
     assert ops.get_revision(revisions[1])["lifecycle"] == "quarantined"
     current = ops.get_route(str(route["route_id"]))
-    assert current["runtime"]["allowed"] is True
+    assert current["runtime"]["allowed"] is False
     assert current["runtime"]["runnable_count"] == 1

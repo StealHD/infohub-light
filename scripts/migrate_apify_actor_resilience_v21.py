@@ -370,7 +370,7 @@ def _install_columns_and_constraints(connection: sqlite3.Connection) -> None:
         connection.execute(
             """
             UPDATE apify_actor_route_profiles
-            SET min_runtime_healthy = 1, min_publishers = 1,
+            SET min_runtime_healthy = 2, min_publishers = 2,
                 updated_at = ?
             WHERE route_key = 'youtube/channel/items'
             """,
