@@ -1,4 +1,4 @@
-// Reviewed for source-bound healthy-slot execution, certified-candidate visibility, pending-Canary YouTube Feed safety, and release health; entries remain grouped by user-visible release date.
+// Reviewed for source-bound healthy-slot execution, certified-candidate visibility/counts, pending-Canary YouTube Feed safety, and release health; entries remain grouped by user-visible release date.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

@@ -34,6 +34,10 @@ export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
         title: '未证明内容的 Actor 仍不会出现为可用',
         description: '名称、评分、使用人数或资料 Schema 不能替代真实内容证据。只有受控 Canary 返回目标账号/频道的内容、费用完成对账并通过来源验证后，Actor 才显示为可选或可加入主备。',
       },
+      {
+        title: '发现计数与候选选择保持一致',
+        description: '同一固定 Build 已有确定性 Canary 失败证据时，重新发现会将其计为已排除；不会显示为“找到 1 个”后又在下一步拒绝或要求无效付费验证。',
+      },
     ],
   },
   actorOpsPoolManagementChangelogEntry,

@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-17',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员只会看到已实测成功的候选，服务器先对通过免费安全检查的候选进行受控 Canary。免费 Discovery 与 Canary 复用运行时 SecretStore 的受控 Apify 凭据，因此本地重建后仍能重新发现候选；完整标准池继续要求发布者多样性，单槽新增或替换只需一名已完成来源验证的候选。保存的 Route 单次上限同样用于后续免费检查与 Canary，候选评分会与其固定 Build 证据一起保留。',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员只会看到已实测成功的候选，服务器先对通过免费安全检查的候选进行受控 Canary。免费 Discovery 与 Canary 复用运行时 SecretStore 的受控 Apify 凭据，因此本地重建后仍能重新发现候选；Discovery 计数与选择列表复用同一资格判定，固定 Build 已被 Canary 证伪时会计为已排除而非可验证。完整标准池继续要求发布者多样性，单槽新增或替换只需一名已完成来源验证的候选。保存的 Route 单次上限同样用于后续免费检查与 Canary，候选评分会与其固定 Build 证据一起保留。',
 } as const
 
 export const manualSections: ManualSection[] = [
