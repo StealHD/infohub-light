@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog, revision-aware Canary authorization, verified-pool activation, and no-charge pre-execution recovery.
+// Reviewed: verified-only ActorOps catalog, revision-aware Canary authorization, verified-pool activation, source-proof circuit recovery, and no-charge pre-execution recovery.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
