@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog, revision-aware current-source proofs, executable observed manifests, immediate bounded stale-circuit source Canary recovery, and no-charge pre-execution recovery.
+// Reviewed: verified-only ActorOps catalog, platform-registered latest-N source execution, revision-aware current-source proofs, executable observed manifests, immediate bounded stale-circuit source Canary recovery, and no-charge pre-execution recovery.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

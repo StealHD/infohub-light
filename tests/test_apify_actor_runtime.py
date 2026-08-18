@@ -19,6 +19,7 @@ from src.services.apify_actor_runtime import (
     _client_failure_scope,
     actor_target_for_route,
 )
+from src.services.apify_actor_capability_matrix import source_fetch_window_policy
 from src.scrapers.apify_client import ApifyClientError
 
 
@@ -211,6 +212,13 @@ def test_actor_target_rejects_non_profile_routes_and_preserves_youtube_id_case()
     )
     assert target.native_id == channel_id
     assert target.canonical_url == f"https://www.youtube.com/channel/{channel_id}"
+
+
+def test_registered_source_routes_explicitly_fetch_latest_items_only():
+    assert source_fetch_window_policy("x", "profile", "items") == "latest_items"
+    assert source_fetch_window_policy("instagram", "profile", "items") == "latest_items"
+    assert source_fetch_window_policy("youtube", "channel", "items") == "latest_items"
+    assert source_fetch_window_policy("youtube", "profile", "items") is None
 
 
 async def _runtime_uses_frozen_build_cap_and_maps_content():

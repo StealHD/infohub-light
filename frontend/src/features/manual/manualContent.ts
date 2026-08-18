@@ -86,7 +86,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '订阅 YouTube 公开频道',
-        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。频道地址只用于确认频道身份，普通视频、Shorts、公开直播及回放均由已认证的 Apify Actor 直接获取；可设置每次保留的最新条数。“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
+        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。频道地址只用于确认频道身份，普通视频、Shorts、公开直播及回放均由已认证的 Apify Actor 直接获取；可设置每次保留的最新条数。每次获取都直接向认证 Actor 请求不超过该条数的最新项目，不会因信息流的短时间显示窗口把较早但仍是最新的内容误报为空，也不会回退 Atom/RSS。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
       },
       {
         title: '新增 X 或 Instagram 账号',

@@ -116,8 +116,11 @@ describe('HeroChangelogPage', () => {
     expect(within(entries[12] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
     const latestTimeline = screen.getByRole('list', { name: '2026 年 8 月更新记录' })
     const latestEntries = latestTimeline.querySelectorAll(':scope > [data-timeline-item]')
-    expect(latestEntries).toHaveLength(35)
+    expect(latestEntries).toHaveLength(
+      changelogMonths.find((month) => month.id === 'month-2026-08')?.entries.length ?? 0,
+    )
     expect(latestEntries[0]).toHaveAttribute('aria-current', 'true')
+    expect(within(latestTimeline).getByText('认证 Actor 按“最新条数”直接获取')).toBeVisible()
     expect(within(latestTimeline).getByText('助手连接命令可直接复制')).toBeVisible()
     expect(within(latestTimeline).getByText('功能优先但费用仍需确认')).toBeVisible()
     expect(within(latestTimeline).getByText('平台表单更直接')).toBeVisible()

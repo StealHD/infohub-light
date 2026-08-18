@@ -275,51 +275,17 @@ class ApifySocialScraper(BaseScraper):
                     retryable=True,
                     code="apify_actor_ops_unavailable",
                 )
-            from ..services.apify_actor_manifest import ActorRuntime
-            from ..services.apify_actor_runtime import (
-                ActorContentContext,
-                ApifyActorRuntimeService,
-                actor_target_for_route,
+            from ..services.apify_actor_source_execution import (
+                fetch_actorops_source_subscription,
             )
-
-            route = self.apify_actor_ops.get_route(str(sub.profile_id))
-            platform = str(route["platform"])
-            analysis_mode = (
-                sub.analysis_mode.value
-                if hasattr(sub.analysis_mode, "value")
-                else str(sub.analysis_mode)
-            )
-            result = await ApifyActorRuntimeService(
-                self.apify_actor_ops,
-                self._client_for_subscription(sub),
-            ).fetch(
-                route_id=str(sub.profile_id),
-                source_id=str(sub.source_id),
-                target=actor_target_for_route(platform, sub.target),
-                runtime=ActorRuntime(
-                    max_items=sub.fetch_limit,
-                    since_iso=since.astimezone(timezone.utc).isoformat(),
-                    until_iso=datetime.now(timezone.utc).isoformat(),
-                ),
-                content=ActorContentContext(
-                    platform=platform,
-                    source_id=str(sub.source_id),
-                    source_key=str(
-                        sub.source_key
-                        or f"apify_social:{sub.profile_id}:{sub.source_id}"
-                    ),
-                    source_name=str(sub.source_display_name or sub.target),
-                    channel=sub.channel,
-                    topics=tuple(sub.topics),
-                    tags=tuple(sub.tags),
-                    personal_tags=tuple(sub.personal_tags),
-                    analysis_mode=analysis_mode,
-                ),
+            return await fetch_actorops_source_subscription(
+                subscription=sub,
+                since=since,
+                ops=self.apify_actor_ops,
+                client_factory=lambda: self._client_for_subscription(sub),
                 job_id=self.route_job_id,
                 frozen_snapshot=self.actor_ops_snapshot,
-                source_target_value=sub.target,
             )
-            return result.value or []
 
         if (
             self.apify_actor_route is not None

@@ -21,6 +21,7 @@ class ActorRouteCapability:
     capability: str
     mode: str
     label: str
+    source_fetch_window_policy: str
     min_runtime_healthy: int = 2
     min_publishers: int = 2
 
@@ -45,6 +46,7 @@ CAPABILITY_MATRIX = (
         capability="items",
         mode="primary",
         label="X Profile",
+        source_fetch_window_policy="latest_items",
     ),
     ActorRouteCapability(
         route_id="youtube/channel/items",
@@ -54,6 +56,7 @@ CAPABILITY_MATRIX = (
         capability="items",
         mode="primary",
         label="YouTube Channel",
+        source_fetch_window_policy="latest_items",
     ),
     ActorRouteCapability(
         route_id="instagram/profile/items",
@@ -63,6 +66,7 @@ CAPABILITY_MATRIX = (
         capability="items",
         mode="primary",
         label="Instagram Profile",
+        source_fetch_window_policy="latest_items",
     ),
 )
 
@@ -84,6 +88,22 @@ def registered_route_capability(
     """Return the explicit platform binding; unknown combinations fail closed."""
 
     return _BY_IDENTITY.get((platform, target_type, capability))
+
+
+def source_fetch_window_policy(
+    platform: str,
+    target_type: str,
+    capability: str,
+) -> str | None:
+    """Return the explicit runtime window policy for a registered Route.
+
+    A bound source must never infer its acquisition semantics from a catalog
+    type such as RSS.  Returning ``None`` deliberately leaves unknown Route
+    tuples unavailable before an Actor can be called.
+    """
+
+    registered = registered_route_capability(platform, target_type, capability)
+    return registered.source_fetch_window_policy if registered is not None else None
 
 
 def route_profiles() -> tuple[dict[str, str], ...]:
@@ -273,4 +293,5 @@ __all__ = [
     "reconcile_registered_route_policies",
     "registered_route_capability",
     "route_profiles",
+    "source_fetch_window_policy",
 ]

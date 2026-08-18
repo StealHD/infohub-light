@@ -22,6 +22,21 @@ export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
 
 export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-08-19',
+    title: '认证 Actor 按“最新条数”直接获取',
+    summary: '已绑定 ActorOps 的 X、Instagram 与 YouTube 来源会直接请求认证 Actor 的最新 N 条，不再把信息流的短显示窗口当作上游抓取窗口。',
+    items: [
+      {
+        title: '较早的最新内容不会误报为空',
+        description: '当账号或频道近期没有更新时，Actor 返回的上一批最新内容仍会被正确验证、去重和保存；页面不会再把“Actor 已返回内容但发布时间早于 24 小时”显示成空抓取成功。',
+      },
+      {
+        title: '执行仍必须登记在能力矩阵',
+        description: '只有已登记的平台、目标类型和内容能力可进入来源执行；未知组合会在创建上游 Actor 客户端前安全拒绝。YouTube 继续只使用认证 Actor，不会由 Atom/RSS 旁路补出内容。',
+      },
+    ],
+  },
+  {
     date: '2026-08-17',
     title: 'ActorOps 重新发现候选在重建后保持可用',
     summary: '免费 Actor 搜索与受控 Canary 现在使用同一份运行时凭据，避免容器重建后出现“能验证、却搜索不到候选”的断链。',
