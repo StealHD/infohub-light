@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "将包含 ActorOps 主备池管理、单槽安全候选保留与前端平面化调整的本地 main 准备为 v2.3.3；正式发布仅在精确 SHA 的 GitHub Test Gate 和 Release Tag smoke 均成功后才切换 VPS。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3",
-  "unresolved": [],
-  "validation": [
-    "v2.3.3 是在既有 v2.3.2 标签后的补丁版本；本地 main 已包含 ActorOps 完整门禁通过的精确功能提交。",
-    "发布脚本会执行相对 v2.3.2 的预检、等待 main Test Gate、创建 tag、等待 tag API smoke，并在 VPS 仅 docker load 后验证 API、Worker 与前端 revision。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "ui"
@@ -370,6 +353,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "YouTube/X ActorOps 定向 Pytest 41 项通过。",
     "ActorOps 前端 Vitest 74 项、TypeScript typecheck 与 ESLint 通过。",
     "后端与前端冻结文件代码规模检查、git diff --check 通过；待提交后重建 8080 验收当前遗留兼容阶段清理与实际 Canary 计划。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "ActorOps 浏览器候选目录仅发布已完成 Route、全部启用来源实测和费用对账的 Actor；选择只做零费用原子启用或替换。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-verified-catalog",
+  "unresolved": [],
+  "validation": [
+    "定向 Pytest 63 通过，前端 typecheck 与定向 Vitest 7 通过。",
+    "影响范围 preflight 17/17 通过，覆盖后端、前端、可观测性、控制面、文档和尺寸门禁。"
   ]
 }
 ```

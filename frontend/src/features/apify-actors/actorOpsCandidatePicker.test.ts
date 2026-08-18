@@ -24,24 +24,14 @@ function candidate(id: string, overrides: Partial<ApifyActorPoolCandidate> = {})
 }
 
 describe('actorPickerCandidates', () => {
-  it('only exposes verified selectable candidates while counting server-testable work', () => {
+  it('only exposes explicitly verified selectable candidates', () => {
     const result = actorPickerCandidates([
       candidate('verified', { already_validated: true }),
       candidate('pending', { already_validated: false }),
+      candidate('unknown'),
       candidate('rejected', { already_validated: false, selectable: false }),
     ], 'add_slot')
 
     expect(result.visibleCandidates.map((item) => item.candidate_id)).toEqual(['verified'])
-    expect(result.pendingCanaryCandidateCount).toBe(1)
-  })
-
-  it('keeps current legacy members visible for an in-place upgrade', () => {
-    const result = actorPickerCandidates([
-      candidate('legacy-ready', { already_validated: true }),
-      candidate('legacy-pending', { already_validated: false, selectable: false }),
-    ], 'upgrade_legacy')
-
-    expect(result.visibleCandidates).toHaveLength(2)
-    expect(result.pendingCanaryCandidateCount).toBe(0)
   })
 })

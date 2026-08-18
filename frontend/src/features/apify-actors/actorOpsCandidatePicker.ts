@@ -5,13 +5,14 @@ export function actorPickerCandidates(
   goal: ApifyActorPoolGoal,
 ): {
   visibleCandidates: ApifyActorPoolCandidate[]
-  pendingCanaryCandidateCount: number
 } {
-  if (goal === 'upgrade_legacy') {
-    return { visibleCandidates: candidates, pendingCanaryCandidateCount: 0 }
-  }
+  void goal
   return {
-    visibleCandidates: candidates.filter((candidate) => candidate.selectable && candidate.already_validated !== false),
-    pendingCanaryCandidateCount: candidates.filter((candidate) => candidate.selectable && candidate.already_validated === false).length,
+    // A missing value is not proof.  The server only projects fully proven
+    // revisions, and this client guard keeps a stale or mixed response from
+    // ever rendering an untested Actor as a selectable candidate.
+    visibleCandidates: candidates.filter(
+      (candidate) => candidate.selectable && candidate.already_validated === true,
+    ),
   }
 }

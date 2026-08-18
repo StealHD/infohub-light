@@ -15,6 +15,49 @@ def _ensure_module_symbols() -> None:
 
 class ApifyActorPoolCandidateProjectionMixin:
 
+    def _candidate_sources_are_verified(
+        self,
+        connection: Any,
+        *,
+        route_id: str,
+        revision_id: str,
+    ) -> bool:
+        """Return whether this revision has settled proof for every live source.
+
+        A route-reference Canary only proves that an Actor can run.  It does
+        not prove that it returned the configured account/channel for each
+        enabled source.  Manual selection is deliberately stricter: callers
+        may only receive a revision after those source-specific proofs are
+        settled as well.
+        """
+
+        missing = connection.execute(
+            """
+            SELECT 1
+            FROM apify_source_route_bindings AS binding
+            JOIN source_catalog AS source
+              ON source.workspace_id = binding.workspace_id
+             AND source.id = binding.source_id
+            WHERE binding.workspace_id = ? AND binding.route_id = ?
+              AND source.enabled = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM apify_actor_validations AS proof
+                  WHERE proof.workspace_id = binding.workspace_id
+                    AND proof.route_id = binding.route_id
+                    AND proof.source_id = binding.source_id
+                    AND proof.revision_id = ?
+                    AND proof.kind = 'source_canary'
+                    AND proof.status = 'succeeded'
+                    AND proof.cost_final = 1
+                    AND proof.semantic_outcome IN ('valid_nonempty', 'valid_empty')
+                    AND proof.target_fingerprint = binding.target_fingerprint
+              )
+            LIMIT 1
+            """,
+            (self.workspace_id, route_id, revision_id),
+        ).fetchone()
+        return missing is None
+
     def _candidate_empty_response(
         self,
         *,
@@ -384,6 +427,9 @@ class ApifyActorPoolCandidateProjectionMixin:
             unavailable_reason=unavailable,
         )
         options["allowed_sample_items"] = allowed
+        fully_verified = bool(row["already_validated"]) and self._candidate_sources_are_verified(
+            connection, route_id=route_id, revision_id=str(row["revision_id"])
+        )
         return {
             "candidate_id": candidate_id,
             "actor_public_name": _actor_public_name(row["display_name"], row["publisher"], row["actor_id"]),
@@ -396,7 +442,10 @@ class ApifyActorPoolCandidateProjectionMixin:
             "validation_options": options,
             "last_failure": summary,
             "evaluation_history": dict(evaluation) if evaluation is not None else None,
-            "already_validated": bool(row["already_validated"]),
+            # This public flag is intentionally stronger than the SQL alias
+            # above: a user-visible candidate means route *and* current source
+            # evidence succeeded and its cost was reconciled.
+            "already_validated": fully_verified,
             "requires_profile_change": bool(failure is not None and failure["failure_fingerprint"]),
             "existing_actor_upgrade": existing_upgrade,
             "selectable": unavailable is None,

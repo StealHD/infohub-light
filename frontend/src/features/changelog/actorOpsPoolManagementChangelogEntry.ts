@@ -32,7 +32,7 @@ export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
       },
       {
         title: '未证明内容的 Actor 仍不会出现为可用',
-        description: '名称、评分、使用人数或资料 Schema 不能替代真实内容证据。只有受控 Canary 返回目标账号/频道的内容、费用完成对账并通过来源验证后，Actor 才显示为可选或可加入主备；各平台使用各自输入和输出适配，YouTube 旧占位合同只会从真实内容行生成固定映射。',
+        description: '名称、评分、使用人数或资料 Schema 不能替代真实内容证据。只有受控 Canary 返回目标账号/频道内容、费用完成对账并通过所有启用来源验证后，Actor 才进入已验证目录；选择仅原子切换主备，不会再次执行 Canary。各平台使用各自输入和输出适配，YouTube 旧占位合同只会从真实内容行生成固定映射。',
       },
       {
         title: '发现计数与候选选择保持一致',

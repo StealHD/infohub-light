@@ -140,6 +140,26 @@ class ActorPoolManagementMixin:
             route_id, goal=goal, target_slot=target_slot
         )
 
+    def list_verified_pool_candidates(
+        self,
+        route_id: str,
+        *,
+        goal: str,
+        target_slot: str | None = None,
+    ) -> dict[str, Any]:
+        from .apify_actor_verified_catalog import list_verified_pool_candidates
+
+        return list_verified_pool_candidates(
+            self, route_id, goal=goal, target_slot=target_slot
+        )
+
+    def activate_verified_pool_candidates(self, route_id: str, **kwargs: Any) -> dict[str, Any]:
+        """Enable only an already-settled browser catalog selection."""
+
+        from .apify_actor_verified_catalog import activate_verified_pool_candidates
+
+        return activate_verified_pool_candidates(self, route_id, **kwargs)
+
     def get_canary_plan(
         self,
         run_id: str,

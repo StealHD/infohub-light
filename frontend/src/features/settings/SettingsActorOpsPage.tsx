@@ -19,7 +19,7 @@ export function SettingsActorOpsPage() {
 
   return <div data-settings-page="actorops" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-5 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
-      <PageIntro description="为 X、Instagram 和 YouTube 管理 Actor 主备。系统自动选择候选；只有付费验证和切换生效需要你确认。" />
+      <PageIntro description="为 X、Instagram 和 YouTube 管理 Actor 主备。服务器受控实测候选；你只会从已验证目录选择，启用不再重复收费。" />
       <HeroActorOpsControlPlane
         queryEnabled
         operationsContent={<>

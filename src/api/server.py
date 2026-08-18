@@ -726,10 +726,7 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-actor-evaluations/{evaluation_id}/retry",
     ): ("source", "actor_evaluation_retry"),
-    (
-        "POST",
-        "/api/admin/apify-routes/{route_id}/validations/reconcile",
-    ): ("source", "actor_validation_reconcile"),
+    ("POST", "/api/admin/apify-routes/{route_id}/validations/reconcile"): ("source", "actor_validation_reconcile"),
     (
         "POST",
         "/api/admin/apify-discovery-runs/{run_id}/canary-plan",
@@ -742,6 +739,7 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("PUT", "/api/admin/apify-routes/{route_id}/active-pool"): ("source", "actor_route_pool_replace"),
     ("POST", "/api/admin/apify-routes/{route_id}/active-pool/remove"): ("source", "actor_route_pool_remove"),
     ("POST", "/api/admin/apify-routes/{route_id}/active-pool/activate"): ("source", "actor_route_pool_activate"),
+    ("POST", "/api/admin/apify-routes/{route_id}/verified-pool-activation"): ("source", "actor_route_verified_catalog_activate"),
     (
         "POST",
         "/api/admin/sources/{source_id}/apify-validations/{revision_id}/canary",

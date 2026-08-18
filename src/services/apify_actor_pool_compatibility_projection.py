@@ -172,7 +172,9 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             else []
         )
 
-    def _compatibility_trial_item(self, row: Any, *, route: Any) -> dict[str, Any]:
+    def _compatibility_trial_item(
+        self, connection: Any, row: Any, *, route: Any
+    ) -> dict[str, Any]:
         _ensure_module_symbols()
         pricing = _safe_json(row["pricing_json"], {})
         security = _safe_json(row["security_evidence_json"], {})
@@ -207,7 +209,12 @@ class ApifyActorPoolCompatibilityProjectionMixin:
                 min(VALIDATION_MAX_CHARGE_USD_LIMIT, float(route["per_run_cap_usd"])), 6
             ),
             "execution_mode": str(row["execution_mode"]),
-            "already_validated": bool(row["already_validated"]),
+            "already_validated": bool(row["already_validated"])
+            and self._candidate_sources_are_verified(
+                connection,
+                route_id=str(route["route_id"]),
+                revision_id=str(row["revision_id"]),
+            ),
             "active_in_route": bool(row["active_in_route"]),
             "compatibility_warnings": warnings,
             "relaxed_requirements": list(_RELAXED_REQUIREMENTS),
@@ -355,7 +362,9 @@ class ApifyActorPoolCompatibilityProjectionMixin:
             candidate_id = str(row["candidate_id"])
             if candidate_id not in seen:
                 seen.add(candidate_id)
-                candidates.append(self._compatibility_trial_item(row, route=route))
+                candidates.append(
+                    self._compatibility_trial_item(connection, row, route=route)
+                )
         candidates.extend(
             self._compatibility_current_rejections(
                 connection, route=route, latest=latest, seen=seen
