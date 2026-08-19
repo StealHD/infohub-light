@@ -627,7 +627,7 @@ def test_fresh_store_has_three_v15_profiles_and_legacy_x_projection(
             "youtube",
             "channel",
             "items",
-            "fallback",
+            "primary",
             "candidate_shortfall",
         ),
     ]

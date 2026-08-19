@@ -1493,16 +1493,15 @@ def _json_type(value: Any) -> str:
 
 
 def actor_manifest_capability_error(
-    manifest: ActorManifestV1 | Mapping[str, Any],
-    *,
-    target_type: str,
-    capability: str,
+    manifest: ActorManifestV1 | Mapping[str, Any], *, platform: str | None = None, target_type: str, capability: str,
 ) -> str | None:
     """Return a deterministic incompatibility without reading Dataset values."""
 
     parsed = parse_actor_manifest(manifest)
     if target_type not in {"profile", "channel"} or capability != "items":
         return None
+    if (platform, target_type, capability) == ("youtube", "channel", "items") and (parsed.semantics.identity.target_ref == "target.handle" or '"target.handle"' in json.dumps(parsed.input_template, sort_keys=True)):
+        return "apify_manifest_youtube_channel_identity_unverifiable"
     for mapping in (parsed.output.native_id, parsed.output.url):
         if mapping is None:
             continue

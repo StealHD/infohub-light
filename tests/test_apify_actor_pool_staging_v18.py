@@ -2211,16 +2211,14 @@ def test_legacy_cross_run_revision_still_obeys_the_two_cent_price_gate(
     )
     assert blocked["existing_actor_upgrade"] is True
     assert blocked["selectable"] is False
-
-
-def test_youtube_initial_route_activates_one_standard_fallback_actor(
+def test_youtube_initial_route_activates_two_standard_primary_actors(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
     owner = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
-        username="youtube-single-fallback-owner",
+        username="youtube-primary-pool-owner",
         password="safe-test-password",
         role="owner",
     )
@@ -2230,7 +2228,10 @@ def test_youtube_initial_route_activates_one_standard_fallback_actor(
         store,
         ops,
         route,
-        (("publisher-a/initial-primary", "publisher-a"),),
+        (
+            ("publisher-a/initial-primary", "publisher-a"),
+            ("publisher-b/initial-backup", "publisher-b"),
+        ),
         host="youtube.com",
     )
     store.connect().execute(
@@ -2241,20 +2242,18 @@ def test_youtube_initial_route_activates_one_standard_fallback_actor(
         (DEFAULT_WORKSPACE_ID, run["run_id"]),
     )
     store.connect().commit()
-
     workflow = ops.workflow_state(str(route["route_id"]))
-
     assert workflow["kind"] == "setup_candidate_selection_required"
     assert workflow["progress"] == {
-        "eligible_candidate_count": 1,
-        "required_selection_count": 1,
+        "eligible_candidate_count": 2,
+        "required_selection_count": 2,
     }
     assert workflow["blockers"] == []
 
     automatic_plan = ops.get_canary_plan(str(run["run_id"]), goal="initial_pool")
-    assert automatic_plan["required_success_count"] == 1
-    assert automatic_plan["target_slot_count"] == 1
-    assert len(automatic_plan["items"]) == 1
+    assert automatic_plan["required_success_count"] == 2
+    assert automatic_plan["target_slot_count"] == 2
+    assert len(automatic_plan["items"]) == 2
     plan, batch = _approve_manual_stage(
         store,
         ops,
@@ -2262,8 +2261,8 @@ def test_youtube_initial_route_activates_one_standard_fallback_actor(
         str(run["run_id"]),
         revisions,
         goal="initial_pool",
-        approval_id="youtube-single-fallback-approval",
-        target_slot_count=1,
+        approval_id="youtube-primary-pool-approval",
+        target_slot_count=2,
     )
     _succeed_route_items(store, ops, batch)
     assert _succeed_stage_sources(ops, str(batch["pool_stage_id"])) == []
@@ -2274,17 +2273,17 @@ def test_youtube_initial_route_activates_one_standard_fallback_actor(
         str(batch["pool_stage_id"]),
         expected_generation=int(route["generation"]),
         expected_plan_hash=str(plan["plan_hash"]),
-        apply_id="youtube-single-fallback-apply",
+        apply_id="youtube-primary-pool-apply",
         confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
     )
 
     assert applied["admission_mode"] == "standard"
-    assert applied["min_runtime_healthy"] == 1
-    assert applied["min_publishers"] == 1
+    assert applied["min_runtime_healthy"] == 2
+    assert applied["min_publishers"] == 2
     assert applied["runtime"]["allowed"] is True
     assert [slot["revision_id"] for slot in applied["slots"]] == [
         revisions[0],
-        None,
+        revisions[1],
         None,
     ]
 

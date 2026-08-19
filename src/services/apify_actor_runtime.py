@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlparse
 
 from ..models import ContentItem, SourceType
 from ..scrapers.apify_client import ApifyClient, ApifyClientError
@@ -129,10 +129,10 @@ class ApifyActorRuntimeService:
                     target,
                     runtime,
                 )
-                items = [
-                    _content_item_from_mapped(item, content=content)
-                    for item in mapped.items
-                ][: int(runtime.max_items)]
+                items = sorted(
+                    (_content_item_from_mapped(item, content=content) for item in mapped.items),
+                    key=lambda item: (item.published_at, item.id), reverse=True,
+                )[: int(runtime.max_items)]
                 return RouteInvocationResult(
                     value=items,
                     semantic_outcome=mapped.semantic_outcome,
@@ -481,16 +481,8 @@ def actor_target_for_route(platform: str, raw_target: str) -> ActorTarget:
                     status_code=422,
                 )
             native_id = pairs[0][1]
-            canonical_url = urlunparse(
-                (
-                    "https",
-                    "www.youtube.com",
-                    "/feeds/videos.xml",
-                    "",
-                    urlencode({"channel_id": native_id}),
-                    "",
-                )
-            )
+            # Actors expect a public channel page, not YouTube's Atom endpoint.
+            canonical_url = f"https://www.youtube.com/channel/{native_id}"
         elif (
             len(path_parts) == 2
             and path_parts[0] == "channel"

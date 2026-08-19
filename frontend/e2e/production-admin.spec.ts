@@ -136,7 +136,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   const actorCanaryPayloads: Array<Record<string, unknown>> = []
   const actorOpsSupportProfiles = [
     { id: 'x/profile/items', route_key: 'x/profile', platform: 'x', target_type: 'profile', capability: 'items', mode: 'primary', label: 'X Profile' },
-    { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube', target_type: 'channel', capability: 'items', mode: 'fallback', label: 'YouTube Channel' },
+    { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube', target_type: 'channel', capability: 'items', mode: 'primary', label: 'YouTube Channel' },
     { id: 'instagram/profile/items', route_key: 'instagram/profile/items', platform: 'instagram', target_type: 'profile', capability: 'items', mode: 'primary', label: 'Instagram Profile' },
   ]
   const actorOpsRevisions = [

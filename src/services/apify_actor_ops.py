@@ -54,39 +54,20 @@ from .apify_actor_pool_staging import ApifyActorPoolStagingMixin
 from .apify_actor_pool_stage_read import load_pool_stage
 from .apify_actor_pool_slots import ApifyActorPoolSlotsMixin
 from .apify_actor_pool_workflow import project_active_pool_stage_workflow
-from .apify_key_pool import APIFY_RUN_TERMINAL_STATUSES
-
+from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
+from .apify_actor_capability_matrix import route_profiles
+from .apify_actor_candidate_recovery import reopen_candidate_for_new_static_revision
+from .apify_actor_source_proof import (
+    current_source_validation_ids,
+    source_validation_failure_cutoffs,
+)
+from .apify_actor_recovery_continuation import (
+    clear_start_unknown_barrier,
+    continue_terminal_route_failure,
+)
 
 SLOT_NAMES = ("primary", "backup_1", "backup_2")
-SUPPORTED_ROUTE_PROFILES = (
-    {
-        "id": "x/profile/items",
-        "route_key": "x/profile",
-        "platform": "x",
-        "target_type": "profile",
-        "capability": "items",
-        "mode": "primary",
-        "label": "X Profile",
-    },
-    {
-        "id": "youtube/channel/items",
-        "route_key": "youtube/channel/items",
-        "platform": "youtube",
-        "target_type": "channel",
-        "capability": "items",
-        "mode": "fallback",
-        "label": "YouTube Channel",
-    },
-    {
-        "id": "instagram/profile/items",
-        "route_key": "instagram/profile/items",
-        "platform": "instagram",
-        "target_type": "profile",
-        "capability": "items",
-        "mode": "primary",
-        "label": "Instagram Profile",
-    },
-)
+SUPPORTED_ROUTE_PROFILES = route_profiles()
 PAID_CANARY_CONFIRMATION = "确认付费试跑"
 BATCH_CANARY_CONFIRMATION = "确认付费验证主备"
 FIRST_ACTIVATION_CONFIRMATION = "确认首次启用"
@@ -562,8 +543,8 @@ class ApifyActorOpsService(
 
         A complete certified/certified/probationary 2+1 pool is always
         preferred. When it is unavailable, the Route's declared runtime and
-        publisher minimums apply: X and Instagram still require two, while
-        YouTube fallback can run with one exact-Build Canary-proven Actor.
+        publisher minimums apply.  Compatibility mode is the sole explicitly
+        authorized one-Actor exception.
         """
 
         return self._recommend_active_pool(self.store.connect(), route_id)
@@ -736,7 +717,9 @@ class ApifyActorOpsService(
             best = None
         single_best = (
             expedited_rows[0]
-            if int(route["min_runtime_healthy"]) == 1 and expedited_rows
+            if str(route["admission_mode"] or "") == "compatibility"
+            and int(route["min_runtime_healthy"]) == 1
+            and expedited_rows
             else None
         )
 
@@ -1176,15 +1159,17 @@ class ApifyActorOpsService(
             return "apify_actor_revision_output_incompatible"
         manifest = _safe_json(row["manifest_json"], {})
         pricing = _safe_json(row["pricing_json"], {})
+        evidence = _safe_json(row["security_evidence_json"], {})
         try:
             manifest_error = actor_manifest_capability_error(
                 manifest,
+                platform=str(row["platform"]),
                 target_type=str(row["target_type"]),
                 capability=str(row["capability"]),
             )
         except ActorManifestError as exc:
             return str(exc.code)
-        if manifest_error is not None:
+        if manifest_error is not None and not self.observation_probe_allowed(row, manifest, evidence):
             return manifest_error
         pricing_error = actor_pricing_capability_error(
             pricing,
@@ -1194,14 +1179,8 @@ class ApifyActorOpsService(
         )
         if pricing_error is None:
             return None
-        evidence = _safe_json(row["security_evidence_json"], {})
         schema_proof = evidence.get("output_schema_proves_items") is True
-        # Revisions created before the explicit proof flag can still carry a
-        # conservative, immutable proof: an exact output-schema hash, the
-        # successful Build/input checks, and item-specific identity pointers.
-        # This keeps Canary admission consistent with Discovery without
-        # mutating an existing Revision or trusting a price-event label over
-        # the exact Build contract.
+        # Old immutable revisions need exact schema, input, and item proof.
         legacy_schema_proof = (
             bool(row["output_schema_hash"])
             and evidence.get("exact_successful_build") is True
@@ -1516,20 +1495,6 @@ class ApifyActorOpsService(
                     status_code=422,
                 )
             _assert_manifest_route_hosts(parsed, str(candidate["platform"]))
-            if lifecycle == "static_valid" and discovery_run_id is not None:
-                # A legacy seed can carry the historical ``canary_required``
-                # marker on its Candidate.  A newly fetched exact Build and
-                # validated Manifest supersede that placeholder evidence while
-                # leaving the active legacy Revision untouched until apply.
-                connection.execute(
-                    """
-                    UPDATE apify_actor_candidates
-                    SET last_error_code = NULL, updated_at = ?
-                    WHERE workspace_id = ? AND id = ?
-                      AND last_error_code = 'canary_required'
-                    """,
-                    (now, self.workspace_id, candidate_id),
-                )
             if discovery_run_id is not None:
                 discovery = connection.execute(
                     """
@@ -1609,6 +1574,12 @@ class ApifyActorOpsService(
                 ).fetchone()
                 if existing is not None:
                     existing_revision_id = str(existing["revision_id"])
+                    if lifecycle == "static_valid" and discovery_run_id is not None:
+                        reopen_candidate_for_new_static_revision(
+                            connection, workspace_id=self.workspace_id,
+                            candidate_id=candidate_id,
+                            revision_id=existing_revision_id, now=now,
+                        )
                     if discovery_run_id is not None:
                         connection.execute(
                             """
@@ -1631,6 +1602,11 @@ class ApifyActorOpsService(
                     "apify_actor_revision_conflict",
                     "Actor adapter revision conflicts with existing state",
                 ) from error
+            if lifecycle == "static_valid" and discovery_run_id is not None:
+                reopen_candidate_for_new_static_revision(
+                    connection, workspace_id=self.workspace_id,
+                    candidate_id=candidate_id, revision_id=revision_id, now=now,
+                )
             if discovery_run_id is not None:
                 connection.execute(
                     """
@@ -2593,18 +2569,24 @@ class ApifyActorOpsService(
             (self.workspace_id, route_id),
         ).fetchall()
         validated_revision_ids: set[str] | None = None
+        source_verified = False
         if binding is not None:
             validation_status = str(binding["validation_status"])
-            if validation_status in _READY_BINDING_STATUSES:
-                expected_hash = revision_set_hash(
-                    {
-                        str(row["slot_name"]): str(row["revision_id"])
-                        for row in rows
-                        if row["revision_id"]
-                    }
-                )
-                if str(binding["verified_revision_set_hash"] or "") != expected_hash:
-                    validation_status = "revalidation_pending"
+            expected_slots = {str(row["slot_name"]): str(row["revision_id"]) for row in rows if row["revision_id"]}
+            current_validations = current_source_validation_ids(
+                connection, workspace_id=self.workspace_id, route_id=route_id,
+                source_id=source_id, target_fingerprint=str(binding["target_fingerprint"]),
+            )
+            stale_source_proof = bool(source_validation_failure_cutoffs(
+                connection, workspace_id=self.workspace_id, route_id=route_id,
+            ))
+            if validation_status in _READY_BINDING_STATUSES and (
+                str(binding["verified_revision_set_hash"] or "") != revision_set_hash(expected_slots)
+                or stale_source_proof
+                and not set(expected_slots.values()) <= current_validations
+            ):
+                validation_status = "revalidation_pending"
+            source_verified = validation_status in _READY_BINDING_STATUSES
             if validation_status not in {
                 "ready_1of1",
                 "ready_2of2",
@@ -2618,25 +2600,7 @@ class ApifyActorOpsService(
                     status_code=412,
                 )
             if validation_status == "revalidation_pending":
-                validated_revision_ids = {
-                    str(row["revision_id"])
-                    for row in connection.execute(
-                        """
-                        SELECT revision_id FROM apify_actor_validations
-                        WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                          AND kind = 'source_canary' AND status = 'succeeded'
-                          AND target_fingerprint = ?
-                          AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                        """,
-                        (
-                            self.workspace_id,
-                            route_id,
-                            source_id,
-                            str(binding["target_fingerprint"]),
-                        ),
-                    ).fetchall()
-                    if row["revision_id"]
-                }
+                validated_revision_ids = current_validations
                 if binding["verified_revision_set_hash"] is None:
                     validated_revision_ids.update(
                         str(row["revision_id"])
@@ -2644,6 +2608,7 @@ class ApifyActorOpsService(
                         if row["revision_id"]
                         and str(row["lifecycle"]) == "legacy_builtin"
                     )
+                source_verified = len(expected_slots) >= int(route["min_runtime_healthy"]) and set(expected_slots.values()) <= validated_revision_ids
         if (
             binding is not None
             and binding["preferred_candidate_id"]
@@ -2711,7 +2676,6 @@ class ApifyActorOpsService(
                 None
                 if lifecycle == "legacy_builtin"
                 or str(row["execution_mode"] or "pinned") == "current"
-                or bool(row["observed_manifest"])
                 else parse_actor_manifest(str(row["manifest_json"]))
             )
             security_evidence = _safe_json(
@@ -2810,7 +2774,8 @@ class ApifyActorOpsService(
                     retryable=True,
                     status_code=503,
                 )
-            if len(frozen) < int(route["min_runtime_healthy"]):
+            required_slots = 1 if source_verified else int(route["min_runtime_healthy"])
+            if len(frozen) < required_slots:
                 raise ActorOpsError(
                     "apify_actor_route_candidate_shortfall",
                     "The route does not have its required runnable Actor revisions",
@@ -3478,8 +3443,8 @@ class ApifyActorOpsService(
                    revision.revision_id, revision.actor_id,
                    revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_hash,
-                   revision.manifest_json,
-                   revision.pricing_json, revision.lifecycle,
+                   revision.manifest_json, revision.pricing_json,
+                   revision.lifecycle,
                    candidate.position, candidate.state AS candidate_state,
                    candidate.last_error_code AS candidate_error_code,
                    revision.created_at,
@@ -3531,7 +3496,7 @@ class ApifyActorOpsService(
                     AND active_validation.kind = 'route_reference'
                     AND active_validation.status IN ('queued', 'running')
               )
-            ORDER BY already_validated DESC, candidate.position,
+            ORDER BY already_validated DESC, COALESCE(json_extract(revision.security_evidence_json, '$.store_quality.rating'), 0) DESC, COALESCE(json_extract(revision.security_evidence_json, '$.store_quality.rating_count'), 0) DESC, COALESCE(json_extract(revision.security_evidence_json, '$.store_quality.user_count'), 0) DESC, candidate.position,
                      revision.created_at, revision.revision_id
             """,
             (
@@ -3570,7 +3535,7 @@ class ApifyActorOpsService(
                 ),
             )
         else:
-            candidate_rows = candidates
+            candidate_rows = candidates if goal == "upgrade_legacy" else ([row for row in candidates if bool(row["in_current_run"])] or candidates)
 
         distinct: list[sqlite3.Row] = []
         seen_actors = set(active_actor_ids)
@@ -3606,15 +3571,6 @@ class ApifyActorOpsService(
 
         selected: tuple[sqlite3.Row, ...] = ()
         maximum = min(int(max_candidates), len(distinct))
-        if (
-            not manual_selection
-            and goal == "initial_pool"
-            and required_successes == 1
-        ):
-            # YouTube's public Atom feed is the primary path. One proven
-            # fallback Actor restores the capability; extra paid fallback
-            # trials are initiated only by an administrator.
-            maximum = min(maximum, 1)
         if manual_selection:
             eligible_by_id = {
                 str(row["candidate_id"]): row
@@ -3660,7 +3616,7 @@ class ApifyActorOpsService(
                 )
         elif maximum >= required_successes:
             best: tuple[Any, ...] | None = None
-            # Freeze every available fallback covered by this approval. The
+            # Freeze every available candidate covered by this approval. The
             # Worker still stops at the first safe target, but a failed first
             # candidate must not force another paid approval when the same
             # plan already disclosed and capped later candidates.
@@ -3675,7 +3631,7 @@ class ApifyActorOpsService(
                     continue
                 score = (
                     -len(validated),
-                    sum(int(row["position"] or 0) for row in option),
+                    sum(distinct.index(row) for row in option),
                     *(str(row["revision_id"]) for row in option),
                 )
                 if best is None or score < best:
@@ -3899,6 +3855,7 @@ class ApifyActorOpsService(
                 "apify_run_status_unavailable",
                 "apify_actor_run_status_unavailable",
                 "apify_run_reconcile_required",
+                "apify_worker_restart_reconcile_required",
             }:
                 raise ActorOpsError(
                     "apify_actor_validation_reconcile_required",
@@ -3997,12 +3954,9 @@ class ApifyActorOpsService(
                     status_code=422,
                 )
             possible_target_sets = [
-                [
-                    *(str(active_slots[name]["revision_id"])
-                      for name in SLOT_NAMES
-                      if name != target_slot and active_slots[name]["revision_id"]),
-                    revision_id,
-                ]
+                [revision_id] if goal == "replace_slot" and resolved_target_slot_count == 1 else [
+                    *(str(active_slots[name]["revision_id"]) for name in SLOT_NAMES
+                      if name != target_slot and active_slots[name]["revision_id"]), revision_id]
                 for revision_id in staged_revision_ids
             ]
         elif goal == "upgrade_legacy":
@@ -5333,6 +5287,7 @@ class ApifyActorOpsService(
                     if normalized in {
                         "apify_run_status_unavailable",
                         "apify_run_reconcile_required",
+                        "apify_worker_restart_reconcile_required",
                     }
                     else "adjust_timeout"
                     if normalized == "apify_actor_run_timed_out"
@@ -5529,6 +5484,7 @@ class ApifyActorOpsService(
             "start_outcome_unknown",
             "apify_start_outcome_unknown",
             "apify_run_reconcile_required",
+            "apify_worker_restart_reconcile_required",
         }:
             return {
                 "kind": "blocked_unknown_start",
@@ -5594,7 +5550,7 @@ class ApifyActorOpsService(
                 if approval_discovery
                 else ({}, [])
             )
-            if approval_discovery and "candidate_shortfall" in plan_blockers:
+            if approval_discovery and "candidate_shortfall" in plan_blockers and str(route.get("platform") or "") == "x":
                 compatibility_progress, compatibility_blockers = (
                     candidate_selection_progress("compatibility_single")
                 )
@@ -5623,11 +5579,6 @@ class ApifyActorOpsService(
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        youtube_fallback_operational = (
-            str(route.get("platform") or "") == "youtube"
-            and str(route.get("mode") or "") == "fallback"
-            and len(slots) >= 1
-        )
         if source_pending:
             return {
                 "kind": "source_validation_required",
@@ -5655,7 +5606,7 @@ class ApifyActorOpsService(
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        if len(slots) == 2 and not youtube_fallback_operational:
+        if len(slots) == 2:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("complete_third")
                 if approval_discovery
@@ -5675,13 +5626,13 @@ class ApifyActorOpsService(
                 "progress": plan_progress,
                 "blockers": plan_blockers,
             }
-        if len(slots) < 2 and not compatibility_operational and not youtube_fallback_operational:
+        if len(slots) < 2 and not compatibility_operational:
             plan_progress, plan_blockers = (
                 candidate_selection_progress("initial_pool")
                 if approval_discovery
                 else ({}, [])
             )
-            if approval_discovery and "candidate_shortfall" in plan_blockers:
+            if approval_discovery and "candidate_shortfall" in plan_blockers and str(route.get("platform") or "") == "x":
                 compatibility_progress, compatibility_blockers = (
                     candidate_selection_progress("compatibility_single")
                 )
@@ -6319,26 +6270,8 @@ class ApifyActorOpsService(
                 """,
                 (self.workspace_id, batch_id),
             ).fetchone()
-            prior = connection.execute(
-                """
-                SELECT COUNT(DISTINCT revision.actor_id) AS actors,
-                       COUNT(DISTINCT lower(revision.publisher)) AS publishers
-                FROM apify_actor_validations AS validation
-                JOIN apify_actor_adapter_revisions AS revision
-                  ON revision.workspace_id = validation.workspace_id
-                 AND revision.revision_id = validation.revision_id
-                WHERE validation.workspace_id = ?
-                  AND validation.route_id = ?
-                  AND validation.kind = 'route_reference'
-                  AND validation.status = 'succeeded'
-                  AND validation.semantic_outcome IN (
-                      'valid_nonempty', 'valid_empty'
-                  )
-                """,
-                (self.workspace_id, str(batch["route_id"])),
-            ).fetchone()
-            actor_count = int(prior["actors"] or 0)
-            publisher_count = int(prior["publishers"] or 0)
+            actor_count = int(evidence["actors"] or 0)
+            publisher_count = int(evidence["publishers"] or 0)
             source_evidence = None
             if batch["pool_stage_id"] is not None:
                 source_evidence = connection.execute(
@@ -6781,6 +6714,8 @@ class ApifyActorOpsService(
                     "Compatibility Actor revisions must be upgraded before source validation",
                     status_code=412,
                 )
+            if block_reason := self._revision_canary_block_reason(connection, str(binding["route_id"]), revision_id):
+                raise ActorOpsError(block_reason, "Actor revision does not prove the source item contract", status_code=412)
             if cap > float(route["per_run_cap_usd"]):
                 raise ActorOpsError(
                     "apify_actor_budget_invalid",
@@ -6858,24 +6793,11 @@ class ApifyActorOpsService(
                 """,
                 (self.workspace_id, binding["route_id"]),
             ).fetchall()
-            succeeded = {
-                str(row["revision_id"])
-                for row in connection.execute(
-                    """
-                    SELECT revision_id FROM apify_actor_validations
-                    WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                      AND kind = 'source_canary' AND status = 'succeeded'
-                      AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                      AND target_fingerprint = ?
-                    """,
-                    (
-                        self.workspace_id,
-                        binding["route_id"],
-                        source_id,
-                        binding["target_fingerprint"],
-                    ),
-                ).fetchall()
-            }
+            succeeded = current_source_validation_ids(
+                connection, workspace_id=self.workspace_id,
+                route_id=str(binding["route_id"]), source_id=source_id,
+                target_fingerprint=str(binding["target_fingerprint"]),
+            )
             pending = [
                 str(row["revision_id"])
                 for row in active_rows
@@ -7393,6 +7315,7 @@ class ApifyActorOpsService(
                 "apify_run_status_unavailable",
                 "apify_actor_run_status_unavailable",
                 "apify_run_reconcile_required",
+                "apify_worker_restart_reconcile_required",
             }:
                 raise ActorOpsError(
                     "apify_actor_validation_reconcile_not_allowed",
@@ -7500,11 +7423,10 @@ class ApifyActorOpsService(
     ) -> dict[str, Any]:
         """Resume only work already covered by the original paid approval.
 
-        Re-reading a known Run is free.  When that read proves a Route Canary
-        succeeded, the old batch may continue with its already-approved source
-        checks; the candidate Actor itself is never started again.  A source
-        read can likewise move its frozen stage to apply-ready without another
-        paid request.
+        Re-reading a known Run is free.  A recovered Route success continues
+        its source checks; a terminal Route failure continues only the
+        remaining candidates in the same frozen approval.  Neither path starts
+        the previously attempted Actor again.
         """
 
         with self._write() as connection:
@@ -7512,11 +7434,16 @@ class ApifyActorOpsService(
                 """
                 SELECT validation.status, validation.semantic_outcome,
                        validation.kind, validation.cost_usd,
-                       validation.cost_final,
+                       validation.cost_final, validation.route_id,
+                       profile.route_key,
                        item.batch_id, batch.pool_stage_id,
+                       batch.approved_generation AS batch_approved_generation,
                        source.stage_id AS source_stage_id,
                        source_stage.initial_batch_id AS source_batch_id
                 FROM apify_actor_validations AS validation
+                JOIN apify_actor_route_profiles AS profile
+                  ON profile.workspace_id = validation.workspace_id
+                 AND profile.route_id = validation.route_id
                 LEFT JOIN apify_actor_canary_batch_items AS item
                   ON item.workspace_id = validation.workspace_id
                  AND item.validation_id = validation.validation_id
@@ -7550,6 +7477,11 @@ class ApifyActorOpsService(
                 not in {"valid_nonempty", "valid_empty"}
                 or not bool(row["cost_final"])
             ):
+                continuation = continue_terminal_route_failure(
+                    self, connection, row
+                )
+                if continuation is not None:
+                    return continuation
                 return {
                     "resumed": False,
                     "batch_id": row["batch_id"] or row["source_batch_id"],
@@ -7567,23 +7499,32 @@ class ApifyActorOpsService(
                     connection.execute(
                         """
                         UPDATE apify_actor_pool_stages
-                        SET status = 'queued', last_error_code = NULL,
-                            target_primary_revision_id = NULL,
-                            target_backup_1_revision_id = NULL,
-                            target_backup_2_revision_id = NULL,
-                            target_pool_hash = NULL, updated_at = ?
+                        SET status = 'queued', base_generation = (
+                                SELECT generation
+                                FROM apify_actor_route_profiles
+                                WHERE workspace_id = ? AND route_id = ?
+                            ),
+                            last_error_code = NULL,
+                            updated_at = ?
                         WHERE workspace_id = ? AND stage_id = ?
-                          AND status = 'replan_required'
+                          AND status IN ('replan_required', 'blocked_unknown_start')
                         """,
-                        (self._now_iso(), self.workspace_id, stage_id),
+                        (
+                            self.workspace_id,
+                            str(row["route_id"]),
+                            self._now_iso(),
+                            self.workspace_id,
+                            stage_id,
+                        ),
                     )
+                clear_start_unknown_barrier(self, connection, row)
                 connection.execute(
                     """
                     UPDATE apify_actor_canary_batches
                     SET status = 'queued', stop_reason = NULL,
                         completed_at = NULL, updated_at = ?
                     WHERE workspace_id = ? AND batch_id = ?
-                      AND status IN ('partial', 'failed')
+                      AND status IN ('partial', 'failed', 'blocked_unknown_start')
                     """,
                     (self._now_iso(), self.workspace_id, batch_id),
                 )
@@ -7610,7 +7551,7 @@ class ApifyActorOpsService(
                     SET status = 'validating_sources', last_error_code = NULL,
                         updated_at = ?
                     WHERE workspace_id = ? AND stage_id = ?
-                      AND status = 'replan_required'
+                      AND status IN ('replan_required', 'blocked_unknown_start')
                     """,
                     (self._now_iso(), self.workspace_id, stage_id),
                 )
@@ -7674,24 +7615,11 @@ class ApifyActorOpsService(
                     "The route does not have its required active Actor revisions",
                     status_code=412,
                 )
-            succeeded = {
-                str(row["revision_id"])
-                for row in connection.execute(
-                    """
-                    SELECT revision_id FROM apify_actor_validations
-                    WHERE workspace_id = ? AND route_id = ? AND source_id = ?
-                      AND kind = 'source_canary' AND status = 'succeeded'
-                      AND semantic_outcome IN ('valid_nonempty', 'valid_empty')
-                      AND target_fingerprint = ?
-                    """,
-                    (
-                        self.workspace_id,
-                        binding["route_id"],
-                        source_id,
-                        binding["target_fingerprint"],
-                    ),
-                ).fetchall()
-            }
+            succeeded = current_source_validation_ids(
+                connection, workspace_id=self.workspace_id,
+                route_id=str(binding["route_id"]), source_id=source_id,
+                target_fingerprint=str(binding["target_fingerprint"]),
+            )
             if str(route["admission_mode"]) == "compatibility":
                 succeeded = {
                     str(row["revision_id"])
@@ -7969,7 +7897,7 @@ class ApifyActorOpsService(
                     metadata_check_interval_seconds, policy_version,
                     generation, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 3, 2, 2, 0.02,
-                          'discovery_required', 604800, 'actor_ops_v1', 1, ?, ?)
+                          'discovery_required', 604800, 'actor_ops_v3', 1, ?, ?)
                 """,
                 (
                     route_id,
@@ -9304,7 +9232,8 @@ class ApifyActorOpsService(
                       AND blocked_reason IN (
                           'start_outcome_unknown',
                           'apify_start_outcome_unknown',
-                          'apify_run_reconcile_required'
+                          'apify_run_reconcile_required',
+                          'apify_worker_restart_reconcile_required'
                       )
                     """,
                     (
@@ -9877,16 +9806,13 @@ class ApifyActorOpsService(
             if freshness_outcome == "stale_regression":
                 self.finish_attempt(
                     attempt_id,
-                    status="actor_failed",
+                    status="target_failed",
                     semantic_outcome="stale_regression",
                     actual_cost_usd=result.cost_usd,
                     error_code="apify_actor_stale_regression",
                 )
-                self._record_actor_failure(
-                    slot,
-                    "apify_actor_stale_regression",
-                    source_id=source_id,
-                )
+                # Freshness regressions are scoped to this source, not the Actor.
+                self._record_target_failure(snapshot, slot, "stale_regression")
                 last_semantic = "stale_regression"
                 continue
             if freshness_outcome == "no_advance":
@@ -9993,129 +9919,7 @@ class ApifyActorOpsService(
     def reconcile_unfinished_attempts(self) -> dict[str, int]:
         """Fail closed after a Worker restart without replaying paid starts."""
 
-        now = self._now_iso()
-        cancelled = 0
-        blocked = 0
-        blocked_routes: set[tuple[str, str]] = set()
-        with self._write() as connection:
-            rows = connection.execute(
-                """
-                SELECT attempt.id, attempt.job_id, attempt.route_key,
-                       profile.route_id,
-                       GROUP_CONCAT(run.status) AS run_statuses
-                FROM apify_actor_attempts AS attempt
-                JOIN apify_actor_route_profiles AS profile
-                  ON profile.workspace_id = attempt.workspace_id
-                 AND profile.route_key = attempt.route_key
-                LEFT JOIN apify_actor_runs AS run
-                  ON run.workspace_id = attempt.workspace_id
-                 AND run.logical_run_id = attempt.id
-                WHERE attempt.workspace_id = ?
-                  AND attempt.status = 'running'
-                  AND attempt.adapter_revision_id IS NOT NULL
-                GROUP BY attempt.id, attempt.job_id, attempt.route_key,
-                         profile.route_id
-                """,
-                (self.workspace_id,),
-            ).fetchall()
-            for row in rows:
-                statuses = {
-                    value
-                    for value in str(row["run_statuses"] or "").split(",")
-                    if value
-                }
-                unsafe = any(
-                    status not in APIFY_RUN_TERMINAL_STATUSES
-                    for status in statuses
-                )
-                attempt_status = (
-                    "start_outcome_unknown" if unsafe else "cancelled"
-                )
-                error_code = (
-                    "apify_worker_restart_reconcile_required"
-                    if unsafe
-                    else "apify_worker_restart_result_lost"
-                )
-                connection.execute(
-                    """
-                    UPDATE apify_actor_attempts
-                    SET status = ?, semantic_outcome = ?,
-                        last_error_code = ?, terminal_at = ?, updated_at = ?
-                    WHERE workspace_id = ? AND id = ? AND status = 'running'
-                    """,
-                    (
-                        attempt_status,
-                        error_code,
-                        error_code,
-                        now,
-                        now,
-                        self.workspace_id,
-                        row["id"],
-                    ),
-                )
-                connection.execute(
-                    """
-                    UPDATE apify_actor_validations
-                    SET status = 'failed', semantic_outcome = ?,
-                        completed_at = ?
-                    WHERE workspace_id = ? AND attempt_id = ?
-                      AND status = 'running'
-                    """,
-                    (error_code, now, self.workspace_id, row["id"]),
-                )
-                if row["job_id"]:
-                    connection.execute(
-                        """
-                        UPDATE fetch_jobs
-                        SET max_attempts = attempts, updated_at = ?
-                        WHERE workspace_id = ? AND id = ?
-                          AND status = 'running'
-                        """,
-                        (now, self.workspace_id, row["job_id"]),
-                    )
-                if unsafe:
-                    blocked += 1
-                    blocked_routes.add(
-                        (str(row["route_id"]), str(row["route_key"]))
-                    )
-                else:
-                    cancelled += 1
-            for route_id, route_key in blocked_routes:
-                connection.execute(
-                    """
-                    UPDATE apify_actor_route_profiles
-                    SET status = 'blocked_unknown_start',
-                        generation = generation + 1, updated_at = ?
-                    WHERE workspace_id = ? AND route_id = ?
-                    """,
-                    (now, self.workspace_id, route_id),
-                )
-                connection.execute(
-                    """
-                    UPDATE apify_actor_routes
-                    SET status = 'blocked',
-                        blocked_reason = 'start_outcome_unknown',
-                        generation = generation + 1, updated_at = ?
-                    WHERE workspace_id = ? AND route_key = ?
-                    """,
-                    (now, self.workspace_id, route_key),
-                )
-            if blocked_routes:
-                connection.execute(
-                    """
-                    UPDATE apify_key_pool_state
-                    SET status = 'blocked',
-                        blocked_reason = 'start_outcome_unknown',
-                        generation = generation + 1, updated_at = ?
-                    WHERE workspace_id = ?
-                    """,
-                    (now, self.workspace_id),
-                )
-        return {
-            "cancelled": cancelled,
-            "blocked": blocked,
-            "routes_blocked": len(blocked_routes),
-        }
+        return reconcile_unfinished_actor_attempts(self)
 
     def _record_actor_failure(
         self,

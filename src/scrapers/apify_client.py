@@ -19,8 +19,6 @@ import httpx
 from ..services.apify_actor_run_reconciliation import prove_no_user_run_in_window
 from ..services.apify_actor_run_registration import reconcile_failed_run_registration
 logger = logging.getLogger(__name__)
-# httpx request-line INFO logs include Actor Run and dataset identifiers in URLs.
-# Pool lifecycle diagnostics use the safe logger above instead.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -698,8 +696,7 @@ class ApifyClient:
                 status_code=exc.status_code,
             ) from None
         except TimeoutError:
-            # Reconciliation is a read-only check.  A still-running Run remains
-            # blocked for another explicit check and is never aborted here.
+            # Read-only reconciliation never aborts a still-running Run.
             raise
         except (httpx.HTTPError, ValueError):
             await self._block_started_run(
@@ -1050,8 +1047,7 @@ class ApifyClient:
                 retryable=True,
             ) from None
         except TimeoutError:
-            # Preserve the public client contract. _wait_for_run already
-            # aborted and confirmed this Run terminal before raising.
+            # _wait_for_run already aborted and confirmed this Run terminal.
             raise
 
         try:
@@ -1191,7 +1187,11 @@ class ApifyClient:
                     )
                 if should_retry:
                     raise _RetryRunAfterDrain()
-                raise ValueError(f"Apify actor run ended with status {status}")
+                raise ApifyClientError(
+                    f"apify_actor_run_{status.lower().replace('-', '_')}",
+                    "Actor Run ended before producing a usable dataset",
+                    retryable=False,
+                )
             await asyncio.sleep(self.poll_interval)
 
         if abort_on_timeout:

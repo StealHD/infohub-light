@@ -45,13 +45,6 @@ class ApifyActorPoolStagingMixin:
                 target_slot_count=target_slot_count,
             )
 
-        if goal in {"add_slot", "replace_slot"} and candidate_ids is None:
-            raise ActorOpsError(
-                "apify_actor_manual_candidate_set_incomplete",
-                "Slot operations require one explicitly selected Actor",
-                status_code=422,
-            )
-
         if candidate_ids is not None:
             return self._get_pool_stage_canary_plan(
                 run_id,

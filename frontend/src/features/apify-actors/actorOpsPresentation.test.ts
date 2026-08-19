@@ -18,7 +18,7 @@ describe('ActorOps presentation model', () => {
     ])
     expect(routeProductNames['youtube/channel/items']).toEqual({
       label: 'YouTube 频道视频',
-      description: '原生优先 · Actor 故障回退',
+      description: 'Actor 主抓取',
     })
   })
 
@@ -30,16 +30,16 @@ describe('ActorOps presentation model', () => {
     })).toBe('instagram/profile/items')
   })
 
-  it('preserves the standard and one-actor workflow variants', () => {
+  it('keeps standard discovery copy independent of stale minimum counts', () => {
     expect(routeWorkflowPresentation('setup_discovery_required', 2)).toMatchObject({
       title: '尚未建立 Actor 主备',
       action: 'start_discovery',
       cta: '开始建立主备',
     })
     expect(routeWorkflowPresentation('setup_discovery_required', 1)).toMatchObject({
-      title: '尚未建立 Actor fallback',
+      title: '尚未建立 Actor 主备',
       action: 'start_discovery',
-      cta: '开始建立 fallback',
+      cta: '开始建立主备',
     })
   })
 

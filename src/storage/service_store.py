@@ -5850,10 +5850,10 @@ class ServiceStore:
                 "platform": "youtube",
                 "target_type": "channel",
                 "capability": "items",
-                "mode": "fallback",
+                "mode": "primary",
                 "status": "candidate_shortfall",
-                "min_runtime_healthy": 1,
-                "min_publishers": 1,
+                "min_runtime_healthy": 2,
+                "min_publishers": 2,
             },
             "instagram/profile/items": {
                 "platform": "instagram",

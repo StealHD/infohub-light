@@ -1,6 +1,6 @@
-// Reviewed for slot workflow, manual primary, Store-quality candidates, single-slot safe-candidate retention, editable source fetch limits, bound-source execution, and the v2.3.3 release health split; entries remain grouped by user-visible release date.
+// Reviewed: verified-only ActorOps catalog, platform-registered latest-N source execution, revision-aware current-source proofs, executable observed manifests, immediate bounded stale-circuit source Canary recovery, and no-charge pre-execution recovery.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
-import { actorOpsPoolManagementChangelogEntry } from './actorOpsPoolManagementChangelogEntry'
+import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
 
 export const changelogMonths: ChangelogMonth[] = [
@@ -9,7 +9,7 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       codeHealthMaintenanceEntry,
-      actorOpsPoolManagementChangelogEntry,
+      ...actorOpsPoolManagementChangelogEntries,
       {
         date: '2026-08-13',
         title: '信息流刷新与收藏更及时、更可控',
@@ -31,8 +31,8 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '当前 Actor 可见且可以软切换', description: 'ActorOps 来源列表和详情会标记最近一次实际 Actor；可选择自动或一个首选 Actor，从下一次计划抓取起生效，不会因保存而立即产生费用。选择只改变本来源的调用顺序；首选旧数据、失败或暂停时仍自动切备，连续两次新鲜度通过后再恢复。' },
           { title: '降低要求入口恢复响应', description: '修复 X 选择单路兼容 Actor 后生成计划时缺少候选上限导致的服务端错误；兼容计划固定投影 1 个候选，失败也会在页面明确提示且不会启动 Actor。' },
           { title: '校验频率可设置', description: '可指定一个不参与生产的专用校验 Key，并按 Route 设置默认 24 小时、6–168 小时或关闭；启用/改频率和立即校验都会先展示单轮与理论月费用上限。' },
-          { title: '失败会被记住', description: '同一 Actor 与 Build/Schema/价格指纹的确定性失败不会反复进入 AI 或付费计划；管理员可重新尝试一次，证据变化后系统会自动重新评估。YouTube 不再自动追逐第三个备份 Actor。' },
-          { title: '免费搜索会明确结束', description: '搜索中显示查询轮次并自动刷新，不能重复提交；终态分别显示原始候选数、当前可选择数和失败原因。YouTube 未找到可选第三路时明确说明现有 Atom Feed 与 fallback 仍可运行，重新检查只放在候选详情且仅用于已确认的 Actor/Build 证据变化。' },
+          { title: '失败会被记住', description: '同一 Actor 与 Build/Schema/价格指纹的确定性失败不会反复进入 AI 或付费计划；只有证据变化才会重新评估。已知中断 Run 只免费核对原状态；当前原审批批次优先于历史核对积压，若已终态失败，系统仅在证明版本号由中断保护步骤改变后继续同一审批中尚未运行的候选，并兼容旧 Worker 写入的零费用未运行项，不会重发失败 Actor 或跨越真实配置变更。' },
+          { title: '三平台使用同一主备门槛', description: 'X、Instagram 和 YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充。YouTube 频道地址仅作身份，认证 Actor 未准备好时明确阻断，不回退 Atom/RSS 伪造成功。' },
           { title: '目标不匹配改为可理解提示', description: '当 Actor 返回其他账号或频道内容，或结果缺少可证明目标归属的字段时，页面会说明可能是推荐内容、默认账号、旧缓存或字段映射，不再只显示 target identity 技术错误码。' },
           { title: '诊断集中到一条时间线', description: '发现、验证、费用对账、切备、新鲜度、Key 与人工操作可按阶段和结果筛选；只显示公共 Actor 名称、安全原因码、次数和最终费用，不显示 Token、目标、正文或远端运行信息。' },
         ],
@@ -397,7 +397,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '完整 2+1 优先、两路可先上线', description: '每条 Route 保留 Primary、Backup 1、Backup 2；完整认证池优先，但两个不同发布者的固定 Build 各成功一次 Canary 后即可降级上线，第三槽留空热补位，少于两路仍阻断。' },
           { title: 'Route 试跑一次确认', description: 'AI 只搜索公开 Actor、排序并生成受限 JSON Manifest；Route 认证由管理员核对服务端候选和批次上限后一次确认，来源级试跑、首次来源启用、新 Build 或新 Manifest 激活仍保持各自明确审批。同一次确认若因网络超时重放只返回原任务，不会再次扣费。' },
           { title: '新来源逐槽验证', description: '每个新账号或频道依次验证当前实际运行的两个或三个 Actor，全部确认身份并返回真实内容或可信空结果后才启用；只更换一个 Revision 时只重验对应槽。' },
-          { title: '原生链路优先', description: 'YouTube 继续保存为 RSS 来源，原生成功或可信空结果不调用 Apify；只有允许回退的超时、429、5xx、合同漂移等故障才进入三槽，来源身份和 Feed 稳定编号不变。' },
+          { title: '认证 Actor 优先', description: 'YouTube 仍保存为 RSS 来源，但来源 Canary 成功后先走认证 Actor；公开 Atom 仅在该次 Actor 失败时无费用降级，来源身份和稳定编号不变。' },
           { title: '人工选择工作区 AI Key', description: 'Actor Discovery 继承工作区 provider 与 model；管理员从同 Provider 的已登记 Key 中固定一个安全选项，并使用该 Key 自己的连接地址，下一次发现任务热生效，不另设模型配置，也不会自动换用其他 Key。' },
           { title: '可测量的输出容量', description: 'Discovery 单次 AI 超时提高至 180 秒；管理员可确认后顺序执行 YouTube/Instagram 32K 容量测试，安全查看 Token、耗时、finish reason 与 Manifest 校验，系统给出但不会自动采用生产上限建议。测试不会运行 Actor 或付费 Canary。' },
           { title: '候选不足不再归零', description: 'AI 一次排序并生成 3–6 个候选，系统逐项验证并让后序候选补位；已通过的 1/3 或 2/3 Revision 会保留展示，只有凑齐三个 Actor和两个发布者才开放付费 Canary。' },
@@ -405,7 +405,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '输入校验按候选隔离', description: '官方固定 Build 输入校验拒绝单个候选时会记录安全原因并继续验证后序 proposal；429、5xx、网络和解码错误只做三次有界重试，认证或请求合同错误才终止整次发现。' },
           { title: '输入模板不再依赖模型猜形状', description: '目标 URL、handle 或原生 ID 应放入 string、array 还是标准 startUrls object，由代码从公开 Build Schema 确定性生成；AI 复制安全模板并专注排序、输出映射和语义规则，无法映射的 Actor 在调用模型前淘汰。' },
           { title: '输出映射在付费前验真', description: 'Manifest 的每个 RFC 6901 路径都必须存在于精确 Build Dataset Schema；Profile/Channel 内容不能把帖子 URL 当作账号身份，账户资料型 Dataset 不再进入付费 Canary。' },
-          { title: 'YouTube 元数据 Actor 不再消耗试跑', description: '频道资料、统计或主页字段不能再冒充视频条目；定价事件已明确只提供元数据的 Actor 会在 AI 前淘汰，某个固定 Build 已付费确认只返回元数据、占位或错误内容合同后也会永久关闭重复试跑入口。剩余次数按两个不同发布者的快速主备计算，不再因完整 2+1 来不及完成而误关有效候选。' },
+          { title: 'YouTube 元数据 Actor 不再消耗试跑', description: '频道资料、统计或主页字段不能再冒充视频条目；定价事件已明确只提供元数据的 Actor 会在 AI 前淘汰，某个固定 Build 已付费确认只返回元数据、占位或错误内容合同后也会永久关闭重复试跑入口。输出 Schema 不透明但已通过公开、固定 Build、权限、输入和费用门槛的频道 Actor 不由 AI 猜字段，只能经过一次受控观察 Canary；成功后才固化不可变映射并进入选择目录。' },
           { title: '混合 Dataset 不再误判失败', description: '时间转换支持有界 Unix 秒和毫秒；Actor 先返回账号元数据、后返回真实帖子时会隔离元数据行并继续验证内容，全为元数据才安全失败。' },
           { title: 'Canary 超时和费用可核对', description: '付费确认先显示 Route、来源、Actor、Build、商城价格和费用边界；Actor 默认最长等待 300 秒，超时中止且不自动重试，终态费用从远端账本回写。已有两路成功证据后不再为凑满第三槽继续付费。' },
           { title: '两路主备自动串行验证', description: '页面不再要求逐个候选点击。一次确认后，服务端最多选择三个不同 Actor 并逐项执行：每次付费启动前先免费核对公开 Actor 和精确 Build，两个不同发布者成功后立即停止，未启动候选费用为 0。' },

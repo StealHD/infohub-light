@@ -1,4 +1,4 @@
-"""Deterministic native-first admission rules for Actor Route fallback."""
+"""Actor-first YouTube acquisition with a bounded public-feed degradation."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from .network_policy import NetworkResolutionError, UnsafeNetworkTarget
 
 class NativeFallbackDecision(str, Enum):
     """Whether a native acquisition result may spend on an Actor fallback."""
-
     ACCEPT_NATIVE = "accept_native"
     ACTOR_FALLBACK = "actor_fallback"
     FAIL_CLOSED = "fail_closed"
@@ -144,16 +143,32 @@ def reattribute_youtube_fallback_items(
                 "source_id": str(source_id),
                 "source_key": str(source_key),
                 "catalog_type": "rss",
-                "acquisition_origin": "apify_fallback",
+                "acquisition_origin": "apify_actor",
                 "native_id": native_id,
             }
         )
         projected.append(item)
-    return projected
+    generation = getattr(items, "_apify_actor_route_generation", None)
+    if not isinstance(generation, int):
+        return projected
+    from .apify_actor_route import ApifyActorRoutedList
+
+    return ApifyActorRoutedList(
+        projected,
+        route_generation=generation,
+        workspace_id=getattr(items, "_apify_actor_workspace_id", None),
+        source_id=getattr(items, "_apify_actor_source_id", None),
+        candidate_id=getattr(items, "_apify_actor_candidate_id", None),
+        latest_published_at=getattr(items, "_apify_actor_latest_published_at", None),
+        latest_item_id_hash=getattr(
+            items, "_apify_actor_latest_item_id_hash", None
+        ),
+        semantic_outcome=getattr(items, "_apify_actor_semantic_outcome", None),
+    )
 
 
 class YouTubeNativeActorFallbackScraper:
-    """Keep native RSS primary and spend only for admitted fallback failures."""
+    """Use a source-certified Actor before the public Atom degradation."""
 
     def __init__(
         self,
@@ -198,33 +213,29 @@ class YouTubeNativeActorFallbackScraper:
         frozen_snapshot = None
         snapshot_error: BaseException | None = None
         try:
-            binding = self.actor_ops.get_source_binding(
-                str(self.source.source_id)
-            )
+            binding = self.actor_ops.get_source_binding(str(self.source.source_id))
         except Exception as exc:
             if getattr(exc, "code", "") != "apify_actor_source_binding_not_found":
                 raise
         validated = bool(
             binding
             and str(binding["validation_status"])
-            in {"ready_2of2", "ready_3of3", "revalidation_pending"}
+            in {"ready_1of1", "ready_2of2", "ready_3of3", "revalidation_pending"}
         )
         if validated and binding is not None:
             try:
                 route = self.actor_ops.get_route(str(binding["route_id"]))
                 if str(route["platform"]) != "youtube":
-                    raise ValueError(
-                        "YouTube fallback binding has the wrong platform"
-                    )
-                frozen_snapshot = self.actor_ops.freeze_execution(
-                    str(binding["route_id"]),
-                    source_id=str(self.source.source_id),
-                )
+                    raise ValueError("YouTube binding has the wrong platform")
+                frozen_snapshot = self.actor_ops.freeze_execution(str(binding["route_id"]), source_id=str(self.source.source_id))
             except Exception as exc:
-                # A native success remains free and usable.  If paid fallback is
-                # later required, however, it must use the configuration frozen
-                # at the beginning of this logical fetch or fail closed.
                 snapshot_error = exc
+        actor_error: BaseException | None = None
+        if validated and binding is not None and frozen_snapshot and route:
+            try:
+                return await self._fetch_actor(binding, frozen_snapshot, since)
+            except BaseException as exc:
+                actor_error = exc
         error: BaseException | None = None
         try:
             native_items = await self.native.fetch(since)
@@ -233,6 +244,8 @@ class YouTubeNativeActorFallbackScraper:
             error = exc
         if native_items:
             return native_items
+        if actor_error is not None:
+            raise actor_error
 
         status_code = (
             int(error.response.status_code)
@@ -302,57 +315,41 @@ class YouTubeNativeActorFallbackScraper:
                 ),
             ) from snapshot_error
 
+        return await self._fetch_actor(binding, frozen_snapshot, since)
+
+    async def _fetch_actor(
+        self,
+        binding: Any,
+        frozen_snapshot: Any,
+        since: datetime,
+    ) -> list[ContentItem]:
         from ..scrapers.apify_client import ApifyClient
         from .apify_actor_manifest import ActorRuntime
-        from .apify_actor_runtime import (
-            ActorContentContext,
-            ApifyActorRuntimeService,
-            actor_target_for_route,
-        )
+        from .apify_actor_runtime import ActorContentContext, ApifyActorRuntimeService, actor_target_for_route
 
+        canonical_url = str(self.source.url)
         self.publication_snapshots.append(frozen_snapshot)
-        result = await ApifyActorRuntimeService(
-            self.actor_ops,
-            ApifyClient(
-                coordinator=self.apify_coordinator,
-                http_client=self.client,
-            ),
-        ).fetch(
-            route_id=str(binding["route_id"]),
-            source_id=str(self.source.source_id),
+        result = await ApifyActorRuntimeService(self.actor_ops, ApifyClient(
+            coordinator=self.apify_coordinator, http_client=self.client,
+        )).fetch(
+            route_id=str(binding["route_id"]), source_id=str(self.source.source_id),
             target=actor_target_for_route("youtube", canonical_url),
-            runtime=ActorRuntime(
-                max_items=1,
+            runtime=ActorRuntime(max_items=int(self.source.fetch_limit),
                 since_iso=since.astimezone(timezone.utc).isoformat(),
-                until_iso=datetime.now(timezone.utc).isoformat(),
-            ),
-            content=ActorContentContext(
-                platform="youtube",
-                source_id=str(self.source.source_id),
+                until_iso=datetime.now(timezone.utc).isoformat()),
+            content=ActorContentContext(platform="youtube", source_id=str(self.source.source_id),
                 source_key=str(self.source.source_key or canonical_url),
-                source_name=str(
-                    self.source.source_display_name or self.source.name
-                ),
-                channel=self.source.channel,
-                topics=tuple(self.source.topics),
-                tags=tuple(self.source.tags),
-                personal_tags=tuple(self.source.personal_tags),
-                analysis_mode=(
-                    self.source.analysis_mode.value
-                    if hasattr(self.source.analysis_mode, "value")
-                    else str(self.source.analysis_mode)
-                ),
-            ),
-            job_id=self.job_id,
-            frozen_snapshot=frozen_snapshot,
+                source_name=str(self.source.source_display_name or self.source.name),
+                channel=self.source.channel, topics=tuple(self.source.topics),
+                tags=tuple(self.source.tags), personal_tags=tuple(self.source.personal_tags),
+                analysis_mode=(self.source.analysis_mode.value if hasattr(self.source.analysis_mode, "value") else str(self.source.analysis_mode))),
+            job_id=self.job_id, frozen_snapshot=frozen_snapshot,
             source_target_value=canonical_url,
         )
-        return reattribute_youtube_fallback_items(
-            result.value or [],
+        return reattribute_youtube_fallback_items(result.value or [],
             source_id=str(self.source.source_id),
             source_key=str(self.source.source_key or canonical_url),
-            canonical_feed_url=canonical_url,
-        )
+            canonical_feed_url=canonical_url)
 
     def _had_historical_content(self) -> bool:
         row = self.actor_ops.store.connect().execute(

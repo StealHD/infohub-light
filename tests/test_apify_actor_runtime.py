@@ -19,6 +19,7 @@ from src.services.apify_actor_runtime import (
     _client_failure_scope,
     actor_target_for_route,
 )
+from src.services.apify_actor_capability_matrix import source_fetch_window_policy
 from src.scrapers.apify_client import ApifyClientError
 
 
@@ -103,10 +104,17 @@ class _FakeClient:
         return SimpleNamespace(
             items=[
                 {
-                    "videoId": "video-1",
-                    "url": "https://www.youtube.com/watch?v=video-1",
+                    "videoId": "video-old",
+                    "url": "https://www.youtube.com/watch?v=video-old",
+                    "published": "2026-07-29T00:00:00Z",
+                    "title": "Older video",
+                    "channelUrl": "https://www.youtube.com/@openai",
+                },
+                {
+                    "videoId": "video-new",
+                    "url": "https://www.youtube.com/watch?v=video-new",
                     "published": "2026-07-30T00:00:00Z",
-                    "title": "Video",
+                    "title": "Newest video",
                     "channelUrl": "https://www.youtube.com/@openai",
                 }
             ],
@@ -203,6 +211,14 @@ def test_actor_target_rejects_non_profile_routes_and_preserves_youtube_id_case()
         ),
     )
     assert target.native_id == channel_id
+    assert target.canonical_url == f"https://www.youtube.com/channel/{channel_id}"
+
+
+def test_registered_source_routes_explicitly_fetch_latest_items_only():
+    assert source_fetch_window_policy("x", "profile", "items") == "latest_items"
+    assert source_fetch_window_policy("instagram", "profile", "items") == "latest_items"
+    assert source_fetch_window_policy("youtube", "channel", "items") == "latest_items"
+    assert source_fetch_window_policy("youtube", "profile", "items") is None
 
 
 async def _runtime_uses_frozen_build_cap_and_maps_content():
@@ -251,6 +267,7 @@ async def _runtime_uses_frozen_build_cap_and_maps_content():
     assert client.kwargs["max_total_charge_usd"] == 0.02
     assert result.semantic_outcome == "valid_nonempty"
     item = result.value[0]
+    assert item.title == "Newest video"
     assert item.source_type == SourceType.RSS
     assert item.metadata["source_id"] == "source"
     assert "actor_id" not in item.metadata
@@ -292,3 +309,4 @@ async def _controlled_x_runtime_honors_the_source_item_limit():
     assert client.kwargs["max_paid_dataset_items"] == 3
     assert client.kwargs["dataset_item_limit"] == 4
     assert len(result.value or []) == 2
+    assert result.value[0].published_at > result.value[1].published_at

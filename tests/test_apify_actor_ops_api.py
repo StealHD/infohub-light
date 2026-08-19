@@ -566,7 +566,7 @@ def test_capability_catalog_requires_fully_certified_three_slot_route(
     ]
 
 
-def test_youtube_fallback_capability_uses_native_source_fields(
+def test_youtube_primary_actor_capability_uses_channel_source_fields(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -586,7 +586,7 @@ def test_youtube_fallback_capability_uses_native_source_fields(
         if item["profile_id"] == route["route_id"]
     )
     assert capability["storage_type"] == "youtube_channel"
-    assert capability["mode"] == "fallback"
+    assert capability["mode"] == "primary"
     assert [field["name"] for field in capability["fields"]] == [
         "url",
         "keep_latest_item",
@@ -896,7 +896,7 @@ def test_support_catalog_and_checks_are_owner_admin_only(
     assert denied.status_code == 403
 
 
-def test_youtube_source_stays_native_enabled_and_gets_pending_fallback_binding(
+def test_youtube_source_requires_actor_validation_and_gets_primary_binding(
     tmp_path,
     monkeypatch,
 ):
@@ -922,7 +922,7 @@ def test_youtube_source_stays_native_enabled_and_gets_pending_fallback_binding(
         store,
         workspace_id=DEFAULT_WORKSPACE_ID,
     ).get_source_binding(source["id"])
-    assert binding["mode"] == "fallback"
+    assert binding["mode"] == "primary"
     assert binding["validation_status"] == "pending_validation"
     support = client.get(
         f"/api/admin/sources/{source['id']}/apify-support"
@@ -1676,7 +1676,7 @@ def test_route_cap_hot_update_and_manual_rediscovery_are_cas_guarded(
     assert rediscovery_data["job"]["status"] == "queued"
 
 
-def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
+def test_youtube_active_pool_api_requires_two_publishers(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1694,7 +1694,7 @@ def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
             "expected_generation": route["generation"],
             "slots": [
                 {"slot": "primary", "revision_id": revisions[0]},
-                {"slot": "backup_1", "revision_id": None},
+                {"slot": "backup_1", "revision_id": revisions[1]},
                 {"slot": "backup_2", "revision_id": None},
             ],
         },
@@ -1702,12 +1702,12 @@ def test_youtube_active_pool_api_accepts_route_minimum_single_actor(
 
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    assert data["min_runtime_healthy"] == 1
-    assert data["runnable_slots"] == 1
+    assert data["min_runtime_healthy"] == 2
+    assert data["runnable_slots"] == 2
     assert data["slots"][0]["runnable"] is True
     assert [slot["revision_id"] for slot in data["slots"]] == [
         revisions[0],
-        None,
+        revisions[1],
         None,
     ]
 
@@ -2304,121 +2304,23 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
     assert candidates_response.status_code == 200, candidates_response.text
     candidates = candidates_response.json()["data"]
     assert candidates["required_selection_count"] == 1
-    assert len(candidates["candidates"]) == 1
-    candidate = candidates["candidates"][0]
-    assert {key: candidate[key] for key in (
-        "candidate_id", "actor_public_name", "publisher", "pricing",
-        "selectable", "unavailable_reason",
-    )} == {
-        "candidate_id": candidate_id,
-        "actor_public_name": "publisher-c Actor",
-        "publisher": "publisher-c",
-        "pricing": {},
-        "selectable": True,
-        "unavailable_reason": None,
-    }
-    assert candidate["max_validation_charge_usd"] == 0.10
-    assert candidate["validation_options"] == {
-        "timeout_seconds": 300,
-        "timeout_min_seconds": 180,
-        "timeout_max_seconds": 900,
-        "sample_items": 1,
-        "allowed_sample_items": [1],
-        "max_charge_usd": 0.02,
-        "max_charge_limit_usd": 0.10,
-        "supports_sample_items": False,
-        "options_hash": candidate["validation_options"]["options_hash"],
-        "profile_hash": candidate["validation_options"]["profile_hash"],
-    }
-    assert len(candidate["validation_options"]["options_hash"]) == 64
-    assert len(candidate["validation_options"]["profile_hash"]) == 64
-    assert candidate["last_failure"] is None
-    assert candidate["requires_profile_change"] is False
+    assert candidates["candidates"] == []
+    assert "candidate_verification_pending" in candidates["blockers"]
     assert "revision_id" not in candidates_response.text
     assert "manifest_hash" not in candidates_response.text
     assert actor_id not in candidates_response.text
-
-    store.connect().execute(
-        """
-        UPDATE apify_actor_candidates
-        SET state = 'disabled',
-            last_error_code = 'apify_actor_candidate_unavailable'
-        WHERE workspace_id = ? AND id = ?
-        """,
-        (DEFAULT_WORKSPACE_ID, candidate_id),
-    )
-    store.connect().commit()
-    disabled = client.get(
-        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates"
-        "?goal=complete_third"
-    )
-    assert disabled.status_code == 200
-    assert disabled.json()["data"]["candidates"][0] == {
-        **candidate,
-        "selectable": False,
-        "unavailable_reason": "apify_actor_candidate_unavailable",
-    }
-    store.connect().execute(
-        """
-        UPDATE apify_actor_candidates
-        SET state = 'closed', last_error_code = NULL
-        WHERE workspace_id = ? AND id = ?
-        """,
-        (DEFAULT_WORKSPACE_ID, candidate_id),
-    )
-    store.connect().commit()
-
-    plan_endpoint = f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-plan"
-    plan_request = {
-        "goal": "complete_third",
-        "candidate_ids": [candidate_id],
-        "candidate_validation_profiles": [{
-            "candidate_id": candidate_id,
-            "timeout_seconds": 300,
-            "sample_items": 1,
-            "max_charge_usd": 0.02,
-            "options_hash": candidate["validation_options"]["options_hash"],
-        }],
-        "expected_generation": active["generation"],
-        "target_slot_count": 3,
-    }
-    forbidden = client.post(
-        plan_endpoint,
-        json={**plan_request, "revision_id": revision_id},
-    )
-    assert forbidden.status_code == 400
-    planned = client.post(plan_endpoint, json=plan_request)
-    assert planned.status_code == 200, planned.text
-    plan = planned.json()["data"]
-    assert plan["schema_version"] == 3
-    assert plan["selection_mode"] == "manual"
-    assert plan["target_slot_count"] == 3
-    assert plan["items"][0]["candidate_id"] == candidate_id
-    assert plan["items"][0]["revision_id"] == revision_id
-    assert plan["items"][0]["build_number"] == "9.0.2"
-
-    approved = client.post(
-        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-batches",
+    rejected = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/verified-pool-activation",
         json={
+            "run_id": run["run_id"],
             "goal": "complete_third",
             "candidate_ids": [candidate_id],
-            "candidate_validation_profiles": plan_request[
-                "candidate_validation_profiles"
-            ],
-            "target_slot_count": 3,
             "expected_generation": active["generation"],
-            "expected_plan_hash": plan["plan_hash"],
-            "approval_id": "api-manual-third-stage-0001",
-            "confirmation": "确认付费验证主备",
-            "max_candidates": 1,
-            "max_total_charge_usd": plan["max_total_charge_usd"],
+            "target_slot_count": 3,
         },
     )
-    assert approved.status_code == 200, approved.text
-    stage = approved.json()["data"]["batch"]["pool_stage"]
-    assert stage["goal"] == "complete_third"
-    assert stage["selection_mode"] == "manual"
-    assert stage["target_slot_count"] == 3
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "apify_actor_verified_candidate_stale"
 
 
 def test_manual_compatibility_plan_projects_single_candidate_limit(
@@ -2467,36 +2369,8 @@ def test_manual_compatibility_plan_projects_single_candidate_limit(
         "?goal=compatibility_single"
     )
     assert candidates_response.status_code == 200, candidates_response.text
-    candidate = next(
-        row
-        for row in candidates_response.json()["data"]["candidates"]
-        if row["candidate_id"] == candidate_id
-    )
-    options = candidate["validation_options"]
-
-    response = client.post(
-        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-plan",
-        json={
-            "goal": "compatibility_single",
-            "candidate_ids": [candidate_id],
-            "candidate_validation_profiles": [{
-                "candidate_id": candidate_id,
-                "timeout_seconds": options["timeout_seconds"],
-                "sample_items": options["sample_items"],
-                "max_charge_usd": options["max_charge_usd"],
-                "options_hash": options["options_hash"],
-            }],
-            "expected_generation": route["generation"],
-            "target_slot_count": 1,
-        },
-    )
-
-    assert response.status_code == 200, response.text
-    plan = response.json()["data"]
-    assert plan["goal"] == "compatibility_single"
-    assert plan["max_candidates"] == 1
-    assert plan["target_slot_count"] == 1
-    assert plan["ready"] is True
+    assert candidates_response.json()["data"]["candidates"] == []
+    assert candidate_id not in candidates_response.text
 
 
 def test_discovery_projection_reports_persisted_partial_pool(

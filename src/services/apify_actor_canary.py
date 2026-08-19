@@ -17,7 +17,6 @@ from .apify_actor_manifest import (
     ActorManifestError,
     ActorRuntime,
     ActorTarget,
-    map_actor_output,
     parse_actor_manifest,
     render_actor_input,
 )
@@ -34,8 +33,11 @@ from .apify_actor_canary_compatibility import (
     preflight_compatibility_candidate,
     run_compatibility_if_needed,
 )
+from .apify_actor_candidate_authorization import route_reference_candidate_authorized
+from .apify_actor_source_canary_authorization import source_canary_candidate_authorized
+from .apify_actor_slot_recovery import recover_source_proven_slots
+from .apify_actor_observed_probe import map_canary_output_for_revision, settled_observed_validation
 from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
-
 
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
     "x": (
@@ -77,13 +79,9 @@ _HARD_OUTPUT_CONTRACT_FAILURES = frozenset(
     }
 )
 _SAFE_CANARY_CODE = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
-
-
 def _safe_canary_code(value: Any, fallback: str) -> str:
     code = str(value or "").strip().casefold().replace("-", "_")
     return code if _SAFE_CANARY_CODE.fullmatch(code) else fallback
-
-
 def actor_canary_timeout_seconds() -> int:
     """Return the bounded per-Actor Canary timeout hot-loaded per job."""
 
@@ -143,8 +141,6 @@ def reference_target_fingerprint(
         identity,
         platform=platform,
     )
-
-
 def next_reference_fingerprint(
     store: ServiceStore,
     *,
@@ -243,8 +239,9 @@ class ApifyActorCanaryRunner:
                    revision.manifest_hash, revision.lifecycle,
                    revision.execution_mode, revision.observed_manifest,
                    revision.security_evidence_json,
-                   candidate.state AS candidate_state
-                   , EXISTS (
+                   candidate.state AS candidate_state,
+                   candidate.last_error_code AS candidate_last_error_code,
+                   EXISTS (
                        SELECT 1
                        FROM apify_actor_canary_batch_items AS batch_item
                        JOIN apify_actor_canary_batches AS batch
@@ -444,7 +441,7 @@ class ApifyActorCanaryRunner:
                 timeout_seconds=timeout_seconds, duration_seconds=elapsed_seconds,
             )
             actual_charge_usd = run.actual_charge_usd
-            mapped = map_actor_output(manifest, run.items, target, runtime)
+            mapped, observed_manifest = map_canary_output_for_revision(manifest, run.items, target, runtime, row)
         except TimeoutError:
             error_code = "apify_actor_run_timed_out"
             actual_charge_usd = self.ops.finalized_actor_run_cost(attempt_id)
@@ -634,8 +631,10 @@ class ApifyActorCanaryRunner:
             dataset_row_count=len(run.items),
             mapped_item_count=len(mapped.items),
         )
+        validation = settled_observed_validation(self.ops, validation, validation_id, observed_manifest)
         if str(row["kind"]) == "route_reference":
-            self._advance_revision(str(row["revision_id"]))
+            self._advance_revision(str(validation["revision_id"]))
+        if str(row["kind"]) == "source_canary": recover_source_proven_slots(self.store, workspace_id=self.ops.workspace_id)
         return CanaryResult(
             validation_id=str(validation["validation_id"]),
             revision_id=str(validation["revision_id"]),
@@ -656,7 +655,6 @@ class ApifyActorCanaryRunner:
         job_id: str,
     ) -> CanaryResult:
         """Run one controlled X adapter and require a real nonempty result."""
-
         from urllib.parse import urlparse
 
         from ..models import (
@@ -668,7 +666,6 @@ class ApifyActorCanaryRunner:
             ApifySocialScraper,
             ApifySocialSemanticError,
         )
-
         if str(row["platform"]) != "x":
             self.ops.record_validation(
                 validation_id,
@@ -1077,11 +1074,11 @@ class ApifyActorCanaryRunner:
 
         row = self.store.connect().execute(
             """
-            SELECT validation.*, profile.platform,
+            SELECT validation.*, profile.route_key, profile.platform,
                    revision.candidate_id, revision.actor_id,
                    revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_json,
-                   revision.manifest_hash, revision.lifecycle,
+                   revision.manifest_hash, revision.lifecycle, revision.security_evidence_json,
                    candidate.state AS candidate_state
             FROM apify_actor_validations AS validation
             JOIN apify_actor_route_profiles AS profile
@@ -1107,7 +1104,7 @@ class ApifyActorCanaryRunner:
         if row["attempt_id"] is None or str(row["semantic_outcome"] or "") not in {
             "apify_run_status_unavailable",
             "apify_actor_run_status_unavailable",
-            "apify_run_reconcile_required",
+            "apify_run_reconcile_required", "apify_worker_restart_reconcile_required",
         }:
             raise ActorOpsError(
                 "apify_actor_validation_reconcile_not_allowed",
@@ -1144,7 +1141,7 @@ class ApifyActorCanaryRunner:
                 dataset_item_limit=int(row["validation_sample_items"] or 1) + 1,
                 reserved_cost_usd=float(row["approved_max_cost_usd"]),
             )
-            mapped = map_actor_output(manifest, run.items, target, runtime)
+            mapped, observed_manifest = map_canary_output_for_revision(manifest, run.items, target, runtime, row)
             semantic = str(mapped.semantic_outcome)
         except ActorManifestError as exc:
             run_value = locals().get("run")
@@ -1180,11 +1177,12 @@ class ApifyActorCanaryRunner:
             dataset_row_count=len(run.items),
             mapped_item_count=len(mapped.items),
         )
+        validation = settled_observed_validation(self.ops, validation, validation_id, observed_manifest)
         if (
             str(row["kind"]) == "route_reference"
             and str(validation["status"]) == "succeeded"
         ):
-            self._advance_revision(str(row["revision_id"]))
+            self._advance_revision(str(validation["revision_id"]))
         return CanaryResult(
             validation_id=str(validation["validation_id"]),
             revision_id=str(validation["revision_id"]),
@@ -1296,12 +1294,11 @@ class ApifyActorCanaryRunner:
         return str(staged["slot_name"]) if staged is not None else "primary"
 
     def _approval_still_authorized(self, row: Any) -> bool:
-        lifecycle = str(row["lifecycle"])
-        state = str(row["candidate_state"])
+        lifecycle, state = map(str, (row["lifecycle"], row["candidate_state"]))
         if str(row["kind"]) == "route_reference":
-            return (
-                lifecycle in {"static_valid", "probationary"}
-                and state != "open"
+            return route_reference_candidate_authorized(
+                self.store.connect(), self.ops.workspace_id,
+                str(row["revision_id"]), lifecycle, state,
             )
         staged = self._staged_source_context(row)
         if staged is not None:
@@ -1322,9 +1319,9 @@ class ApifyActorCanaryRunner:
                 str(row["revision_id"]),
             ),
         ).fetchone()
-        if slot is None or state not in {"closed", "half_open", "probationary"}:
+        if slot is None:
             return False
-        return lifecycle in {"certified", "probationary", "legacy_builtin"}
+        return source_canary_candidate_authorized(row)
 
     def _staged_source_context(self, row: Any) -> dict[str, Any] | None:
         if row["source_id"] is None:

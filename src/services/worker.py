@@ -59,6 +59,7 @@ from .worker_cycle import (
 )
 from .worker_schedule_gate import worker_schedule_polling_enabled
 from .worker_post_commit import WorkerPostCommitPorts, run_worker_post_commit
+from .worker_preexecution import requeue_unstarted_claim
 from .worker_feed_handler import (
     WorkerFeedPorts,
     active_catalog_source_ids,
@@ -118,14 +119,10 @@ def _source_payload_from_catalog(
     *,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    """Compatibility façade for catalog payload projection callers."""
-
     return source_payload_from_catalog(job, store=store)
 
 
 def _promote_due_actor_revisions(store: ServiceStore) -> dict[str, int]:
-    """Compatibility seam for tests and operational overrides."""
-
     return _promote_due_actor_revisions_impl(store)
 
 
@@ -133,8 +130,6 @@ def _reconcile_and_enqueue_actor_discoveries(
     store: ServiceStore,
     queue: JobQueue,
 ) -> dict[str, int]:
-    """Compatibility seam for tests and operational overrides."""
-
     return _reconcile_actor_discoveries_impl(store, queue)
 
 
@@ -142,8 +137,6 @@ def _enqueue_due_actor_freshness_checks(
     store: ServiceStore,
     queue: JobQueue,
 ) -> dict[str, int]:
-    """Compatibility seam for tests and operational overrides."""
-
     return _enqueue_due_actor_freshness_checks_impl(store, queue)
 
 
@@ -331,8 +324,6 @@ def _run_apify_actor_validation(
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    """Compatibility façade for Worker tests and operational overrides."""
-
     return run_actor_validation(
         job,
         data_dir=data_dir,
@@ -347,8 +338,6 @@ def _run_apify_actor_canary_batch(
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    """Compatibility façade for Worker tests and operational overrides."""
-
     return run_actor_canary_batch(
         job,
         data_dir=data_dir,
@@ -365,8 +354,6 @@ def _run_apify_actor_freshness_check(
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    """Compatibility façade for Worker tests and operational overrides."""
-
     return run_actor_freshness_check(
         job,
         data_dir=data_dir,
@@ -496,36 +483,48 @@ def run_worker_once(
         job = prepared_cycle.job
         lease = prepared_cycle.lease_seconds
         retry_base = prepared_cycle.retry_base_seconds
-        with LeaseHeartbeat(
-            data_dir=data_dir,
-            job=job,
-            lease_seconds=lease,
-            exception_code=_exception_code,
-        ):
-            finalization = execute_claimed_job(
-                queue,
-                store,
-                job,
+        heartbeat_started = False
+        try:
+            with LeaseHeartbeat(
                 data_dir=data_dir,
-                worker_id=worker_id,
-                retry_base_seconds=retry_base,
-                notifications=notifications,
-                publication=publication,
-                ports=WorkerFinalizationPorts(
-                    run_job=_run_job,
-                    error_fingerprint=error_fingerprint,
-                    exception_code=_exception_code,
-                    cancel_claimed_job=_cancel_claimed_job_with_validation,
-                    emit_job_invalidation=_emit_job_invalidation,
-                    terminalize_failed_discovery=_terminalize_failed_actor_discovery,
-                    terminalize_unstarted_validation=(
-                        _terminalize_unstarted_actor_validation
+                job=job,
+                lease_seconds=lease,
+                exception_code=_exception_code,
+            ):
+                heartbeat_started = True
+                finalization = execute_claimed_job(
+                    queue,
+                    store,
+                    job,
+                    data_dir=data_dir,
+                    worker_id=worker_id,
+                    retry_base_seconds=retry_base,
+                    notifications=notifications,
+                    publication=publication,
+                    ports=WorkerFinalizationPorts(
+                        run_job=_run_job,
+                        error_fingerprint=error_fingerprint,
+                        exception_code=_exception_code,
+                        cancel_claimed_job=_cancel_claimed_job_with_validation,
+                        emit_job_invalidation=_emit_job_invalidation,
+                        terminalize_failed_discovery=_terminalize_failed_actor_discovery,
+                        terminalize_unstarted_validation=(
+                            _terminalize_unstarted_actor_validation
+                        ),
+                        is_retryable_exception=_is_retryable_exception,
+                        active_catalog_source_ids=active_catalog_source_ids,
                     ),
-                    is_retryable_exception=_is_retryable_exception,
-                    active_catalog_source_ids=active_catalog_source_ids,
-                ),
-                logger=logger,
+                    logger=logger,
+                )
+        except Exception as exc:
+            if heartbeat_started:
+                raise
+            recovered = requeue_unstarted_claim(
+                queue, job, error_code=_exception_code(exc)
             )
+            if recovered is None:
+                raise
+            return recovered
         finalized = finalization.finalized
         failure_fingerprint = finalization.failure_fingerprint
         return run_worker_post_commit(

@@ -39,6 +39,17 @@ def _ensure_ops_symbols() -> Any:
 class ActorPoolManagementMixin:
     """Operations that mutate or project the fixed three-slot active pool."""
 
+    def observation_probe_allowed(
+        self, row: Any, manifest: Mapping[str, Any], evidence: Mapping[str, Any]
+    ) -> bool:
+        from .apify_actor_observed_probe import can_observe_youtube_probe
+
+        return can_observe_youtube_probe(
+            platform=str(row["platform"]), target_type=str(row["target_type"]),
+            capability=str(row["capability"]), manifest=manifest,
+            security_evidence=evidence,
+        )
+
     def replace_active_pool(
         self,
         route_id: str,
@@ -52,6 +63,7 @@ class ActorPoolManagementMixin:
         allow_compatibility_slot: bool = False,
         reject_active_stage: bool = False,
         allow_legacy_compaction: bool = False,
+        reactivate_verified_slots: bool = False,
     ) -> dict[str, Any]:
         """Activate an ordinary immutable pool through the extracted facade."""
 
@@ -67,6 +79,7 @@ class ActorPoolManagementMixin:
             allow_compatibility_slot=allow_compatibility_slot,
             reject_active_stage=reject_active_stage,
             allow_legacy_compaction=allow_legacy_compaction,
+            reactivate_verified_slots=reactivate_verified_slots,
         )
 
     def list_pool_candidates(
@@ -81,6 +94,21 @@ class ActorPoolManagementMixin:
         _ensure_ops_symbols()
         connection = self.store.connect()
         route = self._require_route(connection, route_id)
+        if goal == "compatibility_single" and str(route["platform"]) != "x":
+            # Compatibility trials intentionally use X-specific input rendering
+            # and X-post semantics. Never expose their historical revisions on
+            # another platform: that would produce a paid plan which cannot run.
+            return {
+                "schema_version": 1,
+                "route_id": route_id,
+                "generation": int(route["generation"]),
+                "goal": goal,
+                "target_slot": target_slot,
+                "run_id": None,
+                "required_selection_count": 1,
+                "candidates": [],
+                "blockers": ["compatibility_route_unsupported"],
+            }
         if (
             goal in {"add_slot", "replace_slot"}
             and str(route["platform"]) == "x"
@@ -91,8 +119,19 @@ class ActorPoolManagementMixin:
             if blocked is not None:
                 return blocked
             result = self._list_compatibility_candidates(connection, route)
+            candidates = [
+                {
+                    **item,
+                    "selectable": False,
+                    "unavailable_reason": "actor_already_active",
+                }
+                if bool(item.get("active_in_route"))
+                else item
+                for item in result["candidates"]
+            ]
             return {
                 **result,
+                "candidates": candidates,
                 "schema_version": 3,
                 "goal": goal,
                 "target_slot": target_slot,
@@ -102,6 +141,26 @@ class ActorPoolManagementMixin:
         return self._list_pool_candidates_standard(
             route_id, goal=goal, target_slot=target_slot
         )
+
+    def list_verified_pool_candidates(
+        self,
+        route_id: str,
+        *,
+        goal: str,
+        target_slot: str | None = None,
+    ) -> dict[str, Any]:
+        from .apify_actor_verified_catalog import list_verified_pool_candidates
+
+        return list_verified_pool_candidates(
+            self, route_id, goal=goal, target_slot=target_slot
+        )
+
+    def activate_verified_pool_candidates(self, route_id: str, **kwargs: Any) -> dict[str, Any]:
+        """Enable only an already-settled browser catalog selection."""
+
+        from .apify_actor_verified_catalog import activate_verified_pool_candidates
+
+        return activate_verified_pool_candidates(self, route_id, **kwargs)
 
     def get_canary_plan(
         self,
@@ -118,6 +177,25 @@ class ActorPoolManagementMixin:
         """Create an immutable plan; X slot actions use controlled trials."""
 
         _ensure_ops_symbols()
+        if goal == "compatibility_single":
+            connection = self.store.connect()
+            run = connection.execute(
+                """
+                SELECT profile.platform
+                FROM apify_actor_discovery_runs AS run
+                JOIN apify_actor_route_profiles AS profile
+                  ON profile.workspace_id = run.workspace_id
+                 AND profile.route_id = run.route_id
+                WHERE run.workspace_id = ? AND run.run_id = ?
+                """,
+                (self.workspace_id, str(run_id)),
+            ).fetchone()
+            if run is not None and str(run["platform"]) != "x":
+                raise ActorOpsError(
+                    "compatibility_route_unsupported",
+                    "Compatibility single-Actor trials support X only",
+                    status_code=412,
+                )
         if goal in {"add_slot", "replace_slot"}:
             connection = self.store.connect()
             run = connection.execute(
@@ -385,8 +463,6 @@ class ActorPoolManagementMixin:
                 return "pool_full"
             if target_slot != first_empty:
                 return "add_requires_first_empty_slot"
-            if sum(bool(slots.get(name)) for name in ops.SLOT_NAMES) < int(route["min_runtime_healthy"]):
-                return "pool_runtime_minimum_incomplete"
         elif not slots.get(target_slot):
             return "replace_requires_occupied_slot"
         return None
@@ -644,6 +720,14 @@ class ActorPoolManagementMixin:
             if not successful:
                 return None
             target = {"primary": base.get("primary") or None, "backup_1": base.get("backup_1") or None, "backup_2": str(successful[0]["revision_id"])}
+        elif goal == "replace_slot" and int(stage["target_slot_count"] or 0) == 1:
+            if not successful:
+                return None
+            target = {
+                "primary": str(successful[0]["revision_id"]),
+                "backup_1": None,
+                "backup_2": None,
+            }
         elif goal in {"add_slot", "replace_slot"}:
             slot = str(stage["operation_slot"] or "")
             if slot not in ops.SLOT_NAMES or not successful:

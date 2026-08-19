@@ -14,6 +14,10 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from ..storage.service_store import ServiceStore
+from .youtube_actor_source import (
+    is_youtube_channel_record,
+    project_youtube_actor_runtime_record,
+)
 
 
 def with_actorops_runtime_profiles(
@@ -34,8 +38,15 @@ def with_actorops_runtime_profiles(
     source_ids = [
         str(record.get("source_id") or "")
         for record in prepared
-        if str(record.get("type") or "") == "apify_social"
-        and not str((record.get("config") or {}).get("profile_id") or "").strip()
+        if (
+            (
+                str(record.get("type") or "") == "apify_social"
+                and not str(
+                    (record.get("config") or {}).get("profile_id") or ""
+                ).strip()
+            )
+            or is_youtube_channel_record(record)
+        )
         and str(record.get("source_id") or "")
     ]
     if not source_ids:
@@ -45,7 +56,7 @@ def with_actorops_runtime_profiles(
     try:
         rows = store.connect().execute(
             f"""
-            SELECT binding.source_id, binding.route_id
+            SELECT binding.source_id, binding.route_id, profile.platform
             FROM apify_source_route_bindings AS binding
             JOIN apify_actor_route_profiles AS profile
               ON profile.workspace_id = binding.workspace_id
@@ -63,7 +74,7 @@ def with_actorops_runtime_profiles(
         return prepared
 
     route_by_source = {
-        str(row["source_id"]): str(row["route_id"])
+        str(row["source_id"]): (str(row["route_id"]), str(row["platform"]))
         for row in rows
         if row["route_id"]
     }
@@ -72,9 +83,18 @@ def with_actorops_runtime_profiles(
 
     projected: list[dict[str, Any]] = []
     for record in prepared:
-        route_id = route_by_source.get(str(record.get("source_id") or ""))
-        if route_id is None:
+        route = route_by_source.get(str(record.get("source_id") or ""))
+        if route is None:
             projected.append(record)
+            continue
+        route_id, platform = route
+        if is_youtube_channel_record(record):
+            if platform == "youtube":
+                projected.append(
+                    project_youtube_actor_runtime_record(record, route_id=route_id)
+                )
+            else:
+                projected.append(record)
             continue
         runtime_record = dict(record)
         config = deepcopy(runtime_record.get("config") or {})

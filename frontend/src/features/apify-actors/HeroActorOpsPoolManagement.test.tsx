@@ -6,16 +6,44 @@ import { poolManagementDetail, renderPoolManagement } from './actorOpsPoolManage
 
 it('stages an add into the server-authorized empty slot', async () => {
   const selected = poolManagementDetail()
-  const { api, plan: createPlan } = renderPoolManagement(selected, { createApifyActorManualCanaryPlan: vi.fn().mockResolvedValue({}) })
-  ;(api.createApifyActorManualCanaryPlan as ReturnType<typeof vi.fn>).mockResolvedValue(createPlan('add_slot', 'backup_2', 3))
+  const { api } = renderPoolManagement(selected)
   const browser = userEvent.setup()
   await browser.click(await screen.findByRole('button', { name: '添加 Actor' }))
   expect(await screen.findByRole('heading', { name: '添加 备用 2 Actor' })).toBeVisible()
   expect(screen.getByText(/商城质量：4.7 分（152 条评分） · 195K 使用人数/)).toBeVisible()
   await waitFor(() => expect(api.apifyActorPoolCandidates).toHaveBeenCalledWith(selected.route_id, 'add_slot', expect.any(AbortSignal), 'backup_2'))
   await browser.click(screen.getByRole('checkbox', { name: /新 Actor/ }))
-  await browser.click(screen.getByRole('button', { name: '继续' }))
-  await waitFor(() => expect(api.createApifyActorManualCanaryPlan).toHaveBeenCalledWith('run-guided', expect.objectContaining({ goal: 'add_slot', target_slot: 'backup_2', target_slot_count: 3 })))
+  await browser.click(screen.getByRole('button', { name: '选择并启用' }))
+  await waitFor(() => expect(api.activateVerifiedApifyActorPool).toHaveBeenCalledWith(selected.route_id, expect.objectContaining({ run_id: 'run-guided', goal: 'add_slot', target_slot: 'backup_2', target_slot_count: 3 })))
+})
+
+it('plans a server-controlled slot canary from the slot candidate run, not stale route workflow', async () => {
+  const selected = {
+    ...poolManagementDetail(),
+    workflow: { ...poolManagementDetail().workflow!, run_id: 'run-stale', goal: 'complete_third' as const },
+  }
+  const { api } = renderPoolManagement(selected, {
+    apifyActorPoolCandidates: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      route_id: selected.route_id,
+      generation: selected.generation,
+      goal: 'add_slot',
+      target_slot: 'backup_2',
+      run_id: 'run-slot',
+      required_selection_count: 1,
+      blockers: ['candidate_shortfall', 'candidate_verification_pending'],
+      candidates: [],
+    }),
+  })
+  const browser = userEvent.setup()
+
+  await browser.click(await screen.findByRole('button', { name: '添加 Actor' }))
+  expect(screen.queryByText('待实测 Actor')).not.toBeInTheDocument()
+  await browser.click(await screen.findByRole('button', { name: '更新已验证 Actor 库' }))
+
+  await waitFor(() => expect(api.apifyActorCanaryPlan).toHaveBeenCalledWith(
+    'run-slot', 'add_slot', expect.any(AbortSignal), 'backup_2',
+  ))
 })
 
 it('sets an occupied backup as primary and changes only the future run cap', async () => {

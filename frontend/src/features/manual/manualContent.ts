@@ -1,4 +1,4 @@
-// Reviewed for ActorOps-bound source execution and safe paid-route fallback.
+// Reviewed for ActorOps-bound source execution and verified-catalog selection.
 export type ManualStep = {
   title: string
   description: string
@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-14',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；管理员可无费用切换已验证主用，并按公开 Store 质量选择安全候选。完整标准池继续要求发布者多样性；单槽新增或替换只需一名已完成免费安全检查的候选。保存的 Route 单次上限同样用于后续免费检查，候选评分会与其固定 Build 证据一起保留。',
+  reviewedAt: '2026-08-19',
+  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记，YouTube 的 stringList 输入不得套用 X 的对象格式，视频行的 channel.id 也会作为严格来源身份验证。已失败的同一 Revision 保持排除；只有新 Build/Manifest 成功通过免费检查时才会重新开放候选，且其当前 Revision 没有失败证据时才可启动 Canary。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor；当前原审批批次的恢复优先于历史核对积压，且兼容旧 Worker 写入的零费用待运行状态，避免可继续的已授权候选长期卡住。Worker 在领取任务后、调用来源或 Actor 前若无法启动心跳，会原样归还任务而不消耗重试次数、额度或费用；阶段对全部来源验证完成后，原子生效也会恢复该阶段目标槽的可运行熔断状态，绝不出现“Route 就绪但运行时没有 Actor”。观察 Canary 固化的 YouTube Manifest 与普通固定 Build 一样直接执行，不会落入 X 兼容分支；若旧熔断只记录为“Revision 不可执行”，系统仅在当前 Revision 的每个已启用来源均有晚于该失败的成功结算 Canary 时立即恢复这个槽；这条重验是唯一允许该旧熔断槽执行的路径，合同、权限、身份或内容失败仍绝不重放；历史 Canary 因而不会伪装为当前已通过，页面会明确要求按主备顺序重新实测。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -86,7 +86,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '订阅 YouTube 公开频道',
-        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。普通视频、Shorts、公开直播及回放都沿用频道 Feed 收录；可设置每次保留的最新条数。“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
+        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。频道地址只用于确认频道身份，普通视频、Shorts、公开直播及回放均由已认证的 Apify Actor 直接获取；可设置每次保留的最新条数。每次获取都直接向认证 Actor 请求不超过该条数的最新项目，不会因信息流的短时间显示窗口把较早但仍是最新的内容误报为空，也不会回退 Atom/RSS。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
       },
       {
         title: '新增 X 或 Instagram 账号',
@@ -94,7 +94,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。已绑定 Route 的来源会在单来源获取和信息流刷新中使用该 Route 的当前主备顺序，不会因历史配置形状回退到旧路由。X/Instagram 标准配置以两个不同发布者的 Actor 为运行门槛，第三槽只由管理员主动补充；严格候选不足时可查看被放宽项与仍保留底线，明确选择单个公开可运行 Actor 做兼容试跑。兼容 Canary 必须返回真实非空内容，付费试跑和 1/3 生效分别确认；默认每次 $0.02 上限可由管理员只为后续确认的 Run 调整至最高 $0.10，受控目标输入、身份、内容 URL、发布时间、正文及占位检查始终保留。来源启用页会标记最近一次实际 Actor；可设置自动或软首选 Actor，保存从下一次计划抓取起生效且不会立即产生额外费用，旧数据、失败或暂停时仍自动切备。旧 X 三 Actor 升级继续只检查原成员、复用已通过证据且不自动换替补。YouTube 始终先使用免费公开 Atom Feed，Actor fallback 一路即可运行，不会自动追逐第二或第三路。费用待对账或启动结果未知时只核对原运行，不会重复启动。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。三条 Route 的标准配置都以两个不同发布者的实测 Actor 为运行门槛，第三槽只由管理员主动补充；只有通过免费检查、精确 Build Canary、全部已启用来源验证和费用对账的 Actor 才出现在选择目录，选择不会重跑 Canary。已有一条已验证线路但仍低于两路门槛时，可先对一个新 Actor 完成同样的受控验证再原子补到第二槽，不会因当前线路不足而卡住补位。不同平台分别绑定执行器、输入和输出合同；YouTube 的频道地址仅作身份，运行时直接使用认证 Actor，不回退 Atom/RSS。通过公开、固定 Build、权限、输入和费用门槛但输出 Schema 不透明的 YouTube Actor 不会显示给你或由 AI 猜字段，只能先由服务端执行一次受控观察 Canary；返回目标频道视频后才固化不可变映射。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。费用待对账或启动结果未知时系统只免费核对原运行，不会重复启动。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
@@ -214,7 +214,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看 ActorOps 运行与告警',
-        description: 'Owner/Admin 可在“设置 → ActorOps”切换 X、Instagram 或 YouTube 抓取类型。标准配置选择两个不同发布者的 Actor 即可启用，第三槽只由管理员主动补充；严格候选不足时可查看放宽项与保留底线，明确选择单路兼容。主备池固定为三个槽：空槽只能从“添加 Actor”填入第一个空位，已占用槽可“替换”或“移出主备池”，已验证备用还可用“设为主用”无费用交换当前顺序。新增/替换仍经过免费检查、付费验证和无费用生效两次确认，期间旧池不变；移出会说明压紧后的顺序、不会收费且保留 Revision、验证和费用历史，并要求输入“确认移出 Actor 主备池”。操作可否进行由服务端返回，运行中的验证、未知启动、来源检查或门槛不足会明确阻止。候选只会在免费可执行性检查通过后显示，并展示公开 Store 的评分、评分人数和使用人数作为排序信息；质量数据不能放宽 Build、输入、内容、身份或价格检查。单次费用上限默认 $0.02，可保存为最高 $0.10 以影响之后仍需人工确认的 Run；保存不会启动 Actor。未完成的新增或替换会明确显示真实槽位，绝不会错称为“升级当前 Actor”；只有该槽的候选可继续处理。兼容候选会跨免费搜索保留同一路线里每个 Actor 的最新安全证据，后续空搜索或历史 3/3 Stage 失败不会把已合格的 1 个候选清掉；Build、Schema、价格或失败指纹变化时仍会重新判定。付费试跑和 1/3 生效仍各自确认，普通新增来源始终不显示 Actor。主备配置默认只显示三槽、人类可读生命周期和唯一下一步；免费搜索进行时显示查询进度并自动刷新，完成后分别显示原始候选数、当前可选择数与失败原因，不再保留可无限连点的主操作。相同 Actor/Build 的失败会被记住；确认 Store 中证据变化后才从候选详情重新检查。若提示“Actor 返回的内容不属于本次目标”，表示结果来自其他账号或频道，或缺少可证明目标归属的字段，可能由推荐内容、默认账号、旧缓存或字段映射造成。来源启用直接列出既有账号或频道和最近一次实际 Actor，可为单个来源选择自动或首选 Actor；保存从下一次计划抓取起生效，不会立即启动 Actor 或产生额外费用，首选旧数据、失败或暂停时仍自动切备。同一路 Actor 连续三次只返回已见内容时，系统会在下一次原有周期改用一个健康备用，不会在当次额外启动付费 Actor；备用带来更新后成为该来源后续首选。运行与告警可用专用校验 Key 按默认 24 小时、6–168 小时或关闭的频率比较主备，也可单独确认费用后立即校验；页面显示上次、下次、实际费用、单轮和理论月上限。诊断时间线汇总发现、验证、费用、切备、新鲜度、Key 与人工动作，只显示公共 Actor 名称和安全原因码。候选、Build、费用账本、Revision/回滚与 Discovery AI 位于默认收起的高级详情；地址、签名、Chat ID、Token、真实目标、Actor 输入与远端 Run/Dataset 都不会回显。ActorOps 只保留当前三任务控制面，通知只使用统一服务选择；历史设置书签仍按兼容规则跳转，不会恢复退役表单或重复测试入口，历史私人通知目标的更新与归档兼容仍保留。YouTube 始终先用公开 Atom Feed，Actor fallback 一路即可运行且不会自动追逐第三槽。',
+        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor；候选经过免费检查、受控 Canary 与来源级验证后才可运行。主备池固定三槽，新增、替换、移出、调序与单次费用上限均由服务端按 Route generation、Build、Manifest、来源证据和审批边界执行。Worker 中断的已启动 Run 只会免费查询原 Run；若它已终态失败，只会在确认版本号仅由该中断保护步骤改变后继续同一审批内尚未运行的候选。若旧 Worker 已把这些零费用剩余项误取消为“审批过期”，同一证据链会将它们恢复为原审批的待执行项；绝不重发失败 Actor 或跨越真实配置变化。YouTube 保留公开频道地址和稳定内容 ID 作为身份，但运行时只使用认证 Actor；验证前会明确阻止获取，不会回退 Atom/RSS 或伪装成成功。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

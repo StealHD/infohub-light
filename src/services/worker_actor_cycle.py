@@ -36,8 +36,30 @@ def reconcile_and_enqueue_actor_discoveries(
 ) -> dict[str, int]:
     """Recover free discovery work without replaying any paid Canary."""
 
-    connection = store.connect()
+    from .apify_actor_capability_matrix import reconcile_registered_route_policies
+    from .youtube_actor_source import provision_youtube_actor_sources
+
+    policy_updates = {"routes": 0, "bindings": 0, "deferred": 0}
     now = datetime.now(timezone.utc).isoformat()
+    connection = store.connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        for workspace in connection.execute(
+            "SELECT id FROM workspaces ORDER BY created_at, id"
+        ).fetchall():
+            outcome = reconcile_registered_route_policies(
+                connection,
+                workspace_id=str(workspace["id"]),
+                now=now,
+            )
+            for key in policy_updates:
+                policy_updates[key] += int(outcome[key])
+        connection.commit()
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    provision_youtube_actor_sources(store)
     enqueued = 0
     failed = 0
     try:
@@ -129,7 +151,13 @@ def reconcile_and_enqueue_actor_discoveries(
         if connection.in_transaction:
             connection.rollback()
         raise
-    return {"enqueued": enqueued, "failed": failed}
+    return {
+        "enqueued": enqueued,
+        "failed": failed,
+        "policy_routes": policy_updates["routes"],
+        "policy_bindings": policy_updates["bindings"],
+        "policy_deferred": policy_updates["deferred"],
+    }
 
 
 def enqueue_due_actor_freshness_checks(

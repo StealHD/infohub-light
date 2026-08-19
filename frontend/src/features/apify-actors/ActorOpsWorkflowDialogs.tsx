@@ -160,14 +160,10 @@ export function ActorOpsActivationConfirmationDialog({
         ? '确认添加 Actor'
         : view?.goal === 'replace_slot'
           ? '确认替换 Actor'
-        : view?.minimumActors === 1
-          ? '确认启用单路 fallback'
           : '确认启用 Actor 主备'
   const impact = view?.goal === 'compatibility_single'
     ? '启用后 X 功能可用，但只有 1 路 Actor，没有主备冗余；失败时可能暂时无法抓取。'
-    : view?.minimumActors === 1
-      ? '启用后 YouTube 仍优先使用公开 Atom；这个 Actor 只作为故障 fallback，不会自动补更多 Actor。'
-      : '槽位和已预验证来源会在同一事务中生效；运行中的任务继续使用原配置。'
+    : '槽位和已预验证来源会在同一事务中生效；运行中的任务继续使用原配置。'
   const after = view?.goal === 'compatibility_single'
     ? '单路兼容 1/3；后续可不停机补主备'
     : view?.goal === 'complete_third'
@@ -179,7 +175,7 @@ export function ActorOpsActivationConfirmationDialog({
           : view?.goal === 'replace_slot'
             ? '将指定槽原子替换；旧 Revision 保留为历史'
         : view?.minimumActors === 1
-          ? '启用 1/3 单路 fallback；原生 Atom 继续优先'
+          ? '启用 1/3 受控兼容；后续可补齐标准主备'
           : '启用标准 2/3 主备；第三路可后续主动补充'
 
   return (

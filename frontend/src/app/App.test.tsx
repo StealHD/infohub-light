@@ -14,7 +14,7 @@ import { validateRegistryFields } from '../features/admin-heroui/sourceFormValid
 import { AppRoutes } from './App'
 const actorSupportProfiles = [
   { id: 'x/profile/items', route_key: 'x/profile', platform: 'x' as const, target_type: 'profile' as const, capability: 'items' as const, mode: 'primary' as const, label: 'X Profile' },
-  { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube' as const, target_type: 'channel' as const, capability: 'items' as const, mode: 'fallback' as const, label: 'YouTube Channel' },
+  { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube' as const, target_type: 'channel' as const, capability: 'items' as const, mode: 'primary' as const, label: 'YouTube Channel' },
   { id: 'instagram/profile/items', route_key: 'instagram/profile/items', platform: 'instagram' as const, target_type: 'profile' as const, capability: 'items' as const, mode: 'primary' as const, label: 'Instagram Profile' },
 ]
 

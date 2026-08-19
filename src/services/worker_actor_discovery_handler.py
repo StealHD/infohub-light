@@ -6,13 +6,14 @@ import asyncio
 import inspect
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
 import httpx
 
 from ..storage.service_store import ServiceStore
+from .secret_store import SecretStore
 from .worker_actor_discovery_ai import generate_manifest
 
 
@@ -31,6 +32,7 @@ class _DiscoveryContext:
     expanded_compatibility: bool
     global_ai: Any
     apify_env: str
+    apify_token: str = field(repr=False)
     output_limit: int
     ai_client: Any
     route: dict[str, Any]
@@ -201,6 +203,19 @@ def _metadata_token_env(
     return str(pool_secret["env_name"]) if pool_secret else ""
 
 
+def _metadata_token(data_dir: str, env_name: str) -> str:
+    """Resolve discovery metadata credentials through the same secret path as runs.
+
+    Containers intentionally do not receive every secret as an environment
+    variable.  Actor execution already resolves key-pool credentials from the
+    runtime SecretStore; Discovery must do the same or a rebuild silently turns
+    a paid-capable route into a permanently empty free-search result.
+    """
+
+    configured = SecretStore(data_dir).read().get(env_name)
+    return str(configured or os.getenv(env_name) or "").strip()
+
+
 def _prepare_runtime(
     job: dict[str, Any],
     *,
@@ -241,7 +256,8 @@ def _prepare_runtime(
             error_code="discovery_global_ai_unavailable",
         )
     apify_env = _metadata_token_env(store, workspace_id=str(job["workspace_id"]))
-    if not apify_env or not os.getenv(apify_env):
+    apify_token = _metadata_token(data_dir, apify_env) if apify_env else ""
+    if not apify_token:
         return _transition_from_queued(
             ops,
             run_id,
@@ -269,6 +285,7 @@ def _prepare_runtime(
         expanded_compatibility=expanded_compatibility,
         global_ai=global_ai,
         apify_env=apify_env,
+        apify_token=apify_token,
         output_limit=output_limit,
         ai_client=create_ai_client(
             ai_config,
@@ -294,6 +311,101 @@ async def _close_ai_client(
         ports.log_close_failure()
 
 
+def _reconcile_x_candidate_eligibility(
+    context: _DiscoveryContext,
+    outcome: Any,
+) -> Any:
+    """Make a completed X discovery report the same candidates the picker can use.
+
+    Discovery can produce a static-valid Revision for a Build that has already
+    failed a deterministic route-reference Canary.  The compatibility
+    projection correctly excludes that Revision, but the discovery run used to
+    retain its pre-projection count.  That produced a misleading non-zero
+    count followed by a non-selectable candidate or an invalid plan.
+    """
+
+    if str(context.route.get("platform") or "") != "x":
+        return outcome
+    connection = context.ops.store.connect()
+    projection = context.ops._project_compatibility_candidates(
+        connection,
+        context.route,
+    )
+    availability = {
+        str(item["revision_id"]): {
+            "reason": (
+                "actor_already_active"
+                if bool(item.get("active_in_route"))
+                else (
+                    None
+                    if bool(item.get("selectable"))
+                    else str(
+                        item.get("unavailable_reason")
+                        or "candidate_not_selectable"
+                    )
+                )
+            ),
+            "publisher": str(item.get("publisher") or ""),
+        }
+        for item in projection["candidates"]
+        if item.get("revision_id")
+    }
+    eligible = tuple(
+        revision_id
+        for revision_id in outcome.revision_ids
+        if availability.get(
+            str(revision_id), {"reason": "candidate_not_selectable"}
+        )["reason"] is None
+    )
+    if len(eligible) == len(outcome.revision_ids):
+        return outcome
+    rejected = list(outcome.rejected)
+    rejected.extend(
+        {
+            "actor_id": "candidate-pool",
+            "reason": (
+                availability.get(str(revision_id), {}).get("reason")
+                or "candidate_not_selectable"
+            ),
+        }
+        for revision_id in outcome.revision_ids
+        if revision_id not in eligible
+    )
+    current = context.ops.get_discovery_run(context.run_id)
+    required_actors = max(1, int(context.route.get("min_runtime_healthy") or 1))
+    required_publishers = max(1, int(context.route.get("min_publishers") or 1))
+    eligible_publishers = {
+        str(availability[str(revision_id)]["publisher"])
+        for revision_id in eligible
+        if str(availability[str(revision_id)]["publisher"])
+    }
+    stage = (
+        "candidate_shortfall"
+        if len(eligible) < required_actors
+        or len(eligible_publishers) < required_publishers
+        else str(current["stage"])
+    )
+    updated = context.ops.update_discovery_run(
+        context.run_id,
+        expected_stage=str(current["stage"]),
+        stage=stage,
+        error_code=(
+            "candidate_shortfall"
+            if stage == "candidate_shortfall"
+            else current.get("error_code")
+        ),
+        candidate_count=len(eligible),
+        rejections=tuple(rejected),
+    )
+    return type(outcome)(
+        outcome.run_id,
+        outcome.route_id,
+        str(updated["stage"]),
+        eligible,
+        tuple(rejected),
+    )
+
+
 async def _execute_discovery(
     context: _DiscoveryContext,
     ports: WorkerActorDiscoveryPorts,
@@ -312,7 +424,7 @@ async def _execute_discovery(
             service = ApifyActorDiscoveryService(
                 context.ops,
                 ApifyStoreRestClient(
-                    os.environ[context.apify_env],
+                    context.apify_token,
                     client=http_client,
                 ),
                 partial(generate_manifest, context),
@@ -333,6 +445,7 @@ async def _execute_discovery(
                     else None
                 ),
             )
+            outcome = _reconcile_x_candidate_eligibility(context, outcome)
             return {
                 "ok": True,
                 "job_type": "apify_actor_discovery",

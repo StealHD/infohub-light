@@ -19,7 +19,10 @@ def load_pool_stage(service: Any, stage_id: str) -> dict[str, Any]:
                target_backup_1_revision_id,
                target_backup_2_revision_id, target_pool_hash,
                status, applied_route_generation, last_error_code,
-               created_at, updated_at, applied_at
+               created_at, updated_at, applied_at,
+               (SELECT platform FROM apify_actor_route_profiles AS route
+                WHERE route.workspace_id = apify_actor_pool_stages.workspace_id
+                  AND route.route_id = apify_actor_pool_stages.route_id) AS route_platform
         FROM apify_actor_pool_stages
         WHERE workspace_id = ? AND stage_id = ?
         """,

@@ -124,6 +124,7 @@ from ..services.apify_actor_ops import (
     SOURCE_CANARY_BUDGET_USD,
     source_target_fingerprint,
 )
+from ..services.apify_actor_source_proof import current_source_validation_ids
 from ..services.apify_actor_canary import actor_canary_timeout_seconds
 from ..services.apify_pool_runtime import apify_coordinator_for_workspace
 from .actor_ops_pool_management_gate import require_actor_pool_management_schema
@@ -726,10 +727,7 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-actor-evaluations/{evaluation_id}/retry",
     ): ("source", "actor_evaluation_retry"),
-    (
-        "POST",
-        "/api/admin/apify-routes/{route_id}/validations/reconcile",
-    ): ("source", "actor_validation_reconcile"),
+    ("POST", "/api/admin/apify-routes/{route_id}/validations/reconcile"): ("source", "actor_validation_reconcile"),
     (
         "POST",
         "/api/admin/apify-discovery-runs/{run_id}/canary-plan",
@@ -742,6 +740,7 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("PUT", "/api/admin/apify-routes/{route_id}/active-pool"): ("source", "actor_route_pool_replace"),
     ("POST", "/api/admin/apify-routes/{route_id}/active-pool/remove"): ("source", "actor_route_pool_remove"),
     ("POST", "/api/admin/apify-routes/{route_id}/active-pool/activate"): ("source", "actor_route_pool_activate"),
+    ("POST", "/api/admin/apify-routes/{route_id}/verified-pool-activation"): ("source", "actor_route_verified_catalog_activate"),
     (
         "POST",
         "/api/admin/sources/{source_id}/apify-validations/{revision_id}/canary",
@@ -1537,11 +1536,7 @@ def create_app(
             str(route["target_type"]),
             str(route["capability"]),
         )
-        allowed = (
-            {("x", "profile", "items"), ("instagram", "profile", "items")}
-            if primary
-            else {("youtube", "channel", "items")}
-        )
+        allowed = {("x", "profile", "items"), ("instagram", "profile", "items"), ("youtube", "channel", "items")} if primary else set()
         expected_mode = "primary" if primary else "fallback"
         if identity not in allowed or str(route["mode"]) != expected_mode:
             raise ApiError(
@@ -3273,7 +3268,8 @@ def create_app(
               AND validation.semantic_outcome IN (
                   'apify_run_status_unavailable',
                   'apify_actor_run_status_unavailable',
-                  'apify_run_reconcile_required'
+                  'apify_run_reconcile_required',
+                  'apify_worker_restart_reconcile_required'
               )
               AND validation.attempt_id IS NOT NULL
             ORDER BY validation.completed_at DESC,
@@ -4293,6 +4289,10 @@ def create_app(
             raise ApiError("not_found", "source not found", status_code=404)
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         binding = ops.get_source_binding(source_id)
+        target_fingerprint = str(store.connect().execute(
+            "SELECT target_fingerprint FROM apify_source_route_bindings WHERE workspace_id = ? AND source_id = ?",
+            (str(user["workspace_id"]), source_id),
+        ).fetchone()["target_fingerprint"])
         detail = public_actor_ops_detail(ops, str(binding["route_id"]))
         spent_row = store.connect().execute(
             """
@@ -4341,28 +4341,22 @@ def create_app(
         latest = {}
         for row in validation_rows:
             latest.setdefault(str(row["revision_id"]), dict(row))
-        passed = {
-            revision_id
-            for revision_id, validation in latest.items()
-            if str(validation["status"]) == "succeeded"
-            and str(validation["semantic_outcome"])
-            in {"valid_nonempty", "valid_empty"}
-        }
+        passed = current_source_validation_ids(store.connect(), workspace_id=str(user["workspace_id"]),
+            route_id=str(binding["route_id"]), source_id=source_id, target_fingerprint=target_fingerprint)
         revision_by_id = {
             str(slot.get("revision_id") or ""): slot.get("revision")
             for slot in detail["slots"]
             if slot.get("revision_id") is not None
         }
 
-        def revision_requires_upgrade(revision_id: str) -> bool:
+        def revision_canary_block_reason(revision_id: str) -> str | None:
             revision = revision_by_id.get(revision_id)
-            return bool(
-                not revision
-                or str(revision.get("lifecycle") or "") == "legacy_builtin"
-                or not revision.get("build_id")
-                or not revision.get("build_number")
-                or not revision.get("manifest_hash")
-            )
+            if not revision or any(
+                not revision.get(field)
+                for field in ("build_id", "build_number", "manifest_hash")
+            ) or str(revision.get("lifecycle") or "") == "legacy_builtin":
+                return "apify_actor_source_requires_pool_upgrade"
+            return ops.revision_canary_block_reason(str(binding["route_id"]), revision_id)
 
         pending_revision = next(
             (
@@ -4378,9 +4372,7 @@ def create_app(
             revision_id = str(slot.get("revision_id") or "")
             validation = latest.get(revision_id)
             passed_slot = revision_id in passed
-            requires_upgrade = bool(
-                revision_id and revision_requires_upgrade(revision_id)
-            )
+            block_reason = revision_canary_block_reason(revision_id) if revision_id else None
             slots.append(
                 {
                     "slot": slot["slot"],
@@ -4389,7 +4381,7 @@ def create_app(
                         "passed"
                         if passed_slot
                         else "blocked"
-                        if requires_upgrade
+                        if block_reason
                         else str(validation["status"])
                         if validation
                         else "pending"
@@ -4402,10 +4394,11 @@ def create_app(
                         if validation
                         else None
                     ),
+                    "block_reason": block_reason,
                     "can_canary": bool(
                         revision_id
                         and revision_id == pending_revision
-                        and not requires_upgrade
+                        and not block_reason
                         and (
                             validation is None
                             or str(validation["status"])
@@ -5004,14 +4997,11 @@ def create_app(
                 ),
                 None,
             )
-            if actor_ops_route is not None:
-                actor_ops_target = str(normalized_config["url"])
-                validate_actor_ops_source_target(
-                    actor_ops_route,
-                    actor_ops_target,
-                    primary=False,
-                )
-                actor_ops_mode = "fallback"
+            if actor_ops_route is None:
+                raise ApiError("apify_actor_route_not_ready", "The selected Actor Route is not certified for new sources", status_code=409)
+            actor_ops_target = str(normalized_config["url"])
+            validate_actor_ops_source_target(actor_ops_route, actor_ops_target, primary=True)
+            actor_ops_mode = "primary"
         enforce_public_network = (
             catalog_source_setup_type(catalog_type, normalized_config)
             == YOUTUBE_CHANNEL_SETUP_TYPE
@@ -5019,6 +5009,7 @@ def create_app(
         source_enabled = bool(payload.enabled)
         if (
             actor_ops_mode == "primary"
+            and catalog_type == "apify_social"
             and str((actor_ops_route or {}).get("admission_mode") or "standard")
             != "compatibility"
         ):
@@ -5419,17 +5410,10 @@ def create_app(
                         ),
                         None,
                     )
-                    if route is not None:
-                        validate_actor_ops_source_target(
-                            route,
-                            str(normalized_config["url"]),
-                            primary=False,
-                        )
-                        actor_binding_plan = (
-                            route,
-                            str(normalized_config["url"]),
-                            "fallback",
-                        )
+                    if route is None:
+                        raise ApiError("apify_actor_route_not_ready", "The selected Actor Route is not certified for this source", status_code=409)
+                    validate_actor_ops_source_target(route, str(normalized_config["url"]), primary=True)
+                    actor_binding_plan = (route, str(normalized_config["url"]), "primary")
         if "secret_env" in provided:
             updates["secret_env"] = _validate_secret_env(payload.secret_env)
         if "enabled" in provided:

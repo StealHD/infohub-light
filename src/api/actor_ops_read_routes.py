@@ -67,7 +67,7 @@ async def admin_apify_pool_candidates(
 ) -> dict[str, Any]:
     result = context.apify_actor_ops_for(
         str(user["workspace_id"])
-    ).list_pool_candidates(route_id, goal=goal, target_slot=target_slot)
+    ).list_verified_pool_candidates(route_id, goal=goal, target_slot=target_slot)
     response.headers["Cache-Control"] = "no-store"
     return ok(result)
 

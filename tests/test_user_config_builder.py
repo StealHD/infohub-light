@@ -8,7 +8,7 @@ from src.services.job_queue import JobQueue
 from src.services.source_health import SourceHealthService
 from src.services.source_schedule import SourceScheduleService
 from src.services.source_type_registry import validate_source_config
-from src.services.user_config_builder import build_user_config_data
+from src.services.user_config_builder import build_user_config, build_user_config_data
 from src.storage.service_store import ServiceStore
 
 
@@ -255,6 +255,69 @@ def test_existing_owner_youtube_rss_always_uses_public_network_policy(
 
     assert data["sources"]["rss"][0]["enforce_public_network"] is True
     assert data["sources"]["rss"][0]["keep_latest_item"] is True
+
+
+def test_user_config_builder_projects_bound_youtube_channel_to_actorops(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    feed_url = (
+        "https://www.youtube.com/feeds/videos.xml?"
+        "channel_id=UCabcdefghijklmnopqrstuv"
+    )
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="ActorOps YouTube",
+        config=validate_source_config(
+            "rss", {"url": feed_url, "fetch_limit": 7, "keep_latest_item": True}
+        ),
+    )
+    store.create_subscription(user_id=owner["id"], source_id=source_id)
+    route_id = str(store.connect().execute(
+        """
+        SELECT route_id FROM apify_actor_route_profiles
+        WHERE workspace_id = ? AND route_key = 'youtube/channel/items'
+        """,
+        (workspace["id"],),
+    ).fetchone()["route_id"])
+    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
+        source_id=source_id,
+        route_id=route_id,
+        target_fingerprint=source_target_fingerprint(
+            workspace["id"], route_id, feed_url, platform="youtube"
+        ),
+        mode="fallback",
+    )
+
+    data = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=_base_config(),
+    )
+
+    assert data["sources"]["rss"] == []
+    subscription = data["sources"]["apify_social"]["subscriptions"][0]
+    assert subscription["profile_id"] == route_id
+    assert subscription["platform"] == "youtube"
+    assert subscription["kind"] == "channel"
+    assert subscription["target"] == feed_url
+    assert subscription["fetch_limit"] == 7
+    assert build_user_config(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=_base_config(),
+    ).sources.apify_social.subscriptions[0].platform.value == "youtube"
 
 
 def test_user_config_builder_applies_30_day_window_to_managed_rsshub(

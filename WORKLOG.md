@@ -7,285 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "commit": "4727531",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 ActorOps Route 与 Revision 的安全公共投影拆到独立纯模块；字段、价格过滤、运行状态、Canary 与激活资格保持不变，模块不含 SQL、远端调用、审批或写操作。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actorops-public-projection",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；public_actor_ops_detail 的 SQL/来源校验与 ActorOps 控制路由仍需先分层后拆，不能机械迁移。"
-  ],
-  "validation": [
-    "全 API 路由与 OpenAPI 规范 SHA 均与 8254a72 基线一致；ActorOps API/service、compatibility、权限、操作日志、lifespan 与 import boundary 定向回归 108/108 通过。",
-    "server.py 由 6915 行降至 6733 行，create_app 由 5974 行降至 5792 行；新纯投影模块 188 行且最大函数低于 80 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235572 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "commit": "960514b",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 6 个 ActorOps 只读 route、pool、新鲜度与事件查询 HTTP 适配拆到独立模块；路由顺序、OpenAPI、权限、字段和缓存语义保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actorops-read-routes",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；public_actor_ops_detail、ActorOps 写路由、Catalog create/patch、ServiceStore 与 ApifyActorOpsService 仍需按独立高风险阶段处理。"
-  ],
-  "validation": [
-    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 75a4748 基线一致；ActorOps、兼容、权限、操作日志、lifespan、import boundary 与代码规模定向回归 96/96 通过。",
-    "server.py 由 6733 行降至 6641 行，create_app 由 5792 行降至 5695 行；新只读适配模块 170 行且所有新函数低于 80 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235543 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "commit": "17254a3",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将 ActorOps Canary plan/batch 的纯公共投影与两个 GET 查询适配拆到既有安全模块；选择、审批、费用、批次创建和激活写路径保持原位不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-actorops-canary-reads",
-  "unresolved": [
-    "总代码健康 Goal 尚未完成；Discovery/public_actor_ops_detail 读模型、ActorOps 写路由、Catalog create/patch、ServiceStore 与 ApifyActorOpsService 仍需按独立高风险阶段处理。"
-  ],
-  "validation": [
-    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 530181e 基线一致；ActorOps、权限、操作日志、lifespan、observability 与 import boundary 定向回归 57/57 通过。",
-    "server.py 由 6641 行降至 6517 行，create_app 由 5695 行降至 5564 行；投影与只读适配模块分别为 295 与 226 行，新增函数均低于 80 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235398 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "commit": "9a9f1fa",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "将用户订阅 list/create/patch/delete、source-health 与两个请求模型完整拆到独立 HTTP 适配模块；通知约束、viewer 权限、停用处置、schedule 投影和用户隔离保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-13-code-health-subscription-routes",
-  "unresolved": [
-    "按用户要求本轮在完整测试后结束；server.py 剩余 ActorOps/Catalog 写路径、ServiceStore、ApifyActorOpsService 与依赖环留待后续独立任务。"
-  ],
-  "validation": [
-    "全 API 140 条路由顺序/方法/名称与完整 OpenAPI 哈希均与 8e9a3c8 基线一致；订阅/API/source-health/schedule/权限/操作日志/lifespan/边界九组定向测试通过。",
-    "server.py 由 6517 行降至 6330 行，create_app 由 5564 行降至 5402 行；新 subscription_routes.py 258 行，最大 handler 73 行。",
-    "staged preflight 16/16 与完整 Test Gate 18/18 通过，SQLite 未关闭连接警告 0；首屏 JavaScript Brotli 235505 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-13",
-  "result": "完成信息流真实卡片骨架、收藏即时同步、可访问的展开提示及受角色限域、可安全停止的手动刷新链路；服务端不信任客户端刷新范围，取消请求在 Worker 安全边界阻断后续副作用。",
-  "status": "completed",
-  "task_id": "2026-08-13-feed-refresh-polish",
-  "unresolved": [],
-  "validation": [
-    "新增角色范围、无订阅、取消与发布原子性后端覆盖，以及收藏、星标、溢出检测、骨架和按钮状态前端覆盖。",
-    "Feed Playwright 已覆盖 desktop/tablet/mobile 的骨架、收藏即时可见、刷新停止与布局锚点；预检 16/16 通过。",
-    "完整 Test Gate 18/18 通过（全量 Python、前端 lint/typecheck/Vitest/build、Compose 与控制面检查）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "修正 ActorOps 槽位替换工作流的服务端 operation_slot 投影与前端标题/请求一致性，抽出阶段读取和工作流模块；补齐实际收费超授权后的终结对账，且将身份不匹配的固定 Build 记为不可再选。Docker 构建基础镜像改用可达的 Quay/Microsoft 源。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-pool-workflow-cost-guard",
-  "unresolved": [
-    "X 的现有外部候选均未通过身份/契约安全验证，因此保持活动主备不变；等待新的安全候选或其 Build 证据变化后才能完成真实替换。"
-  ],
-  "validation": [
-    "ActorOps 定向 Pytest、前端定向 Vitest、typecheck、lint 和 production build 通过。",
-    "完整 Test Gate 18/18 通过，mapping miss 为 false。",
-    "本地 8080 已验证槽位替换路径和候选 Modal 使用主用槽；真实验证的身份不匹配候选已被后续列表禁用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "补齐所有 Actor 路线的主备池手动主用切换、未来单次费用上限与安全候选质量排序；X 的 route identity 透传与严格免费预检保持付费验证前的零写入拒绝。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-pool-management-controls",
-  "unresolved": [],
-  "validation": [
-    "定向后端回归、ActorOps 前端交互、lint 与 typecheck 通过。",
-    "preflight 16/16 与完整 Test Gate 18/18 通过；无 mapping miss。",
-    "本地 8080 已切换到 5f6853cd1ee4，API/Worker healthy，worker_status=ready；新 promote/price-cap 路由和 ActorOps 前端产物已确认。",
-    "本轮部署和验证没有发起付费 Actor Run。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "修复 ActorOps 免费 Discovery 在候选含公开评分时写入不可变 Revision 引发的 AttributeError；评分/评分人数/使用人数改为同固定 Build 的静态证据一次冻结，并让旧池检查尊重管理员已保存的 Route 单次费用上限。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-discovery-quality-free-refresh",
-  "unresolved": [],
-  "validation": [
-    "Actor candidate-quality 与 discovery 定向回归 56/56 通过。",
-    "完整 Test Gate preflight 16/16 通过，含 Python 全集、前端 lint/typecheck/Vitest/build、产品文档与代码规模门禁。",
-    "Discovery 主文件由 2373 行降至 2362 行，run_discovery 由 756 行降至 743 行；未增加历史单体文件。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-14",
-  "result": "修正 ActorOps 单槽新增/替换的候选发现：这类操作只在免费静态安全检查后要求一名候选，完整池仍维持多发布者门槛；X、Instagram 与 YouTube 均保留同 Route 先前已通过静态检查的固定 Build，不会被后一次空搜索清空。兼容验证计划与候选展示统一使用管理员保存的 Route 上限，最高 $0.10。",
-  "status": "completed",
-  "task_id": "2026-08-14-actorops-single-slot-candidate-flow",
-  "unresolved": [],
-  "validation": [
-    "ActorOps quality、discovery、兼容与主备池定向 Pytest 81/81 通过。",
-    "完整 Test Gate preflight 16/16 通过（全量 Python、前端 lint/typecheck/Vitest/build、代码规模与文档门禁）。",
-    "未启动付费 Actor Run；待部署后只执行一次免费 X 候选刷新验证。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "将包含 ActorOps 主备池管理、单槽安全候选保留与前端平面化调整的本地 main 准备为 v2.3.3；正式发布仅在精确 SHA 的 GitHub Test Gate 和 Release Tag smoke 均成功后才切换 VPS。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3",
-  "unresolved": [],
-  "validation": [
-    "v2.3.3 是在既有 v2.3.2 标签后的补丁版本；本地 main 已包含 ActorOps 完整门禁通过的精确功能提交。",
-    "发布脚本会执行相对 v2.3.2 的预检、等待 main Test Gate、创建 tag、等待 tag API smoke，并在 VPS 仅 docker load 后验证 API、Worker 与前端 revision。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "在 v2.3.3 发布门禁前拆分 ServiceStore 订阅查询、API 测试 fixture/手动刷新场景和 Workbench Playwright mock，并将卡片展示派生逻辑独立，恢复不可增长的代码规模债务上限。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-code-health-gate",
-  "unresolved": [
-    "需在推送后重跑精确 main 的 GitHub 完整 Test Gate，成功后才能创建 v2.3.3 tag 与 VPS 部署。"
-  ],
-  "validation": [
-    "发布基线 b0083d38 的 code-size policy 对比通过，四个历史文件和两个 callable 的债务上限均未增加。",
-    "手动 Feed 刷新定向 Pytest 5/5、前端 typecheck、lint、VirtualFeed Vitest 36/36 与 Playwright test list 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "修复 ActorOps 发布包 E2E 的端口耦合、移动端视觉基线，并隔离 Insights 手动面板几何测试与首次自动展示之间的竞态。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-e2e-stability",
-  "unresolved": [],
-  "validation": [
-    "发布级 E2E 116 通过、55 按项目配置跳过；代码规模、控件与 diff 检查全部通过。",
-    "ActorOps 跨 desktop/tablet/mobile 的新增、替换、移出流程在生产构建端口上通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "将 ActorOps 移动端深色发布截图更新为 Linux 实际基线，并移除 Insights 关闭动画卸载窗口中的易失 inert 读取。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-linux-e2e-followup",
-  "unresolved": [],
-  "validation": [
-    "GitHub Linux UI E2E 工件确认两个测试根因：深色基线过期和关闭动画竞态。",
-    "本地发布构建下 Insights 与 ActorOps visual 定向回归 3 通过、1 按桌面限定跳过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "移除 Insights 关闭动画中已卸载面板的两个瞬态 aria 属性断言，仅保留用户可观察的关闭完成状态，并继续收紧旧测试文件规模上限。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.3-linux-e2e-race-removal",
-  "unresolved": [],
-  "validation": [
-    "GitHub Linux CI 工件定位为关闭动画竞态；不是产品接口或布局回归。",
-    "生产构建下同一 Insights 几何流程连续 5 次通过；代码规模检查通过，旧文件由 1801 降至 1799 行。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "architecture"
   ],
@@ -389,6 +110,274 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布工作流回归断言与代码规模策略定向 Pytest 14 项通过。",
     "相对 v2.3.3 的完整 preflight 18/18 通过，包含后端、前端、产品文档、控制文件和代码规模检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "YouTube 已改为来源 Canary 成功后的认证 Actor 主抓取，Atom 仅在该次 Actor 失败时降级；X 与通用 Actor 统一按发布时间倒序返回，并保留 Actor 水位证明。",
+  "status": "completed",
+  "task_id": "2026-08-17-stable-actor-subscriptions",
+  "unresolved": [],
+  "validation": [
+    "Pytest 39 项定向回归通过，覆盖 YouTube 来源绑定、Actor 主抓取、失败阻断、X/通用最新排序与缓存上下文。",
+    "代码规模、控制文件、产品文档、TypeScript 与 ESLint 检查通过；受影响完整 preflight 首轮发现旧订阅事务约束，修复后对应失败用例通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复已验证来源的目标级备用暂停误触发全 Route shortfall；X 可继续使用已实测成功主槽，YouTube 只接受能以 UC Channel ID 输入并证明频道身份的 Actor 合同。",
+  "status": "completed",
+  "task_id": "2026-08-17-source-bound-actor-runtime",
+  "unresolved": [
+    "完整受影响预检在未改动的 Remote MCP 用例出现一次偶发失败，单独重跑通过；未重复整套预检。"
+  ],
+  "validation": [
+    "X 两个真实 source binding 本地冻结验证：受影响来源保留主 Actor，另一来源保留主备。",
+    "ActorOps/来源采集/Worker 定向 Pytest 182 项、TypeScript、ESLint、控制文件和产品文档检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复 YouTube pending_validation binding 在启动 Actor 前直接失败的问题：未完成来源 Canary 时仍走免费 Atom/RSS，认证后才 Actor-first。",
+  "status": "completed",
+  "task_id": "2026-08-17-youtube-pending-binding-fallback",
+  "unresolved": [],
+  "validation": [
+    "YouTube fallback、来源采集、Worker 与 Actor runtime 定向 Pytest 61 项通过。",
+    "产品文档与代码规模检查通过；8080 将在提交后重建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复 ActorOps 候选与执行链路：候选选择区只显示已完成 Canary、费用对账和来源验证的固定 Build；未实测但免费合格的候选由服务端受控试跑。来源返回旧内容仅记录该来源目标退化，不再全局熔断 Actor；新增/替换 Canary 始终携带冻结的目标槽位，避免计划重算冲突。",
+  "status": "completed",
+  "task_id": "2026-08-17-actorops-certified-candidates",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 通过：完整 Pytest、79 个 Vitest 文件（684 项）、TypeScript、ESLint、生产前端构建、控制文件、产品文档与代码规模检查均通过。",
+    "本地容器重建后将进行无费用执行快照和受控 Canary 验收；Canary 是否成功取决于第三方 Actor 的实际返回与账单对账。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-17",
+  "result": "修复 ActorOps 免费 Discovery 只读取容器环境变量、而 Canary 从 SecretStore 读取 Apify Key 的断链；Discovery 现在复用运行时 SecretStore，重建后可继续按 Route 类型免费发现候选。同步更新候选实测规则说明与变更日志。",
+  "status": "completed",
+  "task_id": "2026-08-17-actorops-discovery-secretstore",
+  "unresolved": [
+    "本轮 X 的三个不同发布者候选均经受控 Canary 确认未返回可订阅动态，已终态排除；当前没有可安全加入 backup_2 的外部 Actor。"
+  ],
+  "validation": [
+    "新增 SecretStore 凭据解析单测；Actor Discovery 定向回归 53 项通过。",
+    "受影响 preflight 全部命令通过：全量受影响 Python、前端 lint/typecheck/Vitest、产品文档、代码规模与 E2E 合同检查。",
+    "待提交后重建 8080，并验证 API/Worker 健康、前端资产和 Discovery 的 SecretStore 凭据读取。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "修复 X 免费 Discovery 的终态候选计数：它现在复用候选选择器的资格判定，固定 Build 若有确定性 Canary 失败或已在当前主备池运行，会作为已排除计为 0，不再显示为可验证后又在下一步拒绝。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-x-candidate-count",
+  "unresolved": [
+    "当前 X 没有可安全加入 backup_2 的新 Build；已证伪的候选不会再触发付费验证。"
+  ],
+  "validation": [
+    "X 候选计数、Discovery 与兼容 Canary 定向 Pytest 69 项通过。",
+    "受影响 preflight 15/15 命令通过；待本地 8080 重建后进行实际免费 Discovery 验收。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "完成本地 X ActorOps 的端到端受控验收：免费 Discovery 仅保留一个安全候选，Canary 通过 Route 与两个启用来源验证后以原子方式补入 backup_2；随后真实来源更新成功，旧的 runnable Revision 失败不再复现。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-x-runtime-canary",
+  "unresolved": [
+    "当前来源持久化 fetch_limit 为 20；若 UI 仍显示 10，需要另行修复表单显示与保存值的同步。",
+    "YouTube 的外部 RSS/Atom 可靠性未包含在本次 X 验收内。"
+  ],
+  "validation": [
+    "付费 Canary：Route 与 2 个已启用 X 来源均为 valid_nonempty，实际结算 $0.0133746，低于 $0.30 上限。",
+    "真实 source_fetch 成功：抓取 20 条，入库 13 条，新增 8 条，并生成用户快照。",
+    "本地 8080 API/Worker 健康，运行 e0a4149b603d；此前定向 Pytest 69 项与受影响 preflight 15/15 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "修复跨平台 Actor Canary 边界：X 专用兼容流程已禁止用于非 X Route；YouTube 旧占位输出仅可在通过免费 Build/输入/价格/权限检查后，对固定公开频道执行一次受控 Canary，并从匹配的真实视频行生成无值、不可变 Manifest。自动计划只使用当前或安全回退 Discovery Run，并按公开评分/使用量选择，单槽替换只验证目标新槽。",
+  "status": "completed",
+  "task_id": "2026-08-18-youtube-observed-canary-routing",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 17/17 通过：全量 Pytest、Python 编译、前端 lint/typecheck/Vitest/build、控制文件、产品文档、代码规模与 E2E 合同检查。",
+    "对运行数据库只读演算：YouTube replace plan 正确排序 grow_media、scrapesmith、scrapestorm，单候选总批准上限 $0.04；尚未执行外部付费 Canary。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "修复 ActorOps 槽位实测计划的 Run 一致性：添加/替换槽位始终以当前槽位候选投影的 run_id 与 goal 生成 Canary 计划，不再误用旧工作流；同时禁止 YouTube/Instagram 将旧 legacy shortfall 投影为仅限 X 的 compatibility_single 流程。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-slot-plan-consistency",
+  "unresolved": [],
+  "validation": [
+    "YouTube/X ActorOps 定向 Pytest 41 项通过。",
+    "ActorOps 前端 Vitest 74 项、TypeScript typecheck 与 ESLint 通过。",
+    "后端与前端冻结文件代码规模检查、git diff --check 通过；待提交后重建 8080 验收当前遗留兼容阶段清理与实际 Canary 计划。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "ActorOps 浏览器候选目录仅发布已完成 Route、全部启用来源实测和费用对账的 Actor；选择只做零费用原子启用或替换。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-verified-catalog",
+  "unresolved": [],
+  "validation": [
+    "定向 Pytest 63 通过，前端 typecheck 与定向 Vitest 7 通过。",
+    "影响范围 preflight 17/17 通过，覆盖后端、前端、可观测性、控制面、文档和尺寸门禁。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "统一 ActorOps 三平台能力矩阵：X、Instagram、YouTube 均使用显式主抓取契约与 2 个不同发布者的最低健康池；YouTube 不再以 Atom/RSS fallback 或单 Actor 作为标准运行态。恢复流程会把 Worker 重启中断的 Run、验证、批次项、阶段与 Job 一起投影为可对账阻断，并仅以 GET 方式对已存在远端 Run 对账后继续原批准批次。",
+  "status": "completed",
+  "task_id": "2026-08-18-actorops-unified-primary-recovery",
+  "unresolved": [
+    "本地 YouTube 已存在的远端 Canary Run 会在新 Worker 启动后仅做状态/费用对账；若远端仍未终态，系统保持阻断且不新发付费 Run。"
+  ],
+  "validation": [
+    "完整 impacted preflight 17/17 通过，包含全量 Pytest、前端 typecheck/Vitest/build、E2E 合同、控制与产品文档检查。",
+    "新增重启恢复回归覆盖：未知启动会同时阻断 Validation、Batch item、Batch、Stage 和 Job；YouTube 旧 1/3 fallback 配置会收敛到注册的 primary 2/3 策略。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "为输出 Schema 不透明但免费安全条件已通过的 YouTube channel/items Actor 增加受控观察路径：先以真实目标进行一次受控 Canary，只有返回内容、身份和费用均完成核验后才生成可选的固定 Revision；同一 Build/Schema/价格的确定性付费失败会在免费发现阶段拦截。",
+  "status": "completed",
+  "task_id": "2026-08-18-youtube-observed-candidate-certification",
+  "unresolved": [],
+  "validation": [
+    "发现、Canary、池变更相关 Pytest 111 项通过。",
+    "前端类型、lint 与已验证候选筛选 Vitest 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-18",
+  "result": "允许历史遗留的单条已验证 Actor 池按第一个空槽受控补足第二条；补位仍须完成 Canary、费用对账和来源验证，当前池不会提前切换。",
+  "status": "completed",
+  "task_id": "2026-08-18-partial-pool-recovery",
+  "unresolved": [],
+  "validation": [
+    "Pool management、staging 与 API 回归 69 项通过。",
+    "前端 typecheck、lint、产品文档与代码规模检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-19",
+  "result": "已登记的 X、Instagram 与 YouTube ActorOps Route 以“每次获取条数”直接请求最新 N 条，不再把 Feed 的短显示窗口当作 Actor 抓取窗口；未知平台组合在创建 Actor 客户端前拒绝。YouTube 与此前失败的 X 来源均完成本地真实任务验收并返回 valid_nonempty。",
+  "status": "completed",
+  "task_id": "2026-08-19-actorops-latest-items-runtime",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 17/17 通过（完整 Python、Vitest、类型检查、构建与产品文档）。",
+    "本地 8080 revision 5301e4b4e070 健康；YouTube 获取 2 条/新增 1 条，X 获取 20 条/新增 1 条，最终 Actor 尝试均为 valid_nonempty。"
   ]
 }
 ```

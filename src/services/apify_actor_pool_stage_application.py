@@ -343,6 +343,7 @@ class ApifyActorPoolStageApplicationMixin:
                 allow_probationary_primary=True,
                 allow_compatibility_single=compatibility_single,
                 allow_compatibility_slot=compatibility_slot,
+                reactivate_verified_slots=True,
             )
             self._stage_application_record(
                 connection,

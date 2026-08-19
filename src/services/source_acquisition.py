@@ -130,8 +130,8 @@ def _actor_acquisition_origin(
 ) -> str | None:
     for item in items:
         metadata = item.metadata if isinstance(item.metadata, dict) else {}
-        if metadata.get("acquisition_origin") == "apify_fallback":
-            return "apify_fallback"
+        if metadata.get("acquisition_origin") in {"apify_actor", "apify_fallback"}:
+            return str(metadata["acquisition_origin"])
     if str(provider or "").strip() == "apify_social":
         return "apify_actor"
     if isinstance(getattr(items, "_apify_actor_route_generation", None), int):
@@ -481,8 +481,7 @@ class SourceAcquisitionCoordinator:
             """
             SELECT binding.route_id,
                    binding.generation AS binding_generation,
-                   profile.generation AS route_generation,
-                   binding.mode
+                   profile.generation AS route_generation
             FROM apify_source_route_bindings AS binding
             JOIN apify_actor_route_profiles AS profile
               ON profile.workspace_id = binding.workspace_id
@@ -495,10 +494,7 @@ class SourceAcquisitionCoordinator:
             apify_key_pool_enabled()
             and (
                 catalog["type"] == "apify_social"
-                or (
-                    actor_ops_binding is not None
-                    and str(actor_ops_binding["mode"]) == "fallback"
-                )
+                or actor_ops_binding is not None
             )
         )
         pool_generation = (

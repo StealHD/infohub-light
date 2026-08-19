@@ -49,6 +49,19 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
     ) => client.post<ApifyActorCanaryPlan>(
       `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`, payload,
     ),
+    activateVerifiedApifyActorPool: (
+      routeId: string,
+      payload: {
+        run_id: string
+        goal: ApifyActorPoolGoal
+        candidate_ids: string[]
+        expected_generation: number
+        target_slot_count: 1 | 2 | 3
+        target_slot?: Slot
+      },
+    ) => client.post<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/verified-pool-activation`, payload,
+    ),
     createApifyActorCanaryBatch: (runId: string, payload: ApifyActorCanaryBatchRequest) => (
       client.post<ApifyActorCanaryBatchResponse>(
         `${resource('/api/admin/apify-discovery-runs', runId)}/canary-batches`, payload,

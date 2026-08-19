@@ -14,10 +14,9 @@ from .apify_key_pool import (
     ApifyKeyPoolService,
     apify_key_pool_enabled,
 )
+from .apify_actor_slot_recovery import recover_source_proven_slots
 from .secret_quota import ApifySecretQuotaService, SecretQuotaError
 from .secret_store import SecretStore
-
-
 def _apify_utc_query_datetime(value: datetime) -> str:
     """Serialize one Apify date filter in its accepted UTC ``Z`` form."""
 
@@ -238,8 +237,6 @@ def reconcile_apify_pool_sync(
     """Synchronous Worker entrypoint kept outside the event-loop pipeline."""
 
     return asyncio.run(reconcile_apify_pool(coordinator))
-
-
 async def reconcile_all_apify_pools(
     store: ServiceStore,
     *,
@@ -257,6 +254,7 @@ async def reconcile_all_apify_pools(
     ]
     outcomes: list[dict[str, Any]] = []
     for workspace_id in workspace_ids:
+        recover_source_proven_slots(store, workspace_id=workspace_id)
         coordinator = apify_coordinator_for_workspace(
             store,
             workspace_id=workspace_id,

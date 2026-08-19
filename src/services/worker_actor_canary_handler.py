@@ -333,7 +333,17 @@ async def _run_route_items(
                 reason=ready_reason,
             )
             return ready_reason, None
-        if str(item.get("status")) in {"succeeded", "not_needed_no_charge"}:
+        # A restart recovery may resume this immutable batch after a prior
+        # remote Run settled as a deterministic failure.  Those terminal
+        # entries are evidence, not work: only untouched or successfully
+        # preflighted later items may be executed.
+        if str(item.get("status")) in {
+            "succeeded",
+            "not_needed_no_charge",
+            "failed",
+            "preflight_failed",
+            "blocked_unknown_start",
+        }:
             continue
         passed, stop_reason = await _preflight_item(context, item)
         if stop_reason:
