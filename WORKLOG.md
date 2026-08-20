@@ -12,28 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-18",
-  "result": "完成本地 X ActorOps 的端到端受控验收：免费 Discovery 仅保留一个安全候选，Canary 通过 Route 与两个启用来源验证后以原子方式补入 backup_2；随后真实来源更新成功，旧的 runnable Revision 失败不再复现。",
-  "status": "completed",
-  "task_id": "2026-08-18-actorops-x-runtime-canary",
-  "unresolved": [
-    "当前来源持久化 fetch_limit 为 20；若 UI 仍显示 10，需要另行修复表单显示与保存值的同步。",
-    "YouTube 的外部 RSS/Atom 可靠性未包含在本次 X 验收内。"
-  ],
-  "validation": [
-    "付费 Canary：Route 与 2 个已启用 X 来源均为 valid_nonempty，实际结算 $0.0133746，低于 $0.30 上限。",
-    "真实 source_fetch 成功：抓取 20 条，入库 13 条，新增 8 条，并生成用户快照。",
-    "本地 8080 API/Worker 健康，运行 e0a4149b603d；此前定向 Pytest 69 项与受影响 preflight 15/15 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-18",
   "result": "修复跨平台 Actor Canary 边界：X 专用兼容流程已禁止用于非 X Route；YouTube 旧占位输出仅可在通过免费 Build/输入/价格/权限检查后，对固定公开频道执行一次受控 Canary，并从匹配的真实视频行生成无值、不可变 Manifest。自动计划只使用当前或安全回退 Discovery Run，并按公开评分/使用量选择，单槽替换只验证目标新槽。",
   "status": "completed",
   "task_id": "2026-08-18-youtube-observed-canary-routing",
@@ -400,6 +378,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "新增三种 v1 终态 Attempt 的 migration 回归测试；迁移测试文件 12 项通过。",
     "唯一 impacted preflight 15/15 通过：Python、前端相关检查、产品文档、控制文件与代码规模检查均成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "执行 ActorOps v2 Phase 6 YouTube 本地迁移前检查：停止 API/Worker、跨 heartbeat 安全窗后运行一次有界既有 terminal Run 对账和本地费用投影。抽样 Provider GET 返回 404，历史远端费用无法证明；global 26 继续因 21 条 Attempt 未结费用、126 条 Run 未结费用和 1 个 running Batch fail closed。未执行 migration、shadow/active、Actor POST、来源获取或 VPS 发布；已恢复现役 v1 API/Worker healthy。",
+  "status": "blocked",
+  "task_id": "2026-08-21-actorops-v2-youtube-cutover-preflight",
+  "unresolved": [
+    "需要 Provider 可验证的历史 Run 费用结算或经人工审计的恢复路径；不得把 404 的历史 Run 费用伪造为零。"
+  ],
+  "validation": [
+    "本地 API/Worker 均恢复 Docker healthy，ready 端点成功。",
+    "迁移 dry-run 证明 global 25 未读取，且阻断计数保持精确。"
   ]
 }
 ```
