@@ -7,7 +7,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 
 from .....models import SourceType
 from ...domain import RouteKey
-from ...ports import ActorManifest, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
+from ...ports import ActorManifest, DiscoveryMapping, DiscoveryRevision, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
+from .._discovery import deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_channel_target
 
@@ -29,6 +30,16 @@ class YouTubeChannelItemsAdapter:
 
     def discovery_spec(self) -> DiscoverySpec:
         return DiscoverySpec(queries=("YouTube channel videos actor",))
+
+    def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
+        return deterministic_manifest(
+            revision,
+            input_keys=("channelUrl", "channel", "url"),
+            identity_field="source_native_id",
+            identity_pointer_keys=("channelId", "sourceId", "channel_id"),
+            identity_ref="target.native_id",
+            allowed_host="youtube.com",
+        )
 
     def build_actor_input(self, target, manifest, window):
         return build_input(target, manifest, window)

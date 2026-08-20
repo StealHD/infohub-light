@@ -24,6 +24,57 @@ class DiscoverySpec:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryRevision:
+    """Public, exact Actor Build facts needed for Discovery only."""
+
+    actor_id: str
+    publisher: str
+    build_id: str
+    build_number: str
+    price_per_run_usd: float | None
+    input_schema: Mapping[str, object]
+    output_schema: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryMapping:
+    """One deterministic or AI-assisted, non-runnable Manifest proposal."""
+
+    manifest_json: str | None
+    rejection_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryAiResult:
+    """Bounded AI result; raw prompts and model output are never retained."""
+
+    mappings: Mapping[str, DiscoveryMapping]
+    config_id: str | None = None
+    input_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    finish_reason: str | None = None
+    latency_ms: int | None = None
+    response_bytes: int | None = None
+
+
+class DiscoveryCatalog(Protocol):
+    """Read only public Store/Build metadata; it never starts an Actor Run."""
+
+    async def search(self, query: str) -> Sequence[str]: ...
+
+    async def get_revision(self, actor_id: str) -> DiscoveryRevision: ...
+
+
+class DiscoveryAiMapper(Protocol):
+    """Optional enhancement for candidates deterministic mapping cannot resolve."""
+
+    async def map(
+        self, route_key: RouteKey, revisions: Sequence[DiscoveryRevision]
+    ) -> DiscoveryAiResult: ...
+
+
+@dataclass(frozen=True, slots=True)
 class ActorManifest:
     actor_id: str
     build_id: str
@@ -178,6 +229,10 @@ class ActorRouteAdapter(Protocol):
     def normalize_target(self, source_config: Mapping[str, object]) -> TargetSpec: ...
 
     def discovery_spec(self) -> DiscoverySpec: ...
+
+    def map_discovery_manifest(
+        self, revision: DiscoveryRevision
+    ) -> DiscoveryMapping: ...
 
     def build_actor_input(
         self, target: TargetSpec, manifest: ActorManifest, window: FetchWindow

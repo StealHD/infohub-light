@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Phase 3; default-off reconciliation and Worker isolation change no user-facing behavior before platform cutover.
+// Reviewed for ActorOps v2 Phase 4; default-off Discovery checkpoints change no user-facing behavior before platform cutover.
 export type ManualStep = {
   title: string
   description: string

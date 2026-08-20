@@ -8,12 +8,15 @@ from .....models import SourceType
 from ...domain import RouteKey
 from ...ports import (
     ActorManifest,
+    DiscoveryMapping,
+    DiscoveryRevision,
     DiscoverySpec,
     FetchWindow,
     NativeFallbackResult,
     NormalizedBatch,
     TargetSpec,
 )
+from .._discovery import deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_profile_target
 
@@ -26,6 +29,16 @@ class XProfileItemsAdapter:
 
     def discovery_spec(self) -> DiscoverySpec:
         return DiscoverySpec(queries=("X profile posts actor",))
+
+    def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
+        return deterministic_manifest(
+            revision,
+            input_keys=("profile", "username", "handle"),
+            identity_field="author_handle",
+            identity_pointer_keys=("author", "authorHandle", "username", "handle"),
+            identity_ref="target.handle",
+            allowed_host="x.com",
+        )
 
     def build_actor_input(self, target, manifest, window):
         return build_input(target, manifest, window)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from typing import Iterator
 
 from .domain import (
@@ -30,11 +29,6 @@ from .repository_errors import (
     ActorOpsNotFound,
     ActorOpsRepositoryError,
 )
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
 
 class ActorOpsRepository:
     def __init__(self, connection: sqlite3.Connection, workspace_id: str) -> None:
@@ -354,6 +348,10 @@ class ActorOpsRepository:
     def mark_reconciliation_error(self, attempt_id: str, **values: object) -> None:
         _attempts.mark_reconciliation_error(self, attempt_id, **values)
 
+    @property
+    def discovery(self) -> _discovery.DiscoveryRepository:
+        return _discovery.DiscoveryRepository(self)
+
     def create_discovery_job(
         self,
         *,
@@ -363,8 +361,7 @@ class ActorOpsRepository:
         trigger_reason: str,
         input_fingerprint: str,
     ) -> None:
-        _discovery.create(
-            self,
+        self.discovery.create(
             discovery_id=discovery_id,
             idempotency_key=idempotency_key,
             route_id=route_id,

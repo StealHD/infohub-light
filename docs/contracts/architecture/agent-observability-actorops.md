@@ -72,7 +72,7 @@ ActorOps feature schema v15 依赖 v13/v14，已有数据库普通初始化不�
 
 ### 3.6K ActorOps v2 计划适配器边界
 
-Phase 3 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag、global 26、只读 Reconciler 与 Worker claim 隔离；Discovery、站立授权、API/UI 投影和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。v2 使用通用编排服务调用每个订阅能力独立的 Adapter，不使用承载默认实现的大型继承基类。
+Phase 4 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag、global 26、只读 Reconciler、Worker claim 隔离与可恢复 Discovery。Discovery 只使用 Catalog Port 的 Store/Actor/Build 元数据读取；每个 checkpoint 仅保留有界安全引用和 hash，具体平台 Schema→Manifest 映射留在订阅类型 Adapter，AI 输出必须再次通过 exact Schema。站立授权、API/UI 投影和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。
 
 ```text
 src/services/actorops/

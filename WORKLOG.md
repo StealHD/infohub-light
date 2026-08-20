@@ -11,23 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-17",
-  "result": "修复 YouTube pending_validation binding 在启动 Actor 前直接失败的问题：未完成来源 Canary 时仍走免费 Atom/RSS，认证后才 Actor-first。",
-  "status": "completed",
-  "task_id": "2026-08-17-youtube-pending-binding-fallback",
-  "unresolved": [],
-  "validation": [
-    "YouTube fallback、来源采集、Worker 与 Actor runtime 定向 Pytest 61 项通过。",
-    "产品文档与代码规模检查通过；8080 将在提交后重建。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-17",
   "result": "修复 ActorOps 候选与执行链路：候选选择区只显示已完成 Canary、费用对账和来源验证的固定 Build；未实测但免费合格的候选由服务端受控试跑。来源返回旧内容仅记录该来源目标退化，不再全局熔断 Actor；新增/替换 Canary 始终携带冻结的目标槽位，避免计划重算冲突。",
   "status": "completed",
   "task_id": "2026-08-17-actorops-certified-candidates",
@@ -393,6 +376,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2 Reconciler/ledger/runtime、Worker isolation、v1 pool/restart/readiness/source-acquisition 定向 Pytest 通过。",
     "impacted preflight 17/17 通过；代码大小、Markdown、init-pro schema 3、product-doc review 与 git diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "完成 ActorOps v2 Phase 4：新增可恢复 Discovery 的安全 checkpoint、exact Build/Schema 验证、确定性优先 Manifest 映射和非关键 AI 补充；新增只读 Apify Catalog 边界和独立 v2 Discovery Worker Job。默认 flag/Route disabled 不变，不启动 Actor、Probe 或费用预留。",
+  "status": "completed",
+  "task_id": "2026-08-20-actorops-v2-phase4",
+  "unresolved": [],
+  "validation": [
+    "ActorOps v2 Discovery/Catalog/Repository/Adapter、Worker v2 Discovery、Phase 2/3 和 v1 Discovery/Worker 定向 Pytest 通过。",
+    "impacted preflight 17/17 命令通过；Markdown、init-pro schema、worklog、JSON 与 diff 校验通过。"
   ]
 }
 ```

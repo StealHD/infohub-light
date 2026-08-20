@@ -6,7 +6,8 @@ from collections.abc import Mapping, Sequence
 
 from .....models import SourceType
 from ...domain import RouteKey
-from ...ports import ActorManifest, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
+from ...ports import ActorManifest, DiscoveryMapping, DiscoveryRevision, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
+from .._discovery import deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_profile_target
 
@@ -19,6 +20,16 @@ class InstagramProfileItemsAdapter:
 
     def discovery_spec(self) -> DiscoverySpec:
         return DiscoverySpec(queries=("Instagram profile posts actor",))
+
+    def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
+        return deterministic_manifest(
+            revision,
+            input_keys=("username", "profile", "handle"),
+            identity_field="author_handle",
+            identity_pointer_keys=("author", "username", "ownerUsername", "handle"),
+            identity_ref="target.handle",
+            allowed_host="instagram.com",
+        )
 
     def build_actor_input(self, target, manifest, window):
         return build_input(target, manifest, window)

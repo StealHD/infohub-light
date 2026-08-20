@@ -202,3 +202,11 @@ backfill 只读取 global 17–24：
 - 远端成功但丢失 publication proof 终结为安全失败，不推进 Feed、LKG 或水位；已结算/未结算逻辑重放分别返回稳定 settled/recovery 错误，均不再次 POST；
 - Worker 先 claim 普通 Job，Provider/v1/v2 reconcile 移至 post-job 或 idle housekeeping，异常按 workspace/组件隔离；不新增 Job 类型、global schema、API/UI 或平台切流；
 - 下一阶段为可恢复 Discovery checkpoint，不改变默认 flag、Route disabled 或真实来源流量。
+
+## 11. Phase 4 实施结果
+
+- 通用 Discovery 使用 Store Search、Metadata、Validation、Mapping、Ranking、Persist 六个单调阶段；checkpoint 只保存安全 Actor/Build/Schema hash、Candidate ID、rank 和 rejection 摘要，恢复不回退 stage；
+- X Profile Items、Instagram Profile Items、YouTube Channel Items 分别提供 schema-proven 确定性 Manifest 映射；通用层没有平台条件，AI 只补充 unresolved mapping 并经 exact Schema 复核；
+- `mapping_pending`、`static_valid` 和 `rejected` Candidate 均保持 inactive，不创建 Actor Run、Probe、Dataset、费用 reservation 或 Route assignment；
+- Worker 只在 flag 开启且 idle housekeeping 时有界入队既有 `actorops_v2_discovery` Job；flag=false 不读 global 26/global 25，v1 Discovery handler 和表不变；
+- 下一阶段为站立授权，不改变默认 flag、Route disabled 或真实来源流量。

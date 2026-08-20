@@ -44,6 +44,7 @@ from .worker_actor_discovery_handler import (
     actor_discovery_queries as _actor_discovery_queries,
     run_actor_discovery,
 )
+from .worker_actorops_v2_discovery import run_actorops_v2_discovery
 from .worker_actor_validation_handler import (
     WorkerActorValidationPorts,
     actor_freshness_check_id as _actor_freshness_check_id,
@@ -110,14 +111,11 @@ WORKER_JOB_TRACE_POLICY = {
     "apify_actor_canary_batch": "job_lifecycle_only",
     "apify_actor_freshness_check": "job_lifecycle_only",
     "apify_actor_discovery": "job_lifecycle_only",
+    "actorops_v2_discovery": "job_lifecycle_only",
 }
 
 
-def _source_payload_from_catalog(
-    job: dict[str, Any],
-    *,
-    store: ServiceStore,
-) -> dict[str, Any]:
+def _source_payload_from_catalog(job: dict[str, Any], *, store: ServiceStore) -> dict[str, Any]:
     return source_payload_from_catalog(job, store=store)
 
 
@@ -423,6 +421,7 @@ def _run_job(
         ports=WorkerHandlerPorts(
             actor_handlers={
                 "apify_actor_discovery": _run_apify_actor_discovery,
+                "actorops_v2_discovery": run_actorops_v2_discovery,
                 "apify_actor_validation": _run_apify_actor_validation,
                 "apify_actor_canary_batch": _run_apify_actor_canary_batch,
                 "apify_actor_freshness_check": _run_apify_actor_freshness_check,

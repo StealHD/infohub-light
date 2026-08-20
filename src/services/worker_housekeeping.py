@@ -251,6 +251,13 @@ def run_worker_housekeeping(
         except Exception:
             _rollback(store)
             logger.warning("Worker housekeeping failed stage=%s", stage, exc_info=True)
+    try:
+        from .worker_actorops_v2_discovery import enqueue_due_actorops_v2_discoveries
+
+        enqueue_due_actorops_v2_discoveries(store, queue)
+    except Exception:
+        _rollback(store)
+        logger.warning("ActorOps v2 Discovery enqueue failed", exc_info=True)
 
 
 __all__ = ["WorkerCyclePorts", "run_worker_housekeeping"]
