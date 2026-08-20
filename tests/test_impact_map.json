@@ -202,6 +202,7 @@
         "src/services/worker_actorops_v2_maintenance.py",
         "src/storage/actorops_v2*.py",
         "scripts/migrate_actorops_v2.py",
+        "scripts/audit_actorops_v2_legacy_costs.py",
         "tests/test_actorops_v2*.py",
         "tests/test_worker_actorops_v2_isolation.py",
         "tests/test_worker_actorops_v2_discovery.py",

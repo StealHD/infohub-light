@@ -38,7 +38,7 @@
 4. **Phase 3 — 已完成：统一对账与 Worker 隔离**：单一 Reconciler 只读取和结算既有远端 Run；unknown start 只冻结对应 Attempt/费用预留，Actor 控制任务不再成为普通 Fetch claim 的同步前置。
 5. **Phase 4 — 已完成：可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存安全 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成；不启动 Actor、Probe 或切流。
 6. **Phase 5 — 已完成：站立授权**：默认关闭，Owner/Admin 双策略授权后才按每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00` 的上限执行单 Candidate Probe；免费 exact-revision 预检、原子预算 reservation、自动补 Standby 与非最后一路替换均已实现，最后一个可运行 Actor 永不自动移除。无 HTTP API/UI，未执行真实调用。
-7. **Phase 6 — 当前：平台切换**：离线 Route CAS 只允许相邻 mode，`scripts/actorops_v2_cutover.py` 先输出 marker/shape、v1/v2 摘要、费用 blocker 与每平台精确授权上限。收到各平台单独费用确认后，才按 YouTube、Instagram、X 顺序执行一次 migration/backfill、shadow、20 次自然获取和 3 次重启验收；shadow 不得额外启动付费 Actor，平台观察期保留冻结 v1 回退快照。未确认前所有 Route 保持 disabled。
+7. **Phase 6 — 当前：平台切换前历史费用隔离**：离线 Route CAS 只允许相邻 mode。`scripts/audit_actorops_v2_legacy_costs.py` 先以只读、最多 20 次 authenticated GET 核对 legacy terminal Run：仅精确 `usageTotalUsd` 可结算；远端 404 只写可审计 quarantine code 并保留 `cost_final=false` 和最坏预留，401/403/429/5xx/timeout、unknown-start 与非终态继续阻断。它的 `snapshot` 建立 `0600` backup 和无 target/Secret/Run ID 的 evidence hash；只有 API/Worker 停止、`--services-stopped`、heartbeat 过窗、`--apply --expected-evidence-hash --confirm-upper-bound-usd` 才能隔离。global 26 migration 随后只忽略这些精确终态 quarantine，仍输出历史未知费用上限。收到每个平台单独费用确认后，才按 YouTube、Instagram、X 顺序执行一次 migration/backfill、shadow、20 次自然获取和 3 次重启验收；shadow 不得额外启动付费 Actor，未确认前所有 Route 保持 disabled。
 8. **Phase 7 — API/UI 收敛**：现有 `/api/admin/apify-*` 路径先作兼容 facade，新增健康、Active/Standby/LKG、degraded reason 与维护策略投影；UI 不再直接展示 Batch、Stage 和多层 generation。
 9. **Phase 8 — 删除旧链与完整门禁**：删除 Mixin、`globals().update()`、重复 Router 和三套恢复链；保留历史迁移和只读审计，运行完整代码、迁移、chaos、Playwright 与控制面门禁。
 

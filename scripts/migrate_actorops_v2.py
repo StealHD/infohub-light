@@ -46,13 +46,41 @@ _BLOCKER_QUERIES = {
             'failed','cancelled'
         )""",
     "attempt_costs": """SELECT COUNT(*) FROM apify_actor_attempts
-        WHERE cost_final = 0 AND (actual_cost_usd IS NOT NULL OR reserved_usd > 0)""",
+        WHERE cost_final = 0 AND (actual_cost_usd IS NOT NULL OR reserved_usd > 0)
+          AND NOT (
+              status IN ('succeeded','valid_empty','actor_failed','target_failed','failed','cancelled')
+              AND (
+                  (
+                      COALESCE(last_error_code, '') = 'apify_historical_cost_quarantined'
+                      AND EXISTS (
+                          SELECT 1 FROM apify_actor_runs AS run
+                          WHERE run.logical_run_id = apify_actor_attempts.id
+                            AND run.remote_run_id IS NOT NULL
+                            AND run.status IN ('succeeded','failed','aborted','timed_out','cancelled','start_rejected')
+                            AND run.last_error_code = 'apify_historical_cost_quarantined'
+                      )
+                  )
+                  OR (
+                      COALESCE(last_error_code, '') = 'apify_historical_attempt_ledger_missing'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM apify_actor_runs AS run
+                          WHERE run.logical_run_id = apify_actor_attempts.id
+                            AND run.remote_run_id IS NOT NULL
+                      )
+                  )
+              )
+          )""",
     "runs": """SELECT COUNT(*) FROM apify_actor_runs
         WHERE status IN ('reserved','starting','running','aborting','start_outcome_unknown')""",
     "run_costs": """SELECT COUNT(*) FROM apify_actor_runs
         WHERE charge_final = 0
           AND (remote_run_id IS NOT NULL OR charge_actual_usd IS NOT NULL
-               OR charge_reserved_usd > 0)""",
+               OR charge_reserved_usd > 0)
+          AND NOT (
+              status IN ('succeeded','failed','aborted','timed_out','cancelled','start_rejected')
+              AND remote_run_id IS NOT NULL
+              AND COALESCE(last_error_code, '') = 'apify_historical_cost_quarantined'
+          )""",
     "validations": """SELECT COUNT(*) FROM apify_actor_validations
         WHERE status IN ('queued','running','blocked_unknown_start')""",
     "batches": """SELECT COUNT(*) FROM apify_actor_canary_batches
@@ -108,6 +136,38 @@ def migration_blockers(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def quarantine_summary(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Expose retained historical exposure without treating it as settled cost."""
+
+    run_upper = float(connection.execute(
+        """SELECT COALESCE(SUM(charge_reserved_usd), 0) FROM apify_actor_runs
+           WHERE charge_final=0 AND last_error_code='apify_historical_cost_quarantined'
+             AND status IN ('succeeded','failed','aborted','timed_out','cancelled','start_rejected')"""
+    ).fetchone()[0] or 0)
+    orphan_upper = float(connection.execute(
+        """SELECT COALESCE(SUM(reserved_usd), 0) FROM apify_actor_attempts AS attempt
+           WHERE cost_final=0 AND last_error_code='apify_historical_attempt_ledger_missing'
+             AND NOT EXISTS (
+                 SELECT 1 FROM apify_actor_runs AS run
+                 WHERE run.logical_run_id=attempt.id AND run.remote_run_id IS NOT NULL
+             )"""
+    ).fetchone()[0] or 0)
+    batch_upper = float(connection.execute(
+        """SELECT COALESCE(SUM(max_total_charge_usd), 0) FROM apify_actor_canary_batches
+           WHERE status='partial' AND stop_reason='apify_historical_evidence_unrecoverable'
+             AND cost_final=0"""
+    ).fetchone()[0] or 0)
+    return {
+        "quarantined_runs": int(connection.execute(
+            "SELECT COUNT(*) FROM apify_actor_runs WHERE last_error_code='apify_historical_cost_quarantined'"
+        ).fetchone()[0]),
+        "quarantined_attempts": int(connection.execute(
+            "SELECT COUNT(*) FROM apify_actor_attempts WHERE last_error_code='apify_historical_attempt_ledger_missing'"
+        ).fetchone()[0]),
+        "historical_unknown_upper_bound_usd": round(run_upper + orphan_upper + batch_upper, 6),
+    }
+
+
 def _preview(database: Path) -> dict[str, Any]:
     connection = _connect(database, read_only=True)
     try:
@@ -115,6 +175,7 @@ def _preview(database: Path) -> dict[str, Any]:
         if state == "ready":
             return {"status": "already_migrated", "required": False}
         blockers = migration_blockers(connection)
+        quarantine = quarantine_summary(connection)
     finally:
         connection.close()
     workers = active_workers_fail_closed(database)
@@ -125,6 +186,7 @@ def _preview(database: Path) -> dict[str, Any]:
         "status": "blocked" if blocking else "migration_required",
         "required": True,
         "blocker_counts": blocking,
+        "quarantine": quarantine,
         "global_24_ready": True,
         "global_25_ignored": True,
     }

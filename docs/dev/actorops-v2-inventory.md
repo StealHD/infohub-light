@@ -225,3 +225,9 @@ backfill 只读取 global 17–24：
 - `scripts/actorops_v2_cutover.py` 只读汇总 global 26 marker/shape、Route health、runnable 顺序、Binding readiness、v1/v2 摘要、费用与 blocker；可创建 `0600` 私有 SQLite backup，且只有显式 apply 才切 mode。它不查询 global 25，也不调用来源、Actor、AI、通知或 Feed。
 - shadow 选择仅发出无值 operation event 后继续 v1；跨 v1/v2 的 X/Instagram 内容身份统一，YouTube 保持 RSS identity。YouTube 旧 RSS wrapper 遇到 v2 handle 直达通用 v2 executor，避免把 v2 snapshot 交给 v1 Runtime。
 - 下一步仍是本地离线 migration/摘要对照，并在每个 Route 输出精确 `20 × candidate × cap` 后逐平台取得费用确认；截至本文更新没有真实 shadow、active、20 次自然获取或重启验收证据，因此 `PLAN.md` 继续停在 Phase 6。
+
+## 14. Phase 6R 历史费用隔离（未执行真实写入）
+
+- `src/services/actorops/legacy_cost_audit.py` 以加盐 opaque fact、状态/更新时间 CAS 和精确 evidence hash 区分三类结果：远端 200 只写返回的实际费用；404 只保留原预留和 `cost_final=false`；认证、限流、服务端/网络错误及所有 nonterminal/unknown 继续阻断。
+- `scripts/audit_actorops_v2_legacy_costs.py` 每轮最多读取 20 个已知 Run，唯一网络动作是 authenticated GET。snapshot/写入前要求 API/Worker 停止；snapshot 与 apply 都建立 `0600` backup，写入另要求 heartbeat 窗和显式 evidence hash/最坏费用确认。证据不含 target、Secret、remote Run ID 或 Manifest。
+- `scripts/migrate_actorops_v2.py` 仅对带精确安全 code 且仍满足终态/关联约束的历史事实解除费用 blocker，并持续输出 quarantine count 与 `historical_unknown_upper_bound_usd`；它不将隔离记为 cost final，也不改变 global 26 七表或 global 25 惰性边界。

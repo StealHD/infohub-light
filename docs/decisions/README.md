@@ -170,3 +170,4 @@
 | D164 | ActorOps v2 Discovery 以安全 checkpoint 和确定性优先恢复 | 2026-08-20 | [查看](records/D151-D175.md#d164) |
 | D165 | ActorOps v2 站立维护采用双授权、单 Probe 与最后一路保护 | 2026-08-20 | [查看](records/D151-D175.md#d165) |
 | D166 | ActorOps v2 以离线 Route CAS 和逐平台费用授权切流 | 2026-08-20 | [查看](records/D151-D175.md#d166) |
+| D167 | 历史 Actor 费用以保留最坏暴露的离线证据隔离 | 2026-08-21 | [查看](records/D151-D175.md#d167) |

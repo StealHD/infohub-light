@@ -9,43 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-18",
-  "result": "修复跨平台 Actor Canary 边界：X 专用兼容流程已禁止用于非 X Route；YouTube 旧占位输出仅可在通过免费 Build/输入/价格/权限检查后，对固定公开频道执行一次受控 Canary，并从匹配的真实视频行生成无值、不可变 Manifest。自动计划只使用当前或安全回退 Discovery Run，并按公开评分/使用量选择，单槽替换只验证目标新槽。",
-  "status": "completed",
-  "task_id": "2026-08-18-youtube-observed-canary-routing",
-  "unresolved": [],
-  "validation": [
-    "完整 impacted preflight 17/17 通过：全量 Pytest、Python 编译、前端 lint/typecheck/Vitest/build、控制文件、产品文档、代码规模与 E2E 合同检查。",
-    "对运行数据库只读演算：YouTube replace plan 正确排序 grow_media、scrapesmith、scrapestorm，单候选总批准上限 $0.04；尚未执行外部付费 Canary。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-18",
-  "result": "修复 ActorOps 槽位实测计划的 Run 一致性：添加/替换槽位始终以当前槽位候选投影的 run_id 与 goal 生成 Canary 计划，不再误用旧工作流；同时禁止 YouTube/Instagram 将旧 legacy shortfall 投影为仅限 X 的 compatibility_single 流程。",
-  "status": "completed",
-  "task_id": "2026-08-18-actorops-slot-plan-consistency",
-  "unresolved": [],
-  "validation": [
-    "YouTube/X ActorOps 定向 Pytest 41 项通过。",
-    "ActorOps 前端 Vitest 74 项、TypeScript typecheck 与 ESLint 通过。",
-    "后端与前端冻结文件代码规模检查、git diff --check 通过；待提交后重建 8080 验收当前遗留兼容阶段清理与实际 Canary 计划。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface",
     "ui"
   ],
@@ -397,6 +360,46 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "本地 API/Worker 均恢复 Docker healthy，ready 端点成功。",
     "迁移 dry-run 证明 global 25 未读取，且阻断计数保持精确。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "实现 Phase 6R 历史 Actor 费用审计与隔离：新增仅 GET、最多 20 条的安全证据 CLI；200 才精确结算，404 保留最坏预留并写 quarantine code，未知/认证/限流/非终态继续阻断；迁移仅对精确终态隔离事实解除费用 blocker。未对本地运行数据库执行 scan、snapshot、apply 或 global 26 migration。",
+  "status": "partial",
+  "task_id": "2026-08-21-actorops-v2-legacy-cost-isolation",
+  "unresolved": [
+    "需要在已提交 revision 上运行真实只读 scan，取得 evidence hash 与最坏费用上限后，等待单独确认才可 snapshot/quarantine apply。"
+  ],
+  "validation": [
+    "ActorOps v2 legacy audit、migration 与 cutover 定向测试 33 项通过。",
+    "impacted preflight 静态门禁 7/7 通过；Markdown、schema-v3 controls、worklog 与 diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "在提交 3e7db56 上对本地运行数据库执行一次只读 legacy cost scan：最多 20 条已知 terminal Run 的 authenticated GET 均返回 404，未写数据库、未创建 evidence/backup 文件、未执行 quarantine apply、global 26 migration、shadow、active 或来源获取。",
+  "status": "blocked",
+  "task_id": "2026-08-21-actorops-v2-legacy-cost-scan",
+  "unresolved": [
+    "必须先取得对 evidence hash a69e48e944bae5322ad3c80f88e8d5092a0b1b8b35f8ff39d7993fb27d0b07cf 和 USD 1.24 的明确确认，才可停服务、跨 heartbeat、snapshot/quarantine 这一批；之后仍需分批扫描/确认剩余 106 条 Run。"
+  ],
+  "validation": [
+    "scan evidence_hash=a69e48e944bae5322ad3c80f88e8d5092a0b1b8b35f8ff39d7993fb27d0b07cf；safe counts 为 quarantine_run=20、quarantine_attempt=17、quarantine_batch=1，remaining_remote_runs=106。",
+    "本批 historical unknown upper bound 为 USD 1.24；该值是未结预留的保守上限，不是已结算或可用余额。"
   ]
 }
 ```
