@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -15,16 +14,11 @@ from .apify_key_pool import (
     apify_key_pool_enabled,
 )
 from .apify_actor_slot_recovery import recover_source_proven_slots
+from .apify_registered_run_reconciliation import (
+    reconcile_blocked_unknown_start_pool,
+)
 from .secret_quota import ApifySecretQuotaService, SecretQuotaError
 from .secret_store import SecretStore
-def _apify_utc_query_datetime(value: datetime) -> str:
-    """Serialize one Apify date filter in its accepted UTC ``Z`` form."""
-
-    return (
-        value.astimezone(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
-    )
 
 
 def apify_coordinator_for_workspace(
@@ -60,67 +54,9 @@ async def reconcile_apify_pool(
     state = coordinator.public_state(workspace_id)
 
     if state["status"] == "blocked":
-        recoverable_reasons = {
-            "start_outcome_unknown",
-            "apify_start_outcome_unknown",
-            "apify_start_http_outcome_unknown",
-            "apify_restart_start_outcome_unknown",
-        }
-        if str(state.get("blocked_reason") or "") not in recoverable_reasons:
-            return state
-        unknown_runs = [
-            run
-            for run in coordinator.list_nonterminal_runs(workspace_id)
-            if str(run.get("status") or "") == "start_outcome_unknown"
-            and not run.get("remote_run_id")
-        ]
-        if not unknown_runs:
-            return state
-        timeout = httpx.Timeout(15.0, connect=5.0)
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            transport=http_transport,
-            trust_env=False,
-        ) as http_client:
-            client = ApifyClient(
-                coordinator=coordinator,
-                http_client=http_client,
-                retry_base_delay=1.0,
-            )
-            for run in unknown_runs:
-                try:
-                    created_at = datetime.fromisoformat(
-                        str(run["created_at"]).replace("Z", "+00:00")
-                    )
-                    unknown_at = datetime.fromisoformat(
-                        str(run["updated_at"]).replace("Z", "+00:00")
-                    )
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
-                    if unknown_at.tzinfo is None:
-                        unknown_at = unknown_at.replace(tzinfo=timezone.utc)
-                except (KeyError, ValueError):
-                    return coordinator.public_state(workspace_id)
-                unknown_at = unknown_at.astimezone(timezone.utc)
-                if datetime.now(timezone.utc) < unknown_at + timedelta(seconds=30):
-                    return coordinator.public_state(workspace_id)
-                lease = coordinator.lease_for_run(str(run["id"]))
-                proved_empty = await client.prove_no_user_run_in_window(
-                    lease,
-                    started_after=_apify_utc_query_datetime(
-                        created_at - timedelta(seconds=5)
-                    ),
-                    # Freeze the proof window at the same 30-second safety
-                    # boundary used above. A delayed Worker pass must not mix
-                    # unrelated account Runs into an old ambiguous start.
-                    started_before=_apify_utc_query_datetime(
-                        unknown_at + timedelta(seconds=30)
-                    ),
-                )
-                if not proved_empty:
-                    return coordinator.public_state(workspace_id)
-                coordinator.confirm_start_not_created(lease)
-        state = coordinator.public_state(workspace_id)
+        state = await reconcile_blocked_unknown_start_pool(
+            coordinator, http_transport=http_transport,
+        )
         if state["status"] == "blocked":
             return state
 
@@ -185,7 +121,7 @@ async def reconcile_apify_pool(
             for run in settlement_rows:
                 try:
                     lease = coordinator.lease_for_run(str(run["id"]))
-                    await client.refresh_terminal_run_accounting(
+                    await client.refresh_registered_run_status(
                         lease,
                         str(run["remote_run_id"]),
                     )

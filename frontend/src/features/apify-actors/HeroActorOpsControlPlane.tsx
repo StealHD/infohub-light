@@ -65,6 +65,7 @@ import {
   ActorOpsRollbackConfirmationDialog,
   ActorOpsSourceActivationConfirmationDialog,
   ActorOpsSourceCanaryConfirmationDialog,
+  ActorOpsVerifiedActivationConfirmationDialog,
   HumanActorErrorNotice,
 } from './ActorOpsWorkflowDialogs'
 import { ActorOpsPoolSlots, ActorOpsRemovePoolDialog, ActorStoreQuality } from './ActorOpsPoolManagementControls'
@@ -72,8 +73,9 @@ import { actorPickerCandidates } from './actorOpsCandidatePicker'
 import { actorOpsPoolPlanTarget } from './actorOpsPoolPlanTarget'
 import { actorOpsWorkflowIntent } from './actorOpsWorkflowIntent'
 import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
-import { useActorOpsAutoPoolCompletion } from './useActorOpsAutoPoolCompletion'
+import { useActorOpsDiscoveryCompletionRefresh } from './useActorOpsDiscoveryCompletionRefresh'
 import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
+import { useActorOpsVerifiedActivation } from './useActorOpsVerifiedActivation'
 import {
   poolCandidatePricingLabel,
   routeMinimumActors,
@@ -402,7 +404,7 @@ function RevisionHistory({
   actionPending,
 }: {
   detail: ApifyActorRouteDetail
-  onRollback: (revision: ApifyActorRevisionSummary) => void
+  onRollback: (revision: ApifyActorRevisionSummary, trigger: HTMLButtonElement) => void
   actionPending: boolean
 }) {
   const activeRevisionIds = new Set(
@@ -443,7 +445,7 @@ function RevisionHistory({
             size="sm"
             variant="secondary"
             isDisabled={actionPending || !revision.can_activate}
-            onPress={() => onRollback(revision)}
+            onPress={(event) => onRollback(revision, event.target as HTMLButtonElement)}
           ><Icons.RotateCcw size={14} aria-hidden="true" />回滚到此 Revision</Button>
         </li>)}
       </ol>}
@@ -952,11 +954,6 @@ export function HeroActorOpsControlPlane({
     : 'pool'
   const requestedProfileId = searchParams.get('route') || ''
   const selectedSourceId = tab === 'sources' ? searchParams.get('source') || '' : ''
-  const [routeCapDraftState, setRouteCapDraftState] = useState<{
-    routeId: string
-    generation: number
-    value: string
-  } | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false)
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false)
@@ -977,12 +974,11 @@ export function HeroActorOpsControlPlane({
   const [sourceActivationOpen, setSourceActivationOpen] = useState(false)
   const [rollbackRevision, setRollbackRevision] = useState<ApifyActorRevisionSummary | null>(null)
   const [rollbackSlot, setRollbackSlot] = useState<ApifyActorSlotName>('primary')
-  const [autoPoolRunId, setAutoPoolRunId] = useState('')
-  const [autoPoolError, setAutoPoolError] = useState<HumanActorError | null>(null)
   const batchTriggerRef = useRef<HTMLButtonElement | null>(null)
   const candidateTriggerRef = useRef<HTMLButtonElement | null>(null)
   const activationTriggerRef = useRef<HTMLButtonElement | null>(null)
   const canaryTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const rollbackTriggerRef = useRef<HTMLButtonElement | null>(null)
   const sourceActivationTriggerRef = useRef<HTMLButtonElement | null>(null)
   const sourceDetailHeadingRef = useRef<HTMLDivElement | null>(null)
 
@@ -1028,7 +1024,7 @@ export function HeroActorOpsControlPlane({
     setCandidateError,
     refreshSelected,
   })
-  const { clearSlotOperation, slotOperation, removeTarget, removePoolSlot } = poolManagement
+  const { slotOperation, removeTarget, removePoolSlot } = poolManagement
   const workflow = detail?.workflow ?? selectedSummary?.workflow
   const minimumActors = detail
     ? routeMinimumActors(detail)
@@ -1078,6 +1074,18 @@ export function HeroActorOpsControlPlane({
     pickerOpen: candidatePickerOpen,
     selectedCandidateIds,
   })
+  const verifiedActivation = useActorOpsVerifiedActivation({
+    candidates: candidatesQuery.data, selectedCandidateIds: activeSelectedCandidateIds,
+    detail, candidateGoal, targetSlot: candidateTargetSlot,
+    onActivated: () => {
+      setCandidatePickerOpen(false)
+      setCandidateError(null)
+      poolManagement.clearSlotOperation()
+      restoreCandidateFocus()
+    },
+    onClosed: restoreCandidateFocus,
+    onStale: refreshSelected,
+  })
 
   const batchQuery = useQuery({
     queryKey: queryKeys.apifyActorCanaryBatch(user.id, activeBatchId),
@@ -1123,25 +1131,12 @@ export function HeroActorOpsControlPlane({
     sourceDetailHeadingRef.current?.focus({ preventScroll: true })
   }, [selectedSourceId, selectedSourceValid])
 
-  useEffect(() => {
-    if (
-      !submittedDiscoveryRunId
-      || trackedDiscoveryRunId !== submittedDiscoveryRunId
-      || !trackedDiscoveryQuery.data
-      || !terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)
-    ) return
-    void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
-    if (selectedRouteId) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
-    }
-  }, [
-    queryClient,
-    selectedRouteId,
-    submittedDiscoveryRunId,
-    trackedDiscoveryQuery.data,
-    trackedDiscoveryRunId,
-    user.id,
-  ])
+  useActorOpsDiscoveryCompletionRefresh({
+    queryClient, userId: user.id, routeId: selectedRouteId, goal: candidateGoal,
+    targetSlot: candidateTargetSlot, submittedRunId: submittedDiscoveryRunId,
+    trackedRunId: trackedDiscoveryRunId,
+    terminal: Boolean(trackedDiscoveryQuery.data && terminalDiscoveryStatuses.has(trackedDiscoveryQuery.data.status)),
+  })
 
   function replaceQuery(nextTab: ActorOpsTaskTab, sourceId?: string) {
     const nextParams = new URLSearchParams()
@@ -1154,7 +1149,9 @@ export function HeroActorOpsControlPlane({
   function restoreFocus(ref: { current: HTMLButtonElement | null }) {
     window.requestAnimationFrame(() => ref.current?.focus())
   }
-
+  function restoreCandidateFocus() { if (slotOperation) poolManagement.restoreSlotOperationFocus(); else restoreFocus(candidateTriggerRef) }
+  function restoreBatchFocus() { if (slotOperation) poolManagement.restoreSlotOperationFocus(); else restoreFocus(batchTriggerRef) }
+  function restoreRollbackFocus() { if (rollbackTriggerRef.current?.isConnected) restoreFocus(rollbackTriggerRef); else poolManagement.restoreSlotFocus(rollbackSlot) }
   function restoreSourceActivationFocus() {
     window.requestAnimationFrame(() => (
       sourceActivationTriggerRef.current ?? sourceDetailHeadingRef.current
@@ -1192,53 +1189,6 @@ export function HeroActorOpsControlPlane({
       actionToast.success('已开始免费搜索，页面会自动更新进度')
     },
     onError: (caught) => setCandidateError(humanActorError(caught)),
-  })
-
-  const activateVerifiedCandidates = useMutation({
-    mutationFn: async () => {
-      const candidates = candidatesQuery.data
-      if (!candidates?.run_id || activeSelectedCandidateIds.length !== candidates.required_selection_count) {
-        throw new Error('candidate selection incomplete')
-      }
-      const selected = activeSelectedCandidateIds.map((candidateId) => (
-        candidates.candidates.find((candidate) => candidate.candidate_id === candidateId)
-      ))
-      if (selected.some((candidate) => !candidate?.already_validated)) throw new Error('candidate is not verified')
-      return api.activateVerifiedApifyActorPool(candidates.route_id, {
-        run_id: candidates.run_id,
-        goal: candidates.goal,
-        candidate_ids: activeSelectedCandidateIds,
-        expected_generation: candidates.generation,
-        target_slot_count: candidates.goal === 'compatibility_single'
-          ? 1
-          : candidates.goal === 'add_slot' || candidates.goal === 'replace_slot'
-            ? ((detail?.slots.filter((slot) => Boolean(slot.revision_id)).length ?? 0)
-              + (candidates.goal === 'add_slot' ? 1 : 0)) as 1 | 2 | 3
-          : candidates.goal === 'initial_pool'
-            ? candidates.required_selection_count as 2 | 3
-            : 3,
-        ...(candidates.target_slot ? { target_slot: candidates.target_slot } : {}),
-      })
-    },
-    onSuccess: (updated) => {
-      setCandidatePickerOpen(false)
-      setCandidateError(null)
-      queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, updated.route_id), updated)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorPoolCandidates(user.id, updated.route_id, candidateGoal, candidateTargetSlot) })
-      actionToast.success('已启用已验证 Actor', { description: '没有重新触发 Canary，也没有新增费用。' })
-    },
-    onError: (caught) => {
-      const error = humanActorError(caught, '已验证证据发生变化，请刷新 Actor 库后重试。')
-      setCandidateError(error)
-      actionToast.danger('未能启用已验证 Actor', {
-        description: `${error.reason}；没有重新启动 Actor，也没有新增费用。`,
-      })
-      if (caught instanceof ApiError && [
-        'apify_actor_route_generation_conflict',
-        'apify_actor_verified_candidate_stale',
-      ].includes(caught.code)) refreshSelected()
-    },
   })
 
   const preparePlan = useMutation({
@@ -1307,7 +1257,7 @@ export function HeroActorOpsControlPlane({
       setBatchTarget(null)
       setBatchError(null)
       setSelectedCandidateIds([])
-      restoreFocus(batchTriggerRef)
+      restoreBatchFocus()
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       if (selectedRouteId) void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, selectedRouteId) })
       actionToast.success('限额付费验证已提交，将严格串行执行')
@@ -1319,7 +1269,7 @@ export function HeroActorOpsControlPlane({
         'apify_actor_pool_stage_active',
       ].includes(caught.code)) {
         setBatchTarget(null)
-        restoreFocus(batchTriggerRef)
+        restoreBatchFocus()
         refreshSelected()
         actionToast.danger('配置刚刚更新，请重新选择')
         return
@@ -1369,71 +1319,31 @@ export function HeroActorOpsControlPlane({
   })
 
   const updatePool = useMutation({
-    mutationFn: ({ target, draft, rollbackRevisionId, perRunCapUsd }: {
+    mutationFn: ({ target, draft, rollbackRevisionId }: {
       target: ApifyActorRouteDetail
       draft: PoolDraft
       rollbackRevisionId?: string
-      perRunCapUsd?: number
     }) => api.updateApifyActorRouteActivePool(target.route_id, {
       expected_generation: target.generation,
       ...(rollbackRevisionId ? { rollback_revision_id: rollbackRevisionId } : {}),
-      ...(perRunCapUsd !== undefined ? { per_run_cap_usd: perRunCapUsd } : {}),
       slots: slotOrder.map((slot) => ({ slot, revision_id: draft[slot] })),
     }),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, updated.route_id), updated)
       void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
       setRollbackRevision(null)
-      actionToast.success('高级 Route 设置已更新')
+      poolManagement.restoreSlotFocus(rollbackSlot)
+      actionToast.success('Actor Revision 已安全回滚')
     },
     onError: (caught) => {
+      setRollbackRevision(null)
+      poolManagement.restoreSlotFocus(rollbackSlot)
       refreshSelected()
-      actionToast.danger('高级 Route 设置更新失败', {
+      actionToast.danger('Actor Revision 回滚失败', {
         description: safeActorActionError(caught, 'Route 已变化，请刷新后重试。'),
       })
     },
   })
-
-  const autoPoolQuery = useQuery({
-    queryKey: queryKeys.apifyActorAutoPoolRun(user.id, autoPoolRunId),
-    queryFn: ({ signal }) => api.apifyActorAutoPoolRun(autoPoolRunId, signal),
-    enabled: queryEnabled && Boolean(autoPoolRunId),
-    retry: false,
-    refetchInterval: (current) => (
-      ['running'].includes(current.state.data?.run.status ?? '') ? 3_000 : false
-    ),
-  })
-  const autoPoolRun = autoPoolQuery.data?.run
-  useActorOpsAutoPoolCompletion({
-    run: autoPoolRun,
-    clearSlotOperation,
-    refreshSelected,
-    setRunId: setAutoPoolRunId,
-    setError: setAutoPoolError,
-    setCandidatePickerOpen,
-    setSelectedCandidateIds,
-  })
-
-  const startAutoPool = useMutation({
-    mutationFn: () => {
-      if (!detail || !slotOperation) throw new Error('slot operation unavailable')
-      return api.startApifyActorAutoPool(detail.route_id, {
-        goal: slotOperation.goal,
-        target_slot: slotOperation.targetSlot,
-        expected_generation: detail.generation,
-      })
-    },
-    onSuccess: (response) => {
-      setAutoPoolError(null)
-      setAutoPoolRunId(response.run.run_id)
-      setSelectedCandidateIds([])
-      actionToast.success('已开始自动替换，正在免费搜索并自动验证', {
-        description: '系统会自动循环搜索、付费验证并在通过后原子生效；预算上限 $0.50。',
-      })
-    },
-    onError: (caught) => setAutoPoolError(humanActorError(caught)),
-  })
-  const autoPoolRunning = autoPoolRunId !== '' && (['running'].includes(autoPoolRun?.status ?? '') || startAutoPool.isPending)
 
   const sourceCanary = useMutation({
     mutationFn: async (target: CanaryApprovalTarget) => {
@@ -1477,7 +1387,7 @@ export function HeroActorOpsControlPlane({
     }),
   })
 
-  const actionPending = discovery.isPending || preparePlan.isPending || activateVerifiedCandidates.isPending || canaryBatch.isPending
+  const actionPending = discovery.isPending || preparePlan.isPending || verifiedActivation.isPending || canaryBatch.isPending
     || activatePool.isPending || updatePool.isPending || removePoolSlot.isPending || sourceCanary.isPending || sourceActivate.isPending
   const activePoolDraft = useMemo(() => detail ? Object.fromEntries(
     detail.slots.map((slot) => [slot.slot, slot.revision_id]),
@@ -1486,13 +1396,6 @@ export function HeroActorOpsControlPlane({
     if (!activePoolDraft || !rollbackRevision) return null
     return { ...activePoolDraft, [rollbackSlot]: rollbackRevision.revision_id }
   }, [activePoolDraft, rollbackRevision, rollbackSlot])
-  const routeCapDraft = detail && routeCapDraftState?.routeId === detail.route_id
-    && routeCapDraftState.generation === detail.generation
-    ? routeCapDraftState.value
-    : detail ? String(detail.per_run_cap_usd) : ''
-  const routeCapValue = Number(routeCapDraft)
-  const routeCapValid = Number.isFinite(routeCapValue) && routeCapValue > 0 && routeCapValue <= 100
-  const routeCapChanged = Boolean(detail && routeCapValid && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9)
   const candidateRequiredCount = candidatesQuery.data?.required_selection_count
     ?? (['complete_third', 'compatibility_single', 'add_slot', 'replace_slot'].includes(candidateGoal)
       ? 1
@@ -1676,7 +1579,7 @@ export function HeroActorOpsControlPlane({
                   <div><Card.Title>当前主备</Card.Title><Card.Description className="mt-1">{detail.runnable_slots}/3 路可用 · {detail.mode === 'fallback' ? '原生优先，Actor 故障回退' : 'Actor 主抓取'}</Card.Description></div>
                   <StatusIndicator label={next.status} tone={next.tone} />
                 </div>
-                <ActorOpsPoolSlots detail={detail} pending={actionPending} onOperation={(goal, slot) => { if (!actionPending) poolManagement.startSlotOperation(goal, slot) }} onRemove={poolManagement.openRemoveDialog} />
+                <ActorOpsPoolSlots detail={detail} pending={actionPending} onOperation={(goal, slot, trigger) => { if (!actionPending) poolManagement.startSlotOperation(goal, slot, trigger) }} onRemove={poolManagement.openRemoveDialog} />
               </Card>
 
               <Card variant="secondary" className="grid gap-4 border border-separator p-4" data-testid="actorops-next-action">
@@ -1715,16 +1618,9 @@ export function HeroActorOpsControlPlane({
                     {!detail.slots.some((slot) => slot.revision?.certification_progress) && <p className="type-meta text-muted">观察进度暂不可用；系统仍会自动刷新，不需要手工操作。</p>}
                   </div>}
                   <DiscoveryPanel detail={detail} queryEnabled={queryEnabled && advancedOpen} activeBatch={batchQuery.data ?? null} goal={workflow?.goal || 'initial_pool'} showApprovalAction={false} onBatchCanary={() => undefined} />
-                  {activePoolDraft && <SettingsDisclosure title="Route 单次费用上限" description="使用当前 generation 保存，商城价格不会自动放宽。">
-                    <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end">
-                      <TextField fullWidth value={routeCapDraft} onChange={(value) => detail && setRouteCapDraftState({ routeId: detail.route_id, generation: detail.generation, value })} isDisabled={actionPending} isInvalid={Boolean(routeCapDraft) && !routeCapValid}>
-                        <Label>单次费用上限（USD）</Label><Input type="number" min={0.000001} max={100} step={0.001} /><Description>仅影响后续 Actor Run。</Description>{Boolean(routeCapDraft) && !routeCapValid && <FieldError>请输入大于 0 且不超过 100 的数值。</FieldError>}
-                      </TextField>
-                      <Button size="sm" isDisabled={!routeCapChanged || actionPending} onPress={() => updatePool.mutate({ target: detail, draft: activePoolDraft, perRunCapUsd: routeCapValue })}>保存费用上限</Button>
-                    </div>
-                  </SettingsDisclosure>}
                   <SettingsDisclosure title="Revision 差异与回滚" description="Build 与 Manifest 保持不可变；回滚同样受 generation 保护。">
-                    <RevisionHistory detail={detail} actionPending={actionPending} onRollback={(revision) => {
+                    <RevisionHistory detail={detail} actionPending={actionPending} onRollback={(revision, trigger) => {
+                      rollbackTriggerRef.current = trigger
                       const matching = detail.slots.find((slot) => slot.revision?.actor_id === revision.actor_id)
                       setRollbackSlot(matching?.slot ?? 'primary')
                       setRollbackRevision(revision)
@@ -1801,18 +1697,18 @@ export function HeroActorOpsControlPlane({
     </div>
 
     <Modal isOpen={candidatePickerOpen} onOpenChange={(open) => {
-      if (!open && !activateVerifiedCandidates.isPending && !discovery.isPending) {
+      if (!open && !verifiedActivation.isPending && !discovery.isPending) {
         setCandidatePickerOpen(false)
         setSelectedCandidateIds([])
         poolManagement.clearSlotOperation()
         setCandidateError(null)
-        restoreFocus(candidateTriggerRef)
+        restoreCandidateFocus()
       }
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 候选列表</Modal.Trigger>
-      <Modal.Backdrop isDismissable={!activateVerifiedCandidates.isPending && !discovery.isPending} isKeyboardDismissDisabled={activateVerifiedCandidates.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
+      <Modal.Backdrop isDismissable={!verifiedActivation.isPending && !discovery.isPending} isKeyboardDismissDisabled={verifiedActivation.isPending || discovery.isPending}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>{candidateGoal === 'add_slot' ? `添加 ${slotDisplayLabels[candidateTargetSlot || 'backup_2']} Actor` : candidateGoal === 'replace_slot' ? `替换 ${slotDisplayLabels[candidateTargetSlot || 'primary']} Actor` : candidateGoal === 'complete_third' ? '选择第三个备用 Actor' : candidateGoal === 'upgrade_legacy' ? '升级当前 3 个 Actor' : `选择 ${candidateRequiredCount} 个已验证 Actor`}</Modal.Heading></Modal.Header>
-        <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || activateVerifiedCandidates.isPending || discovery.isPending}>
+        <Modal.Body><div className="grid gap-4" aria-busy={candidatesQuery.isPending || verifiedActivation.isPending || discovery.isPending}>
           {discoveryRunRunning && <HeroNotice title="正在搜索，无需重复点击" status="warning" role="status">
             {trackedDiscoveryProgress}。完成后页面会自动显示新候选或明确的失败原因。
           </HeroNotice>}
@@ -1830,7 +1726,7 @@ export function HeroActorOpsControlPlane({
               {verifiedCandidates.map((candidate) => {
                 const selected = activeSelectedCandidateIds.includes(candidate.candidate_id)
                 return <div key={candidate.candidate_id} className="rounded-control border border-separator bg-surface-secondary p-3">
-                  <Checkbox isSelected={selected} isDisabled={candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected || activateVerifiedCandidates.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
+                  <Checkbox isSelected={selected} isDisabled={candidateRequiredCount > 1 && activeSelectedCandidateIds.length >= candidateRequiredCount && !selected || verifiedActivation.isPending} onChange={(value) => toggleCandidate(candidate.candidate_id, value)}>
                     <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className="min-w-0"><span className="block type-control break-words">{candidate.actor_public_name}</span><span className="mt-1 block type-meta text-muted">发布者 {candidate.publisher} · {poolCandidatePricingLabel(candidate)} · 已完成真实目标验证与费用对账</span><ActorStoreQuality quality={candidate.store_quality} /></span></Checkbox.Content>
                   </Checkbox>
                 </div>
@@ -1840,14 +1736,11 @@ export function HeroActorOpsControlPlane({
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
         </div></Modal.Body>
         <Modal.Footer>
-          <Button variant="ghost" isDisabled={activateVerifiedCandidates.isPending || discovery.isPending || autoPoolRunning} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); poolManagement.clearSlotOperation(); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
-          <Button variant="secondary" isDisabled={activateVerifiedCandidates.isPending || discovery.isPending || discoveryRunRunning || autoPoolRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : discovery.isPending ? '正在更新…' : '更新待测 Actor（免费）'}</Button>
-          {hasPendingCandidateVerification && <Button variant="secondary" isDisabled={preparePlan.isPending || discovery.isPending || autoPoolRunning} onPress={() => { setCandidatePickerOpen(false); preparePlan.mutate() }}>{preparePlan.isPending ? '正在生成实测计划…' : '更新已验证 Actor 库'}</Button>}
-          <Button isDisabled={!candidateSelectionComplete || activateVerifiedCandidates.isPending || discovery.isPending || autoPoolRunning} onPress={() => activateVerifiedCandidates.mutate()}>{activateVerifiedCandidates.isPending ? '正在启用…' : '选择并启用'}</Button>
-          {slotOperation && <Button variant="primary" isDisabled={autoPoolRunning || startAutoPool.isPending} onPress={() => startAutoPool.mutate()}>{autoPoolRunning ? '自动完成中…' : startAutoPool.isPending ? '正在启动…' : '一键自动完成（含付费验证）'}</Button>}
+          <Button variant="ghost" isDisabled={verifiedActivation.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); poolManagement.clearSlotOperation(); setCandidateError(null); restoreCandidateFocus() }}>取消</Button>
+          <Button variant="secondary" isDisabled={verifiedActivation.isPending || discovery.isPending || discoveryRunRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : discovery.isPending ? '正在搜索…' : slotOperation ? '自动搜索候选（免费）' : '更新待测 Actor（免费）'}</Button>
+          {hasPendingCandidateVerification && <Button variant="secondary" isDisabled={preparePlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); preparePlan.mutate() }}>{preparePlan.isPending ? '正在生成实测计划…' : '更新已验证 Actor 库'}</Button>}
+          <Button isDisabled={!candidateSelectionComplete || verifiedActivation.isPending || discovery.isPending} onPress={() => { verifiedActivation.prepare(); setCandidatePickerOpen(false) }}>选择并启用</Button>
         </Modal.Footer>
-        {autoPoolRunning && <div className="px-6 pb-4"><HeroNotice title="正在自动完成" status="warning" role="status">系统正在循环免费搜索、付费验证并通过后自动生效（预算上限 $0.50）。累计已花费 {formatActorUsd(autoPoolRun?.total_spent_usd ?? 0, true)}。</HeroNotice></div>}
-        {autoPoolError && <div className="px-6 pb-4"><HumanActorErrorNotice error={autoPoolError} /></div>}
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
     <ActorOpsRemovePoolDialog target={removeTarget} pending={removePoolSlot.isPending} onClose={poolManagement.closeRemoveDialog} onConfirm={(target) => removePoolSlot.mutate(target)} />
@@ -1855,7 +1748,7 @@ export function HeroActorOpsControlPlane({
     <ActorOpsBatchConfirmationDialog
       view={toBatchConfirmationView(batchTarget?.plan ?? null)}
       error={batchError} pending={canaryBatch.isPending}
-      onCancel={() => { setBatchTarget(null); setBatchError(null); restoreFocus(batchTriggerRef) }}
+      onCancel={() => { setBatchTarget(null); setBatchError(null); restoreBatchFocus() }}
       onConfirm={() => { if (batchTarget) canaryBatch.mutate(batchTarget) }} />
     <ActorOpsActivationConfirmationDialog
       view={toActivationConfirmationView(activationTarget)}
@@ -1875,9 +1768,13 @@ export function HeroActorOpsControlPlane({
     <ActorOpsRollbackConfirmationDialog
       view={toRollbackConfirmationView(rollbackRevision, rollbackSlot, Boolean(detail && rollbackDraft))}
       pending={updatePool.isPending} onSlotChange={setRollbackSlot}
-      onCancel={() => setRollbackRevision(null)}
+      onCancel={() => { setRollbackRevision(null); restoreRollbackFocus() }}
       onConfirm={() => detail && rollbackDraft && rollbackRevision && updatePool.mutate({
         target: detail, draft: rollbackDraft, rollbackRevisionId: rollbackRevision.revision_id,
       })} />
+    <ActorOpsVerifiedActivationConfirmationDialog
+      target={verifiedActivation.target} error={verifiedActivation.error}
+      pending={verifiedActivation.isPending} onCancel={verifiedActivation.cancel}
+      onConfirm={verifiedActivation.confirm} />
   </>
 }

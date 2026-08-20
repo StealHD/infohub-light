@@ -16,7 +16,10 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from scripts.migrate_apify_actor_ops_v15 import _backup_database, _restore_database
-from scripts.migrate_user_feed_v2 import _active_workers
+from scripts.actorops_migration_safety import (
+    active_actor_work,
+    active_workers_fail_closed,
+)
 from src.storage.apify_actor_pool_management_schema import (
     apify_actor_pool_management_v22_schema_shapes_valid,
     install_schema,
@@ -40,28 +43,6 @@ def _require_prerequisite(connection: sqlite3.Connection) -> None:
         raise RuntimeError("apify_actor_resilience_v21 migration is required first")
 
 
-def _active_actor_work(database: Path) -> list[dict[str, str]]:
-    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    try:
-        jobs = connection.execute(
-            """SELECT id, job_type, status FROM fetch_jobs
-               WHERE job_type IN (
-                   'apify_actor_discovery', 'apify_actor_validation',
-                   'apify_actor_canary_batch', 'apify_actor_freshness_check'
-               ) AND status IN ('queued', 'running')"""
-        ).fetchall()
-        runs = connection.execute(
-            """SELECT id, 'apify_actor_run' AS job_type, status
-               FROM apify_actor_runs
-               WHERE status IN ('reserved', 'starting', 'running',
-                                'start_outcome_unknown')"""
-        ).fetchall()
-        return [dict(row) for row in (*jobs, *runs)]
-    finally:
-        connection.close()
-
-
 def migrate(
     data_dir: Path,
     *,
@@ -81,9 +62,9 @@ def migrate(
         )
         if not apply:
             return {"required": not ready, "database": str(database)}
-        if _active_workers(database):
+        if active_workers_fail_closed(database):
             raise RuntimeError("active workers must be stopped before migration")
-        if _active_actor_work(database):
+        if active_actor_work(database):
             raise RuntimeError("active ActorOps jobs must finish before migration")
         if ready:
             return {"required": False, "applied": False, "already_migrated": True,

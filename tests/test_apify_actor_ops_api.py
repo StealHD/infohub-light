@@ -2316,7 +2316,7 @@ def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
             "goal": "complete_third",
             "candidate_ids": [candidate_id],
             "expected_generation": active["generation"],
-            "target_slot_count": 3,
+            "target_slot_count": 3, "apply_id": "verified-api-stale-apply", "confirmation": "确认启用 Actor 主备",
         },
     )
     assert rejected.status_code == 409

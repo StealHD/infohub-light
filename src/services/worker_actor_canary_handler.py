@@ -12,7 +12,6 @@ import httpx
 
 from ..storage.service_store import ServiceStore
 from .job_queue import JobQueue
-from .worker_actor_auto_pool import advance_auto_pool_after_canary
 from .worker_handlers import (
     PaidCanaryAuthorizationError,
     PaidCanaryUnavailableError,
@@ -555,5 +554,4 @@ def run_actor_canary_batch(
             credential=credential,
         )
     )
-    advance_auto_pool_after_canary(job, store, batch_id)
     return result

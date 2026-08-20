@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog, platform-registered latest-N source execution, revision-aware current-source proofs, executable observed manifests, immediate bounded stale-circuit source Canary recovery, and no-charge pre-execution recovery.
+// Reviewed: verified-only ActorOps catalog, registered-Run read-only recovery, paid/apply dual confirmation, $0.10 runtime caps, and inert global-25 history.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

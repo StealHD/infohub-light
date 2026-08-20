@@ -4,6 +4,7 @@ import { Button, Modal } from '../../design-system'
 import { HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { formatActorUsd } from './apifyActorModel'
 import type { HumanActorError } from './actorOpsPresentation'
+import type { VerifiedActivationTarget } from './useActorOpsVerifiedActivation'
 import type {
   ActorOpsActivationConfirmationView,
   ActorOpsBatchConfirmationView,
@@ -228,6 +229,45 @@ export function ActorOpsActivationConfirmationDialog({
       </Modal.Backdrop>
     </Modal>
   )
+}
+
+export function ActorOpsVerifiedActivationConfirmationDialog({
+  target,
+  error,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  target: VerifiedActivationTarget | null
+  error: HumanActorError | null
+  pending: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const action = target?.goal === 'add_slot' ? '添加' : target?.goal === 'replace_slot' ? '替换' : '启用'
+  return <Modal isOpen={Boolean(target)} onOpenChange={(open) => { if (!open && !pending) onCancel() }}>
+    <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开已验证 Actor 生效确认</Modal.Trigger>
+    <Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}>
+      <Modal.Container><Modal.Dialog>
+        <Modal.Header><Modal.Heading>确认{action}已验证 Actor</Modal.Heading></Modal.Header>
+        <Modal.Body><div className="grid gap-3" aria-busy={pending}>
+          <HeroNotice title="这是确认 2/2，不会再次收费" status="warning" role="status">
+            已完成 Canary、来源验证与费用对账；只有本次确认会改变活动槽位。
+          </HeroNotice>
+          {target && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+            <div><dt className="text-muted">已验证 Actor</dt><dd className="mt-1">{target.actorLabels.join('、')}</dd></div>
+            <div><dt className="text-muted">当前方案</dt><dd className="mt-1">{target.currentSlotCount}/3 路</dd></div>
+            <div><dt className="text-muted">生效后</dt><dd className="mt-1">{target.targetSlotCount}/3 路；下一任务读取新配置</dd></div>
+          </dl>}
+          {error && <HumanActorErrorNotice error={error} />}
+        </div></Modal.Body>
+        <Modal.Footer>
+          <Button variant="ghost" isDisabled={pending} onPress={onCancel}>取消</Button>
+          <Button isDisabled={!target || pending} onPress={onConfirm}>{pending ? '生效中…' : '确认并生效'}</Button>
+        </Modal.Footer>
+      </Modal.Dialog></Modal.Container>
+    </Modal.Backdrop>
+  </Modal>
 }
 
 export function ActorOpsSourceCanaryConfirmationDialog({

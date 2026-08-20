@@ -34,8 +34,23 @@ export function useActorOpsPoolManagement({
   const queryClient = useQueryClient()
   const [slotOperation, setSlotOperation] = useState<PoolSlotOperation | null>(null)
   const [removeTarget, setRemoveTarget] = useState<ActorOpsPoolTarget | null>(null)
+  const slotOperationTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const slotOperationSlotRef = useRef<ApifyActorSlotName | null>(null)
   const removeTriggerRef = useRef<HTMLButtonElement | null>(null)
   const restoreFocus = () => window.requestAnimationFrame(() => removeTriggerRef.current?.focus())
+  const focusSlot = (slot: ApifyActorSlotName) => document.querySelector<HTMLButtonElement>(
+    `[data-actorops-slot="${slot}"] button:not([disabled])`,
+  )?.focus()
+  const restoreSlotFocus = (slot: ApifyActorSlotName) => window.requestAnimationFrame(() => focusSlot(slot))
+  const restoreSlotOperationFocus = () => window.requestAnimationFrame(() => {
+    if (slotOperationTriggerRef.current?.isConnected) {
+      slotOperationTriggerRef.current.focus()
+      return
+    }
+    const slot = slotOperationSlotRef.current
+    if (!slot) return
+    focusSlot(slot)
+  })
   const removePoolSlot = useMutation({
     mutationFn: (target: ActorOpsPoolTarget) => {
       if (!detail) throw new Error('route unavailable')
@@ -74,12 +89,20 @@ export function useActorOpsPoolManagement({
     },
     removeTarget,
     removePoolSlot,
-    startSlotOperation(goal: PoolSlotOperation['goal'], targetSlot: ApifyActorSlotName) {
+    startSlotOperation(
+      goal: PoolSlotOperation['goal'],
+      targetSlot: ApifyActorSlotName,
+      trigger: HTMLButtonElement | null,
+    ) {
+      slotOperationTriggerRef.current = trigger
+      slotOperationSlotRef.current = targetSlot
       setSlotOperation({ goal, targetSlot })
       setSelectedCandidateIds([])
       setCandidateError(null)
       setCandidatePickerOpen(true)
     },
+    restoreSlotOperationFocus,
+    restoreSlotFocus,
     openRemoveDialog(target: ActorOpsPoolTarget, trigger: HTMLButtonElement | null) {
       removeTriggerRef.current = trigger
       setRemoveTarget(target)

@@ -78,6 +78,8 @@ def test_verified_catalog_hides_pending_inventory_and_activates_without_a_new_ru
         candidate_ids=[candidate_id],
         expected_generation=int(route["generation"]),
         target_slot_count=3,
+        apply_id="verified-catalog-apply-0001",
+        confirmation="确认启用 Actor 主备",
     )
 
     assert [slot["revision_id"] for slot in activated["slots"]] == [
@@ -141,6 +143,8 @@ def test_stage_activation_reopens_a_verified_unchanged_slot(tmp_path) -> None:
         ).fetchone()["candidate_id"])],
         expected_generation=int(route["generation"]),
         target_slot_count=3,
+        apply_id="verified-catalog-apply-0002",
+        confirmation="确认启用 Actor 主备",
     )
 
     assert store.connect().execute(

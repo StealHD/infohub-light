@@ -10,6 +10,7 @@ from src.services.apify_actor_canary import (
     actor_canary_timeout_seconds,
     next_reference_fingerprint,
 )
+from src.services.apify_actor_canary_cost_guard import run_actor_with_charge_guard
 from src.services.apify_actor_ops import (
     ActorOpsError,
     ApifyActorOpsService,
@@ -74,6 +75,34 @@ class _Client:
             ],
             actual_charge_usd=0.01,
         )
+
+
+def test_paid_canary_runtime_clamps_legacy_approved_cap() -> None:
+    class Client:
+        async def run_actor_detailed(self, _actor_id, _actor_input, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(actual_charge_usd=None)
+
+    client = Client()
+    result = asyncio.run(
+        run_actor_with_charge_guard(
+            SimpleNamespace(client=client, ops=object()),
+            validation_id="validation",
+            attempt_id="attempt",
+            snapshot=SimpleNamespace(
+                per_run_cap_usd=100.0,
+                key_pool_generation=3,
+            ),
+            slot=SimpleNamespace(actor_id="publisher/actor", build_number="1.0"),
+            actor_input={},
+            max_paid_dataset_items=1,
+            dataset_item_limit=2,
+            timeout_seconds=180,
+            duration_seconds=lambda: 0,
+        )
+    )
+    assert result.actual_charge_usd is None
+    assert client.kwargs["max_total_charge_usd"] == 0.10
 
 
 def test_paid_canary_uses_exact_revision_and_persists_only_semantic_evidence(

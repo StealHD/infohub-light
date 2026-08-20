@@ -420,7 +420,7 @@ class ApifyActivePoolRequest(BaseModel):
         min_length=1,
         max_length=128,
     )
-    per_run_cap_usd: float | None = Field(default=None, gt=0, le=100)
+    per_run_cap_usd: float | None = Field(default=None, gt=0, le=0.10)
 
     @field_validator("slots")
     @classmethod
@@ -741,7 +741,6 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("POST", "/api/admin/apify-routes/{route_id}/active-pool/remove"): ("source", "actor_route_pool_remove"),
     ("POST", "/api/admin/apify-routes/{route_id}/active-pool/activate"): ("source", "actor_route_pool_activate"),
     ("POST", "/api/admin/apify-routes/{route_id}/verified-pool-activation"): ("source", "actor_route_verified_catalog_activate"),
-    ("POST", "/api/admin/apify-routes/{route_id}/auto-pool"): ("source", "actor_route_auto_pool_start"),
     (
         "POST",
         "/api/admin/sources/{source_id}/apify-validations/{revision_id}/canary",
@@ -1008,8 +1007,9 @@ def create_app(
                 ),
             )
 
-    def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
-        require_apify_actor_routing_v13()
+    def require_current_actor_schema() -> None:
+        """Require the complete active ActorOps chain through global 24."""
+
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
@@ -1018,6 +1018,10 @@ def create_app(
         require_apify_actor_validation_tuning_v20()
         require_apify_actor_resilience_v21()
         require_actor_pool_management_schema(store)
+
+    def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
+        require_apify_actor_routing_v13()
+        require_current_actor_schema()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1031,14 +1035,7 @@ def create_app(
         )
 
     def apify_actor_ops_for(workspace_id: str) -> ApifyActorOpsService:
-        require_apify_actor_ops_v15()
-        require_apify_discovery_limits_v16()
-        require_apify_actor_canary_batches_v17()
-        require_apify_actor_pool_staging_v18()
-        require_apify_actor_manual_pool_selection_v19()
-        require_apify_actor_validation_tuning_v20()
-        require_apify_actor_resilience_v21()
-        require_actor_pool_management_schema(store)
+        require_current_actor_schema()
         return ApifyActorOpsService(
             store,
             workspace_id=str(workspace_id),
@@ -1901,12 +1898,7 @@ def create_app(
             require_apify_actor_routing_v13,
             require_webhook_providers_v14,
             require_notification_targets_v16,
-            require_apify_actor_ops_v15,
-            require_apify_discovery_limits_v16,
-            require_apify_actor_canary_batches_v17,
-            require_apify_actor_pool_staging_v18,
-            require_apify_actor_manual_pool_selection_v19,
-            require_apify_actor_validation_tuning_v20,
+            require_current_actor_schema,
         ),
     )
     register_actor_ops_pool_management_routes(app, app.state.api_context)

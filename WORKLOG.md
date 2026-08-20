@@ -8,62 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "统一来源单次获取条数：RSS、YouTube、GitHub、Reddit、Telegram 与受控社交来源均可设置 1–100 条；X 的 ActorOps 执行不再固定为 1 条。",
-  "status": "partial",
-  "task_id": "2026-08-15-source-fetch-limit-settings",
-  "unresolved": [
-    "完整受影响预检在修复前的远程 MCP 设置指引回归处中断；该用例已单独通过，但未第三次运行完整预检，以遵守完整门禁重跑上限。"
-  ],
-  "validation": [
-    "来源注册、RSS、YouTube、GitHub、ActorOps、MCP 设置指引与订阅服务的定向 Pytest 均通过。",
-    "YouTube 来源表单 Vitest、前端 lint 和 typecheck 通过；Python 语法、代码大小、产品文档与控制文件检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "平台连接暂不可用时，既有 X、Instagram、YouTube 来源的账号目标与启用状态继续锁定，但可修改每次获取条数和分析模式；无字段定义的历史社交来源仍只允许元数据编辑。",
-  "status": "completed",
-  "task_id": "fix-platform-fetch-limit-editing",
-  "unresolved": [],
-  "validation": [
-    "App 与来源表单 Vitest 共 123 项通过；ESLint 与 TypeScript 通过。",
-    "影响范围 preflight、控制文件与代码规模检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "来源与订阅设置的提交、测试、获取和关闭操作收敛为同一底部操作行并统一紧凑高度；取消订阅改为独立确认弹窗，保留焦点回归与待处理锁定。",
-  "status": "completed",
-  "task_id": "subscription-dialog-footer-polish",
-  "unresolved": [],
-  "validation": [
-    "订阅表单与 App Vitest 共 123 项通过；最终受影响预检 12/12 通过。",
-    "前端生产构建、UI 合同、ESLint、TypeScript、代码规模与产品文档检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "ui"
@@ -378,6 +322,67 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "beta Tag 仅在精确 main SHA 的 GitHub Test Gate 成功后创建，并继续通过 Release Tag 隔离 API smoke。",
     "VPS 保持 v2.3.4/cdced69ed4ef，API/Worker healthy；本次不构建、不上传、不切换生产镜像。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "ActorOps 退役未发布的自动付费/自动生效 auto-pool，新增替换回归一次免费 Discovery、付费确认 1/2 与生效确认 2/2；所有 Route 单 Run 上限统一为 $0.10，global 23/24 门禁和 global 25 惰性兼容完成收口。",
+  "status": "partial",
+  "task_id": "actorops-safe-retirement-dual-confirmation",
+  "unresolved": [
+    "真实库仍有 1 个历史 auto-pool Batch、2 个费用节点和 1 个无关 acquisition Run 未终态；两次显式精确 GET 对账均返回 unresolved。Worker 保持停止，未执行 retirement apply 或本地重启。"
+  ],
+  "validation": [
+    "最终 impacted preflight 17/17 通过，覆盖完整后端/前端、控制面、代码大小、产品文档、构建与静态检查。",
+    "ActorOps 后端定向回归、34 个前端 ActorOps Vitest、TypeScript、ESLint、UI contract、生产构建及双确认 Playwright 通过；未调用 Actor POST、AI 或通知。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "离线精确 GET 对账已将历史 auto-pool 批次和费用全部终态化；按标准脚本重建本地 API 与 Worker，运行修订为 dce4ded63143-dirty。",
+  "status": "completed",
+  "task_id": "actorops-retirement-reconcile-and-local-rebuild",
+  "unresolved": [
+    "仍有 1 个非 auto 的 acquisition Run 在途，由重建后的 Worker 按既有安全路径继续处理。"
+  ],
+  "validation": [
+    "auto-pool retire/reconcile 定向 Pytest 10 项通过。",
+    "retirement inspect 显示 0 个非终态 auto Batch、0 笔未结 auto 费用、0 个 unknown-start；API/Worker 均 healthy，ready 返回 ready。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "修复 ActorOps 在 Worker 重启后对已登记远端 Run 不做状态读取而长期阻塞的问题：未知启动继续禁止同任务切备或重跑，Worker 只读核对原 Run，终态入账后由既有恢复链路解除屏障；主备用 UI 现在会正确显示不可运行槽位。",
+  "status": "completed",
+  "task_id": "2026-08-20-actorops-registered-run-recovery",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 17/17 通过：全量 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制与产品文档门禁均通过。",
+    "ActorOps 映射 Playwright（actorops-pool-management 与 production-admin）66 项通过；ActorOps 桌面明暗视觉基线已同步。"
   ]
 }
 ```

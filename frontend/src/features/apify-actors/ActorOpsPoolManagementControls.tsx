@@ -31,6 +31,9 @@ function slotStatus(slot: ApifyActorRouteDetail['slots'][number] | undefined) {
   const revision = slot?.revision
   const lifecycle = revision?.lifecycle || slot?.validation_status || 'unconfigured'
   const slotName = slot?.slot || 'backup_2'
+  if (revision && !slot?.runnable) return {
+    label: '需要处理', tone: 'danger', note: '当前不会参与新的运行；请先核对故障或旧数据状态',
+  } as const
   if (lifecycle === 'probationary') return {
     label: slotName === 'primary' ? '运行中' : '备用可用', tone: 'success',
     note: '已验证，可运行；系统会继续观察稳定性，无需手动转正',
@@ -60,7 +63,7 @@ export function ActorOpsPoolSlots({
 }: {
   detail: ApifyActorRouteDetail
   pending: boolean
-  onOperation: (goal: 'add_slot' | 'replace_slot', slot: ApifyActorSlotName) => void
+  onOperation: (goal: 'add_slot' | 'replace_slot', slot: ApifyActorSlotName, trigger: HTMLButtonElement | null) => void
   onRemove: (target: ActorOpsPoolTarget, trigger: HTMLButtonElement | null) => void
 }) {
   const { api, user } = useAppContext()
@@ -84,6 +87,8 @@ export function ActorOpsPoolSlots({
       if (caught instanceof ApiError && caught.code === 'apify_actor_route_generation_conflict') {
         void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, detail.route_id) })
       }
+      setPrimaryTarget(null)
+      window.requestAnimationFrame(() => primaryTriggerRef.current?.focus())
       actionToast.danger('未能切换主用 Actor')
     },
   })
@@ -102,6 +107,7 @@ export function ActorOpsPoolSlots({
       />
     })}
     </ol>
+    <p className="type-meta text-muted">主用/备用是配置优先级；自动切备不会重排槽位，各来源可使用不同的实际 Actor。</p>
     <ActorOpsRoutePriceCap key={`${detail.route_id}:${detail.generation}:${detail.per_run_cap_usd}`} detail={detail} pending={operationPending} />
     <ActorOpsPromotePrimaryDialog
       target={primaryTarget}
@@ -118,20 +124,21 @@ function PoolSlot({ name, revision, actions, status, pending, onOperation, onRem
   actions: ApifyActorRouteDetail['slots'][number]['actions']
   status: ReturnType<typeof slotStatus>
   pending: boolean
-  onOperation: (goal: 'add_slot' | 'replace_slot', slot: ApifyActorSlotName) => void
+  onOperation: (goal: 'add_slot' | 'replace_slot', slot: ApifyActorSlotName, trigger: HTMLButtonElement | null) => void
   onRemove: (target: ActorOpsPoolTarget, trigger: HTMLButtonElement | null) => void
   onPromote: (target: ActorOpsPrimaryTarget, trigger: HTMLButtonElement | null) => void
 }) {
   const removeRef = useRef<HTMLButtonElement | null>(null)
   const promoteRef = useRef<HTMLButtonElement | null>(null)
+  const operationRef = useRef<HTMLButtonElement | null>(null)
   const reason = !revision ? actions?.add_reason : actions?.replace_reason || actions?.promote_reason || actions?.remove_reason
-  return <li className="min-w-0 rounded-control border border-separator bg-default p-3">
+  return <li data-actorops-slot={name} className="min-w-0 rounded-control border border-separator bg-default p-3">
     <div className="flex items-center justify-between gap-2"><span className="type-control">{labels[name]}</span><StatusIndicator label={status.label} tone={status.tone} /></div>
     <p className="type-control mt-3 break-words">{revision?.actor_public_name || (revision ? `${revision.publisher} Actor` : '当前为空')}</p>
     <p className="type-meta mt-1 break-words text-muted">{revision ? `发布者 ${revision.publisher} · ${status.note}` : status.note}</p>
     <div className="mt-3 flex flex-wrap gap-2">
-      {!revision && <Button size="sm" variant="secondary" isDisabled={!actions?.add || pending} onPress={() => onOperation('add_slot', name)}>添加 Actor</Button>}
-      {revision && <Button size="sm" variant="secondary" isDisabled={!actions?.replace || pending} onPress={() => onOperation('replace_slot', name)}>替换</Button>}
+      {!revision && <Button ref={operationRef} size="sm" variant="secondary" isDisabled={!actions?.add || pending} onPress={() => onOperation('add_slot', name, operationRef.current)}>添加 Actor</Button>}
+      {revision && <Button ref={operationRef} size="sm" variant="secondary" isDisabled={!actions?.replace || pending} onPress={() => onOperation('replace_slot', name, operationRef.current)}>替换</Button>}
       {revision && name !== 'primary' && <Button ref={promoteRef} size="sm" variant="secondary" isDisabled={!actions?.promote || pending} onPress={() => onPromote({ slot: name, label: revision.actor_public_name || `${revision.publisher} Actor` }, promoteRef.current)}>设为主用</Button>}
       {revision && <Button ref={removeRef} size="sm" variant="ghost" isDisabled={!actions?.remove || pending} onPress={() => onRemove({ slot: name, label: revision.actor_public_name || `${revision.publisher} Actor` }, removeRef.current)}>移出主备池</Button>}
     </div>
@@ -173,8 +180,19 @@ function ActorOpsPromotePrimaryDialog({ target, pending, onClose, onConfirm }: {
   onClose: () => void
   onConfirm: () => void
 }) {
+  return target
+    ? <ActorOpsPromotePrimaryDialogContent key={target.slot} target={target} pending={pending} onClose={onClose} onConfirm={onConfirm} />
+    : null
+}
+
+function ActorOpsPromotePrimaryDialogContent({ target, pending, onClose, onConfirm }: {
+  target: ActorOpsPrimaryTarget
+  pending: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
   const [confirmation, setConfirmation] = useState('')
-  return target ? <Modal isOpen onOpenChange={(open) => { if (!open && !pending) { setConfirmation(''); onClose() } }}>
+  return <Modal isOpen onOpenChange={(open) => { if (!open && !pending) onClose() }}>
     <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">设为主用 Actor</Modal.Trigger>
     <Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}><Modal.Container><Modal.Dialog>
       <Modal.Header><Modal.Heading>设为当前主用 Actor</Modal.Heading></Modal.Header>
@@ -184,7 +202,7 @@ function ActorOpsPromotePrimaryDialog({ target, pending, onClose, onConfirm }: {
       </div></Modal.Body>
       <Modal.Footer><Button variant="ghost" isDisabled={pending} onPress={() => { setConfirmation(''); onClose() }}>取消</Button><Button isDisabled={pending || confirmation !== '确认设为主用 Actor'} onPress={onConfirm}>{pending ? '切换中…' : '确认设为主用'}</Button></Modal.Footer>
     </Modal.Dialog></Modal.Container></Modal.Backdrop>
-  </Modal> : null
+  </Modal>
 }
 
 export function ActorOpsRemovePoolDialog({ target, pending, onClose, onConfirm }: {

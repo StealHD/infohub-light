@@ -303,13 +303,12 @@ class ApifyClient:
             started_after=started_after,
             started_before=started_before,
         )
-
-    async def refresh_terminal_run_accounting(
+    async def refresh_registered_run_status(
         self,
         lease: ApifyCredentialLease,
         remote_run_id: str,
-    ) -> float:
-        """Refresh one known terminal Run after Apify's settlement window."""
+    ) -> str:
+        """Read one known Run and persist only an authoritative terminal state."""
 
         path = f"/actor-runs/{quote(str(remote_run_id), safe='')}"
         payload = await self._request_json(
@@ -321,16 +320,17 @@ class ApifyClient:
         )
         status = self._run_status(payload)
         actual_charge_usd = self._run_usage_total_usd(payload)
-        if status not in _TERMINAL_RUN_STATUSES or actual_charge_usd is None:
-            raise ValueError("Apify terminal Run accounting is not settled")
+        if status not in _TERMINAL_RUN_STATUSES:
+            return status
+        if actual_charge_usd is not None:
+            await self._coordinator_call(
+                "record_run_accounting", lease,
+                actual_cost_usd=actual_charge_usd, cost_final=True, optional=True,
+            )
         await self._coordinator_call(
-            "record_run_accounting",
-            lease,
-            actual_cost_usd=actual_charge_usd,
-            cost_final=True,
-            optional=True,
+            "mark_run_terminal", lease, str(remote_run_id), status,
         )
-        return actual_charge_usd
+        return status
 
     async def run_actor(
         self,

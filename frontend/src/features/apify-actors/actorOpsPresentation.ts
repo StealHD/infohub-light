@@ -253,7 +253,7 @@ const workflowPresentation: Record<string, WorkflowPresentation> = {
   },
   blocked_unknown_start: {
     title: '需要先核对 Apify 运行',
-    description: '启动结果不确定，系统已阻止继续付费。请先核对状态；不要重复提交。',
+    description: '系统正在只读核对已登记 Run；终态前不会继续切备或重复付费。',
     status: '需要核对', tone: 'danger', action: 'refresh', cta: '刷新核对结果',
   },
   budget_blocked: {

@@ -182,7 +182,7 @@ function ApifyTargetSelectionForm({
 
   return <form className="grid min-w-0 gap-4" noValidate onSubmit={save}>
     <div className="grid gap-1">
-      <Switch isSelected={enabled} onChange={(value) => {
+      <Switch isSelected={enabled} isDisabled={saving} onChange={(value) => {
         setEnabled(value)
         setRequestError('')
       }}>
@@ -196,7 +196,7 @@ function ApifyTargetSelectionForm({
         {targets.map((target) => <Card key={target.id} className="grid gap-2 p-3">
           <Checkbox
             isSelected={targetIds.includes(target.id)}
-            isDisabled={!target.available && !targetIds.includes(target.id)}
+            isDisabled={saving || (!target.available && !targetIds.includes(target.id))}
             onChange={(selected) => {
               setTargetIds((current) => selected
                 ? current.includes(target.id) ? current : [...current, target.id]
@@ -229,6 +229,7 @@ function ApifyTargetSelectionForm({
         {alertEvents.map((alertEvent) => <Checkbox
           key={alertEvent}
           isSelected={events.includes(alertEvent)}
+          isDisabled={saving}
           onChange={(selected) => {
             setEvents((current) => selected
               ? current.includes(alertEvent) ? current : [...current, alertEvent]

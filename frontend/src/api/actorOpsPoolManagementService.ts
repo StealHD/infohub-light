@@ -15,19 +15,6 @@ import type {
 const resource = (path: string, id: string) => `${path}/${encodeURIComponent(id)}`
 type Slot = 'primary' | 'backup_1' | 'backup_2'
 type BackupSlot = Exclude<Slot, 'primary'>
-type ApifyActorAutoPoolRun = {
-  run_id: string
-  route_id: string
-  slot_name: Slot
-  goal: 'add_slot' | 'replace_slot'
-  status: 'running' | 'succeeded' | 'budget_exhausted' | 'failed' | 'cancelled'
-  budget_cap_usd: number
-  total_spent_usd: number
-  last_discovery_run_id?: string | null
-  last_canary_batch_id?: string | null
-  error_code?: string | null
-  updated_at: string
-}
 
 export function actorOpsPoolManagementApi(client: ApiClient) {
   return {
@@ -58,6 +45,8 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
         expected_generation: number
         target_slot_count: 1 | 2 | 3
         target_slot?: Slot
+        apply_id: string
+        confirmation: '确认启用 Actor 主备'
       },
     ) => client.post<ApifyActorCanaryPlan>(
       `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`, payload,
@@ -97,22 +86,6 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
       payload: { expected_generation: number; per_run_cap_usd: number },
     ) => client.patch<ApifyActorRouteDetail>(
       `${resource('/api/admin/apify-routes', routeId)}/price-cap`, payload,
-    ),
-    startApifyActorAutoPool: (
-      routeId: string,
-      payload: {
-        goal: 'add_slot' | 'replace_slot'
-        target_slot: Slot
-        expected_generation: number
-        budget_cap_usd?: number
-      },
-    ) => client.post<{ run: ApifyActorAutoPoolRun }>(
-      `${resource('/api/admin/apify-routes', routeId)}/auto-pool`, payload,
-    ),
-    apifyActorAutoPoolRun: (runId: string, signal?: AbortSignal) => (
-      client.get<{ run: ApifyActorAutoPoolRun }>(
-        resource('/api/admin/apify-auto-pool-runs', runId), signal,
-      )
     ),
   }
 }

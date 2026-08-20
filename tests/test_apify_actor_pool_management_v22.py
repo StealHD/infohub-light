@@ -1,6 +1,7 @@
 """Pool-management regressions stay isolated from the legacy staging suite."""
 
 import hashlib
+import json
 
 import pytest
 
@@ -35,6 +36,73 @@ def test_route_price_cap_does_not_require_a_prior_pool_activation(tmp_path, monk
     )
     assert response.status_code == 200, response.text
     assert response.json()["data"]["per_run_cap_usd"] == 0.10
+
+
+@pytest.mark.parametrize("invalid_cap", [0, 0.100001, 100, float("inf"), float("nan")])
+def test_route_price_cap_endpoints_reject_unsafe_values(
+    tmp_path, monkeypatch, invalid_cap: float
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, _revisions = _ready_route(
+        store, route_key="instagram/profile/items"
+    )
+    route_id = str(route["route_id"])
+    patch = client.patch(
+        f"/api/admin/apify-routes/{route_id}/price-cap",
+        content=json.dumps({
+            "expected_generation": route["generation"],
+            "per_run_cap_usd": invalid_cap,
+        }),
+        headers={"content-type": "application/json"},
+    )
+    assert patch.status_code == 400
+
+    slots = [
+        {"slot": slot["slot_name"], "revision_id": slot["revision_id"]}
+        for slot in route["slots"]
+    ]
+    legacy = client.put(
+        f"/api/admin/apify-routes/{route_id}/active-pool",
+        content=json.dumps({
+            "expected_generation": route["generation"],
+            "per_run_cap_usd": invalid_cap,
+            "slots": slots,
+        }),
+        headers={"content-type": "application/json"},
+    )
+    assert legacy.status_code == 400
+
+
+@pytest.mark.parametrize("invalid_cap", [0.100001, 100, float("inf"), float("nan")])
+def test_route_price_cap_service_rejects_unsafe_values(
+    tmp_path, invalid_cap: float
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = _route(store, "youtube/channel/items")
+
+    with pytest.raises(ActorOpsError):
+        ops.set_route_price_cap(
+            str(route["route_id"]),
+            per_run_cap_usd=invalid_cap,
+            expected_generation=int(route["generation"]),
+        )
+    active_ops, active, revisions = _ready_route(
+        store, route_key="instagram/profile/items"
+    )
+    with pytest.raises(ActorOpsError):
+        active_ops.replace_active_pool(
+            str(active["route_id"]),
+            slots=dict(zip(
+                ("primary", "backup_1", "backup_2"),
+                revisions,
+                strict=True,
+            )),
+            expected_generation=int(active["generation"]),
+            per_run_cap_usd=invalid_cap,
+        )
 
 
 def test_slot_operations_freeze_target_and_compact_pool(tmp_path) -> None:

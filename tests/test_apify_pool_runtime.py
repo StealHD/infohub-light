@@ -91,6 +91,93 @@ def test_restart_reconcile_preserves_registered_run_for_get_only_resume(
     assert "dataset-old" not in repr(state)
 
 
+def test_blocked_registered_run_stays_blocked_until_the_remote_run_is_terminal(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    _store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="restart-attempt")
+    coordinator.register_run(lease, "remote-known", "dataset-known")
+    coordinator.report_start_outcome_unknown(lease)
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        return httpx.Response(200, json={"data": {"id": "remote-known", "status": "RUNNING"}})
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert state["status"] == "blocked"
+    assert coordinator.get_run(lease.reservation_id)["status"] == "start_outcome_unknown"
+    assert requests and set(requests) == {("GET", "/v2/actor-runs/remote-known")}
+
+
+def test_blocked_registered_terminal_run_is_settled_without_a_new_actor_start(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    _store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="restart-attempt")
+    coordinator.register_run(lease, "remote-known", "dataset-known")
+    coordinator.report_start_outcome_unknown(lease)
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        return httpx.Response(200, json={"data": {"id": "remote-known", "status": "SUCCEEDED", "usageTotalUsd": 0.004}})
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(handler),
+        )
+    )
+
+    run = coordinator.get_run(lease.reservation_id)
+    assert state["status"] == "blocked"
+    assert run["status"] == "succeeded"
+    assert run["charge_actual_usd"] == 0.004
+    assert run["charge_final"] == 1
+    assert requests and set(requests) == {("GET", "/v2/actor-runs/remote-known")}
+
+
+def test_blocked_registered_run_read_failure_keeps_the_barrier_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    _store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="restart-attempt")
+    coordinator.register_run(lease, "remote-known", "dataset-known")
+    coordinator.report_start_outcome_unknown(lease)
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        raise httpx.ReadTimeout("remote status unavailable", request=request)
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert state["status"] == "blocked"
+    assert coordinator.get_run(lease.reservation_id)["status"] == "start_outcome_unknown"
+    assert requests and set(requests) == {("GET", "/v2/actor-runs/remote-known")}
+
+
 def test_existing_drain_still_aborts_registered_run_before_failover(
     tmp_path,
     monkeypatch,

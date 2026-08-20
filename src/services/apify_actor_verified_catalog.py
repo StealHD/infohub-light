@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Literal
-from uuid import uuid4
 
 from .apify_actor_pool_management import _ensure_ops_symbols
 
@@ -14,6 +14,7 @@ _GOALS = {
     "add_slot", "replace_slot",
 }
 _SLOTS = ("primary", "backup_1", "backup_2")
+_APPLY_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{16,128}$")
 
 
 def list_verified_pool_candidates(
@@ -145,6 +146,8 @@ def _apply_matching_ready_stage(
     expected_generation: int,
     target_slot_count: int,
     target_slot: str | None,
+    apply_id: str,
+    confirmation: str,
 ) -> dict[str, Any] | None:
     """Apply the exact settled stage, never a merely similar candidate set."""
 
@@ -194,8 +197,8 @@ def _apply_matching_ready_stage(
         str(stage["stage_id"]),
         expected_generation=expected_generation,
         expected_plan_hash=str(stage["plan_hash"]),
-        apply_id=f"verified-catalog-{uuid4().hex}",
-        confirmation=symbols.ROUTE_POOL_ACTIVATION_CONFIRMATION,
+        apply_id=apply_id,
+        confirmation=confirmation,
     )
 
 
@@ -211,6 +214,8 @@ def activate_verified_pool_candidates(
     candidate_ids: list[str],
     expected_generation: int,
     target_slot_count: int,
+    apply_id: str,
+    confirmation: str,
     target_slot: str | None = None,
 ) -> dict[str, Any]:
     """Atomically activate a catalog item after rechecking its proof.
@@ -221,6 +226,18 @@ def activate_verified_pool_candidates(
     """
 
     symbols = _ensure_ops_symbols()
+    if confirmation != symbols.ROUTE_POOL_ACTIVATION_CONFIRMATION:
+        raise symbols.ActorOpsError(
+            "apify_actor_pool_activation_confirmation_required",
+            "Verified Actor activation requires the exact confirmation phrase",
+            status_code=422,
+        )
+    if not _APPLY_ID_RE.fullmatch(str(apply_id)):
+        raise symbols.ActorOpsError(
+            "apify_actor_pool_apply_id_invalid",
+            "Verified Actor activation apply id is invalid",
+            status_code=422,
+        )
     if goal not in _GOALS:
         raise symbols.ActorOpsError("apify_actor_pool_stage_goal_invalid", "Actor pool workflow goal is invalid", status_code=422)
     with ops._write() as connection:
@@ -228,6 +245,7 @@ def activate_verified_pool_candidates(
             connection, ops, route_id=route_id, goal=goal,
             candidate_ids=candidate_ids, expected_generation=expected_generation,
             target_slot_count=target_slot_count, target_slot=target_slot,
+            apply_id=apply_id, confirmation=confirmation,
         )
         if staged is not None:
             return staged

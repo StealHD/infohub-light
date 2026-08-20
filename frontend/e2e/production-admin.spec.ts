@@ -1000,9 +1000,9 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
 }
 
 async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'complete_third' | 'upgrade_legacy') {
-  let phase: 'selection' | 'activation' | 'complete' = 'selection'
-  let paidApprovals = 0
+  let phase: 'selection' | 'complete' = 'selection'
   let applies = 0
+  let activationPayload: Record<string, unknown> | null = null
   const revision = (id: string, publisher: string, lifecycle: string, publicName: string) => ({
     revision_id: `revision-${id}`,
     actor_id: `${publisher}/${id}`,
@@ -1085,8 +1085,8 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'comple
         kind: workflowKind,
         goal: applied ? null : goal,
         run_id: 'run-e2e',
-        stage_id: phase === 'activation' ? 'stage-e2e' : null,
-        plan_hash: phase === 'activation' ? 'plan-e2e' : null,
+        stage_id: null,
+        plan_hash: null,
         progress: {},
         blockers: [],
       },
@@ -1129,64 +1129,6 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'comple
       }],
     }
   }
-  const plan = {
-    schema_version: 3,
-    goal,
-    selection_mode: 'manual',
-    target_slot_count: 3,
-    run_id: 'run-e2e',
-    route_id: 'route-x-profile',
-    route_key: 'x/profile',
-    platform: 'x',
-    target_type: 'profile',
-    capability: 'items',
-    mode: 'primary',
-    generation: 12,
-    status: 'ready',
-    ready: true,
-    activation_ready: false,
-    plan_hash: 'plan-e2e',
-    max_candidates: planItems.length,
-    max_total_charge_usd: planItems.length * 0.02,
-    per_candidate_cap_usd: 0.02,
-    successful_actor_count: goal === 'complete_third' ? 2 : 0,
-    successful_publisher_count: goal === 'complete_third' ? 2 : 0,
-    attempts_used: 0,
-    attempts_remaining: 5,
-    budget_remaining_usd: 0.1,
-    base_pool_hash: 'base-pool-e2e',
-    required_success_count: planItems.length,
-    route_validation_cap_usd: planItems.length * 0.02,
-    source_validation_cap_usd: 0,
-    source_count: 0,
-    source_validation_count: 0,
-    items: planItems,
-  }
-  const batch = () => ({
-    schema_version: 2,
-    batch_id: 'batch-e2e',
-    route_id: 'route-x-profile',
-    discovery_run_id: 'run-e2e',
-    approved_generation: 12,
-    plan_hash: 'plan-e2e',
-    max_candidates: planItems.length,
-    max_total_charge_usd: plan.max_total_charge_usd,
-    per_candidate_cap_usd: 0.02,
-    goal,
-    pool_stage_id: 'stage-e2e',
-    status: 'completed',
-    planned_count: planItems.length,
-    success_count: planItems.length,
-    publisher_count: planItems.length,
-    actual_cost_usd: plan.max_total_charge_usd,
-    cost_final: true,
-    stop_reason: 'goal_reached',
-    created_at: '2026-08-09T08:00:00Z',
-    completed_at: '2026-08-09T08:01:00Z',
-    updated_at: '2026-08-09T08:01:00Z',
-    items: planItems.map((item) => ({ ...item, status: 'succeeded', actual_cost_usd: 0.02, cost_final: true })),
-  })
-
   await page.route(/^https?:\/\/[^/]+\/api\/admin\/apify-/, async (route) => {
     const url = new URL(route.request().url())
     const method = route.request().method()
@@ -1229,7 +1171,7 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'comple
           },
           last_failure: null,
           requires_profile_change: false,
-          selectable: true,
+          already_validated: true, selectable: true,
           unavailable_reason: null,
         })),
       }
@@ -1237,14 +1179,8 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'comple
     else if (url.pathname === '/api/admin/apify-support-checks' && method === 'POST') {
       data = { schema_version: 1, kind: 'discovery', generation: 23, route_generation: 12, discovery_run_id: 'run-e2e' }
     }
-    else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-plan' && method === 'POST') data = plan
-    else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-batches' && method === 'POST') {
-      paidApprovals += 1
-      phase = 'activation'
-      data = { schema_version: 2, batch: batch(), job: { id: 'job-e2e', status: 'queued' } }
-    }
-    else if (url.pathname === '/api/admin/apify-canary-batches/batch-e2e' && method === 'GET') data = batch()
-    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/active-pool/activate' && method === 'POST') {
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/verified-pool-activation' && method === 'POST') {
+      activationPayload = route.request().postDataJSON() as Record<string, unknown>
       applies += 1
       phase = 'complete'
       data = currentDetail()
@@ -1256,7 +1192,7 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'comple
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
   })
 
-  return { paidApprovals: () => paidApprovals, applies: () => applies }
+  return { applies: () => applies, activationPayload: () => activationPayload }
 }
 
 async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable = false } = {}) {
@@ -1665,10 +1601,8 @@ test('ActorOps route control plane stays safe and bounded across settings layout
 for (const guidedFlow of [{
   goal: 'initial_pool' as const,
   select: '选择 Actor',
-  selectionHeading: '选择 3 个 Actor',
+  selectionHeading: '选择 3 个已验证 Actor',
   candidateNames: ['Selected Primary', 'Selected Backup 1', 'Selected Backup 2'],
-  activation: '查看并确认启用',
-  activationHeading: '确认启用 Actor 主备',
   oldNames: [],
   finalNames: ['Selected Primary', 'Selected Backup 1', 'Selected Backup 2'],
 }, {
@@ -1676,8 +1610,6 @@ for (const guidedFlow of [{
   select: '补充备用 Actor',
   selectionHeading: '选择第三个备用 Actor',
   candidateNames: ['Exact Backup 2'],
-  activation: '查看并确认补位生效',
-  activationHeading: '确认补齐备用 2',
   oldNames: ['Exact Primary', 'Exact Backup'],
   finalNames: ['Exact Primary', 'Exact Backup', 'Exact Backup 2'],
 }, {
@@ -1685,12 +1617,10 @@ for (const guidedFlow of [{
   select: '继续升级当前 Actor',
   selectionHeading: '升级当前 3 个 Actor',
   candidateNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
-  activation: '查看并确认切换',
-  activationHeading: '确认切换到新版主备',
   oldNames: ['Legacy Primary', 'Legacy Backup', 'Legacy Backup 2'],
   finalNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
 }]) {
-  test(`ActorOps ${guidedFlow.goal} uses manual candidates and applies an atomic 3/3 pool`, async ({ page }, testInfo) => {
+  test(`ActorOps ${guidedFlow.goal} enables settled candidates only after confirmation 2/2`, async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === 'tablet', 'The complete manual flows run at desktop and mobile; tablet is covered by layout and visual acceptance.')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await mockAdminApi(page, true, { includeXProfileSource: true })
@@ -1704,25 +1634,19 @@ for (const guidedFlow of [{
     for (const name of guidedFlow.candidateNames) {
       await selectionDialog.getByText(name, { exact: true }).click()
     }
-    await selectionDialog.getByRole('button', { name: '继续' }).click()
-    const paidDialog = page.getByRole('dialog', { name: '验证所选 Actor' })
-    await expect(paidDialog).toBeVisible()
-    await expect(paidDialog).toContainText('当前配置不会改变')
+    expect(state.applies()).toBe(0)
     await expect(page.getByRole('textbox', { name: /Actor ID/ })).toHaveCount(0)
     await expect(page.locator('body')).not.toContainText('build-replacement')
-    expect(state.paidApprovals()).toBe(0)
-    await paidDialog.getByRole('button', { name: /确认验证（最高/ }).click()
-    await expect.poll(state.paidApprovals).toBe(1)
-
-    await expect(page.getByRole('button', { name: guidedFlow.activation })).toBeVisible()
-    for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: guidedFlow.activation }).click()
-    const activationDialog = page.getByRole('dialog', { name: guidedFlow.activationHeading })
-    await expect(activationDialog).toBeVisible()
-    await expect(activationDialog).toContainText('无停机')
+    await expect(page.getByRole('dialog', { name: '验证所选 Actor' })).toHaveCount(0)
+    await selectionDialog.getByRole('button', { name: '选择并启用' }).click()
     expect(state.applies()).toBe(0)
-    await activationDialog.getByRole('button', { name: '确认生效' }).click()
+    const activationDialog = page.getByRole('dialog').filter({ hasText: '这是确认 2/2，不会再次收费' })
+    await expect(activationDialog).toBeVisible()
+    await activationDialog.getByRole('button', { name: '确认并生效' }).click()
     await expect.poll(state.applies).toBe(1)
+    expect(state.activationPayload()).toEqual(expect.objectContaining({
+      confirmation: '确认启用 Actor 主备', apply_id: expect.any(String),
+    }))
 
     for (const name of guidedFlow.finalNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
     await expect(page.getByText('3/3 路可用', { exact: false }).first()).toBeVisible()

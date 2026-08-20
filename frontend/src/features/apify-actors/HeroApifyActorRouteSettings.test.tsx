@@ -24,7 +24,7 @@ import {
   ApifyActorIncidentList,
 } from './HeroApifyActorRouteSettings'
 import { HeroActorOpsControlPlane } from './HeroActorOpsControlPlane'
-import { APIFY_ACTOR_ROUTE_REFRESH_MS } from './apifyActorModel'
+import { APIFY_ACTOR_ROUTE_REFRESH_MS, actorAlertEventLabels } from './apifyActorModel'
 
 const actorOpsDetail = (
   overrides: Partial<ApifyActorRouteDetail> = {},
@@ -540,6 +540,7 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
       job: { id: 'job-1', status: 'queued' },
     }),
     updateApifyActorRouteActivePool: vi.fn().mockResolvedValue(defaultDetail),
+    setApifyActorRoutePriceCap: vi.fn().mockResolvedValue(defaultDetail),
     activateApifyActorRouteRecommendedPool: vi.fn().mockResolvedValue(defaultDetail),
     apifyActorSourceSupport: vi.fn(),
     canaryApifyActorSourceRevision: vi.fn(),
@@ -892,27 +893,22 @@ describe('current ActorOps settings panels', () => {
     expect(document.body.textContent).not.toContain('source-opaque-1')
   })
 
-  it('updates the route cap from the current advanced settings surface', async () => {
+  it('updates the route cap only from the bounded primary control', async () => {
     const browser = userEvent.setup()
     const { api } = renderFeature()
-    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
-    await browser.click(screen.getByRole('button', { name: /^Route 单次费用上限/ }))
-    const cap = await screen.findByLabelText('单次费用上限（USD）')
+    const cap = await screen.findByLabelText('单次 Actor 费用上限（USD）')
     await browser.clear(cap)
     await browser.type(cap, '0.03')
-    await browser.click(screen.getByRole('button', { name: '保存费用上限' }))
-    await waitFor(() => expect(api.updateApifyActorRouteActivePool).toHaveBeenCalledWith(
+    await browser.click(screen.getByRole('button', { name: '保存上限' }))
+    await waitFor(() => expect(api.setApifyActorRoutePriceCap).toHaveBeenCalledWith(
       'route-x-profile',
       {
         expected_generation: 7,
         per_run_cap_usd: 0.03,
-        slots: [
-          { slot: 'primary', revision_id: 'revision-primary' },
-          { slot: 'backup_1', revision_id: 'revision-backup-1' },
-          { slot: 'backup_2', revision_id: 'revision-backup-2' },
-        ],
       },
     ))
+    await browser.click(screen.getByRole('button', { name: /^高级设置与技术详情/ }))
+    expect(screen.queryByRole('button', { name: /^Route 单次费用上限/ })).not.toBeInTheDocument()
   })
 
   it('rolls back from canonical server slots and sends an explicit revision id', async () => {
@@ -1225,21 +1221,18 @@ describe('current ActorOps settings panels', () => {
     const browser = userEvent.setup()
     const danger = vi.spyOn(actionToast, 'danger').mockReturnValue('route-cap-error')
     renderFeature({
-      updateApifyActorRouteActivePool: vi.fn().mockRejectedValue(new ApiError(502, {
+      setApifyActorRoutePriceCap: vi.fn().mockRejectedValue(new ApiError(502, {
         code: 'unexpected_upstream_failure',
         message: 'runId=unsafe-run datasetId=unsafe-dataset',
       })),
     })
 
-    await browser.click(await screen.findByRole('button', { name: /^高级设置与技术详情/ }))
-    await browser.click(screen.getByRole('button', { name: /^Route 单次费用上限/ }))
-    const cap = await screen.findByLabelText('单次费用上限（USD）')
+    const cap = await screen.findByLabelText('单次 Actor 费用上限（USD）')
     await browser.clear(cap)
     await browser.type(cap, '0.03')
-    await browser.click(screen.getByRole('button', { name: '保存费用上限' }))
+    await browser.click(screen.getByRole('button', { name: '保存上限' }))
     await waitFor(() => expect(danger).toHaveBeenCalledWith(
-      '高级 Route 设置更新失败',
-      { description: 'Route 已变化，请刷新后重试。' },
+      '费用上限未更新，请刷新后重试。',
     ))
     expect(document.body.textContent).not.toContain('unsafe-run')
     expect(document.body.textContent).not.toContain('unsafe-dataset')
@@ -1248,10 +1241,8 @@ describe('current ActorOps settings panels', () => {
   it('selects a shared target without repeating target configuration or testing', async () => {
     const browser = userEvent.setup()
     const selected = sharedTarget()
-    const updateApifyActorAlertSettings = vi.fn().mockResolvedValue(alertSettings({
-      target_ids: [selected.id],
-      selected_targets: [selected],
-    }))
+    let finishSave: ((value: ApifyActorAlertSettings) => void) | undefined
+    const updateApifyActorAlertSettings = vi.fn().mockImplementation(() => new Promise((resolve) => { finishSave = resolve }))
     renderFeature({
       notificationServices: vi.fn().mockResolvedValue({
         schema_version: 1,
@@ -1286,6 +1277,15 @@ describe('current ActorOps settings panels', () => {
       target_ids: [selected.id],
       events: alertSettings().events,
     }))
+    expect(screen.getByRole('switch', { name: '启用 Apify 运行告警' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: selected.name })).toBeDisabled()
+    for (const event of alertSettings().events) {
+      expect(screen.getByRole('checkbox', { name: actorAlertEventLabels[event] })).toBeDisabled()
+    }
+    await act(async () => finishSave?.(alertSettings({
+      target_ids: [selected.id],
+      selected_targets: [selected],
+    })))
     expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
   })
 

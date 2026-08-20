@@ -1,5 +1,5 @@
 import type { ChangelogEntry } from './changelogTypes'
-import { actorOpsAutoPoolChangelogEntry } from './actorOpsAutoPoolChangelogEntry'
+import { actorOpsSafeDiscoveryChangelogEntry } from './actorOpsSafeDiscoveryChangelogEntry'
 
 export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
   date: '2026-08-13',
@@ -22,6 +22,16 @@ export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
 }
 
 export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
+  {
+    date: '2026-08-20',
+    title: 'ActorOps 重启后会安全核对已登记 Run',
+    summary: '未知启动仍会阻止同一任务继续付费；系统只读查询已登记的远端 Run，并在终态后恢复后续正常抓取。',
+    items: [
+      { title: '不会重复启动或抢跑备用', description: 'Worker 重启遇到已登记 Run 时，只查询原 Run 状态，不会创建新的 Actor Run、读取 Dataset、终止远端 Run 或在本次任务切换备用。远端仍在运行或无法安全确认时，Route 和 Key 池继续保持保护状态。' },
+      { title: '终态后恢复正常调度', description: '远端终态会先写回本地费用账本，再解除由中断造成的保护屏障；原任务不会重放，下一次独立抓取才按健康主备选择。主用/备用是配置顺序，各来源的实际 Actor 可能不同。' },
+      { title: '状态不再把失效主用标为运行中', description: '已验证但当前不可运行的槽位会明确显示“需要处理”，不会误显示为“运行中”或“备用可用”。' },
+    ],
+  },
   {
     date: '2026-08-19',
     title: '认证 Actor 按“最新条数”直接获取',
@@ -57,5 +67,5 @@ export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
     ],
   },
   actorOpsPoolManagementChangelogEntry,
-  actorOpsAutoPoolChangelogEntry,
+  actorOpsSafeDiscoveryChangelogEntry,
 ]

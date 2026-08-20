@@ -16,22 +16,37 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from scripts.migrate_apify_actor_ops_v15 import _backup_database, _restore_database
-from scripts.migrate_user_feed_v2 import _active_workers
+from scripts.actorops_migration_safety import (
+    active_actor_work,
+    active_workers_fail_closed,
+)
 from src.storage.apify_actor_auto_pool_schema import (
     apify_actor_auto_pool_v25_schema_shapes_valid,
     install_schema,
     mark_migrated,
     migration_marker_exists,
 )
-from src.storage.service_store import apify_actor_resilience_v21_schema_shapes_valid
+from src.storage.apify_actor_pool_management_schema import (
+    APIFY_ACTOR_POOL_MANAGEMENT_MIGRATION_CHECKSUM,
+    APIFY_ACTOR_POOL_MANAGEMENT_MIGRATION_NAME,
+    APIFY_ACTOR_POOL_MANAGEMENT_MIGRATION_VERSION,
+    apify_actor_pool_management_v22_schema_shapes_valid,
+)
 
 
 def _require_prerequisite(connection: sqlite3.Connection) -> None:
     marker = connection.execute(
         """SELECT 1 FROM schema_migrations
-           WHERE version = 24 AND name = 'apify_actor_pool_management_v22'"""
+           WHERE version = ? AND name = ? AND checksum = ?""",
+        (
+            APIFY_ACTOR_POOL_MANAGEMENT_MIGRATION_VERSION,
+            APIFY_ACTOR_POOL_MANAGEMENT_MIGRATION_NAME,
+            APIFY_ACTOR_POOL_MANAGEMENT_MIGRATION_CHECKSUM,
+        ),
     ).fetchone()
-    if not marker or not apify_actor_resilience_v21_schema_shapes_valid(connection):
+    if not marker or not apify_actor_pool_management_v22_schema_shapes_valid(
+        connection
+    ):
         raise RuntimeError("apify_actor_pool_management_v22 migration is required first")
 
 
@@ -54,8 +69,10 @@ def migrate(
         )
         if not apply:
             return {"required": not ready, "database": str(database)}
-        if _active_workers(database):
+        if active_workers_fail_closed(database):
             raise RuntimeError("active workers must be stopped before migration")
+        if active_actor_work(database):
+            raise RuntimeError("active ActorOps jobs must finish before migration")
         if ready:
             return {"required": False, "applied": False, "already_migrated": True,
                     "database": str(database)}

@@ -62,8 +62,9 @@ def _manifest():
 
 
 class _FakeOps:
-    def __init__(self, slot):
+    def __init__(self, slot, *, per_run_cap_usd=0.02):
         self.slot = slot
+        self.per_run_cap_usd = per_run_cap_usd
         self.invocation_result = None
 
     async def execute_route(
@@ -80,7 +81,7 @@ class _FakeOps:
             route_id=route_id,
             route_key="youtube/channel/items",
             route_generation=3,
-            per_run_cap_usd=0.02,
+            per_run_cap_usd=self.per_run_cap_usd,
             slots=(self.slot,),
             source_id=source_id,
             key_pool_generation=key_pool_generation,
@@ -128,6 +129,10 @@ def test_runtime_uses_frozen_build_cap_and_maps_content_without_actor_metadata()
 
 def test_controlled_x_runtime_honors_the_source_item_limit():
     asyncio.run(_controlled_x_runtime_honors_the_source_item_limit())
+
+
+def test_actor_runtimes_clamp_legacy_route_caps_to_ten_cents():
+    asyncio.run(_actor_runtimes_clamp_legacy_route_caps_to_ten_cents())
 
 
 def test_runtime_separates_target_key_and_actor_failures():
@@ -310,3 +315,55 @@ async def _controlled_x_runtime_honors_the_source_item_limit():
     assert client.kwargs["dataset_item_limit"] == 4
     assert len(result.value or []) == 2
     assert result.value[0].published_at > result.value[1].published_at
+
+
+async def _actor_runtimes_clamp_legacy_route_caps_to_ten_cents():
+    manifest_slot = RouteSlotSnapshot(
+        slot_name="primary", candidate_id="candidate", revision_id="revision",
+        actor_id="vendor/youtube-actor", publisher="vendor", build_id="build-id",
+        build_number="1.2.3", manifest_hash="a" * 64, lifecycle="certified",
+        candidate_state="closed", manifest=_manifest(),
+    )
+    manifest_client = _FakeClient()
+    await ApifyActorRuntimeService(
+        _FakeOps(manifest_slot, per_run_cap_usd=100.0), manifest_client
+    ).fetch(
+        route_id="route", source_id="source",
+        target=ActorTarget(canonical_url="https://www.youtube.com/@openai"),
+        runtime=ActorRuntime(max_items=1, since_iso="2026-07-29T00:00:00Z"),
+        content=ActorContentContext(
+            platform="youtube", source_id="source",
+            source_key="rss:youtube", source_name="OpenAI",
+        ),
+    )
+    assert manifest_client.kwargs["max_total_charge_usd"] == 0.10
+
+    x_slot = RouteSlotSnapshot(
+        slot_name="primary", candidate_id="candidate-x", revision_id="revision-x",
+        actor_id="xquik/x-tweet-scraper", publisher="xquik", build_id=None,
+        build_number=None, manifest_hash=None, lifecycle="legacy_builtin",
+        candidate_state="closed", manifest=None, execution_mode="current",
+    )
+
+    class XClient:
+        timeout_seconds = 5
+        http_client = None
+        coordinator = None
+
+        async def run_actor_detailed(self, _actor_id, _actor_input, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(items=[], actual_charge_usd=0.0)
+
+    x_client = XClient()
+    await ApifyActorRuntimeService(
+        _FakeOps(x_slot, per_run_cap_usd=100.0), x_client
+    ).fetch(
+        route_id="route-x", source_id="source-x",
+        target=ActorTarget(canonical_url="https://x.com/openai", handle="openai"),
+        runtime=ActorRuntime(max_items=1, since_iso="2026-07-29T00:00:00Z"),
+        content=ActorContentContext(
+            platform="x", source_id="source-x",
+            source_key="x:openai", source_name="OpenAI",
+        ),
+    )
+    assert x_client.kwargs["max_total_charge_usd"] == 0.10

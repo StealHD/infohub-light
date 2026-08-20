@@ -49,19 +49,19 @@ describe('HeroActorOpsControlPlane verified Actor catalog', () => {
       }),
     })
     const browser = userEvent.setup()
-
     await browser.click(await screen.findByRole('button', { name: '添加 Actor' }))
     expect(await screen.findByText('这里只显示已验证 Actor')).toBeVisible()
     expect(screen.getByText('已验证 Actor')).toBeVisible()
     expect(screen.queryByText('待测 Actor')).not.toBeInTheDocument()
     await browser.click(screen.getByRole('checkbox', { name: /已验证 Actor/ }))
     await browser.click(screen.getByRole('button', { name: '选择并启用' }))
-
+    expect(api.activateVerifiedApifyActorPool).not.toHaveBeenCalled(); expect(await screen.findByText('这是确认 2/2，不会再次收费')).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '确认并生效' }))
     await waitFor(() => expect(api.activateVerifiedApifyActorPool).toHaveBeenCalledWith(
       selected.route_id,
       expect.objectContaining({
         run_id: 'run-guided', candidate_ids: ['candidate-settled'],
-        goal: 'add_slot', target_slot: 'backup_2', target_slot_count: 3,
+        goal: 'add_slot', target_slot: 'backup_2', target_slot_count: 3, confirmation: '确认启用 Actor 主备', apply_id: expect.any(String),
       }),
     ))
     expect(api.createApifyActorManualCanaryPlan).not.toHaveBeenCalled()

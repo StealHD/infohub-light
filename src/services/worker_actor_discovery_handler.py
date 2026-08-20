@@ -14,7 +14,6 @@ import httpx
 
 from ..storage.service_store import ServiceStore
 from .secret_store import SecretStore
-from .worker_actor_auto_pool import advance_auto_pool_after_discovery
 from .worker_actor_discovery_ai import generate_manifest
 
 
@@ -534,5 +533,4 @@ def run_actor_discovery(
             except Exception as exc:
                 _mark_failed(prepared, exc, ports)
                 raise
-    advance_auto_pool_after_discovery(job, store, run_id)
     return result

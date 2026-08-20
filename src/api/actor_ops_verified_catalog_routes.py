@@ -30,6 +30,10 @@ class ApifyVerifiedPoolActivationRequest(BaseModel):
     expected_generation: StrictInt = Field(ge=1)
     target_slot_count: Literal[1, 2, 3]
     target_slot: Literal["primary", "backup_1", "backup_2"] | None = None
+    apply_id: str = Field(
+        min_length=16, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
+    confirmation: Literal["确认启用 Actor 主备"]
 
 
 def register_actor_ops_verified_catalog_routes(app: FastAPI, context: Any) -> None:
@@ -52,6 +56,8 @@ def register_actor_ops_verified_catalog_routes(app: FastAPI, context: Any) -> No
             expected_generation=int(payload.expected_generation),
             target_slot_count=int(payload.target_slot_count),
             target_slot=payload.target_slot,
+            apply_id=payload.apply_id,
+            confirmation=str(payload.confirmation),
         )
         request.state.operation_changed_fields = ["verified_actor_pool_activation"]
         request.state.operation_outcome = "ok"
