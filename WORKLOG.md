@@ -13,25 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-18",
-  "result": "为输出 Schema 不透明但免费安全条件已通过的 YouTube channel/items Actor 增加受控观察路径：先以真实目标进行一次受控 Canary，只有返回内容、身份和费用均完成核验后才生成可选的固定 Revision；同一 Build/Schema/价格的确定性付费失败会在免费发现阶段拦截。",
-  "status": "completed",
-  "task_id": "2026-08-18-youtube-observed-candidate-certification",
-  "unresolved": [],
-  "validation": [
-    "发现、Canary、池变更相关 Pytest 111 项通过。",
-    "前端类型、lint 与已验证候选筛选 Vitest 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-18",
   "result": "允许历史遗留的单条已验证 Actor 池按第一个空槽受控补足第二条；补位仍须完成 Canary、费用对账和来源验证，当前池不会提前切换。",
   "status": "completed",
   "task_id": "2026-08-18-partial-pool-recovery",
@@ -399,6 +380,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Evidence session: scan_pages=8, remaining_remote_runs=0, mode=0600; provider_cost=2, quarantine_run=124, quarantine_attempt=17, quarantine_batch=1.",
     "Audit and migration status remain blocked at run_costs=126, attempt_costs=21 and batches=1, proving the read-only scan did not mutate legacy facts; global 25 remains ignored."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "ActorOps v2 Phase 7 增加默认关闭的管理兼容门面：既有管理 URL 在 v2 已启用且 readiness 完整时只追加 health、runtime mode、Active/Standby/LKG、降级原因及脱敏维护策略；Owner/Admin 可通过零费用 policy generation CAS 授权维护，Settings 改为读取通用 v2 投影。",
+  "status": "partial",
+  "task_id": "2026-08-21-actorops-v2-phase7-admin-facade",
+  "unresolved": [
+    "历史费用隔离、global 26 migration 与三平台真实切流仍需操作者确认，所有 Route 继续 disabled。",
+    "候选 Probe/activate/disable 控制须在 Phase 6 运行验收和独立授权后实现。"
+  ],
+  "validation": [
+    "ActorOps v2/API/observability 定向测试通过。",
+    "impacted preflight 17/17 通过，覆盖后端、前端、控制面、代码尺寸、产品文档和生产构建。"
   ]
 }
 ```

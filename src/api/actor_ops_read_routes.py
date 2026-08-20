@@ -10,6 +10,7 @@ from .actor_ops_projection import (
     public_canary_batch,
     public_canary_plan,
 )
+from .actorops_v2_projection import actorops_v2_route_additions
 from .context import ApiContext
 from .responses import ok
 from .system_auth import api_context, current_admin
@@ -21,20 +22,23 @@ async def admin_apify_routes(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    ops = context.apify_actor_ops_for(str(user["workspace_id"]))
+    workspace_id = str(user["workspace_id"])
+    ops = context.apify_actor_ops_for(workspace_id)
     routes = [
-        public_actor_ops_route(ops, ops.get_route(str(route["route_id"])))
+        _route_projection(
+            public_actor_ops_route(ops, ops.get_route(str(route["route_id"]))),
+            context, workspace_id,
+        )
         for route in ops.list_routes()
     ]
     response.headers["Cache-Control"] = "no-store"
-    return ok(
-        {
-            "schema_version": 1,
-            "generation": ops.catalog_generation(),
-            "support_profiles": supported_route_profiles(),
-            "routes": routes,
-        }
-    )
+    payload: dict[str, Any] = {
+        "schema_version": 1, "generation": ops.catalog_generation(),
+        "support_profiles": supported_route_profiles(), "routes": routes,
+    }
+    if routes and routes[0].get("actorops_version") == 2:
+        payload["actorops_version"] = 2
+    return ok(payload)
 
 
 async def admin_apify_route_detail(
@@ -43,11 +47,20 @@ async def admin_apify_route_detail(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
+    workspace_id = str(user["workspace_id"])
     result = context.public_actor_ops_detail(
-        context.apify_actor_ops_for(str(user["workspace_id"])), route_id
+        context.apify_actor_ops_for(workspace_id), route_id
     )
+    additions = actorops_v2_route_additions(context.store, workspace_id, route_id)
     response.headers["Cache-Control"] = "no-store"
-    return ok({"schema_version": 1, **result})
+    return ok({"schema_version": 1, **result, **(additions or {})})
+
+
+def _route_projection(
+    route: dict[str, Any], context: ApiContext, workspace_id: str,
+) -> dict[str, Any]:
+    additions = actorops_v2_route_additions(context.store, workspace_id, str(route["route_id"]))
+    return {**route, **(additions or {})}
 
 
 async def admin_apify_pool_candidates(

@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 Phase 6R.1 resumable evidence remains offline/default-off; no route cutover, UI, or user-visible behavior changed.
+// Reviewed: ActorOps v2 Phase 7 admin facade remains default-off; no route cutover, Probe, or user-visible changelog entry was added.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

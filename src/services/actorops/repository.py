@@ -73,6 +73,9 @@ class ActorOpsRepository:
     def get_binding(self, source_id: str) -> BindingRecord:
         return _reads.get_binding(self, source_id)
 
+    def list_route_bindings(self, route_id: str) -> tuple[BindingRecord, ...]:
+        return _reads.list_route_bindings(self, route_id)
+
     def list_route_candidates(self, route_id: str) -> tuple[CandidateRecord, ...]:
         return _execution.list_route_candidates(self, route_id)
 

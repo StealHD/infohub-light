@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Phase 6R.1 resumable legacy-cost evidence; all audit/quarantine controls remain offline and default-off with no user-facing behavior.
+// Reviewed for ActorOps v2 Phase 7 additive admin facade; v2 policy/UI remain default-off and do not enable routes, probes, or user-visible release notes.
 export type ManualStep = {
   title: string
   description: string

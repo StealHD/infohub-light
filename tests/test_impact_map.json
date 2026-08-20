@@ -197,6 +197,9 @@
       "id": "ActorOps v2 foundation",
       "globs": [
         "src/services/actorops/**",
+        "src/api/actorops_v2_*.py",
+        "src/api/actor_ops_read_routes.py",
+        "src/api/actor_ops_pool_management_routes.py",
         "src/services/worker_housekeeping.py",
         "src/services/worker_actorops_v2_discovery.py",
         "src/services/worker_actorops_v2_maintenance.py",

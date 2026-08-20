@@ -71,3 +71,12 @@ def get_binding(repository: Any, source_id: str) -> BindingRecord:
         watermark_latest_published_at=row["watermark_latest_published_at"],
         watermark_item_id_hash=row["watermark_item_id_hash"],
     )
+
+
+def list_route_bindings(repository: Any, route_id: str) -> tuple[BindingRecord, ...]:
+    rows = repository.connection.execute(
+        """SELECT source_id FROM actor_source_bindings_v2
+           WHERE workspace_id=? AND route_id=? ORDER BY source_id""",
+        (repository.workspace_id, route_id),
+    ).fetchall()
+    return tuple(get_binding(repository, str(row["source_id"])) for row in rows)

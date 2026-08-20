@@ -39,7 +39,7 @@
 5. **Phase 4 — 已完成：可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存安全 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成；不启动 Actor、Probe 或切流。
 6. **Phase 5 — 已完成：站立授权**：默认关闭，Owner/Admin 双策略授权后才按每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00` 的上限执行单 Candidate Probe；免费 exact-revision 预检、原子预算 reservation、自动补 Standby 与非最后一路替换均已实现，最后一个可运行 Actor 永不自动移除。无 HTTP API/UI，未执行真实调用。
 7. **Phase 6 — 当前：平台切换前历史费用隔离**：离线 Route CAS 只允许相邻 mode。`scripts/audit_actorops_v2_legacy_costs.py scan --evidence PATH` 以同一加盐、私有 `0600` session 每页最多 20 次 authenticated GET 核对 legacy terminal Run；`--resume` 只读未覆盖 Run，已阻断观察只有显式 `--retry-blocked` 才重读。仅精确 `usageTotalUsd` 可结算；远端 404 只写可审计 quarantine code 并保留 `cost_final=false` 和最坏预留，401/403/429/5xx/timeout、unknown-start 与非终态继续阻断。完整 evidence 才能由不联网的 `snapshot` 在停 API/Worker、heartbeat 过窗后建立 `0600` backup/receipt；`quarantine` 以 receipt、hash 和精确上限在一个 CAS 事务中写入。global 26 migration 随后只忽略这些精确终态 quarantine，仍输出历史未知费用上限。收到每个平台单独费用确认后，才按 YouTube、Instagram、X 顺序执行一次 migration/backfill、shadow、20 次自然获取和 3 次重启验收；shadow 不得额外启动付费 Actor，未确认前所有 Route 保持 disabled。
-8. **Phase 7 — API/UI 收敛**：现有 `/api/admin/apify-*` 路径先作兼容 facade，新增健康、Active/Standby/LKG、degraded reason 与维护策略投影；UI 不再直接展示 Batch、Stage 和多层 generation。
+8. **Phase 7 — 实施中：API/UI 收敛**：现有 `/api/admin/apify-*` 路径先作兼容 facade，新增健康、Active/Standby/LKG、degraded reason 与维护策略投影；默认关闭的 Settings v2 视图不再直接展示 Batch、Stage 和多层 generation。候选 Probe/activate/disable 控制仍待 Phase 6 真实切流验收和独立授权后实现。
 9. **Phase 8 — 删除旧链与完整门禁**：删除 Mixin、`globals().update()`、重复 Router 和三套恢复链；保留历史迁移和只读审计，运行完整代码、迁移、chaos、Playwright 与控制面门禁。
 
 每个 Phase 独立提交；行为测试先在该 Phase 内观察失败，再随实现转绿，禁止提交已知失败。Phase 6 的三个平台各自独立提交和回退边界。
