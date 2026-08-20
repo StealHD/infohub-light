@@ -216,6 +216,21 @@
       ]
     },
     {
+      "id": "ActorOps v2 cutover controls",
+      "globs": [
+        "scripts/actorops_v2_cutover.py",
+        "src/services/actorops/identity.py",
+        "src/services/actorops/repository_cutover.py",
+        "src/services/actorops/youtube_rss_compat.py",
+        "tests/test_actorops_v2_cutover.py"
+      ],
+      "groups": [
+        "python_api_store",
+        "python_source_acquisition",
+        "python_scripts"
+      ]
+    },
+    {
       "id": "ActorOps manifest DSL",
       "globs": ["src/services/apify_actor_manifest.py"],
       "groups": ["python_queue_worker", "python_source_acquisition"]

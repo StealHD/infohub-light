@@ -72,7 +72,7 @@ ActorOps feature schema v15 依赖 v13/v14，已有数据库普通初始化不�
 
 ### 3.6K ActorOps v2 计划适配器边界
 
-Phase 5 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag、global 26、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Discovery 只使用 Catalog Port 的 Store/Actor/Build 元数据读取；每个 checkpoint 仅保留有界安全引用和 hash，具体平台 Schema→Manifest 映射留在订阅类型 Adapter，AI 输出必须再次通过 exact Schema。站立维护以 Owner/Admin 双 policy 授权、免费 exact-revision 预检、单 Candidate Probe 和独立 Attempt 账本实现；API/UI 投影和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。
+Phase 5 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag、global 26、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 只增加离线 Route CAS、脱敏切流摘要/backup CLI、shadow 选择事件与稳定身份 bridge，不启动真实平台流量。Discovery 只使用 Catalog Port 的 Store/Actor/Build 元数据读取；每个 checkpoint 仅保留有界安全引用和 hash，具体平台 Schema→Manifest 映射留在订阅类型 Adapter，AI 输出必须再次通过 exact Schema。站立维护以 Owner/Admin 双 policy 授权、免费 exact-revision 预检、单 Candidate Probe 和独立 Attempt 账本实现；API/UI 投影和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。
 
 ```text
 src/services/actorops/
@@ -113,5 +113,6 @@ class ActorRouteAdapter(Protocol):
 6. source acquisition 先从 source config 得到 RouteKey 和通用 `TargetSpec`，再由 Registry 解析 Adapter。Actor 链全部失败后，只有 Adapter 返回明确 supported 的原生降级才能执行；原生结果仍必须转换为通用 `ContentItem` 并通过相同来源身份与 publication boundary。
 7. API 与 React 只消费通用 Route/Candidate/Binding/Attempt 投影，不依赖 YouTube、X 或 Instagram 的 input/output shape。平台差异只通过稳定能力标签和安全 degraded/unsupported reason 暴露。
 8. 每个已注册 Adapter 必须通过同一参数化合同套件：RouteKey 唯一、目标规范化幂等、指纹稳定、危险目标拒绝、输入有界、跨平台/跨目标输出拒绝、ContentItem 身份稳定、空结果语义明确、秘密和 SQL 依赖缺失。平台自身再补充专用映射与原生降级测试。
+9. `repository_cutover.py` 只实现相邻 Route mode CAS 与本 Route Attempt/费用 blocker；`scripts/actorops_v2_cutover.py` 是唯一读取 v1/v2 摘要、创建 `0600` backup 和调用该 CAS 的离线组合根，不查询 global 25。它不得调用来源、Actor、AI、通知或 Feed。shadow facade 只冻结 v2 候选并发无值 operation event，随后继续 v1；YouTube RSS compatibility bridge 识别 v2 handle 并直达 v2 source executor，X/Instagram 的绑定 source 已经由同一 executor 进入对应 Adapter。所有跨 runtime 内容身份归 `actorops/identity.py`，不得在平台 Adapter 之外复制哈希公式。
 
 新生产文件遵守 `tests/code_size_policy.json`；通用模块目标不超过 400 行，Adapter 目标不超过约 300 行。现有冻结的 `apify_actor_ops.py`、`apify_actor_route.py`、`service_store.py` 和 ActorOps React 巨型组件只能通过兼容 facade 缩小，不得承载 v2 新行为。

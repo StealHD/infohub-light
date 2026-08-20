@@ -17,6 +17,7 @@ from .domain import (
     ExecutionSnapshot,
     RouteHealth,
     RouteRecord,
+    RuntimeMode,
 )
 from . import repository_candidates as _candidates
 from . import repository_discovery as _discovery
@@ -25,6 +26,7 @@ from . import repository_attempts as _attempts
 from . import repository_execution as _execution
 from . import repository_maintenance as _maintenance
 from . import repository_reads as _reads
+from . import repository_cutover as _cutover
 from .repository_errors import (
     ActorOpsConflict,
     ActorOpsNotFound,
@@ -123,6 +125,25 @@ class ActorOpsRepository:
 
     def route_health(self, route_id: str) -> RouteHealth:
         return _candidates.route_health(self, route_id)
+
+    def transition_route_mode(
+        self,
+        route_id: str,
+        *,
+        current: RuntimeMode,
+        target: RuntimeMode,
+        expected_generation: int,
+    ) -> RouteRecord:
+        return _cutover.transition_route_mode(
+            self,
+            route_id,
+            current=current,
+            target=target,
+            expected_generation=expected_generation,
+        )
+
+    def cutover_blockers(self, route_id: str) -> dict[str, int]:
+        return _cutover.cutover_blockers(self, route_id)
 
     def create_candidate(
         self,

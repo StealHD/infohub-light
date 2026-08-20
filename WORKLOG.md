@@ -11,27 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "architecture",
     "interface"
   ],
-  "recorded_on": "2026-08-17",
-  "result": "修复 ActorOps 免费 Discovery 只读取容器环境变量、而 Canary 从 SecretStore 读取 Apify Key 的断链；Discovery 现在复用运行时 SecretStore，重建后可继续按 Route 类型免费发现候选。同步更新候选实测规则说明与变更日志。",
-  "status": "completed",
-  "task_id": "2026-08-17-actorops-discovery-secretstore",
-  "unresolved": [
-    "本轮 X 的三个不同发布者候选均经受控 Canary 确认未返回可订阅动态，已终态排除；当前没有可安全加入 backup_2 的外部 Actor。"
-  ],
-  "validation": [
-    "新增 SecretStore 凭据解析单测；Actor Discovery 定向回归 53 项通过。",
-    "受影响 preflight 全部命令通过：全量受影响 Python、前端 lint/typecheck/Vitest、产品文档、代码规模与 E2E 合同检查。",
-    "待提交后重建 8080，并验证 API/Worker 健康、前端资产和 Discovery 的 SecretStore 凭据读取。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
   "recorded_on": "2026-08-18",
   "result": "修复 X 免费 Discovery 的终态候选计数：它现在复用候选选择器的资格判定，固定 Build 若有确定性 Canary 失败或已在当前主备池运行，会作为已排除计为 0，不再显示为可验证后又在下一步拒绝。",
   "status": "completed",
@@ -399,6 +378,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2 Phase 1–5、Worker maintenance/isolation、v1 Worker/source-acquisition/native-fallback/readiness 定向 Pytest 通过。",
     "唯一 impacted preflight 17/17 通过：完整 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制文件、产品文档与代码规模检查均成功，且无 SQLite 连接警告。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "完成 ActorOps v2 Phase 6 的默认关闭代码护栏：离线 Route mode CAS、零值 shadow 选择事件、安全切流状态/备份/验证 CLI、稳定内容身份和 YouTube v2 RSS 兼容桥；未执行真实 migration、shadow/active、远端 Actor、来源获取或 Worker 重启。",
+  "status": "partial",
+  "task_id": "2026-08-20-actorops-v2-phase6",
+  "unresolved": [
+    "需在停止本地 API/Worker 后逐平台运行 CLI 状态/快照，取得 YouTube、Instagram、X 各自精确费用上限的明确授权，才能执行真实切流验收。"
+  ],
+  "validation": [
+    "ActorOps v2 cutover、runtime/readiness/reconciliation/Discovery/maintenance、来源接入与 v1 回归定向 Pytest 通过。",
+    "唯一完整 impacted preflight 17/17 通过：完整 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制文件、产品文档与代码规模检查均成功。"
   ]
 }
 ```

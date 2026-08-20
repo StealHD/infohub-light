@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -10,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlparse
 
 from ..models import ContentItem, SourceType
+from .actorops.identity import stable_actor_item_id
 from ..scrapers.apify_client import ApifyClient, ApifyClientError
 from .apify_key_pool import ApifyKeyPoolError
 from .apify_actor_manifest import (
@@ -576,15 +576,6 @@ def _content_item_from_mapped(
     *,
     content: ActorContentContext,
 ) -> ContentItem:
-    stable_id = hashlib.sha256(
-        "\x1f".join(
-            (
-                str(content.platform).casefold(),
-                str(content.source_key),
-                str(item.native_id),
-            )
-        ).encode("utf-8")
-    ).hexdigest()[:24]
     metrics = {
         key: value
         for key, value in {
@@ -618,7 +609,7 @@ def _content_item_from_mapped(
         **({"image_url": item.thumbnail_url} if item.thumbnail_url else {}),
     }
     return ContentItem(
-        id=f"actor:{str(content.platform).casefold()}:{stable_id}",
+        id=stable_actor_item_id(content.platform, content.source_key, item.native_id),
         source_type=_source_type(content.platform),
         title=title,
         url=item.url,

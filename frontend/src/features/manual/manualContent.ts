@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Phase 5; default-off authorized maintenance is backend-only and changes no user-facing behavior before platform cutover.
+// Reviewed for ActorOps v2 Phase 6 preparation; offline cutover guards remain default-off and change no user-facing behavior.
 export type ManualStep = {
   title: string
   description: string

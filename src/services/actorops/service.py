@@ -7,9 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from ...observability_context import current_observability_context
 from .adapters import build_source_registry
 from .apify_remote import ApifyV2RemoteClient
 from .domain import ExecutionSnapshot, RuntimeMode
+from .identity import stable_actor_item_id
+from ..operation_log import safe_emit_operation_event
 from .ports import ExecutionResult, FetchWindow, PublicationProof
 from .publication import (
     ActorOpsV2RoutedList,
@@ -18,8 +21,27 @@ from .publication import (
 )
 from .readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
 from .repository import ActorOpsRepository
-from .repository_errors import ActorOpsRepositoryError
 from .runtime import ActorOpsRuntime
+
+
+def _emit_shadow_selection(
+    *, workspace_id: str, source_id: str, candidate_count: int, available: bool
+) -> None:
+    context = current_observability_context()
+    safe_emit_operation_event(
+        category="acquisition",
+        action="actorops_v2_shadow_selection",
+        outcome="succeeded" if available else "unavailable",
+        level="info" if available else "warning",
+        workspace_id=workspace_id,
+        job_id=context.job_id,
+        source_id=source_id,
+        stage="actorops_v2_shadow",
+        route="/actorops/v2/shadow",
+        changed_fields=("runtime_mode_shadow",),
+        error_code=None if available else "actorops_v2_shadow_unavailable",
+        counts={"candidates": candidate_count, "shadow_mode": 1},
+    )
 
 
 @dataclass(slots=True)
@@ -137,12 +159,22 @@ class ActorOpsV2Service:
     def _project_items(items: tuple[object, ...], subscription: Any, mode: str) -> list[Any]:
         projected = []
         analysis_mode = getattr(subscription.analysis_mode, "value", subscription.analysis_mode)
+        source_key = str(
+            subscription.source_key
+            or f"apify_social:{subscription.profile_id}:{subscription.source_id}"
+        )
         for value in items:
             item = value.model_copy(deep=True)
+            metadata = item.metadata if isinstance(item.metadata, dict) else {}
+            native_id = str(metadata.get("native_id") or "")
+            if native_id and metadata.get("catalog_type") != "rss":
+                item.id = stable_actor_item_id(
+                    str(metadata.get("platform") or ""), source_key, native_id
+                )
             item.metadata.update(
                 {
                     "source_id": str(subscription.source_id),
-                    "source_key": str(subscription.source_key or subscription.target),
+                    "source_key": source_key,
                     "source_name": str(subscription.source_display_name or subscription.target),
                     "tags": list(subscription.tags),
                     "topics": list(subscription.topics),
@@ -173,9 +205,21 @@ class ActorOpsCompatibilityService:
             return self.v2.freeze_execution(route_id, source_id=source_id)
         if route.runtime_mode is RuntimeMode.SHADOW:
             try:
-                self.v2.freeze_execution(route_id, source_id=source_id)
-            except ActorOpsRepositoryError:
-                pass
+                snapshot = self.v2.freeze_execution(route_id, source_id=source_id)
+            except Exception:
+                _emit_shadow_selection(
+                    workspace_id=self.workspace_id,
+                    source_id=source_id,
+                    candidate_count=0,
+                    available=False,
+                )
+            else:
+                _emit_shadow_selection(
+                    workspace_id=self.workspace_id,
+                    source_id=source_id,
+                    candidate_count=len(snapshot.snapshot.candidates),
+                    available=True,
+                )
         return self.v1.freeze_execution(route_id, source_id=source_id)
 
     def assert_publishable(self, snapshot: Any) -> None:

@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- 已实现但默认停用：ActorOps v2 Phase 1–5 已建立 global 26、Domain/Repository、三类 Adapter、稳定获取 Runtime、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护；Route 仍为 disabled，API/UI 投影和平台切流尚未实现，现役 API/Worker 继续使用 v1。
+- 已实现但默认停用：ActorOps v2 Phase 1–5 已建立 global 26、Domain/Repository、三类 Adapter、稳定获取 Runtime、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 的离线 Route CAS、摘要/备份 CLI、shadow 选择事件和稳定内容身份已就绪；所有 Route 仍为 disabled，未运行迁移、shadow、active、真实来源或付费 Actor，现役 API/Worker 继续使用 v1。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -38,7 +38,7 @@
 4. **Phase 3 — 已完成：统一对账与 Worker 隔离**：单一 Reconciler 只读取和结算既有远端 Run；unknown start 只冻结对应 Attempt/费用预留，Actor 控制任务不再成为普通 Fetch claim 的同步前置。
 5. **Phase 4 — 已完成：可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存安全 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成；不启动 Actor、Probe 或切流。
 6. **Phase 5 — 已完成：站立授权**：默认关闭，Owner/Admin 双策略授权后才按每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00` 的上限执行单 Candidate Probe；免费 exact-revision 预检、原子预算 reservation、自动补 Standby 与非最后一路替换均已实现，最后一个可运行 Actor 永不自动移除。无 HTTP API/UI，未执行真实调用。
-7. **Phase 6 — 当前：平台切换**：YouTube、Instagram、X 分别以独立提交执行 backfill、shadow、20 次自然获取和 3 次重启验收；shadow 不得额外启动付费 Actor，平台观察期保留冻结 v1 回退快照。
+7. **Phase 6 — 当前：平台切换**：离线 Route CAS 只允许相邻 mode，`scripts/actorops_v2_cutover.py` 先输出 marker/shape、v1/v2 摘要、费用 blocker 与每平台精确授权上限。收到各平台单独费用确认后，才按 YouTube、Instagram、X 顺序执行一次 migration/backfill、shadow、20 次自然获取和 3 次重启验收；shadow 不得额外启动付费 Actor，平台观察期保留冻结 v1 回退快照。未确认前所有 Route 保持 disabled。
 8. **Phase 7 — API/UI 收敛**：现有 `/api/admin/apify-*` 路径先作兼容 facade，新增健康、Active/Standby/LKG、degraded reason 与维护策略投影；UI 不再直接展示 Batch、Stage 和多层 generation。
 9. **Phase 8 — 删除旧链与完整门禁**：删除 Mixin、`globals().update()`、重复 Router 和三套恢复链；保留历史迁移和只读审计，运行完整代码、迁移、chaos、Playwright 与控制面门禁。
 
@@ -48,7 +48,7 @@
 
 本阶段覆盖来源、订阅、Feed、稳定历史、任务、受控 AI/Apify、通知服务、React UI、Remote MCP、浏览器 OpenClaw、存储治理和可观测性。
 
-ActorOps v2 Phase 5 已提供默认停用的站立维护：Owner/Admin 双策略授权、免费 exact-revision 预检、单 Candidate Probe、独立 Probe 账本、UTC 日/月预算与安全补位/替换均不改变 Route runtime mode、Feed、LKG 或水位。下一阶段才按平台独立 shadow/观察/切流；新增平台继续通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
+ActorOps v2 Phase 5 已提供默认停用的站立维护：Owner/Admin 双策略授权、免费 exact-revision 预检、单 Candidate Probe、独立 Probe 账本、UTC 日/月预算与安全补位/替换均不改变 Route runtime mode、Feed、LKG 或水位。Phase 6 的通用 guardrail 只提供安全的离线切换准备；收到逐平台费用授权后才按平台独立 shadow/观察/切流。新增平台继续通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
 
 不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway 或未授权的真实外部调用。旧 CLI、静态站、scheduler、本地 MCP、archive/Graph/feedback API 不再是兼容面。
 

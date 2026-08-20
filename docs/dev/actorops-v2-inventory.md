@@ -218,3 +218,10 @@ backfill 只读取 global 17–24：
 - Probe 最多一项输出与一次远端启动，不使用 native fallback，不发布 Feed 或 Dataset，也不更新 LKG/水位。可信非空结果才推进 Candidate 证据与 lifecycle；空结果是 no-evidence；未知启动保留给 Reconciler；
 - 成功 Candidate 自动补 Standby，或仅在仍有其他 runnable 路径时原子隔离异常 Candidate 并重排 Active/Standby；最后一个 runnable Candidate 保持 assignment 并留下安全保护码；
 - Worker 仅在 flag=true 的 idle/post-job housekeeping 以低优先级 `actorops_v2_maintenance` Job 入队；正常 claim、v1 来源获取、API/UI、Route runtime mode 与真实平台流量均未改变。下一阶段才是分平台 shadow/观察/切流。
+
+## 13. Phase 6 切流护栏（尚未执行平台操作）
+
+- `repository_cutover.py` 为单 Route 提供 expected mode/generation CAS，限制相邻 `disabled → shadow → active` 与正常 `active → shadow → disabled`；前进时拒绝本 Route 未结 Attempt/费用，回退不重写远端或 Feed 事实。
+- `scripts/actorops_v2_cutover.py` 只读汇总 global 26 marker/shape、Route health、runnable 顺序、Binding readiness、v1/v2 摘要、费用与 blocker；可创建 `0600` 私有 SQLite backup，且只有显式 apply 才切 mode。它不查询 global 25，也不调用来源、Actor、AI、通知或 Feed。
+- shadow 选择仅发出无值 operation event 后继续 v1；跨 v1/v2 的 X/Instagram 内容身份统一，YouTube 保持 RSS identity。YouTube 旧 RSS wrapper 遇到 v2 handle 直达通用 v2 executor，避免把 v2 snapshot 交给 v1 Runtime。
+- 下一步仍是本地离线 migration/摘要对照，并在每个 Route 输出精确 `20 × candidate × cap` 后逐平台取得费用确认；截至本文更新没有真实 shadow、active、20 次自然获取或重启验收证据，因此 `PLAN.md` 继续停在 Phase 6。

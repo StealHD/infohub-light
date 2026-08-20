@@ -71,20 +71,12 @@ def decide_youtube_actor_fallback(
     if evidence.schema_drift:
         return NativeFallbackDecision.ACTOR_FALLBACK
     if evidence.returned_empty:
-        return (
-            NativeFallbackDecision.ACTOR_FALLBACK
-            if evidence.had_historical_content
-            else NativeFallbackDecision.ACCEPT_NATIVE
-        )
+        return NativeFallbackDecision.ACTOR_FALLBACK if evidence.had_historical_content else NativeFallbackDecision.ACCEPT_NATIVE
 
     status_code = evidence.status_code
     if isinstance(evidence.exception, httpx.HTTPStatusError):
         status_code = int(evidence.exception.response.status_code)
-    if isinstance(evidence.exception, (TimeoutError, httpx.TimeoutException)):
-        return NativeFallbackDecision.ACTOR_FALLBACK
-    if isinstance(evidence.exception, NetworkResolutionError):
-        return NativeFallbackDecision.ACTOR_FALLBACK
-    if isinstance(evidence.exception, httpx.TransportError):
+    if isinstance(evidence.exception, (TimeoutError, httpx.TimeoutException, NetworkResolutionError, httpx.TransportError)):
         return NativeFallbackDecision.ACTOR_FALLBACK
     if status_code == 429 or (status_code is not None and status_code >= 500):
         return NativeFallbackDecision.ACTOR_FALLBACK
@@ -323,17 +315,20 @@ class YouTubeNativeActorFallbackScraper:
         frozen_snapshot: Any,
         since: datetime,
     ) -> list[ContentItem]:
+        self.publication_snapshots.append(frozen_snapshot)
+        if getattr(frozen_snapshot, "actorops_version", 1) == 2:
+            from .actorops.youtube_rss_compat import fetch_v2_youtube_rss
+            return await fetch_v2_youtube_rss(source=self.source, actor_ops=self.actor_ops, coordinator=self.apify_coordinator,
+                http_client=self.client, binding=binding, snapshot=frozen_snapshot, since=since, job_id=self.job_id)
         from ..scrapers.apify_client import ApifyClient
         from .apify_actor_manifest import ActorRuntime
         from .apify_actor_runtime import ActorContentContext, ApifyActorRuntimeService, actor_target_for_route
 
-        canonical_url = str(self.source.url)
-        self.publication_snapshots.append(frozen_snapshot)
         result = await ApifyActorRuntimeService(self.actor_ops, ApifyClient(
             coordinator=self.apify_coordinator, http_client=self.client,
         )).fetch(
             route_id=str(binding["route_id"]), source_id=str(self.source.source_id),
-            target=actor_target_for_route("youtube", canonical_url),
+            target=actor_target_for_route("youtube", str(self.source.url)),
             runtime=ActorRuntime(max_items=int(self.source.fetch_limit),
                 since_iso=since.astimezone(timezone.utc).isoformat(),
                 until_iso=datetime.now(timezone.utc).isoformat()),
@@ -344,12 +339,12 @@ class YouTubeNativeActorFallbackScraper:
                 tags=tuple(self.source.tags), personal_tags=tuple(self.source.personal_tags),
                 analysis_mode=(self.source.analysis_mode.value if hasattr(self.source.analysis_mode, "value") else str(self.source.analysis_mode))),
             job_id=self.job_id, frozen_snapshot=frozen_snapshot,
-            source_target_value=canonical_url,
+            source_target_value=str(self.source.url),
         )
         return reattribute_youtube_fallback_items(result.value or [],
             source_id=str(self.source.source_id),
-            source_key=str(self.source.source_key or canonical_url),
-            canonical_feed_url=canonical_url)
+            source_key=str(self.source.source_key or self.source.url),
+            canonical_feed_url=str(self.source.url))
 
     def _had_historical_content(self) -> bool:
         row = self.actor_ops.store.connect().execute(
