@@ -25,6 +25,7 @@ from .apify_actor_ops import (
     ApifyActorOpsService,
     RouteExecutionSnapshot,
     RouteSlotSnapshot,
+    VALIDATION_MAX_CHARGE_USD_LIMIT,
     revision_set_hash,
     source_target_fingerprint,
 )
@@ -821,7 +822,8 @@ class ApifyActorCanaryRunner:
             route_key=str(row["route_key"]),
             route_generation=int(row["route_generation"]),
             per_run_cap_usd=min(
-                float(row["approved_max_cost_usd"] or 0.02), 0.02
+                float(row["approved_max_cost_usd"] or VALIDATION_MAX_CHARGE_USD_LIMIT),
+                VALIDATION_MAX_CHARGE_USD_LIMIT,
             ),
             slots=(slot,),
             target_fingerprint=str(row["target_fingerprint"] or "") or None,

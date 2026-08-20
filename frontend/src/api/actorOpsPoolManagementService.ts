@@ -1,6 +1,7 @@
 import type { ApiClient } from './client'
 import type {
   ApifyActorActivePoolRemove,
+  ApifyActorAutoPoolRun,
   ApifyActorCanaryBatch,
   ApifyActorCanaryBatchRequest,
   ApifyActorCanaryBatchResponse,
@@ -84,6 +85,22 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
       payload: { expected_generation: number; per_run_cap_usd: number },
     ) => client.patch<ApifyActorRouteDetail>(
       `${resource('/api/admin/apify-routes', routeId)}/price-cap`, payload,
+    ),
+    startApifyActorAutoPool: (
+      routeId: string,
+      payload: {
+        goal: 'add_slot' | 'replace_slot'
+        target_slot: Slot
+        expected_generation: number
+        budget_cap_usd?: number
+      },
+    ) => client.post<{ run: ApifyActorAutoPoolRun }>(
+      `${resource('/api/admin/apify-routes', routeId)}/auto-pool`, payload,
+    ),
+    apifyActorAutoPoolRun: (runId: string, signal?: AbortSignal) => (
+      client.get<{ run: ApifyActorAutoPoolRun }>(
+        resource('/api/admin/apify-auto-pool-runs', runId), signal,
+      )
     ),
   }
 }

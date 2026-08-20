@@ -90,6 +90,9 @@ export const queryKeys = {
   apifyActorCanaryBatch: (userId: string, batchId: string) => [
     ...userKey(userId), 'apify-actor-canary-batches', batchId,
   ] as const,
+  apifyActorAutoPoolRun: (userId: string, runId: string) => [
+    ...userKey(userId), 'apify-actor-auto-pool-runs', runId,
+  ] as const,
   apifyActorSourceSupport: (userId: string, sourceId: string) => [
     ...userKey(userId), 'apify-actor-source-support', sourceId,
   ] as const,

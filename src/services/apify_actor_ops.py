@@ -3147,9 +3147,9 @@ class ApifyActorOpsService(
                 "Selected Actor revision was not found",
                 status_code=404,
             )
-        cap = min(float(run["per_run_cap_usd"]), 0.02)
+        cap = min(float(run["per_run_cap_usd"]), VALIDATION_MAX_CHARGE_USD_LIMIT)
         if max_total_charge_usd is not None and not math.isclose(
-            _bounded_cost(max_total_charge_usd, maximum=0.02),
+            _bounded_cost(max_total_charge_usd, maximum=VALIDATION_MAX_CHARGE_USD_LIMIT),
             cap,
             rel_tol=0.0,
             abs_tol=1e-9,
@@ -3709,7 +3709,7 @@ class ApifyActorOpsService(
                     requested.get(
                         "max_charge_usd",
                         min(
-                            VALIDATION_MAX_CHARGE_USD_DEFAULT,
+                            VALIDATION_MAX_CHARGE_USD_LIMIT,
                             float(run["per_run_cap_usd"]),
                         ),
                     )
@@ -4291,7 +4291,9 @@ class ApifyActorOpsService(
             - float(usage["occupied_usd"] or 0),
             0.0,
         )
-        per_candidate_cap = min(float(run["per_run_cap_usd"]), 0.02)
+        per_candidate_cap = min(
+            float(run["per_run_cap_usd"]), VALIDATION_MAX_CHARGE_USD_LIMIT
+        )
         authorization_budget = min(total_cap, budget_remaining)
         affordable_candidates = int(
             (authorization_budget + 1e-9) // per_candidate_cap

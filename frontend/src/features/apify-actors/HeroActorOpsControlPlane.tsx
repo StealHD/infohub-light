@@ -126,6 +126,14 @@ const discoveryReasonLabels: Record<string, string> = {
   apify_manifest_item_identity_invalid: 'Manifest 把频道或主页本身错误映射成内容条目',
   apify_actor_metadata_only: 'Actor 只返回频道资料，没有返回视频内容；该 Build 已停止重复试跑',
   apify_manifest_source_identity_invalid: 'Manifest 错把内容 URL 当作来源身份',
+  apify_actor_discovery_failed: '发现流程失败，请稍后重新触发',
+  discovery_ai_invalid_json: 'Discovery AI 返回了非法响应，请检查 AI Provider 配置',
+  discovery_ai_disabled: 'Discovery AI 未启用，请先在设置中启用',
+  discovery_global_ai_unavailable: 'Discovery AI 全局配置不可用',
+  metadata_token_unavailable: 'Apify 元数据凭证不可用',
+  discovery_interrupted: '发现流程被中断，请重新触发',
+  discovery_admin_unavailable: '没有可用的管理员账号来触发发现',
+  superseded_duplicate_refresh: '已被一次更新的刷新取代',
 }
 
 type PoolDraft = Record<ApifyActorSlotName, string | null>
@@ -211,7 +219,7 @@ function shortRevision(revisionId: string | null | undefined): string {
 }
 
 function discoveryReasonLabel(reason: string): string {
-  return discoveryReasonLabels[reason] || '候选未通过当前安全规则'
+  return discoveryReasonLabels[reason] || '未通过当前发现规则'
 }
 
 function discoveryFailureTitle(phase: string | null | undefined): string {
@@ -968,6 +976,8 @@ export function HeroActorOpsControlPlane({
   const [sourceActivationOpen, setSourceActivationOpen] = useState(false)
   const [rollbackRevision, setRollbackRevision] = useState<ApifyActorRevisionSummary | null>(null)
   const [rollbackSlot, setRollbackSlot] = useState<ApifyActorSlotName>('primary')
+  const [autoPoolRunId, setAutoPoolRunId] = useState('')
+  const [autoPoolError, setAutoPoolError] = useState<HumanActorError | null>(null)
   const batchTriggerRef = useRef<HTMLButtonElement | null>(null)
   const candidateTriggerRef = useRef<HTMLButtonElement | null>(null)
   const activationTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -1381,6 +1391,64 @@ export function HeroActorOpsControlPlane({
     },
   })
 
+  const autoPoolQuery = useQuery({
+    queryKey: queryKeys.apifyActorAutoPoolRun(user.id, autoPoolRunId),
+    queryFn: ({ signal }) => api.apifyActorAutoPoolRun(autoPoolRunId, signal),
+    enabled: queryEnabled && Boolean(autoPoolRunId),
+    retry: false,
+    refetchInterval: (current) => (
+      ['running'].includes(current.state.data?.run.status ?? '') ? 3_000 : false
+    ),
+  })
+  const autoPoolRun = autoPoolQuery.data?.run
+  useEffect(() => {
+    if (!autoPoolRun) return
+    if (autoPoolRun.status === 'succeeded') {
+      setAutoPoolRunId('')
+      setAutoPoolError(null)
+      poolManagement.clearSlotOperation()
+      setCandidatePickerOpen(false)
+      setSelectedCandidateIds([])
+      refreshSelected()
+      actionToast.success('已自动完成 Actor 替换', {
+        description: '免费搜索、付费验证与生效已自动走完，当前线路已更新。',
+      })
+      return
+    }
+    if (autoPoolRun.status === 'budget_exhausted' || autoPoolRun.status === 'failed') {
+      setAutoPoolError({
+        reason: autoPoolRun.status === 'budget_exhausted'
+          ? '本轮自动替换已用尽 $0.50 预算，仍未找到通过付费验证的候选。'
+          : '自动替换流程失败，请刷新后重试。',
+        impact: '现有线路保持不变，没有被自动切换。',
+        next: '刷新状态后可重新发起自动替换，或改为手动逐项验证。',
+        diagnostic: autoPoolRun.error_code ?? undefined,
+      })
+      setAutoPoolRunId('')
+    }
+  }, [autoPoolRun, refreshSelected, poolManagement])
+
+  const startAutoPool = useMutation({
+    mutationFn: () => {
+      if (!detail || !slotOperation) throw new Error('slot operation unavailable')
+      return api.startApifyActorAutoPool(detail.route_id, {
+        goal: slotOperation.goal,
+        target_slot: slotOperation.targetSlot,
+        expected_generation: detail.generation,
+      })
+    },
+    onSuccess: (response) => {
+      setAutoPoolError(null)
+      setAutoPoolRunId(response.run.run_id)
+      setSelectedCandidateIds([])
+      actionToast.success('已开始自动替换，正在免费搜索并自动验证', {
+        description: '系统会自动循环搜索、付费验证并在通过后原子生效；预算上限 $0.50。',
+      })
+    },
+    onError: (caught) => setAutoPoolError(humanActorError(caught)),
+  })
+  const autoPoolRunning = autoPoolRunId !== '' && (['running'].includes(autoPoolRun?.status ?? '') || startAutoPool.isPending)
+
   const sourceCanary = useMutation({
     mutationFn: async (target: CanaryApprovalTarget) => {
       if (target.kind !== 'source') throw new Error('source validation required')
@@ -1480,6 +1548,13 @@ export function HeroActorOpsControlPlane({
   const youtubeOptionalThirdShortfall = candidateShortfall
     && workflow?.goal === 'complete_third'
     && selectedProfileId === 'youtube/channel/items'
+  const discoveryFailed = Boolean(
+    trackedDiscovery
+    && terminalDiscoveryStatuses.has(trackedDiscovery.status)
+    && trackedDiscovery.error_code
+    && !candidateShortfall
+    && !submittedDiscoveryRunning
+  )
   const nextTitle = submittedDiscoveryRunning
     ? '正在免费搜索候选'
     : workflow?.kind === 'source_validation_required' && workflowPendingSourceCount > 0
@@ -1492,6 +1567,8 @@ export function HeroActorOpsControlPlane({
           : workflow?.goal === 'complete_third'
             ? '本轮已完成，第三路备用候选不足'
           : '主备候选不足'
+    : discoveryFailed
+      ? '上次免费搜索未完成'
     : next.title
   const nextDescription = discoveryRunRunning
     ? `${trackedDiscoveryProgress}。页面每 3 秒自动刷新；完成后会显示找到的候选和失败原因，无需再次点击。`
@@ -1503,11 +1580,15 @@ export function HeroActorOpsControlPlane({
       : `${eligibleCandidateCount !== null && requiredSuccessCount !== null
         ? `当前找到 ${eligibleCandidateCount}/${requiredSuccessCount} 个符合条件的候选。`
         : '当前符合条件的候选还不足。'}本轮已终结，已通过的候选会保留。请先查看候选与失败原因；只在 Actor / Build 证据变化后再发起新检查。`
+    : discoveryFailed
+      ? `${discoveryReasonLabel(trackedDiscovery?.error_code ?? '')}（错误码 ${trackedDiscovery?.error_code ?? ''}）。可重新触发免费搜索，不会启动 Actor 或产生费用。`
     : next.description
   const nextCta = discoveryRunRunning
     ? null
     : candidateShortfall
     ? workflow?.goal === 'upgrade_legacy' ? '查看当前 Actor 升级状态' : '查看候选与失败原因'
+    : discoveryFailed
+      ? '重新触发免费搜索'
     : next.cta
 
   function performNextAction() {
@@ -1749,8 +1830,10 @@ export function HeroActorOpsControlPlane({
           {discoveryRunRunning && <HeroNotice title="正在搜索，无需重复点击" status="warning" role="status">
             {trackedDiscoveryProgress}。完成后页面会自动显示新候选或明确的失败原因。
           </HeroNotice>}
-          {!discoveryRunRunning && trackedDiscovery && terminalDiscoveryStatuses.has(trackedDiscovery.status) && <HeroNotice title="最近一轮免费搜索已结束" status="default" role="status">
-            完成于 {formatActorDateTime(trackedDiscovery.updated_at ?? null)} · 查询 {trackedDiscovery.queries_completed ?? 0}/{trackedDiscovery.queries_limit ?? 0} 轮。本轮免费检查的库存只供服务器受控筛选，不会显示在这里；只有真实目标、全部启用来源和费用对账均通过的 Actor 才会加入本列表。
+          {!discoveryRunRunning && trackedDiscovery && terminalDiscoveryStatuses.has(trackedDiscovery.status) && <HeroNotice title={trackedDiscovery.error_code ? '最近一轮免费搜索未完成' : '最近一轮免费搜索已结束'} status={trackedDiscovery.error_code ? 'warning' : 'default'} role="status">
+            {trackedDiscovery.error_code
+              ? `${discoveryReasonLabel(trackedDiscovery.error_code)}（错误码 ${trackedDiscovery.error_code}）。`
+              : `完成于 ${formatActorDateTime(trackedDiscovery.updated_at ?? null)} · 查询 ${trackedDiscovery.queries_completed ?? 0}/${trackedDiscovery.queries_limit ?? 0} 轮。`}本轮免费检查的库存只供服务器受控筛选，不会显示在这里；只有真实目标、全部启用来源和费用对账均通过的 Actor 才会加入本列表。
           </HeroNotice>}
           <HeroNotice title="这里只显示已验证 Actor" status="default" role="status">每一项都已在当前平台用真实目标完成 Route 与所有启用来源验证，并已完成费用对账。选择后只会进行无费用的原子启用或替换；待测、失败和过期项不会出现在这里。</HeroNotice>
           {candidatesQuery.isPending && <LoadingState label="正在读取可选 Actor" rows={3} />}
@@ -1771,11 +1854,14 @@ export function HeroActorOpsControlPlane({
           {candidateError && <HumanActorErrorNotice error={candidateError} />}
         </div></Modal.Body>
         <Modal.Footer>
-          <Button variant="ghost" isDisabled={activateVerifiedCandidates.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); poolManagement.clearSlotOperation(); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
-          <Button variant="secondary" isDisabled={activateVerifiedCandidates.isPending || discovery.isPending || discoveryRunRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : discovery.isPending ? '正在更新…' : '更新待测 Actor（免费）'}</Button>
-          {hasPendingCandidateVerification && <Button variant="secondary" isDisabled={preparePlan.isPending || discovery.isPending} onPress={() => { setCandidatePickerOpen(false); preparePlan.mutate() }}>{preparePlan.isPending ? '正在生成实测计划…' : '更新已验证 Actor 库'}</Button>}
-          <Button isDisabled={!candidateSelectionComplete || activateVerifiedCandidates.isPending || discovery.isPending} onPress={() => activateVerifiedCandidates.mutate()}>{activateVerifiedCandidates.isPending ? '正在启用…' : '选择并启用'}</Button>
+          <Button variant="ghost" isDisabled={activateVerifiedCandidates.isPending || discovery.isPending || autoPoolRunning} onPress={() => { setCandidatePickerOpen(false); setSelectedCandidateIds([]); poolManagement.clearSlotOperation(); setCandidateError(null); restoreFocus(candidateTriggerRef) }}>取消</Button>
+          <Button variant="secondary" isDisabled={activateVerifiedCandidates.isPending || discovery.isPending || discoveryRunRunning || autoPoolRunning} onPress={() => discovery.mutate()}>{discoveryRunRunning ? '正在搜索，自动刷新…' : discovery.isPending ? '正在更新…' : '更新待测 Actor（免费）'}</Button>
+          {hasPendingCandidateVerification && <Button variant="secondary" isDisabled={preparePlan.isPending || discovery.isPending || autoPoolRunning} onPress={() => { setCandidatePickerOpen(false); preparePlan.mutate() }}>{preparePlan.isPending ? '正在生成实测计划…' : '更新已验证 Actor 库'}</Button>}
+          <Button isDisabled={!candidateSelectionComplete || activateVerifiedCandidates.isPending || discovery.isPending || autoPoolRunning} onPress={() => activateVerifiedCandidates.mutate()}>{activateVerifiedCandidates.isPending ? '正在启用…' : '选择并启用'}</Button>
+          {slotOperation && <Button variant="primary" isDisabled={autoPoolRunning || startAutoPool.isPending} onPress={() => startAutoPool.mutate()}>{autoPoolRunning ? '自动完成中…' : startAutoPool.isPending ? '正在启动…' : '一键自动完成（含付费验证）'}</Button>}
         </Modal.Footer>
+        {autoPoolRunning && <div className="px-6 pb-4"><HeroNotice title="正在自动完成" status="warning" role="status">系统正在循环免费搜索、付费验证并通过后自动生效（预算上限 $0.50）。累计已花费 {formatActorUsd(autoPoolRun?.total_spent_usd ?? 0, true)}。</HeroNotice></div>}
+        {autoPoolError && <div className="px-6 pb-4"><HumanActorErrorNotice error={autoPoolError} /></div>}
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
     <ActorOpsRemovePoolDialog target={removeTarget} pending={removePoolSlot.isPending} onClose={poolManagement.closeRemoveDialog} onConfirm={(target) => removePoolSlot.mutate(target)} />

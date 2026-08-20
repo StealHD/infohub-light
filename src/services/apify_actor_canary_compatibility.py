@@ -92,6 +92,7 @@ async def preflight_compatibility_candidate(runner: Any, row: Any) -> Any:
         ApifyActorDiscoveryService,
         ApifyStoreRestClient,
     )
+    from .apify_actor_ops import VALIDATION_MAX_CHARGE_USD_LIMIT
 
     actor_id = str(row["actor_id"])
     metadata = ApifyStoreRestClient(
@@ -114,7 +115,10 @@ async def preflight_compatibility_candidate(runner: Any, row: Any) -> Any:
         verifier = ApifyActorDiscoveryService(runner.ops, metadata, lambda _prompt: {})
         candidate = await verifier.load_compatibility_candidate(
             actor_id,
-            per_run_cap_usd=min(float(row["approved_max_cost_usd"] or 0.02), 0.02),
+            per_run_cap_usd=min(
+                float(row["approved_max_cost_usd"] or VALIDATION_MAX_CHARGE_USD_LIMIT),
+                VALIDATION_MAX_CHARGE_USD_LIMIT,
+            ),
             allow_store_runnable_omission=store_proven,
         )
         if row["build_id"] and (

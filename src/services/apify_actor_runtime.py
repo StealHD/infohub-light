@@ -27,6 +27,7 @@ from .apify_actor_ops import (
     RouteExecutionSnapshot,
     RouteInvocationResult,
     RouteSlotSnapshot,
+    VALIDATION_MAX_CHARGE_USD_LIMIT,
 )
 
 
@@ -244,7 +245,7 @@ class ApifyActorRuntimeService:
             run = await self.client.run_actor_detailed(
                 slot.actor_id,
                 actor_input,
-                max_total_charge_usd=min(snapshot.per_run_cap_usd, 0.02),
+                max_total_charge_usd=min(snapshot.per_run_cap_usd, VALIDATION_MAX_CHARGE_USD_LIMIT),
                 logical_run_id=snapshot.attempt_id or job_id or source_id,
                 build_number=(
                     slot.build_number if slot.execution_mode != "current" else None
