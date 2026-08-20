@@ -14,6 +14,7 @@ import httpx
 
 from ..storage.service_store import ServiceStore
 from .secret_store import SecretStore
+from .worker_actor_auto_pool import advance_auto_pool_after_discovery
 from .worker_actor_discovery_ai import generate_manifest
 
 
@@ -510,24 +511,28 @@ def run_actor_discovery(
         prefer_existing=prefer_existing,
     )
     if replay is not None:
-        return replay
-    prepared = _prepare_runtime(
-        job,
-        data_dir=data_dir,
-        store=store,
-        ops=ops,
-        run_id=run_id,
-        run=run,
-        prefer_existing=prefer_existing,
-        expanded_compatibility=(
-            str(run.get("trigger_reason") or "")
-            == "manual_compatibility_candidate_refresh"
-        ),
-    )
-    if isinstance(prepared, dict):
-        return prepared
-    try:
-        return asyncio.run(_execute_discovery(prepared, ports))
-    except Exception as exc:
-        _mark_failed(prepared, exc, ports)
-        raise
+        result = replay
+    else:
+        prepared = _prepare_runtime(
+            job,
+            data_dir=data_dir,
+            store=store,
+            ops=ops,
+            run_id=run_id,
+            run=run,
+            prefer_existing=prefer_existing,
+            expanded_compatibility=(
+                str(run.get("trigger_reason") or "")
+                == "manual_compatibility_candidate_refresh"
+            ),
+        )
+        if isinstance(prepared, dict):
+            result = prepared
+        else:
+            try:
+                result = asyncio.run(_execute_discovery(prepared, ports))
+            except Exception as exc:
+                _mark_failed(prepared, exc, ports)
+                raise
+    advance_auto_pool_after_discovery(job, store, run_id)
+    return result

@@ -1,4 +1,4 @@
-// Reviewed for ActorOps-bound source execution and verified-catalog selection.
+// Reviewed for the v2.3.5 beta; type, Worker-hook, and schema-bootstrap splits preserve ActorOps behavior.
 export type ManualStep = {
   title: string
   description: string

@@ -1,7 +1,6 @@
 import type { ApiClient } from './client'
 import type {
   ApifyActorActivePoolRemove,
-  ApifyActorAutoPoolRun,
   ApifyActorCanaryBatch,
   ApifyActorCanaryBatchRequest,
   ApifyActorCanaryBatchResponse,
@@ -16,6 +15,19 @@ import type {
 const resource = (path: string, id: string) => `${path}/${encodeURIComponent(id)}`
 type Slot = 'primary' | 'backup_1' | 'backup_2'
 type BackupSlot = Exclude<Slot, 'primary'>
+type ApifyActorAutoPoolRun = {
+  run_id: string
+  route_id: string
+  slot_name: Slot
+  goal: 'add_slot' | 'replace_slot'
+  status: 'running' | 'succeeded' | 'budget_exhausted' | 'failed' | 'cancelled'
+  budget_cap_usd: number
+  total_spent_usd: number
+  last_discovery_run_id?: string | null
+  last_canary_batch_id?: string | null
+  error_code?: string | null
+  updated_at: string
+}
 
 export function actorOpsPoolManagementApi(client: ApiClient) {
   return {

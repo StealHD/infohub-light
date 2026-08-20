@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "以冻结历史单体、任务基线净增长比较、新文件/函数硬上限和风险映射选测替代精确行数债务，并让本地与 VPS 共用可等待 Docker starting 的发布健康检查与一致性回滚。",
-  "status": "completed",
-  "task_id": "2026-08-15-lightweight-code-test-gates",
-  "unresolved": [],
-  "validation": [
-    "定向规模、影响选择、E2E 合同、共享健康、发布与产品文档测试全部通过。",
-    "staged preflight 18/18、完整 Test Gate 19/19 通过，均无 SQLite 资源告警；未运行付费 Actor、AI、真实通知或来源抓取。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -378,6 +361,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整 impacted preflight 17/17 通过（完整 Python、Vitest、类型检查、构建与产品文档）。",
     "本地 8080 revision 5301e4b4e070 健康；YouTube 获取 2 条/新增 1 条，X 获取 20 条/新增 1 条，最终 Actor 尝试均为 valid_nonempty。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "将当前 ActorOps 候选恢复与一键自动槽位替换候选版准备为 v2.3.5-beta.1；本次只发布 GitHub beta Tag/Release，明确不切换 VPS 生产运行面。",
+  "status": "completed",
+  "task_id": "2026-08-20-release-v2.3.5-beta.1",
+  "unresolved": [],
+  "validation": [
+    "beta Tag 仅在精确 main SHA 的 GitHub Test Gate 成功后创建，并继续通过 Release Tag 隔离 API smoke。",
+    "VPS 保持 v2.3.4/cdced69ed4ef，API/Worker healthy；本次不构建、不上传、不切换生产镜像。"
   ]
 }
 ```

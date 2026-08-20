@@ -1,7 +1,6 @@
 // Reviewed: verified-only ActorOps catalog, platform-registered latest-N source execution, revision-aware current-source proofs, executable observed manifests, immediate bounded stale-circuit source Canary recovery, and no-charge pre-execution recovery.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
-import { actorOpsAutoPoolChangelogEntry } from './actorOpsAutoPoolChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
 
 export const changelogMonths: ChangelogMonth[] = [
@@ -11,7 +10,6 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       codeHealthMaintenanceEntry,
       ...actorOpsPoolManagementChangelogEntries,
-      actorOpsAutoPoolChangelogEntry,
       {
         date: '2026-08-13',
         title: '信息流刷新与收藏更及时、更可控',

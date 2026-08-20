@@ -3777,12 +3777,8 @@ class ServiceStore:
             )
             schema_sql = before_resilience + after_resilience
         conn.executescript(schema_sql)
-        from .apify_actor_pool_management_schema import bootstrap_service_store_schema
-        bootstrap_service_store_schema(conn, existing_schema=existing_schema)
-        from .apify_actor_auto_pool_schema import (
-            bootstrap_service_store_schema as bootstrap_auto_pool_schema,
-        )
-        bootstrap_auto_pool_schema(conn, existing_schema=existing_schema)
+        from .apify_actor_schema_bootstrap import bootstrap_actor_schemas
+        bootstrap_actor_schemas(conn, existing_schema=existing_schema)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
             """

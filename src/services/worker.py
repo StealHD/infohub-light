@@ -338,7 +338,7 @@ def _run_apify_actor_canary_batch(
     data_dir: str,
     store: ServiceStore,
 ) -> dict[str, Any]:
-    result = run_actor_canary_batch(
+    return run_actor_canary_batch(
         job,
         data_dir=data_dir,
         store=store,
@@ -346,36 +346,6 @@ def _run_apify_actor_canary_batch(
             apify_coordinator=apify_coordinator_for_workspace,
         ),
     )
-    _advance_auto_pool_after_canary(job, store)
-    return result
-
-
-def _advance_auto_pool_after_canary(
-    job: dict[str, Any],
-    store: ServiceStore,
-) -> None:
-    payload = job.get("payload_json")
-    if not isinstance(payload, dict):
-        return
-    batch_id = payload.get("batch_id")
-    if not batch_id:
-        return
-    try:
-        from .apify_actor_auto_pool import advance_after_canary
-        from .apify_actor_ops import ApifyActorOpsService
-
-        ops = ApifyActorOpsService(store, workspace_id=str(job["workspace_id"]))
-        advance_after_canary(
-            ops,
-            str(batch_id),
-            admin_user_id=str(job.get("user_id") or ""),
-        )
-    except Exception:
-        logger.warning(
-            "auto_pool_advance_after_canary_failed job_id=%s",
-            str(job.get("id") or ""),
-            exc_info=True,
-        )
 
 
 def _run_apify_actor_freshness_check(
@@ -406,7 +376,7 @@ def _run_apify_actor_discovery(
 ) -> dict[str, Any]:
     """Compatibility façade for Worker tests and operational overrides."""
 
-    result = run_actor_discovery(
+    return run_actor_discovery(
         job,
         data_dir=data_dir,
         store=store,
@@ -415,36 +385,6 @@ def _run_apify_actor_discovery(
             log_close_failure=_log_actor_discovery_ai_close_failure,
         ),
     )
-    _advance_auto_pool_after_discovery(job, store)
-    return result
-
-
-def _advance_auto_pool_after_discovery(
-    job: dict[str, Any],
-    store: ServiceStore,
-) -> None:
-    payload = job.get("payload_json")
-    if not isinstance(payload, dict):
-        return
-    run_id = payload.get("run_id")
-    if not run_id:
-        return
-    try:
-        from .apify_actor_auto_pool import advance_after_discovery
-        from .apify_actor_ops import ApifyActorOpsService
-
-        ops = ApifyActorOpsService(store, workspace_id=str(job["workspace_id"]))
-        advance_after_discovery(
-            ops,
-            str(run_id),
-            admin_user_id=str(job.get("user_id") or ""),
-        )
-    except Exception:
-        logger.warning(
-            "auto_pool_advance_after_discovery_failed job_id=%s",
-            str(job.get("id") or ""),
-            exc_info=True,
-        )
 
 
 def _run_job(

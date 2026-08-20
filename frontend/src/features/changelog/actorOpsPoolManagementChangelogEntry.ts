@@ -1,4 +1,5 @@
 import type { ChangelogEntry } from './changelogTypes'
+import { actorOpsAutoPoolChangelogEntry } from './actorOpsAutoPoolChangelogEntry'
 
 export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
   date: '2026-08-13',
@@ -56,4 +57,5 @@ export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
     ],
   },
   actorOpsPoolManagementChangelogEntry,
+  actorOpsAutoPoolChangelogEntry,
 ]

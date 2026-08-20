@@ -1020,20 +1020,6 @@ export type ApifyActorPoolGoal =
   | 'add_slot'
   | 'replace_slot'
 
-export type ApifyActorAutoPoolRun = {
-  run_id: string
-  route_id: string
-  slot_name: ApifyActorSlotName
-  goal: 'add_slot' | 'replace_slot'
-  status: 'running' | 'succeeded' | 'budget_exhausted' | 'failed' | 'cancelled'
-  budget_cap_usd: number
-  total_spent_usd: number
-  last_discovery_run_id?: string | null
-  last_canary_batch_id?: string | null
-  error_code?: string | null
-  updated_at: string
-}
-
 export type ApifyActorPoolStage = {
   stage_id: string
   route_id: string

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 
@@ -72,6 +72,7 @@ import { actorPickerCandidates } from './actorOpsCandidatePicker'
 import { actorOpsPoolPlanTarget } from './actorOpsPoolPlanTarget'
 import { actorOpsWorkflowIntent } from './actorOpsWorkflowIntent'
 import { useActorOpsPoolCandidates } from './useActorOpsPoolCandidates'
+import { useActorOpsAutoPoolCompletion } from './useActorOpsAutoPoolCompletion'
 import { useActorOpsPoolManagement } from './useActorOpsPoolManagement'
 import {
   poolCandidatePricingLabel,
@@ -1014,10 +1015,12 @@ export function HeroActorOpsControlPlane({
     },
   })
   const detail = detailQuery.data
-  const refreshSelected = () => {
-    void routesQuery.refetch()
-    if (tab !== 'operations') void detailQuery.refetch()
-  }
+  const refetchRoutes = routesQuery.refetch
+  const refetchDetail = detailQuery.refetch
+  const refreshSelected = useCallback(() => {
+    void refetchRoutes()
+    if (tab !== 'operations') void refetchDetail()
+  }, [refetchDetail, refetchRoutes, tab])
   const poolManagement = useActorOpsPoolManagement({
     detail,
     setCandidatePickerOpen,
@@ -1025,7 +1028,7 @@ export function HeroActorOpsControlPlane({
     setCandidateError,
     refreshSelected,
   })
-  const { slotOperation, removeTarget, removePoolSlot } = poolManagement
+  const { clearSlotOperation, slotOperation, removeTarget, removePoolSlot } = poolManagement
   const workflow = detail?.workflow ?? selectedSummary?.workflow
   const minimumActors = detail
     ? routeMinimumActors(detail)
@@ -1401,32 +1404,15 @@ export function HeroActorOpsControlPlane({
     ),
   })
   const autoPoolRun = autoPoolQuery.data?.run
-  useEffect(() => {
-    if (!autoPoolRun) return
-    if (autoPoolRun.status === 'succeeded') {
-      setAutoPoolRunId('')
-      setAutoPoolError(null)
-      poolManagement.clearSlotOperation()
-      setCandidatePickerOpen(false)
-      setSelectedCandidateIds([])
-      refreshSelected()
-      actionToast.success('已自动完成 Actor 替换', {
-        description: '免费搜索、付费验证与生效已自动走完，当前线路已更新。',
-      })
-      return
-    }
-    if (autoPoolRun.status === 'budget_exhausted' || autoPoolRun.status === 'failed') {
-      setAutoPoolError({
-        reason: autoPoolRun.status === 'budget_exhausted'
-          ? '本轮自动替换已用尽 $0.50 预算，仍未找到通过付费验证的候选。'
-          : '自动替换流程失败，请刷新后重试。',
-        impact: '现有线路保持不变，没有被自动切换。',
-        next: '刷新状态后可重新发起自动替换，或改为手动逐项验证。',
-        diagnostic: autoPoolRun.error_code ?? undefined,
-      })
-      setAutoPoolRunId('')
-    }
-  }, [autoPoolRun, refreshSelected, poolManagement])
+  useActorOpsAutoPoolCompletion({
+    run: autoPoolRun,
+    clearSlotOperation,
+    refreshSelected,
+    setRunId: setAutoPoolRunId,
+    setError: setAutoPoolError,
+    setCandidatePickerOpen,
+    setSelectedCandidateIds,
+  })
 
   const startAutoPool = useMutation({
     mutationFn: () => {
