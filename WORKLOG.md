@@ -12,26 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-18",
-  "result": "修复 X 免费 Discovery 的终态候选计数：它现在复用候选选择器的资格判定，固定 Build 若有确定性 Canary 失败或已在当前主备池运行，会作为已排除计为 0，不再显示为可验证后又在下一步拒绝。",
-  "status": "completed",
-  "task_id": "2026-08-18-actorops-x-candidate-count",
-  "unresolved": [
-    "当前 X 没有可安全加入 backup_2 的新 Build；已证伪的候选不会再触发付费验证。"
-  ],
-  "validation": [
-    "X 候选计数、Discovery 与兼容 Canary 定向 Pytest 69 项通过。",
-    "受影响 preflight 15/15 命令通过；待本地 8080 重建后进行实际免费 Discovery 验收。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-18",
   "result": "完成本地 X ActorOps 的端到端受控验收：免费 Discovery 仅保留一个安全候选，Canary 通过 Route 与两个启用来源验证后以原子方式补入 backup_2；随后真实来源更新成功，旧的 runnable Revision 失败不再复现。",
   "status": "completed",
   "task_id": "2026-08-18-actorops-x-runtime-canary",
@@ -400,6 +380,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2 cutover、runtime/readiness/reconciliation/Discovery/maintenance、来源接入与 v1 回归定向 Pytest 通过。",
     "唯一完整 impacted preflight 17/17 通过：完整 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制文件、产品文档与代码规模检查均成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "修正 ActorOps v2 global 26 migration 对 v1 终态 Attempt 的安全判定：valid_empty、actor_failed 与 target_failed 不再被误认作 inflight，仍由独立费用条件阻断未结实际费用。实际本地 dry-run 因 21 条 Attempt 未结费用、126 条 Run 未结费用、1 个运行 Batch 和活跃 Worker 继续 fail closed；未执行 migration、切流或来源调用。",
+  "status": "partial",
+  "task_id": "2026-08-21-actorops-v2-migration-settlement",
+  "unresolved": [
+    "需先由现役 v1 对账安全结算全部 Attempt/Run 费用并收敛 running batch，停止 API/Worker 后才能执行 global 26 migration。"
+  ],
+  "validation": [
+    "新增三种 v1 终态 Attempt 的 migration 回归测试；迁移测试文件 12 项通过。",
+    "唯一 impacted preflight 15/15 通过：Python、前端相关检查、产品文档、控制文件与代码规模检查均成功。"
   ]
 }
 ```

@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 Phase 6 preparation is default-off; no route cutover, UI, or user-visible behavior changed.
+// Reviewed: ActorOps v2 Phase 6 migration settlement safety is default-off; no route cutover, UI, or user-visible behavior changed.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

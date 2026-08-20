@@ -203,6 +203,27 @@ def test_existing_v24_migration_backfills_and_is_idempotent(tmp_path: Path) -> N
     assert migrate(data_dir, apply=True)["status"] == "already_migrated"
 
 
+@pytest.mark.parametrize(
+    "terminal_status", ("valid_empty", "actor_failed", "target_failed")
+)
+def test_migration_allows_settled_legacy_attempt_statuses(
+    tmp_path: Path, terminal_status: str
+) -> None:
+    data_dir = tmp_path / "data"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    _seed_v1_candidate(store)
+    store.connect().execute(
+        "UPDATE apify_actor_attempts SET status=? WHERE id='v1-terminal-attempt'",
+        (terminal_status,),
+    )
+    store.connect().commit()
+    _drop_v2(store)
+    store.close()
+
+    assert migrate(data_dir, apply=False)["status"] == "migration_required"
+
+
 def test_global_25_presence_and_damage_are_ignored(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)

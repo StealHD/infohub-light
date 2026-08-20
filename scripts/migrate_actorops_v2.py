@@ -41,7 +41,10 @@ _BLOCKER_QUERIES = {
             'apify_actor_canary_batch','apify_actor_freshness_check')
           AND status IN ('queued','running')""",
     "attempts": """SELECT COUNT(*) FROM apify_actor_attempts
-        WHERE status NOT IN ('succeeded','failed','cancelled')""",
+        WHERE status NOT IN (
+            'succeeded','valid_empty','actor_failed','target_failed',
+            'failed','cancelled'
+        )""",
     "attempt_costs": """SELECT COUNT(*) FROM apify_actor_attempts
         WHERE cost_final = 0 AND (actual_cost_usd IS NOT NULL OR reserved_usd > 0)""",
     "runs": """SELECT COUNT(*) FROM apify_actor_runs

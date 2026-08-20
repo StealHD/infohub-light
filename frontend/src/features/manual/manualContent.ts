@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Phase 6 preparation; offline cutover guards remain default-off and change no user-facing behavior.
+// Reviewed for ActorOps v2 Phase 6 preparation; migration settlement safety and offline cutover guards remain default-off with no user-facing behavior.
 export type ManualStep = {
   title: string
   description: string
