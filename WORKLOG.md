@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-18",
-  "result": "统一 ActorOps 三平台能力矩阵：X、Instagram、YouTube 均使用显式主抓取契约与 2 个不同发布者的最低健康池；YouTube 不再以 Atom/RSS fallback 或单 Actor 作为标准运行态。恢复流程会把 Worker 重启中断的 Run、验证、批次项、阶段与 Job 一起投影为可对账阻断，并仅以 GET 方式对已存在远端 Run 对账后继续原批准批次。",
-  "status": "completed",
-  "task_id": "2026-08-18-actorops-unified-primary-recovery",
-  "unresolved": [
-    "本地 YouTube 已存在的远端 Canary Run 会在新 Worker 启动后仅做状态/费用对账；若远端仍未终态，系统保持阻断且不新发付费 Run。"
-  ],
-  "validation": [
-    "完整 impacted preflight 17/17 通过，包含全量 Pytest、前端 typecheck/Vitest/build、E2E 合同、控制与产品文档检查。",
-    "新增重启恢复回归覆盖：未知启动会同时阻断 Validation、Batch item、Batch、Stage 和 Job；YouTube 旧 1/3 fallback 配置会收敛到注册的 primary 2/3 策略。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "interface",
     "ui"
@@ -401,6 +380,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "36 focused ActorOps v2 audit/migration/cutover tests passed.",
     "Impacted preflight passed 15/15: full Python domain, syntax, code size, product-doc review, frontend lint/typecheck/related Vitest and controls."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Completed the full resumable read-only legacy Actor Run audit against the local runtime database: 126 terminal Runs are covered in one private 0600 evidence session across seven normal pages plus one explicit retry page. The session records 124 historical 404 quarantines, 2 exact provider costs totaling USD 0.01705, 17 orphan Attempt quarantines and 1 eligible legacy Batch quarantine; no service.db facts, routes, migration markers, sources or Actors were written or started.",
+  "status": "blocked",
+  "task_id": "2026-08-21-actorops-v2-legacy-cost-full-audit",
+  "unresolved": [
+    "Evidence hash 700c332c3f9e2952aa3cc0eb80d1713c062b98ca889dbb84d755e5827af7b7db has conservative unknown upper bound USD 1.28. Explicit confirmation of this exact value is required before stopping services, snapshot/quarantine apply and the same-window global 26 migration."
+  ],
+  "validation": [
+    "Evidence session: scan_pages=8, remaining_remote_runs=0, mode=0600; provider_cost=2, quarantine_run=124, quarantine_attempt=17, quarantine_batch=1.",
+    "Audit and migration status remain blocked at run_costs=126, attempt_costs=21 and batches=1, proving the read-only scan did not mutate legacy facts; global 25 remains ignored."
   ]
 }
 ```
