@@ -69,3 +69,48 @@ Discovery 持久化前必须让 Manifest 的每个输出 Pointer 在精确 Build
 ActorOps feature schema v15 依赖 v13/v14，已有数据库普通初始化不得静默安装。本地共享 migration ledger 的 15/16 已由通知 schema 占用，因此 ActorOps 使用 global 17；Discovery limits、Canary batches、Pool Stage、人工选择、validation tuning、resilience 与槽位管理依次使用 global 18–24，其中 `apify_actor_pool_management_v22` 固定为 global 24。所有迁移都必须停止 API/Worker、跨过 heartbeat 安全窗并确认无对应非终态 ActorOps Job，以 SQLite backup API 创建 `0600` 备份，离线安装后检查精确 marker/checksum、完整 table shape、integrity 与 foreign keys；不得联网、调用 AI/Actor或产生费用，任一失败必须恢复备份。global 24 只为 batch/stage 持久化 `add_slot|replace_slot` 和安全 operation slot，不改写既有 X 来源、历史内容、费用或当前池，也不自动指定 validation Key、启用 compatibility 或开启新鲜度。实验性 global 25 auto-pool 若已存在只作惰性历史证据，日常 runtime、readiness、maintenance 与 fresh bootstrap 均不读取或要求，后续 migration 从 global 26 继续。日常 Actor、Build、Manifest、槽位顺序和 Discovery 调用边界按 generation 从 SQLite 热加载；Discovery Job 只冻结全局 AI 当前 provider/model/base URL、管理员首选 Key 与生产输出上限，不建立自动 Key 回退池。
 
 固定三槽的新增、替换与移出均归 `ApifyActorOpsService` 的单一写事务所有：读模型先投影每槽 action 与理由，浏览器不能自行计算可操作性。新增只填首个空槽、替换只改已占用槽，二者先冻结 base pool、operation slot、候选 Revision/Build/Manifest、来源指纹和费用上限，再走既有 Stage/Canary/activation；未完成前 active pool 不变。移出只压紧活动引用并把旧 Revision 保留为 superseded/history，先拒绝 unknown-start、active attempt、freshness、Stage、CAS 与保留后低于 Route 实际最低 Actor/发布者门槛；它不得创建 Actor 调用，现有 source Canary 证据仅可按保留槽复用。
+
+### 3.6K ActorOps v2 计划适配器边界
+
+本边界在 global 26 与 v2 feature flag 实现前属于 planned，不改变第 3.6J 的现役 v1 所有权。v2 使用通用编排服务调用每个订阅能力独立的 Adapter，不使用承载默认实现的大型继承基类。目标包结构为：
+
+```text
+src/services/actorops/
+├── domain.py
+├── ports.py
+├── registry.py
+├── repository.py
+├── policy.py
+├── runtime.py
+├── discovery.py
+├── reconciliation.py
+├── maintenance.py
+├── service.py
+└── adapters/
+    ├── x/common.py + profile_items.py
+    ├── youtube/common.py + channel_items.py
+    └── instagram/common.py + profile_items.py
+```
+
+`ports.py` 的平台端口固定为小接口，不提供可被子类继续堆积的默认工作流：
+
+```python
+class ActorRouteAdapter(Protocol):
+    route_key: RouteKey
+    def normalize_target(self, source_config: Mapping[str, object]) -> TargetSpec: ...
+    def discovery_spec(self) -> DiscoverySpec: ...
+    def build_actor_input(self, target: TargetSpec, manifest: ActorManifest, window: FetchWindow) -> Mapping[str, object]: ...
+    def validate_output(self, rows: Sequence[Mapping[str, object]], target: TargetSpec) -> NormalizedBatch: ...
+    async def fetch_native_fallback(self, target: TargetSpec, window: FetchWindow) -> NativeFallbackResult: ...
+```
+
+1. `domain.py` 独占无 I/O 的实体、状态、错误分类与 transition；`ports.py` 定义 `ActorRouteAdapter`、远端 Client 和时钟/ID 等端口；`registry.py` 是 `RouteKey(platform,target_type,capability) → Adapter` 的唯一注册点。未知 RouteKey fail closed。
+2. `repository.py` 是 v2 SQL、事务、CAS 与状态推进的唯一入口；其他通用模块和 Adapter 不得直接导入 SQLite、旧 `ServiceStore` 私有方法或表名。`policy.py` 只根据领域快照计算候选顺序、熔断、健康、补池和预算决定，不执行网络或写入。
+3. `runtime.py` 只编排 Active、Standby、Last Known Good 与发布凭据；`discovery.py` 只推进可恢复 checkpoint；`reconciliation.py` 只读取/结算既有远端 Run；`maintenance.py` 只在已冻结站立授权内生成 Probe、补位或替换意图；`service.py` 为 API、Worker 和 source acquisition 提供薄 facade。
+4. 每个 `platform + target_type + capability` 使用独立 Adapter，例如 `youtube/channel/items` 与未来 `youtube/video/comments` 必须是两个 Adapter，可复用 `youtube/common.py` 的身份规范化。Adapter 实现上述端口而不继承通用工作流，只负责目标规范化、Store 查询/静态能力描述、Actor input 构造、输出身份/内容验证、`ContentItem` 映射和可选原生降级；不得选择 Candidate、管理 Key/预算、写状态、创建 Job、发布 Feed 或处理重启恢复。
+5. 通用 Runtime、Discovery、Repository、Reconciler 和 Worker handler 不得包含 `if platform == ...` 或平台 host/字段知识；平台名称只允许出现在 Adapter、公共平台 helper、Registry 组合根和平台测试。新增平台通常只新增 Adapter、注册项和测试；若必须改变通用端口，先更新本架构合同和决策记录。
+6. source acquisition 先从 source config 得到 RouteKey 和通用 `TargetSpec`，再由 Registry 解析 Adapter。Actor 链全部失败后，只有 Adapter 返回明确 supported 的原生降级才能执行；原生结果仍必须转换为通用 `ContentItem` 并通过相同来源身份与 publication boundary。
+7. API 与 React 只消费通用 Route/Candidate/Binding/Attempt 投影，不依赖 YouTube、X 或 Instagram 的 input/output shape。平台差异只通过稳定能力标签和安全 degraded/unsupported reason 暴露。
+8. 每个已注册 Adapter 必须通过同一参数化合同套件：RouteKey 唯一、目标规范化幂等、指纹稳定、危险目标拒绝、输入有界、跨平台/跨目标输出拒绝、ContentItem 身份稳定、空结果语义明确、秘密和 SQL 依赖缺失。平台自身再补充专用映射与原生降级测试。
+
+新生产文件遵守 `tests/code_size_policy.json`；通用模块目标不超过 400 行，Adapter 目标不超过约 300 行。现有冻结的 `apify_actor_ops.py`、`apify_actor_route.py`、`service_store.py` 和 ActorOps React 巨型组件只能通过兼容 facade 缩小，不得承载 v2 新行为。

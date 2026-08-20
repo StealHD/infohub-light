@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "完成 v2.3.4 的发布准备与发布链路审查：统一各来源单次获取条数、恢复平台暂不可用时的可编辑限额，并收敛来源/订阅设置操作区和取消订阅确认交互。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.4",
-  "unresolved": [],
-  "validation": [
-    "相对 v2.3.3 的完整 preflight 18/18 通过，覆盖后端、前端、产品文档、控制文件、代码规模及发布约束。",
-    "发布脚本审查确认使用本地 linux/amd64 构建、VPS docker load、精确 main CI/Tag smoke、API/Worker/前端 revision 健康验证与可验证回滚。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture"
   ],
   "recorded_on": "2026-08-15",
@@ -383,6 +364,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整 impacted preflight 17/17 通过：全量 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制与产品文档门禁均通过。",
     "ActorOps 映射 Playwright（actorops-pool-management 与 production-admin）66 项通过；ActorOps 桌面明暗视觉基线已同步。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "从本地 main 基线创建 codex/actorops-v2 worktree，完成 ActorOps v2 Phase 0：盘点现役代码、31 张相关表、Worker/API/UI/测试与删除地图，确定 stable-fetch-first、每订阅能力独立 Adapter、global 26、显式原生降级和有界站立授权的 planned 合同；未修改产品运行逻辑。",
+  "status": "completed",
+  "task_id": "2026-08-20-actorops-v2-phase0",
+  "unresolved": [],
+  "validation": [
+    "ActorOps/迁移/Worker Discovery/YouTube 后端定向 Pytest 481 项通过；ActorOps 前端 Vitest 9 个文件、35 项通过。",
+    "Markdown 控制与产品文档定向 Pytest 12 项通过；init-pro schema 3 结构校验和 git diff --check 通过。"
   ]
 }
 ```
