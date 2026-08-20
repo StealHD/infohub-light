@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "完成 v2.3.4 的发布准备与发布链路审查：统一各来源单次获取条数、恢复平台暂不可用时的可编辑限额，并收敛来源/订阅设置操作区和取消订阅确认交互。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.4",
-  "unresolved": [],
-  "validation": [
-    "相对 v2.3.3 的完整 preflight 18/18 通过，覆盖后端、前端、产品文档、控制文件、代码规模及发布约束。",
-    "发布脚本审查确认使用本地 linux/amd64 构建、VPS docker load、精确 main CI/Tag smoke、API/Worker/前端 revision 健康验证与可验证回滚。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture"
   ],
   "recorded_on": "2026-08-15",
@@ -383,6 +364,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "完整 impacted preflight 17/17 通过：全量 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制与产品文档门禁均通过。",
     "ActorOps 映射 Playwright（actorops-pool-management 与 production-admin）66 项通过；ActorOps 桌面明暗视觉基线已同步。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-20",
+  "result": "优化开源仓库公开首页：补充隐私优先、自托管、多用户定位和 Why Inteliscope 说明，并加入由隔离 Playwright 演示数据生成的当前 React 三栏产品截图；同步完成 GitHub Description、Homepage 与 Topics 回读验证。",
+  "status": "completed",
+  "task_id": "2026-08-20-oss-project-overview",
+  "unresolved": [],
+  "validation": [
+    "Playwright 1440×900 隔离截图用例通过；PNG 视觉与敏感信息检查通过。",
+    "产品文档门禁、Markdown 控制检查、README 本地链接检查和 git diff --check 通过。"
   ]
 }
 ```

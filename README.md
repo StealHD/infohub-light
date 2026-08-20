@@ -1,8 +1,22 @@
 # Inteliscope
 
-Inteliscope is a small-group, multi-user information feed built from Horizon. Its current product surface is deliberately narrow: subscribe to sources, acquire new items, read a user-scoped Feed, and retain Feed history.
+> A privacy-first, self-hosted information hub for small teams and personal agents.
 
 [简体中文](README_zh.md) · [API contract](docs/contracts/api/) · [Architecture](docs/contracts/architecture/) · [UI contract](docs/contracts/ui/)
+
+<p align="center">
+  <img
+    src="docs/images/inteliscope-overview.png"
+    alt="Inteliscope multi-user feed and source management interface"
+    width="1200"
+  />
+</p>
+
+## Why Inteliscope?
+
+Most open-source feed readers focus on a single user, while team-oriented information platforms are often closed and hosted by third parties. Inteliscope provides a privacy-first, self-hosted middle ground: multi-user roles, scoped subscriptions, scheduled acquisition, source-health diagnostics, notifications, and optional MCP access for personal agents.
+
+It unifies RSS/Atom, GitHub, Reddit, Telegram, Hacker News, and controlled social-source acquisition while keeping accounts, secrets, feed history, and automation under the operator's control.
 
 ## Current product
 
