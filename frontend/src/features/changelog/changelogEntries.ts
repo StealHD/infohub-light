@@ -1,4 +1,4 @@
-// Reviewed: verified-only ActorOps catalog, registered-Run read-only recovery, paid/apply dual confirmation, $0.10 runtime caps, and inert global-25 history.
+// Reviewed: ActorOps v2 Phase 1 is a disabled domain/schema foundation; no API, Worker, UI, or paid behavior changed.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

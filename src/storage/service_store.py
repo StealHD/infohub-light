@@ -3777,8 +3777,6 @@ class ServiceStore:
             )
             schema_sql = before_resilience + after_resilience
         conn.executescript(schema_sql)
-        from .apify_actor_schema_bootstrap import bootstrap_actor_schemas
-        bootstrap_actor_schemas(conn, existing_schema=existing_schema)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
             """
@@ -4283,6 +4281,8 @@ class ServiceStore:
             and not apify_actor_resilience_v21_upgrade_pending
         ):
             self.mark_apify_actor_resilience_v21_migrated(commit=False)
+        from .apify_actor_schema_bootstrap import bootstrap_actor_schemas
+        bootstrap_actor_schemas(conn, existing_schema=existing_schema)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:

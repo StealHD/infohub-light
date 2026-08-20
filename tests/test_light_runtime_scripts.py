@@ -25,7 +25,7 @@ def _clean_runtime_environment() -> dict[str, str]:
         if not key.startswith(("HORIZON_", "INTELISCOPE_"))
     }
     environment["INTELISCOPE_HEALTH_PYTHON"] = os.environ.get("PYTHON", "") or sys.executable
-    environment["INTELISCOPE_HEALTH_TIMEOUT_SECONDS"] = "0.5"
+    environment["INTELISCOPE_HEALTH_TIMEOUT_SECONDS"] = "2"
     environment["INTELISCOPE_HEALTH_INTERVAL_SECONDS"] = "0"
     return environment
 

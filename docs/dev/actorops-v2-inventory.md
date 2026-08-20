@@ -150,8 +150,8 @@ backfill 只读取 global 17–24：
 - Route/Profile/active slots → v2 Route 与当前 Candidate 顺序；
 - Candidate/Revision/Canary 证据 → Candidate 身份、不可变 Build/Manifest 与初始 readiness；
 - Source binding/水位 → v2 Binding、Last Known Good 与 target fingerprint；
-- 非终态 Attempt/Run/费用预留 → v2 Attempt，供唯一 Reconciler 收敛；
-- 每 Candidate/Binding 最近成功和失败证据 → 初始健康/LKG，不复制完整历史。
+- 所有非终态 Job/Stage/Batch/Validation/Attempt/Run、unknown start 和未结费用必须先在 v1 收敛，global 26 拒绝导入 inflight；
+- 每 Candidate/Binding 最近成功和失败证据 → 初始健康/LKG 摘要；v2 Attempt/Discovery 从空表开始，不复制完整历史。
 
 完整旧审计历史继续留在 v1 表中只读。global 26 migration 不联网、不调用 AI/Actor、不创建 Feed snapshot；existing DB 显式 apply 前先停 API/Worker、跨 heartbeat 安全窗、拒绝非终态 ActorOps Job并创建 `0600` backup。
 
@@ -179,3 +179,10 @@ backfill 只读取 global 17–24：
 - [x] 后端与 Vitest 定向基线通过；
 
 任务最终的控制面校验、impacted preflight、worklog 与提交证据由 `WORKLOG.md` 和 Git 记录，不在本盘点文档复制。
+
+## 8. Phase 1 实施结果
+
+- Domain、Adapter Port/Registry、Policy 和 caller-owned SQLite Repository 已建立，通用模块不含真实平台分支；
+- global 26 七表、单调 trigger、fresh bootstrap、v24 摘要 backfill 与离线 CLI 已建立；
+- global 25 保持惰性，existing v24 缺少 26 时现役 API/Worker readiness 不变；
+- feature flag、真实平台 Adapter、Runtime、Reconciler、Discovery 和站立授权仍为 planned，下一阶段只推进稳定获取数据面。

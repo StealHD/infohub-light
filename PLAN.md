@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- 计划中：ActorOps v2 采用 stable-fetch-first、控制面/数据面隔离和 `RouteKey → Adapter` 注册架构；Phase 0 只冻结基线与合同，v2 schema、feature flag、站立授权和运行时尚未实现或启用。
+- 已实现但默认停用：ActorOps v2 Phase 1 已建立 Domain、Adapter Port/Registry、Repository 与 global 26 七表基础；feature flag、真实平台 Adapter、Runtime、站立授权和切流尚未实现，现役 API/Worker 继续使用 v1。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -18,7 +18,7 @@
 | Feed storage v3 | 停 API/Worker、无活跃任务 | dry-run、UTC `0600` backup、显式 apply | marker、hash backfill、integrity、foreign keys 与 readiness |
 | notification v14–v16 | 上一 schema 已完成 | 同上，不调用 Transport | 表/约束/历史映射、API 与 Worker ready |
 | ActorOps v17–v24 | 无 Discovery/Canary/新鲜度 Job | 同上，不联网、不调用 AI/Actor | 精确 migration checksum、完整表形状、integrity/foreign keys 与 readiness；global 25 不作为前置 |
-| ActorOps v2 global 26（计划） | Phase 1 完成、停 API/Worker、无非终态 ActorOps Job | 显式 dry-run、`0600` backup、apply、v24 只读 backfill | fresh/existing/repeat apply、integrity/foreign keys、global 25 完全不读写；未启用 v2 时不改变 v1 readiness |
+| ActorOps v2 global 26（已实现、未启用） | 停 API/Worker，全部非终态 ActorOps 与未结费用先收敛 | 显式 dry-run、`0600` backup、apply、v24 只读摘要 backfill | fresh/existing/repeat apply、integrity/foreign keys、global 25 完全不读写；不复制 inflight，缺 marker 不改变 v1 readiness |
 | 付费 Actor/AI | operator 明确授权 | 单次有上限 canary | 费用、远端 Run、来源结果与回滚证据 |
 | 正式 VPS 升级 | 干净且等同 `origin/main` 的 main | `./scripts/release_vps.sh release vX.Y.Z` | 精确 SHA main Gate、Tag smoke、API/Worker/前端 revision |
 
@@ -33,7 +33,7 @@
 ## ActorOps v2 分阶段计划
 
 1. **Phase 0 — 已完成条件**：从 `ce12561896642684ae310ba111f2ce4efb749cf1` 建立 `codex/actorops-v2`，保存 task snapshot，完成代码/表/状态/API/UI/测试盘点、D160 与 planned 合同；不修改产品代码或运行数据。
-2. **Phase 1 — Domain 与 global 26**：建立不超过七张核心表的 v2 schema、单调状态模型、Repository、显式离线迁移和 v24 只读 backfill；global 25 永久惰性。新行为只进入 `src/services/actorops/**`，旧冻结单体只能缩小。
+2. **Phase 1 — 已完成：Domain 与 global 26**：七张核心表、单调状态模型、Adapter Port/Registry、Repository、显式离线迁移和 v24 只读摘要 backfill 已建立；global 25 永久惰性。迁移前必须排空 inflight/未结费用，v2 Attempt/Discovery 从空表开始。
 3. **Phase 2 — 稳定获取数据面**：通用执行顺序为 Active、Standby、Last Known Good、平台明确支持的免费原生降级；一个 ready Actor 即可获取并标记 degraded，两个以上才为 healthy。Publication fence 只保护本来源目标、binding 与实际 Candidate。
 4. **Phase 3 — 统一对账与 Worker 隔离**：单一 Reconciler 只读取和结算既有远端 Run；unknown start 只冻结对应 Attempt/费用预留，Actor 控制任务不再成为普通 Fetch claim 的同步前置。
 5. **Phase 4 — 可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成。
@@ -48,7 +48,7 @@
 
 本阶段覆盖来源、订阅、Feed、稳定历史、任务、受控 AI/Apify、通知服务、React UI、Remote MCP、浏览器 OpenClaw、存储治理和可观测性。
 
-ActorOps v2 Phase 0 仅覆盖规划和控制面合同，不创建 schema、不切流、不启动 Actor/AI、不改变现有费用审批和运行行为。后续实现仅覆盖已登记的 `platform + target_type + capability`；新增平台通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
+ActorOps v2 Phase 1 仅提供停用的领域和存储基础，不切流、不启动 Actor/AI、不改变现有 API、Worker readiness、费用审批或运行行为。Phase 2 才实现稳定获取数据面；新增平台通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
 
 不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway 或未授权的真实外部调用。旧 CLI、静态站、scheduler、本地 MCP、archive/Graph/feedback API 不再是兼容面。
 

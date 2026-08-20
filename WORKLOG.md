@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture"
-  ],
-  "recorded_on": "2026-08-15",
-  "result": "修复 v2.3.4 发布门禁在浅克隆 CI 中无法解析代码规模初始基线的问题：所有 Test Gate Job 统一完整历史检出，使策略祖先验证在 impact、后端、前端、E2E 和 tag smoke 路径一致可用。",
-  "status": "completed",
-  "task_id": "2026-08-15-release-v2.3.4-ci-history",
-  "unresolved": [],
-  "validation": [
-    "发布工作流回归断言与代码规模策略定向 Pytest 14 项通过。",
-    "相对 v2.3.3 的完整 preflight 18/18 通过，包含后端、前端、产品文档、控制文件和代码规模检查。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface"
   ],
@@ -384,6 +367,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps/迁移/Worker Discovery/YouTube 后端定向 Pytest 481 项通过；ActorOps 前端 Vitest 9 个文件、35 项通过。",
     "Markdown 控制与产品文档定向 Pytest 12 项通过；init-pro schema 3 结构校验和 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "完成 ActorOps v2 Phase 1：新增无平台分支的 Domain、Adapter Port/Registry、Policy 和事务 Repository；global 26 以七张小表、单调 trigger、fresh bootstrap、v24 摘要 backfill 与显式离线 CLI 落地。existing v24 缺少 26 时 v1 API/Worker readiness 不变，global 25 不读写，v2 Runtime/真实 Adapter/feature flag 仍停用。",
+  "status": "completed",
+  "task_id": "2026-08-20-actorops-v2-phase1",
+  "unresolved": [
+    "完整 impacted preflight 的首次与允许的一次重跑均在既有 up-latest 测试的 0.5 秒夹具超时处停止；夹具已改为 2 秒，失败 spec 与整份 31 项 runtime-script 测试随后通过。按完整 gate 最多重跑一次的规则未进行第三次完整运行。"
+  ],
+  "validation": [
+    "ActorOps、迁移、Worker Discovery 与 YouTube 定向 Pytest 503 项通过；Phase 1 新 Domain/Repository/migration 契约包含在内。",
+    "前端 Vitest 82 文件/621 项、ESLint、TypeScript、生产构建通过；初始 JavaScript Brotli 236592 bytes。",
+    "代码大小、Markdown、产品文档、init-pro schema 3、worklog/JSON 与 git diff 检查通过；最大新生产文件 370 行。"
   ]
 }
 ```

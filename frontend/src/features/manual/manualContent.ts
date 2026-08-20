@@ -1,4 +1,4 @@
-// Reviewed for the v2.3.5 beta; type, Worker-hook, and schema-bootstrap splits preserve ActorOps behavior.
+// Reviewed for ActorOps v2 Phase 1; its disabled domain/schema foundation changes no user-facing behavior.
 export type ManualStep = {
   title: string
   description: string

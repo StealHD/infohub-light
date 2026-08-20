@@ -7,6 +7,9 @@ import sqlite3
 from .apify_actor_pool_management_schema import (
     bootstrap_service_store_schema as bootstrap_pool_management_schema,
 )
+from .actorops_v2_schema import (
+    bootstrap_service_store_schema as bootstrap_actorops_v2_schema,
+)
 
 
 def bootstrap_actor_schemas(
@@ -17,3 +20,4 @@ def bootstrap_actor_schemas(
     """Install current ActorOps extensions only for a genuinely fresh store."""
 
     bootstrap_pool_management_schema(connection, existing_schema=existing_schema)
+    bootstrap_actorops_v2_schema(connection, existing_schema=existing_schema)
