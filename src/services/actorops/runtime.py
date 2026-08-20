@@ -103,7 +103,10 @@ class ActorOpsRuntime:
                     health=health,
                 )
             except ActorOpsRuntimeError as error:
-                if error.code == "actorops_result_recovery_required":
+                if error.code in {
+                    "actorops_result_recovery_required",
+                    "actorops_attempt_already_settled",
+                }:
                     raise
                 fallback_allowed = error.failure_class in {
                     FailureClass.CREDENTIAL,
@@ -157,9 +160,18 @@ class ActorOpsRuntime:
             logical_job_id, source_id, snapshot.binding.binding_version,
             candidate.candidate_id, window, index,
         )
-        if self.repository.get_attempt_by_idempotency(key):
+        existing = self.repository.get_attempt_by_idempotency(key)
+        if existing:
+            settled = (
+                AttemptStatus(str(existing["status"]))
+                in {AttemptStatus.SUCCEEDED, AttemptStatus.FAILED, AttemptStatus.CANCELLED}
+                and bool(existing["cost_final"])
+            )
             raise ActorOpsRuntimeError(
-                "actorops_result_recovery_required",
+                (
+                    "actorops_attempt_already_settled"
+                    if settled else "actorops_result_recovery_required"
+                ),
                 failure_class=FailureClass.REMOTE_UNKNOWN,
             )
         attempt_id = self.id_factory()

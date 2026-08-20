@@ -194,3 +194,11 @@ backfill 只读取 global 17–24：
 - X Profile Items、Instagram Profile Items、YouTube Channel Items 使用独立 Adapter，只有 YouTube 明确提供公共 Atom 降级；
 - disabled/shadow Route 继续 v1，shadow 不创建 v2 Attempt 或额外付费 POST；本阶段未把任何 Route 切为 active；
 - Reconciler、Discovery、站立授权、API/UI 投影和平台自然流量观察仍留在后续 Phase。
+
+## 10. Phase 3 实施结果
+
+- 通用 Reconciler 只读取并结算已存在的 Attempt/Run/费用事实；不创建、重试、中止 Actor，也不恢复或发布 Dataset；
+- Apify durable-run 关联被限制在 `apify_ledger.py`，以 `logical_run_id=attempt_id` 精确关联 reservation；unknown start 仅可由账户空窗口证明终结；
+- 远端成功但丢失 publication proof 终结为安全失败，不推进 Feed、LKG 或水位；已结算/未结算逻辑重放分别返回稳定 settled/recovery 错误，均不再次 POST；
+- Worker 先 claim 普通 Job，Provider/v1/v2 reconcile 移至 post-job 或 idle housekeeping，异常按 workspace/组件隔离；不新增 Job 类型、global schema、API/UI 或平台切流；
+- 下一阶段为可恢复 Discovery checkpoint，不改变默认 flag、Route disabled 或真实来源流量。

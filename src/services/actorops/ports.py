@@ -126,6 +126,52 @@ class RemoteActorClient(Protocol):
     ) -> RemoteRunResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ReconciliationRunLink:
+    """One exact durable reservation that may be read during reconciliation."""
+
+    reservation_id: str
+    remote_run_id: str | None
+    dataset_id: str | None
+    status: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReconciliationRunResolution:
+    """Fail-closed result of linking an Attempt to a durable reservation."""
+
+    link: ReconciliationRunLink | None
+    ambiguous: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ReconciliationRunObservation:
+    """Safe projection read from one already-known remote Run."""
+
+    status: str
+    actual_cost_usd: float | None
+    cost_final: bool
+    dataset_id: str | None = None
+
+
+class RemoteRunLedger(Protocol):
+    """Read and settle existing Run reservations without starting Actors."""
+
+    async def resolve(
+        self, attempt: Mapping[str, object]
+    ) -> ReconciliationRunResolution: ...
+
+    async def read_known(
+        self, link: ReconciliationRunLink
+    ) -> ReconciliationRunObservation: ...
+
+    async def prove_no_start(self, link: ReconciliationRunLink) -> bool: ...
+
+    async def settle_proven_no_start(self, link: ReconciliationRunLink) -> None: ...
+
+
 class ActorRouteAdapter(Protocol):
     route_key: RouteKey
 

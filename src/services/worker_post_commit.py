@@ -192,6 +192,7 @@ def run_worker_post_commit(
     failure_fingerprint: str | None,
     ports: WorkerPostCommitPorts,
     logger: logging.Logger,
+    post_claim_housekeeping: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     _dispatch_preferred_notifications(
         store,
@@ -209,4 +210,9 @@ def run_worker_post_commit(
         ports=ports,
         logger=logger,
     )
+    if post_claim_housekeeping is not None:
+        try:
+            post_claim_housekeeping()
+        except Exception:
+            logger.warning("post-claim Worker housekeeping failed", exc_info=True)
     return finalized

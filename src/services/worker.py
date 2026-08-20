@@ -98,7 +98,6 @@ from .apify_actor_monitoring import (
 )
 from ..storage.service_store import ServiceStore
 
-
 logger = logging.getLogger(__name__)
 _SAFE_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_]{1,96}$")
 _SAFE_STAGE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
@@ -541,6 +540,7 @@ def run_worker_once(
                 emit_source_outcomes=_emit_source_outcome_events,
             ),
             logger=logger,
+            post_claim_housekeeping=prepared_cycle.post_claim_housekeeping,
         )
     except Exception as exc:
         boundary_fingerprint = error_fingerprint()

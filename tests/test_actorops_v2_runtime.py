@@ -297,7 +297,7 @@ def test_remote_unknown_never_starts_a_second_paid_candidate(tmp_path) -> None:
     store.close()
 
 
-def test_logical_attempt_replay_never_posts_again(tmp_path) -> None:
+def test_settled_logical_attempt_replay_never_posts_again(tmp_path) -> None:
     store, _repository, runtime, remote, route_id, source_id, _ = _runtime(
         tmp_path, ["valid_nonempty"]
     )
@@ -309,8 +309,9 @@ def test_logical_attempt_replay_never_posts_again(tmp_path) -> None:
         logical_job_id="job-replay",
     )
     asyncio.run(runtime.fetch(**kwargs))
-    with pytest.raises(ActorOpsRuntimeError, match="recovery"):
+    with pytest.raises(ActorOpsRuntimeError, match="already settled") as error:
         asyncio.run(runtime.fetch(**kwargs))
+    assert error.value.code == "actorops_attempt_already_settled"
     assert len(remote.requests) == 1
     store.close()
 

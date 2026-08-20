@@ -166,3 +166,4 @@
 | D160 | ActorOps v2 采用稳定获取优先与按订阅能力注册的适配器架构 | 2026-08-20 | [查看](records/D151-D175.md#d160) |
 | D161 | global 26 只迁移已收敛摘要，不接管 v1 inflight | 2026-08-20 | [查看](records/D151-D175.md#d161) |
 | D162 | ActorOps v2 数据面使用双门切换和无状态 Adapter 合同 | 2026-08-20 | [查看](records/D151-D175.md#d162) |
+| D163 | ActorOps v2 对账只结算既有事实，并与 Worker claim 隔离 | 2026-08-20 | [查看](records/D151-D175.md#d163) |

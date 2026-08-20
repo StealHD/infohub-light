@@ -10,29 +10,15 @@ from typing import Any
 
 from ..observability_context import update_observability_context
 from ..storage.service_store import ServiceStore
-from .apify_actor_pool_management_runtime import (
-    actor_pool_management_migration_required,
-)
 from .apify_actor_alerts import ApifyActorAlertService
 from .feed_schedule import FeedScheduleService
 from .job_queue import JobQueue
-from .maintenance import MaintenanceService
+from .maintenance import MaintenanceService  # noqa: F401 - legacy test seam
 from .preferred_source_notifications import PreferredSourceNotificationService
 from .secret_store import SecretStore
 from .source_schedule import SourceScheduleService
 from .worker_migration_gate import first_required_worker_startup_migration
-
-
-@dataclass(frozen=True, slots=True)
-class WorkerCyclePorts:
-    reconcile_apify_pools: Callable[..., list[dict[str, Any]]]
-    build_actor_route: Callable[..., Any]
-    sync_actor_quota_alert: Callable[..., Any]
-    promote_actor_revisions: Callable[[ServiceStore], dict[str, int]]
-    reconcile_actor_discoveries: Callable[[ServiceStore, JobQueue], dict[str, int]]
-    enqueue_actor_freshness: Callable[[ServiceStore, JobQueue], dict[str, int]]
-    run_feed_end_messages: Callable[..., dict[str, Any] | None]
-    emit_operation_event: Callable[..., bool]
+from .worker_housekeeping import WorkerCyclePorts, run_worker_housekeeping
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,167 +29,13 @@ class PreparedWorkerCycle:
     job: dict[str, Any]
     lease_seconds: float
     retry_base_seconds: float
+    ports: WorkerCyclePorts
+    post_claim_housekeeping: Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
 class StoppedWorkerCycle:
     result: dict[str, Any] | None
-
-
-def _reconcile_actor_providers(
-    store: ServiceStore,
-    *,
-    data_dir: str,
-    ports: WorkerCyclePorts,
-    logger: logging.Logger,
-) -> None:
-    outcomes = ports.reconcile_apify_pools(store, data_dir=data_dir)
-    for outcome in outcomes:
-        if not outcome["ok"]:
-            logger.warning(
-                "Apify pool reconcile pending workspace_id=%s code=%s",
-                outcome["workspace_id"],
-                outcome["code"],
-            )
-        workspace_id = str(outcome["workspace_id"])
-        actor_route = ports.build_actor_route(
-            store,
-            data_dir=data_dir,
-            workspace_id=workspace_id,
-        )
-        route_reconcile = actor_route.reconcile_unfinished_attempts()
-        if route_reconcile["route_blocked"]:
-            logger.warning(
-                "Apify Actor route reconcile blocked workspace_id=%s",
-                outcome["workspace_id"],
-            )
-        _reconcile_actor_ops(
-            store,
-            workspace_id=workspace_id,
-            data_dir=data_dir,
-            logger=logger,
-        )
-        try:
-            ports.sync_actor_quota_alert(
-                store,
-                data_dir=data_dir,
-                workspace_id=workspace_id,
-                route_state=actor_route.public_state(),
-            )
-        except Exception:
-            if store.connect().in_transaction:
-                store.connect().rollback()
-            logger.warning(
-                "Apify Actor quota alert sync failed workspace_id=%s",
-                outcome["workspace_id"],
-            )
-
-
-def _reconcile_actor_ops(
-    store: ServiceStore,
-    *,
-    workspace_id: str,
-    data_dir: str,
-    logger: logging.Logger,
-) -> None:
-    from .apify_actor_ops import ApifyActorOpsService
-    from .apify_actor_resilience import ApifyActorResilienceService
-
-    actor_ops = ApifyActorOpsService(store, workspace_id=workspace_id)
-    no_start = actor_ops.reconcile_proven_no_start_attempts()
-    if no_start["attempts"]:
-        logger.info(
-            "Apify Actor no-start proof reconciled workspace_id=%s count=%s",
-            workspace_id,
-            no_start["attempts"],
-        )
-    unfinished = actor_ops.reconcile_unfinished_attempts()
-    if unfinished["routes_blocked"]:
-        logger.warning(
-            "Apify ActorOps reconcile blocked workspace_id=%s",
-            workspace_id,
-        )
-    from .apify_actor_canary_reconciliation import reconcile_interrupted_canary_runs
-
-    reconciled = reconcile_interrupted_canary_runs(
-        store,
-        workspace_id=workspace_id,
-        data_dir=data_dir,
-    )
-    if reconciled["reconciled"]:
-        logger.info(
-            "Apify Actor interrupted runs reconciled workspace_id=%s count=%s",
-            workspace_id,
-            reconciled["reconciled"],
-        )
-    costs = actor_ops.reconcile_terminal_validation_costs()
-    if costs["validations"]:
-        logger.info(
-            "Apify Actor validation costs reconciled workspace_id=%s count=%s",
-            workspace_id,
-            costs["validations"],
-        )
-    no_start_costs = actor_ops.reconcile_terminal_no_start_validation_costs()
-    if no_start_costs["validations"]:
-        logger.info(
-            "Apify Actor no-start validation costs settled workspace_id=%s count=%s",
-            workspace_id,
-            no_start_costs["validations"],
-        )
-    freshness_costs = ApifyActorResilienceService(
-        store,
-        workspace_id=workspace_id,
-    ).reconcile_terminal_freshness_costs()
-    if freshness_costs["checks"]:
-        logger.info(
-            "Apify Actor freshness costs reconciled workspace_id=%s count=%s",
-            workspace_id,
-            freshness_costs["checks"],
-        )
-
-
-def _maintenance_is_safe(store: ServiceStore) -> bool:
-    checks = (
-        store.feed_storage_v3_migration_required,
-        store.content_index_v4_migration_required,
-        store.content_timeline_v11_migration_required,
-        store.apify_actor_routing_v13_migration_required,
-        store.webhook_providers_v14_migration_required,
-        store.multichannel_notifications_v15_migration_required,
-        store.notification_targets_v16_migration_required,
-        store.apify_actor_ops_v15_migration_required,
-        store.apify_discovery_limits_v16_migration_required,
-        store.apify_actor_canary_batches_v17_migration_required,
-        store.apify_actor_pool_staging_v18_migration_required,
-        store.apify_actor_manual_pool_selection_v19_migration_required,
-        store.apify_actor_validation_tuning_v20_migration_required,
-        store.apify_actor_resilience_v21_migration_required,
-        lambda: actor_pool_management_migration_required(store),
-    )
-    return not any(check() for check in checks)
-
-
-def _run_maintenance_if_due(
-    store: ServiceStore,
-    *,
-    promote_actor_revisions: Callable[[ServiceStore], dict[str, int]],
-    logger: logging.Logger,
-) -> None:
-    if not _maintenance_is_safe(store):
-        return
-    update_observability_context(stage="maintenance")
-    if not bool(MaintenanceService(store).run_if_due().get("ran")):
-        return
-    try:
-        promote_actor_revisions(store)
-    except Exception:
-        logger.warning("Actor revision certification maintenance failed", exc_info=True)
-    try:
-        from .apify_actor_maintenance import run_due_actor_metadata_checks
-
-        run_due_actor_metadata_checks(store)
-    except Exception:
-        logger.warning("Actor metadata maintenance failed", exc_info=True)
 
 
 def _recover_stale_jobs(
@@ -341,13 +173,6 @@ def prepare_worker_cycle(
             }
         )
     SecretStore(data_dir).load_into_environ()
-    update_observability_context(stage="provider_reconcile")
-    _reconcile_actor_providers(store, data_dir=data_dir, ports=ports, logger=logger)
-    _run_maintenance_if_due(
-        store,
-        promote_actor_revisions=ports.promote_actor_revisions,
-        logger=logger,
-    )
     queue = JobQueue(store)
     lease = float(
         lease_seconds
@@ -360,8 +185,6 @@ def prepare_worker_cycle(
         else os.getenv("HORIZON_WORKER_RETRY_BASE_SECONDS", "30")
     )
     _recover_stale_jobs(queue, emit_operation_event=ports.emit_operation_event)
-    ports.reconcile_actor_discoveries(store, queue)
-    ports.enqueue_actor_freshness(store, queue)
     queue.prune_terminal_jobs()
     if enqueue_schedules:
         _enqueue_schedules(store, emit_operation_event=ports.emit_operation_event)
@@ -376,6 +199,17 @@ def prepare_worker_cycle(
         store.upsert_worker_heartbeat(worker_id, "starting")
     update_observability_context(stage="claim")
     job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
+    if job is None:
+        run_worker_housekeeping(
+            store,
+            data_dir=data_dir,
+            queue=queue,
+            ports=ports,
+            logger=logger,
+            include_maintenance=True,
+        )
+        update_observability_context(stage="claim")
+        job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
     if job is None:
         result = ports.run_feed_end_messages(
             data_dir=data_dir,
@@ -417,4 +251,13 @@ def prepare_worker_cycle(
         job=job,
         lease_seconds=lease,
         retry_base_seconds=retry_base,
+        ports=ports,
+        post_claim_housekeeping=lambda: run_worker_housekeeping(
+            store,
+            data_dir=data_dir,
+            queue=queue,
+            ports=ports,
+            logger=logger,
+            include_maintenance=False,
+        ),
     )

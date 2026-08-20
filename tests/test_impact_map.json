@@ -197,9 +197,11 @@
       "id": "ActorOps v2 foundation",
       "globs": [
         "src/services/actorops/**",
+        "src/services/worker_housekeeping.py",
         "src/storage/actorops_v2*.py",
         "scripts/migrate_actorops_v2.py",
         "tests/test_actorops_v2*.py",
+        "tests/test_worker_actorops_v2_isolation.py",
         "tests/test_migrate_actorops_v2.py"
       ],
       "groups": [

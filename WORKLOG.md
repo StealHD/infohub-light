@@ -11,25 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-17",
-  "result": "修复已验证来源的目标级备用暂停误触发全 Route shortfall；X 可继续使用已实测成功主槽，YouTube 只接受能以 UC Channel ID 输入并证明频道身份的 Actor 合同。",
-  "status": "completed",
-  "task_id": "2026-08-17-source-bound-actor-runtime",
-  "unresolved": [
-    "完整受影响预检在未改动的 Remote MCP 用例出现一次偶发失败，单独重跑通过；未重复整套预检。"
-  ],
-  "validation": [
-    "X 两个真实 source binding 本地冻结验证：受影响来源保留主 Actor，另一来源保留主备。",
-    "ActorOps/来源采集/Worker 定向 Pytest 182 项、TypeScript、ESLint、控制文件和产品文档检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-17",
   "result": "修复 YouTube pending_validation binding 在启动 Actor 前直接失败的问题：未完成来源 Canary 时仍走免费 Atom/RSS，认证后才 Actor-first。",
   "status": "completed",
   "task_id": "2026-08-17-youtube-pending-binding-fallback",
@@ -392,6 +373,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2、迁移/readiness、来源获取、Worker、Feed 与现役 v1 兼容定向测试全部通过；新生产文件均小于 400 行，backend code-size 硬门禁通过。",
     "impacted preflight 17/17 通过：完整受影响后端/前端、产品文档、控制面、构建与静态检查均成功，无 SQLite 连接警告。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "完成 ActorOps v2 Phase 3：新增只读 Reconciler、Apify durable Run ledger 与费用结算；unknown start 仅在精确空窗口证明后终态化，未发布远端成功不推进 Feed/LKG。Worker 普通 Job 先 claim，Provider/v1/v2 对账移至 post-job/idle housekeeping；默认 flag 与 Route disabled 行为保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-20-actorops-v2-phase3",
+  "unresolved": [],
+  "validation": [
+    "ActorOps v2 Reconciler/ledger/runtime、Worker isolation、v1 pool/restart/readiness/source-acquisition 定向 Pytest 通过。",
+    "impacted preflight 17/17 通过；代码大小、Markdown、init-pro schema 3、product-doc review 与 git diff 检查通过。"
   ]
 }
 ```

@@ -345,6 +345,15 @@ class ActorOpsRepository:
             expected_generation=expected_generation,
         )
 
+    def list_reconcilable_attempts(self, *, limit: int = 20) -> tuple[sqlite3.Row, ...]:
+        return _attempts.list_reconcilable(self, limit=limit)
+
+    def reconcile_attempt(self, attempt_id: str, **values: object) -> None:
+        _attempts.reconcile(self, attempt_id, **values)
+
+    def mark_reconciliation_error(self, attempt_id: str, **values: object) -> None:
+        _attempts.mark_reconciliation_error(self, attempt_id, **values)
+
     def create_discovery_job(
         self,
         *,

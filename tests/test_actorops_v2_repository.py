@@ -104,6 +104,15 @@ def test_repository_enforces_cas_and_terminal_attempts(tmp_path: Path) -> None:
             repository.transition_attempt(
                 "attempt-v2", AttemptStatus.STARTING, AttemptStatus.FAILED
             )
+    row = repository.get_attempt("attempt-v2")
+    with repository.transaction():
+        with pytest.raises(ActorOpsConflict):
+            repository.reconcile_attempt(
+                "attempt-v2",
+                expected_status=AttemptStatus.FAILED,
+                expected_generation=int(row["generation"]),
+                target_status=AttemptStatus.RUNNING,
+            )
     store.close()
 
 
