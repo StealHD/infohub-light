@@ -118,6 +118,8 @@ class RemoteRunRequest:
     actor_input: Mapping[str, object]
     max_total_charge_usd: float
     max_items: int
+    max_remote_starts: int = 3
+    dataset_item_limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +177,20 @@ class RemoteActorClient(Protocol):
     async def execute(
         self, request: RemoteRunRequest, events: AttemptEventSink
     ) -> RemoteRunResult: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProbePreflightResult:
+    allowed: bool
+    error_code: str | None = None
+
+
+class CandidateProbePreflight(Protocol):
+    """Free exact-revision verification before a paid maintenance Probe."""
+
+    async def verify(
+        self, candidate: object, *, max_charge_usd: float
+    ) -> ProbePreflightResult: ...
 
 
 @dataclass(frozen=True, slots=True)

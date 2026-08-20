@@ -87,8 +87,8 @@ class ApifyV2RemoteClient:
                 logical_run_id=request.attempt_id,
                 build_number=request.build_number,
                 max_paid_dataset_items=request.max_items,
-                dataset_item_limit=min(max(request.max_items + 1, 2), 100),
-                max_remote_starts=3,
+                dataset_item_limit=request.dataset_item_limit or min(max(request.max_items + 1, 2), 100),
+                max_remote_starts=request.max_remote_starts,
             )
         except ApifyClientError as error:
             raise ActorOpsRuntimeError(

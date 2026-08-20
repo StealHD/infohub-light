@@ -23,6 +23,7 @@ from . import repository_discovery as _discovery
 from .ports import PublicationProof
 from . import repository_attempts as _attempts
 from . import repository_execution as _execution
+from . import repository_maintenance as _maintenance
 from . import repository_reads as _reads
 from .repository_errors import (
     ActorOpsConflict,
@@ -208,6 +209,7 @@ class ActorOpsRepository:
         target_fingerprint: str,
         reserved_usd: float,
         source_id: str | None = None,
+        created_at: str | None = None,
     ) -> None:
         _attempts.create_attempt(
             self,
@@ -223,6 +225,7 @@ class ActorOpsRepository:
             binding_version=binding_version,
             target_fingerprint=target_fingerprint,
             reserved_usd=reserved_usd,
+            created_at=created_at,
         )
 
     def get_attempt_by_idempotency(self, idempotency_key: str) -> sqlite3.Row | None:
@@ -351,6 +354,10 @@ class ActorOpsRepository:
     @property
     def discovery(self) -> _discovery.DiscoveryRepository:
         return _discovery.DiscoveryRepository(self)
+
+    @property
+    def maintenance(self) -> _maintenance.MaintenanceRepository:
+        return _maintenance.MaintenanceRepository(self)
 
     def create_discovery_job(
         self,

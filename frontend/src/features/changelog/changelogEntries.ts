@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 Phase 4 is default-off; no route cutover, UI, or paid behavior changed.
+// Reviewed: ActorOps v2 Phase 5 is default-off; no route cutover, UI, or user-visible behavior changed.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

@@ -239,6 +239,8 @@ class CandidateRecord:
     publisher: str = ""
     build_number: str | None = None
     manifest_json: str | None = None
+    input_schema_hash: str | None = None
+    output_schema_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +256,29 @@ class BindingRecord:
     last_success_at: str | None = None
     watermark_latest_published_at: str | None = None
     watermark_item_id_hash: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MaintenancePolicyRecord:
+    policy_id: str
+    workspace_id: str
+    route_id: str | None
+    enabled: bool
+    monthly_budget_usd: float | None
+    max_probe_usd: float | None
+    max_probes_per_utc_day: int | None
+    auto_add_standby: bool | None
+    auto_replace_non_last: bool | None
+    generation: int
+    authorized_by_user_id: str | None
+    authorized_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MaintenanceBudget:
+    spent_usd: float
+    reserved_usd: float
+    probe_count: int
 
 
 @dataclass(frozen=True, slots=True)

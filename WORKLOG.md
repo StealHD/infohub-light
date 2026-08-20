@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-17",
-  "result": "修复 ActorOps 候选与执行链路：候选选择区只显示已完成 Canary、费用对账和来源验证的固定 Build；未实测但免费合格的候选由服务端受控试跑。来源返回旧内容仅记录该来源目标退化，不再全局熔断 Actor；新增/替换 Canary 始终携带冻结的目标槽位，避免计划重算冲突。",
-  "status": "completed",
-  "task_id": "2026-08-17-actorops-certified-candidates",
-  "unresolved": [],
-  "validation": [
-    "完整 impacted preflight 通过：完整 Pytest、79 个 Vitest 文件（684 项）、TypeScript、ESLint、生产前端构建、控制文件、产品文档与代码规模检查均通过。",
-    "本地容器重建后将进行无费用执行快照和受控 Canary 验收；Canary 是否成功取决于第三方 Actor 的实际返回与账单对账。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface"
   ],
@@ -396,6 +379,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2 Discovery/Catalog/Repository/Adapter、Worker v2 Discovery、Phase 2/3 和 v1 Discovery/Worker 定向 Pytest 通过。",
     "impacted preflight 17/17 命令通过；Markdown、init-pro schema、worklog、JSON 与 diff 校验通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-20",
+  "result": "完成 ActorOps v2 Phase 5：新增默认关闭的双 policy Owner/Admin 授权、免费 exact-revision 预检、单 Candidate Probe 账本、每 Route UTC 日/Workspace UTC 月预算、自动补 Standby 与非最后一路原子替换；最后一个 runnable Candidate 保持 assignment 并记录安全保护码。维护 Job 仅在 flag=true 的 post-job/idle housekeeping 低优先级入队，不改 API/UI、Route mode、Feed/LKG 或真实平台流量。",
+  "status": "completed",
+  "task_id": "2026-08-20-actorops-v2-phase5",
+  "unresolved": [],
+  "validation": [
+    "ActorOps v2 Phase 1–5、Worker maintenance/isolation、v1 Worker/source-acquisition/native-fallback/readiness 定向 Pytest 通过。",
+    "唯一 impacted preflight 17/17 通过：完整 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制文件、产品文档与代码规模检查均成功，且无 SQLite 连接警告。"
   ]
 }
 ```

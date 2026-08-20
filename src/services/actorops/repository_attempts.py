@@ -19,7 +19,7 @@ def _now() -> str:
 
 def create_attempt(repository: Any, **values: Any) -> None:
     repository._require_transaction()
-    stamp = _now()
+    stamp = str(values.get("created_at") or _now())
     repository.connection.execute(
         """INSERT INTO actor_attempts_v2 (
                attempt_id, workspace_id, idempotency_key, route_id, source_id,

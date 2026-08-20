@@ -210,3 +210,11 @@ backfill 只读取 global 17–24：
 - `mapping_pending`、`static_valid` 和 `rejected` Candidate 均保持 inactive，不创建 Actor Run、Probe、Dataset、费用 reservation 或 Route assignment；
 - Worker 只在 flag 开启且 idle housekeeping 时有界入队既有 `actorops_v2_discovery` Job；flag=false 不读 global 26/global 25，v1 Discovery handler 和表不变；
 - 下一阶段为站立授权，不改变默认 flag、Route disabled 或真实来源流量。
+
+## 12. Phase 5 实施结果
+
+- `actor_maintenance_policies_v2` 继续是唯一授权与额度事实：workspace 与 Route 都必须由 enabled Owner/Admin 以 generation CAS 显式启用；默认仍 disabled，没有 HTTP API/UI 或真实授权操作；
+- `maintenance.py` 只执行单 Candidate Probe：先经公开 Actor/Build/Schema/价格免费预检，再原子冻结 policy、Route、Candidate、Binding 与目标指纹；每 Route 最多一个未结 Probe，单次 `$0.05`、每 UTC 日 5 次，Workspace 跨 Route 月度实际费用与预留合计最多 `$3.00`；
+- Probe 最多一项输出与一次远端启动，不使用 native fallback，不发布 Feed 或 Dataset，也不更新 LKG/水位。可信非空结果才推进 Candidate 证据与 lifecycle；空结果是 no-evidence；未知启动保留给 Reconciler；
+- 成功 Candidate 自动补 Standby，或仅在仍有其他 runnable 路径时原子隔离异常 Candidate 并重排 Active/Standby；最后一个 runnable Candidate 保持 assignment 并留下安全保护码；
+- Worker 仅在 flag=true 的 idle/post-job housekeeping 以低优先级 `actorops_v2_maintenance` Job 入队；正常 claim、v1 来源获取、API/UI、Route runtime mode 与真实平台流量均未改变。下一阶段才是分平台 shadow/观察/切流。

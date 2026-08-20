@@ -168,3 +168,4 @@
 | D162 | ActorOps v2 数据面使用双门切换和无状态 Adapter 合同 | 2026-08-20 | [查看](records/D151-D175.md#d162) |
 | D163 | ActorOps v2 对账只结算既有事实，并与 Worker claim 隔离 | 2026-08-20 | [查看](records/D151-D175.md#d163) |
 | D164 | ActorOps v2 Discovery 以安全 checkpoint 和确定性优先恢复 | 2026-08-20 | [查看](records/D151-D175.md#d164) |
+| D165 | ActorOps v2 站立维护采用双授权、单 Probe 与最后一路保护 | 2026-08-20 | [查看](records/D151-D175.md#d165) |

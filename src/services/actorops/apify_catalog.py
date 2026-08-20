@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from .discovery import DiscoveryCatalogError
-from .ports import DiscoveryRevision
+from .ports import DiscoveryRevision, ProbePreflightResult
 
 
 class ApifyStoreMetadata(Protocol):
@@ -63,6 +64,33 @@ class ApifyDiscoveryCatalog:
             input_schema=input_schema,
             output_schema=output_schema,
         )
+
+    async def verify_candidate(
+        self, candidate: object, *, max_charge_usd: float
+    ) -> ProbePreflightResult:
+        """Free, exact revision proof for a maintenance Probe."""
+
+        actor_id = str(getattr(candidate, "actor_id", ""))
+        try:
+            actor = await self.metadata.get_actor(actor_id)
+            revision = await self.get_revision(actor_id)
+        except DiscoveryCatalogError as error:
+            return ProbePreflightResult(False, error.code)
+        except Exception:
+            return ProbePreflightResult(False, "actorops_maintenance_preflight_unavailable")
+        if any(actor.get(key) is True for key in ("isDeprecated", "isDisabled")) or actor.get("isPublic") is False:
+            return ProbePreflightResult(False, "actorops_maintenance_actor_unavailable")
+        if (
+            revision.publisher != str(getattr(candidate, "publisher", ""))
+            or revision.build_id != str(getattr(candidate, "build_id", ""))
+            or revision.build_number != str(getattr(candidate, "build_number", ""))
+            or _schema_hash(revision.input_schema) != str(getattr(candidate, "input_schema_hash", ""))
+            or _schema_hash(revision.output_schema) != str(getattr(candidate, "output_schema_hash", ""))
+            or revision.price_per_run_usd is None
+            or revision.price_per_run_usd > float(max_charge_usd)
+        ):
+            return ProbePreflightResult(False, "actorops_maintenance_revision_changed")
+        return ProbePreflightResult(True)
 
 
 def _catalog_error(error: Exception) -> DiscoveryCatalogError:
@@ -129,6 +157,12 @@ def _price(actor: Mapping[str, Any]) -> float | None:
             if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
                 return float(value)
     return None
+
+
+def _schema_hash(value: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 __all__ = ["ApifyDiscoveryCatalog"]

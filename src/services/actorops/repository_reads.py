@@ -48,7 +48,8 @@ def get_candidate(repository: Any, candidate_id: str) -> CandidateRecord:
         generation=int(row["generation"]), build_id=row["build_id"],
         manifest_hash=row["manifest_hash"], actor_id=str(row["actor_id"]),
         publisher=str(row["publisher"]), build_number=row["build_number"],
-        manifest_json=row["manifest_json"],
+        manifest_json=row["manifest_json"], input_schema_hash=row["input_schema_hash"],
+        output_schema_hash=row["output_schema_hash"],
     )
 
 
