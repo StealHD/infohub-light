@@ -51,3 +51,4 @@
 | 密钥、AI、source catalog 与 Job 细则 | [Service 配置与任务](service-secrets-source-jobs.md) |
 | Feed、历史、Presentation、媒体与存储 | [Feed、历史、Presentation 与存储](feed-history-presentation-storage.md) |
 | 后台任务、迁移、DeepSeek 与 ActorOps | [Job、迁移与 ActorOps](jobs-migrations-actorops.md) |
+| ActorOps auto-pool 退役、双确认与 global 25 惰性兼容 | [ActorOps auto-pool 退役](actorops-retired-auto-pool.md) |
