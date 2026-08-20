@@ -63,6 +63,9 @@ logs/
 .superpowers/
 .worktrees/
 
+# WorkBuddy project-local data
+.workbuddy/
+
 # macOS
 .DS_Store
 

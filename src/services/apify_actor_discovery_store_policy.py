@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Mapping, TypeVar
 
 
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 async def collect_store_candidates(
@@ -46,5 +49,11 @@ def require_runnable_evidence(
         return
     if actor.get("isRunnable") is False or actor.get("canRun") is False:
         raise reject("actor_not_runnable")
+    logger.info(
+        "actor discovery runnable flag absent actor=%s/%s store_omission=%s",
+        actor.get("username") or actor.get("userUsername") or "",
+        actor.get("name") or actor.get("actorName") or "",
+        allow_store_runnable_omission,
+    )
     if not allow_store_runnable_omission:
         raise reject("actor_runnable_unverifiable")

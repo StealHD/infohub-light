@@ -40,6 +40,7 @@ from .apify_actor_compatibility_preflight import (
     compatibility_metadata_failure,
     compatibility_preflight_failure,
     render_compatibility_input,
+    _x_profile_semantic_failure,
 )
 from .apify_actor_compatibility_discovery import (
     collect_x_compatibility_candidate,
@@ -554,7 +555,7 @@ class ApifyActorDiscoveryService:
                     target_type=str(route["target_type"]),
                     capability=str(route["capability"]),
                     evaluation_evidence=evaluation_evidence,
-                    allow_store_runnable_omission=actor_id in store_search_actor_ids,
+                    allow_store_runnable_omission=actor_id not in preferred_set,
                 )
             except ActorDiscoveryError as error:
                 if error.code == "apify_actor_metadata_authentication_failed":
@@ -565,7 +566,7 @@ class ApifyActorDiscoveryService:
                         compatibility_candidate = await self.load_compatibility_candidate(
                             actor_id,
                             per_run_cap_usd=float(route["per_run_cap_usd"]),
-                            allow_store_runnable_omission=actor_id in store_search_actor_ids,
+                            allow_store_runnable_omission=actor_id not in preferred_set,
                         )
                     except ActorDiscoveryError as compatibility_failure:
                         compatibility_error = compatibility_failure
@@ -647,7 +648,7 @@ class ApifyActorDiscoveryService:
             await collect_x_compatibility_candidate(
                 platform=str(route["platform"]), service=self, actor_id=actor_id,
                 per_run_cap_usd=float(route["per_run_cap_usd"]),
-                allow_store_runnable_omission=actor_id in store_search_actor_ids,
+                allow_store_runnable_omission=actor_id not in preferred_set,
                 candidates=compatibility_candidates,
                 rejected=rejected,
             )
@@ -750,7 +751,7 @@ class ApifyActorDiscoveryService:
                     workspace_id=self.ops.workspace_id,
                     route_id=str(run["route_id"]),
                     candidate_id=candidate_id,
-                    candidate=candidate,
+                    candidate=candidate, platform=str(route["platform"]),
                 )
             ):
                 resilience.record_evaluation(
@@ -1076,7 +1077,7 @@ class ApifyActorDiscoveryService:
                 observation_probe_manifest(
                     actor_id=candidate.actor_id,
                     build_number=candidate.build_number,
-                    input_template=candidate.input_template,
+                    input_template=candidate.input_template, platform=str(route["platform"]),
                 )
             )
             candidate_id, evidence_fingerprint = candidate_evidence[
@@ -1309,6 +1310,8 @@ class ApifyActorDiscoveryService:
                 if permission == "full_permissions"
                 else "actor_permission_unverifiable"
             )
+        if platform == "x" and (x_failure := _x_profile_semantic_failure(actor_id, actor)) is not None:
+            raise _reject(x_failure)
         build_id, build_number = _tagged_build(actor)
         evidence["build_id"] = build_id
         evidence["build_number"] = build_number
@@ -1327,10 +1330,7 @@ class ApifyActorDiscoveryService:
         evidence["output_schema_hash"] = (
             _json_hash(output_schema) if output_schema else ""
         )
-        if not input_schema or (
-            not output_schema
-            and (platform, target_type, capability) != ("youtube", "channel", "items")
-        ):
+        if not input_schema or (not output_schema and platform not in _PLATFORM_HOSTS):
             raise _reject("actor_schema_unverifiable")
         input_template = input_template_for_registered_route(
             platform,
@@ -1967,7 +1967,7 @@ def _target_input_score(name: str, schema: Mapping[str, Any]) -> int:
         return 280
     if any(
         marker in normalized
-        for marker in ("youtubehandle", "handle", "username", "channel", "profile")
+        for marker in ("youtubehandle", "handle", "username", "channel", "profile", "screenname")
     ):
         return 240
     if "url" in normalized or "uri" in normalized:
@@ -1985,7 +1985,7 @@ def _target_input_value(name: str, schema: Mapping[str, Any]) -> Any:
     normalized = re.sub(r"[^a-z0-9]", "", name.casefold())
     reference = (
         "target.handle"
-        if any(marker in normalized for marker in ("handle", "username"))
+        if any(marker in normalized for marker in ("handle", "username", "screenname"))
         and "url" not in normalized
         else "target.native_id"
         if normalized.endswith(("id", "ids")) and "url" not in normalized

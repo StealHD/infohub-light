@@ -18,6 +18,7 @@ from .apify_actor_manifest import (
     ActorTarget,
     ManifestMappingResult,
     MappedActorItem,
+    _normalize_handle,
     map_actor_output,
     parse_actor_manifest,
 )
@@ -25,6 +26,20 @@ from .apify_actor_manifest import (
 
 _OBSERVED_POINTER_PREFIX = "/__probe_"
 _YOUTUBE_HOSTS = frozenset({"youtube.com", "youtu.be"})
+_X_HOSTS = frozenset({"x.com", "twitter.com"})
+_INSTAGRAM_HOSTS = frozenset({"instagram.com"})
+_PLATFORM_HOSTS = {
+    "youtube": ["youtube.com", "youtu.be"],
+    "x": ["x.com", "twitter.com"],
+    "instagram": ["instagram.com"],
+}
+_OBSERVATION_PROBE_ROUTES = frozenset(
+    {
+        ("youtube", "channel", "items"),
+        ("x", "profile", "items"),
+        ("instagram", "profile", "items"),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +60,7 @@ def is_youtube_observation_probe(
 ) -> bool:
     """Allow only the old placeholder contract to take the observed path."""
 
-    if (platform, target_type, capability) != ("youtube", "channel", "items"):
+    if (platform, target_type, capability) not in _OBSERVATION_PROBE_ROUTES:
         return False
     evidence = (
         dict(security_evidence)
@@ -65,7 +80,7 @@ def is_youtube_observation_probe(
         for pointer in mapping.pointers
     ]
     return (
-        "target.canonical_url" in input_json
+        ("target.canonical_url" in input_json or "target.handle" in input_json)
         and bool(pointers)
         and all(pointer.startswith(_OBSERVED_POINTER_PREFIX) for pointer in pointers)
     )
@@ -101,7 +116,7 @@ def map_canary_output(
     capability: str,
     security_evidence: Any,
 ) -> tuple[ManifestMappingResult, dict[str, Any] | None]:
-    """Map normal contracts or safely learn an observed YouTube contract."""
+    """Map normal contracts or safely learn an observed content contract."""
 
     if not can_observe_youtube_probe(
         platform=platform,
@@ -111,7 +126,7 @@ def map_canary_output(
         security_evidence=security_evidence,
     ):
         return map_actor_output(manifest, rows, target, runtime), None
-    observed = _observe_youtube_rows(rows, target, runtime)
+    observed = _observe_rows(rows, target, runtime, platform=platform)
     return observed.result, observed.manifest
 
 
@@ -266,20 +281,23 @@ def settled_observed_validation(
     )
 
 
-def _observe_youtube_rows(
-    rows: Sequence[Mapping[str, Any]], target: ActorTarget, runtime: ActorRuntime) -> ObservedProbeMapping:
+def _observe_rows(
+    rows: Sequence[Mapping[str, Any]], target: ActorTarget, runtime: ActorRuntime, *,
+    platform: str,
+) -> ObservedProbeMapping:
     if isinstance(rows, (str, bytes, bytearray)) or not isinstance(rows, Sequence) or not rows:
         raise ActorManifestError("apify_actor_contract_mismatch", "Actor Dataset has no observable content rows")
     for row in rows:
         if not isinstance(row, Mapping):
             raise ActorManifestError("apify_actor_contract_mismatch", "Actor Dataset contains a non-object row")
         pointers = _scalar_paths(row)
-        observed = _observe_youtube_row(pointers, target)
+        observed = _observe_row(pointers, target, platform=platform)
         if observed is None:
             continue
         item, selected = observed
         manifest = _observed_manifest(
-            actor_id="", build_number="", input_template={}, selected=selected
+            actor_id="", build_number="", input_template={}, selected=selected,
+            platform=platform,
         )
         # The caller fills immutable Actor/Build/input facts from its prior
         # revision; only values proven by this row become output pointers.
@@ -287,7 +305,89 @@ def _observe_youtube_rows(
             result=ManifestMappingResult((item,), "valid_nonempty", latest_published_at=item.published_at.isoformat(), latest_native_id=item.native_id),
             manifest=manifest,
         )
-    raise ActorManifestError("apify_actor_contract_mismatch", "Actor output did not prove a matching YouTube content item")
+    raise ActorManifestError("apify_actor_contract_mismatch", "Actor output did not prove a matching content item")
+
+
+def _observe_row(
+    paths: Mapping[str, Any], target: ActorTarget, *, platform: str
+) -> tuple[MappedActorItem, dict[str, str]] | None:
+    if platform == "youtube":
+        return _observe_youtube_row(paths, target)
+    if platform == "x":
+        return _observe_x_row(paths, target)
+    return _observe_instagram_row(paths, target)
+
+
+def _observe_x_row(
+    paths: Mapping[str, Any], target: ActorTarget
+) -> tuple[MappedActorItem, dict[str, str]] | None:
+    url_path, url = _pick(paths, ("tweeturl", "posturl", "url"), _x_url)
+    native_path, native = _pick(paths, ("tweetid", "postid", "id"), _text)
+    if native is None and url is not None:
+        native = _tweet_id(url)
+        native_path = url_path
+    published_path, published = _pick(
+        paths, ("createdat", "publishedat", "timestamp", "date"), _datetime
+    )
+    text_path, text = _pick(paths, ("text", "fulltext", "snippet", "content"), _text)
+    handle_path, handle = _pick(
+        paths, ("username", "sourceusername", "authorusername", "author", "handle"),
+        _text,
+    )
+    if not all((
+        url_path, url, native_path, native,
+        published_path, published, text_path, text, handle_path, handle,
+    )):
+        return None
+    if _normalize_handle(handle) != _normalize_handle(target.handle or ""):
+        return None
+    try:
+        item = MappedActorItem(
+            native_id=str(native), url=str(url), published_at=published,
+            text=str(text), author_handle=str(handle),
+        )
+    except ValueError:
+        return None
+    return item, {
+        "native_id": str(native_path), "url": str(url_path),
+        "published_at": str(published_path), "text": str(text_path),
+        "author_handle": str(handle_path),
+    }
+
+
+def _observe_instagram_row(
+    paths: Mapping[str, Any], target: ActorTarget
+) -> tuple[MappedActorItem, dict[str, str]] | None:
+    url_path, url = _pick(paths, ("posturl", "url"), _instagram_url)
+    native_path, native = _pick(
+        paths, ("postid", "shortcode", "mediaid", "id"), _text
+    )
+    published_path, published = _pick(
+        paths, ("timestamp", "takenat", "createdat", "date"), _datetime
+    )
+    text_path, text = _pick(paths, ("caption", "text"), _text)
+    handle_path, handle = _pick(
+        paths, ("username", "authorusername", "owner", "author"), _text
+    )
+    if not all((
+        url_path, url, native_path, native,
+        published_path, published, text_path, text, handle_path, handle,
+    )):
+        return None
+    if _normalize_handle(handle) != _normalize_handle(target.handle or ""):
+        return None
+    try:
+        item = MappedActorItem(
+            native_id=str(native), url=str(url), published_at=published,
+            text=str(text), author_handle=str(handle),
+        )
+    except ValueError:
+        return None
+    return item, {
+        "native_id": str(native_path), "url": str(url_path),
+        "published_at": str(published_path), "text": str(text_path),
+        "author_handle": str(handle_path),
+    }
 
 
 def observed_manifest_with_identity(
@@ -361,12 +461,18 @@ def _nested_source_id(paths: Mapping[str, Any]) -> tuple[str | None, Any | None]
     return None, None
 
 
-def _observed_manifest(*, actor_id: str, build_number: str, input_template: Mapping[str, Any], selected: Mapping[str, str]) -> dict[str, Any]:
+def _observed_manifest(*, actor_id: str, build_number: str, input_template: Mapping[str, Any], selected: Mapping[str, str], platform: str = "youtube") -> dict[str, Any]:
     transforms = {
         "native_id": ["to_string"], "url": ["normalize_url"],
         "published_at": ["parse_datetime"], "title": ["to_string"],
-        "source_native_id": ["to_string"],
+        "text": ["strip_html"], "source_native_id": ["to_string"],
+        "author_handle": ["to_string"],
     }
+    identity = (
+        {"output_field": "source_native_id", "target_ref": "target.native_id", "match": "exact"}
+        if platform == "youtube"
+        else {"output_field": "author_handle", "target_ref": "target.handle", "match": "handle"}
+    )
     return {
         "version": 1, "actor_id": actor_id, "build_number": build_number,
         "input": dict(input_template),
@@ -375,8 +481,8 @@ def _observed_manifest(*, actor_id: str, build_number: str, input_template: Mapp
             for key, pointer in selected.items()
         },
         "semantics": {
-            "identity": {"output_field": "source_native_id", "target_ref": "target.native_id", "match": "exact"},
-            "url_host_allowlist": ["youtube.com", "youtu.be"],
+            "identity": identity,
+            "url_host_allowlist": list(_PLATFORM_HOSTS[platform]),
             "empty_result_markers": [],
         },
     }
@@ -392,6 +498,16 @@ def _scalar_paths(value: Mapping[str, Any], *, prefix: str = "", depth: int = 0)
         pointer = f"{prefix}/{key.replace('~', '~0').replace('/', '~1')}"
         if isinstance(child, Mapping):
             result.update(_scalar_paths(child, prefix=pointer, depth=depth + 1))
+        elif isinstance(child, Sequence) and not isinstance(
+            child, (str, bytes, bytearray)
+        ):
+            for index, element in enumerate(child[:16]):
+                if isinstance(element, Mapping):
+                    result.update(
+                        _scalar_paths(
+                            element, prefix=f"{pointer}/{index}", depth=depth + 1
+                        )
+                    )
         elif isinstance(child, (str, int, float)) and not isinstance(child, bool):
             result[pointer] = child
     return result
@@ -416,6 +532,34 @@ def _youtube_url(value: Any) -> str | None:
     host = parsed.hostname.casefold().removeprefix("www.") if parsed.hostname else ""
     normalized = value.strip()
     return normalized if host in _YOUTUBE_HOSTS and _video_id(normalized) else None
+
+
+def _x_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    parsed = urlsplit(value.strip())
+    host = parsed.hostname.casefold().removeprefix("www.") if parsed.hostname else ""
+    return value.strip() if host in _X_HOSTS else None
+
+
+def _instagram_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    parsed = urlsplit(value.strip())
+    host = parsed.hostname.casefold().removeprefix("www.") if parsed.hostname else ""
+    return value.strip() if host in _INSTAGRAM_HOSTS else None
+
+
+def _tweet_id(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = urlsplit(value.strip())
+    if not parsed.hostname:
+        return value.strip() if len(value.strip()) <= 512 else None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and parts[-2] in {"status", "statuses"}:
+        return parts[-1]
+    return None
 
 
 def _video_id(value: Any) -> str | None:

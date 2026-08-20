@@ -14,6 +14,20 @@ from .apify_actor_discovery_pricing import safe_pricing_summary
 
 YOUTUBE_OBSERVATION_POLICY = "youtube_observation_probe_v2"
 
+_PLATFORM_HOSTS = {
+    "youtube": ["youtube.com", "youtu.be"],
+    "x": ["x.com", "twitter.com"],
+    "instagram": ["instagram.com"],
+}
+
+_OBSERVATION_PROBE_ROUTES = frozenset(
+    {
+        ("youtube", "channel", "items"),
+        ("x", "profile", "items"),
+        ("instagram", "profile", "items"),
+    }
+)
+
 
 def observation_probe_eligible(
     *,
@@ -22,10 +36,10 @@ def observation_probe_eligible(
     capability: str,
     output_schema_proves_items: bool,
 ) -> bool:
-    """Allow only YouTube item Builds whose input still passed free checks."""
+    """Allow opaque-schema items Builds whose input passed free checks."""
 
     return (
-        (platform, target_type, capability) == ("youtube", "channel", "items")
+        (platform, target_type, capability) in _OBSERVATION_PROBE_ROUTES
         and not output_schema_proves_items
     )
 
@@ -52,10 +66,27 @@ def output_schema_supports_youtube_item_contract(
 
 
 def observation_probe_manifest(
-    *, actor_id: str, build_number: str, input_template: Mapping[str, Any]
+    *, actor_id: str, build_number: str, input_template: Mapping[str, Any],
+    platform: str = "youtube",
 ) -> dict[str, Any]:
     """Create a value-free manifest; Canary may replace it only with evidence."""
 
+    if platform == "youtube":
+        identity = {
+            "output_field": "source_native_id",
+            "target_ref": "target.native_id",
+            "match": "exact",
+        }
+        content_field = "title"
+        source_field = "source_native_id"
+    else:
+        identity = {
+            "output_field": "author_handle",
+            "target_ref": "target.handle",
+            "match": "handle",
+        }
+        content_field = "text"
+        source_field = "author_handle"
     return {
         "version": 1,
         "actor_id": actor_id,
@@ -65,16 +96,12 @@ def observation_probe_manifest(
             "native_id": {"pointers": ["/__probe_native_id_v2"]},
             "url": {"pointers": ["/__probe_url_v2"]},
             "published_at": {"pointers": ["/__probe_published_at_v2"]},
-            "title": {"pointers": ["/__probe_title_v2"]},
-            "source_native_id": {"pointers": ["/__probe_source_native_id_v2"]},
+            content_field: {"pointers": [f"/__probe_{content_field}_v2"]},
+            source_field: {"pointers": [f"/__probe_{source_field}_v2"]},
         },
         "semantics": {
-            "identity": {
-                "output_field": "source_native_id",
-                "target_ref": "target.native_id",
-                "match": "exact",
-            },
-            "url_host_allowlist": ["youtube.com", "youtu.be"],
+            "identity": identity,
+            "url_host_allowlist": list(_PLATFORM_HOSTS[platform]),
         },
     }
 
@@ -88,7 +115,8 @@ def observation_probe_evidence_fingerprint(evidence_fingerprint: str) -> str:
 
 
 def observation_probe_manifest_hash(
-    *, actor_id: str, build_number: str, input_template: Mapping[str, Any]
+    *, actor_id: str, build_number: str, input_template: Mapping[str, Any],
+    platform: str = "youtube",
 ) -> str:
     """Fingerprint the exact paid probe contract, not only its Build schema."""
 
@@ -97,6 +125,7 @@ def observation_probe_manifest_hash(
             actor_id=actor_id,
             build_number=build_number,
             input_template=input_template,
+            platform=platform,
         )
     )
 
@@ -162,8 +191,9 @@ def candidate_observation_probe_failure(
     route_id: str,
     candidate_id: str,
     candidate: Any,
+    platform: str = "youtube",
 ) -> str | None:
-    """Find an unchanged opaque-YouTube Build's settled terminal result."""
+    """Find an unchanged opaque-schema Build's settled terminal result."""
 
     return observation_probe_deterministic_failure(
         connection,
@@ -179,6 +209,7 @@ def candidate_observation_probe_failure(
             actor_id=str(candidate.actor_id),
             build_number=str(candidate.build_number),
             input_template=candidate.input_template,
+            platform=platform,
         ),
         pricing=safe_pricing_summary(candidate.pricing),
     )

@@ -48,9 +48,9 @@ def actor_discovery_queries(route: dict[str, Any]) -> tuple[str, str, str]:
     )
     presets = {
         ("x", "profile", "items"): (
-            "x profile posts scraper",
             "twitter user tweets scraper",
-            "x profile feed actor",
+            "x twitter timeline scraper",
+            "twitter tweets scraper",
         ),
         ("youtube", "channel", "items"): (
             "youtube channel videos scraper",

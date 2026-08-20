@@ -38,7 +38,9 @@ def store_actor_quality(store_row: Mapping[str, Any] | None) -> dict[str, float 
     """Normalize only public Store rating, review count, and usage count."""
 
     row = store_row if isinstance(store_row, Mapping) else {}
-    raw_rating = _lookup(row, "rating", "ratingAverage", "ratingScore")
+    raw_rating = _lookup(
+        row, "actorReviewRating", "reviewRating", "rating", "ratingAverage", "ratingScore"
+    )
     if isinstance(raw_rating, Mapping):
         raw_rating = _lookup(raw_rating, "average", "value", "score")
     rating = _number(raw_rating)
@@ -47,7 +49,15 @@ def store_actor_quality(store_row: Mapping[str, Any] | None) -> dict[str, float 
     return {
         "rating": rating,
         "rating_count": _number(
-            _lookup(row, "rating_count", "ratingCount", "reviewCount", "reviewsCount", "totalReviews"),
+            _lookup(
+                row,
+                "actorReviewCount",
+                "reviewCount",
+                "rating_count",
+                "ratingCount",
+                "reviewsCount",
+                "totalReviews",
+            ),
             integer=True,
         ),
         "user_count": _number(
@@ -58,10 +68,18 @@ def store_actor_quality(store_row: Mapping[str, Any] | None) -> dict[str, float 
 
 
 def with_store_quality(candidate: T, store_row: Mapping[str, Any] | None) -> T:
-    """Attach an immutable normalized Store snapshot to a discovery candidate."""
+    """Attach an immutable normalized Store snapshot to a discovery candidate.
+
+    The Store search response uses ``responseFormat=agent``, which strips the
+    rating fields and minimizes ``stats``.  The candidate's own Actor detail is
+    fetched with the full format and carries ``stats.actorReviewRating``, so
+    merge the search row beneath the detail: search-only provenance is kept
+    while ratings are read from the full ``stats`` object.
+    """
 
     actor = dict(getattr(candidate, "actor"))
-    actor[_QUALITY_KEY] = store_actor_quality(store_row)
+    source = {**store_row, **actor} if isinstance(store_row, Mapping) else dict(actor)
+    actor[_QUALITY_KEY] = store_actor_quality(source)
     return replace(candidate, actor=actor)
 
 

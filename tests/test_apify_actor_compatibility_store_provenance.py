@@ -78,3 +78,44 @@ def test_terminal_compatibility_build_is_not_selectable_again(
 
     assert rejected["selectable"] is False
     assert rejected["unavailable_reason"] == failure_code
+
+
+def test_rediscovery_with_richer_store_quality_does_not_update_immutable_evidence(
+    tmp_path,
+) -> None:
+    """Rediscovery must not UPDATE security_evidence_json (immutable trigger).
+
+    Regression for the X discovery IntegrityError: the rating field-name fix
+    made ``store_quality`` carry real values on the second discovery of an
+    already-persisted revision, so ``_upgrade_store_quality`` tried to UPDATE
+    ``security_evidence_json`` and hit the immutable trigger's RAISE(ABORT).
+    """
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route, run, _revisions = _compatibility_discovery(store, ops)
+    values = {
+        "route_id": str(route["route_id"]),
+        "discovery_run_id": str(run["run_id"]),
+        "actor_id": "compatibility/store-quality-x",
+        "publisher": "compatibility",
+        "build_id": "quality-build",
+        "build_number": "1.0.0",
+        "pricing": {"minimalMaxTotalChargeUsd": 0.01},
+        "permission_level": "limited",
+        "input_schema_hash": None,
+        "output_schema_hash": None,
+    }
+    # First write with the pre-fix shape (rating/rating_count unresolved).
+    revision_id = ops.ensure_compatibility_trial_revision(
+        **values,
+        store_quality={"rating": None, "rating_count": None, "user_count": 100},
+    )
+    # Rediscovery with richer Store quality must not raise (evidence is frozen).
+    assert (
+        ops.ensure_compatibility_trial_revision(
+            **values,
+            store_quality={"rating": 4.7, "rating_count": 152, "user_count": 100},
+        )
+        == revision_id
+    )

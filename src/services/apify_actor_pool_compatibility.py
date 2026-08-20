@@ -174,21 +174,6 @@ class ApifyActorPoolCompatibilityMixin:
                     discovery_run_id, now,
                 ),
             )
-            self._upgrade_store_provenance(
-                connection, ops, revision_id, store_runnable_provenance
-            )
-            self._upgrade_compatibility_preflight(
-                connection,
-                ops,
-                revision_id,
-                compatibility_preflight_version=compatibility_preflight_version,
-                free_input_validated=free_input_validated,
-                output_schema_proves_items=output_schema_proves_items,
-                x_profile_semantics_proven=x_profile_semantics_proven,
-            )
-            self._upgrade_store_quality(
-                connection, ops, revision_id, store_quality=store_quality
-            )
             connection.execute(
                 """INSERT OR IGNORE INTO apify_actor_discovery_run_revisions (
                        workspace_id, run_id, revision_id, created_at
@@ -242,98 +227,6 @@ class ApifyActorPoolCompatibilityMixin:
                 } else None,
             },
             max_bytes=16 * 1024,
-        )
-
-    def _upgrade_compatibility_preflight(
-        self,
-        connection: sqlite3.Connection,
-        ops: Any,
-        revision_id: str,
-        *,
-        compatibility_preflight_version: int,
-        free_input_validated: bool,
-        output_schema_proves_items: bool,
-        x_profile_semantics_proven: bool,
-    ) -> None:
-        """Only a fresh discovery may upgrade an old compatibility revision."""
-
-        if not (
-            int(compatibility_preflight_version) >= 2
-            and free_input_validated
-            and output_schema_proves_items
-            and x_profile_semantics_proven
-        ):
-            return
-        row = connection.execute(
-            """SELECT security_evidence_json FROM apify_actor_adapter_revisions
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (self.workspace_id, revision_id),
-        ).fetchone()
-        evidence = ops._safe_json(row["security_evidence_json"], {}) if row else {}
-        if int(evidence.get("compatibility_preflight_version") or 0) >= 2:
-            return
-        evidence.update(
-            {
-                "compatibility_preflight_version": 2,
-                "free_input_validated": True,
-                "output_schema_proves_items": True,
-                "x_profile_semantics_proven": True,
-            }
-        )
-        connection.execute(
-            """UPDATE apify_actor_adapter_revisions
-               SET security_evidence_json = ?
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (
-                ops._bounded_safe_json(evidence, max_bytes=16 * 1024),
-                self.workspace_id,
-                revision_id,
-            ),
-        )
-
-    def _upgrade_store_provenance(
-        self, connection: sqlite3.Connection, ops: Any, revision_id: str,
-        store_runnable_provenance: bool,
-    ) -> None:
-        if not store_runnable_provenance:
-            return
-        row = connection.execute(
-            """SELECT security_evidence_json FROM apify_actor_adapter_revisions
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (self.workspace_id, revision_id),
-        ).fetchone()
-        evidence = ops._safe_json(row["security_evidence_json"], {}) if row else {}
-        if bool(evidence.get("store_runnable_provenance")):
-            return
-        evidence["store_runnable_provenance"] = True
-        connection.execute(
-            """UPDATE apify_actor_adapter_revisions
-               SET security_evidence_json = ?
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (ops._bounded_safe_json(evidence, max_bytes=16 * 1024), self.workspace_id, revision_id),
-        )
-
-    def _upgrade_store_quality(
-        self, connection: sqlite3.Connection, ops: Any, revision_id: str,
-        *, store_quality: Mapping[str, Any] | None,
-    ) -> None:
-        row = connection.execute(
-            """SELECT security_evidence_json FROM apify_actor_adapter_revisions
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (self.workspace_id, revision_id),
-        ).fetchone()
-        evidence = ops._safe_json(row["security_evidence_json"], {}) if row else {}
-        quality = actor_store_quality(store_quality)
-        if not any(value is not None for value in quality.values()):
-            return
-        if evidence.get("store_quality") == quality:
-            return
-        evidence["store_quality"] = quality
-        connection.execute(
-            """UPDATE apify_actor_adapter_revisions
-               SET security_evidence_json = ?
-               WHERE workspace_id = ? AND revision_id = ?""",
-            (ops._bounded_safe_json(evidence, max_bytes=16 * 1024), self.workspace_id, revision_id),
         )
 
     def _get_x_compatibility_slot_plan(

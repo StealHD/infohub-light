@@ -137,7 +137,7 @@ def test_observed_probe_accepts_a_video_row_with_nested_channel_identity() -> No
     ],
 )
 def test_observed_probe_rejects_metadata_wrong_identity_or_mismatched_video(row: dict) -> None:
-    with pytest.raises(ActorManifestError, match="matching YouTube content") as caught:
+    with pytest.raises(ActorManifestError, match="matching content") as caught:
         map_canary_output(
             _placeholder_manifest(), [row], TARGET, ActorRuntime(),
             platform="youtube", target_type="channel", capability="items",
@@ -410,18 +410,150 @@ def test_discovery_sends_only_safe_opaque_youtube_build_to_observed_canary(tmp_p
     assert len(metadata.validations) == 1
 
 
-def test_observation_probe_is_unavailable_to_other_actor_route_combinations() -> None:
-    assert observation_probe_eligible(
-        platform="youtube", target_type="channel", capability="items",
-        output_schema_proves_items=False,
-    )
+def test_observation_probe_is_available_to_items_route_combinations() -> None:
     for platform, target_type, capability in (
+        ("youtube", "channel", "items"),
         ("x", "profile", "items"),
         ("instagram", "profile", "items"),
+    ):
+        assert observation_probe_eligible(
+            platform=platform, target_type=target_type, capability=capability,
+            output_schema_proves_items=False,
+        )
+    for platform, target_type, capability in (
         ("youtube", "profile", "items"),
         ("youtube", "channel", "profile"),
+        ("x", "channel", "items"),
+        ("instagram", "channel", "items"),
     ):
         assert not observation_probe_eligible(
             platform=platform, target_type=target_type, capability=capability,
             output_schema_proves_items=False,
         )
+
+
+X_TARGET = ActorTarget(
+    canonical_url="https://x.com/someuser",
+    native_id="123456789",
+    handle="someuser",
+)
+IG_TARGET = ActorTarget(
+    canonical_url="https://www.instagram.com/someuser/",
+    native_id="12345",
+    handle="someuser",
+)
+
+
+def _handle_placeholder(actor_id: str, hosts: list[str]) -> dict:
+    return {
+        "version": 1,
+        "actor_id": actor_id,
+        "build_number": "1.0.0",
+        "input": {"handle": [{"$ref": "target.handle"}]},
+        "output": {
+            "native_id": {"pointers": ["/__probe_native_id"]},
+            "url": {"pointers": ["/__probe_url"]},
+            "published_at": {"pointers": ["/__probe_published_at"]},
+            "text": {"pointers": ["/__probe_text"]},
+            "author_handle": {"pointers": ["/__probe_author_handle"]},
+        },
+        "semantics": {
+            "identity": {
+                "output_field": "author_handle",
+                "target_ref": "target.handle",
+                "match": "handle",
+            },
+            "url_host_allowlist": hosts,
+        },
+    }
+
+
+def _x_content_row(**overrides: object) -> dict:
+    row: dict[str, object] = {
+        "tweetId": "123456789",
+        "tweetUrl": "https://x.com/someuser/status/123456789",
+        "createdAt": "2026-08-18T01:02:03Z",
+        "text": "A real tweet",
+        "username": "someuser",
+    }
+    row.update(overrides)
+    return row
+
+
+def _ig_content_row(**overrides: object) -> dict:
+    row: dict[str, object] = {
+        "postId": "12345",
+        "postUrl": "https://www.instagram.com/p/abc123/",
+        "timestamp": "2026-08-18T01:02:03Z",
+        "caption": "A real post",
+        "username": "someuser",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_observed_probe_accepts_x_post_row_and_mints_handle_manifest() -> None:
+    placeholder = _handle_placeholder("publisher/x-posts", ["x.com", "twitter.com"])
+    assert can_observe_youtube_probe(
+        platform="x", target_type="profile", capability="items",
+        manifest=placeholder, security_evidence=_evidence(),
+    )
+    mapped, draft = map_canary_output(
+        placeholder, [_x_content_row()], X_TARGET, ActorRuntime(max_items=1),
+        platform="x", target_type="profile", capability="items",
+        security_evidence=_evidence(),
+    )
+    assert mapped.semantic_outcome == "valid_nonempty"
+    assert draft is not None
+    assert draft["output"]["native_id"]["pointers"] == ["/tweetId"]
+    assert draft["output"]["author_handle"]["pointers"] == ["/username"]
+    assert draft["semantics"]["identity"]["match"] == "handle"
+
+
+def test_observed_probe_accepts_instagram_post_row_and_mints_handle_manifest() -> None:
+    placeholder = _handle_placeholder("publisher/ig-posts", ["instagram.com"])
+    mapped, draft = map_canary_output(
+        placeholder, [_ig_content_row()], IG_TARGET, ActorRuntime(max_items=1),
+        platform="instagram", target_type="profile", capability="items",
+        security_evidence=_evidence(),
+    )
+    assert mapped.semantic_outcome == "valid_nonempty"
+    assert draft is not None
+    assert draft["output"]["native_id"]["pointers"] == ["/postId"]
+    assert draft["output"]["author_handle"]["pointers"] == ["/username"]
+
+
+def test_observed_probe_rejects_x_row_with_wrong_handle() -> None:
+    placeholder = _handle_placeholder("publisher/x-posts", ["x.com", "twitter.com"])
+    with pytest.raises(ActorManifestError, match="matching content"):
+        map_canary_output(
+            placeholder, [_x_content_row(username="someoneelse")], X_TARGET,
+            ActorRuntime(), platform="x", target_type="profile",
+            capability="items", security_evidence=_evidence(),
+        )
+
+
+def test_observed_probe_accepts_nested_x_tweets_with_url_derived_id() -> None:
+    placeholder = _handle_placeholder("publisher/x-tweets", ["x.com", "twitter.com"])
+    row = {
+        "count": 1,
+        "pages": 1,
+        "tweets": [
+            {
+                "author": "someuser",
+                "snippet": "A real tweet",
+                "date": "2026-04-04 21:33:51",
+                "url": "https://twitter.com/someuser/status/2040543394741838265",
+            }
+        ],
+    }
+    mapped, draft = map_canary_output(
+        placeholder, [row], X_TARGET, ActorRuntime(max_items=1),
+        platform="x", target_type="profile", capability="items",
+        security_evidence=_evidence(),
+    )
+    assert mapped.semantic_outcome == "valid_nonempty"
+    assert mapped.items[0].native_id == "2040543394741838265"
+    assert draft is not None
+    assert draft["output"]["text"]["pointers"] == ["/tweets/0/snippet"]
+    assert draft["output"]["author_handle"]["pointers"] == ["/tweets/0/author"]

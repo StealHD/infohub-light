@@ -87,6 +87,31 @@ def _record_completion_metrics(
     return metrics
 
 
+def _extract_json_object(raw: str) -> str:
+    """Best-effort recovery of the outermost JSON object from model prose.
+
+    Models occasionally wrap the object in a ```json fence or prefix it with
+    a short explanation.  ``json.loads`` rejects both, so strip a single
+    surrounding fence and fall back to the outermost ``{...}`` span before
+    declaring the output invalid.  This never fabricates content: it only
+    removes clear wrappers around an otherwise complete object.
+    """
+
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start : end + 1]
+    return text
+
+
 def _parse_ai_manifest(
     context: DiscoveryAiContext,
     *,
@@ -101,9 +126,15 @@ def _parse_ai_manifest(
             "discovery_ai_empty_content",
             "Actor discovery AI returned no content",
         )
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as error:
+    parsed: Any = None
+    last_error: json.JSONDecodeError | None = None
+    for candidate in (raw, _extract_json_object(raw)):
+        try:
+            parsed = json.loads(candidate)
+            break
+        except json.JSONDecodeError as error:
+            last_error = error
+    if parsed is None:
         status = "truncated" if metrics and metrics.finish_reason == "length" else "invalid"
         context.ops.record_discovery_ai_metrics(context.run_id, json_status=status)
         code = (
@@ -114,7 +145,7 @@ def _parse_ai_manifest(
         raise ActorDiscoveryError(
             code,
             "Actor discovery AI returned invalid JSON",
-        ) from error
+        ) from last_error
     if not isinstance(parsed, dict):
         context.ops.record_discovery_ai_metrics(context.run_id, json_status="invalid")
         raise ActorDiscoveryError(

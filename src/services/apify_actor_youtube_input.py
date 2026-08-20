@@ -12,8 +12,10 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 
-_URL_LIST_FIELDS = frozenset({"starturls", "channelurls", "urls"})
-_URL_FIELDS = frozenset({"url", "channelurl"})
+_URL_LIST_FIELDS = frozenset(
+    {"starturls", "channelurls", "urls", "channels", "channelurlsorids", "channelinputs"}
+)
+_URL_FIELDS = frozenset({"url", "channelurl", "channel"})
 _CHANNEL_ID_LIST_FIELDS = frozenset({"channelids"})
 _CHANNEL_ID_FIELDS = frozenset({"channelid"})
 _COUNT_FIELDS = (

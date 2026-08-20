@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .apify_key_pool import APIFY_RUN_TERMINAL_STATUSES
+from .apify_actor_recovery_continuation import clear_start_unknown_barrier
 
 
 def reconcile_unfinished_actor_attempts(service: Any) -> dict[str, int]:
@@ -22,6 +23,7 @@ def reconcile_unfinished_actor_attempts(service: Any) -> dict[str, int]:
     cancelled = blocked = 0
     blocked_routes: set[tuple[str, str]] = set()
     blocked_batches: set[str] = set()
+    settled_routes: set[tuple[str, str]] = set()
     with service._write() as connection:
         for row in _unfinished_attempt_rows(connection, service.workspace_id):
             unknown, batch_ids = _project_attempt_outcome(service, connection, row, now)
@@ -31,8 +33,18 @@ def reconcile_unfinished_actor_attempts(service: Any) -> dict[str, int]:
                 blocked_batches.update(batch_ids)
             else:
                 cancelled += 1
+                settled_routes.add((str(row["route_id"]), str(row["route_key"])))
         _block_batches(service, connection, blocked_batches, now)
         _block_routes(service, connection, blocked_routes, now)
+        # A start_outcome_unknown attempt whose remote Run has since reached a
+        # terminal status is now settled; release its route and Key-pool
+        # barrier so other platforms are not blocked by this stale unknown.
+        for route_id, route_key in settled_routes:
+            clear_start_unknown_barrier(
+                service,
+                connection,
+                {"route_id": route_id, "route_key": route_key},
+            )
     return {
         "cancelled": cancelled,
         "blocked": blocked,
@@ -53,7 +65,8 @@ def _unfinished_attempt_rows(connection: Any, workspace_id: str) -> list[Any]:
         LEFT JOIN apify_actor_runs AS run
           ON run.workspace_id = attempt.workspace_id
          AND run.logical_run_id = attempt.id
-        WHERE attempt.workspace_id = ? AND attempt.status = 'running'
+        WHERE attempt.workspace_id = ?
+          AND attempt.status IN ('running', 'start_outcome_unknown')
           AND attempt.adapter_revision_id IS NOT NULL
         GROUP BY attempt.id, attempt.job_id, attempt.route_key, profile.route_id
         """,
@@ -75,7 +88,8 @@ def _project_attempt_outcome(
         """UPDATE apify_actor_attempts
            SET status = ?, semantic_outcome = ?, last_error_code = ?,
                terminal_at = ?, updated_at = ?
-           WHERE workspace_id = ? AND id = ? AND status = 'running'""",
+           WHERE workspace_id = ? AND id = ?
+             AND status IN ('running', 'start_outcome_unknown')""",
         (
             "start_outcome_unknown" if unknown else "cancelled", outcome, outcome,
             now, now, service.workspace_id, attempt_id,
