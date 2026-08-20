@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Phase 1; its disabled domain/schema foundation changes no user-facing behavior.
+// Reviewed for ActorOps v2 Phase 2; its default-off data plane changes no user-facing behavior before platform cutover.
 export type ManualStep = {
   title: string
   description: string

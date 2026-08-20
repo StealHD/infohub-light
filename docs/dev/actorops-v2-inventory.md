@@ -185,4 +185,12 @@ backfill 只读取 global 17–24：
 - Domain、Adapter Port/Registry、Policy 和 caller-owned SQLite Repository 已建立，通用模块不含真实平台分支；
 - global 26 七表、单调 trigger、fresh bootstrap、v24 摘要 backfill 与离线 CLI 已建立；
 - global 25 保持惰性，existing v24 缺少 26 时现役 API/Worker readiness 不变；
-- feature flag、真实平台 Adapter、Runtime、Reconciler、Discovery 和站立授权仍为 planned，下一阶段只推进稳定获取数据面。
+- global 26、Domain、Repository 与迁移保持不变，Phase 2 在其上继续实现数据面。
+
+## 9. Phase 2 实施结果
+
+- `ACTOROPS_V2_ENABLED` 默认关闭；关闭时不读 global 26，开启后才条件 gate API/Worker readiness；
+- Active→Standby→LKG、Attempt 幂等账本、局部 publication fence 与 Feed 事务内 LKG/水位已进入通用 Runtime；
+- X Profile Items、Instagram Profile Items、YouTube Channel Items 使用独立 Adapter，只有 YouTube 明确提供公共 Atom 降级；
+- disabled/shadow Route 继续 v1，shadow 不创建 v2 Attempt 或额外付费 POST；本阶段未把任何 Route 切为 active；
+- Reconciler、Discovery、站立授权、API/UI 投影和平台自然流量观察仍留在后续 Phase。

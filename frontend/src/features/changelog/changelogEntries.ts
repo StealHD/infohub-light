@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 Phase 1 is a disabled domain/schema foundation; no API, Worker, UI, or paid behavior changed.
+// Reviewed: ActorOps v2 Phase 2 is a default-off data plane; no route cutover, UI, or paid behavior changed.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

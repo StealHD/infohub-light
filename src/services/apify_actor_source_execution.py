@@ -33,6 +33,15 @@ async def fetch_actorops_source_subscription(
     Unknown platform tuples fail before a client can start a paid Actor.
     """
 
+    if getattr(frozen_snapshot, "actorops_version", 1) == 2:
+        return await ops.fetch_subscription(
+            subscription=subscription,
+            since=since,
+            client_factory=client_factory,
+            job_id=job_id,
+            snapshot=frozen_snapshot,
+        )
+
     route = ops.get_route(str(subscription.profile_id))
     platform = str(route["platform"])
     window_policy = source_fetch_window_policy(

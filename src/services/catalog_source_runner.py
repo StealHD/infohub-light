@@ -233,10 +233,10 @@ def run_catalog_source_fetch(
             apify_key_pool_enabled()
             and hasattr(orchestrator, "set_service_apify_actor_ops")
         ):
-            from .apify_actor_ops import ApifyActorOpsService
+            from .actorops.service import build_source_actorops_service
 
             orchestrator.set_service_apify_actor_ops(
-                ApifyActorOpsService(
+                build_source_actorops_service(
                     store,
                     workspace_id=str(job["workspace_id"]),
                 ),

@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from src.services.actorops.domain import (
+    AssignmentRole,
     AttemptStatus,
     CandidateLifecycle,
+    CandidateRecord,
     DiscoveryStage,
     DiscoveryStatus,
     InvalidTransition,
@@ -17,7 +19,7 @@ from src.services.actorops.domain import (
     ensure_candidate_transition,
     ensure_discovery_transition,
 )
-from src.services.actorops.policy import derive_route_health
+from src.services.actorops.policy import derive_route_health, ordered_candidates
 from src.services.actorops.ports import (
     ActorManifest,
     DiscoverySpec,
@@ -49,6 +51,32 @@ def test_route_health_is_derived_from_runnable_assignments(
     count: int, expected: RouteHealth
 ) -> None:
     assert derive_route_health(count) is expected
+
+
+def test_candidate_order_is_active_then_standby_then_distinct_lkg() -> None:
+    def candidate(candidate_id, role, priority):
+        return CandidateRecord(
+            candidate_id=candidate_id,
+            route_id="route",
+            lifecycle=CandidateLifecycle.CERTIFIED,
+            assignment_role=role,
+            priority=priority,
+            generation=1,
+            build_id="build",
+            manifest_hash="a" * 64,
+        )
+
+    candidates = (
+        candidate("standby", AssignmentRole.STANDBY, 1),
+        candidate("lkg", AssignmentRole.INACTIVE, None),
+        candidate("active", AssignmentRole.ACTIVE, 0),
+    )
+    assert [item.candidate_id for item in ordered_candidates(
+        candidates, last_known_good_candidate_id="lkg"
+    )] == ["active", "standby", "lkg"]
+    assert [item.candidate_id for item in ordered_candidates(
+        candidates, last_known_good_candidate_id="active"
+    )] == ["active", "standby"]
 
 
 def test_candidate_transitions_are_monotonic_and_terminal() -> None:
@@ -127,7 +155,7 @@ class _FakeAdapter:
     def build_actor_input(self, target, manifest, window):
         return {"url": target.canonical_url, "limit": window.max_items}
 
-    def validate_output(self, rows, target):
+    def validate_output(self, rows, target, manifest, window):
         return NormalizedBatch(items=tuple(rows), semantic_outcome="valid_nonempty")
 
     async def fetch_native_fallback(self, target, window):
@@ -144,7 +172,13 @@ def test_registry_rejects_duplicates_and_unknown_route_keys() -> None:
     with pytest.raises(AdapterNotRegistered):
         registry.require(RouteKey("missing", "profile", "items"))
 
-    manifest = ActorManifest(actor_id="actor/test", build_id="build-1", manifest_hash="a" * 64)
+    manifest = ActorManifest(
+        actor_id="actor/test",
+        build_id="build-1",
+        build_number="1.0.0",
+        manifest_json="{}",
+        manifest_hash="a" * 64,
+    )
     window = FetchWindow(
         max_items=3,
         since=datetime(2026, 8, 20, tzinfo=timezone.utc),
@@ -155,7 +189,11 @@ def test_registry_rejects_duplicates_and_unknown_route_keys() -> None:
 
 def test_generic_modules_contain_no_platform_branches_or_storage_imports() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "services" / "actorops"
-    for name in ("domain.py", "ports.py", "registry.py", "policy.py", "repository.py"):
+    names = (
+        "domain.py", "ports.py", "registry.py", "policy.py", "repository.py",
+        "runtime.py", "service.py", "apify_remote.py", "publication.py",
+    )
+    for name in names:
         source = (root / name).read_text(encoding="utf-8").casefold()
         assert "if platform" not in source
         assert "youtube.com" not in source

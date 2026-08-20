@@ -121,6 +121,7 @@ class _AcquisitionContext:
     actor_binding_generation: int | None
     source_id: str
     window_hours: int
+    actor_publication_proof: dict[str, Any] | None = None
 
 
 def _actor_acquisition_origin(
@@ -140,62 +141,18 @@ def _actor_acquisition_origin(
 
 
 def _actor_publication_proof(items: Any) -> dict[str, Any] | None:
-    if str(
-        getattr(items, "_apify_actor_semantic_outcome", "") or ""
-    ) != "advanced":
-        return None
-    route_generation = getattr(
-        items, "_apify_actor_route_generation", None
-    )
-    proof = {
-        "workspace_id": getattr(items, "_apify_actor_workspace_id", None),
-        "source_id": getattr(items, "_apify_actor_source_id", None),
-        "candidate_id": getattr(items, "_apify_actor_candidate_id", None),
-        "latest_published_at": getattr(
-            items, "_apify_actor_latest_published_at", None
-        ),
-        "latest_item_id_hash": getattr(
-            items, "_apify_actor_latest_item_id_hash", None
-        ),
-        "route_generation": route_generation,
-        "semantic_outcome": "advanced",
-    }
-    if (
-        not isinstance(route_generation, int)
-        or any(
-            not isinstance(proof[key], str) or not str(proof[key]).strip()
-            for key in (
-                "workspace_id",
-                "source_id",
-                "candidate_id",
-                "latest_published_at",
-                "latest_item_id_hash",
-            )
-        )
-        or len(str(proof["latest_item_id_hash"])) != 64
-    ):
-        return None
-    return proof
+    from .actorops.publication import proof_from_items
+
+    return proof_from_items(items)
 
 
 def _with_actor_publication_proof(
     items: list[ContentItem],
     proof: dict[str, Any] | None,
 ) -> list[ContentItem]:
-    if proof is None:
-        return items
-    from .apify_actor_route import ApifyActorRoutedList
+    from .actorops.publication import with_publication_proof
 
-    return ApifyActorRoutedList(
-        items,
-        route_generation=int(proof["route_generation"]),
-        workspace_id=str(proof["workspace_id"]),
-        source_id=str(proof["source_id"]),
-        candidate_id=str(proof["candidate_id"]),
-        latest_published_at=str(proof["latest_published_at"]),
-        latest_item_id_hash=str(proof["latest_item_id_hash"]),
-        semantic_outcome="advanced",
-    )
+    return with_publication_proof(items, proof)
 
 
 def shared_acquisition_enabled() -> bool:
@@ -334,7 +291,13 @@ class SourceAcquisitionCoordinator:
                     provider=provider,
                 )
                 if actor_acquisition_origin is not None:
-                    self._publication_contexts[context.acquisition_key] = context
+                    proof = _actor_publication_proof(cached)
+                    self._publication_contexts[context.acquisition_key] = replace(
+                        context,
+                        actor_publication_proof=(
+                            proof if proof and proof.get("version") == 2 else None
+                        ),
+                    )
                 return cached
 
             claim_token = uuid.uuid4().hex
@@ -371,6 +334,14 @@ class SourceAcquisitionCoordinator:
                     )
                 )
                 if (
+                    actor_publication_proof
+                    and actor_publication_proof.get("version") == 2
+                ):
+                    publication_context = replace(
+                        publication_context,
+                        actor_publication_proof=actor_publication_proof,
+                    )
+                elif (
                     actor_acquisition_origin is not None
                     and context.actor_route_generation is not None
                 ):
@@ -988,6 +959,11 @@ class SourceAcquisitionCoordinator:
         connection: Any | None = None,
     ) -> None:
         conn = connection or self.store.connect()
+        if context.actor_publication_proof is not None:
+            from .actorops.publication import assert_cached_v2_proof
+
+            assert_cached_v2_proof(self.store, context.actor_publication_proof)
+            return
         if (
             context.pool_generation is not None
             and apify_pool_generation(self.store, self.workspace_id)

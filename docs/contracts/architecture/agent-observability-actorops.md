@@ -72,7 +72,7 @@ ActorOps feature schema v15 依赖 v13/v14，已有数据库普通初始化不�
 
 ### 3.6K ActorOps v2 计划适配器边界
 
-Phase 1 已实现本边界中的 Domain、Port、Registry、Policy、Repository 与 global 26 storage/backfill；真实 Adapter、Runtime、Discovery、Reconciler、Maintenance、Service 和 feature flag 仍为 planned，不改变第 3.6J 的现役 v1 所有权。v2 使用通用编排服务调用每个订阅能力独立的 Adapter，不使用承载默认实现的大型继承基类。目标包结构为：
+Phase 2 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag 与 global 26；Discovery、Reconciler、Maintenance 和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。v2 使用通用编排服务调用每个订阅能力独立的 Adapter，不使用承载默认实现的大型继承基类。
 
 ```text
 src/services/actorops/
@@ -100,14 +100,14 @@ class ActorRouteAdapter(Protocol):
     def normalize_target(self, source_config: Mapping[str, object]) -> TargetSpec: ...
     def discovery_spec(self) -> DiscoverySpec: ...
     def build_actor_input(self, target: TargetSpec, manifest: ActorManifest, window: FetchWindow) -> Mapping[str, object]: ...
-    def validate_output(self, rows: Sequence[Mapping[str, object]], target: TargetSpec) -> NormalizedBatch: ...
+    def validate_output(self, rows: Sequence[Mapping[str, object]], target: TargetSpec, manifest: ActorManifest, window: FetchWindow) -> NormalizedBatch: ...
     async def fetch_native_fallback(self, target: TargetSpec, window: FetchWindow) -> NativeFallbackResult: ...
 ```
 
 1. `domain.py` 独占无 I/O 的实体、状态、错误分类与 transition；`ports.py` 定义 `ActorRouteAdapter`、远端 Client 和时钟/ID 等端口；`registry.py` 是 `RouteKey(platform,target_type,capability) → Adapter` 的唯一注册点。未知 RouteKey fail closed。
-2. `repository.py` 是 v2 SQL、事务、CAS 与状态推进的唯一入口；其他通用模块和 Adapter 不得直接导入 SQLite、旧 `ServiceStore` 私有方法或表名。`policy.py` 只根据领域快照计算候选顺序、熔断、健康、补池和预算决定，不执行网络或写入。
+2. `repository.py` 是唯一公开 Repository；其 focused `repository_*` 内部模块分担 read、Candidate、Attempt、Discovery 与 publication SQL，避免单文件增长。其他通用模块和 Adapter 不得直接导入 SQLite、旧 `ServiceStore` 私有方法或表名。`policy.py` 只根据领域快照计算候选顺序、熔断、健康、补池和预算决定，不执行网络或写入。
    global 26 的建表、只读 v1 摘要 backfill 与离线迁移是唯一 storage 例外，分别归 `src/storage/actorops_v2_*` 与 `scripts/migrate_actorops_v2.py`；它们不得成为在线 Repository 或 Runtime 依赖。
-3. `runtime.py` 只编排 Active、Standby、Last Known Good 与发布凭据；`discovery.py` 只推进可恢复 checkpoint；`reconciliation.py` 只读取/结算既有远端 Run；`maintenance.py` 只在已冻结站立授权内生成 Probe、补位或替换意图；`service.py` 为 API、Worker 和 source acquisition 提供薄 facade。
+3. `runtime.py` 只编排 Active、Standby、Last Known Good 与发布凭据；Apify remote wrapper 把 unknown-start 保留在单 Attempt/reservation，禁止调用 v1 workspace barrier。`discovery.py` 只推进可恢复 checkpoint；`reconciliation.py` 只读取/结算既有远端 Run；`maintenance.py` 只在已冻结站立授权内生成 Probe、补位或替换意图；`service.py` 为 Worker 和 source acquisition 提供薄 facade。
 4. 每个 `platform + target_type + capability` 使用独立 Adapter，例如 `youtube/channel/items` 与未来 `youtube/video/comments` 必须是两个 Adapter，可复用 `youtube/common.py` 的身份规范化。Adapter 实现上述端口而不继承通用工作流，只负责目标规范化、Store 查询/静态能力描述、Actor input 构造、输出身份/内容验证、`ContentItem` 映射和可选原生降级；不得选择 Candidate、管理 Key/预算、写状态、创建 Job、发布 Feed 或处理重启恢复。
 5. 通用 Runtime、Discovery、Repository、Reconciler 和 Worker handler 不得包含 `if platform == ...` 或平台 host/字段知识；平台名称只允许出现在 Adapter、公共平台 helper、Registry 组合根和平台测试。新增平台通常只新增 Adapter、注册项和测试；若必须改变通用端口，先更新本架构合同和决策记录。
 6. source acquisition 先从 source config 得到 RouteKey 和通用 `TargetSpec`，再由 Registry 解析 Adapter。Actor 链全部失败后，只有 Adapter 返回明确 supported 的原生降级才能执行；原生结果仍必须转换为通用 `ContentItem` 并通过相同来源身份与 publication boundary。

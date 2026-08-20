@@ -34,7 +34,7 @@
 
 1. **Phase 0 — 已完成条件**：从 `ce12561896642684ae310ba111f2ce4efb749cf1` 建立 `codex/actorops-v2`，保存 task snapshot，完成代码/表/状态/API/UI/测试盘点、D160 与 planned 合同；不修改产品代码或运行数据。
 2. **Phase 1 — 已完成：Domain 与 global 26**：七张核心表、单调状态模型、Adapter Port/Registry、Repository、显式离线迁移和 v24 只读摘要 backfill 已建立；global 25 永久惰性。迁移前必须排空 inflight/未结费用，v2 Attempt/Discovery 从空表开始。
-3. **Phase 2 — 稳定获取数据面**：通用执行顺序为 Active、Standby、Last Known Good、平台明确支持的免费原生降级；一个 ready Actor 即可获取并标记 degraded，两个以上才为 healthy。Publication fence 只保护本来源目标、binding 与实际 Candidate。
+3. **Phase 2 — 已完成：稳定获取数据面**：Active、Standby、Last Known Good、免费原生降级、Attempt 账本和局部 Publication fence 已实现；feature flag 与 Route 默认关闭，未切真实流量。
 4. **Phase 3 — 统一对账与 Worker 隔离**：单一 Reconciler 只读取和结算既有远端 Run；unknown start 只冻结对应 Attempt/费用预留，Actor 控制任务不再成为普通 Fetch claim 的同步前置。
 5. **Phase 4 — 可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成。
 6. **Phase 5 — 站立授权**：默认关闭，管理员一次启用后按每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00` 的上限自动验证、补 Standby 并替换非最后一个不健康 Actor；最后一个可运行 Actor 永不自动移除。
@@ -48,7 +48,7 @@
 
 本阶段覆盖来源、订阅、Feed、稳定历史、任务、受控 AI/Apify、通知服务、React UI、Remote MCP、浏览器 OpenClaw、存储治理和可观测性。
 
-ActorOps v2 Phase 1 仅提供停用的领域和存储基础，不切流、不启动 Actor/AI、不改变现有 API、Worker readiness、费用审批或运行行为。Phase 2 才实现稳定获取数据面；新增平台通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
+ActorOps v2 Phase 2 已提供默认停用的稳定获取数据面，不切流、不启动 Actor/AI、不改变现有 API、费用审批或平台运行行为。下一阶段实现统一 Reconciler 与 Worker 隔离；新增平台继续通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
 
 不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway 或未授权的真实外部调用。旧 CLI、静态站、scheduler、本地 MCP、archive/Graph/feedback API 不再是兼容面。
 

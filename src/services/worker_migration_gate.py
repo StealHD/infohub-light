@@ -6,6 +6,7 @@ from ..storage.service_store import ServiceStore
 from .apify_actor_pool_management_runtime import (
     actor_pool_management_migration_required,
 )
+from .actorops.readiness import actorops_v2_startup_migration_required
 
 
 MigrationCheck = tuple[str, str]
@@ -54,4 +55,6 @@ def first_required_worker_startup_migration(store: ServiceStore) -> str | None:
             return migration
     if actor_pool_management_migration_required(store):
         return "apify_actor_pool_management_v22"
+    if actorops_v2_startup_migration_required(store):
+        return "actorops_v2"
     return None

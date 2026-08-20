@@ -15,27 +15,21 @@ from .domain import (
     CandidateRecord,
     DiscoveryStage,
     DiscoveryStatus,
+    ExecutionSnapshot,
     RouteHealth,
-    RouteKey,
     RouteRecord,
-    RuntimeMode,
-    ensure_attempt_transition,
-    ensure_candidate_transition,
-    ensure_discovery_transition,
 )
-from .policy import candidate_is_runnable, derive_route_health
-
-
-class ActorOpsRepositoryError(RuntimeError):
-    pass
-
-
-class ActorOpsNotFound(ActorOpsRepositoryError):
-    pass
-
-
-class ActorOpsConflict(ActorOpsRepositoryError):
-    pass
+from . import repository_candidates as _candidates
+from . import repository_discovery as _discovery
+from .ports import PublicationProof
+from . import repository_attempts as _attempts
+from . import repository_execution as _execution
+from . import repository_reads as _reads
+from .repository_errors import (
+    ActorOpsConflict,
+    ActorOpsNotFound,
+    ActorOpsRepositoryError,
+)
 
 
 def _now() -> str:
@@ -74,70 +68,66 @@ class ActorOpsRepository:
                 self.connection.commit()
 
     def get_route(self, route_id: str) -> RouteRecord:
-        row = self.connection.execute(
-            "SELECT * FROM actor_routes_v2 WHERE workspace_id = ? AND route_id = ?",
-            (self.workspace_id, route_id),
-        ).fetchone()
-        if row is None:
-            raise ActorOpsNotFound(f"route not found: {route_id}")
-        return RouteRecord(
-            route_id=str(row["route_id"]),
-            workspace_id=str(row["workspace_id"]),
-            route_key=RouteKey(row["platform"], row["target_type"], row["capability"]),
-            runtime_mode=RuntimeMode(str(row["runtime_mode"])),
-            per_run_cap_usd=float(row["per_run_cap_usd"]),
-            generation=int(row["generation"]),
-            source_v1_generation=int(row["source_v1_generation"]),
-        )
+        return _reads.get_route(self, route_id)
 
     def get_candidate(self, candidate_id: str) -> CandidateRecord:
-        row = self.connection.execute(
-            "SELECT * FROM actor_candidates_v2 WHERE workspace_id = ? AND candidate_id = ?",
-            (self.workspace_id, candidate_id),
-        ).fetchone()
-        if row is None:
-            raise ActorOpsNotFound(f"candidate not found: {candidate_id}")
-        return CandidateRecord(
-            candidate_id=str(row["candidate_id"]),
-            route_id=str(row["route_id"]),
-            lifecycle=CandidateLifecycle(str(row["lifecycle"])),
-            assignment_role=AssignmentRole(str(row["assignment_role"])),
-            priority=int(row["priority"]) if row["priority"] is not None else None,
-            generation=int(row["generation"]),
-            build_id=row["build_id"],
-            manifest_hash=row["manifest_hash"],
-        )
+        return _reads.get_candidate(self, candidate_id)
 
     def get_binding(self, source_id: str) -> BindingRecord:
-        row = self.connection.execute(
-            "SELECT * FROM actor_source_bindings_v2 WHERE workspace_id = ? AND source_id = ?",
-            (self.workspace_id, source_id),
-        ).fetchone()
-        if row is None:
-            raise ActorOpsNotFound(f"binding not found: {source_id}")
-        return BindingRecord(
-            binding_id=str(row["binding_id"]),
-            source_id=str(row["source_id"]),
-            route_id=str(row["route_id"]),
-            target_fingerprint=str(row["target_fingerprint"]),
-            binding_version=int(row["binding_version"]),
-            preferred_candidate_id=row["preferred_candidate_id"],
-            last_known_good_candidate_id=row["last_known_good_candidate_id"],
+        return _reads.get_binding(self, source_id)
+
+    def list_route_candidates(self, route_id: str) -> tuple[CandidateRecord, ...]:
+        return _execution.list_route_candidates(self, route_id)
+
+    def freeze_execution(
+        self, route_id: str, source_id: str, target_fingerprint: str
+    ) -> ExecutionSnapshot:
+        return _execution.freeze_execution(
+            self, route_id, source_id, target_fingerprint
+        )
+
+    def publication_proof(
+        self, snapshot: ExecutionSnapshot, candidate_id: str | None
+    ) -> PublicationProof:
+        return _execution.publication_proof(self, snapshot, candidate_id)
+
+    def assert_publishable(self, proof: PublicationProof) -> None:
+        _execution.assert_publishable(self, proof)
+
+    def publish_success(
+        self,
+        proof: PublicationProof,
+        *,
+        latest_published_at: str,
+        latest_item_id_hash: str,
+    ) -> None:
+        _execution.publish_success(
+            self,
+            proof,
+            latest_published_at=latest_published_at,
+            latest_item_id_hash=latest_item_id_hash,
+        )
+
+    def record_candidate_outcome(
+        self,
+        candidate_id: str,
+        *,
+        expected_generation: int,
+        succeeded: bool,
+        error_class: str | None = None,
+        error_code: str | None = None,
+    ) -> CandidateRecord:
+        return _execution.record_candidate_outcome(
+            self,
+            candidate_id,
+            expected_generation=expected_generation,
+            succeeded=succeeded,
+            error_class=error_class,
+            error_code=error_code,
         )
 
     def route_health(self, route_id: str) -> RouteHealth:
-        self.get_route(route_id)
-        count = int(
-            self.connection.execute(
-                """SELECT COUNT(*) FROM actor_candidates_v2
-                   WHERE workspace_id = ? AND route_id = ?
-                     AND assignment_role IN ('active', 'standby')
-                     AND lifecycle IN ('probationary', 'certified')
-                     AND build_id IS NOT NULL AND manifest_hash IS NOT NULL""",
-                (self.workspace_id, route_id),
-            ).fetchone()[0]
-        )
-        return derive_route_health(count)
+        return _candidates.route_health(self, route_id)
 
     def create_candidate(
         self,
@@ -154,22 +144,20 @@ class ActorOpsRepository:
         output_schema_hash: str | None,
         lifecycle: CandidateLifecycle,
     ) -> CandidateRecord:
-        self._require_transaction()
-        stamp = _now()
-        self.connection.execute(
-            """INSERT INTO actor_candidates_v2 (
-                   candidate_id, workspace_id, route_id, actor_id, publisher,
-                   build_id, build_number, manifest_json, manifest_hash,
-                   input_schema_hash, output_schema_hash, lifecycle,
-                   assignment_role, generation, created_at, updated_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', 1, ?, ?)""",
-            (
-                candidate_id, self.workspace_id, route_id, actor_id, publisher,
-                build_id, build_number, manifest_json, manifest_hash,
-                input_schema_hash, output_schema_hash, lifecycle.value, stamp, stamp,
-            ),
+        return _candidates.create(
+            self,
+            candidate_id=candidate_id,
+            route_id=route_id,
+            actor_id=actor_id,
+            publisher=publisher,
+            build_id=build_id,
+            build_number=build_number,
+            manifest_json=manifest_json,
+            manifest_hash=manifest_hash,
+            input_schema_hash=input_schema_hash,
+            output_schema_hash=output_schema_hash,
+            lifecycle=lifecycle,
         )
-        return self.get_candidate(candidate_id)
 
     def transition_candidate(
         self,
@@ -181,30 +169,15 @@ class ActorOpsRepository:
         error_class: str | None = None,
         error_code: str | None = None,
     ) -> CandidateRecord:
-        self._require_transaction()
-        ensure_candidate_transition(current, target)
-        stamp = _now()
-        changed = self.connection.execute(
-            """UPDATE actor_candidates_v2
-               SET lifecycle = ?, assignment_role = CASE
-                     WHEN ? IN ('rejected','quarantined','disabled','superseded') THEN 'inactive'
-                     ELSE assignment_role END,
-                   priority = CASE
-                     WHEN ? IN ('rejected','quarantined','disabled','superseded') THEN NULL
-                     ELSE priority END,
-                   last_error_class = ?, last_error_code = ?,
-                   generation = generation + 1, updated_at = ?
-               WHERE workspace_id = ? AND candidate_id = ?
-                 AND lifecycle = ? AND generation = ?""",
-            (
-                target.value, target.value, target.value, error_class, error_code,
-                stamp, self.workspace_id, candidate_id, current.value,
-                expected_generation,
-            ),
-        ).rowcount
-        if changed != 1:
-            raise ActorOpsConflict("candidate changed before transition")
-        return self.get_candidate(candidate_id)
+        return _candidates.transition(
+            self,
+            candidate_id,
+            current,
+            target,
+            expected_generation=expected_generation,
+            error_class=error_class,
+            error_code=error_code,
+        )
 
     def assign_candidate(
         self,
@@ -216,39 +189,15 @@ class ActorOpsRepository:
         expected_route_generation: int,
         expected_candidate_generation: int,
     ) -> None:
-        self._require_transaction()
-        candidate = self.get_candidate(candidate_id)
-        if candidate.route_id != route_id or not candidate_is_runnable(
-            candidate.lifecycle,
-            build_id=candidate.build_id,
-            manifest_hash=candidate.manifest_hash,
-        ):
-            raise ActorOpsConflict("candidate is not runnable for this route")
-        if role is AssignmentRole.ACTIVE and priority != 0:
-            raise ValueError("active candidate priority must be zero")
-        if role is AssignmentRole.STANDBY and (priority is None or priority < 1):
-            raise ValueError("standby priority must be positive")
-        if role is AssignmentRole.INACTIVE:
-            priority = None
-        stamp = _now()
-        candidate_changed = self.connection.execute(
-            """UPDATE actor_candidates_v2
-               SET assignment_role = ?, priority = ?, generation = generation + 1,
-                   updated_at = ?
-               WHERE workspace_id = ? AND candidate_id = ? AND route_id = ?
-                 AND generation = ?""",
-            (
-                role.value, priority, stamp, self.workspace_id, candidate_id,
-                route_id, expected_candidate_generation,
-            ),
-        ).rowcount
-        route_changed = self.connection.execute(
-            """UPDATE actor_routes_v2 SET generation = generation + 1, updated_at = ?
-               WHERE workspace_id = ? AND route_id = ? AND generation = ?""",
-            (stamp, self.workspace_id, route_id, expected_route_generation),
-        ).rowcount
-        if candidate_changed != 1 or route_changed != 1:
-            raise ActorOpsConflict("route or candidate changed before assignment")
+        _candidates.assign(
+            self,
+            route_id,
+            candidate_id,
+            role,
+            priority=priority,
+            expected_route_generation=expected_route_generation,
+            expected_candidate_generation=expected_candidate_generation,
+        )
 
     def create_attempt(
         self,
@@ -264,22 +213,116 @@ class ActorOpsRepository:
         binding_version: int | None,
         target_fingerprint: str,
         reserved_usd: float,
+        source_id: str | None = None,
     ) -> None:
-        self._require_transaction()
-        stamp = _now()
-        self.connection.execute(
-            """INSERT INTO actor_attempts_v2 (
-                   attempt_id, workspace_id, idempotency_key, route_id,
-                   candidate_id, kind, attempt_group_id, attempt_index,
-                   route_generation, binding_version, target_fingerprint,
-                   status, reserved_usd, cost_final, generation, created_at, updated_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, 0, 1, ?, ?)""",
-            (
-                attempt_id, self.workspace_id, idempotency_key, route_id,
-                candidate_id, kind, attempt_group_id, attempt_index,
-                route_generation, binding_version, target_fingerprint,
-                reserved_usd, stamp, stamp,
-            ),
+        _attempts.create_attempt(
+            self,
+            attempt_id=attempt_id,
+            idempotency_key=idempotency_key,
+            route_id=route_id,
+            source_id=source_id,
+            candidate_id=candidate_id,
+            kind=kind,
+            attempt_group_id=attempt_group_id,
+            attempt_index=attempt_index,
+            route_generation=route_generation,
+            binding_version=binding_version,
+            target_fingerprint=target_fingerprint,
+            reserved_usd=reserved_usd,
+        )
+
+    def get_attempt_by_idempotency(self, idempotency_key: str) -> sqlite3.Row | None:
+        return _attempts.get_by_idempotency(self, idempotency_key)
+
+    def update_attempt_start(
+        self,
+        attempt_id: str,
+        *,
+        expected_generation: int,
+        secret_ref_id: str | None,
+        secret_version: int | None,
+        pool_generation: int | None,
+    ) -> None:
+        _attempts.update_start(
+            self,
+            attempt_id,
+            expected_generation=expected_generation,
+            secret_ref_id=secret_ref_id,
+            secret_version=secret_version,
+            pool_generation=pool_generation,
+        )
+
+    def register_attempt_run(
+        self,
+        attempt_id: str,
+        *,
+        expected_generation: int,
+        remote_run_id: str,
+        dataset_id: str | None,
+    ) -> None:
+        _attempts.register_run(
+            self,
+            attempt_id,
+            expected_generation=expected_generation,
+            remote_run_id=remote_run_id,
+            dataset_id=dataset_id,
+        )
+
+    def replace_attempt_credential(
+        self,
+        attempt_id: str,
+        *,
+        expected_generation: int,
+        secret_ref_id: str | None,
+        secret_version: int | None,
+        pool_generation: int | None,
+    ) -> None:
+        _attempts.replace_credential(
+            self,
+            attempt_id,
+            expected_generation=expected_generation,
+            secret_ref_id=secret_ref_id,
+            secret_version=secret_version,
+            pool_generation=pool_generation,
+        )
+
+    def get_attempt(self, attempt_id: str) -> sqlite3.Row:
+        return _attempts.get_attempt(self, attempt_id)
+
+    def annotate_attempt(
+        self,
+        attempt_id: str,
+        *,
+        failure_class: str,
+        error_code: str,
+    ) -> None:
+        _attempts.annotate(
+            self,
+            attempt_id,
+            failure_class=failure_class,
+            error_code=error_code,
+        )
+
+    def complete_attempt(
+        self,
+        attempt_id: str,
+        *,
+        status: AttemptStatus,
+        semantic_outcome: str | None,
+        actual_cost_usd: float | None,
+        cost_final: bool,
+        failure_class: str | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        _attempts.complete(
+            self,
+            attempt_id,
+            status=status,
+            semantic_outcome=semantic_outcome,
+            actual_cost_usd=actual_cost_usd,
+            cost_final=cost_final,
+            failure_class=failure_class,
+            error_code=error_code,
         )
 
     def transition_attempt(
@@ -290,26 +333,17 @@ class ActorOpsRepository:
         *,
         error_class: str | None = None,
         error_code: str | None = None,
+        expected_generation: int | None = None,
     ) -> None:
-        self._require_transaction()
-        ensure_attempt_transition(current, target)
-        stamp = _now()
-        terminal = stamp if target in {
-            AttemptStatus.SUCCEEDED, AttemptStatus.FAILED, AttemptStatus.CANCELLED
-        } else None
-        changed = self.connection.execute(
-            """UPDATE actor_attempts_v2
-               SET status = ?, failure_class = ?, error_code = ?,
-                   terminal_at = COALESCE(?, terminal_at),
-                   generation = generation + 1, updated_at = ?
-               WHERE workspace_id = ? AND attempt_id = ? AND status = ?""",
-            (
-                target.value, error_class, error_code, terminal, stamp,
-                self.workspace_id, attempt_id, current.value,
-            ),
-        ).rowcount
-        if changed != 1:
-            raise ActorOpsConflict("attempt changed before transition")
+        _attempts.transition(
+            self,
+            attempt_id,
+            current,
+            target,
+            error_class=error_class,
+            error_code=error_code,
+            expected_generation=expected_generation,
+        )
 
     def create_discovery_job(
         self,
@@ -320,18 +354,13 @@ class ActorOpsRepository:
         trigger_reason: str,
         input_fingerprint: str,
     ) -> None:
-        self._require_transaction()
-        stamp = _now()
-        self.connection.execute(
-            """INSERT INTO actor_discovery_jobs_v2 (
-                   discovery_id, workspace_id, idempotency_key, route_id,
-                   trigger_reason, status, stage, stage_attempt,
-                   input_fingerprint, generation, created_at, updated_at
-               ) VALUES (?, ?, ?, ?, ?, 'queued', 'store_search', 0, ?, 1, ?, ?)""",
-            (
-                discovery_id, self.workspace_id, idempotency_key, route_id,
-                trigger_reason, input_fingerprint, stamp, stamp,
-            ),
+        _discovery.create(
+            self,
+            discovery_id=discovery_id,
+            idempotency_key=idempotency_key,
+            route_id=route_id,
+            trigger_reason=trigger_reason,
+            input_fingerprint=input_fingerprint,
         )
 
     def transition_discovery(
@@ -342,29 +371,11 @@ class ActorOpsRepository:
         target_status: DiscoveryStatus,
         target_stage: DiscoveryStage,
     ) -> None:
-        self._require_transaction()
-        ensure_discovery_transition(
-            current_status, current_stage, target_status, target_stage
+        _discovery.transition(
+            self,
+            discovery_id,
+            current_status=current_status,
+            current_stage=current_stage,
+            target_status=target_status,
+            target_stage=target_stage,
         )
-        stamp = _now()
-        terminal = stamp if target_status in {
-            DiscoveryStatus.COMPLETED,
-            DiscoveryStatus.FAILED,
-            DiscoveryStatus.CANCELLED,
-        } else None
-        changed = self.connection.execute(
-            """UPDATE actor_discovery_jobs_v2
-               SET status = ?, stage = ?,
-                   stage_attempt = CASE WHEN stage = ? THEN stage_attempt + 1 ELSE 0 END,
-                   terminal_at = COALESCE(?, terminal_at),
-                   generation = generation + 1, updated_at = ?
-               WHERE workspace_id = ? AND discovery_id = ?
-                 AND status = ? AND stage = ?""",
-            (
-                target_status.value, target_stage.value, target_stage.value,
-                terminal, stamp, self.workspace_id, discovery_id,
-                current_status.value, current_stage.value,
-            ),
-        ).rowcount
-        if changed != 1:
-            raise ActorOpsConflict("discovery changed before transition")

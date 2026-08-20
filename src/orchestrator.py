@@ -145,6 +145,8 @@ class HorizonOrchestrator:
             self._service_apify_actor_ops.assert_publishable(snapshot)
 
     def _capture_service_apify_watermark(self, items: Any) -> None:
+        from .services.actorops.publication import capture_result
+        capture_result(self._service_apify_actor_ops, items)
         if str(
             getattr(items, "_apify_actor_semantic_outcome", "") or ""
         ) != "advanced":
@@ -169,31 +171,11 @@ class HorizonOrchestrator:
 
     def publish_service_apify_watermarks(self, *, connection: Any) -> None:
         """Advance Actor source watermarks in the final Feed transaction."""
-
-        if not self._service_apify_watermark_proofs:
-            return
-        from .services.apify_actor_resilience import (
-            ApifyActorResilienceService,
+        from .services.actorops.publication import publish_pending_watermarks
+        publish_pending_watermarks(
+            self._service_apify_actor_ops, self._service_apify_actor_route,
+            self._service_apify_watermark_proofs, connection=connection,
         )
-
-        actor_service = (
-            self._service_apify_actor_ops
-            if self._service_apify_actor_ops is not None
-            else self._service_apify_actor_route
-        )
-        if actor_service is None:
-            raise RuntimeError("Actor watermark proof is missing its runtime")
-        for proof in self._service_apify_watermark_proofs:
-            ApifyActorResilienceService(
-                actor_service.store,
-                workspace_id=proof["workspace_id"],
-            ).publish_source_advance(
-                proof["source_id"],
-                candidate_id=proof["candidate_id"],
-                latest_published_at=proof["latest_published_at"],
-                latest_item_id_hash=proof["latest_item_id_hash"],
-                connection=connection,
-            )
 
     def _service_acquisition_usage(self) -> AcquisitionUsage:
         metrics = getattr(self._service_acquisition_coordinator, "metrics", None)

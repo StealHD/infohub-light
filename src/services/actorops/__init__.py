@@ -1,9 +1,7 @@
-"""ActorOps v2 domain and persistence foundation.
-
-Phase 1 intentionally exports no runtime service and starts no external work.
-"""
+"""Default-off ActorOps v2 stable-fetch data plane."""
 
 from .domain import RouteKey
 from .registry import AdapterRegistry
+from .runtime import ActorOpsRuntime
 
-__all__ = ["AdapterRegistry", "RouteKey"]
+__all__ = ["ActorOpsRuntime", "AdapterRegistry", "RouteKey"]

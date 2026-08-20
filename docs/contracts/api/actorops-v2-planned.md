@@ -1,12 +1,14 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/contracts/api/actorops-v2-planned.md -->
 # ActorOps v2 计划合同
 
-本模块描述 ActorOps v2 的停用基础和后续目标合同。Phase 1 已实现 Domain、Adapter Port/Registry、Repository 与 global 26 七表，但 `ACTOROPS_V2_ENABLED`、真实平台 Adapter 和 Runtime 均未实现且默认视为 false；在某个平台完成 shadow 与切流前，[现役 ActorOps v15](jobs-migrations-actorops.md#14-apify-actorops-v15-合同) 和 D159 的人工流程继续生效，客户端不得把本文的 planned 字段或自动化当作现有能力。
+本模块描述 ActorOps v2 已停用的数据面基础和后续控制面目标。Phase 2 已实现 Domain、Repository、global 26、三类 Adapter、通用 Runtime、局部 publication fence 与条件 readiness；`ACTOROPS_V2_ENABLED` 和全部 Route 仍默认 disabled，未执行平台 shadow 或切流。Discovery、Reconciler、站立授权和 additive API 仍是 planned；在平台切流前，[现役 ActorOps v15](jobs-migrations-actorops.md#14-apify-actorops-v15-合同) 和 D159 的人工流程继续生效。
+
+运行双门固定为：flag=false 时 runtime/readiness 不查询 global 26；flag=true 时 API/Worker 要求完整 global 26。Route `disabled` 继续 v1，`shadow` 只读冻结 v2 选择后继续 v1且不创建 Attempt/Actor POST，只有 `active` 才执行 v2；Phase 2 不把任何 Route 改为 active。
 
 1. v2 Route 身份继续使用 `platform + target_type + capability`。每个已登记 tuple 必须绑定一个独立 `ActorRouteAdapter`；未知 tuple 在 Job、数据库 mutation、AI 或 Actor 调用前拒绝。一个 ready Candidate 即允许来源获取并投影 `health=degraded`，两个或以上 ready Candidate 投影 `healthy`，零个为 `unavailable`；2/2 是补池目标，不再是数据面硬门槛。
 2. 来源获取顺序固定为 Active、Standby、Last Known Good、该 Adapter 明确支持的免费原生降级。原生降级必须保持来源身份、稳定 item ID、目标验证与公共网络策略，并投影 `execution_mode=native_fallback` 和稳定 degraded reason；X、Instagram 在没有可信免费路径时明确返回 unsupported。Actor 返回可信空结果不自动改走原生来源。
 3. v2 统一错误分类为 `configuration|target|credential|candidate|remote_unknown|internal`。Candidate 级错误可切换 Standby；credential 错误可换 Key但不惩罚 Candidate；`remote_unknown` 禁止同一 logical attempt 再发付费 POST，只冻结对应 Attempt 与费用预留，不得修改整个 Workspace Key Pool 或阻断其他 Route、免费来源和普通 Job。
-4. Publication fence 只检查来源目标指纹、binding version 和本次实际 Candidate 是否仍允许；无关备用槽、Discovery、维护任务、Key Pool generation 或其他 Route 状态变化不得丢弃已经成功取得的内容。
+4. Publication fence 只检查来源目标指纹、binding version 和本次实际 Candidate 是否仍 runnable；无关备用槽、assignment 顺序、Route/Key Pool generation、Discovery、维护任务或其他 Route 状态变化不得丢弃已经成功取得的内容。Candidate 成功只终结远端 Attempt，LKG/水位必须在 Feed 发布事务内通过 fence 后更新。
 5. Discovery 的单调 stage 为 Store Search、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist；执行状态与 stage 分离，retry 只增加 attempt 并从当前或下一 stage 继续。AI 只增强确定性代码无法完成的映射；AI 不可用时保留 `mapping_pending`，不能使已经确定性通过的候选消失或让整个 Job 永久失败。
 6. Attempt 同时承载 fetch/probe 与一对一远端 Run 事实，状态单向推进为 `created → starting → registered → running → succeeded|failed|cancelled`，无法确认 POST 结果时进入 `start_unknown`。generation 不得减少，任何 terminal Attempt、Discovery Job 或 Candidate Probe 不得重开。Reconciler 只读取和结算已有 Run，永不创建新 Run；一条查询失败不得队头阻塞其他记录。
 7. v2 站立授权默认关闭。管理员一次启用后，默认维护上限为每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00`；额度内可自动验证、加入 Standby 并替换非最后一个不健康 Candidate。最后一个可运行 Candidate、超预算、目标身份不确定或 Publisher 风险升级必须人工确认。维护预算与正常订阅抓取费用分账，不提高现有抓取单 Run 硬上限。

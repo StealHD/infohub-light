@@ -127,7 +127,7 @@ from ..services.apify_actor_ops import (
 from ..services.apify_actor_source_proof import current_source_validation_ids
 from ..services.apify_actor_canary import actor_canary_timeout_seconds
 from ..services.apify_pool_runtime import apify_coordinator_for_workspace
-from .actor_ops_pool_management_gate import require_actor_pool_management_schema
+from .actor_ops_pool_management_gate import require_actor_pool_management_schema, require_actorops_v2_schema_if_enabled
 from .actor_ops_pool_management_routes import (
     ApifyActorCanaryBatchRequest,
     ApifyActorManualCanaryPlanRequest,
@@ -1008,8 +1008,6 @@ def create_app(
             )
 
     def require_current_actor_schema() -> None:
-        """Require the complete active ActorOps chain through global 24."""
-
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
@@ -1018,6 +1016,7 @@ def create_app(
         require_apify_actor_validation_tuning_v20()
         require_apify_actor_resilience_v21()
         require_actor_pool_management_schema(store)
+        require_actorops_v2_schema_if_enabled(store)
 
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()

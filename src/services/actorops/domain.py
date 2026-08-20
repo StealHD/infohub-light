@@ -235,6 +235,10 @@ class CandidateRecord:
     generation: int
     build_id: str | None
     manifest_hash: str | None
+    actor_id: str = ""
+    publisher: str = ""
+    build_number: str | None = None
+    manifest_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,3 +250,16 @@ class BindingRecord:
     binding_version: int
     preferred_candidate_id: str | None
     last_known_good_candidate_id: str | None
+    status: str = "pending"
+    last_success_at: str | None = None
+    watermark_latest_published_at: str | None = None
+    watermark_item_id_hash: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionSnapshot:
+    workspace_id: str
+    route: RouteRecord
+    binding: BindingRecord
+    candidates: tuple[CandidateRecord, ...]
+    target_fingerprint: str
