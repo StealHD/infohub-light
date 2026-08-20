@@ -72,7 +72,7 @@ ActorOps feature schema v15 依赖 v13/v14，已有数据库普通初始化不�
 
 ### 3.6K ActorOps v2 计划适配器边界
 
-Phase 5 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag、global 26、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 只增加离线 Route CAS、脱敏切流摘要/backup CLI、shadow 选择事件与稳定身份 bridge，不启动真实平台流量。legacy 历史费用隔离是独立离线边界：`legacy_cost_audit.py` 只在给定 reader observation 下生成加盐 opaque evidence 和 CAS mutation；`audit_actorops_v2_legacy_costs.py` 是唯一允许持有 legacy Apify lease 并执行单 Run authenticated GET 的组合 Adapter，禁止 POST、abort、Dataset/来源读取。Discovery 只使用 Catalog Port 的 Store/Actor/Build 元数据读取；每个 checkpoint 仅保留有界安全引用和 hash，具体平台 Schema→Manifest 映射留在订阅类型 Adapter，AI 输出必须再次通过 exact Schema。站立维护以 Owner/Admin 双 policy 授权、免费 exact-revision 预检、单 Candidate Probe 和独立 Attempt 账本实现；API/UI 投影和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。
+Phase 5 已实现本边界中的 Domain、Port、Registry、Policy、分拆 Repository、三类 Adapter、Runtime、薄 Service、条件 feature flag、global 26、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 只增加离线 Route CAS、脱敏切流摘要/backup CLI、shadow 选择事件与稳定身份 bridge，不启动真实平台流量。legacy 历史费用隔离是独立离线边界：`legacy_cost_audit.py` 只分类事实、`legacy_cost_evidence.py` 只管理加盐 opaque resume session、`legacy_cost_mutations.py` 只执行 CAS；`audit_actorops_v2_legacy_costs.py` 是唯一允许持有 legacy Apify lease 并执行单 Run authenticated GET 的组合 Adapter。它只在初次/明确 resume 页面访问远端，snapshot 只验证完整 session 并创建私有 backup/receipt，禁止 POST、abort、Dataset/来源读取。Discovery 只使用 Catalog Port 的 Store/Actor/Build 元数据读取；每个 checkpoint 仅保留有界安全引用和 hash，具体平台 Schema→Manifest 映射留在订阅类型 Adapter，AI 输出必须再次通过 exact Schema。站立维护以 Owner/Admin 双 policy 授权、免费 exact-revision 预检、单 Candidate Probe 和独立 Attempt 账本实现；API/UI 投影和平台切流仍为 planned。全部 Route 默认 disabled，因此第 3.6J 的现役 v1 所有权不变。
 
 ```text
 src/services/actorops/

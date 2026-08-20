@@ -210,7 +210,7 @@ def test_only_audited_terminal_quarantines_are_excluded_from_migration_cost_bloc
 
 
 def test_cli_scan_snapshot_and_dry_run_are_safe_and_redacted(tmp_path: Path) -> None:
-    from scripts.audit_actorops_v2_legacy_costs import quarantine, scan, snapshot
+    from scripts.audit_actorops_v2_legacy_costs import _write_private_json, quarantine, scan, snapshot
 
     store = _store(tmp_path)
     _run(store, remote_run_id="remote-secret-looking-id")
@@ -228,19 +228,24 @@ def test_cli_scan_snapshot_and_dry_run_are_safe_and_redacted(tmp_path: Path) -> 
     assert dry_run["status"] == "dry_run"
     assert database.read_bytes() == before
     evidence_path = tmp_path / "evidence" / "legacy-costs.json"
+    _write_private_json(evidence_path, evidence, replace=False)
+    evidence_before_snapshot = evidence_path.read_bytes()
     report = snapshot(
         data_dir, evidence_path=evidence_path, backup_dir=tmp_path / "backups",
-        reader=reader, services_stopped=True,
+        services_stopped=True, heartbeat_window_seconds=0,
     )
     assert report["status"] == "snapshotted"
     assert evidence_path.stat().st_mode & 0o777 == 0o600
+    assert evidence_path.read_bytes() == evidence_before_snapshot
+    receipt_path = Path(str(report["receipt_path"]))
+    assert receipt_path.stat().st_mode & 0o777 == 0o600
     assert "remote-secret-looking-id" not in evidence_path.read_text(encoding="utf-8")
     assert {path.stat().st_mode & 0o777 for path in (tmp_path / "backups").glob("*.db")} == {0o600}
     store.close()
 
 
 def test_cli_apply_requires_explicit_evidence_and_creates_a_private_backup(tmp_path: Path) -> None:
-    from scripts.audit_actorops_v2_legacy_costs import quarantine, scan
+    from scripts.audit_actorops_v2_legacy_costs import _read_private_json, _write_private_json, quarantine, scan, snapshot
 
     store = _store(tmp_path)
     _run(store)
@@ -254,16 +259,90 @@ def test_cli_apply_requires_explicit_evidence_and_creates_a_private_backup(tmp_p
             expected_hash=str(evidence["evidence_hash"]),
             confirmed_upper_bound_usd=0.05, apply=True,
         )
+    evidence_path = tmp_path / "evidence" / "legacy-costs.json"
+    _write_private_json(evidence_path, evidence, replace=False)
+    snapshot(
+        tmp_path / "data", evidence_path=evidence_path, backup_dir=tmp_path / "backups",
+        services_stopped=True, heartbeat_window_seconds=0,
+    )
     result = quarantine(
         tmp_path / "data", evidence=evidence, expected_hash=str(evidence["evidence_hash"]),
         confirmed_upper_bound_usd=0.05, apply=True, heartbeat_window_seconds=0,
-        backup_dir=tmp_path / "backups", services_stopped=True,
+        services_stopped=True,
+        receipt=_read_private_json(evidence_path.with_name(f"{evidence_path.name}.snapshot.json")),
     )
     assert result["status"] == "applied"
     assert result["backup_mode"] == "0o600"
     assert store.connect().execute(
         "SELECT last_error_code FROM apify_actor_runs WHERE id='legacy-run'"
     ).fetchone()[0] == "apify_historical_cost_quarantined"
+    store.close()
+
+
+def test_resumed_evidence_reuses_one_salt_and_never_rescans_completed_runs(tmp_path: Path) -> None:
+    from scripts.audit_actorops_v2_legacy_costs import scan
+
+    store = _store(tmp_path)
+    _run(store, run_id="first", remote_run_id="remote-first")
+    _run(store, run_id="second", remote_run_id="remote-second")
+    reader = _Reader(
+        {
+            "remote-first": RemoteCostObservation.not_found(),
+            "remote-second": RemoteCostObservation.not_found(),
+        }
+    )
+    first = scan(tmp_path / "data", reader=reader, limit=1, salt="test-salt")
+    resumed = scan(tmp_path / "data", reader=reader, limit=1, existing_evidence=first)
+
+    assert reader.calls == ["remote-first", "remote-second"]
+    assert resumed["salt"] == "test-salt"
+    assert resumed["scan_pages"] == 2
+    assert resumed["remaining_remote_runs"] == 0
+    assert resumed["counts"] == {"quarantine_run": 2}
+    assert "remote-first" not in json.dumps(resumed, sort_keys=True)
+    assert "remote-second" not in json.dumps(resumed, sort_keys=True)
+    store.close()
+
+
+def test_snapshot_rejects_incomplete_or_drifted_resume_evidence(tmp_path: Path) -> None:
+    from scripts.audit_actorops_v2_legacy_costs import _write_private_json, scan, snapshot
+
+    store = _store(tmp_path)
+    _run(store, run_id="first", remote_run_id="remote-first")
+    _run(store, run_id="second", remote_run_id="remote-second")
+    reader = _Reader(
+        {
+            "remote-first": RemoteCostObservation.not_found(),
+            "remote-second": RemoteCostObservation.not_found(),
+        }
+    )
+    evidence = scan(tmp_path / "data", reader=reader, limit=1, salt="test-salt")
+    evidence_path = tmp_path / "evidence" / "legacy-costs.json"
+    _write_private_json(evidence_path, evidence, replace=False)
+    with pytest.raises(RuntimeError, match="unscanned"):
+        snapshot(
+            tmp_path / "data", evidence_path=evidence_path,
+            services_stopped=True, heartbeat_window_seconds=0,
+        )
+    store.close()
+
+
+def test_retry_blocked_replaces_only_the_prior_opaque_remote_fact(tmp_path: Path) -> None:
+    from scripts.audit_actorops_v2_legacy_costs import scan
+
+    store = _store(tmp_path)
+    _run(store, remote_run_id="remote-run")
+    first = scan(
+        tmp_path / "data", reader=_Reader({"remote-run": RemoteCostObservation("unavailable")}),
+        salt="test-salt",
+    )
+    assert first["counts"] == {"remote_blocked": 1}
+    resumed = scan(
+        tmp_path / "data", reader=_Reader({"remote-run": RemoteCostObservation.not_found()}),
+        existing_evidence=first, retry_blocked=True,
+    )
+    assert resumed["counts"] == {"quarantine_run": 1}
+    assert resumed["remaining_remote_runs"] == 0
     store.close()
 
 

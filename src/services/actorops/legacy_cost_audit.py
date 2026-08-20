@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
+
+from .legacy_cost_evidence import (
+    LegacyEvidenceError,
+    create_evidence,
+    evidence_hash,
+    opaque_fact_id,
+    public_fact,
+    unresolved_actions,
+    validate_evidence,
+)
+from .legacy_cost_mutations import (
+    LegacyCostMutationError,
+    quarantine_attempt as _quarantine_attempt,
+    quarantine_batch as _quarantine_batch,
+    quarantine_run as _quarantine_run,
+    settle_run as _settle_run,
+)
 
 
 RUN_QUARANTINE_CODE = "apify_historical_cost_quarantined"
@@ -51,6 +66,7 @@ class LegacyCostReport:
     counts: dict[str, int]
     upper_bound_usd: float
     remaining_remote_runs: int
+    scanned_remote_identities: tuple[str, ...] = ()
 
 
 class LegacyRunCostReader:
@@ -66,6 +82,8 @@ def scan_legacy_costs(
     *,
     limit: int = 20,
     salt: str,
+    known_remote_fact_ids: set[str] | None = None,
+    retry_remote_fact_ids: set[str] | None = None,
 ) -> LegacyCostReport:
     """Classify at most ``limit`` terminal remote Runs without writing facts."""
 
@@ -73,7 +91,17 @@ def scan_legacy_costs(
         raise ValueError("audit requires a non-empty salt and a limit from 1 through 20")
     facts: list[LegacyCostFact] = []
     remote_rows = _terminal_remote_runs(connection)
-    for row in remote_rows[:limit]:
+    known = known_remote_fact_ids or set()
+    retry = retry_remote_fact_ids or set()
+    unseen = [row for row in remote_rows if opaque_fact_id(salt, _remote_identity(row)) not in known]
+    retry_rows = [
+        row for row in remote_rows
+        if opaque_fact_id(salt, _remote_identity(row)) in retry
+    ]
+    selected_rows = (retry_rows + [
+        row for row in unseen if opaque_fact_id(salt, _remote_identity(row)) not in retry
+    ])[:limit]
+    for row in selected_rows:
         observation = reader.read(str(row["remote_run_id"]))
         facts.append(_remote_fact(row, observation))
     facts.extend(_local_blockers(connection))
@@ -84,33 +112,34 @@ def scan_legacy_costs(
         facts=tuple(facts),
         counts=counts,
         upper_bound_usd=round(sum(fact.amount_usd for fact in facts if fact.action.startswith("quarantine")), 6),
-        remaining_remote_runs=max(0, len(remote_rows) - min(limit, len(remote_rows))),
+        remaining_remote_runs=max(
+            0,
+            len(unseen) - sum(
+                opaque_fact_id(salt, _remote_identity(row)) not in retry for row in selected_rows
+            ),
+        ),
+        scanned_remote_identities=tuple(_remote_identity(row) for row in selected_rows),
     )
 
 
 def build_evidence(report: LegacyCostReport) -> dict[str, object]:
     """Return a value-safe, deterministic proof record suitable for confirmation."""
 
-    facts = [
-        {
-            "fact_id": _opaque_id(report.salt, fact.identity),
-            "action": fact.action,
-            "status": fact.status,
-            "updated_at": fact.updated_at,
-            "amount_usd": fact.amount_usd,
-        }
-        for fact in sorted(report.facts, key=lambda item: item.identity)
-    ]
-    evidence: dict[str, object] = {
-        "schema": "actorops_v2_legacy_cost_audit_v1",
-        "salt": report.salt,
-        "facts": facts,
-        "counts": report.counts,
-        "upper_bound_usd": report.upper_bound_usd,
-        "remaining_remote_runs": report.remaining_remote_runs,
-    }
-    evidence["evidence_hash"] = _evidence_hash(evidence)
-    return evidence
+    return create_evidence(
+        salt=report.salt,
+        facts=(
+            public_fact(
+                salt=report.salt,
+                identity=fact.identity,
+                action=fact.action,
+                status=fact.status,
+                updated_at=fact.updated_at,
+                amount_usd=fact.amount_usd,
+            )
+            for fact in sorted(report.facts, key=lambda item: item.identity)
+        ),
+        remaining_remote_runs=report.remaining_remote_runs,
+    )
 
 
 def apply_evidence(
@@ -122,13 +151,17 @@ def apply_evidence(
 ) -> dict[str, int]:
     """Apply only exact evidence; unknown observations and changed rows fail closed."""
 
-    if expected_hash != _evidence_hash(evidence) or expected_hash != evidence.get("evidence_hash"):
+    try:
+        validate_evidence(evidence)
+    except LegacyEvidenceError as error:
+        raise LegacyCostAuditError(str(error)) from error
+    if expected_hash != evidence_hash(evidence) or expected_hash != evidence.get("evidence_hash"):
         raise LegacyCostAuditError("evidence hash does not match the supplied proof")
     facts = evidence.get("facts")
     salt = evidence.get("salt")
     if not isinstance(facts, list) or not isinstance(salt, str) or not salt:
         raise LegacyCostAuditError("evidence has an invalid shape")
-    if any(str(item.get("action")) in {"remote_blocked", "nonterminal_run", "nonterminal_attempt"} for item in facts if isinstance(item, dict)):
+    if unresolved_actions(evidence):
         raise LegacyCostAuditError("evidence contains unresolved remote or inflight facts")
     upper_bound = float(evidence.get("upper_bound_usd", -1))
     if round(float(confirmed_upper_bound_usd), 6) != round(upper_bound, 6):
@@ -154,22 +187,62 @@ def apply_evidence(
                 _settle_run(connection, fact, float(item["amount_usd"]), stamp)
                 result["settled_runs"] += 1
             elif action == "quarantine_run":
-                _quarantine_run(connection, fact, stamp)
+                _quarantine_run(connection, fact, stamp, RUN_QUARANTINE_CODE)
                 result["quarantined_runs"] += 1
             elif action == "quarantine_attempt":
-                _quarantine_attempt(connection, fact, stamp)
+                _quarantine_attempt(connection, fact, stamp, ATTEMPT_QUARANTINE_CODE)
                 result["quarantined_attempts"] += 1
             elif action == "quarantine_batch":
-                _quarantine_batch(connection, fact, stamp)
+                _quarantine_batch(connection, fact, stamp, BATCH_QUARANTINE_CODE)
             elif action != "none":
                 raise LegacyCostAuditError("unsupported evidence action")
         if owns_transaction:
             connection.commit()
+    except LegacyCostMutationError as error:
+        if owns_transaction and connection.in_transaction:
+            connection.rollback()
+        raise LegacyCostAuditError(str(error)) from error
     except Exception:
         if owns_transaction and connection.in_transaction:
             connection.rollback()
         raise
     return result
+
+
+def validate_evidence_against_current(
+    connection: sqlite3.Connection,
+    evidence: dict[str, object],
+    *,
+    require_complete: bool,
+) -> None:
+    """Fail closed when a resumable proof no longer covers current legacy facts."""
+
+    try:
+        validate_evidence(evidence)
+    except LegacyEvidenceError as error:
+        raise LegacyCostAuditError(str(error)) from error
+    if require_complete and int(evidence["remaining_remote_runs"]) != 0:
+        raise LegacyCostAuditError("evidence has unscanned terminal remote Runs")
+    if unresolved_actions(evidence):
+        raise LegacyCostAuditError("evidence contains unresolved remote or inflight facts")
+    salt = str(evidence["salt"])
+    current = _current_actions(connection, salt)
+    seen: set[tuple[str, str]] = set()
+    for item in evidence["facts"]:
+        assert isinstance(item, dict)
+        key = (str(item["fact_id"]), str(item["action"]))
+        fact = current.get(key)
+        if fact is None or not _matches(item, fact):
+            raise LegacyCostAuditError("legacy fact changed after audit")
+        seen.add(key)
+    for fact in _local_blockers(connection) + _eligible_batches(connection):
+        key = (opaque_fact_id(salt, fact.identity), fact.action)
+        if key not in seen:
+            raise LegacyCostAuditError("new local legacy cost blocker requires a fresh audit")
+    for row in _terminal_remote_runs(connection):
+        fact_id = opaque_fact_id(salt, _remote_identity(row))
+        if not any(item_id == fact_id for item_id, _ in seen):
+            raise LegacyCostAuditError("new terminal remote Run requires a fresh audit")
 
 
 def _terminal_remote_runs(connection: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -185,7 +258,7 @@ def _terminal_remote_runs(connection: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _remote_fact(row: sqlite3.Row, observation: RemoteCostObservation) -> LegacyCostFact:
-    identity = f"run:{row['id']}:{row['remote_run_id']}"
+    identity = _remote_identity(row)
     if observation.kind == "found" and observation.actual_cost_usd is not None:
         return LegacyCostFact(identity, "provider_cost", str(row["status"]), str(row["updated_at"]), float(observation.actual_cost_usd))
     if observation.kind == "not_found":
@@ -261,10 +334,11 @@ def _current_actions(
 ) -> dict[tuple[str, str], LegacyCostFact]:
     facts = _local_blockers(connection) + _eligible_batches(connection)
     for row in _terminal_remote_runs(connection):
-        identity = f"run:{row['id']}:{row['remote_run_id']}"
+        identity = _remote_identity(row)
         facts.append(LegacyCostFact(identity, "provider_cost", str(row["status"]), str(row["updated_at"]), 0.0))
         facts.append(LegacyCostFact(identity, "quarantine_run", str(row["status"]), str(row["updated_at"]), float(row["charge_reserved_usd"] or 0)))
-    return {(_opaque_id(salt, fact.identity), fact.action): fact for fact in facts}
+        facts.append(LegacyCostFact(identity, "remote_blocked", str(row["status"]), str(row["updated_at"]), float(row["charge_reserved_usd"] or 0)))
+    return {(opaque_fact_id(salt, fact.identity), fact.action): fact for fact in facts}
 
 
 def _matches(item: dict[str, object], fact: LegacyCostFact) -> bool:
@@ -278,98 +352,8 @@ def _matches(item: dict[str, object], fact: LegacyCostFact) -> bool:
     return base and round(float(item.get("amount_usd", -1)), 6) == round(fact.amount_usd, 6)
 
 
-def _settle_run(
-    connection: sqlite3.Connection, fact: LegacyCostFact, amount: float, stamp: str
-) -> None:
-    run_id = fact.identity.split(":", 2)[1]
-    changed = connection.execute(
-        """UPDATE apify_actor_runs SET charge_actual_usd=?, charge_final=1, updated_at=?
-           WHERE id=? AND status=? AND updated_at=? AND charge_final=0
-             AND remote_run_id IS NOT NULL""",
-        (amount, stamp, run_id, fact.status, fact.updated_at),
-    ).rowcount
-    if changed != 1:
-        raise LegacyCostAuditError("legacy run changed before exact settlement")
-    connection.execute(
-        """UPDATE apify_actor_attempts SET actual_cost_usd=?, cost_final=1, updated_at=?
-           WHERE id=(SELECT logical_run_id FROM apify_actor_runs WHERE id=?)
-             AND status IN ('succeeded','valid_empty','actor_failed','target_failed','failed','cancelled')
-             AND cost_final=0""",
-        (amount, stamp, run_id),
-    )
-
-
-def _quarantine_run(connection: sqlite3.Connection, fact: LegacyCostFact, stamp: str) -> None:
-    run_id = fact.identity.split(":", 2)[1]
-    changed = connection.execute(
-        """UPDATE apify_actor_runs SET last_error_code=?, updated_at=?
-           WHERE id=? AND status=? AND updated_at=? AND charge_final=0
-             AND remote_run_id IS NOT NULL
-             AND COALESCE(last_error_code, '') != ?""",
-        (RUN_QUARANTINE_CODE, stamp, run_id, fact.status, fact.updated_at, RUN_QUARANTINE_CODE),
-    ).rowcount
-    if changed != 1:
-        raise LegacyCostAuditError("legacy run changed before quarantine")
-    connection.execute(
-        """UPDATE apify_actor_attempts SET last_error_code=?, updated_at=?
-           WHERE id=(SELECT logical_run_id FROM apify_actor_runs WHERE id=?)
-             AND status IN ('succeeded','valid_empty','actor_failed','target_failed','failed','cancelled')
-             AND cost_final=0""",
-        (RUN_QUARANTINE_CODE, stamp, run_id),
-    )
-
-
-def _quarantine_attempt(connection: sqlite3.Connection, fact: LegacyCostFact, stamp: str) -> None:
-    attempt_id = fact.identity.split(":", 1)[1]
-    changed = connection.execute(
-        """UPDATE apify_actor_attempts SET last_error_code=?, updated_at=?
-           WHERE id=? AND status=? AND updated_at=? AND cost_final=0
-             AND NOT EXISTS (
-                 SELECT 1 FROM apify_actor_runs AS run
-                 WHERE run.logical_run_id=apify_actor_attempts.id
-                   AND run.remote_run_id IS NOT NULL
-             )
-             AND COALESCE(last_error_code, '') != ?""",
-        (ATTEMPT_QUARANTINE_CODE, stamp, attempt_id, fact.status, fact.updated_at, ATTEMPT_QUARANTINE_CODE),
-    ).rowcount
-    if changed != 1:
-        raise LegacyCostAuditError("legacy attempt changed before quarantine")
-
-
-def _quarantine_batch(connection: sqlite3.Connection, fact: LegacyCostFact, stamp: str) -> None:
-    batch_id = fact.identity.split(":", 1)[1]
-    connection.execute(
-        """UPDATE apify_actor_validations SET status='failed', semantic_outcome=?, completed_at=COALESCE(completed_at, ?)
-           WHERE validation_id IN (SELECT validation_id FROM apify_actor_canary_batch_items WHERE batch_id=?)
-             AND status IN ('queued','running')""",
-        (BATCH_QUARANTINE_CODE, stamp, batch_id),
-    )
-    connection.execute(
-        """UPDATE apify_actor_canary_batch_items SET status='failed', semantic_outcome=?, completed_at=COALESCE(completed_at, ?), updated_at=?
-           WHERE batch_id=? AND status IN ('planned','preflight_passed','queued','running','blocked_unknown_start')""",
-        (BATCH_QUARANTINE_CODE, stamp, stamp, batch_id),
-    )
-    changed = connection.execute(
-        """UPDATE apify_actor_canary_batches SET status='partial', stop_reason=?, completed_at=COALESCE(completed_at, ?), updated_at=?
-           WHERE batch_id=? AND status=? AND updated_at=?
-             AND NOT EXISTS (
-                 SELECT 1 FROM fetch_jobs
-                 WHERE job_type='apify_actor_canary_batch' AND status IN ('queued','running')
-                   AND json_valid(payload_json)
-                   AND json_extract(payload_json, '$.batch_id')=apify_actor_canary_batches.batch_id
-             )
-             AND NOT EXISTS (
-                 SELECT 1 FROM apify_actor_canary_batch_items AS item
-                 JOIN apify_actor_validations AS validation
-                   ON validation.workspace_id=item.workspace_id AND validation.validation_id=item.validation_id
-                 JOIN apify_actor_runs AS run ON run.logical_run_id=validation.attempt_id
-                 WHERE item.batch_id=apify_actor_canary_batches.batch_id
-                   AND run.status IN ('reserved','starting','running','aborting','start_outcome_unknown')
-             )""",
-        (BATCH_QUARANTINE_CODE, stamp, stamp, batch_id, fact.status, fact.updated_at),
-    ).rowcount
-    if changed != 1:
-        raise LegacyCostAuditError("legacy batch changed before quarantine")
+def _remote_identity(row: sqlite3.Row) -> str:
+    return f"run:{row['id']}:{row['remote_run_id']}"
 
 
 def _counts(facts: list[LegacyCostFact]) -> dict[str, int]:
@@ -377,19 +361,9 @@ def _counts(facts: list[LegacyCostFact]) -> dict[str, int]:
     for fact in facts:
         result[fact.action] = result.get(fact.action, 0) + 1
     return dict(sorted(result.items()))
-
-
-def _opaque_id(salt: str, identity: str) -> str:
-    return hashlib.sha256(f"{salt}:{identity}".encode("utf-8")).hexdigest()
-
-
-def _evidence_hash(evidence: dict[str, object]) -> str:
-    raw = {key: value for key, value in evidence.items() if key != "evidence_hash"}
-    return hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-
-
 __all__ = [
     "ATTEMPT_QUARANTINE_CODE", "BATCH_QUARANTINE_CODE", "RUN_QUARANTINE_CODE",
     "LegacyCostAuditError", "LegacyCostReport", "LegacyRunCostReader",
     "RemoteCostObservation", "apply_evidence", "build_evidence", "scan_legacy_costs",
+    "validate_evidence_against_current",
 ]

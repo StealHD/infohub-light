@@ -13,25 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-18",
-  "result": "ActorOps 浏览器候选目录仅发布已完成 Route、全部启用来源实测和费用对账的 Actor；选择只做零费用原子启用或替换。",
-  "status": "completed",
-  "task_id": "2026-08-18-actorops-verified-catalog",
-  "unresolved": [],
-  "validation": [
-    "定向 Pytest 63 通过，前端 typecheck 与定向 Vitest 7 通过。",
-    "影响范围 preflight 17/17 通过，覆盖后端、前端、可观测性、控制面、文档和尺寸门禁。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-18",
   "result": "统一 ActorOps 三平台能力矩阵：X、Instagram、YouTube 均使用显式主抓取契约与 2 个不同发布者的最低健康池；YouTube 不再以 Atom/RSS fallback 或单 Actor 作为标准运行态。恢复流程会把 Worker 重启中断的 Run、验证、批次项、阶段与 Job 一起投影为可对账阻断，并仅以 GET 方式对已存在远端 Run 对账后继续原批准批次。",
   "status": "completed",
   "task_id": "2026-08-18-actorops-unified-primary-recovery",
@@ -400,6 +381,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "scan evidence_hash=a69e48e944bae5322ad3c80f88e8d5092a0b1b8b35f8ff39d7993fb27d0b07cf；safe counts 为 quarantine_run=20、quarantine_attempt=17、quarantine_batch=1，remaining_remote_runs=106。",
     "本批 historical unknown upper bound 为 USD 1.24；该值是未结预留的保守上限，不是已结算或可用余额。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Phase 6R.1 adds a private resumable legacy-cost evidence session: scan reuses one salt, covers at most 20 new terminal Runs per page, retries blocked observations only explicitly, and snapshot validates the complete session without network before creating a private backup/receipt; quarantine requires that receipt and applies all facts in one CAS transaction.",
+  "status": "partial",
+  "task_id": "2026-08-21-actorops-v2-legacy-cost-evidence-session",
+  "unresolved": [
+    "Run the full read-only seven-page session against the local runtime database; obtain an exact evidence hash and conservative upper bound, then wait for explicit confirmation before snapshot/quarantine/global 26 migration."
+  ],
+  "validation": [
+    "36 focused ActorOps v2 audit/migration/cutover tests passed.",
+    "Impacted preflight passed 15/15: full Python domain, syntax, code size, product-doc review, frontend lint/typecheck/related Vitest and controls."
   ]
 }
 ```
