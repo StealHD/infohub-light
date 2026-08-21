@@ -9,28 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
-  "result": "完成 ActorOps v2 Phase 6 的默认关闭代码护栏：离线 Route mode CAS、零值 shadow 选择事件、安全切流状态/备份/验证 CLI、稳定内容身份和 YouTube v2 RSS 兼容桥；未执行真实 migration、shadow/active、远端 Actor、来源获取或 Worker 重启。",
-  "status": "partial",
-  "task_id": "2026-08-20-actorops-v2-phase6",
-  "unresolved": [
-    "需在停止本地 API/Worker 后逐平台运行 CLI 状态/快照，取得 YouTube、Instagram、X 各自精确费用上限的明确授权，才能执行真实切流验收。"
-  ],
-  "validation": [
-    "ActorOps v2 cutover、runtime/readiness/reconciliation/Discovery/maintenance、来源接入与 v1 回归定向 Pytest 通过。",
-    "唯一完整 impacted preflight 17/17 通过：完整 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制文件、产品文档与代码规模检查均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "phase"
   ],
   "recorded_on": "2026-08-21",
@@ -415,6 +393,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "targeted ActorOps mapper/canary tests",
     "offline bounded remote-Dataset replay",
     "impacted preflight passed (17/17)"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "修复 v2 ready catalog binding 未注入运行时 profile_id、导致 Instagram 绕过 v2 的缺口；在本地开启 v2 后顺序执行 X、YouTube、Instagram 三条真实 source_fetch。X 产生 advanced 并写入 LKG/水位；YouTube 与 Instagram standby 为 valid_empty；Instagram primary 明确以 candidate contract invalid 失败后按既定顺序切换 standby。全部 v2 Attempt 已结算，无未结费用。",
+  "status": "partial",
+  "task_id": "2026-08-21-actorops-v2-live-runtime-bridge",
+  "unresolved": [
+    "Phase 6 的每平台 20 次成功自然获取、三次静止 Worker 重启和最终 active/rollback 决策尚未执行。",
+    "Instagram primary 的精确 Actor 合同已保留失败事实；后续仅在 Build 或 Manifest 变化后重新筛选。"
+  ],
+  "validation": [
+    "真实本地 v2 执行：X USD 0.032164 advanced；YouTube USD 0.042110 valid_empty；Instagram primary USD 0.005189 contract invalid、standby USD 0.014000 valid_empty；均为 cost_final=true。",
+    "唯一 impacted preflight 17/17 通过（426 秒），包括完整 Python、前端、控制文件、产品文档、代码规模和构建检查。"
   ]
 }
 ```

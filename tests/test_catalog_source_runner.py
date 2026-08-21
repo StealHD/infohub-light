@@ -151,6 +151,65 @@ def test_catalog_source_runner_injects_bound_actorops_route_for_legacy_x_source(
         ),
         mode="primary",
     )
+    statements: list[str] = []
+    store.connect().set_trace_callback(statements.append)
+
+    data = build_catalog_source_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        base_config=_base_config(),
+    )
+
+    assert data["sources"]["apify_social"]["subscriptions"][0]["profile_id"] == route_id
+    assert not any("_v2" in statement.casefold() for statement in statements)
+
+
+def test_catalog_runner_injects_ready_v2_binding_without_legacy_binding(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="V2-bound Instagram source",
+        config={"platform": "instagram", "kind": "profile", "target": "example"},
+    )
+    subscription = store.create_subscription(user_id=owner["id"], source_id=source_id)
+    connection = store.connect()
+    route = connection.execute(
+        """SELECT route_id FROM actor_routes_v2
+           WHERE workspace_id=? AND platform=? AND target_type=? AND capability=?""",
+        (workspace["id"], "instagram", "profile", "items"),
+    ).fetchone()
+    assert route is not None
+    route_id = str(route["route_id"])
+    connection.execute(
+        """INSERT INTO actor_source_bindings_v2 (
+               binding_id, workspace_id, source_id, route_id, target_fingerprint,
+               status, binding_version, source_v1_generation, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'ready', 1, 1, ?, ?)""",
+        (
+            "v2-catalog-binding",
+            workspace["id"],
+            source_id,
+            route_id,
+            source_target_fingerprint(workspace["id"], route_id, "example", platform="instagram"),
+            "2026-08-21T00:00:00+00:00",
+            "2026-08-21T00:00:00+00:00",
+        ),
+    )
+    connection.commit()
 
     data = build_catalog_source_config_data(
         store=store,

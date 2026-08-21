@@ -416,6 +416,7 @@
       "globs": [
         "src/services/catalog_source_runner.py",
         "src/services/apify_actor_route.py",
+        "src/services/apify_actor_source_runtime.py",
         "src/services/config_runtime.py",
         "src/services/source_acquisition.py",
         "src/services/source_projection.py",

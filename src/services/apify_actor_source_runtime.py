@@ -14,6 +14,7 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from ..storage.service_store import ServiceStore
+from .actorops.readiness import actorops_v2_enabled
 from .youtube_actor_source import (
     is_youtube_channel_record,
     project_youtube_actor_runtime_record,
@@ -78,6 +79,32 @@ def with_actorops_runtime_profiles(
         for row in rows
         if row["route_id"]
     }
+    if actorops_v2_enabled():
+        try:
+            v2_rows = store.connect().execute(
+                f"""
+                SELECT binding.source_id, binding.route_id, route.platform
+                FROM actor_source_bindings_v2 AS binding
+                JOIN actor_routes_v2 AS route
+                  ON route.workspace_id = binding.workspace_id
+                 AND route.route_id = binding.route_id
+                WHERE binding.workspace_id = ?
+                  AND binding.status = 'ready'
+                  AND binding.source_id IN ({placeholders})
+                """,
+                (str(workspace_id), *source_ids),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+            v2_rows = []
+        route_by_source.update(
+            {
+                str(row["source_id"]): (str(row["route_id"]), str(row["platform"]))
+                for row in v2_rows
+                if row["route_id"]
+            }
+        )
     if not route_by_source:
         return prepared
 
