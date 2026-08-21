@@ -128,9 +128,13 @@ class ActorOpsDiscovery:
     async def _validation(self, row: Any, cap: float) -> None:
         state = self._read_cursor(row, "validation")
         valid, rejected = [], list(state.get("rejections", []))
-        for ref in state["refs"]:
+        for raw_ref in state["refs"]:
+            # Validation can reject an exact revision before mapping.  Keep
+            # the Route scope needed for a deterministic Candidate/rejection
+            # ID, while comparing the public revision without that scope.
+            ref = {**raw_ref, "route_id": str(row["route_id"])}
             revision = await self.catalog.get_revision(str(ref["actor_id"]))
-            if self._revision_ref(revision) != ref:
+            if self._revision_ref(revision) != self._unscoped_ref(ref):
                 rejected.append(self._rejection(ref, "actorops_discovery_revision_changed"))
             elif not self._valid_revision(revision, cap):
                 rejected.append(self._rejection(ref, "actorops_discovery_validation_rejected"))

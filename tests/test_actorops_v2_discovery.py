@@ -15,7 +15,9 @@ from src.services.actorops.repository import ActorOpsRepository
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
-def _revision(actor_id: str, *, complete: bool = True) -> DiscoveryRevision:
+def _revision(
+    actor_id: str, *, complete: bool = True, price_per_run_usd: float | None = 0.01,
+) -> DiscoveryRevision:
     properties = {
         "id": {"type": "string"},
         "url": {"type": "string"},
@@ -29,7 +31,7 @@ def _revision(actor_id: str, *, complete: bool = True) -> DiscoveryRevision:
         publisher=actor_id.split("/", 1)[0],
         build_id=f"build-{actor_id.rsplit('/', 1)[-1]}",
         build_number="1.0.0",
-        price_per_run_usd=0.01,
+        price_per_run_usd=price_per_run_usd,
         input_schema={"properties": {"profile": {"type": "string"}}},
         output_schema={"properties": properties},
     )
@@ -117,6 +119,24 @@ def test_ai_absence_keeps_unresolved_mapping_pending_without_failing_job(
     assert candidates[0]["status"] == "pending"
     assert candidate.lifecycle.value == "mapping_pending"
     assert candidate.manifest_hash is None
+    store.close()
+
+
+def test_validation_records_an_unpriced_revision_then_continues_with_other_candidates(
+    tmp_path: Path,
+) -> None:
+    store, repository, _route_id = _repository(tmp_path)
+    catalog = _Catalog({
+        "publisher/unpriced": _revision("publisher/unpriced", price_per_run_usd=None),
+        "publisher/valid": _revision("publisher/valid"),
+    })
+
+    result = asyncio.run(ActorOpsDiscovery(repository, build_default_registry(), catalog).run("discovery-one"))
+
+    rows = repository.discovery.list_candidates("discovery-one")
+    assert result.status == "completed"
+    assert {str(row["status"]) for row in rows} == {"accepted", "rejected"}
+    assert any(str(row["rejection_code"]) == "actorops_discovery_validation_rejected" for row in rows)
     store.close()
 
 
