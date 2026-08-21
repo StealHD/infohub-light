@@ -121,6 +121,19 @@ def test_store_metadata_normalizes_nested_public_event_pricing() -> None:
     },)
 
 
+def test_store_metadata_uses_verified_public_slug_for_an_opaque_actor_id(tmp_path: Path) -> None:
+    store, repository, _route_id, _source_id = _setup(tmp_path)
+    opaque = normalize_store_metadata(
+        {"id": "opaqueActorId", "username": "apify", "name": "instagram-api-scraper"},
+        fallback_slug="opaqueActorId",
+    )
+    assert opaque.actor_slug == "apify/instagram-api-scraper"
+    with repository.transaction():
+        stored = repository.operator.upsert_metadata("replacement", opaque)
+    assert stored.actor_slug == "apify/instagram-api-scraper"
+    store.close()
+
+
 def test_global_28_migration_is_explicit_and_repeatable(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)

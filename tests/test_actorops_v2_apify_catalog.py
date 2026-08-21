@@ -97,5 +97,21 @@ def test_candidate_probe_preflight_rechecks_exact_public_revision_and_cap() -> N
     assert result.error_code == "actorops_maintenance_revision_changed"
 
 
+def test_apify_catalog_reads_dataset_row_schema_from_actor_definition() -> None:
+    class _DefinitionMetadata(_Metadata):
+        async def get_build(self, _build_id):
+            return {
+                "inputSchema": {"properties": {"username": {"type": "string"}}},
+                "actorDefinition": {"storages": {"dataset": {"fields": {
+                    "type": "object", "properties": {"id": {"type": "string"}},
+                }}}},
+            }
+
+    revision = asyncio.run(ApifyDiscoveryCatalog(_DefinitionMetadata()).get_revision("publisher/actor"))
+
+    assert revision.input_schema["properties"] == {"username": {"type": "string"}}
+    assert revision.output_schema["properties"] == {"id": {"type": "string"}}
+
+
 def _hash(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

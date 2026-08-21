@@ -42,8 +42,10 @@ class OperatorRepository:
     def upsert_metadata(self, candidate_id: str, value: StoreMetadata, *, expected_generation: int | None = None) -> StoreMetadataRecord:
         self.repository._require_transaction()
         candidate = self.repository.get_candidate(candidate_id)
-        if value.actor_slug != candidate.actor_id:
-            raise ActorOpsConflict("store metadata actor does not match Candidate")
+        # Candidate.actor_id may be a provider's opaque Actor identifier while
+        # Store metadata uses the separately verified public publisher/slug.
+        # The worker obtains both in the same public get-Actor response and the
+        # metadata stays scoped to this exact Candidate row.
         stamp = _stamp()
         current = self.metadata(candidate_id)
         if current is None:

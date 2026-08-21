@@ -135,13 +135,17 @@ def _tagged_build(actor: Mapping[str, Any]) -> tuple[str, str]:
 def _schemas(build: Mapping[str, Any]) -> tuple[Mapping[str, object], Mapping[str, object]]:
     definition = build.get("actorDefinition")
     definition = definition if isinstance(definition, Mapping) else {}
-    input_schema = _mapping(build.get("inputSchema"))
-    output_schema = _mapping(build.get("datasetSchema") or build.get("outputSchema"))
+    input_schema = _schema(build.get("inputSchema"))
+    output_schema = _schema(build.get("datasetSchema") or build.get("outputSchema"))
     if not input_schema:
-        input_schema = _mapping(definition.get("input"))
+        input_schema = _schema(definition.get("input"))
     if not output_schema:
         storages = definition.get("storages")
-        output_schema = _mapping(storages.get("dataset") if isinstance(storages, Mapping) else None)
+        dataset = storages.get("dataset") if isinstance(storages, Mapping) else None
+        fields = dataset.get("fields") if isinstance(dataset, Mapping) else None
+        output_schema = _schema(fields)
+    if not output_schema:
+        output_schema = _schema(definition.get("output"))
     return input_schema, output_schema
 
 
@@ -156,6 +160,11 @@ def _mapping(value: object) -> Mapping[str, object]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, Mapping) else {}
+
+
+def _schema(value: object) -> Mapping[str, object]:
+    schema = _mapping(value)
+    return schema if isinstance(schema.get("properties"), Mapping) else {}
 
 
 def _price(actor: Mapping[str, Any]) -> float | None:

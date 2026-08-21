@@ -42,7 +42,9 @@ def normalize_store_metadata(
     username = _text(value.get("username") or value.get("userUsername"), 80)
     name = _text(value.get("name") or value.get("actorName"), 80)
     supplied_slug = _text(value.get("actorId") or value.get("id"), 160)
-    slug = supplied_slug.replace("~", "/") if supplied_slug else "/".join(part for part in (username, name) if part)
+    # Public actor reads are allowed to identify an Actor by an opaque provider
+    # ID.  A Store URL must instead use the verified publisher/name pair.
+    slug = supplied_slug.replace("~", "/") if "/" in supplied_slug or "~" in supplied_slug else "/".join(part for part in (username, name) if part)
     if not _SLUG.fullmatch(slug or ""):
         slug = _safe_slug(fallback_slug)
     if not slug:
