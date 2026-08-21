@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from ..storage.service_store import ServiceStore
+from .actorops.domain import AssignmentRole
 from .actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
 from .actorops.repository import ActorOpsRepository
 from .worker_actorops_v2_discovery import _catalog
@@ -29,7 +30,13 @@ async def _refresh(*, workspace_id: str, route_id: str, store: ServiceStore, dat
     repository = ActorOpsRepository(store.connect(), workspace_id)
     catalog = _catalog(store, workspace_id, data_dir)
     refreshed = failed = 0
-    for candidate in repository.list_route_candidates(route_id)[:20]:
+    # The operator screen renders only current assignments.  Refreshing old
+    # inactive audit revisions would create unnecessary public Store traffic.
+    candidates = (
+        candidate for candidate in repository.list_route_candidates(route_id)
+        if candidate.assignment_role in {AssignmentRole.ACTIVE, AssignmentRole.STANDBY}
+    )
+    for candidate in candidates:
         try:
             metadata = await catalog.store_metadata(candidate)
             with repository.transaction():

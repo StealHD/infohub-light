@@ -15,6 +15,7 @@ from src.services.actorops.registry import AdapterRegistry
 from src.services.actorops.replacement import ActorOpsReplacementRunner
 from src.services.actorops.repository import ActorOpsRepository
 from src.services.actorops.store_metadata import normalize_store_metadata
+from src.services import worker_actorops_v2_metadata as metadata_worker
 from src.storage.actorops_v2_operator_schema import migration_marker_exists, schema_shapes_valid
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
@@ -157,6 +158,28 @@ def test_existing_exact_settled_proofs_make_replacement_ready_without_new_probe(
     result = asyncio.run(ActorOpsReplacementRunner(repository, registry, _Remote(), _Catalog()).run(plan.plan_id, {source_id: {"target": "openai"}}))
     assert result["status"] == "ready"
     assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2 WHERE kind='probe'").fetchone()[0] == 1
+    store.close()
+
+
+def test_metadata_refresh_only_reads_current_active_or_standby_candidates(tmp_path: Path, monkeypatch) -> None:
+    store, _repository, route_id, _source_id = _setup(tmp_path)
+    seen: list[str] = []
+
+    class _StoreCatalog:
+        async def store_metadata(self, candidate):
+            seen.append(candidate.candidate_id)
+            return normalize_store_metadata(
+                {"actorId": candidate.actor_id, "title": candidate.candidate_id},
+                fallback_slug=candidate.actor_id,
+            )
+
+    monkeypatch.setattr(metadata_worker, "_catalog", lambda *_args: _StoreCatalog())
+    result = asyncio.run(metadata_worker._refresh(
+        workspace_id=DEFAULT_WORKSPACE_ID, route_id=route_id, store=store, data_dir=str(tmp_path),
+    ))
+
+    assert result == {"refreshed": 1, "failed": 0}
+    assert seen == ["active"]
     store.close()
 
 
