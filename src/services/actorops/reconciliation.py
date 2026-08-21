@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable
 
 from .domain import AttemptStatus, FailureClass, TERMINAL_ATTEMPT_STATUSES
 from .ports import (
@@ -19,6 +21,7 @@ _REMOTE_SUCCEEDED = frozenset({"succeeded"})
 _REMOTE_TERMINAL_FAILURE = frozenset(
     {"failed", "aborted", "timed_out", "cancelled"}
 )
+_UNPUBLISHED_SUCCESS_GRACE_SECONDS = 60.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,11 +44,17 @@ class ActorOpsReconciler:
         *,
         scan_limit: int = 20,
         remote_read_limit: int = 5,
+        unpublished_success_grace_seconds: float = _UNPUBLISHED_SUCCESS_GRACE_SECONDS,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self.repository = repository
         self.ledger = ledger
         self.scan_limit = min(max(int(scan_limit), 1), 100)
         self.remote_read_limit = min(max(int(remote_read_limit), 1), self.scan_limit)
+        self.unpublished_success_grace_seconds = max(
+            float(unpublished_success_grace_seconds), 0.0
+        )
+        self.now = now or (lambda: datetime.now(timezone.utc))
 
     async def reconcile(self) -> ReconciliationSummary:
         summary = ReconciliationSummary()
@@ -159,6 +168,11 @@ class ActorOpsReconciler:
                     actual_cost_usd=observation.actual_cost_usd,
                     cost_final=observation.cost_final,
                 )
+            elif not self._unpublished_success_is_stale(row):
+                # The Runtime can still be validating rows or entering its
+                # publication fence after Apify reports a completed Run.
+                # Do not race that in-process handoff into a terminal fact.
+                return ReconciliationSummary(remote_reads=1, pending=1)
             else:
                 self._mutate(
                     row,
@@ -238,6 +252,23 @@ class ActorOpsReconciler:
                 )
         except ActorOpsConflict:
             return
+
+    def _unpublished_success_is_stale(self, row: Mapping[str, object]) -> bool:
+        raw_updated_at = str(row["updated_at"] or "")
+        try:
+            updated_at = datetime.fromisoformat(raw_updated_at)
+        except ValueError:
+            return True
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        else:
+            updated_at = updated_at.astimezone(timezone.utc)
+        now = self.now()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = now.astimezone(timezone.utc)
+        return (now - updated_at).total_seconds() >= self.unpublished_success_grace_seconds
 
     @staticmethod
     def _replace(summary: ReconciliationSummary, **changes: int) -> ReconciliationSummary:

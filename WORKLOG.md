@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "修正 ActorOps v2 global 26 migration 对 v1 终态 Attempt 的安全判定：valid_empty、actor_failed 与 target_failed 不再被误认作 inflight，仍由独立费用条件阻断未结实际费用。实际本地 dry-run 因 21 条 Attempt 未结费用、126 条 Run 未结费用、1 个运行 Batch 和活跃 Worker 继续 fail closed；未执行 migration、切流或来源调用。",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-migration-settlement",
-  "unresolved": [
-    "需先由现役 v1 对账安全结算全部 Attempt/Run 费用并收敛 running batch，停止 API/Worker 后才能执行 global 26 migration。"
-  ],
-  "validation": [
-    "新增三种 v1 终态 Attempt 的 migration 回归测试；迁移测试文件 12 项通过。",
-    "唯一 impacted preflight 15/15 通过：Python、前端相关检查、产品文档、控制文件与代码规模检查均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-21",
@@ -414,6 +394,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "真实本地 v2 执行：X USD 0.032164 advanced；YouTube USD 0.042110 valid_empty；Instagram primary USD 0.005189 contract invalid、standby USD 0.014000 valid_empty；均为 cost_final=true。",
     "唯一 impacted preflight 17/17 通过（426 秒），包括完整 Python、前端、控制文件、产品文档、代码规模和构建检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "修复 ActorOps v2 对账与运行时并发竞态：远端 Run 已成功但本地仍在映射或通过 Feed publication fence 的 60 秒窗口仅保持 pending，避免对账器把活跃 Attempt 错记为未发布失败；超过窗口仍保留原有只读失败结算。",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-v2-reconciliation-handoff",
+  "unresolved": [
+    "Phase 6 的平台自然获取验收仍需在此修复部署后继续；本地测试中已被旧竞态结算的单条 Attempt 保留为审计事实，不会重开。"
+  ],
+  "validation": [
+    "新增 fresh remote-success 对账竞态回归；ActorOps reconciliation/runtime/catalog 21 项通过。",
+    "唯一 impacted preflight 15/15 通过：完整 Python、前端、控制文件、产品文档、代码规模与构建检查均成功。"
   ]
 }
 ```

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -125,7 +126,13 @@ def test_reconciler_fails_lost_success_without_publishing(tmp_path: Path) -> Non
         {"reservation-lost": ReconciliationRunObservation("SUCCEEDED", 0.03, True, "dataset-2")},
     )
 
-    summary = asyncio.run(ActorOpsReconciler(repository, ledger).reconcile())
+    summary = asyncio.run(
+        ActorOpsReconciler(
+            repository,
+            ledger,
+            now=lambda: datetime.now(timezone.utc) + timedelta(seconds=61),
+        ).reconcile()
+    )
 
     row = repository.get_attempt("attempt-lost")
     assert summary.settled == 1
@@ -134,6 +141,34 @@ def test_reconciler_fails_lost_success_without_publishing(tmp_path: Path) -> Non
     assert row["actual_cost_usd"] == pytest.approx(0.03)
     assert row["cost_final"] == 1
     assert store.connect().execute("SELECT COUNT(*) FROM actor_source_bindings_v2").fetchone()[0] == 0
+    store.close()
+
+
+def test_reconciler_does_not_settle_fresh_success_during_runtime_mapping(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    _attempt(repository, route_id, "attempt-fresh", AttemptStatus.RUNNING)
+    attempt = repository.get_attempt("attempt-fresh")
+    observed_at = datetime.fromisoformat(str(attempt["updated_at"]))
+    ledger = _Ledger(
+        {"attempt-fresh": ReconciliationRunResolution(_link("reservation-fresh", remote="remote-attempt-fresh"))},
+        {"reservation-fresh": ReconciliationRunObservation("succeeded", 0.03, True, "dataset-2")},
+    )
+
+    summary = asyncio.run(
+        ActorOpsReconciler(
+            repository,
+            ledger,
+            now=lambda: observed_at + timedelta(seconds=59),
+        ).reconcile()
+    )
+
+    current = repository.get_attempt("attempt-fresh")
+    assert summary.pending == 1
+    assert summary.settled == 0
+    assert current["status"] == "running"
+    assert current["error_code"] is None
     store.close()
 
 

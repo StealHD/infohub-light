@@ -1,4 +1,4 @@
-// Reviewed for ActorOps exact-revision rejection, per-revision mapping, metadata-row handling, v2 catalog-binding runtime injection, and cost-cap controls; no user-visible release note was added.
+// Reviewed for ActorOps exact-revision rejection, per-revision mapping, metadata-row handling, v2 catalog-binding runtime injection, reconciliation handoff safety, and cost-cap controls; no user-visible release note was added.
 export type ManualStep = {
   title: string
   description: string
