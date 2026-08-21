@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Store previews, explicit price caps, and confirmed replacement workflow.
+// Reviewed for ActorOps v2 route layout; no user workflow or copy changes.
 export type ManualStep = {
   title: string
   description: string

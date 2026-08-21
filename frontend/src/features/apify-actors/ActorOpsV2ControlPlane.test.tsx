@@ -35,6 +35,7 @@ describe('ActorOpsV2ControlPlane', () => {
     expect(screen.getByTestId('actorops-v2-control-plane')).toBeInTheDocument()
     expect(screen.getByText('降级可用')).toBeInTheDocument()
     expect(screen.getByText('YouTube 视频更新')).toBeInTheDocument()
+    expect(screen.getByText('主用')).toBeInTheDocument()
     expect(screen.getByText('Instagram API Scraper')).toBeInTheDocument()
     expect(screen.queryByText('publisher/actor')).not.toBeInTheDocument()
     expect(screen.getByText(/商城标价只作参考/)).toBeInTheDocument()

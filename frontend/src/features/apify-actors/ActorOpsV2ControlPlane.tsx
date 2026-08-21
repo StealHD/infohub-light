@@ -44,16 +44,25 @@ export function ActorOpsV2ControlPlane({ routes, operationsContent, renderRouteA
 }
 
 function RouteRow({ route, children }: { route: ActorOpsV2RouteView; children?: ReactNode }) {
-  return <section className="grid gap-3 px-4 py-4 min-[900px]:grid-cols-[minmax(145px,0.8fr)_minmax(0,2fr)_auto_auto] min-[900px]:items-center">
-    <div className="flex min-w-0 items-center justify-between gap-3 min-[900px]:grid min-[900px]:gap-1">
+  return <section className="grid gap-3 px-4 py-4 min-[768px]:grid-cols-[minmax(132px,0.72fr)_minmax(0,1.5fr)_auto] min-[768px]:items-center min-[768px]:gap-x-5 min-[1200px]:grid-cols-[minmax(145px,0.8fr)_minmax(270px,1.7fr)_auto]">
+    <div className="flex min-w-0 items-center justify-between gap-3 min-[768px]:row-span-2 min-[768px]:grid min-[768px]:gap-1">
       <div><h3 className="type-control">{routeTitle(route.platform)}</h3><p className="mt-0.5 type-meta text-muted">{modeLabel(route.runtime_mode)}</p></div>
       <StatusIndicator label={healthLabel[route.health]} tone={healthTone[route.health]} />
     </div>
-    <div className="flex min-w-0 flex-wrap items-center gap-2"><ActorOpsV2ActorChip candidate={route.active_candidate} role="主用" />{route.standby_candidates.map((candidate) => <ActorOpsV2ActorChip key={candidate.candidate_id} candidate={candidate} role="备用" />)}</div>
-    <div className="flex gap-4 type-meta text-muted"><span>已核验 {route.binding_summary.ready_count} 条</span><span>上限 ${route.per_run_cap_usd.toFixed(2)}</span></div>
-    <div className="justify-self-start min-[900px]:justify-self-end">{children}</div>
-    {route.degraded_reason && <p className="min-[900px]:col-span-4 type-meta text-muted">{reasonLabel(route.degraded_reason, route.binding_summary.pending_count)}</p>}
+    <div className="grid min-w-0 gap-1.5"><CandidateSlot label="主用" candidate={route.active_candidate} />{route.standby_candidates.map((candidate, index) => <CandidateSlot key={candidate.candidate_id} label={`备用 ${index + 1}`} candidate={candidate} />)}</div>
+    <div className="flex items-center justify-between gap-3 min-[768px]:row-span-2 min-[768px]:justify-self-end">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 type-meta text-muted"><span>已核验 {route.binding_summary.ready_count} 条</span><span>上限 ${route.per_run_cap_usd.toFixed(2)}</span></div>
+      <div className="shrink-0">{children}</div>
+    </div>
+    {route.degraded_reason && <p className="min-[768px]:col-span-3 type-meta text-muted">{reasonLabel(route.degraded_reason, route.binding_summary.pending_count)}</p>}
   </section>
+}
+
+function CandidateSlot({ label, candidate }: { label: string; candidate: CandidateView | null }) {
+  return <div className="grid min-w-0 grid-cols-[3rem_minmax(0,1fr)] items-center gap-2">
+    <span className="type-label whitespace-nowrap text-muted">{label}</span>
+    <ActorOpsV2ActorChip candidate={candidate} />
+  </div>
 }
 
 function modeLabel(mode: ActorOpsV2RouteView['runtime_mode']) {

@@ -72,7 +72,7 @@ describe('ActorOpsV2RouteControls', () => {
     const api = renderControls()
     const browser = userEvent.setup()
 
-    await browser.click(screen.getByRole('button', { name: '费用' }))
+    await browser.click(screen.getByRole('button', { name: '调整单次费用上限' }))
     const input = screen.getByRole('textbox', { name: '美元（最高 $0.20）' })
     await browser.clear(input)
     await browser.type(input, '0.08')

@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { Chip, Popover } from '../../design-system'
 import { actorOpsV2CandidateLabel, actorOpsV2PriceLabel, compactNumber, type ActorOpsV2CandidateView } from './actorOpsV2RouteModel'
 
-export function ActorOpsV2ActorChip({ candidate, role }: { candidate: ActorOpsV2CandidateView | null; role: '主用' | '备用' }) {
+export function ActorOpsV2ActorChip({ candidate }: { candidate: ActorOpsV2CandidateView | null }) {
   const [open, setOpen] = useState(false)
-  if (!candidate) return <span className="type-meta text-muted">{role}未配置</span>
+  if (!candidate) return <span className="type-meta text-muted">未配置</span>
   const metadata = candidate.store_metadata
   const name = actorOpsV2CandidateLabel(candidate)
   return <Popover isOpen={open} onOpenChange={setOpen}>
@@ -16,8 +16,8 @@ export function ActorOpsV2ActorChip({ candidate, role }: { candidate: ActorOpsV2
       className="min-w-0 rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-focus"
       aria-label={`查看${name}商城信息`}
     >
-      <Chip size="sm" variant="secondary" className="max-w-[min(220px,60vw)] cursor-pointer gap-1.5">
-        <span className="text-muted">{role}</span><span className="truncate">{name}</span>
+      <Chip size="sm" variant="secondary" className="max-w-full cursor-pointer">
+        <span className="block truncate">{name}</span>
       </Chip>
     </Popover.Trigger>
     <Popover.Content placement="bottom start" offset={8} containerPadding={12} className="z-50 w-[min(340px,calc(100vw-24px))] p-0">

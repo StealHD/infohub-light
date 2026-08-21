@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 Store previews, explicit price caps, and confirmed Actor replacement are documented below.
+// Reviewed: ActorOps v2 layout changes do not require a user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
