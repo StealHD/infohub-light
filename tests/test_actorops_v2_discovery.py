@@ -241,6 +241,15 @@ def test_ai_mapping_response_accepts_a_single_json_code_fence() -> None:
     }
 
 
+def test_ai_mapping_response_accepts_bounded_alternate_json_wrappers() -> None:
+    assert _object('{"publisher/actor": {"version": 1}}') == {
+        "publisher/actor": {"version": 1}
+    }
+    assert _object('{"mappings": [{"actor_id": "publisher/actor", "manifest": {"version": 1}}]}') == {
+        "publisher/actor": {"version": 1}
+    }
+
+
 def test_generic_discovery_has_no_platform_or_feed_knowledge() -> None:
     source = Path("src/services/actorops/discovery.py").read_text()
     assert "if platform" not in source

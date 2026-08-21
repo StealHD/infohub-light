@@ -157,11 +157,34 @@ def _object(value: object) -> Mapping[str, object]:
         parsed = json.loads(text)
     except json.JSONDecodeError:
         return {}
-    mappings = parsed.get("mappings") if isinstance(parsed, Mapping) else None
-    return mappings if isinstance(mappings, Mapping) else {}
+    if not isinstance(parsed, Mapping):
+        return {}
+    mappings = parsed.get("mappings") or parsed.get("candidates")
+    if isinstance(mappings, Mapping):
+        return mappings
+    if isinstance(mappings, Sequence) and not isinstance(mappings, (str, bytes)):
+        return {
+            str(item.get("actor_id") or item.get("actorId")): item.get("manifest", item)
+            for item in mappings
+            if isinstance(item, Mapping) and str(item.get("actor_id") or item.get("actorId") or "").strip()
+        }
+    # Some compliant models omit the optional outer wrapper and return the
+    # Actor-ID map directly.  Retain it only when every key resembles a public
+    # Actor slug and every value is a prospective manifest object/string.
+    if parsed and all(
+        isinstance(key, str) and "/" in key and isinstance(item, (Mapping, str))
+        for key, item in parsed.items()
+    ):
+        return parsed
+    return {}
 
 
 def _manifest_json(value: object) -> str | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
     if not isinstance(value, Mapping):
         return None
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
