@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 exact legacy-cost migration proof; no Route mode, Probe, or user-visible release note changes.
+// Reviewed for ActorOps v2 catalog-binding repair; no Route mode, Probe, or user-visible release note changes.
 export type ManualStep = {
   title: string
   description: string

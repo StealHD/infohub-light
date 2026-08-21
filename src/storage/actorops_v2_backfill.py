@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 
 LEGACY_BACKFILL_TABLES = (
+    "source_catalog",
     "apify_actor_route_profiles",
     "apify_actor_candidates",
     "apify_actor_adapter_revisions",
@@ -215,7 +216,12 @@ def _backfill_bindings(
             ),
         )
         count += 1
-    return count
+    from ..services.actorops.catalog_binding_bridge import (
+        bridge_catalog_source_bindings,
+    )
+
+    bridge = bridge_catalog_source_bindings(connection, apply=True)
+    return count + bridge.inserted
 
 
 def _backfill_policies(connection: sqlite3.Connection, stamp: str) -> int:

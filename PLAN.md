@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- 已实现但默认停用：ActorOps v2 Phase 1–5 已建立 global 26、Domain/Repository、三类 Adapter、稳定获取 Runtime、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 的离线 Route CAS、摘要/备份 CLI、shadow 选择事件和稳定内容身份已就绪；2026-08-21 已在本地离线完成一次 global 26 只读 backfill，所有 Route 仍为 disabled，未运行 shadow、active、真实来源或付费 Actor，现役 API/Worker 继续使用 v1。
+- 已实现但默认停用：ActorOps v2 Phase 1–5 已建立 global 26、Domain/Repository、三类 Adapter、稳定获取 Runtime、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 的离线 Route CAS、摘要/备份 CLI、shadow 选择事件和稳定内容身份已就绪；2026-08-21 已在本地离线完成一次 global 26 只读 backfill，并以 pending catalog-binding bridge 补齐一条缺失的 Instagram 订阅映射；所有 Route 仍为 disabled，未运行 shadow、active、真实来源或付费 Actor，现役 API/Worker 继续使用 v1。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 

@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-19",
-  "result": "已登记的 X、Instagram 与 YouTube ActorOps Route 以“每次获取条数”直接请求最新 N 条，不再把 Feed 的短显示窗口当作 Actor 抓取窗口；未知平台组合在创建 Actor 客户端前拒绝。YouTube 与此前失败的 X 来源均完成本地真实任务验收并返回 valid_nonempty。",
-  "status": "completed",
-  "task_id": "2026-08-19-actorops-latest-items-runtime",
-  "unresolved": [],
-  "validation": [
-    "完整 impacted preflight 17/17 通过（完整 Python、Vitest、类型检查、构建与产品文档）。",
-    "本地 8080 revision 5301e4b4e070 健康；YouTube 获取 2 条/新增 1 条，X 获取 20 条/新增 1 条，最终 Actor 尝试均为 valid_nonempty。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-20",
@@ -408,6 +389,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "迁移与历史费用审计定向测试 29 项通过。",
     "impacted preflight 15/15 通过，覆盖后端、前端、控制面、代码尺寸和产品文档。",
     "本地 apply 已通过 marker/shape、integrity_check 与 foreign_key_check；global 25 保持惰性。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "修复 ActorOps v2 global 26 backfill 只复制旧 ActorOps binding、遗漏既有 Instagram 目录订阅的缺口：新增通用离线 catalog binding bridge 与受控 repair CLI，已在本地库只插入 1 条经 Adapter 重验的 pending v2 binding；不改写订阅、v1 binding、Candidate、LKG、水位、Attempt、费用或 Route mode。切流摘要现在能重验该 bridge 而不把 pending 当作 ready。",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-v2-catalog-binding-repair",
+  "unresolved": [
+    "Instagram Route 仍因未验证 binding 与 active slot 不一致保持 disabled；未执行 shadow、active、真实来源或付费 Actor。"
+  ],
+  "validation": [
+    "新增 migration/repair/global-25 fail-closed/切流摘要契约测试，以及现有 migration、cutover、Adapter、目录来源与 source-acquisition 回归全部通过。",
+    "impacted preflight 17/17 通过；本地 API/Worker Docker 健康，ready 返回 ready；repair apply 后 integrity/foreign keys 通过。"
   ]
 }
 ```

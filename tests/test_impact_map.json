@@ -205,6 +205,7 @@
         "src/services/worker_actorops_v2_maintenance.py",
         "src/storage/actorops_v2*.py",
         "scripts/migrate_actorops_v2.py",
+        "scripts/repair_actorops_v2_catalog_bindings.py",
         "scripts/audit_actorops_v2_legacy_costs.py",
         "tests/test_actorops_v2*.py",
         "tests/test_worker_actorops_v2_isolation.py",
@@ -223,6 +224,7 @@
       "id": "ActorOps v2 cutover controls",
       "globs": [
         "scripts/actorops_v2_cutover.py",
+        "scripts/actorops_v2_cutover_legacy.py",
         "src/services/actorops/identity.py",
         "src/services/actorops/repository_cutover.py",
         "src/services/actorops/youtube_rss_compat.py",
