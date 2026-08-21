@@ -1,4 +1,4 @@
-// Reviewed for ActorOps per-revision mapping and authorized cost-cap controls; no user-visible release note was added.
+// Reviewed for ActorOps per-revision mapping and authorized cost-cap migration controls; no user-visible release note was added.
 export type ManualStep = {
   title: string
   description: string

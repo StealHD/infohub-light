@@ -321,10 +321,7 @@ def apify_actor_canary_batches_v17_schema_shapes_valid(
     validation_sql = table_sql.get("apify_actor_validations", "")
     return (
         "check(max_candidatesbetween1and3)" in batch_sql
-        and (
-            "max_total_charge_usd<=0.06" in batch_sql
-            or "max_total_charge_usd<=0.30" in batch_sql
-        )
+        and any(limit in batch_sql for limit in ("max_total_charge_usd<=0.06", "max_total_charge_usd<=0.30", "max_total_charge_usd<=0.60"))
         and "unique(workspace_id,approval_key_hash)" in batch_sql
         and "statusin('planned','preflight_passed','preflight_failed','queued','running','succeeded','failed','not_needed_no_charge','blocked_unknown_start')"
         in item_sql
@@ -508,11 +505,11 @@ def apify_actor_validation_tuning_v20_schema_shapes_valid(
     return (
         "check(timeout_secondsbetween180and900)" in settings_sql
         and "sample_itemsin(1,3,5)" in settings_sql
-        and "max_charge_usd<=0.10" in settings_sql
+        and any(limit in settings_sql for limit in ("max_charge_usd<=0.10", "max_charge_usd<=0.20"))
         and "primarykey(stage_id,revision_id)" in settings_sql
-        and "max_total_charge_usd<=0.30" in batch_sql
-        and "per_candidate_cap_usd<=0.10" in batch_sql
-        and "authorized_cap_usd<=0.10" in item_sql
+        and any(limit in batch_sql for limit in ("max_total_charge_usd<=0.30", "max_total_charge_usd<=0.60"))
+        and any(limit in batch_sql for limit in ("per_candidate_cap_usd<=0.10", "per_candidate_cap_usd<=0.20"))
+        and any(limit in item_sql for limit in ("authorized_cap_usd<=0.10", "authorized_cap_usd<=0.20"))
         and "route_validation_cap_usd<=0.30" in stage_sql
     )
 
@@ -3115,12 +3112,12 @@ class ServiceStore:
                 max_total_charge_usd REAL NOT NULL
                     CHECK(
                         max_total_charge_usd > 0
-                        AND max_total_charge_usd <= 0.30
+                        AND max_total_charge_usd <= 0.60
                     ),
                 per_candidate_cap_usd REAL NOT NULL
                     CHECK(
                         per_candidate_cap_usd > 0
-                        AND per_candidate_cap_usd <= 0.10
+                        AND per_candidate_cap_usd <= 0.20
                     ),
                 goal TEXT NOT NULL DEFAULT 'initial_pool' CHECK(goal IN (
                     'initial_pool', 'complete_third', 'upgrade_legacy',
@@ -3185,7 +3182,7 @@ class ServiceStore:
                 authorized_cap_usd REAL NOT NULL
                     CHECK(
                         authorized_cap_usd > 0
-                        AND authorized_cap_usd <= 0.10
+                        AND authorized_cap_usd <= 0.20
                     ),
                 actual_cost_usd REAL
                     CHECK(actual_cost_usd IS NULL OR actual_cost_usd >= 0),
@@ -3351,7 +3348,7 @@ class ServiceStore:
                 sample_items INTEGER NOT NULL
                     CHECK(sample_items IN (1, 3, 5)),
                 max_charge_usd REAL NOT NULL
-                    CHECK(max_charge_usd > 0 AND max_charge_usd <= 0.10),
+                    CHECK(max_charge_usd > 0 AND max_charge_usd <= 0.20),
                 supports_sample_items INTEGER NOT NULL DEFAULT 0
                     CHECK(supports_sample_items IN (0, 1)),
                 profile_hash TEXT NOT NULL CHECK(

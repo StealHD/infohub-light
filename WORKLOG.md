@@ -14,26 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-20",
-  "result": "从本地 main 基线创建 codex/actorops-v2 worktree，完成 ActorOps v2 Phase 0：盘点现役代码、31 张相关表、Worker/API/UI/测试与删除地图，确定 stable-fetch-first、每订阅能力独立 Adapter、global 26、显式原生降级和有界站立授权的 planned 合同；未修改产品运行逻辑。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-v2-phase0",
-  "unresolved": [],
-  "validation": [
-    "ActorOps/迁移/Worker Discovery/YouTube 后端定向 Pytest 481 项通过；ActorOps 前端 Vitest 9 个文件、35 项通过。",
-    "Markdown 控制与产品文档定向 Pytest 12 项通过；init-pro schema 3 结构校验和 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
   "result": "完成 ActorOps v2 Phase 1：新增无平台分支的 Domain、Adapter Port/Registry、Policy 和事务 Repository；global 26 以七张小表、单调 trigger、fresh bootstrap、v24 摘要 backfill 与显式离线 CLI 落地。existing v24 缺少 26 时 v1 API/Worker readiness 不变，global 25 不读写，v2 Runtime/真实 Adapter/feature flag 仍停用。",
   "status": "completed",
   "task_id": "2026-08-20-actorops-v2-phase1",
@@ -415,6 +395,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps pool, staging, runtime, canary, settlement and API pytest suite passed (98 tests).",
     "Code-size, product-doc, Markdown-control, init-pro structural, JSON and git diff checks passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Added explicit global 27 offline migration for authorized Actor validation caps: exact ledger CHECK upgrades to per-candidate $0.20 and batch $0.60, with pre-network fail-closed gating on un-migrated stores.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-validation-cap-v27",
+  "unresolved": [],
+  "validation": [
+    "100 targeted ActorOps tests",
+    "schema migration dry-run",
+    "impacted control preflight",
+    "control validators"
   ]
 }
 ```

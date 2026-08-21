@@ -291,6 +291,15 @@
       "groups": ["python_api_store", "python_scripts"]
     },
     {
+      "id": "ActorOps validation-cap v27 migration",
+      "globs": [
+        "src/storage/apify_actor_validation_cap_v27_schema.py",
+        "scripts/migrate_apify_actor_validation_cap_v27.py",
+        "tests/test_migrate_apify_actor_validation_cap_v27.py"
+      ],
+      "groups": ["python_api_store", "python_scripts"]
+    },
+    {
       "id": "Remote MCP/OpenClaw",
       "globs": [
         "src/api/agent_delegation_routes.py",

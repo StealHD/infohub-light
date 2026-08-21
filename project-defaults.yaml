@@ -175,7 +175,7 @@
       "apify_actor_ops_route_canary_budget_usd": 0.1,
       "apify_actor_ops_route_canary_max_attempts": 5,
       "apify_actor_ops_canary_batch_max_candidates": 3,
-      "apify_actor_ops_canary_batch_max_total_usd": 0.30,
+      "apify_actor_ops_canary_batch_max_total_usd": 0.60,
       "apify_actor_ops_pool_stage_max_total_usd": 6.06,
       "apify_actor_ops_canary_batch_confirmation": "确认付费验证主备",
       "apify_actor_ops_revision_preflight_attempts": 3,

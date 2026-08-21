@@ -36,6 +36,12 @@ def _ensure_ops_symbols() -> Any:
     return ops
 
 
+def _validation_cap_migration_required(connection: sqlite3.Connection) -> bool:
+    from ..storage.apify_actor_validation_cap_v27_schema import migration_required
+
+    return migration_required(connection)
+
+
 class ActorPoolManagementMixin:
     """Operations that mutate or project the fixed three-slot active pool."""
 
@@ -622,6 +628,12 @@ class ActorPoolManagementMixin:
             )
         with self._write() as writer:
             route = self._require_route(writer, route_id)
+            if cap > 0.10 and _validation_cap_migration_required(writer):
+                raise ops.ActorOpsError(
+                    "apify_actor_validation_cap_migration_required",
+                    "Actor validation cost-cap migration is required before using this ceiling",
+                    status_code=412,
+                )
             if int(route["generation"]) != int(expected_generation):
                 raise ops.ActorOpsError(
                     "apify_actor_route_generation_conflict",

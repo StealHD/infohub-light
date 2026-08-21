@@ -1,4 +1,4 @@
-// Reviewed: ActorOps mapping and authorized cost-cap controls add no user-visible changelog entry.
+// Reviewed: ActorOps mapping and authorized cost-cap migration controls add no user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
