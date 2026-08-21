@@ -32,7 +32,7 @@ class ApifyRoutePriceCapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_generation: StrictInt = Field(ge=1)
-    per_run_cap_usd: float = Field(gt=0, le=0.10)
+    per_run_cap_usd: float = Field(gt=0, le=0.20)
 
 
 def register_actor_ops_pool_operator_routes(app: FastAPI, context: Any) -> None:

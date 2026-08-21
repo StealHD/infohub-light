@@ -32,13 +32,13 @@ def test_route_price_cap_does_not_require_a_prior_pool_activation(tmp_path, monk
     route = _route(store, "youtube/channel/items")
     response = client.patch(
         f"/api/admin/apify-routes/{route['route_id']}/price-cap",
-        json={"expected_generation": route["generation"], "per_run_cap_usd": 0.10},
+        json={"expected_generation": route["generation"], "per_run_cap_usd": 0.20},
     )
     assert response.status_code == 200, response.text
-    assert response.json()["data"]["per_run_cap_usd"] == 0.10
+    assert response.json()["data"]["per_run_cap_usd"] == 0.20
 
 
-@pytest.mark.parametrize("invalid_cap", [0, 0.100001, 100, float("inf"), float("nan")])
+@pytest.mark.parametrize("invalid_cap", [0, 0.200001, 100, float("inf"), float("nan")])
 def test_route_price_cap_endpoints_reject_unsafe_values(
     tmp_path, monkeypatch, invalid_cap: float
 ) -> None:
@@ -74,7 +74,7 @@ def test_route_price_cap_endpoints_reject_unsafe_values(
     assert legacy.status_code == 400
 
 
-@pytest.mark.parametrize("invalid_cap", [0.100001, 100, float("inf"), float("nan")])
+@pytest.mark.parametrize("invalid_cap", [0.200001, 100, float("inf"), float("nan")])
 def test_route_price_cap_service_rejects_unsafe_values(
     tmp_path, invalid_cap: float
 ) -> None:
@@ -221,11 +221,11 @@ def test_route_price_cap_is_cas_guarded_and_does_not_replace_pool(tmp_path, monk
     _ops, route, revisions = _ready_route(store, route_key="instagram/profile/items")
     url = f"/api/admin/apify-routes/{route['route_id']}"
     updated = client.patch(f"{url}/price-cap", json={
-        "expected_generation": route["generation"], "per_run_cap_usd": 0.10,
+        "expected_generation": route["generation"], "per_run_cap_usd": 0.20,
     })
     assert updated.status_code == 200, updated.text
     data = updated.json()["data"]
-    assert data["per_run_cap_usd"] == 0.10
+    assert data["per_run_cap_usd"] == 0.20
     assert [slot["revision_id"] for slot in data["slots"]] == revisions
     stale = client.patch(f"{url}/price-cap", json={
         "expected_generation": route["generation"], "per_run_cap_usd": 0.05,
@@ -239,7 +239,7 @@ def test_x_slot_refresh_uses_one_candidate_and_retains_prior_safe_revision(tmp_p
     ops, route, _active = _ready_route(store, route_key="x/profile")
     route = ops.set_route_price_cap(
         str(route["route_id"]),
-        per_run_cap_usd=0.10,
+        per_run_cap_usd=0.20,
         expected_generation=int(route["generation"]),
     )
     prior = ops.create_discovery_run(
@@ -286,8 +286,8 @@ def test_x_slot_refresh_uses_one_candidate_and_retains_prior_safe_revision(tmp_p
         item for item in projected["candidates"] if item.get("revision_id") == revision_id
     )
     assert selected["selectable"] is True
-    assert selected["max_validation_charge_usd"] == 0.10
-    assert selected["validation_options"]["max_charge_limit_usd"] == 0.10
+    assert selected["max_validation_charge_usd"] == 0.20
+    assert selected["validation_options"]["max_charge_limit_usd"] == 0.20
     plan = ops.get_canary_plan(
         latest_run_id,
         goal="replace_slot",
@@ -299,7 +299,7 @@ def test_x_slot_refresh_uses_one_candidate_and_retains_prior_safe_revision(tmp_p
         target_slot_count=3,
     )
     assert plan["items"][0]["revision_id"] == revision_id
-    assert plan["items"][0]["authorized_cap_usd"] == 0.10
+    assert plan["items"][0]["authorized_cap_usd"] == 0.20
 
 
 def test_non_x_slot_refresh_retains_prior_safe_revision(tmp_path) -> None:

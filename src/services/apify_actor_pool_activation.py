@@ -33,7 +33,7 @@ class ApifyActorPoolActivationMixin:
                 "Active pool does not contain the permitted number of slots",
                 status_code=422,
             )
-        cap = None if per_run_cap_usd is None else _bounded_cost(per_run_cap_usd, maximum=0.10)
+        cap = None if per_run_cap_usd is None else _bounded_cost(per_run_cap_usd, maximum=0.20)
         return requested, populated, cap
 
     def _activation_route_guard(

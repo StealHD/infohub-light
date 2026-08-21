@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-20",
-  "result": "修复 ActorOps 在 Worker 重启后对已登记远端 Run 不做状态读取而长期阻塞的问题：未知启动继续禁止同任务切备或重跑，Worker 只读核对原 Run，终态入账后由既有恢复链路解除屏障；主备用 UI 现在会正确显示不可运行槽位。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-registered-run-recovery",
-  "unresolved": [],
-  "validation": [
-    "完整 impacted preflight 17/17 通过：全量 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制与产品文档门禁均通过。",
-    "ActorOps 映射 Playwright（actorops-pool-management 与 production-admin）66 项通过；ActorOps 桌面明暗视觉基线已同步。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface",
@@ -414,6 +396,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "新增无值请求、candidate-local Manifest 与未观察 pointer 拒绝测试；Canary、批次记账、Worker 和 Pool 授权共 46 项 Pytest 通过。",
     "代码大小、产品文档、Markdown/项目控制、impact map JSON 与 diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Raised the explicit ActorOps Route and Candidate-validation ceiling from $0.10 to $0.20 after a real content-valid Canary exceeded the former hard cap. Defaults remain $0.02; CAS, one-shot approval, final-cost accounting and over-cap rejection remain enforced.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-authorized-cost-cap",
+  "unresolved": [],
+  "validation": [
+    "ActorOps pool, staging, runtime, canary, settlement and API pytest suite passed (98 tests).",
+    "Code-size, product-doc, Markdown-control, init-pro structural, JSON and git diff checks passed."
   ]
 }
 ```

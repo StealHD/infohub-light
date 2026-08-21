@@ -12,7 +12,7 @@ from typing import Any, Literal, Mapping
 
 ROUTE_POOL_REMOVE_CONFIRMATION = "确认移出 Actor 主备池"
 ROUTE_POOL_PROMOTE_CONFIRMATION = "确认设为主用 Actor"
-MAX_OPERATOR_ROUTE_CAP_USD = 0.10
+MAX_OPERATOR_ROUTE_CAP_USD = 0.20
 
 
 def _ops_module():

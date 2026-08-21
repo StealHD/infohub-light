@@ -115,7 +115,7 @@ class ApifyActorRuntimeService:
                 run = await self.client.run_actor_detailed(
                     slot.actor_id,
                     actor_input,
-                    max_total_charge_usd=min(snapshot.per_run_cap_usd, 0.10),
+                    max_total_charge_usd=min(snapshot.per_run_cap_usd, 0.20),
                     logical_run_id=snapshot.attempt_id or job_id or source_id,
                     build_number=slot.build_number,
                     max_paid_dataset_items=max(1, int(runtime.max_items)),
@@ -244,7 +244,7 @@ class ApifyActorRuntimeService:
             run = await self.client.run_actor_detailed(
                 slot.actor_id,
                 actor_input,
-                max_total_charge_usd=min(snapshot.per_run_cap_usd, 0.10),
+                max_total_charge_usd=min(snapshot.per_run_cap_usd, 0.20),
                 logical_run_id=snapshot.attempt_id or job_id or source_id,
                 build_number=(
                     slot.build_number if slot.execution_mode != "current" else None

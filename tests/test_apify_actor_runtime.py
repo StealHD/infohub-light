@@ -131,8 +131,8 @@ def test_controlled_x_runtime_honors_the_source_item_limit():
     asyncio.run(_controlled_x_runtime_honors_the_source_item_limit())
 
 
-def test_actor_runtimes_clamp_legacy_route_caps_to_ten_cents():
-    asyncio.run(_actor_runtimes_clamp_legacy_route_caps_to_ten_cents())
+def test_actor_runtimes_clamp_legacy_route_caps_to_twenty_cents():
+    asyncio.run(_actor_runtimes_clamp_legacy_route_caps_to_twenty_cents())
 
 
 def test_runtime_separates_target_key_and_actor_failures():
@@ -317,7 +317,7 @@ async def _controlled_x_runtime_honors_the_source_item_limit():
     assert result.value[0].published_at > result.value[1].published_at
 
 
-async def _actor_runtimes_clamp_legacy_route_caps_to_ten_cents():
+async def _actor_runtimes_clamp_legacy_route_caps_to_twenty_cents():
     manifest_slot = RouteSlotSnapshot(
         slot_name="primary", candidate_id="candidate", revision_id="revision",
         actor_id="vendor/youtube-actor", publisher="vendor", build_id="build-id",
@@ -336,7 +336,7 @@ async def _actor_runtimes_clamp_legacy_route_caps_to_ten_cents():
             source_key="rss:youtube", source_name="OpenAI",
         ),
     )
-    assert manifest_client.kwargs["max_total_charge_usd"] == 0.10
+    assert manifest_client.kwargs["max_total_charge_usd"] == 0.20
 
     x_slot = RouteSlotSnapshot(
         slot_name="primary", candidate_id="candidate-x", revision_id="revision-x",
@@ -366,4 +366,4 @@ async def _actor_runtimes_clamp_legacy_route_caps_to_ten_cents():
             source_key="x:openai", source_name="OpenAI",
         ),
     )
-    assert x_client.kwargs["max_total_charge_usd"] == 0.10
+    assert x_client.kwargs["max_total_charge_usd"] == 0.20

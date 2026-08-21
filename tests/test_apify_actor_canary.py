@@ -77,7 +77,7 @@ class _Client:
         )
 
 
-def test_paid_canary_runtime_clamps_legacy_approved_cap() -> None:
+def test_paid_canary_runtime_clamps_legacy_approved_cap_to_twenty_cents() -> None:
     class Client:
         async def run_actor_detailed(self, _actor_id, _actor_input, **kwargs):
             self.kwargs = kwargs
@@ -102,7 +102,7 @@ def test_paid_canary_runtime_clamps_legacy_approved_cap() -> None:
         )
     )
     assert result.actual_charge_usd is None
-    assert client.kwargs["max_total_charge_usd"] == 0.10
+    assert client.kwargs["max_total_charge_usd"] == 0.20
 
 
 def test_paid_canary_uses_exact_revision_and_persists_only_semantic_evidence(

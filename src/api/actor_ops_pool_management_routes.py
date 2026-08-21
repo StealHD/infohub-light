@@ -52,7 +52,7 @@ class ApifyActorValidationProfileRequest(BaseModel):
     candidate_id: str = Field(min_length=1, max_length=128)
     timeout_seconds: StrictInt = Field(ge=180, le=900)
     sample_items: Literal[1, 3, 5]
-    max_charge_usd: float = Field(gt=0, le=0.10)
+    max_charge_usd: float = Field(gt=0, le=0.20)
     options_hash: str = Field(
         min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$"
     )

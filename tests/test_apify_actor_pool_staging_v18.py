@@ -1695,7 +1695,7 @@ def test_status_read_failure_reconciles_known_run_without_second_actor_start(
 
 @pytest.mark.parametrize(
     ("timeout_seconds", "sample_items", "max_charge_usd"),
-    ((179, 1, 0.02), (901, 1, 0.02), (300, 2, 0.02), (300, 1, 0.100001)),
+    ((179, 1, 0.02), (901, 1, 0.02), (300, 2, 0.02), (300, 1, 0.200001)),
 )
 def test_validation_profile_rejects_out_of_bounds_without_creating_spend(
     tmp_path,

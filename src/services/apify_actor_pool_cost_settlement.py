@@ -42,7 +42,7 @@ class ApifyActorPoolCostSettlementMixin:
         """
 
         actual = float(actual_cost_usd)
-        if not math.isfinite(actual) or actual < 0 or actual > 0.10:
+        if not math.isfinite(actual) or actual < 0 or actual > 0.20:
             raise ValueError("Actor validation actual cost is outside bounds")
         if int(duration_seconds) < 0:
             raise ValueError("Actor validation duration cannot be negative")

@@ -176,3 +176,4 @@
 | D170 | 目录社交订阅缺失旧 binding 时以离线 pending bridge 修复 | 2026-08-21 | [查看](records/D151-D175.md#d170) |
 | D171 | 切流只比较当前可执行 revision，并以 settled 来源证明解锁既有 binding | 2026-08-21 | [查看](records/D151-D175.md#d171) |
 | D172 | 实际 Canary 的 AI 字段映射必须逐精确 Revision 证明 | 2026-08-21 | [查看](records/D151-D175.md#d172) |
+| D173 | 可配置 Canary 上限与真实费用证明一致 | 2026-08-21 | [查看](records/D151-D175.md#d173) |

@@ -27,7 +27,7 @@ async def run_actor_with_charge_guard(
     run = await runner.client.run_actor_detailed(
         slot.actor_id,
         actor_input,
-        max_total_charge_usd=min(float(snapshot.per_run_cap_usd), 0.10),
+        max_total_charge_usd=min(float(snapshot.per_run_cap_usd), 0.20),
         logical_run_id=attempt_id,
         build_number=slot.build_number,
         max_paid_dataset_items=max_paid_dataset_items,
