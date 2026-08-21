@@ -68,6 +68,19 @@ _BLOCKER_QUERIES = {
                             AND run.remote_run_id IS NOT NULL
                       )
                   )
+                  OR (
+                      (SELECT COUNT(*) FROM apify_actor_runs AS known_run
+                       WHERE known_run.logical_run_id = apify_actor_attempts.id
+                         AND known_run.remote_run_id IS NOT NULL) = 1
+                      AND EXISTS (
+                          SELECT 1 FROM apify_actor_runs AS final_run
+                          WHERE final_run.logical_run_id = apify_actor_attempts.id
+                            AND final_run.remote_run_id IS NOT NULL
+                            AND final_run.status IN ('succeeded','failed','aborted','timed_out','cancelled','start_rejected')
+                            AND final_run.charge_final = 1
+                            AND final_run.charge_actual_usd IS NOT NULL
+                      )
+                  )
               )
           )""",
     "runs": """SELECT COUNT(*) FROM apify_actor_runs

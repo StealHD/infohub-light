@@ -172,3 +172,4 @@
 | D166 | ActorOps v2 以离线 Route CAS 和逐平台费用授权切流 | 2026-08-20 | [查看](records/D151-D175.md#d166) |
 | D167 | 历史 Actor 费用以保留最坏暴露的离线证据隔离 | 2026-08-21 | [查看](records/D151-D175.md#d167) |
 | D168 | ActorOps v2 管理面采用 additive facade 与默认关闭策略 CAS | 2026-08-21 | [查看](records/D151-D175.md#d168) |
+| D169 | global 26 只接受单一已结算远端 Run 作为旧 Attempt 费用证明 | 2026-08-21 | [查看](records/D151-D175.md#d169) |

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import scripts.migrate_actorops_v2 as migration_module
-from scripts.migrate_actorops_v2 import migrate
+from scripts.migrate_actorops_v2 import migrate, migration_blockers
 from src.api.server import create_app
 from src.services.worker_migration_gate import first_required_worker_startup_migration
 from src.services.apify_actor_ops import ApifyActorOpsService
@@ -147,6 +147,37 @@ def _seed_v1_candidate(store: ServiceStore) -> tuple[str, str, str]:
     return route_id, revision_id, source_id
 
 
+def _insert_exact_final_run(
+    store: ServiceStore,
+    *,
+    run_id: str,
+    attempt_id: str = "v1-terminal-attempt",
+    final: bool = True,
+) -> None:
+    connection = store.connect()
+    connection.execute(
+        """INSERT INTO apify_actor_runs(
+               id, workspace_id, purpose, secret_id, secret_version,
+               pool_generation, logical_run_id, remote_run_id, status,
+               created_at, terminal_at, updated_at,
+               charge_reserved_usd, charge_actual_usd, charge_final
+           ) VALUES (?, ?, 'acquisition', 'legacy-secret', 1, 1, ?, ?,
+                     'succeeded', ?, ?, ?, 0.01, ?, ?)""",
+        (
+            run_id,
+            DEFAULT_WORKSPACE_ID,
+            attempt_id,
+            f"remote-{run_id}",
+            "2026-08-20T00:00:00+00:00",
+            "2026-08-20T00:00:01+00:00",
+            "2026-08-20T00:00:01+00:00",
+            0.001 if final else None,
+            1 if final else 0,
+        ),
+    )
+    connection.commit()
+
+
 def test_fresh_bootstrap_installs_v2_without_global_25(tmp_path: Path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
@@ -222,6 +253,59 @@ def test_migration_allows_settled_legacy_attempt_statuses(
     store.close()
 
     assert migrate(data_dir, apply=False)["status"] == "migration_required"
+
+
+def test_migration_accepts_single_exact_final_run_for_terminal_attempt(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    _seed_v1_candidate(store)
+    connection = store.connect()
+    connection.execute(
+        """UPDATE apify_actor_attempts
+           SET status = 'cancelled', actual_cost_usd = 0, cost_final = 0,
+               last_error_code = 'apify_worker_restart_result_lost'
+           WHERE id = 'v1-terminal-attempt'"""
+    )
+    connection.commit()
+    _insert_exact_final_run(store, run_id="exact-final-run")
+    _drop_v2(store)
+
+    assert migration_blockers(store.connect())["attempt_costs"] == 0
+    store.close()
+    assert migrate(data_dir, apply=False)["status"] == "migration_required"
+
+
+@pytest.mark.parametrize("extra_run_is_final", (False, True))
+def test_migration_rejects_ambiguous_or_unfinalized_run_cost_proof(
+    tmp_path: Path, extra_run_is_final: bool
+) -> None:
+    data_dir = tmp_path / "data"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    _seed_v1_candidate(store)
+    connection = store.connect()
+    connection.execute(
+        """UPDATE apify_actor_attempts
+           SET status = 'cancelled', actual_cost_usd = 0, cost_final = 0,
+               last_error_code = 'apify_worker_restart_result_lost'
+           WHERE id = 'v1-terminal-attempt'"""
+    )
+    connection.commit()
+    _insert_exact_final_run(store, run_id="first-final-run")
+    if extra_run_is_final:
+        _insert_exact_final_run(store, run_id="second-final-run")
+    else:
+        store.connect().execute(
+            "UPDATE apify_actor_runs SET charge_actual_usd = NULL, charge_final = 0 "
+            "WHERE id = 'first-final-run'"
+        )
+        store.connect().commit()
+    _drop_v2(store)
+
+    assert migration_blockers(store.connect())["attempt_costs"] == 1
+    store.close()
+    assert migrate(data_dir, apply=False)["status"] == "blocked"
 
 
 def test_global_25_presence_and_damage_are_ignored(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 Phase 7 admin facade remains default-off; no route cutover, Probe, or user-visible changelog entry was added.
+// Reviewed: ActorOps v2 exact legacy-cost migration proof keeps Routes default-off; no cutover, Probe, or user-visible changelog entry was added.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

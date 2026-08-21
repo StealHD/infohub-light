@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 Phase 7 additive admin facade; v2 policy/UI remain default-off and do not enable routes, probes, or user-visible release notes.
+// Reviewed for ActorOps v2 exact legacy-cost migration proof; no Route mode, Probe, or user-visible release note changes.
 export type ManualStep = {
   title: string
   description: string

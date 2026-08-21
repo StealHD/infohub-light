@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "ui"
   ],
-  "recorded_on": "2026-08-18",
-  "result": "允许历史遗留的单条已验证 Actor 池按第一个空槽受控补足第二条；补位仍须完成 Canary、费用对账和来源验证，当前池不会提前切换。",
-  "status": "completed",
-  "task_id": "2026-08-18-partial-pool-recovery",
-  "unresolved": [],
-  "validation": [
-    "Pool management、staging 与 API 回归 69 项通过。",
-    "前端 typecheck、lint、产品文档与代码规模检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "interface",
-    "ui"
-  ],
   "recorded_on": "2026-08-19",
   "result": "已登记的 X、Instagram 与 YouTube ActorOps Route 以“每次获取条数”直接请求最新 N 条，不再把 Feed 的短显示窗口当作 Actor 抓取窗口；未知平台组合在创建 Actor 客户端前拒绝。YouTube 与此前失败的 X 来源均完成本地真实任务验收并返回 valid_nonempty。",
   "status": "completed",
@@ -403,6 +384,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2/API/observability 定向测试通过。",
     "impacted preflight 17/17 通过，覆盖后端、前端、控制面、代码尺寸、产品文档和生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "ActorOps v2 修复了旧 terminal Attempt 遗失 cost_final 派生位的离线迁移判定：只有恰好一个已终态且已保存最终实际费用的 remote Run 可作证明。经确认的历史费用 quarantine 后，已在本地离线完成 global 26 只读 backfill；所有 Route 仍为 disabled。",
+  "status": "partial",
+  "task_id": "2026-08-21-actorops-v2-global26-local-migration",
+  "unresolved": [
+    "YouTube、Instagram、X 的 shadow/active、20 次自然获取和重启验收仍需逐平台单独费用授权。",
+    "ACTOROPS_V2_ENABLED 仍保持 false；Phase 7 候选操作和 Phase 8 v1 退役尚未开始。"
+  ],
+  "validation": [
+    "迁移与历史费用审计定向测试 29 项通过。",
+    "impacted preflight 15/15 通过，覆盖后端、前端、控制面、代码尺寸和产品文档。",
+    "本地 apply 已通过 marker/shape、integrity_check 与 foreign_key_check；global 25 保持惰性。"
   ]
 }
 ```
