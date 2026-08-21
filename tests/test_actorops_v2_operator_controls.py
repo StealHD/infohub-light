@@ -248,6 +248,45 @@ def test_replacement_uses_existing_validation_key_purpose(tmp_path: Path, monkey
     store.close()
 
 
+def test_manual_selection_can_restore_a_previously_active_inactive_candidate(tmp_path: Path) -> None:
+    store, repository, route_id, _source_id = _setup(tmp_path)
+    active = repository.get_candidate("active")
+    replacement = repository.get_candidate("replacement")
+    with repository.transaction():
+        replacement = repository.record_candidate_outcome(
+            replacement.candidate_id, expected_generation=replacement.generation, succeeded=True,
+        )
+        replacement = repository.transition_candidate(
+            replacement.candidate_id, CandidateLifecycle.STATIC_VALID,
+            CandidateLifecycle.PROBATIONARY, expected_generation=replacement.generation,
+        )
+        # Model a completed zero-cost restore point: a runnable replacement is
+        # active and the original active Candidate is retained as inactive.
+        stamp = "2026-08-21T00:00:00+00:00"
+        store.connect().execute(
+            "UPDATE actor_candidates_v2 SET assignment_role='inactive', priority=NULL, generation=generation+1, updated_at=? WHERE candidate_id='active'",
+            (stamp,),
+        )
+        store.connect().execute(
+            "UPDATE actor_candidates_v2 SET assignment_role='active', priority=0, generation=generation+1, updated_at=? WHERE candidate_id='replacement'",
+            (stamp,),
+        )
+        store.connect().execute(
+            "UPDATE actor_routes_v2 SET generation=generation+1, updated_at=? WHERE route_id=?",
+            (stamp, route_id),
+        )
+        current_route = repository.get_route(route_id)
+        original = repository.get_candidate("active")
+        repository.promote_standby_candidate(
+            route_id, original.candidate_id,
+            expected_route_generation=current_route.generation,
+            expected_candidate_generation=original.generation,
+        )
+    assert repository.get_candidate("active").assignment_role is AssignmentRole.ACTIVE
+    assert repository.get_candidate("replacement").assignment_role is AssignmentRole.INACTIVE
+    store.close()
+
+
 def test_explicit_replacement_runs_one_probe_then_applies_without_feed_updates(tmp_path: Path) -> None:
     store, repository, route_id, source_id = _setup(tmp_path)
     with repository.transaction():

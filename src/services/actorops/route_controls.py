@@ -18,7 +18,7 @@ def promote_standby_candidate(
     expected_route_generation: int,
     expected_candidate_generation: int,
 ) -> None:
-    """Atomically make one existing standby the route's active Candidate.
+    """Atomically make one runnable manual selection the route's active Candidate.
 
     This only changes the frozen selection order.  It never starts a Run,
     changes a Manifest, or touches a source Binding.
@@ -31,9 +31,9 @@ def promote_standby_candidate(
         raise ActorOpsConflict("route changed before Candidate selection")
     if (
         target.route_id != route_id
-        or target.assignment_role is not AssignmentRole.STANDBY
+        or target.assignment_role not in {AssignmentRole.STANDBY, AssignmentRole.INACTIVE}
         or target.generation != int(expected_candidate_generation)
-        or target.priority is None
+        or (target.assignment_role is AssignmentRole.STANDBY and target.priority is None)
         or not candidate_is_runnable(
             target.lifecycle, build_id=target.build_id, manifest_hash=target.manifest_hash
         )
@@ -52,6 +52,7 @@ def promote_standby_candidate(
         raise ActorOpsConflict("route has no runnable active Candidate")
 
     stamp = datetime.now(timezone.utc).isoformat()
+    prior_priority = target.priority
     _set_assignment(
         repository, target.candidate_id, AssignmentRole.INACTIVE, None,
         expected_generation=target.generation, stamp=stamp,
@@ -64,10 +65,16 @@ def promote_standby_candidate(
         repository, target.candidate_id, AssignmentRole.ACTIVE, 0,
         expected_generation=target.generation + 1, stamp=stamp,
     )
-    _set_assignment(
-        repository, active.candidate_id, AssignmentRole.STANDBY, target.priority,
-        expected_generation=active.generation + 1, stamp=stamp,
-    )
+    if prior_priority is None:
+        # This is a zero-cost restore of a previously active Candidate (for
+        # example after an operator has proved a more expensive replacement).
+        # Do not invent a standby priority for the transient replacement.
+        pass
+    else:
+        _set_assignment(
+            repository, active.candidate_id, AssignmentRole.STANDBY, prior_priority,
+            expected_generation=active.generation + 1, stamp=stamp,
+        )
     changed = repository.connection.execute(
         """UPDATE actor_routes_v2 SET generation=generation+1, updated_at=?
            WHERE workspace_id=? AND route_id=? AND generation=?""",
