@@ -1,4 +1,4 @@
-// Reviewed: ActorOps Discovery AI fallback adds no user-visible changelog entry.
+// Reviewed: ActorOps exact-revision canary authorization adds no user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

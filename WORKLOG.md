@@ -9,29 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "capabilities",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-20",
-  "result": "ActorOps 退役未发布的自动付费/自动生效 auto-pool，新增替换回归一次免费 Discovery、付费确认 1/2 与生效确认 2/2；所有 Route 单 Run 上限统一为 $0.10，global 23/24 门禁和 global 25 惰性兼容完成收口。",
-  "status": "partial",
-  "task_id": "actorops-safe-retirement-dual-confirmation",
-  "unresolved": [
-    "真实库仍有 1 个历史 auto-pool Batch、2 个费用节点和 1 个无关 acquisition Run 未终态；两次显式精确 GET 对账均返回 unresolved。Worker 保持停止，未执行 retirement apply 或本地重启。"
-  ],
-  "validation": [
-    "最终 impacted preflight 17/17 通过，覆盖完整后端/前端、控制面、代码大小、产品文档、构建与静态检查。",
-    "ActorOps 后端定向回归、34 个前端 ActorOps Vitest、TypeScript、ESLint、UI contract、生产构建及双确认 Playwright 通过；未调用 Actor POST、AI 或通知。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface"
   ],
   "recorded_on": "2026-08-20",
@@ -417,6 +394,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "定向回归 52 项通过，覆盖 terminal slot 过滤、精确来源证明、CAS/idempotency、global 25 惰性与切流摘要。",
     "最终 impacted preflight 17/17 通过，覆盖完整 Python、前端 lint/typecheck/Vitest/build、控制、产品文档和代码尺寸检查。",
     "本地 Route 已由 shadow CAS 恢复 disabled；状态确认 0 个 v2 Attempt、0 未结费用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Actor Canary 计划层已复用执行前的精确 Revision 授权检查；已终态失败且仍为 open 的 Build/Manifest 会在生成计划时直接排除，避免创建后被 Worker 以 approval_revoked 取消。",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-exact-revision-plan-guard",
+  "unresolved": [
+    "当前本地 YouTube 候选中没有新的可授权 exact revision；已停止进一步付费测试，待新的免费 Discovery 产生未失败的候选后再串行验证。"
+  ],
+  "validation": [
+    "新增计划/执行一致性回归，并与候选授权、Pool staging/management 共 47 项 Pytest 通过。",
+    "代码大小策略、产品文档定向门禁、impact map JSON 与 git diff --check 通过。"
   ]
 }
 ```

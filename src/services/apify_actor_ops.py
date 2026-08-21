@@ -57,6 +57,7 @@ from .apify_actor_pool_workflow import project_active_pool_stage_workflow
 from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
 from .apify_actor_capability_matrix import route_profiles
 from .apify_actor_candidate_recovery import reopen_candidate_for_new_static_revision
+from .apify_actor_candidate_authorization import route_reference_candidate_authorized
 from .apify_actor_source_proof import (
     current_source_validation_ids,
     source_validation_failure_cutoffs,
@@ -3399,9 +3400,6 @@ class ApifyActorOpsService(
             required_successes = 1
             required_source_slots = 3
         elif goal in {"add_slot", "replace_slot"}:
-            # The target slot has already been validated against the live
-            # fixed pool above. The one new revision is staged without
-            # changing any active slot until full source proof is complete.
             required_successes = 1
             required_source_slots = resolved_target_slot_count
         elif goal == "upgrade_legacy":
@@ -3559,7 +3557,13 @@ class ApifyActorOpsService(
                 connection,
                 str(run["route_id"]),
                 str(row["revision_id"]),
-            ) is not None:
+            ) is not None or not route_reference_candidate_authorized(
+                connection,
+                self.workspace_id,
+                str(row["revision_id"]),
+                str(row["lifecycle"]),
+                str(row["candidate_state"]),
+            ):
                 continue
             if (
                 str(row["candidate_state"]) == "disabled"
@@ -3616,10 +3620,6 @@ class ApifyActorOpsService(
                 )
         elif maximum >= required_successes:
             best: tuple[Any, ...] | None = None
-            # Freeze every available candidate covered by this approval. The
-            # Worker still stops at the first safe target, but a failed first
-            # candidate must not force another paid approval when the same
-            # plan already disclosed and capped later candidates.
             for option in combinations(distinct, maximum):
                 validated = [
                     row for row in option if bool(row["already_validated"])

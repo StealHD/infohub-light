@@ -184,6 +184,7 @@
         "src/services/apify_actor_resilience.py",
         "src/services/apify_actor_freshness.py",
         "src/services/worker_actor_validation_handler.py",
+        "tests/test_apify_actor_pool_candidate_plan_authorization.py",
         "tests/test_apify_actor_compatibility_v21.py",
         "tests/test_apify_actor_resilience_v21.py"
       ],
