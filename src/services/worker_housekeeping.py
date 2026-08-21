@@ -265,6 +265,13 @@ def run_worker_housekeeping(
     except Exception:
         _rollback(store)
         logger.warning("ActorOps v2 maintenance enqueue failed", exc_info=True)
+    try:
+        from .worker_actorops_v2_replacement import enqueue_due_actorops_v2_replacements
+
+        enqueue_due_actorops_v2_replacements(store, queue)
+    except Exception:
+        _rollback(store)
+        logger.warning("ActorOps v2 replacement enqueue failed", exc_info=True)
 
 
 __all__ = ["WorkerCyclePorts", "run_worker_housekeeping"]

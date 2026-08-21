@@ -29,6 +29,7 @@ def require_actorops_v2_schema_if_enabled(store: ServiceStore) -> None:
             status_code=503,
             action=(
                 "Stop API and Worker, then run "
-                "scripts/migrate_actorops_v2.py --apply."
+                "scripts/migrate_actorops_v2.py --apply, then "
+                "scripts/migrate_actorops_v2_operator_controls.py --apply."
             ),
         )

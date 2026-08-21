@@ -179,6 +179,30 @@ def test_v2_candidate_promotion_is_admin_cas_and_does_not_start_actor(
     assert conflict.status_code == 409
 
 
+def test_v2_price_cap_is_cas_and_a_raise_requires_explicit_confirmation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    route = repository.get_route(route_id)
+
+    raise_without_confirmation = client.patch(
+        f"/api/admin/apify-routes/{route_id}/v2-price-cap",
+        json={"expected_route_generation": route.generation, "cap_usd": route.per_run_cap_usd + 0.01},
+    )
+    assert raise_without_confirmation.status_code == 422
+    lowered = client.patch(
+        f"/api/admin/apify-routes/{route_id}/v2-price-cap",
+        json={"expected_route_generation": route.generation, "cap_usd": 0.01},
+    )
+    assert lowered.status_code == 200, lowered.text
+    assert lowered.json()["data"]["per_run_cap_usd"] == 0.01
+    assert client.app.state.service_store.connect().execute(
+        "SELECT COUNT(*) FROM actor_attempts_v2"
+    ).fetchone()[0] == 0
+
+
 def test_v2_binding_verify_returns_zero_cost_evidence_failure(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -225,6 +249,24 @@ def test_v2_manual_controls_are_flag_gated_without_global_26_or_25_reads(
     joined = "\n".join(statements).casefold()
     assert "actor_routes_v2" not in joined
     assert "version = 25" not in joined
+
+
+def test_v2_operator_controls_are_flag_gated_without_global_26_28_25_or_27_reads(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch, v2_enabled=False)
+    _login(client)
+    statements: list[str] = []
+    client.app.state.service_store.connect().set_trace_callback(statements.append)
+
+    response = client.get("/api/admin/apify-routes/route-x/v2-candidates")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "actorops_v2_unavailable"
+    joined = "\n".join(statements).casefold()
+    assert "actor_routes_v2" not in joined
+    assert "actor_candidate_store_metadata_v2" not in joined
+    assert "version = 25" not in joined and "version = 27" not in joined and "version = 28" not in joined
 
 
 def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(

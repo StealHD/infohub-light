@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 
 from ..services.actorops.domain import AssignmentRole, CandidateRecord, RouteHealth
@@ -22,6 +23,7 @@ def actorops_v2_route_additions(
     route = repository.get_route(route_id)
     candidates = repository.list_route_candidates(route_id)
     bindings = repository.list_route_bindings(route_id)
+    metadata = repository.operator.list_metadata(route_id)
     active = next(
         (item for item in candidates if item.assignment_role is AssignmentRole.ACTIVE),
         None,
@@ -42,9 +44,10 @@ def actorops_v2_route_additions(
         "route_generation": route.generation,
         "health": health.value,
         "runtime_mode": route.runtime_mode.value,
-        "active_candidate": _candidate(active),
-        "standby_candidates": [_candidate(item) for item in standby],
-        "last_known_good": _candidate(lkg),
+        "per_run_cap_usd": route.per_run_cap_usd,
+        "active_candidate": _candidate(active, metadata.get(active.candidate_id) if active else None, repository),
+        "standby_candidates": [_candidate(item, metadata.get(item.candidate_id), repository) for item in standby],
+        "last_known_good": _candidate(lkg, metadata.get(lkg.candidate_id) if lkg else None, repository),
         "last_success_at": max(
             (str(item.last_success_at) for item in bindings if item.last_success_at),
             default=None,
@@ -126,19 +129,56 @@ def _require_enabled(store: Any) -> None:
     require_actorops_v2_if_enabled(store)
 
 
-def _candidate(candidate: CandidateRecord | None) -> dict[str, object] | None:
+def actorops_v2_candidate_projection(
+    repository: ActorOpsRepository, candidate: CandidateRecord
+) -> dict[str, object]:
+    return _candidate(candidate, repository.operator.metadata(candidate.candidate_id), repository) or {}
+
+
+def _candidate(
+    candidate: CandidateRecord | None, metadata: Any | None, repository: ActorOpsRepository
+) -> dict[str, object] | None:
     if candidate is None:
         return None
     return {
         "candidate_id": candidate.candidate_id,
-        "actor_id": candidate.actor_id,
-        "publisher": candidate.publisher,
         "build_number": candidate.build_number,
         "lifecycle": candidate.lifecycle.value,
         "assignment": candidate.assignment_role.value,
         "priority": candidate.priority,
         "generation": candidate.generation,
+        "store_metadata": _metadata(metadata),
+        "evidence_progress": _evidence(repository, candidate),
     }
+
+
+def _metadata(value: Any | None) -> dict[str, object] | None:
+    if value is None:
+        return None
+    try:
+        pricing = json.loads(value.pricing_json)
+    except (TypeError, ValueError):
+        pricing = []
+    return {
+        "actor_slug": value.actor_slug, "display_name": value.display_name,
+        "short_description": value.short_description, "developer_name": value.developer_name,
+        "maintained_by_apify": value.maintained_by_apify, "rating": value.rating,
+        "review_count": value.review_count, "bookmark_count": value.bookmark_count,
+        "total_users": value.total_users, "monthly_active_users": value.monthly_active_users,
+        "pricing": pricing if isinstance(pricing, list) else [], "last_modified_at": value.last_modified_at,
+        "observed_at": value.observed_at, "generation": value.generation,
+    }
+
+
+def _evidence(repository: ActorOpsRepository, candidate: CandidateRecord) -> dict[str, int]:
+    total = len(repository.operator.binding_set(candidate.route_id))
+    verified = int(repository.connection.execute(
+        """SELECT COUNT(DISTINCT target_fingerprint) FROM actor_attempts_v2
+           WHERE workspace_id=? AND candidate_id=? AND kind='probe' AND status='succeeded'
+             AND semantic_outcome='valid_nonempty' AND cost_final=1""",
+        (repository.workspace_id, candidate.candidate_id),
+    ).fetchone()[0])
+    return {"verified_bindings": min(verified, total), "required_bindings": total}
 
 
 def _degraded_reason(mode: str, health: RouteHealth, bindings: tuple[Any, ...]) -> str | None:
@@ -155,6 +195,7 @@ def _degraded_reason(mode: str, health: RouteHealth, bindings: tuple[Any, ...]) 
 
 __all__ = [
     "actorops_v2_route_additions",
+    "actorops_v2_candidate_projection",
     "actorops_v2_route_policy",
     "actorops_v2_workspace_policy",
     "public_maintenance_policy",

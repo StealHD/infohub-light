@@ -46,6 +46,8 @@ from .worker_actor_discovery_handler import (
 )
 from .worker_actorops_v2_discovery import run_actorops_v2_discovery
 from .worker_actorops_v2_maintenance import run_actorops_v2_maintenance
+from .worker_actorops_v2_replacement import run_actorops_v2_replacement
+from .worker_actorops_v2_metadata import run_actorops_v2_metadata_refresh
 from .worker_actor_validation_handler import (
     WorkerActorValidationPorts,
     actor_freshness_check_id as _actor_freshness_check_id,
@@ -114,6 +116,8 @@ WORKER_JOB_TRACE_POLICY = {
     "apify_actor_discovery": "job_lifecycle_only",
     "actorops_v2_discovery": "job_lifecycle_only",
     "actorops_v2_maintenance": "job_lifecycle_only",
+    "actorops_v2_replacement": "job_lifecycle_only",
+    "actorops_v2_metadata_refresh": "job_lifecycle_only",
 }
 
 
@@ -422,6 +426,8 @@ def _run_job(
                 "apify_actor_discovery": _run_apify_actor_discovery,
                 "actorops_v2_discovery": run_actorops_v2_discovery,
                 "actorops_v2_maintenance": run_actorops_v2_maintenance,
+                "actorops_v2_replacement": run_actorops_v2_replacement,
+                "actorops_v2_metadata_refresh": run_actorops_v2_metadata_refresh,
                 "apify_actor_validation": _run_apify_actor_validation,
                 "apify_actor_canary_batch": _run_apify_actor_canary_batch,
                 "apify_actor_freshness_check": _run_apify_actor_freshness_check,
