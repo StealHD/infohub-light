@@ -37,7 +37,8 @@ from .apify_actor_canary_compatibility import (
 from .apify_actor_candidate_authorization import route_reference_candidate_authorized
 from .apify_actor_source_canary_authorization import source_canary_candidate_authorized
 from .apify_actor_slot_recovery import recover_source_proven_slots
-from .apify_actor_observed_probe import map_canary_output_for_revision, settled_observed_validation
+from .apify_actor_observed_probe import settled_observed_validation
+from .apify_actor_canary_output_mapping import map_validation_output
 from .apify_actor_canary_cost_guard import run_actor_with_charge_guard
 
 _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
@@ -122,7 +123,6 @@ def reference_target_fingerprint(
 ) -> str:
     """Return a stable opaque digest without persisting the reference target."""
 
-    # Keep historical reference fingerprints stable when a public channel's
     # exact native ID is added later for Actor inputs.
     identity = (
         target.handle
@@ -442,7 +442,7 @@ class ApifyActorCanaryRunner:
                 timeout_seconds=timeout_seconds, duration_seconds=elapsed_seconds,
             )
             actual_charge_usd = run.actual_charge_usd
-            mapped, observed_manifest = map_canary_output_for_revision(manifest, run.items, target, runtime, row)
+            mapped, observed_manifest = await map_validation_output(self, manifest, run.items, target, runtime, row)
         except TimeoutError:
             error_code = "apify_actor_run_timed_out"
             actual_charge_usd = self.ops.finalized_actor_run_cost(attempt_id)
@@ -1143,7 +1143,7 @@ class ApifyActorCanaryRunner:
                 dataset_item_limit=int(row["validation_sample_items"] or 1) + 1,
                 reserved_cost_usd=float(row["approved_max_cost_usd"]),
             )
-            mapped, observed_manifest = map_canary_output_for_revision(manifest, run.items, target, runtime, row)
+            mapped, observed_manifest = await map_validation_output(self, manifest, run.items, target, runtime, row)
             semantic = str(mapped.semantic_outcome)
         except ActorManifestError as exc:
             run_value = locals().get("run")

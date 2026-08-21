@@ -1,4 +1,4 @@
-// Reviewed: ActorOps exact-revision canary authorization adds no user-visible changelog entry.
+// Reviewed: ActorOps per-revision AI output mapping adds no user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

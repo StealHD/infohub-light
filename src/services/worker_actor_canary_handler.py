@@ -492,6 +492,7 @@ def _final_result(
 async def _execute_batch(
     job: dict[str, Any],
     *,
+    data_dir: str,
     store: ServiceStore,
     batch_id: str,
     coordinator: Any,
@@ -503,8 +504,15 @@ async def _execute_batch(
         actor_canary_timeout_seconds,
     )
     from .apify_actor_ops import ApifyActorOpsService
+    from .worker_actor_canary_mapping_ai import (
+        close_canary_output_mapping_ai,
+        open_canary_output_mapping_ai,
+    )
 
     ops = ApifyActorOpsService(store, workspace_id=str(job["workspace_id"]))
+    output_mapping_repairer = open_canary_output_mapping_ai(
+        store=store, data_dir=data_dir, ops=ops, job=job
+    )
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(30.0, connect=10.0),
         trust_env=False,
@@ -515,20 +523,21 @@ async def _execute_batch(
             http_client=http_client,
             timeout_seconds=actor_canary_timeout_seconds(),
         )
-        context = _start_batch(
-            job=job,
-            store=store,
-            ops=ops,
-            runner=ApifyActorCanaryRunner(store, ops, client),
-            client=client,
-            batch_id=batch_id,
-        )
-        stop_reason, blocked = await _run_route_items(context)
-        if blocked is not None:
-            return blocked
-        stage_blocked = await _run_stage_sources(context)
-        if stage_blocked is not None:
-            return stage_blocked
+        try:
+            runner = ApifyActorCanaryRunner(store, ops, client)
+            runner.output_mapping_repairer = output_mapping_repairer
+            context = _start_batch(
+                job=job, store=store, ops=ops, runner=runner,
+                client=client, batch_id=batch_id,
+            )
+            stop_reason, blocked = await _run_route_items(context)
+            if blocked is not None:
+                return blocked
+            stage_blocked = await _run_stage_sources(context)
+            if stage_blocked is not None:
+                return stage_blocked
+        finally:
+            await close_canary_output_mapping_ai(output_mapping_repairer)
     return _final_result(context, stop_reason=stop_reason)
 
 
@@ -548,6 +557,7 @@ def run_actor_canary_batch(
     result = asyncio.run(
         _execute_batch(
             job,
+            data_dir=data_dir,
             store=store,
             batch_id=batch_id,
             coordinator=coordinator,

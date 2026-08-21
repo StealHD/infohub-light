@@ -1,4 +1,4 @@
-// Reviewed for ActorOps exact-revision canary authorization; no user-visible release note was added.
+// Reviewed for ActorOps per-revision AI output mapping; no user-visible release note was added.
 export type ManualStep = {
   title: string
   description: string

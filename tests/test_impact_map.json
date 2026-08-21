@@ -266,7 +266,9 @@
       "id": "ActorOps paid runtime",
       "globs": [
         "src/services/apify_actor_canary.py",
+        "src/services/apify_actor_canary_output_mapping.py",
         "src/services/apify_actor_runtime.py",
+        "src/services/worker_actor_canary_mapping_ai.py",
         "src/services/worker_actor_canary_handler.py"
       ],
       "groups": [
