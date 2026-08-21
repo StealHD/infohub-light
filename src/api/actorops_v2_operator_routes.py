@@ -101,10 +101,17 @@ def register_actorops_v2_operator_routes(app: FastAPI, context: ActorOpsV2Operat
                 key = _hash("operator-discovery", route_id, str(route.generation), bucket)
                 discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
                 row, created = repository.discovery.ensure(discovery_id=discovery_id, idempotency_key=key, route_id=route_id, trigger_reason="operator_refresh", input_fingerprint=_hash("route", str(route.route_key)))
-                if not created and str(row["status"]) in {"failed", "cancelled"}:
-                    # A retry is a new explicit free operator action.  Keep a
-                    # completed run idempotent, but never make a terminal
-                    # failure unclickable until the next UTC hour.
+                no_selectable_candidate = (
+                    str(row["status"]) == "completed"
+                    and not repository.discovery.list_accepted_candidate_ids(str(row["discovery_id"]))
+                )
+                if not created and (
+                    str(row["status"]) in {"failed", "cancelled"} or no_selectable_candidate
+                ):
+                    # A retry is a new explicit free operator action.  A
+                    # completed search with no selectable candidate must also
+                    # remain retryable: Store schemas and public pricing can
+                    # legitimately change within the hourly idempotency bucket.
                     key = _hash("operator-discovery-retry", route_id, str(route.generation), bucket, uuid.uuid4().hex)
                     discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
                     row, created = repository.discovery.ensure(discovery_id=discovery_id, idempotency_key=key, route_id=route_id, trigger_reason="operator_refresh", input_fingerprint=_hash("route", str(route.route_key)))

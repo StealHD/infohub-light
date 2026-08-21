@@ -244,6 +244,54 @@ def test_v2_free_discovery_can_explicitly_retry_a_terminal_failure(
     assert response.json()["data"]["discovery_id"] != "terminal-discovery"
 
 
+def test_v2_free_discovery_can_retry_completed_search_without_candidate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    route = repository.get_route(route_id)
+    import src.api.actorops_v2_operator_routes as operator_routes
+    from datetime import datetime, timezone
+
+    key = operator_routes._hash(
+        "operator-discovery", route_id, str(route.generation),
+        datetime.now(timezone.utc).strftime("%Y%m%d%H"),
+    )
+    with repository.transaction():
+        repository.create_discovery_job(
+            discovery_id="empty-discovery", idempotency_key=key, route_id=route_id,
+            trigger_reason="operator_refresh",
+            input_fingerprint=operator_routes._hash("route", str(route.route_key)),
+        )
+        repository.transition_discovery(
+            "empty-discovery", DiscoveryStatus.QUEUED, DiscoveryStage.STORE_SEARCH,
+            DiscoveryStatus.RUNNING, DiscoveryStage.STORE_SEARCH,
+        )
+        for stage in (
+            DiscoveryStage.METADATA, DiscoveryStage.VALIDATION, DiscoveryStage.MAPPING,
+            DiscoveryStage.RANKING, DiscoveryStage.PERSIST,
+        ):
+            previous = repository.discovery.get("empty-discovery")
+            repository.transition_discovery(
+                "empty-discovery", DiscoveryStatus.RUNNING, DiscoveryStage(str(previous["stage"])),
+                DiscoveryStatus.RUNNING, stage,
+            )
+        repository.transition_discovery(
+            "empty-discovery", DiscoveryStatus.RUNNING, DiscoveryStage.PERSIST,
+            DiscoveryStatus.COMPLETED, DiscoveryStage.PERSIST,
+        )
+
+    response = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-discoveries",
+        json={"expected_route_generation": route.generation},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["created"] is True
+    assert response.json()["data"]["discovery_id"] != "empty-discovery"
+
+
 def test_v2_binding_verify_returns_zero_cost_evidence_failure(
     tmp_path: Path, monkeypatch
 ) -> None:
