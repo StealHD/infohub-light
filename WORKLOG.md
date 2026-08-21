@@ -14,29 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-20",
-  "result": "完成 ActorOps v2 Phase 1：新增无平台分支的 Domain、Adapter Port/Registry、Policy 和事务 Repository；global 26 以七张小表、单调 trigger、fresh bootstrap、v24 摘要 backfill 与显式离线 CLI 落地。existing v24 缺少 26 时 v1 API/Worker readiness 不变，global 25 不读写，v2 Runtime/真实 Adapter/feature flag 仍停用。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-v2-phase1",
-  "unresolved": [
-    "完整 impacted preflight 的首次与允许的一次重跑均在既有 up-latest 测试的 0.5 秒夹具超时处停止；夹具已改为 2 秒，失败 spec 与整份 31 项 runtime-script 测试随后通过。按完整 gate 最多重跑一次的规则未进行第三次完整运行。"
-  ],
-  "validation": [
-    "ActorOps、迁移、Worker Discovery 与 YouTube 定向 Pytest 503 项通过；Phase 1 新 Domain/Repository/migration 契约包含在内。",
-    "前端 Vitest 82 文件/621 项、ESLint、TypeScript、生产构建通过；初始 JavaScript Brotli 236592 bytes。",
-    "代码大小、Markdown、产品文档、init-pro schema 3、worklog/JSON 与 git diff 检查通过；最大新生产文件 370 行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
   "result": "完成 ActorOps v2 Phase 2：新增默认关闭的稳定获取数据面、X/Instagram/YouTube 独立 Adapter、Active→Standby→LKG、幂等 Attempt、局部 publication fence、YouTube 公共 Atom 降级和 v1/v2 双门兼容入口；全部 Route 保持 disabled，未切真实流量。",
   "status": "completed",
   "task_id": "2026-08-20-actorops-v2-phase2",
@@ -416,6 +393,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "schema migration dry-run",
     "impacted control preflight",
     "control validators"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Hardened the validation-cap migration to verify SQLite integrity and foreign keys before backup or writes, after finding pre-existing local database corruption during the authorized offline attempt.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-validation-cap-prehealth",
+  "unresolved": [
+    "Local service.db requires separate offline recovery before paid Actor validation can resume."
+  ],
+  "validation": [
+    "101 targeted ActorOps tests",
+    "migration health-gate test",
+    "code-size and diff checks"
   ]
 }
 ```

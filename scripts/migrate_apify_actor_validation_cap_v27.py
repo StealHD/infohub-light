@@ -37,6 +37,13 @@ def _require_prerequisite(connection: sqlite3.Connection) -> None:
         raise RuntimeError("global schema 24 is required before validation-cap v27")
 
 
+def _require_healthy_database(connection: sqlite3.Connection, *, phase: str) -> None:
+    integrity = connection.execute("PRAGMA integrity_check").fetchone()
+    foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if not integrity or str(integrity[0]).casefold() != "ok" or foreign_keys:
+        raise RuntimeError(f"database health check failed before {phase}")
+
+
 def migrate(
     data_dir: Path, *, apply: bool, backup_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -47,6 +54,7 @@ def migrate(
     connection.row_factory = sqlite3.Row
     try:
         _require_prerequisite(connection)
+        _require_healthy_database(connection, phase="validation-cap migration")
         ready = migration_marker_exists(connection) and schema_shapes_valid(connection)
         if not apply:
             return {"required": not ready, "database": str(database)}
@@ -83,13 +91,11 @@ def migrate(
         connection.close()
         connection = sqlite3.connect(database)
         connection.row_factory = sqlite3.Row
-        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-        foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+        _require_healthy_database(connection, phase="validation-cap migration completion")
         valid = migration_marker_exists(connection) and schema_shapes_valid(connection)
-        if integrity != "ok" or foreign_keys or not valid:
+        if not valid:
             raise RuntimeError(
-                "post-migration integrity checks failed: "
-                f"integrity={integrity!r} foreign_keys={len(foreign_keys)} valid={valid}"
+                "post-migration validation-cap schema shape is invalid"
             )
         connection.close()
         connection = None

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import migrate_apify_actor_validation_cap_v27 as migration
 from scripts.migrate_apify_actor_validation_cap_v27 import migrate
 from src.services.apify_actor_ops import ActorOpsError, ApifyActorOpsService
 from src.storage.apify_actor_validation_cap_v27_schema import (
@@ -119,3 +120,24 @@ def test_v27_migration_is_required_before_a_route_can_use_twenty_cents(tmp_path:
             per_run_cap_usd=0.20,
             expected_generation=int(route["generation"]),
         )
+
+
+def test_v27_migration_refuses_an_unhealthy_database_before_creating_a_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_dir = tmp_path / "data"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    _downgrade_to_v26_shape(store)
+    store.close()
+    monkeypatch.setattr(
+        migration,
+        "_require_healthy_database",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("database health check failed before validation-cap migration")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="database health check failed"):
+        migrate(data_dir, apply=True, backup_dir=tmp_path / "backups")
+    assert not (tmp_path / "backups").exists()
