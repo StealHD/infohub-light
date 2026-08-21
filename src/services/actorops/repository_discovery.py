@@ -179,6 +179,17 @@ class DiscoveryRepository:
             (self.repository.workspace_id, discovery_id),
         ).fetchall())
 
+    def list_accepted_candidate_ids(self, discovery_id: str) -> tuple[str, ...]:
+        """Candidate IDs eligible for a safe public Store-card refresh."""
+
+        rows = self.repository.connection.execute(
+            """SELECT candidate_id FROM actor_discovery_job_candidates_v2
+               WHERE workspace_id=? AND discovery_id=? AND status='accepted'
+               ORDER BY rank, candidate_id""",
+            (self.repository.workspace_id, discovery_id),
+        ).fetchall()
+        return tuple(str(row["candidate_id"]) for row in rows)
+
 
 def create(repository: Any, **values: Any) -> None:
     DiscoveryRepository(repository).create(**values)

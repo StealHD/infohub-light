@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from .discovery import DiscoveryCatalogError
 from .ports import DiscoveryRevision, ProbePreflightResult
-from .store_metadata import StoreMetadata, normalize_store_metadata
+from .store_metadata import StoreMetadata, estimated_run_price, normalize_store_metadata
 
 
 class ApifyStoreMetadata(Protocol):
@@ -160,18 +159,7 @@ def _mapping(value: object) -> Mapping[str, object]:
 
 
 def _price(actor: Mapping[str, Any]) -> float | None:
-    infos = actor.get("pricingInfos")
-    rows = infos if isinstance(infos, Sequence) and not isinstance(infos, str) else ()
-    for row in rows:
-        if not isinstance(row, Mapping):
-            continue
-        for key in ("minimumChargeUsd", "minChargeUsd", "pricePerRunUsd", "pricePerUnitUsd"):
-            value = row.get(key)
-            if isinstance(value, bool):
-                continue
-            if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
-                return float(value)
-    return None
+    return estimated_run_price(actor.get("pricingInfos"))
 
 
 def _schema_hash(value: Mapping[str, object]) -> str:

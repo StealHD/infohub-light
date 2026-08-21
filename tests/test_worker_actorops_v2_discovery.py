@@ -6,6 +6,7 @@ import pytest
 
 from src.services.actorops.ports import DiscoveryRevision
 from src.services.actorops.repository import ActorOpsRepository
+from src.services.actorops.store_metadata import normalize_store_metadata
 from src.services.job_queue import JobQueue
 from src.services.worker_actorops_v2_discovery import (
     WorkerActorOpsV2DiscoveryPorts,
@@ -17,6 +18,9 @@ from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 @dataclass
 class _Catalog:
+    def __init__(self) -> None:
+        self.metadata_candidate_ids: list[str] = []
+
     async def search(self, _query):
         return ("publisher/actor",)
 
@@ -28,6 +32,13 @@ class _Catalog:
             output_schema={"properties": {
                 "id": {}, "url": {}, "createdAt": {}, "text": {}, "author": {},
             }},
+        )
+
+    async def store_metadata(self, candidate):
+        self.metadata_candidate_ids.append(candidate.candidate_id)
+        return normalize_store_metadata(
+            {"actorId": candidate.actor_id, "title": "Public Actor"},
+            fallback_slug=candidate.actor_id,
         )
 
 
@@ -61,13 +72,21 @@ def test_v2_discovery_handler_runs_with_injected_catalog(tmp_path, monkeypatch) 
     store.initialize()
     job, _route_id = _job(store)
 
+    catalog = _Catalog()
     result = run_actorops_v2_discovery(
         job, data_dir=str(store.data_dir), store=store,
-        ports=WorkerActorOpsV2DiscoveryPorts(lambda *_args: _Catalog()),
+        ports=WorkerActorOpsV2DiscoveryPorts(lambda *_args: catalog),
     )
 
     assert result["status"] == "completed"
     assert result["job_type"] == "actorops_v2_discovery"
+    linked = store.connect().execute(
+        "SELECT candidate_id, status, rejection_code FROM actor_discovery_job_candidates_v2"
+    ).fetchall()
+    assert catalog.metadata_candidate_ids, [dict(row) for row in linked]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM actor_candidate_store_metadata_v2"
+    ).fetchone()[0] == 1
     store.close()
 
 

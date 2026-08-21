@@ -42,13 +42,12 @@ def run_actorops_v2_discovery(
     catalog = (ports or WorkerActorOpsV2DiscoveryPorts(_catalog)).build_catalog(
         store, str(job["workspace_id"]), data_dir
     )
+    repository = ActorOpsRepository(store.connect(), str(job["workspace_id"]))
     result = asyncio.run(
-        ActorOpsDiscovery(
-            ActorOpsRepository(store.connect(), str(job["workspace_id"])),
-            build_default_registry(),
-            catalog,
-        ).run(discovery_id)
+        ActorOpsDiscovery(repository, build_default_registry(), catalog).run(discovery_id)
     )
+    if result.status == "completed" and not result.idempotent_replay:
+        asyncio.run(_refresh_discovered_store_metadata(repository, catalog, discovery_id))
     return {
         "ok": result.status != "failed",
         "job_type": "actorops_v2_discovery",
@@ -119,6 +118,28 @@ def _catalog(store: ServiceStore, workspace_id: str, data_dir: str) -> object:
     if not token:
         return _UnavailableCatalog()
     return ApifyDiscoveryCatalog(ApifyStoreRestClient(token))
+
+
+async def _refresh_discovered_store_metadata(
+    repository: ActorOpsRepository, catalog: object, discovery_id: str
+) -> None:
+    """Persist public card facts for newly accepted Candidates, one at a time.
+
+    Discovery stays free and its success does not depend on this optional Store
+    refresh.  A failed public GET therefore cannot poison the discovery record
+    or cause a paid Actor call.
+    """
+
+    refresh = getattr(catalog, "store_metadata", None)
+    if not callable(refresh):
+        return
+    for candidate_id in repository.discovery.list_accepted_candidate_ids(discovery_id):
+        try:
+            metadata = await refresh(repository.get_candidate(candidate_id))
+            with repository.transaction():
+                repository.operator.upsert_metadata(candidate_id, metadata)
+        except Exception:
+            continue
 
 
 class _UnavailableCatalog:

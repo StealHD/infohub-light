@@ -59,11 +59,12 @@ class ActorOpsDiscovery:
         self.now = now or (lambda: datetime.now(timezone.utc))
 
     async def run(self, discovery_id: str) -> DiscoveryResult:
+        progressed = False
         while True:
             row = self.repository.discovery.get(discovery_id)
             if str(row["status"]) in _TERMINAL:
                 return DiscoveryResult(
-                    discovery_id, str(row["status"]), str(row["stage"]), True
+                    discovery_id, str(row["status"]), str(row["stage"]), not progressed
                 )
             if str(row["status"]) == DiscoveryStatus.RETRY_WAIT.value:
                 if self._retry_after(row) > self.now().astimezone(timezone.utc):
@@ -74,6 +75,7 @@ class ActorOpsDiscovery:
                 self._checkpoint(row, status=DiscoveryStatus.RUNNING, stage=self._stage(row))
                 continue
             try:
+                progressed = True
                 route = self.repository.get_route(str(row["route_id"]))
                 adapter = self.registry.require(route.route_key)
                 stage = self._stage(row)

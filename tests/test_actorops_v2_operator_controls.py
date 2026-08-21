@@ -100,6 +100,27 @@ def test_fresh_store_installs_global_28_and_normalizes_safe_store_metadata(tmp_p
     assert metadata.pricing == ({"pricingModel": "PAY_PER_EVENT", "pricePerUnitUsd": 0.0014, "unitName": "result"},)
 
 
+def test_store_metadata_normalizes_nested_public_event_pricing() -> None:
+    metadata = normalize_store_metadata({
+        "actorId": "apify/instagram-api-scraper", "title": "Instagram API Scraper",
+        "pricingInfos": [{
+            "pricingModel": "PAY_PER_EVENT",
+            "pricingPerEvent": {"actorChargeEvents": {
+                "apify-actor-start": {"eventPriceUsd": 0.005, "isOneTimeEvent": True},
+                "apify-default-dataset-item": {
+                    "eventTitle": "Dataset item", "isPrimaryEvent": True,
+                    "eventTieredPricingUsd": {"FREE": {"tieredEventPriceUsd": 0}, "PAID": {"tieredEventPriceUsd": 0.009}},
+                },
+            }},
+        }],
+    }, fallback_slug="apify/instagram-api-scraper")
+
+    assert metadata.pricing == ({
+        "pricingModel": "PAY_PER_EVENT", "pricePerRunUsd": 0.014,
+        "pricingPeriod": "estimated", "unitName": "run",
+    },)
+
+
 def test_global_28_migration_is_explicit_and_repeatable(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)

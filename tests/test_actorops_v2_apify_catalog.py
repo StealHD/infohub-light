@@ -45,6 +45,41 @@ def test_apify_catalog_reads_only_public_actor_build_metadata() -> None:
     assert "dataset_items" not in source
 
 
+def test_apify_catalog_estimates_nested_public_event_pricing() -> None:
+    class _NestedPricing(_Metadata):
+        async def get_actor(self, actor_id):
+            actor = await super().get_actor(actor_id)
+            actor["pricingInfos"] = [{
+                "pricingModel": "PAY_PER_EVENT",
+                "startedAt": "2026-01-01T00:00:00.000Z",
+                "pricingPerEvent": {"actorChargeEvents": {
+                    "apify-actor-start": {
+                        "eventPriceUsd": 0.005,
+                        "eventTitle": "Actor start",
+                        "isOneTimeEvent": True,
+                    },
+                    "apify-default-dataset-item": {
+                        "eventTitle": "Dataset item",
+                        "isPrimaryEvent": True,
+                        "eventTieredPricingUsd": {
+                            "FREE": {"tieredEventPriceUsd": 0},
+                            "BRONZE": {"tieredEventPriceUsd": 0.003},
+                            "ENTERPRISE": {"tieredEventPriceUsd": 0.009},
+                        },
+                    },
+                }},
+            }]
+            return actor
+
+    revision = asyncio.run(ApifyDiscoveryCatalog(_NestedPricing()).get_revision("publisher/actor"))
+
+    # The public Store payload has a one-time start charge plus a tiered primary
+    # dataset event.  Discovery must use a conservative finite estimate rather
+    # than rejecting the exact revision merely because the old flat price field
+    # is absent.
+    assert revision.price_per_run_usd == 0.014
+
+
 def test_candidate_probe_preflight_rechecks_exact_public_revision_and_cap() -> None:
     catalog = ApifyDiscoveryCatalog(_Metadata())
     candidate = CandidateRecord(

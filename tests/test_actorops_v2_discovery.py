@@ -92,6 +92,7 @@ def test_deterministic_discovery_persists_one_candidate_and_replay_is_inert(
     job = repository.discovery.get("discovery-one")
     candidates = repository.discovery.list_candidates("discovery-one")
     assert first.status == "completed"
+    assert first.idempotent_replay is False
     assert second.idempotent_replay is True
     assert job["stage"] == "persist"
     assert len(candidates) == 1

@@ -36,7 +36,8 @@ export function actorOpsV2PriceLabel(candidate: ActorOpsV2CandidateView | null) 
   if (!pricing) return '商城价格待更新'
   const price = numberValue(pricing.minimumChargeUsd) ?? numberValue(pricing.pricePerRunUsd) ?? numberValue(pricing.pricePerUnitUsd)
   const unit = stringValue(pricing.unitName)
-  return price === null ? '商城价格以 Apify 为准' : `$${price.toFixed(2)}${unit ? ` / ${unit}` : ''}`
+  const estimated = stringValue(pricing.pricingPeriod) === 'estimated'
+  return price === null ? '商城价格以 Apify 为准' : `$${price.toFixed(2)}${estimated ? ' / 单次估算' : unit ? ` / ${unit}` : ''}`
 }
 
 export function compactNumber(value: number | null) {

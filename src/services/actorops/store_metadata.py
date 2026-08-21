@@ -72,6 +72,23 @@ def pricing_json(metadata: StoreMetadata) -> str:
     return json.dumps(list(metadata.pricing), separators=(",", ":"), sort_keys=True)
 
 
+def estimated_run_price(value: object) -> float | None:
+    """Return a conservative, bounded cost estimate from public Store pricing.
+
+    Apify's current Store payload uses ``pricingPerEvent.actorChargeEvents``
+    rather than the historic flat ``pricePerRunUsd`` fields.  We retain only an
+    estimate suitable for an authorization ceiling: fixed start events plus one
+    primary output event at its highest published tier.  This is not a bill and
+    does not replace the remote Run's final cost.
+    """
+
+    for row in _current_pricing_rows(value):
+        price = _row_run_price(row)
+        if price is not None:
+            return price
+    return None
+
+
 def _safe_slug(value: str) -> str:
     return value.strip().replace("~", "/") if _SLUG.fullmatch(value.strip().replace("~", "/")) else ""
 
@@ -108,11 +125,8 @@ def _rating(value: object) -> float | None:
 
 
 def _pricing(value: object) -> tuple[dict[str, object], ...]:
-    rows = value if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) else ()
     result: list[dict[str, object]] = []
-    for row in rows[:8]:
-        if not isinstance(row, Mapping):
-            continue
+    for row in _current_pricing_rows(value):
         item: dict[str, object] = {}
         for key in _PRICE_KEYS:
             raw = row.get(key)
@@ -122,9 +136,84 @@ def _pricing(value: object) -> tuple[dict[str, object], ...]:
                     item[key] = normalized
             elif isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(float(raw)) and float(raw) >= 0:
                 item[key] = round(float(raw), 6)
+        nested_price = _event_run_price(row)
+        if nested_price is not None:
+            item = {
+                "pricingModel": _text(row.get("pricingModel"), 80) or "PAY_PER_EVENT",
+                "pricePerRunUsd": nested_price,
+                "pricingPeriod": "estimated",
+                "unitName": "run",
+            }
         if item:
             result.append(item)
+            break
     return tuple(result)
 
 
-__all__ = ["StoreMetadata", "normalize_store_metadata", "pricing_json"]
+def _current_pricing_rows(value: object) -> tuple[Mapping[str, Any], ...]:
+    rows = value if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) else ()
+    indexed = [(index, row) for index, row in enumerate(rows) if isinstance(row, Mapping)]
+    # Store records can retain historical pricing versions.  ISO timestamps are
+    # sortable; falling back to provider order keeps the choice deterministic.
+    indexed.sort(key=lambda item: (_text(item[1].get("startedAt"), 64), item[0]), reverse=True)
+    return tuple(row for _, row in indexed)
+
+
+def _row_run_price(row: Mapping[str, Any]) -> float | None:
+    for key in ("minimumChargeUsd", "minChargeUsd", "pricePerRunUsd", "pricePerUnitUsd"):
+        number = _number(row.get(key))
+        if number is not None:
+            return number
+    return _event_run_price(row)
+
+
+def _event_run_price(row: Mapping[str, Any]) -> float | None:
+    pricing = row.get("pricingPerEvent")
+    events = pricing.get("actorChargeEvents") if isinstance(pricing, Mapping) else None
+    if not isinstance(events, Mapping):
+        return None
+    fixed_total = 0.0
+    primary: list[float] = []
+    other_variable: list[float] = []
+    for event_name, event in events.items():
+        if not isinstance(event, Mapping):
+            continue
+        direct = _number(event.get("eventPriceUsd"))
+        tiers = _tier_prices(event.get("eventTieredPricingUsd"))
+        variable = max(tiers) if tiers else direct
+        is_start = str(event_name).strip().casefold() == "apify-actor-start"
+        if event.get("isOneTimeEvent") is True or is_start:
+            if direct is not None:
+                fixed_total += direct
+            continue
+        if variable is None:
+            continue
+        if event.get("isPrimaryEvent") is True:
+            primary.append(variable)
+        else:
+            other_variable.append(variable)
+    output_cost = max(primary) if primary else (max(other_variable) if other_variable else 0.0)
+    total = fixed_total + output_cost
+    return round(total, 6) if total > 0 or (fixed_total == 0 and (primary or other_variable)) else None
+
+
+def _tier_prices(value: object) -> tuple[float, ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    result = []
+    for tier in value.values():
+        raw = tier.get("tieredEventPriceUsd") if isinstance(tier, Mapping) else None
+        number = _number(raw)
+        if number is not None:
+            result.append(number)
+    return tuple(result)
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    number = float(value)
+    return round(number, 6) if number >= 0 else None
+
+
+__all__ = ["StoreMetadata", "estimated_run_price", "normalize_store_metadata", "pricing_json"]
