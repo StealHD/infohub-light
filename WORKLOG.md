@@ -14,26 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-20",
-  "result": "完成 ActorOps v2 Phase 2：新增默认关闭的稳定获取数据面、X/Instagram/YouTube 独立 Adapter、Active→Standby→LKG、幂等 Attempt、局部 publication fence、YouTube 公共 Atom 降级和 v1/v2 双门兼容入口；全部 Route 保持 disabled，未切真实流量。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-v2-phase2",
-  "unresolved": [],
-  "validation": [
-    "ActorOps v2、迁移/readiness、来源获取、Worker、Feed 与现役 v1 兼容定向测试全部通过；新生产文件均小于 400 行，backend code-size 硬门禁通过。",
-    "impacted preflight 17/17 通过：完整受影响后端/前端、产品文档、控制面、构建与静态检查均成功，无 SQLite 连接警告。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
   "result": "完成 ActorOps v2 Phase 3：新增只读 Reconciler、Apify durable Run ledger 与费用结算；unknown start 仅在精确空窗口证明后终态化，未发布远端成功不推进 Feed/LKG。Worker 普通 Job 先 claim，Provider/v1/v2 对账移至 post-job/idle housekeeping；默认 flag 与 Route disabled 行为保持不变。",
   "status": "completed",
   "task_id": "2026-08-20-actorops-v2-phase3",
@@ -414,6 +394,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "101 targeted ActorOps tests",
     "migration health-gate test",
     "code-size and diff checks"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Redacted validation-cap migration health-gate failures into a structured blocked status after the local offline attempt exposed pre-existing SQLite corruption.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-validation-cap-safe-block",
+  "unresolved": [
+    "Latest local service.db integrity check is not clean; the newest verified clean backup predates it and must not be restored without an explicit recovery decision."
+  ],
+  "validation": [
+    "migration health-gate tests",
+    "safe local CLI blocked response"
   ]
 }
 ```

@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 from scripts import migrate_apify_actor_validation_cap_v27 as migration
-from scripts.migrate_apify_actor_validation_cap_v27 import migrate
+from scripts.migrate_apify_actor_validation_cap_v27 import (
+    _require_healthy_database,
+    migrate,
+)
 from src.services.apify_actor_ops import ActorOpsError, ApifyActorOpsService
 from src.storage.apify_actor_validation_cap_v27_schema import (
     migration_marker_exists,
@@ -141,3 +144,13 @@ def test_v27_migration_refuses_an_unhealthy_database_before_creating_a_backup(
     with pytest.raises(RuntimeError, match="database health check failed"):
         migrate(data_dir, apply=True, backup_dir=tmp_path / "backups")
     assert not (tmp_path / "backups").exists()
+
+
+def test_v27_health_check_redacts_sqlite_corruption() -> None:
+    class BrokenConnection:
+        def execute(self, _query: str) -> None:
+            raise sqlite3.DatabaseError("database disk image is malformed")
+
+    with pytest.raises(RuntimeError, match="database health check failed") as error:
+        _require_healthy_database(BrokenConnection(), phase="test")  # type: ignore[arg-type]
+    assert "disk image" not in str(error.value)

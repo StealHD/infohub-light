@@ -38,8 +38,11 @@ def _require_prerequisite(connection: sqlite3.Connection) -> None:
 
 
 def _require_healthy_database(connection: sqlite3.Connection, *, phase: str) -> None:
-    integrity = connection.execute("PRAGMA integrity_check").fetchone()
-    foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+    try:
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()
+        foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+    except sqlite3.DatabaseError:
+        raise RuntimeError(f"database health check failed before {phase}") from None
     if not integrity or str(integrity[0]).casefold() != "ok" or foreign_keys:
         raise RuntimeError(f"database health check failed before {phase}")
 
@@ -123,7 +126,11 @@ def main() -> int:
     parser.add_argument("--backup-dir", type=Path)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    print(migrate(args.data_dir, apply=args.apply, backup_dir=args.backup_dir))
+    try:
+        print(migrate(args.data_dir, apply=args.apply, backup_dir=args.backup_dir))
+    except RuntimeError as exc:
+        print({"status": "blocked", "reason": str(exc)})
+        return 2
     return 0
 
 
