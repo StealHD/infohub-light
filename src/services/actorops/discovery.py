@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ..apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from .discovery_manifest import schema_proven_manifest
 from .domain import CandidateLifecycle, DiscoveryStage, DiscoveryStatus, FailureClass
 from .ports import DiscoveryAiMapper, DiscoveryCatalog, DiscoveryMapping, DiscoveryRevision
@@ -276,7 +277,10 @@ class ActorOpsDiscovery:
         manifest_json = schema_proven_manifest(revision, mapping)
         if not manifest_json:
             return self._pending(ref)
-        manifest_hash = hashlib.sha256(manifest_json.encode("utf-8")).hexdigest()
+        # Candidate persistence and execution must agree on the exact canonical
+        # Manifest identity; hashing the pre-parse JSON here would make a
+        # schema-proven Candidate fail before its first paid Probe.
+        manifest_hash = actor_manifest_hash(parse_actor_manifest(manifest_json))
         return {
             **ref,
             "candidate_id": self._candidate_id(ref, manifest_hash),

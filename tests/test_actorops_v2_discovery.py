@@ -13,6 +13,7 @@ from src.services.actorops.discovery import (
 from src.services.actorops.ports import DiscoveryAiResult, DiscoveryMapping, DiscoveryRevision
 from src.services.actorops.discovery_ai import _object
 from src.services.actorops.repository import ActorOpsRepository
+from src.services.apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -101,6 +102,7 @@ def test_deterministic_discovery_persists_one_candidate_and_replay_is_inert(
     candidate = repository.get_candidate(str(candidates[0]["candidate_id"]))
     assert candidate.lifecycle.value == "static_valid"
     assert candidate.assignment_role.value == "inactive"
+    assert candidate.manifest_hash == actor_manifest_hash(parse_actor_manifest(candidate.manifest_json))
     assert calls_after_first == (catalog.searches, tuple(catalog.reads))
     store.close()
 
