@@ -11,6 +11,7 @@ from src.services.actorops.discovery import (
     DiscoveryCatalogError,
 )
 from src.services.actorops.ports import DiscoveryAiResult, DiscoveryMapping, DiscoveryRevision
+from src.services.actorops.discovery_ai import _object
 from src.services.actorops.repository import ActorOpsRepository
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
@@ -232,6 +233,12 @@ def test_ai_mapping_is_bounded_to_the_first_three_exact_revisions(tmp_path: Path
     assert mapper.seen == tuple(f"publisher/incomplete-{index}" for index in range(3))
     assert len(repository.discovery.list_candidates("discovery-one")) == 4
     store.close()
+
+
+def test_ai_mapping_response_accepts_a_single_json_code_fence() -> None:
+    assert _object("```json\n{\"mappings\": {\"publisher/actor\": {}}}\n```") == {
+        "publisher/actor": {}
+    }
 
 
 def test_generic_discovery_has_no_platform_or_feed_knowledge() -> None:

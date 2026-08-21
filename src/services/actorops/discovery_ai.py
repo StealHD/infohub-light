@@ -54,7 +54,7 @@ class ActorOpsDiscoveryAiMapper:
                 "invent fields, URLs, targets, credentials, code, or explanations.",
                 json.dumps(_prompt(route_key, selected), ensure_ascii=False, separators=(",", ":")),
                 temperature=0.0,
-                max_tokens=2_400,
+                max_tokens=8_192,
             )
             parsed = _object(raw)
         except Exception:
@@ -97,7 +97,7 @@ def open_actorops_discovery_ai_mapper(
     if not selection.ready or selection.config is None:
         return None
     config = selection.config.model_copy(
-        update={"enabled": True, "temperature": 0.0, "max_tokens": 2_400}
+        update={"enabled": True, "temperature": 0.0, "max_tokens": 8_192}
     )
     try:
         client = create_ai_client(config, single_attempt=True, timeout_seconds=90)
@@ -145,8 +145,16 @@ def _fields(schema: Mapping[str, object]) -> list[dict[str, str]]:
 def _object(value: object) -> Mapping[str, object]:
     if not isinstance(value, str) or len(value.encode("utf-8")) > _MAX_MANIFEST_BYTES * _MAX_MAPPINGS:
         return {}
+    text = value.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
     try:
-        parsed = json.loads(value)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
         return {}
     mappings = parsed.get("mappings") if isinstance(parsed, Mapping) else None
