@@ -14,26 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-20",
-  "result": "完成 ActorOps v2 Phase 3：新增只读 Reconciler、Apify durable Run ledger 与费用结算；unknown start 仅在精确空窗口证明后终态化，未发布远端成功不推进 Feed/LKG。Worker 普通 Job 先 claim，Provider/v1/v2 对账移至 post-job/idle housekeeping；默认 flag 与 Route disabled 行为保持不变。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-v2-phase3",
-  "unresolved": [],
-  "validation": [
-    "ActorOps v2 Reconciler/ledger/runtime、Worker isolation、v1 pool/restart/readiness/source-acquisition 定向 Pytest 通过。",
-    "impacted preflight 17/17 通过；代码大小、Markdown、init-pro schema 3、product-doc review 与 git diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
   "result": "完成 ActorOps v2 Phase 4：新增可恢复 Discovery 的安全 checkpoint、exact Build/Schema 验证、确定性优先 Manifest 映射和非关键 AI 补充；新增只读 Apify Catalog 边界和独立 v2 Discovery Worker Job。默认 flag/Route disabled 不变，不启动 Actor、Probe 或费用预留。",
   "status": "completed",
   "task_id": "2026-08-20-actorops-v2-phase4",
@@ -413,6 +393,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "migration health-gate tests",
     "safe local CLI blocked response"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Recovered the local database from a verified temporary copy, then prevented Discovery from reintroducing a final failed exact Actor revision as a new canary candidate.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-exact-revision-discovery",
+  "unresolved": [
+    "YouTube needs a newly discovered exact revision that passes its own AI-assisted target-identity mapping before a third runnable Actor can be staged."
+  ],
+  "validation": [
+    "database integrity and foreign-key recovery checks",
+    "81 targeted ActorOps tests",
+    "code-size, product-doc, and Markdown controls"
   ]
 }
 ```

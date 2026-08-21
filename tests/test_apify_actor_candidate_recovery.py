@@ -54,7 +54,7 @@ def test_changed_manifest_reopens_candidate_but_duplicate_does_not(tmp_path) -> 
         input_schema_hash=hashlib.sha256(b"input").hexdigest(),
         output_schema_hash=hashlib.sha256(b"output").hexdigest(),
         discovery_run_id=str(run["run_id"]), lifecycle="static_valid",
-    ) == original_id
+    ) is None
     assert store.connect().execute(
         "SELECT state FROM apify_actor_candidates WHERE id = ?", (candidate_id,)
     ).fetchone()[0] == "disabled"

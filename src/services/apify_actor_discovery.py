@@ -656,7 +656,6 @@ class ApifyActorDiscoveryService:
                 candidates=compatibility_candidates,
                 rejected=rejected,
             )
-        # Prioritize Builds with a proven item contract and public Store quality.
         accepted = rank_discovery_candidates(accepted, store_hits, preferred_set, _output_schema_proves_items)
         accepted = accepted[:effective_candidate_limit]
         persist_x_compatibility_candidates(platform=str(route["platform"]), ops=self.ops, route_id=str(run["route_id"]), discovery_run_id=run_id, candidates=compatibility_candidates, candidate_limit=effective_candidate_limit, preferred_actor_ids=preferred_set, store_hits=store_hits, store_search_actor_ids=store_search_actor_ids, pricing_summary=_safe_pricing_summary, schema_hash=_json_hash, input_dialect=compatibility_input_dialect, input_count_field=compatibility_count_field)
@@ -1210,6 +1209,7 @@ class ApifyActorDiscoveryService:
                 prompt_version="actor_manifest_v1",
                 discovery_run_id=run_id,
             )
+            if revision_id is None: rejected.append({"actor_id": candidate.actor_id, "reason": "exact_revision_previously_failed"}); continue
             revisions.append(revision_id)
             revision_publishers.add(candidate.publisher)
         if len(revision_publishers) < required_publishers and revisions:

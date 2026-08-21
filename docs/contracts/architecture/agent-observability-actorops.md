@@ -70,6 +70,8 @@ ActorOps feature schema v15 依赖 v13/v14，已有数据库普通初始化不�
 
 D173 另有受限的 v1 global 27：`apify_actor_validation_cap_v27` 只重建 Canary settings、batch 与 item 的费用 CHECK，允许经批准的单 Candidate `$0.20` 和批次 `$0.60`，不读取 global 25、不改 global 26、内容、来源、Run 或 Route mode。未迁移的既有数据库继续执行 `$0.10`；只有请求更高 cap 时，pool management 在任何网络调用前 fail closed。
 
+Discovery 重遇已终态 `route_reference` 失败的同一 Actor/Build/Manifest 时，只能报告安全的已失败 Revision，不得重新关联为本次可选 Candidate 或清除其失败；新的 Build 或 Manifest 才可产生新的不可变 Revision 与验证合同。
+
 固定三槽的新增、替换与移出均归 `ApifyActorOpsService` 的单一写事务所有：读模型先投影每槽 action 与理由，浏览器不能自行计算可操作性。新增只填首个空槽、替换只改已占用槽，二者先冻结 base pool、operation slot、候选 Revision/Build/Manifest、来源指纹和费用上限，再走既有 Stage/Canary/activation；未完成前 active pool 不变。移出只压紧活动引用并把旧 Revision 保留为 superseded/history，先拒绝 unknown-start、active attempt、freshness、Stage、CAS 与保留后低于 Route 实际最低 Actor/发布者门槛；它不得创建 Actor 调用，现有 source Canary 证据仅可按保留槽复用。
 
 ### 3.6K ActorOps v2 计划适配器边界

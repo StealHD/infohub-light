@@ -43,8 +43,8 @@ def _downgrade_to_v19(store: ServiceStore) -> None:
             connection,
             "apify_actor_canary_batches",
             replacements=(
-                ("max_total_charge_usd <= 0.30", "max_total_charge_usd <= 0.06"),
-                ("per_candidate_cap_usd <= 0.10", "per_candidate_cap_usd <= 0.02"),
+                ("max_total_charge_usd <= 0.60", "max_total_charge_usd <= 0.06"),
+                ("per_candidate_cap_usd <= 0.20", "per_candidate_cap_usd <= 0.02"),
             ),
             index_sql=(
                 """
@@ -59,7 +59,7 @@ def _downgrade_to_v19(store: ServiceStore) -> None:
             connection,
             "apify_actor_canary_batch_items",
             replacements=(
-                ("authorized_cap_usd <= 0.10", "authorized_cap_usd <= 0.02"),
+                ("authorized_cap_usd <= 0.20", "authorized_cap_usd <= 0.02"),
             ),
             index_sql=(
                 """

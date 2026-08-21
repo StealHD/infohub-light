@@ -250,11 +250,13 @@
       "id": "ActorOps discovery metadata",
       "globs": [
         "src/services/apify_actor_discovery.py",
+        "src/services/apify_actor_candidate_recovery.py",
         "src/services/apify_actor_discovery_ai_fallback.py",
         "src/services/apify_discovery_ai.py",
         "src/services/apify_actor_maintenance.py",
         "src/services/worker_actor_discovery_ai.py",
-        "src/services/worker_actor_discovery_handler.py"
+        "src/services/worker_actor_discovery_handler.py",
+        "tests/test_apify_actor_exact_revision_rejection.py"
       ],
       "groups": [
         "python_api_store",

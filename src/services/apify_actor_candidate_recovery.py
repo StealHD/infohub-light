@@ -5,6 +5,25 @@ from __future__ import annotations
 from typing import Any
 
 
+def exact_revision_has_settled_route_failure(
+    connection: Any, *, workspace_id: str, revision_id: str
+) -> bool:
+    """Keep a failed immutable Revision out of later discovery runs."""
+
+    return bool(
+        connection.execute(
+            """
+            SELECT 1 FROM apify_actor_validations
+            WHERE workspace_id = ? AND revision_id = ?
+              AND kind = 'route_reference' AND status = 'failed'
+              AND cost_final = 1
+            LIMIT 1
+            """,
+            (workspace_id, revision_id),
+        ).fetchone()
+    )
+
+
 def reopen_candidate_for_new_static_revision(
     connection: Any,
     *,

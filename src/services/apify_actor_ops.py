@@ -56,7 +56,7 @@ from .apify_actor_pool_slots import ApifyActorPoolSlotsMixin
 from .apify_actor_pool_workflow import project_active_pool_stage_workflow
 from .apify_actor_restart_recovery import reconcile_unfinished_actor_attempts
 from .apify_actor_capability_matrix import route_profiles
-from .apify_actor_candidate_recovery import reopen_candidate_for_new_static_revision
+from .apify_actor_candidate_recovery import exact_revision_has_settled_route_failure, reopen_candidate_for_new_static_revision
 from .apify_actor_candidate_authorization import route_reference_candidate_authorized
 from .apify_actor_source_proof import (
     current_source_validation_ids,
@@ -878,7 +878,7 @@ class ApifyActorOpsService(
         observed_fields: Sequence[str],
         observed_build_id: str | None = None,
         observed_build_number: str | None = None,
-    ) -> str:
+    ) -> str | None:
         """Persist a value-free observed contract after a real paid Canary."""
 
         with self._write() as connection:
@@ -1575,12 +1575,7 @@ class ApifyActorOpsService(
                 ).fetchone()
                 if existing is not None:
                     existing_revision_id = str(existing["revision_id"])
-                    if lifecycle == "static_valid" and discovery_run_id is not None:
-                        reopen_candidate_for_new_static_revision(
-                            connection, workspace_id=self.workspace_id,
-                            candidate_id=candidate_id,
-                            revision_id=existing_revision_id, now=now,
-                        )
+                    if lifecycle == "static_valid" and discovery_run_id is not None and exact_revision_has_settled_route_failure(connection, workspace_id=self.workspace_id, revision_id=existing_revision_id): return None
                     if discovery_run_id is not None:
                         connection.execute(
                             """
