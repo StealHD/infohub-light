@@ -51,6 +51,10 @@ from .apify_actor_discovery_quality import (
     rank_discovery_candidates,
 )
 from .apify_actor_discovery_fingerprints import mapping_hash as _json_hash
+from .apify_actor_discovery_ai_fallback import (
+    ai_unavailable_rejection,
+    unavailable_proposals,
+)
 from .apify_actor_discovery_pricing import safe_pricing_summary
 from .apify_actor_youtube_observation_discovery import (
     candidate_observation_probe_failure,
@@ -918,25 +922,8 @@ class ApifyActorDiscoveryService:
             try:
                 ai_result = await _maybe_await(self.ai_generate(prompt))
             except Exception as error:
-                error_code = str(
-                    getattr(error, "code", "discovery_ai_unavailable")
-                )[:128]
-                self.ops.update_discovery_run(
-                    run_id,
-                    expected_stage="ranking",
-                    stage="blocked_ai_unavailable",
-                    error_code=error_code,
-                    candidate_count=len(accepted),
-                    rejections=tuple(rejected),
-                    failure_phase="ai_generation",
-                )
-                return DiscoveryOutcome(
-                    run_id,
-                    str(run["route_id"]),
-                    "blocked_ai_unavailable",
-                    (),
-                    tuple(rejected),
-                )
+                ai_result, error_code = unavailable_proposals(error)
+                rejected.append(ai_unavailable_rejection(error_code))
         else:
             ai_result = {"proposals": ()}
         self.ops.update_discovery_run(

@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 binding-readiness/shadow guard; no user-visible release note was added.
+// Reviewed for ActorOps Discovery AI fallback; no user-visible release note was added.
 export type ManualStep = {
   title: string
   description: string

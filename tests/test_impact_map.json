@@ -249,6 +249,7 @@
       "id": "ActorOps discovery metadata",
       "globs": [
         "src/services/apify_actor_discovery.py",
+        "src/services/apify_actor_discovery_ai_fallback.py",
         "src/services/apify_discovery_ai.py",
         "src/services/apify_actor_maintenance.py",
         "src/services/worker_actor_discovery_ai.py",

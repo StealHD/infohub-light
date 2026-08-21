@@ -988,8 +988,6 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
         .fetchone()[0]
         == 0
     )
-
-
 def test_youtube_discovery_requires_two_distinct_publishers(tmp_path) -> None:
     _store, ops, run = _ops(tmp_path)
 

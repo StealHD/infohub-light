@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 readiness/shadow guard adds no user-visible changelog entry; no Route entered active.
+// Reviewed: ActorOps Discovery AI fallback adds no user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
