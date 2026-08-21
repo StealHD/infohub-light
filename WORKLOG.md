@@ -14,26 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-20",
-  "result": "完成 ActorOps v2 Phase 4：新增可恢复 Discovery 的安全 checkpoint、exact Build/Schema 验证、确定性优先 Manifest 映射和非关键 AI 补充；新增只读 Apify Catalog 边界和独立 v2 Discovery Worker Job。默认 flag/Route disabled 不变，不启动 Actor、Probe 或费用预留。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-v2-phase4",
-  "unresolved": [],
-  "validation": [
-    "ActorOps v2 Discovery/Catalog/Repository/Adapter、Worker v2 Discovery、Phase 2/3 和 v1 Discovery/Worker 定向 Pytest 通过。",
-    "impacted preflight 17/17 命令通过；Markdown、init-pro schema、worklog、JSON 与 diff 校验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
   "result": "完成 ActorOps v2 Phase 5：新增默认关闭的双 policy Owner/Admin 授权、免费 exact-revision 预检、单 Candidate Probe 账本、每 Route UTC 日/Workspace UTC 月预算、自动补 Standby 与非最后一路原子替换；最后一个 runnable Candidate 保持 assignment 并记录安全保护码。维护 Job 仅在 flag=true 的 post-job/idle housekeeping 低优先级入队，不改 API/UI、Route mode、Feed/LKG 或真实平台流量。",
   "status": "completed",
   "task_id": "2026-08-20-actorops-v2-phase5",
@@ -415,6 +395,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "database integrity and foreign-key recovery checks",
     "81 targeted ActorOps tests",
     "code-size, product-doc, and Markdown controls"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Broadened the three free YouTube Store search queries after exact-revision filtering left no viable new Candidate; static and AI-assisted validation gates remain unchanged.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-youtube-discovery-breadth",
+  "unresolved": [
+    "The widened discovery must still yield a new exact revision that passes its own target-identity validation before it can join the pool."
+  ],
+  "validation": [
+    "targeted discovery-query and exact-revision tests",
+    "code-size, product-doc, and Markdown controls",
+    "prior full impacted preflight"
   ]
 }
 ```

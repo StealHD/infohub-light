@@ -1401,9 +1401,9 @@ def test_discovery_store_queries_target_route_content_items() -> None:
     assert _actor_discovery_queries(
         {"platform": "youtube", "target_type": "channel", "capability": "items"}
     ) == (
-        "youtube channel videos scraper",
-        "youtube public channel videos",
-        "youtube channel feed actor",
+        "youtube scraper",
+        "youtube channel scraper",
+        "youtube channel video extractor",
     )
     assert _actor_discovery_queries(
         {

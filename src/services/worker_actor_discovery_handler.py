@@ -53,9 +53,9 @@ def actor_discovery_queries(route: dict[str, Any]) -> tuple[str, str, str]:
             "twitter tweets scraper",
         ),
         ("youtube", "channel", "items"): (
-            "youtube channel videos scraper",
-            "youtube public channel videos",
-            "youtube channel feed actor",
+            "youtube scraper",
+            "youtube channel scraper",
+            "youtube channel video extractor",
         ),
         ("instagram", "profile", "items"): (
             "instagram profile posts scraper",
