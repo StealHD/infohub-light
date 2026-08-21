@@ -101,6 +101,13 @@ def register_actorops_v2_operator_routes(app: FastAPI, context: ActorOpsV2Operat
                 key = _hash("operator-discovery", route_id, str(route.generation), bucket)
                 discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
                 row, created = repository.discovery.ensure(discovery_id=discovery_id, idempotency_key=key, route_id=route_id, trigger_reason="operator_refresh", input_fingerprint=_hash("route", str(route.route_key)))
+                if not created and str(row["status"]) in {"failed", "cancelled"}:
+                    # A retry is a new explicit free operator action.  Keep a
+                    # completed run idempotent, but never make a terminal
+                    # failure unclickable until the next UTC hour.
+                    key = _hash("operator-discovery-retry", route_id, str(route.generation), bucket, uuid.uuid4().hex)
+                    discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
+                    row, created = repository.discovery.ensure(discovery_id=discovery_id, idempotency_key=key, route_id=route_id, trigger_reason="operator_refresh", input_fingerprint=_hash("route", str(route.route_key)))
             discovery_id = str(row["discovery_id"])
         except (ActorOpsConflict, ActorOpsNotFound) as error:
             raise _conflict("actorops_v2_discovery_conflict", "路线已更新，请刷新后再搜索候选。", error) from error

@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 
 from src.api.actorops_v2_projection import actorops_v2_route_additions
 from src.api.server import create_app
-from src.services.actorops.domain import AssignmentRole, CandidateLifecycle
+from src.services.actorops.domain import (
+    AssignmentRole, CandidateLifecycle, DiscoveryStage, DiscoveryStatus,
+)
 from src.services.actorops.repository import ActorOpsRepository
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
@@ -201,6 +203,45 @@ def test_v2_price_cap_is_cas_and_a_raise_requires_explicit_confirmation(
     assert client.app.state.service_store.connect().execute(
         "SELECT COUNT(*) FROM actor_attempts_v2"
     ).fetchone()[0] == 0
+
+
+def test_v2_free_discovery_can_explicitly_retry_a_terminal_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    route = repository.get_route(route_id)
+    import src.api.actorops_v2_operator_routes as operator_routes
+    from datetime import datetime, timezone
+
+    key = operator_routes._hash(
+        "operator-discovery", route_id, str(route.generation),
+        datetime.now(timezone.utc).strftime("%Y%m%d%H"),
+    )
+    with repository.transaction():
+        repository.create_discovery_job(
+            discovery_id="terminal-discovery", idempotency_key=key, route_id=route_id,
+            trigger_reason="operator_refresh",
+            input_fingerprint=operator_routes._hash("route", str(route.route_key)),
+        )
+        repository.transition_discovery(
+            "terminal-discovery", DiscoveryStatus.QUEUED, DiscoveryStage.STORE_SEARCH,
+            DiscoveryStatus.RUNNING, DiscoveryStage.STORE_SEARCH,
+        )
+        repository.transition_discovery(
+            "terminal-discovery", DiscoveryStatus.RUNNING, DiscoveryStage.STORE_SEARCH,
+            DiscoveryStatus.FAILED, DiscoveryStage.STORE_SEARCH,
+        )
+
+    response = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-discoveries",
+        json={"expected_route_generation": route.generation},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["created"] is True
+    assert response.json()["data"]["discovery_id"] != "terminal-discovery"
 
 
 def test_v2_binding_verify_returns_zero_cost_evidence_failure(
