@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 catalog-binding repair; no Route mode, Probe, or user-visible release note changes.
+// Reviewed for ActorOps v2 binding-readiness/shadow guard; no user-visible release note was added.
 export type ManualStep = {
   title: string
   description: string

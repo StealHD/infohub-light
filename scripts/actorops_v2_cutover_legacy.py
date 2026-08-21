@@ -6,6 +6,10 @@ import sqlite3
 from typing import Any
 
 from src.services.actorops.catalog_binding_bridge import catalog_binding_is_current
+from src.services.actorops.legacy_readiness import (
+    runnable_legacy_slot_revisions,
+    runnable_v2_candidate_revisions,
+)
 
 
 def legacy_summary(
@@ -17,33 +21,12 @@ def legacy_summary(
            WHERE workspace_id=? AND route_id=?""",
         (workspace_id, route_id),
     ).fetchone()
-    slots = connection.execute(
-        """SELECT slot_name, revision_id FROM apify_route_active_slots
-           WHERE workspace_id=? AND route_id=? AND revision_id IS NOT NULL
-           ORDER BY slot_name""",
-        (workspace_id, route_id),
-    ).fetchall()
-    roles = connection.execute(
-        """SELECT assignment_role, candidate_id FROM actor_candidates_v2
-           WHERE workspace_id=? AND route_id=?
-             AND assignment_role IN ('active','standby')
-           ORDER BY assignment_role, priority""",
-        (workspace_id, route_id),
-    ).fetchall()
-    expected = {
-        "primary" if row["slot_name"] == "primary" else str(row["slot_name"]): str(
-            row["revision_id"]
-        )
-        for row in slots
-    }
-    actual: dict[str, str] = {}
-    standby = 0
-    for row in roles:
-        if str(row["assignment_role"]) == "active":
-            actual["primary"] = str(row["candidate_id"])
-        else:
-            standby += 1
-            actual[f"backup_{standby}"] = str(row["candidate_id"])
+    expected = runnable_legacy_slot_revisions(
+        connection, workspace_id=workspace_id, route_id=route_id
+    )
+    actual = runnable_v2_candidate_revisions(
+        connection, workspace_id=workspace_id, route_id=route_id
+    )
     legacy_bindings = connection.execute(
         """SELECT binding_id, target_fingerprint, generation
            FROM apify_source_route_bindings
@@ -67,8 +50,9 @@ def legacy_summary(
         if binding_id not in legacy_ids
         and catalog_binding_is_current(connection, binding)
     }
-    slot_mismatches = sum(actual.get(name) != revision for name, revision in expected.items())
-    slot_mismatches += sum(name not in expected for name in actual)
+    slot_mismatches = sum(
+        left != right for left, right in zip(expected, actual, strict=False)
+    ) + abs(len(expected) - len(actual))
     binding_mismatches = sum(
         binding_id not in v2_bindings
         or str(v2_bindings[binding_id]["target_fingerprint"])

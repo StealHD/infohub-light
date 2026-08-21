@@ -174,3 +174,4 @@
 | D168 | ActorOps v2 管理面采用 additive facade 与默认关闭策略 CAS | 2026-08-21 | [查看](records/D151-D175.md#d168) |
 | D169 | global 26 只接受单一已结算远端 Run 作为旧 Attempt 费用证明 | 2026-08-21 | [查看](records/D151-D175.md#d169) |
 | D170 | 目录社交订阅缺失旧 binding 时以离线 pending bridge 修复 | 2026-08-21 | [查看](records/D151-D175.md#d170) |
+| D171 | 切流只比较当前可执行 revision，并以 settled 来源证明解锁既有 binding | 2026-08-21 | [查看](records/D151-D175.md#d171) |

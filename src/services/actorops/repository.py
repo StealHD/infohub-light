@@ -27,6 +27,7 @@ from . import repository_execution as _execution
 from . import repository_maintenance as _maintenance
 from . import repository_reads as _reads
 from . import repository_cutover as _cutover
+from . import repository_bindings as _bindings
 from .repository_errors import (
     ActorOpsConflict,
     ActorOpsNotFound,
@@ -147,6 +148,20 @@ class ActorOpsRepository:
 
     def cutover_blockers(self, route_id: str) -> dict[str, int]:
         return _cutover.cutover_blockers(self, route_id)
+
+    def mark_binding_ready(
+        self,
+        source_id: str,
+        *,
+        expected_binding_version: int,
+        expected_target_fingerprint: str,
+    ) -> BindingRecord:
+        return _bindings.mark_ready(
+            self,
+            source_id,
+            expected_binding_version=expected_binding_version,
+            expected_target_fingerprint=expected_target_fingerprint,
+        )
 
     def create_candidate(
         self,

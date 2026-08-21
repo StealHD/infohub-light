@@ -225,10 +225,14 @@
       "globs": [
         "scripts/actorops_v2_cutover.py",
         "scripts/actorops_v2_cutover_legacy.py",
+        "scripts/repair_actorops_v2_binding_readiness.py",
         "src/services/actorops/identity.py",
+        "src/services/actorops/legacy_readiness.py",
+        "src/services/actorops/repository_bindings.py",
         "src/services/actorops/repository_cutover.py",
         "src/services/actorops/youtube_rss_compat.py",
-        "tests/test_actorops_v2_cutover.py"
+        "tests/test_actorops_v2_cutover.py",
+        "tests/test_actorops_v2_cutover_readiness.py"
       ],
       "groups": [
         "python_api_store",

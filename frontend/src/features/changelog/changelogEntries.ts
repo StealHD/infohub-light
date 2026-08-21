@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 catalog-binding repair keeps Routes default-off; no cutover, Probe, or user-visible changelog entry was added.
+// Reviewed: ActorOps v2 readiness/shadow guard adds no user-visible changelog entry; no Route entered active.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
