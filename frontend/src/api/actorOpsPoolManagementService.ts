@@ -100,6 +100,35 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
       `${resource('/api/admin/apify-routes', routeId)}/v2-bindings/verify`,
       payload,
     ),
+    actorOpsV2Candidates: (routeId: string, signal?: AbortSignal) => client.get<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-candidates`, signal,
+    ),
+    refreshActorOpsV2Metadata: (routeId: string, payload: { expected_route_generation: number }) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-metadata/refresh`, payload,
+    ),
+    discoverActorOpsV2Candidates: (routeId: string, payload: { expected_route_generation: number }) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-discoveries`, payload,
+    ),
+    setActorOpsV2PriceCap: (routeId: string, payload: { expected_route_generation: number; cap_usd: number; confirmation?: '确认提高 Actor 费用上限' }) => client.patch<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-price-cap`, payload,
+    ),
+    createActorOpsV2Replacement: (routeId: string, payload: {
+      target_assignment: 'active' | 'standby'; target_priority: number; candidate_id: string
+      expected_route_generation: number; expected_candidate_generation: number; idempotency_key: string
+      per_probe_cap_usd: number; total_cap_usd: number
+    }) => client.post<Record<string, unknown>>(`${resource('/api/admin/apify-routes', routeId)}/v2-replacements`, payload),
+    actorOpsV2Replacement: (routeId: string, planId: string, signal?: AbortSignal) => client.get<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-replacements/${encodeURIComponent(planId)}`, signal,
+    ),
+    authorizeActorOpsV2Replacement: (routeId: string, planId: string, payload: { expected_generation: number; confirmation: '确认实测替换 Actor' }) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-replacements/${encodeURIComponent(planId)}/authorize`, payload,
+    ),
+    applyActorOpsV2Replacement: (routeId: string, planId: string, payload: { expected_generation: number; confirmation: '确认替换 Actor' }) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-replacements/${encodeURIComponent(planId)}/apply`, payload,
+    ),
+    cancelActorOpsV2Replacement: (routeId: string, planId: string, payload: { expected_generation: number }) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-replacements/${encodeURIComponent(planId)}/cancel`, payload,
+    ),
     setApifyActorRoutePriceCap: (
       routeId: string,
       payload: { expected_generation: number; per_run_cap_usd: number },
