@@ -163,3 +163,19 @@
 | D157 | ActorOps 只向浏览器暴露已完成实测与对账的目录 | 2026-08-18 | [查看](records/D151-D175.md#d157) |
 | D158 | ActorOps 能力矩阵统一标准主备，并免费恢复中断的既有 Canary | 2026-08-18 | [查看](records/D151-D175.md#d158) |
 | D159 | ActorOps 自动替换退役并回归免费发现与双确认 | 2026-08-20 | [查看](records/D151-D175.md#d159) |
+| D160 | ActorOps v2 采用稳定获取优先与按订阅能力注册的适配器架构 | 2026-08-20 | [查看](records/D151-D175.md#d160) |
+| D161 | global 26 只迁移已收敛摘要，不接管 v1 inflight | 2026-08-20 | [查看](records/D151-D175.md#d161) |
+| D162 | ActorOps v2 数据面使用双门切换和无状态 Adapter 合同 | 2026-08-20 | [查看](records/D151-D175.md#d162) |
+| D163 | ActorOps v2 对账只结算既有事实，并与 Worker claim 隔离 | 2026-08-20 | [查看](records/D151-D175.md#d163) |
+| D164 | ActorOps v2 Discovery 以安全 checkpoint 和确定性优先恢复 | 2026-08-20 | [查看](records/D151-D175.md#d164) |
+| D165 | ActorOps v2 站立维护采用双授权、单 Probe 与最后一路保护 | 2026-08-20 | [查看](records/D151-D175.md#d165) |
+| D166 | ActorOps v2 以离线 Route CAS 和逐平台费用授权切流 | 2026-08-20 | [查看](records/D151-D175.md#d166) |
+| D167 | 历史 Actor 费用以保留最坏暴露的离线证据隔离 | 2026-08-21 | [查看](records/D151-D175.md#d167) |
+| D168 | ActorOps v2 管理面采用 additive facade 与默认关闭策略 CAS | 2026-08-21 | [查看](records/D151-D175.md#d168) |
+| D169 | global 26 只接受单一已结算远端 Run 作为旧 Attempt 费用证明 | 2026-08-21 | [查看](records/D151-D175.md#d169) |
+| D170 | 目录社交订阅缺失旧 binding 时以离线 pending bridge 修复 | 2026-08-21 | [查看](records/D151-D175.md#d170) |
+| D171 | 切流只比较当前可执行 revision，并以 settled 来源证明解锁既有 binding | 2026-08-21 | [查看](records/D151-D175.md#d171) |
+| D172 | 实际 Canary 的 AI 字段映射必须逐精确 Revision 证明 | 2026-08-21 | [查看](records/D151-D175.md#d172) |
+| D173 | 可配置 Canary 上限与真实费用证明一致 | 2026-08-21 | [查看](records/D151-D175.md#d173) |
+| D174 | ActorOps v2 管理台以脱敏主备切换与来源证据核验收口 | 2026-08-21 | [查看](records/D151-D175.md#d174) |
+| D175 | ActorOps v2 公开商城快照与替换采用显式费用授权 | 2026-08-21 | [查看](records/D151-D175.md#d175) |

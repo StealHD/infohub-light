@@ -55,6 +55,7 @@ API、Worker、legacy Scheduler 和 CLI 统一调用 `src/logging_utils.py::conf
 - Job 排队/去重、计划排队、领取、资格检查、执行、持久化终态、重试、取消、失效取消、stale lease 恢复和终态；claim 前边界失败也必须留下安全事件。
 - 每个 Job 类型必须在 Worker trace policy 中显式声明；每个来源获取结果、来源头像缓存和通知投递都要带可关联的 Job/source/subscription 与 stage。
 - 存储治理计划的预演与 apply 结果使用 `category=storage`，只记录 operation、结果、稳定错误码和有界候选/处理计数；不得记录归档路径、确认短语、候选 ID、正文或 manifest。
+- ActorOps v2 的商城刷新、免费发现、费用上限 CAS 与替换 preview/authorize/apply/cancel 都使用 `category=source` 的稳定 action；只记录请求/工作关联、最终 outcome、稳定错误码和无值变更字段，不记录候选内部 ID、目标、价格明细、确认词或远端事实。
 
 默认不记录普通 GET、Feed 浏览、Worker 空轮询和 heartbeat。item-state 与兼容 feedback 属于写接口，成功或失败都由统一 API mutation 边界记录；普通 GET 未处理异常使用 `category=request/action=unhandled_error`。同一异常只允许最外层边界生成一个 operation failure，局部实现只写安全 runtime 诊断。
 
