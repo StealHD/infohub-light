@@ -33,7 +33,7 @@ export function ActorOpsV2ReplacementDrawer({ route, open, onOpenChange, onUpdat
   const visiblePlan = unwrapPlan(planQuery.data) || plan
   const candidates = useMemo(() => {
     const values = unwrapCandidates(candidatesQuery.data)
-    return values.filter((item) => item.assignment === 'inactive').sort((left, right) => {
+    return values.filter((item) => item.assignment === 'inactive' && item.store_metadata !== null && ['static_valid', 'probationary', 'certified'].includes(item.lifecycle)).sort((left, right) => {
       const leftReady = left.evidence_progress.verified_bindings >= left.evidence_progress.required_bindings ? 0 : 1
       const rightReady = right.evidence_progress.verified_bindings >= right.evidence_progress.required_bindings ? 0 : 1
       return leftReady - rightReady || actorOpsV2CandidateLabel(left).localeCompare(actorOpsV2CandidateLabel(right), 'zh-CN')

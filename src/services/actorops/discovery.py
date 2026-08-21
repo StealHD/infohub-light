@@ -18,6 +18,7 @@ from .repository_errors import ActorOpsNotFound
 
 
 _MAX_ACTORS = 12
+_MAX_AI_MAPPINGS = 3
 _MAX_CURSOR_BYTES = 16 * 1024
 _TERMINAL = frozenset({"completed", "failed", "cancelled"})
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{1,95}$")
@@ -163,9 +164,10 @@ class ActorOpsDiscovery:
             else:
                 descriptors.append(self._mapped(ref, mapping, revision))
         metrics: dict[str, object] = {}
-        if unresolved and self.ai_mapper is not None:
+        ai_revisions = unresolved[:_MAX_AI_MAPPINGS]
+        if ai_revisions and self.ai_mapper is not None:
             try:
-                ai_result = await self.ai_mapper.map(route_key, tuple(unresolved))
+                ai_result = await self.ai_mapper.map(route_key, tuple(ai_revisions))
                 metrics = {
                     "config_id": ai_result.config_id,
                     "input_tokens": ai_result.input_tokens,
@@ -175,14 +177,18 @@ class ActorOpsDiscovery:
                     "latency_ms": ai_result.latency_ms,
                     "response_bytes": ai_result.response_bytes,
                 }
-                for revision in unresolved:
+                for revision in ai_revisions:
                     ref = {**self._revision_ref(revision), "route_id": str(row["route_id"])}
                     mapping = ai_result.mappings.get(revision.actor_id)
                     descriptors.append(self._mapped(ref, mapping, revision) if mapping else self._pending(ref))
             except Exception:
-                descriptors.extend(self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])}) for item in unresolved)
+                descriptors.extend(self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])}) for item in ai_revisions)
         else:
-            descriptors.extend(self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])}) for item in unresolved)
+            descriptors.extend(self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])}) for item in ai_revisions)
+        descriptors.extend(
+            self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])})
+            for item in unresolved[_MAX_AI_MAPPINGS:]
+        )
         descriptors.extend(
             {**dict(value), "route_id": str(row["route_id"])}
             for value in state.get("rejections", [])

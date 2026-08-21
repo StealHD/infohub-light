@@ -207,6 +207,33 @@ def test_ai_hallucinated_schema_field_stays_mapping_pending(tmp_path: Path) -> N
     store.close()
 
 
+def test_ai_mapping_is_bounded_to_the_first_three_exact_revisions(tmp_path: Path) -> None:
+    store, repository, _route_id = _repository(tmp_path)
+    catalog = _Catalog({
+        f"publisher/incomplete-{index}": _revision(
+            f"publisher/incomplete-{index}", complete=False,
+        )
+        for index in range(4)
+    })
+
+    class _Ai:
+        seen: tuple[str, ...] = ()
+
+        async def map(self, _route_key, revisions):
+            self.seen = tuple(revision.actor_id for revision in revisions)
+            return DiscoveryAiResult(mappings={}, config_id="safe-config")
+
+    mapper = _Ai()
+    result = asyncio.run(
+        ActorOpsDiscovery(repository, build_default_registry(), catalog, ai_mapper=mapper).run("discovery-one")
+    )
+
+    assert result.status == "completed"
+    assert mapper.seen == tuple(f"publisher/incomplete-{index}" for index in range(3))
+    assert len(repository.discovery.list_candidates("discovery-one")) == 4
+    store.close()
+
+
 def test_generic_discovery_has_no_platform_or_feed_knowledge() -> None:
     source = Path("src/services/actorops/discovery.py").read_text()
     assert "if platform" not in source

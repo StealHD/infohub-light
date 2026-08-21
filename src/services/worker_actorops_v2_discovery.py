@@ -13,6 +13,7 @@ from ..storage.service_store import ServiceStore
 from .actorops.adapters import build_default_registry
 from .actorops.apify_catalog import ApifyDiscoveryCatalog
 from .actorops.discovery import ActorOpsDiscovery, DiscoveryCatalogError
+from .actorops.discovery_ai import open_actorops_discovery_ai_mapper
 from .actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
 from .actorops.repository import ActorOpsRepository
 from .apify_actor_discovery import ApifyStoreRestClient
@@ -43,9 +44,11 @@ def run_actorops_v2_discovery(
         store, str(job["workspace_id"]), data_dir
     )
     repository = ActorOpsRepository(store.connect(), str(job["workspace_id"]))
-    result = asyncio.run(
-        ActorOpsDiscovery(repository, build_default_registry(), catalog).run(discovery_id)
+    ai_mapper = open_actorops_discovery_ai_mapper(
+        store=store, data_dir=data_dir, workspace_id=str(job["workspace_id"]),
+        user_id=str(job["user_id"]),
     )
+    result = asyncio.run(_run_discovery(repository, catalog, discovery_id, ai_mapper))
     if result.status == "completed" and not result.idempotent_replay:
         asyncio.run(_refresh_discovered_store_metadata(repository, catalog, discovery_id))
     return {
@@ -140,6 +143,22 @@ async def _refresh_discovered_store_metadata(
                 repository.operator.upsert_metadata(candidate_id, metadata)
         except Exception:
             continue
+
+
+async def _run_discovery(
+    repository: ActorOpsRepository, catalog: object, discovery_id: str, ai_mapper: object | None,
+) -> Any:
+    try:
+        return await ActorOpsDiscovery(
+            repository, build_default_registry(), catalog, ai_mapper=ai_mapper,
+        ).run(discovery_id)
+    finally:
+        close = getattr(ai_mapper, "aclose", None)
+        if callable(close):
+            try:
+                await close()
+            except Exception:
+                pass
 
 
 class _UnavailableCatalog:
