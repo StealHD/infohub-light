@@ -208,7 +208,7 @@ def test_ai_hallucinated_schema_field_stays_mapping_pending(tmp_path: Path) -> N
     store.close()
 
 
-def test_ai_mapping_is_bounded_to_the_first_three_exact_revisions(tmp_path: Path) -> None:
+def test_ai_mapping_is_bounded_to_the_first_exact_revision(tmp_path: Path) -> None:
     store, repository, _route_id = _repository(tmp_path)
     catalog = _Catalog({
         f"publisher/incomplete-{index}": _revision(
@@ -230,7 +230,7 @@ def test_ai_mapping_is_bounded_to_the_first_three_exact_revisions(tmp_path: Path
     )
 
     assert result.status == "completed"
-    assert mapper.seen == tuple(f"publisher/incomplete-{index}" for index in range(3))
+    assert mapper.seen == ("publisher/incomplete-0",)
     assert len(repository.discovery.list_candidates("discovery-one")) == 4
     store.close()
 

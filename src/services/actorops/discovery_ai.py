@@ -12,7 +12,7 @@ from typing import Any
 from .ports import DiscoveryAiResult, DiscoveryMapping, DiscoveryRevision
 
 
-_MAX_MAPPINGS = 3
+_MAX_MAPPINGS = 1
 _MAX_SCHEMA_FIELDS = 80
 _MAX_MANIFEST_BYTES = 16 * 1024
 

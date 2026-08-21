@@ -18,7 +18,7 @@ from .repository_errors import ActorOpsNotFound
 
 
 _MAX_ACTORS = 12
-_MAX_AI_MAPPINGS = 3
+_MAX_AI_MAPPINGS = 1
 _MAX_CURSOR_BYTES = 16 * 1024
 _TERMINAL = frozenset({"completed", "failed", "cancelled"})
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{1,95}$")
