@@ -39,7 +39,7 @@ class _Adapter:
 
 @dataclass
 class _Catalog:
-    async def verify(self, candidate, *, max_charge_usd):
+    async def verify_candidate(self, candidate, *, max_charge_usd):
         return ProbePreflightResult(True)
 
 

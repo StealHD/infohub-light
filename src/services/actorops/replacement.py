@@ -98,7 +98,9 @@ class ActorOpsReplacementRunner:
             actual_fingerprint = source_target_fingerprint(self.repository.workspace_id, route.route_id, raw_target, platform=route.route_key.platform)
             if actual_fingerprint != fingerprint:
                 raise ValueError("fingerprint")
-            preflight = await self.preflight.verify(candidate, max_charge_usd=plan.per_probe_cap_usd)
+            preflight = await self.preflight.verify_candidate(
+                candidate, max_charge_usd=plan.per_probe_cap_usd,
+            )
             if not preflight.allowed:
                 return self._fail(plan, _safe_code(preflight.error_code, "actorops_replacement_preflight_rejected"))
             now = datetime.now(timezone.utc)
