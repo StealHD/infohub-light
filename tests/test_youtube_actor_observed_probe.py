@@ -128,6 +128,43 @@ def test_observed_probe_accepts_a_video_row_with_nested_channel_identity() -> No
     assert draft["output"]["source_native_id"]["pointers"] == ["/channel/id"]
 
 
+def test_promoted_manifest_skips_channel_metadata_before_a_content_row() -> None:
+    manifest = _placeholder_manifest()
+    manifest["output"] = {
+        "native_id": {"pointers": ["/videoId"], "transforms": ["to_string"]},
+        "url": {"pointers": ["/url"], "transforms": ["normalize_url"]},
+        "published_at": {"pointers": ["/publishedAt"], "transforms": ["parse_datetime"]},
+        "title": {"pointers": ["/title"], "transforms": ["to_string"]},
+        "source_native_id": {"pointers": ["/channelId"], "transforms": ["to_string"]},
+    }
+    metadata = {
+        "channelId": TARGET.native_id,
+        "title": "Channel profile metadata",
+        "url": TARGET.canonical_url,
+    }
+    content = _content_row(url="https://www.youtube.com/watch?v=abC_123")
+
+    result = map_actor_output(
+        manifest, [metadata, content], TARGET, ActorRuntime(max_items=1)
+    )
+
+    assert result.semantic_outcome == "valid_nonempty"
+    assert [item.native_id for item in result.items] == ["abC_123"]
+    assert result.excluded_rows == 1
+
+
+def test_observed_probe_classifies_demo_rows_as_placeholders() -> None:
+    with pytest.raises(ActorManifestError) as caught:
+        map_canary_output(
+            _placeholder_manifest(), [{"demo": True}], TARGET,
+            ActorRuntime(max_items=1), platform="youtube",
+            target_type="channel", capability="items",
+            security_evidence=_evidence(),
+        )
+
+    assert caught.value.code == "apify_actor_placeholder"
+
+
 @pytest.mark.parametrize(
     "row",
     [

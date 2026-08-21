@@ -22,6 +22,7 @@ from .apify_actor_manifest import (
     map_actor_output,
     parse_actor_manifest,
 )
+from .apify_actor_row_classification import is_placeholder_or_control
 
 
 _OBSERVED_POINTER_PREFIX = "/__probe_"
@@ -287,9 +288,13 @@ def _observe_rows(
 ) -> ObservedProbeMapping:
     if isinstance(rows, (str, bytes, bytearray)) or not isinstance(rows, Sequence) or not rows:
         raise ActorManifestError("apify_actor_contract_mismatch", "Actor Dataset has no observable content rows")
+    placeholder_rows = 0
     for row in rows:
         if not isinstance(row, Mapping):
             raise ActorManifestError("apify_actor_contract_mismatch", "Actor Dataset contains a non-object row")
+        if is_placeholder_or_control(row):
+            placeholder_rows += 1
+            continue
         pointers = _scalar_paths(row)
         observed = _observe_row(pointers, target, platform=platform)
         if observed is None:
@@ -304,6 +309,11 @@ def _observe_rows(
         return ObservedProbeMapping(
             result=ManifestMappingResult((item,), "valid_nonempty", latest_published_at=item.published_at.isoformat(), latest_native_id=item.native_id),
             manifest=manifest,
+        )
+    if placeholder_rows == len(rows):
+        raise ActorManifestError(
+            "apify_actor_placeholder",
+            "Actor Dataset contains only placeholder or control rows",
         )
     raise ActorManifestError("apify_actor_contract_mismatch", "Actor output did not prove a matching content item")
 

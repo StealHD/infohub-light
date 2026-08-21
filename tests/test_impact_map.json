@@ -269,9 +269,12 @@
       "globs": [
         "src/services/apify_actor_canary.py",
         "src/services/apify_actor_canary_output_mapping.py",
+        "src/services/apify_actor_observed_probe.py",
+        "src/services/apify_actor_row_classification.py",
         "src/services/apify_actor_runtime.py",
         "src/services/worker_actor_canary_mapping_ai.py",
-        "src/services/worker_actor_canary_handler.py"
+        "src/services/worker_actor_canary_handler.py",
+        "tests/test_youtube_actor_observed_probe.py"
       ],
       "groups": [
         "python_queue_worker",

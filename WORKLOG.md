@@ -14,26 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-20",
-  "result": "完成 ActorOps v2 Phase 5：新增默认关闭的双 policy Owner/Admin 授权、免费 exact-revision 预检、单 Candidate Probe 账本、每 Route UTC 日/Workspace UTC 月预算、自动补 Standby 与非最后一路原子替换；最后一个 runnable Candidate 保持 assignment 并记录安全保护码。维护 Job 仅在 flag=true 的 post-job/idle housekeeping 低优先级入队，不改 API/UI、Route mode、Feed/LKG 或真实平台流量。",
-  "status": "completed",
-  "task_id": "2026-08-20-actorops-v2-phase5",
-  "unresolved": [],
-  "validation": [
-    "ActorOps v2 Phase 1–5、Worker maintenance/isolation、v1 Worker/source-acquisition/native-fallback/readiness 定向 Pytest 通过。",
-    "唯一 impacted preflight 17/17 通过：完整 Pytest、82 个 Vitest 文件/621 项、lint、TypeScript、前端构建、控制文件、产品文档与代码规模检查均成功，且无 SQLite 连接警告。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-20",
   "result": "完成 ActorOps v2 Phase 6 的默认关闭代码护栏：离线 Route mode CAS、零值 shadow 选择事件、安全切流状态/备份/验证 CLI、稳定内容身份和 YouTube v2 RSS 兼容桥；未执行真实 migration、shadow/active、远端 Actor、来源获取或 Worker 重启。",
   "status": "partial",
   "task_id": "2026-08-20-actorops-v2-phase6",
@@ -415,6 +395,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "targeted discovery-query and exact-revision tests",
     "code-size, product-doc, and Markdown controls",
     "prior full impacted preflight"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Classified demo-only Actor output as a placeholder and skipped source/profile metadata rows so a later valid content row maps under its exact Actor revision; confirmed the repaired mapper against the prior bounded source Dataset without persisting raw rows.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-content-row-mapping",
+  "unresolved": [
+    "A separate media-array contract is still required for Instagram carousel images; current shared ContentItem carries one thumbnail/image URL."
+  ],
+  "validation": [
+    "targeted ActorOps mapper/canary tests",
+    "offline bounded remote-Dataset replay",
+    "impacted preflight passed (17/17)"
   ]
 }
 ```

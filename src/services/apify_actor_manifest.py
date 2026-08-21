@@ -30,6 +30,11 @@ from pydantic import (
     model_validator,
 )
 
+from .apify_actor_row_classification import (
+    is_metadata_only_mapping,
+    is_placeholder_or_control,
+)
+
 
 MANIFEST_VERSION = 1
 MAX_MANIFEST_BYTES = 64 * 1024
@@ -115,23 +120,6 @@ _CODE_TEXT_RE = re.compile(
 _HOST_RE = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-)
-_CONTROL_TYPES = frozenset(
-    {
-        "diagnostic",
-        "diagnostics",
-        "mock",
-        "placeholder",
-        "run-report",
-        "run_report",
-        "receipt",
-        "stats",
-        "paywall",
-        "payment-required",
-        "payment_required",
-        "upgrade-required",
-        "upgrade_required",
-    }
 )
 _EMPTY_TYPES = frozenset({"empty", "no-results", "no_results"})
 
@@ -693,7 +681,7 @@ def map_actor_output(
                 "Actor reported a target-scoped availability condition",
                 retryable=False,
             )
-        if _is_placeholder_or_control(row):
+        if is_placeholder_or_control(row):
             excluded += 1
             continue
         if _is_explicit_empty(row, parsed.semantics.empty_result_markers):
@@ -725,7 +713,7 @@ def map_actor_output(
         try:
             item = MappedActorItem.model_validate(values)
         except ValidationError:
-            if _is_metadata_only_mapping(values):
+            if is_metadata_only_mapping(values):
                 metadata_only += 1
                 continue
             raise ActorManifestError(
@@ -1248,56 +1236,6 @@ def _normalize_handle(value: Any) -> str:
     return text.lstrip("@").strip().casefold()
 
 
-def _is_placeholder_or_control(row: Mapping[str, Any]) -> bool:
-    for key in (
-        "demo",
-        "isDemo",
-        "is_demo",
-        "mock",
-        "isMock",
-        "is_mock",
-        "placeholder",
-        "paywall",
-        "isPaywalled",
-        "is_paywalled",
-        "paymentRequired",
-        "payment_required",
-    ):
-        if row.get(key) is True:
-            return True
-    row_type = str(
-        row.get("resultType")
-        or row.get("result_type")
-        or row.get("recordType")
-        or row.get("record_type")
-        or row.get("type")
-        or ""
-    ).strip().casefold()
-    if row_type in _CONTROL_TYPES:
-        return True
-    control_text = " ".join(
-        str(row.get(key) or "")
-        for key in (
-            "error",
-            "message",
-            "notice",
-            "statusMessage",
-            "warning",
-            "status",
-        )
-    ).casefold()
-    return any(
-        marker in control_text
-        for marker in (
-            "demo mode",
-            "placeholder",
-            "mock data",
-            "payment required",
-            "upgrade your plan",
-        )
-    )
-
-
 def _target_control_error(row: Mapping[str, Any]) -> str | None:
     """Classify only fixed control fields; never inspect mapped content text."""
 
@@ -1387,21 +1325,6 @@ def _nonempty_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
-
-
-def _is_metadata_only_mapping(values: Mapping[str, Any]) -> bool:
-    """Return true when a row maps identity metadata but no content fields."""
-
-    return not any(
-        values.get(field_name) is not None
-        for field_name in (
-            "native_id",
-            "url",
-            "published_at",
-            "title",
-            "text",
-        )
-    )
 
 
 def _to_boolean(value: Any) -> bool:
