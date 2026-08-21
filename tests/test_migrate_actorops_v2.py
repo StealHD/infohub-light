@@ -17,6 +17,11 @@ from src.storage.actorops_v2_schema import (
     ACTOROPS_V2_MIGRATION_VERSION,
     V2_TABLES,
 )
+from src.storage.actorops_v2_operator_schema import (
+    ACTOROPS_V2_OPERATOR_MIGRATION_NAME,
+    ACTOROPS_V2_OPERATOR_MIGRATION_VERSION,
+    OPERATOR_TABLES,
+)
 from src.storage.apify_actor_auto_pool_schema import (
     install_schema as install_auto_pool_schema,
     mark_migrated as mark_auto_pool_migrated,
@@ -188,7 +193,11 @@ def test_fresh_bootstrap_installs_v2_without_global_25(tmp_path: Path) -> None:
     ).fetchone()[0] == ACTOROPS_V2_MIGRATION_NAME
     assert {row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'actor_%_v2'"
-    )} == set(V2_TABLES)
+    )} == {*V2_TABLES, *OPERATOR_TABLES}
+    assert connection.execute(
+        "SELECT name FROM schema_migrations WHERE version = ?",
+        (ACTOROPS_V2_OPERATOR_MIGRATION_VERSION,),
+    ).fetchone()[0] == ACTOROPS_V2_OPERATOR_MIGRATION_NAME
     assert connection.execute(
         "SELECT 1 FROM schema_migrations WHERE version = 25"
     ).fetchone() is None

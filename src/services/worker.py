@@ -44,10 +44,7 @@ from .worker_actor_discovery_handler import (
     actor_discovery_queries as _actor_discovery_queries,
     run_actor_discovery,
 )
-from .worker_actorops_v2_discovery import run_actorops_v2_discovery
-from .worker_actorops_v2_maintenance import run_actorops_v2_maintenance
-from .worker_actorops_v2_replacement import run_actorops_v2_replacement
-from .worker_actorops_v2_metadata import run_actorops_v2_metadata_refresh
+from .worker_actorops_v2_jobs import actorops_v2_job_handlers, actorops_v2_job_trace_policy
 from .worker_actor_validation_handler import (
     WorkerActorValidationPorts,
     actor_freshness_check_id as _actor_freshness_check_id,
@@ -114,10 +111,7 @@ WORKER_JOB_TRACE_POLICY = {
     "apify_actor_canary_batch": "job_lifecycle_only",
     "apify_actor_freshness_check": "job_lifecycle_only",
     "apify_actor_discovery": "job_lifecycle_only",
-    "actorops_v2_discovery": "job_lifecycle_only",
-    "actorops_v2_maintenance": "job_lifecycle_only",
-    "actorops_v2_replacement": "job_lifecycle_only",
-    "actorops_v2_metadata_refresh": "job_lifecycle_only",
+    **actorops_v2_job_trace_policy(),
 }
 
 
@@ -422,16 +416,12 @@ def _run_job(
         data_dir=data_dir,
         store=store,
         ports=WorkerHandlerPorts(
-            actor_handlers={
+            actor_handlers=actorops_v2_job_handlers({
                 "apify_actor_discovery": _run_apify_actor_discovery,
-                "actorops_v2_discovery": run_actorops_v2_discovery,
-                "actorops_v2_maintenance": run_actorops_v2_maintenance,
-                "actorops_v2_replacement": run_actorops_v2_replacement,
-                "actorops_v2_metadata_refresh": run_actorops_v2_metadata_refresh,
                 "apify_actor_validation": _run_apify_actor_validation,
                 "apify_actor_canary_batch": _run_apify_actor_canary_batch,
                 "apify_actor_freshness_check": _run_apify_actor_freshness_check,
-            },
+            }),
             run_user_feed_refresh=feed_refresh,
             run_source_test=run_source_test,
             apify_coordinator=apify_coordinator_for_workspace,

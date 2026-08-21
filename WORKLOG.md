@@ -12,26 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-21",
-  "result": "实现 Phase 6R 历史 Actor 费用审计与隔离：新增仅 GET、最多 20 条的安全证据 CLI；200 才精确结算，404 保留最坏预留并写 quarantine code，未知/认证/限流/非终态继续阻断；迁移仅对精确终态隔离事实解除费用 blocker。未对本地运行数据库执行 scan、snapshot、apply 或 global 26 migration。",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-legacy-cost-isolation",
-  "unresolved": [
-    "需要在已提交 revision 上运行真实只读 scan，取得 evidence hash 与最坏费用上限后，等待单独确认才可 snapshot/quarantine apply。"
-  ],
-  "validation": [
-    "ActorOps v2 legacy audit、migration 与 cutover 定向测试 33 项通过。",
-    "impacted preflight 静态门禁 7/7 通过；Markdown、schema-v3 controls、worklog 与 diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
   "result": "在提交 3e7db56 上对本地运行数据库执行一次只读 legacy cost scan：最多 20 条已知 terminal Run 的 authenticated GET 均返回 404，未写数据库、未创建 evidence/backup 文件、未执行 quarantine apply、global 26 migration、shadow、active 或来源获取。",
   "status": "blocked",
   "task_id": "2026-08-21-actorops-v2-legacy-cost-scan",
@@ -416,6 +396,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "25 targeted Python ActorOps/catalog tests passed.",
     "20 targeted frontend route-control/incident tests passed; TypeScript and lint passed.",
     "Local Docker API/Worker health passed; local X binding repair now reports 2 ready X bindings."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "observability",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "完成 ActorOps v2 Phase 7.1：global 28 商城快照与显式替换流程、费用上限管理及紧凑 Store Chip/替换 Drawer 已落地。真实本地 Instagram 替换实测通过后保留审计并恢复原主用；新增收尾修复使 fresh bootstrap 同时断言 global 26/28、所有管理写接口有安全事件映射，Worker 的 v2 Job 注册保持在专用小模块。",
+  "status": "completed",
+  "task_id": "2026-08-22-actorops-v2-phase7-1-release-finish",
+  "unresolved": [
+    "本地服务暂保留 ACTOROPS_V2_ENABLED=true 供操作者进行 UI 手工验收；仓库与示例配置默认仍为 false。",
+    "未发布 VPS、未创建 Release Tag。"
+  ],
+  "validation": [
+    "本地 global 28 migration、6 个现役主备商城元数据刷新、一次 Instagram 串行 Probe、费用结算与无网络 apply/恢复均已完成；普通 GitHub 来源 Job 成功，证明 Worker 隔离。",
+    "完整 impacted preflight 17/17 通过：全量 Python、前端 Vitest/build/lint/typecheck、浏览器契约、尺寸、可观测性、产品文档、控制与 diff 检查均通过。"
   ]
 }
 ```

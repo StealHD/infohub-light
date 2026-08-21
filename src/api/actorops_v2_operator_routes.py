@@ -26,6 +26,31 @@ class ActorOpsV2OperatorContext(Protocol):
     job_queue: Any
 
 
+MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-metadata/refresh"): (
+        "source", "actorops_v2_metadata_refresh",
+    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-discoveries"): (
+        "source", "actorops_v2_discovery_create",
+    ),
+    ("PATCH", "/api/admin/apify-routes/{route_id}/v2-price-cap"): (
+        "source", "actorops_v2_price_cap",
+    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-replacements"): (
+        "source", "actorops_v2_replacement_preview",
+    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-replacements/{plan_id}/authorize"): (
+        "source", "actorops_v2_replacement_authorize",
+    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-replacements/{plan_id}/apply"): (
+        "source", "actorops_v2_replacement_apply",
+    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-replacements/{plan_id}/cancel"): (
+        "source", "actorops_v2_replacement_cancel",
+    ),
+}
+
+
 class RouteGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_route_generation: StrictInt = Field(ge=1)
@@ -59,7 +84,14 @@ class ApplyReplacementRequest(PlanGenerationRequest):
     confirmation: Literal["确认替换 Actor"]
 
 
-def register_actorops_v2_operator_routes(app: FastAPI, context: ActorOpsV2OperatorContext) -> None:
+def register_actorops_v2_operator_routes(
+    app: FastAPI, context: ActorOpsV2OperatorContext,
+) -> None:
+    _register_candidate_routes(app, context)
+    _register_replacement_routes(app, context)
+
+
+def _register_candidate_routes(app: FastAPI, context: ActorOpsV2OperatorContext) -> None:
     @app.get("/api/admin/apify-routes/{route_id}/v2-candidates")
     async def candidates(route_id: str, response: Response, user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:
         try:
@@ -142,6 +174,8 @@ def register_actorops_v2_operator_routes(app: FastAPI, context: ActorOpsV2Operat
         response.headers["Cache-Control"] = "no-store"
         return ok(_route(context.store, workspace_id, route_id))
 
+
+def _register_replacement_routes(app: FastAPI, context: ActorOpsV2OperatorContext) -> None:
     @app.post("/api/admin/apify-routes/{route_id}/v2-replacements")
     async def create_replacement(route_id: str, payload: CreateReplacementRequest, request: Request, response: Response, user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:
         workspace_id = str(user["workspace_id"])

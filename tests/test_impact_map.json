@@ -203,6 +203,7 @@
         "src/api/actor_ops_pool_management_routes.py",
         "src/services/worker_housekeeping.py",
         "src/services/worker_actorops_v2_discovery.py",
+        "src/services/worker_actorops_v2_jobs.py",
         "src/services/worker_actorops_v2_maintenance.py",
         "src/services/worker_actorops_v2_metadata.py",
         "src/services/worker_actorops_v2_replacement.py",
