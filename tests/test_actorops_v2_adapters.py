@@ -10,7 +10,7 @@ import pytest
 
 from src.services.actorops.adapters import build_default_registry
 from src.services.actorops.domain import RouteKey
-from src.services.actorops.ports import ActorManifest, FetchWindow
+from src.services.actorops.ports import ActorManifest, DiscoveryRevision, FetchWindow
 
 
 @pytest.mark.parametrize(
@@ -73,6 +73,25 @@ def test_only_youtube_declares_a_native_fallback() -> None:
             adapter.fetch_native_fallback(adapter.normalize_target(config), window)
         )
         assert result.supported is supported
+
+
+def test_instagram_discovery_uses_its_own_plural_input_and_post_fields() -> None:
+    adapter = build_default_registry().require(RouteKey("instagram", "profile", "items"))
+    revision = DiscoveryRevision(
+        actor_id="actor", publisher="publisher", build_id="build", build_number="1.0.0",
+        price_per_run_usd=0.01,
+        input_schema={"properties": {"usernames": {"type": "array"}}},
+        output_schema={"properties": {
+            "postId": {}, "url": {}, "timestamp": {}, "caption": {}, "authorUsername": {},
+        }},
+    )
+
+    mapped = adapter.map_discovery_manifest(revision)
+    assert mapped.manifest_json is not None
+    value = json.loads(mapped.manifest_json)
+    assert value["input"] == {"usernames": [{"$ref": "target.handle"}]}
+    assert value["output"]["native_id"]["pointers"] == ["/postId"]
+    assert value["output"]["author_handle"]["pointers"] == ["/authorUsername"]
 
 
 def test_adapters_do_not_depend_on_storage_secrets_jobs_or_feed() -> None:

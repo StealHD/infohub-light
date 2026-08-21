@@ -17,13 +17,15 @@ def deterministic_manifest(
     identity_pointer_keys: Sequence[str],
     identity_ref: str,
     allowed_host: str,
+    list_handle_input_keys: Sequence[str] = (),
+    list_url_input_keys: Sequence[str] = (),
 ) -> DiscoveryMapping:
     """Build only a schema-proven Manifest; ambiguous schemas stay pending."""
 
     inputs = _properties(revision.input_schema)
     outputs = _properties(revision.output_schema)
     input_key = _first(inputs, input_keys)
-    native_id = _first(outputs, ("id", "nativeId", "videoId", "tweetId"))
+    native_id = _first(outputs, ("id", "nativeId", "videoId", "tweetId", "postId", "shortCode", "shortcode"))
     url = _first(outputs, ("url", "canonicalUrl", "link"))
     published = _first(outputs, ("publishedAt", "createdAt", "timestamp"))
     text = _first(outputs, ("text", "title", "description", "caption"))
@@ -34,7 +36,11 @@ def deterministic_manifest(
         "version": 1,
         "actor_id": revision.actor_id,
         "build_number": revision.build_number,
-        "input": {input_key: {"$ref": identity_ref}},
+        "input": {input_key: _input_value(
+            input_key, identity_ref=identity_ref,
+            list_handle_input_keys=list_handle_input_keys,
+            list_url_input_keys=list_url_input_keys,
+        )},
         "output": {
             "native_id": _output(native_id, "to_string"),
             "url": _output(url, "normalize_url"),
@@ -69,3 +75,14 @@ def _first(values: Mapping[str, object], keys: Sequence[str]) -> str | None:
 
 def _output(key: str, transform: str) -> dict[str, object]:
     return {"pointers": [f"/{key}"], "transforms": [transform]}
+
+
+def _input_value(
+    key: str, *, identity_ref: str, list_handle_input_keys: Sequence[str],
+    list_url_input_keys: Sequence[str],
+) -> object:
+    if key in list_handle_input_keys:
+        return [{"$ref": "target.handle"}]
+    if key in list_url_input_keys:
+        return [{"$ref": "target.canonical_url"}]
+    return {"$ref": identity_ref}

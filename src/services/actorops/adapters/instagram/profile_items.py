@@ -24,11 +24,13 @@ class InstagramProfileItemsAdapter:
     def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
         return deterministic_manifest(
             revision,
-            input_keys=("username", "profile", "handle"),
+            input_keys=("username", "usernames", "profile", "handle", "startUrls"),
             identity_field="author_handle",
-            identity_pointer_keys=("author", "username", "ownerUsername", "handle"),
+            identity_pointer_keys=("author", "authorUsername", "username", "ownerUsername", "handle"),
             identity_ref="target.handle",
             allowed_host="instagram.com",
+            list_handle_input_keys=("usernames",),
+            list_url_input_keys=("startUrls",),
         )
 
     def build_actor_input(self, target, manifest, window):
