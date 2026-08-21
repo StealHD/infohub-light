@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from .discovery import DiscoveryCatalogError
 from .ports import DiscoveryRevision, ProbePreflightResult
+from .store_metadata import StoreMetadata, normalize_store_metadata
 
 
 class ApifyStoreMetadata(Protocol):
@@ -91,6 +92,20 @@ class ApifyDiscoveryCatalog:
         ):
             return ProbePreflightResult(False, "actorops_maintenance_revision_changed")
         return ProbePreflightResult(True)
+
+    async def store_metadata(self, candidate: object) -> StoreMetadata:
+        """Read and normalize a public Store card; never expose raw provider JSON."""
+
+        actor_id = str(getattr(candidate, "actor_id", "")).strip()
+        if not actor_id:
+            raise DiscoveryCatalogError("actorops_store_metadata_actor_invalid", retryable=False)
+        try:
+            actor = await self.metadata.get_actor(actor_id)
+        except Exception as error:
+            raise _catalog_error(error) from error
+        return normalize_store_metadata(
+            actor, fallback_slug=actor_id, fallback_name=str(getattr(candidate, "publisher", "")),
+        )
 
 
 def _catalog_error(error: Exception) -> DiscoveryCatalogError:

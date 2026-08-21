@@ -95,6 +95,16 @@ class DiscoveryStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class ReplacementStatus(StrEnum):
+    PREVIEWED = "previewed"
+    AUTHORIZED = "authorized"
+    RUNNING = "running"
+    READY = "ready"
+    APPLIED = "applied"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class FailureClass(StrEnum):
     CONFIGURATION = "configuration"
     TARGET = "target"
@@ -120,6 +130,9 @@ TERMINAL_ATTEMPT_STATUSES = frozenset(
 )
 TERMINAL_DISCOVERY_STATUSES = frozenset(
     {DiscoveryStatus.COMPLETED, DiscoveryStatus.FAILED, DiscoveryStatus.CANCELLED}
+)
+TERMINAL_REPLACEMENT_STATUSES = frozenset(
+    {ReplacementStatus.APPLIED, ReplacementStatus.FAILED, ReplacementStatus.CANCELLED}
 )
 
 
@@ -288,3 +301,44 @@ class ExecutionSnapshot:
     binding: BindingRecord
     candidates: tuple[CandidateRecord, ...]
     target_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoreMetadataRecord:
+    candidate_id: str
+    actor_slug: str
+    display_name: str
+    short_description: str | None
+    developer_name: str | None
+    maintained_by_apify: bool
+    rating: float | None
+    review_count: int | None
+    bookmark_count: int | None
+    total_users: int | None
+    monthly_active_users: int | None
+    pricing_json: str
+    last_modified_at: str | None
+    observed_at: str
+    generation: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReplacementPlanRecord:
+    plan_id: str
+    route_id: str
+    target_assignment: AssignmentRole
+    target_priority: int
+    current_candidate_id: str
+    current_candidate_generation: int
+    proposed_candidate_id: str
+    proposed_candidate_generation: int
+    pricing_hash: str
+    route_generation: int
+    binding_set_hash: str
+    binding_count: int
+    per_probe_cap_usd: float
+    total_cap_usd: float
+    status: ReplacementStatus
+    idempotency_key: str
+    error_code: str | None
+    generation: int

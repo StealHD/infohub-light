@@ -29,6 +29,7 @@ from . import repository_reads as _reads
 from . import repository_cutover as _cutover
 from . import repository_bindings as _bindings
 from . import route_controls as _route_controls
+from . import repository_operator as _operator
 from .repository_errors import (
     ActorOpsConflict,
     ActorOpsNotFound,
@@ -414,6 +415,12 @@ class ActorOpsRepository:
     @property
     def maintenance(self) -> _maintenance.MaintenanceRepository:
         return _maintenance.MaintenanceRepository(self)
+
+    @property
+    def operator(self) -> _operator.OperatorRepository:
+        """Operator-only safe metadata and replacement-plan persistence."""
+
+        return _operator.OperatorRepository(self)
 
     def create_discovery_job(
         self,
