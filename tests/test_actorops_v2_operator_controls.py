@@ -16,6 +16,7 @@ from src.services.actorops.replacement import ActorOpsReplacementRunner
 from src.services.actorops.repository import ActorOpsRepository
 from src.services.actorops.store_metadata import normalize_store_metadata
 from src.services import worker_actorops_v2_metadata as metadata_worker
+from src.services import worker_actorops_v2_replacement as replacement_worker
 from src.storage.actorops_v2_operator_schema import migration_marker_exists, schema_shapes_valid
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
@@ -180,6 +181,36 @@ def test_metadata_refresh_only_reads_current_active_or_standby_candidates(tmp_pa
 
     assert result == {"refreshed": 1, "failed": 0}
     assert seen == ["active"]
+    store.close()
+
+
+def test_replacement_uses_existing_validation_key_purpose(tmp_path: Path, monkeypatch) -> None:
+    store, repository, route_id, _source_id = _setup(tmp_path)
+    with repository.transaction():
+        plan = repository.operator.create_plan(
+            plan_id="purpose-plan", route_id=route_id, target_assignment=AssignmentRole.ACTIVE,
+            target_priority=0, proposed_candidate_id="replacement",
+            idempotency_key="purpose-plan-idempotency", created_by_user_id="owner",
+            per_probe_cap_usd=0.05, total_cap_usd=0.05,
+        )
+        repository.operator.transition_plan(
+            plan.plan_id, current=plan.status, target=ReplacementStatus.AUTHORIZED,
+            expected_generation=plan.generation,
+        )
+    captured: dict[str, object] = {}
+
+    def unavailable_coordinator(*_args, **kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(replacement_worker, "apify_coordinator_for_workspace", unavailable_coordinator)
+    result = asyncio.run(replacement_worker._run_plan(
+        {"workspace_id": DEFAULT_WORKSPACE_ID, "payload_json": {"plan_id": plan.plan_id}},
+        str(tmp_path), store,
+    ))
+
+    assert captured["purpose"] == "validation"
+    assert result["error_code"] == "actorops_replacement_credential_unavailable"
     store.close()
 
 

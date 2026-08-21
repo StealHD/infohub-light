@@ -56,7 +56,9 @@ async def _run_plan(job: dict[str, Any], data_dir: str, store: ServiceStore) -> 
         if not isinstance(config, dict):
             return {"status": "failed", "plan_id": plan_id, "error_code": "actorops_replacement_source_missing"}
         sources[source_id] = config
-    coordinator = apify_coordinator_for_workspace(store, workspace_id=workspace_id, data_dir=data_dir, purpose="replacement")
+    # Replacement is an explicit Candidate validation, not a production
+    # acquisition purpose.  The shared pool accepts only those two purposes.
+    coordinator = apify_coordinator_for_workspace(store, workspace_id=workspace_id, data_dir=data_dir, purpose="validation")
     if coordinator is None:
         return {"status": "failed", "plan_id": plan_id, "error_code": "actorops_replacement_credential_unavailable"}
     catalog = _catalog(store, workspace_id, data_dir)
