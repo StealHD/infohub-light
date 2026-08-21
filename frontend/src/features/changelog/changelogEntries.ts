@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 readable route controls, zero-cost primary selection, and binding-evidence verification add no user-visible changelog entry.
+// Reviewed: ActorOps v2 Store previews, explicit price caps, and confirmed Actor replacement are documented below.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'
@@ -10,6 +10,16 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       codeHealthMaintenanceEntry,
       ...actorOpsPoolManagementChangelogEntries,
+      {
+        date: '2026-08-21',
+        title: 'ActorOps 可比较 Actor，并在确认后安全替换',
+        summary: 'ActorOps 路线收为紧凑列表：先看当前主备与费用上限，再按公开商城信息选择一个候选进行受控验证。',
+        items: [
+          { title: 'Actor 信息更容易看懂', description: '主用和备用显示商城名称；悬停、键盘聚焦或触屏点击可查看 slug、Build、价格、评分、收藏、总用户、月活、开发者与 Apify 维护标记。页面不展示内部 ID、目标、密钥或原始返回。' },
+          { title: '标价与运行上限分开', description: '商城标价始终只读；管理员可单独设置未来每次运行最多允许费用。提高上限会显示旧值与新值并要求确认，系统不会因为浏览候选或免费搜索而产生付费调用。' },
+          { title: '替换必须逐步确认', description: '选择一个候选后，系统按已绑定来源逐个验证，每次最多启动一次运行；全部通过并完成费用结算后，仍需手动确认替换。失败不会自动重试、改选下一个候选或影响现有主备。' },
+        ],
+      },
       {
         date: '2026-08-13',
         title: '信息流刷新与收藏更及时、更可控',

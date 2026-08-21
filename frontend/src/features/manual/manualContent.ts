@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 readable route controls, zero-cost primary selection, and binding-evidence verification; no user-visible release note was added.
+// Reviewed for ActorOps v2 Store previews, explicit price caps, and confirmed replacement workflow.
 export type ManualStep = {
   title: string
   description: string
@@ -103,6 +103,12 @@ export const manualSections: ManualSection[] = [
         description: 'Worker 重启后，已登记远端 Run 会由系统只读核对状态，不会重启 Actor、读取 Dataset 或在同一任务切换备用。远端尚未结束、无法读取或状态不完整时，Route 保持暂停；终态写回后，下一次正常抓取才按健康主备重新选择。主用和备用是配置优先级，不会因单个来源切备而自动重排。',
         href: '/settings/actorops',
         linkLabel: '查看 ActorOps 状态',
+      },
+      {
+        title: '比较并替换 Actor',
+        description: 'Owner/Admin 打开“设置 → ActorOps”后，每条技术线路只显示平台、当前主用/备用、已核验来源数和“单次最多允许费用”。Actor 名称旁的标签可悬停、键盘聚焦或触屏点击，查看公开商城名称、slug、Build、价格、评分、收藏、总用户、月活、开发者和 Apify 维护状态；这里的商城价格只用于比较，不会自动启动 Actor。若价格或质量不合适，可先免费刷新候选，再从“替换 Actor”中明确选择一个候选。系统会冻结当前来源和费用上限，按来源逐个串行测试；每次最多一个远端运行，全部返回属于目标账号的有效非空内容并完成费用结算后，页面才显示“确认替换”。已有完整同版本证据的候选无需再次收费。更换时只调整后续主备顺序，不发布测试内容、不改变信息流水位；失败、未知启动或费用待结算会停止后续收费，也不会自动换下一个 Actor。',
+        href: '/settings/actorops',
+        linkLabel: '管理 Actor 替换',
       },
       {
         title: '按内容类型发现 Actor',
