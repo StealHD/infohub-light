@@ -28,6 +28,7 @@ from . import repository_maintenance as _maintenance
 from . import repository_reads as _reads
 from . import repository_cutover as _cutover
 from . import repository_bindings as _bindings
+from . import route_controls as _route_controls
 from .repository_errors import (
     ActorOpsConflict,
     ActorOpsNotFound,
@@ -229,6 +230,22 @@ class ActorOpsRepository:
             candidate_id,
             role,
             priority=priority,
+            expected_route_generation=expected_route_generation,
+            expected_candidate_generation=expected_candidate_generation,
+        )
+
+    def promote_standby_candidate(
+        self,
+        route_id: str,
+        candidate_id: str,
+        *,
+        expected_route_generation: int,
+        expected_candidate_generation: int,
+    ) -> None:
+        _route_controls.promote_standby_candidate(
+            self,
+            route_id,
+            candidate_id,
             expected_route_generation=expected_route_generation,
             expected_candidate_generation=expected_candidate_generation,
         )

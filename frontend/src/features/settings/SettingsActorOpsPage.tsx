@@ -10,6 +10,7 @@ import {
   ActorOpsV2ControlPlane,
   type ActorOpsV2RouteView,
 } from '../apify-actors/ActorOpsV2ControlPlane'
+import { ActorOpsV2RouteControls } from '../apify-actors/ActorOpsV2RouteControls'
 import { HeroActorOpsControlPlane } from '../apify-actors/HeroActorOpsControlPlane'
 import {
   ApifyActorAlertSettingsPanel,
@@ -48,7 +49,7 @@ export function SettingsActorOpsPage() {
     <PageFrame width="settings" className="grid gap-5 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <PageIntro description="为 X、Instagram 和 YouTube 管理 Actor 主备。服务器受控实测候选；你只会从已验证目录选择，启用不再重复收费。" />
       {routes.isPending ? <LoadingState label="正在读取 ActorOps 路由" rows={3} /> : v2Routes.length
-        ? <ActorOpsV2ControlPlane routes={v2Routes} operationsContent={operations} />
+        ? <ActorOpsV2ControlPlane routes={v2Routes} operationsContent={operations} renderRouteActions={(route) => <ActorOpsV2RouteControls route={route} />} />
         : <HeroActorOpsControlPlane queryEnabled operationsContent={operations} />}
     </PageFrame>
   </div>

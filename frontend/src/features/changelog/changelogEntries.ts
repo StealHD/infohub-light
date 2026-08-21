@@ -1,4 +1,4 @@
-// Reviewed: ActorOps exact-revision rejection, metadata-row mapping, v2 catalog-binding runtime injection, reconciliation handoff safety, and cost-cap controls add no user-visible changelog entry.
+// Reviewed: ActorOps v2 readable route controls, zero-cost primary selection, and binding-evidence verification add no user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

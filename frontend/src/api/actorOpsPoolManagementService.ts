@@ -81,6 +81,25 @@ export function actorOpsPoolManagementApi(client: ApiClient) {
     ) => client.post<ApifyActorRouteDetail>(
       `${resource('/api/admin/apify-routes', routeId)}/active-pool/promote`, payload,
     ),
+    promoteActorOpsV2Candidate: (
+      routeId: string,
+      candidateId: string,
+      payload: {
+        expected_route_generation: number
+        expected_candidate_generation: number
+        confirmation: '确认设为主用 Actor'
+      },
+    ) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-candidates/${encodeURIComponent(candidateId)}/promote`,
+      payload,
+    ),
+    verifyActorOpsV2Bindings: (
+      routeId: string,
+      payload: { expected_route_generation: number; confirmation: '确认核验来源绑定' },
+    ) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-bindings/verify`,
+      payload,
+    ),
     setApifyActorRoutePriceCap: (
       routeId: string,
       payload: { expected_generation: number; per_run_cap_usd: number },

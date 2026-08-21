@@ -39,6 +39,7 @@ def actorops_v2_route_additions(
     budget = repository.maintenance.probe_budget(route_id, datetime.now(timezone.utc))
     return {
         "actorops_version": 2,
+        "route_generation": route.generation,
         "health": health.value,
         "runtime_mode": route.runtime_mode.value,
         "active_candidate": _candidate(active),
@@ -49,6 +50,10 @@ def actorops_v2_route_additions(
             default=None,
         ),
         "degraded_reason": _degraded_reason(route.runtime_mode.value, health, bindings),
+        "binding_summary": {
+            "ready_count": sum(item.status == "ready" for item in bindings),
+            "pending_count": sum(item.status != "ready" for item in bindings),
+        },
         "maintenance_policy": public_maintenance_policy(
             effective.workspace, effective.route, authorized=effective.authorized,
             spent_usd=budget.spent_usd, reserved_usd=budget.reserved_usd,
@@ -132,6 +137,7 @@ def _candidate(candidate: CandidateRecord | None) -> dict[str, object] | None:
         "lifecycle": candidate.lifecycle.value,
         "assignment": candidate.assignment_role.value,
         "priority": candidate.priority,
+        "generation": candidate.generation,
     }
 
 

@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "执行 ActorOps v2 Phase 6 YouTube 本地迁移前检查：停止 API/Worker、跨 heartbeat 安全窗后运行一次有界既有 terminal Run 对账和本地费用投影。抽样 Provider GET 返回 404，历史远端费用无法证明；global 26 继续因 21 条 Attempt 未结费用、126 条 Run 未结费用和 1 个 running Batch fail closed。未执行 migration、shadow/active、Actor POST、来源获取或 VPS 发布；已恢复现役 v1 API/Worker healthy。",
-  "status": "blocked",
-  "task_id": "2026-08-21-actorops-v2-youtube-cutover-preflight",
-  "unresolved": [
-    "需要 Provider 可验证的历史 Run 费用结算或经人工审计的恢复路径；不得把 404 的历史 Run 费用伪造为零。"
-  ],
-  "validation": [
-    "本地 API/Worker 均恢复 Docker healthy，ready 端点成功。",
-    "迁移 dry-run 证明 global 25 未读取，且阻断计数保持精确。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "phase"
   ],
@@ -413,6 +394,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "新增 fresh remote-success 对账竞态回归；ActorOps reconciliation/runtime/catalog 21 项通过。",
     "唯一 impacted preflight 15/15 通过：完整 Python、前端、控制文件、产品文档、代码规模与构建检查均成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "phase"
+  ],
+  "recorded_on": "2026-08-21",
+  "result": "Reworked the local ActorOps v2 route console into readable product cards with zero-cost Active/Standby switching and exact-evidence binding verification; resolved the local X pending binding to ready without a fetch or Actor run.",
+  "status": "completed",
+  "task_id": "2026-08-21-actorops-v2-readable-route-controls",
+  "unresolved": [
+    "Candidate Probe/activate/disable controls and Phase 6 platform observation remain outside this UI/control slice."
+  ],
+  "validation": [
+    "25 targeted Python ActorOps/catalog tests passed.",
+    "20 targeted frontend route-control/incident tests passed; TypeScript and lint passed.",
+    "Local Docker API/Worker health passed; local X binding repair now reports 2 ready X bindings."
   ]
 }
 ```

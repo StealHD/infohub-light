@@ -1335,10 +1335,8 @@ describe('current ActorOps settings panels', () => {
       }),
     })
 
-    expect(await screen.findByText('涉及 Actor 5')).toBeVisible()
-    expect(screen.getByText('涉及 Actor 6')).not.toBeVisible()
+    expect(within(await screen.findByRole('list', { name: '最近 Actor 事件' })).getAllByText('工作区社交抓取路线')).toHaveLength(5)
     await browser.click(screen.getByRole('button', { name: /查看全部事件/ }))
-    expect(screen.getByText('涉及 Actor 6')).toBeVisible()
-    expect(screen.getByText('涉及 Actor 7')).toBeVisible()
+    expect(within(screen.getByRole('list', { name: '较早 Actor 事件' })).getAllByText('工作区社交抓取路线')).toHaveLength(2)
   })
 })

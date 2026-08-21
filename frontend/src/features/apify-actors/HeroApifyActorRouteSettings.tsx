@@ -293,10 +293,7 @@ export function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="type-control">{actorAlertEventLabels[incident.event_type]}</p>
-          <p className="type-meta mt-1 break-words text-muted">
-            {incident.actor_name ? `涉及 ${incident.actor_name}` : '工作区 X 抓取路线'}
-            {incident.active_actor_name ? ` · 当前 ${incident.active_actor_name}` : ''}
-          </p>
+          <p className="type-meta mt-1 text-muted">工作区社交抓取路线</p>
         </div>
         <StatusIndicator
           label={incident.status === 'resolved' ? '已恢复' : incident.severity === 'critical' ? '需要处理' : '持续观察'}

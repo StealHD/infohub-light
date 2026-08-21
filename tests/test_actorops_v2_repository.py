@@ -63,6 +63,59 @@ def test_repository_assigns_exact_candidate_and_derives_health(tmp_path: Path) -
     store.close()
 
 
+def test_repository_promotes_existing_standby_without_changing_exact_candidates(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    with repository.transaction():
+        for candidate_id in ("candidate-v2-primary", "candidate-v2-backup"):
+            repository.create_candidate(
+                candidate_id=candidate_id,
+                route_id=route_id,
+                actor_id=f"publisher/{candidate_id}",
+                publisher="publisher",
+                build_id=f"build-{candidate_id}",
+                build_number="1.0.0",
+                manifest_json='{"version":1}',
+                manifest_hash=("a" if candidate_id.endswith("primary") else "b") * 64,
+                input_schema_hash="c" * 64,
+                output_schema_hash="d" * 64,
+                lifecycle=CandidateLifecycle.PROBATIONARY,
+            )
+        repository.assign_candidate(
+            route_id, "candidate-v2-primary", AssignmentRole.ACTIVE, priority=0,
+            expected_route_generation=1, expected_candidate_generation=1,
+        )
+        repository.assign_candidate(
+            route_id, "candidate-v2-backup", AssignmentRole.STANDBY, priority=1,
+            expected_route_generation=2, expected_candidate_generation=1,
+        )
+
+    with repository.transaction():
+        repository.promote_standby_candidate(
+            route_id,
+            "candidate-v2-backup",
+            expected_route_generation=3,
+            expected_candidate_generation=2,
+        )
+
+    primary = repository.get_candidate("candidate-v2-primary")
+    backup = repository.get_candidate("candidate-v2-backup")
+    assert backup.assignment_role is AssignmentRole.ACTIVE
+    assert backup.priority == 0
+    assert primary.assignment_role is AssignmentRole.STANDBY
+    assert primary.priority == 1
+    assert repository.get_route(route_id).generation == 4
+    with repository.transaction(), pytest.raises(ActorOpsConflict):
+        repository.promote_standby_candidate(
+            route_id,
+            "candidate-v2-primary",
+            expected_route_generation=3,
+            expected_candidate_generation=primary.generation,
+        )
+    store.close()
+
+
 def test_repository_enforces_cas_and_terminal_attempts(tmp_path: Path) -> None:
     store, repository, route_id = _repository(tmp_path)
     with repository.transaction():

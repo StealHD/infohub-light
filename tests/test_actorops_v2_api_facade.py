@@ -39,6 +39,23 @@ def _route_with_one_assignment(store: ServiceStore) -> tuple[ActorOpsRepository,
     return repository, route_id
 
 
+def _route_with_two_assignments(store: ServiceStore) -> tuple[ActorOpsRepository, str]:
+    repository, route_id = _route_with_one_assignment(store)
+    with repository.transaction():
+        repository.create_candidate(
+            candidate_id="facade-backup", route_id=route_id,
+            actor_id="publisher/backup", publisher="backup publisher",
+            build_id="build-backup", build_number="2.0.0", manifest_json="{}",
+            manifest_hash="d" * 64, input_schema_hash="e" * 64,
+            output_schema_hash="f" * 64, lifecycle=CandidateLifecycle.CERTIFIED,
+        )
+        repository.assign_candidate(
+            route_id, "facade-backup", AssignmentRole.STANDBY, priority=1,
+            expected_route_generation=2, expected_candidate_generation=1,
+        )
+    return repository, route_id
+
+
 def _client(tmp_path: Path, monkeypatch, *, v2_enabled: bool = True) -> TestClient:
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
@@ -112,8 +129,11 @@ def test_facade_projects_health_assignment_lkg_and_disabled_policy(
     assert projection is not None
     assert projection["actorops_version"] == 2
     assert projection["health"] == "degraded"
+    assert projection["route_generation"] == 2
     assert projection["active_candidate"]["candidate_id"] == "facade-candidate"
+    assert projection["active_candidate"]["generation"] == 2
     assert projection["standby_candidates"] == []
+    assert projection["binding_summary"] == {"ready_count": 0, "pending_count": 0}
     assert projection["degraded_reason"] == "actorops_v2_route_disabled"
     policy = projection["maintenance_policy"]
     assert policy["authorized"] is False
@@ -121,6 +141,90 @@ def test_facade_projects_health_assignment_lkg_and_disabled_policy(
     assert policy["route"]["enabled"] is False
     assert "manifest_json" not in json.dumps(projection, sort_keys=True)
     store.close()
+
+
+def test_v2_candidate_promotion_is_admin_cas_and_does_not_start_actor(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    repository, route_id = _route_with_two_assignments(store)
+    route = repository.get_route(route_id)
+    backup = repository.get_candidate("facade-backup")
+
+    response = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-candidates/facade-backup/promote",
+        json={
+            "expected_route_generation": route.generation,
+            "expected_candidate_generation": backup.generation,
+            "confirmation": "确认设为主用 Actor",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()["data"]
+    assert payload["active_candidate"]["candidate_id"] == "facade-backup"
+    assert repository.get_candidate("facade-candidate").assignment_role is AssignmentRole.STANDBY
+    assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
+
+    conflict = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-candidates/facade-candidate/promote",
+        json={
+            "expected_route_generation": route.generation,
+            "expected_candidate_generation": 4,
+            "confirmation": "确认设为主用 Actor",
+        },
+    )
+    assert conflict.status_code == 409
+
+
+def test_v2_binding_verify_returns_zero_cost_evidence_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    repository, route_id = _route_with_one_assignment(store)
+    import src.api.actorops_v2_control_routes as controls
+    from src.services.actorops.legacy_readiness import LegacyBindingReadinessReport
+
+    monkeypatch.setattr(
+        controls,
+        "legacy_ready_binding_plans",
+        lambda *_args, **_kwargs: ((), LegacyBindingReadinessReport(pending_bindings=1)),
+    )
+    response = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-bindings/verify",
+        json={
+            "expected_route_generation": repository.get_route(route_id).generation,
+            "confirmation": "确认核验来源绑定",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "actorops_v2_binding_evidence_missing"
+    assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
+
+
+def test_v2_manual_controls_are_flag_gated_without_global_26_or_25_reads(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch, v2_enabled=False)
+    _login(client)
+    statements: list[str] = []
+    client.app.state.service_store.connect().set_trace_callback(statements.append)
+
+    response = client.post(
+        "/api/admin/apify-routes/route-x/v2-bindings/verify",
+        json={"expected_route_generation": 1, "confirmation": "确认核验来源绑定"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "actorops_v2_unavailable"
+    joined = "\n".join(statements).casefold()
+    assert "actor_routes_v2" not in joined
+    assert "version = 25" not in joined
 
 
 def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
