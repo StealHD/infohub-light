@@ -11,6 +11,8 @@ from src.mcp.remote_server import (
     SafeRemoteMCP,
     create_remote_mcp,
 )
+from src.mcp.remote_diagnostics import RemoteMCPDiagnostics
+from src.mcp.remote_service import RemoteMCPNotFound, RemoteMCPReadService
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,3 +98,40 @@ def test_tool_registration_has_exactly_three_one_way_categories() -> None:
 
 def test_remote_audit_keeps_the_legacy_logger_name() -> None:
     assert 'logging.getLogger("src.mcp.remote_server")' in _source("remote_audit.py")
+
+
+def test_read_service_is_an_explicit_focused_composition_facade() -> None:
+    source = _source("remote_service.py")
+
+    assert len(source.splitlines()) <= 200
+    assert "import *" not in source
+    assert "SELECT " not in source
+    assert "RemoteMCPFeedReadService(store)" in source
+    assert "RemoteMCPSubscriptionReadService(store)" in source
+    assert "RemoteMCPJobReadService(store)" in source
+    assert RemoteMCPReadService.__module__ == "src.mcp.remote_service"
+    assert RemoteMCPNotFound.__module__ == "src.mcp.remote_read_projection"
+
+
+def test_diagnostics_facade_composes_pure_projection_modules() -> None:
+    facade = _source("remote_diagnostics.py")
+
+    assert len(facade.splitlines()) <= 200
+    assert "import *" not in facade
+    assert "SELECT " not in facade
+    assert "RemoteMCPDiagnosticRecords(" in facade
+    assert RemoteMCPDiagnostics.__module__ == "src.mcp.remote_diagnostics"
+
+    for name in (
+        "remote_diagnostic_classification.py",
+        "remote_diagnostic_evidence.py",
+        "remote_diagnostic_projection.py",
+        "remote_diagnostic_sanitization.py",
+    ):
+        source = _source(name)
+        assert "ServiceStore" not in source
+        assert ".connect()" not in source
+        assert "JobQueue" not in source
+        assert "RuntimeStatusService" not in source
+        assert "httpx" not in source
+        assert "requests" not in source

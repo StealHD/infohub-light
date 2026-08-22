@@ -13,25 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-21",
-  "result": "Raised the explicit ActorOps Route and Candidate-validation ceiling from $0.10 to $0.20 after a real content-valid Canary exceeded the former hard cap. Defaults remain $0.02; CAS, one-shot approval, final-cost accounting and over-cap rejection remain enforced.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-authorized-cost-cap",
-  "unresolved": [],
-  "validation": [
-    "ActorOps pool, staging, runtime, canary, settlement and API pytest suite passed (98 tests).",
-    "Code-size, product-doc, Markdown-control, init-pro structural, JSON and git diff checks passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
   "result": "Added explicit global 27 offline migration for authorized Actor validation caps: exact ledger CHECK upgrades to per-candidate $0.20 and batch $0.60, with pre-network fail-closed gating on un-migrated stores.",
   "status": "completed",
   "task_id": "2026-08-21-actorops-validation-cap-v27",
@@ -390,6 +371,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "全部 test_remote_mcp_* 套件、41 项 HTTP/注册定向测试、observability 和后端代码尺寸门禁通过。",
     "累计 impacted preflight 16/16 通过，审计 logger、脱敏字段、request ID、structured content、scope 与工具 annotations 保持兼容。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 8 将 Remote MCP Feed、Subscription/Health 与 Job 读取拆为三个小服务，并将诊断的 actor-scoped records、sanitization、classification、evidence 和 projection 分离；remote_service.py 与 remote_diagnostics.py 保留为 113/153 行显式兼容 façade。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal8-remote-reads",
+  "unresolved": [],
+  "validation": [
+    "全部 test_remote_mcp_* 套件、诊断大测试集、读服务/HTTP 定向测试、observability 和后端代码尺寸门禁通过。",
+    "累计 impacted preflight 16/16 通过；RemoteMCPNotFound、RemoteMCPReadService 与 diagnose_source/diagnose_job 的导入、shape、脱敏和只读语义保持兼容。"
   ]
 }
 ```
