@@ -8,29 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "补齐 ActorOps v2 既有 v1 binding 的离线 readiness CAS：切流摘要只比较当前 runtime 可执行的 exact revision，settled source-canary 证明才可将 pending 提升为 ready；本地 YouTube shadow 选择零 v2 Attempt/POST 后，因 v1 candidate_shortfall 未进入 active 并恢复 disabled。",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-youtube-readiness-guard",
-  "unresolved": [
-    "YouTube v1 Route 仅有 1 条 runnable exact revision，低于现役两个 Candidate 阈值；需要独立受测的 v1 pool 恢复，或显式修订切流决策后才可重开 shadow。"
-  ],
-  "validation": [
-    "定向回归 52 项通过，覆盖 terminal slot 过滤、精确来源证明、CAS/idempotency、global 25 惰性与切流摘要。",
-    "最终 impacted preflight 17/17 通过，覆盖完整 Python、前端 lint/typecheck/Vitest/build、控制、产品文档和代码尺寸检查。",
-    "本地 Route 已由 shadow CAS 恢复 disabled；状态确认 0 个 v2 Attempt、0 未结费用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-21",
@@ -397,6 +374,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "unresolved": [],
   "validation": [
     "OpenClaw 与直接 Workbench 定向 Vitest 127 项及 TypeScript typecheck 通过。",
+    "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 5 引入单一根 Reducer、Connection、Session/Runtime、Conversation Run 与 Transcript 生命周期模块；根 Hook 成为唯一 Gateway Event Router，在投影前后统一校验 generation、exact session 和 exact run，并缩至 221 行。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal5-lifecycle",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw 与直接 Workbench 定向 Vitest 129 项、TypeScript typecheck、lint 和前端代码尺寸门禁通过。",
     "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
   ]
 }
