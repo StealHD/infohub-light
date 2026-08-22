@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "capabilities",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Canary 在某个 exact Actor/Build 的输出合同不匹配时，现可将仅含字段路径与 JSON 类型的内存摘要交给全局 AI 提出该 Revision 专属输出指针；同一真实返回仍须通过来源身份、内容、URL 和时间的确定性校验，成功才固化新的不可变 Manifest。",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-per-revision-ai-output-mapping",
-  "unresolved": [
-    "本地 YouTube 仍缺少一条从未失败的可授权 exact revision；下一步只运行一次扩展免费 Discovery，再按单 Actor 串行验证。"
-  ],
-  "validation": [
-    "新增无值请求、candidate-local Manifest 与未观察 pointer 拒绝测试；Canary、批次记账、Worker 和 Pool 授权共 46 项 Pytest 通过。",
-    "代码大小、产品文档、Markdown/项目控制、impact map JSON 与 diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "decisions",
     "interface"
@@ -393,6 +372,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "OpenClaw、Workbench 与 Agents 定向 Vitest 148 项，完整前端 Vitest 641 项，typecheck、lint、UI/E2E 合同和生产 build 通过。",
     "累计 impacted preflight 16/16 通过；OpenClawConversation 3 行、HeroAgentsPage 365 行，所有新增生产文件低于 400 行且未新增尺寸例外。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 7 将 Remote MCP Auth、Rate Limit、HTTP façade、Audit、Call Runtime、Tool Context 与 read/subscription/diagnostic 三类工具注册拆为独立模块；remote_server.py 缩至 142 行组合根，并显式保留六个既有公共导出及精确 17 工具合同。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal7-remote-runtime",
+  "unresolved": [],
+  "validation": [
+    "全部 test_remote_mcp_* 套件、41 项 HTTP/注册定向测试、observability 和后端代码尺寸门禁通过。",
+    "累计 impacted preflight 16/16 通过，审计 logger、脱敏字段、request ID、structured content、scope 与工具 annotations 保持兼容。"
   ]
 }
 ```
