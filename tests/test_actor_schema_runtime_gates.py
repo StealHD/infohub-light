@@ -12,6 +12,9 @@ from src.storage.apify_actor_auto_pool_schema import (
     mark_migrated as mark_auto_pool_migrated,
 )
 from src.storage.service_store import ServiceStore
+from tests.actorops_v1_migration_fixture import (
+    initialize_historical_actorops_global24,
+)
 
 
 def _ready_response(data_dir: Path, static_dir: Path):
@@ -40,7 +43,7 @@ def test_retired_actor_schema_chain_does_not_gate_the_worker(
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops_global24(store)
     if damage == "marker":
         store.connect().execute(
             "DELETE FROM schema_migrations WHERE version = ?", (version,)

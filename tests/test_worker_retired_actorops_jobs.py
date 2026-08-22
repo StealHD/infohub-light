@@ -241,7 +241,6 @@ def test_rss_worker_executes_with_historical_v1_tables_denied(
 def test_missing_v2_schema_only_fails_the_v2_job(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-password")
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
     store = ServiceStore(tmp_path)
     store.initialize()
     owner = _owner(store)

@@ -904,7 +904,7 @@ def test_actor_ops_profile_schedule_fails_closed_when_binding_is_pending(
     assert result["outcomes"][0]["reason"] == "actorops_v2_binding_pending"
 
 
-def test_x_profile_schedule_uses_v2_state_without_mutating_v1_incident(
+def test_x_profile_schedule_uses_v2_state_without_mutating_alert_incident(
     tmp_path,
     monkeypatch,
 ):
@@ -992,21 +992,6 @@ def test_x_profile_schedule_uses_v2_state_without_mutating_v1_incident(
         severity="critical",
         payload={"reason_code": "failed_spend_limit"},
     )
-    store.connect().execute(
-        """
-        UPDATE apify_actor_routes
-        SET status = 'budget_blocked',
-            last_switch_reason = 'failed_spend_limit',
-            budget_blocked_until = ?
-        WHERE workspace_id = ? AND route_key = 'x/profile'
-        """,
-        (
-            (due - timedelta(minutes=1)).isoformat(),
-            workspace["id"],
-        ),
-    )
-    store.connect().commit()
-
     result = service.enqueue_due(now=due)
 
     assert result["enqueued"] == 1

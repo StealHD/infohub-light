@@ -15,6 +15,9 @@ from src.storage.actorops_v2_single_track_schema import (
     schema_shapes_valid,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from tests.test_actorops_v1_retirement_boundary import (
+    HISTORICAL_ACTOROPS_V1_TABLES,
+)
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
@@ -167,5 +170,19 @@ def test_fresh_store_seeds_only_v2_registry_routes_and_disabled_policies(
         ).fetchall()
         assert len(policies) == 4
         assert all(int(row[1]) == 0 for row in policies)
+        installed_tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert installed_tables.isdisjoint(HISTORICAL_ACTOROPS_V1_TABLES)
+        assert {
+            "apify_actor_runs",
+            "apify_key_pool_state",
+            "apify_actor_alert_settings",
+            "apify_actor_alert_incidents",
+            "apify_actor_alert_deliveries",
+        } <= installed_tables
     finally:
         store.close()

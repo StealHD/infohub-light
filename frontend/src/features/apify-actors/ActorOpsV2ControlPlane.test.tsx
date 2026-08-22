@@ -49,10 +49,10 @@ describe('ActorOpsV2ControlPlane', () => {
     expect(screen.getByRole('link', { name: '打开 Apify' })).toHaveAttribute('href', 'https://apify.com/publisher/actor')
   })
 
-  it('normalizes a retired transport mode to disabled instead of presenting shadow execution', () => {
+  it('normalizes an invalid legacy transport mode to disabled', () => {
     const route = actorOpsV2RouteView({
       route_id: 'route-x', route_key: 'x/profile/items', platform: 'x', target_type: 'profile', capability: 'items',
-      runtime_mode: 'shadow', generation: 1, per_run_cap_usd: 0.05, health: 'unavailable', active_candidate: null,
+      runtime_mode: 'legacy', generation: 1, per_run_cap_usd: 0.05, health: 'unavailable', active_candidate: null,
       standby_candidates: [], last_known_good: null, binding_summary: { ready_count: 0, pending_count: 0, disabled_count: 0 },
       maintenance_policy: { authorized: false, workspace: { enabled: false, monthly_budget_usd: 0, generation: 1 }, route: { enabled: false, max_probe_usd: 0.01, max_probes_per_utc_day: 1, auto_add_standby: false, auto_replace_non_last: false, generation: 1 }, budget: { spent_usd: 0, reserved_usd: 0, probe_count: 0 } },
       degraded_reason: null, updated_at: null,
@@ -61,6 +61,6 @@ describe('ActorOpsV2ControlPlane', () => {
     render(<ActorOpsV2ControlPlane routes={[route]} />)
 
     expect(screen.getByText('ActorOps 已停用')).toBeInTheDocument()
-    expect(screen.queryByText(/shadow/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/legacy/i)).not.toBeInTheDocument()
   })
 })

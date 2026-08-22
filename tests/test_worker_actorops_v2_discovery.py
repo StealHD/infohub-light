@@ -14,6 +14,7 @@ from src.services.worker_actorops_v2_discovery import (
     run_actorops_v2_discovery,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from src.storage.actorops_v2_single_track_schema import MIGRATION_VERSION
 
 
 @dataclass
@@ -66,8 +67,7 @@ def _job(store: ServiceStore) -> tuple[dict, str]:
     }, route_id
 
 
-def test_v2_discovery_handler_runs_with_injected_catalog(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
+def test_v2_discovery_handler_runs_with_injected_catalog(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     job, _route_id = _job(store)
@@ -90,23 +90,20 @@ def test_v2_discovery_handler_runs_with_injected_catalog(tmp_path, monkeypatch) 
     store.close()
 
 
-def test_flag_off_discovery_queue_is_inert_and_does_not_query_v2(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ACTOROPS_V2_ENABLED", raising=False)
+def test_discovery_queue_requires_global_30(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
-    _job(store)
-    statements: list[str] = []
-    store.connect().set_trace_callback(statements.append)
+    store.connect().execute(
+        "DELETE FROM schema_migrations WHERE version=?", (MIGRATION_VERSION,)
+    )
+    store.connect().commit()
 
-    summary = enqueue_due_actorops_v2_discoveries(store, JobQueue(store))
-
-    assert summary == {"enqueued": 0, "deferred": 0}
-    assert not any("actor_discovery_jobs_v2" in statement for statement in statements)
+    with pytest.raises(RuntimeError, match="migration_required"):
+        enqueue_due_actorops_v2_discoveries(store, JobQueue(store))
     store.close()
 
 
-def test_due_v2_discovery_enqueues_once_without_touching_v1_runs(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
+def test_due_v2_discovery_enqueues_once_without_touching_v1_runs(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     _job(store)
@@ -121,20 +118,21 @@ def test_due_v2_discovery_enqueues_once_without_touching_v1_runs(tmp_path, monke
     assert first["enqueued"] == 1
     assert second["enqueued"] == 0
     assert len(rows) == 1 and "worker-discovery" in rows[0]["payload_json"]
-    assert store.connect().execute("SELECT COUNT(*) FROM apify_actor_discovery_runs").fetchone()[0] == 0
+    assert store.connect().execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='apify_actor_discovery_runs'"
+    ).fetchone() is None
     store.close()
 
 
-def test_flag_off_handler_fails_before_global_v2_access(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ACTOROPS_V2_ENABLED", raising=False)
+def test_handler_requires_global_30_before_discovery_access(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     job, _route_id = _job(store)
-    statements: list[str] = []
-    store.connect().set_trace_callback(statements.append)
+    store.connect().execute(
+        "DELETE FROM schema_migrations WHERE version=?", (MIGRATION_VERSION,)
+    )
+    store.connect().commit()
 
-    with pytest.raises(RuntimeError, match="actorops_v2_disabled"):
+    with pytest.raises(RuntimeError, match="migration_required"):
         run_actorops_v2_discovery(job, data_dir=str(store.data_dir), store=store)
-
-    assert not any("actor_discovery_jobs_v2" in statement for statement in statements)
     store.close()

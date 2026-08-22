@@ -17,7 +17,7 @@ from .actorops.adapters import build_default_registry
 from .actorops.apify_remote import ApifyV2RemoteClient
 from .actorops.maintenance import ActorOpsProber, ProbeResult
 from .actorops.ports import ProbePreflightResult
-from .actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from .actorops.readiness import require_actorops_v2_schema
 from .actorops.repository import ActorOpsRepository
 from .apify_pool_runtime import apify_coordinator_for_workspace
 from .job_queue import JobQueue
@@ -33,9 +33,7 @@ def run_actorops_v2_maintenance(
     job: dict[str, Any], *, data_dir: str, store: ServiceStore,
     ports: WorkerActorOpsV2MaintenancePorts | None = None,
 ) -> dict[str, Any]:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     payload = job.get("payload_json") if isinstance(job.get("payload_json"), dict) else {}
     required = {"route_id", "candidate_id", "source_id", "binding_version", "slot"}
     if set(payload) != required or not all(str(payload.get(key) or "").strip() for key in required):
@@ -95,9 +93,7 @@ def enqueue_due_actorops_v2_maintenance(
 ) -> dict[str, int]:
     """Queue at most one safe, low-priority Probe per route/UTC slot."""
 
-    if not actorops_v2_enabled():
-        return {"enqueued": 0, "deferred": 0}
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     connection = store.connect()
     enqueued = deferred = 0
     try:

@@ -1896,34 +1896,6 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
             status_code=status_code,
             error_type=error_type,
         )
-        member = self.store.connect().execute(
-            """
-            SELECT role FROM apify_key_pool_members
-            WHERE workspace_id = ? AND secret_id = ?
-            """,
-            (workspace_id, str(lease.secret_id)),
-        ).fetchone()
-        if member is not None and str(member["role"]) == "validation":
-            try:
-                from .apify_actor_resilience import ApifyActorResilienceService
-
-                kind = str(
-                    getattr(failure_kind, "value", failure_kind)
-                ).strip().casefold()
-                ApifyActorResilienceService(
-                    self.store,
-                    workspace_id=workspace_id,
-                ).emit_event(
-                    phase="validation_key",
-                    outcome="failed",
-                    reason_code=(
-                        "apify_credits_depleted"
-                        if kind == "depleted"
-                        else "apify_token_invalid"
-                    ),
-                )
-            except Exception:
-                pass
         if not draining:
             return
         state = self._state_row(self.store.connect(), workspace_id)

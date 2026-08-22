@@ -3,12 +3,12 @@ import type { ChangelogEntry } from './changelogTypes'
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
     date: '2026-08-23',
-    title: 'ActorOps 准备切换到最终单轨数据库',
-    summary: 'Route 运行状态将只保留启用或停用；升级仍需由管理员在停机窗口明确执行，并且不会触发抓取或付费调用。',
+    title: 'ActorOps 已完成 v2 单轨化',
+    summary: '现役来源、管理台、Worker 和浏览器只使用 v2；Route 只保留启用或停用，数据库升级仍需由管理员在停机窗口明确执行。',
     items: [
-      { title: '旧观察状态安全停用', description: '离线升级会把历史 shadow 路线统一归为停用，不会回到旧 ActorOps 路径，也不会自动启用任何来源。' },
-      { title: '新库从现役 v2 目录开始', description: '新建数据库会直接准备 X、Instagram、YouTube 的停用 Route 和维护策略；来源仍须完成 Binding 验证并由管理员启用。' },
-      { title: '升级只在明确窗口完成', description: '安装前会检查 API/Worker 已停止，先创建私有备份并验证数据库完整性；失败会恢复备份，不会调用 Actor、AI 或真实来源。' },
+      { title: '旧路径不会再参与运行', description: '旧 Pool、Canary、Freshness、Discovery 和 shadow 路线不再由 API、Worker 或页面访问；历史任务和表只保留给离线审计与退役工具。' },
+      { title: '新库从现役 v2 目录开始', description: '新建数据库会直接准备 X、Instagram、YouTube 的停用 Route、Binding schema、维护策略和共享告警；来源仍须完成 Binding 验证并由管理员启用。' },
+      { title: '升级只在明确窗口完成', description: 'global 30 缺失时 ActorOps 会明确提示迁移需要；安装前会检查 API/Worker 已停止，先创建私有备份并验证数据库完整性；失败会恢复备份，不会调用 Actor、AI 或真实来源。' },
     ],
   },
   {

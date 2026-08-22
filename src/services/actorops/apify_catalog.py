@@ -6,6 +6,9 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
+from urllib.parse import quote
+
+import httpx
 
 from .discovery import DiscoveryCatalogError
 from .ports import DiscoveryRevision, ProbePreflightResult
@@ -18,6 +21,132 @@ class ApifyStoreMetadata(Protocol):
     async def get_actor(self, actor_id: str) -> Mapping[str, Any]: ...
 
     async def get_build(self, build_id: str) -> Mapping[str, Any]: ...
+
+
+class ApifyStoreRestClient:
+    """Bounded public Store client used only by the v2 catalog.
+
+    This transport deliberately exposes metadata reads only: it cannot start
+    an Actor and never puts its bearer token in a URL.
+    """
+
+    def __init__(
+        self,
+        token: str,
+        *,
+        base_url: str = "https://api.apify.com/v2",
+        client: httpx.AsyncClient | None = None,
+        timeout_seconds: float = 20.0,
+    ) -> None:
+        if not str(token).strip():
+            raise ValueError("Apify token is required")
+        self._token = str(token).strip()
+        self._base_url = base_url.rstrip("/")
+        self._client = client
+        self._timeout = timeout_seconds
+
+    async def search_store(self, query: str) -> Sequence[Mapping[str, Any]]:
+        payload = await self._get(
+            "/store",
+            params={
+                "search": query,
+                "limit": 20,
+                "offset": 0,
+                "responseFormat": "agent",
+                "includeUnrunnableActors": False,
+            },
+        )
+        data = _unwrap(payload)
+        rows = data.get("items") if isinstance(data, Mapping) else None
+        if rows is None and isinstance(data, Sequence) and not isinstance(data, str):
+            rows = data
+        return tuple(row for row in (rows or ()) if isinstance(row, Mapping))
+
+    async def get_actor(self, actor_id: str) -> Mapping[str, Any]:
+        return _unwrap(
+            await self._get(
+                f"/actors/{quote(actor_id.replace('/', '~'), safe='~')}"
+            )
+        )
+
+    async def get_build(self, build_id: str) -> Mapping[str, Any]:
+        return _unwrap(await self._get(f"/actor-builds/{quote(build_id, safe='')}"))
+
+    async def _get(
+        self, path: str, *, params: Mapping[str, Any] | None = None
+    ) -> Mapping[str, Any]:
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(
+            timeout=self._timeout, trust_env=False
+        )
+        try:
+            for attempt in range(3):
+                try:
+                    response = await client.get(
+                        f"{self._base_url}{path}",
+                        params=dict(params or {}),
+                        headers={
+                            "Authorization": f"Bearer {self._token}",
+                            "Accept": "application/json",
+                            "Accept-Encoding": "identity",
+                        },
+                    )
+                    response.raise_for_status()
+                    if len(response.content) > 2 * 1024 * 1024:
+                        raise DiscoveryCatalogError(
+                            "actorops_discovery_catalog_response_too_large",
+                            retryable=False,
+                        )
+                    payload = response.json()
+                    if not isinstance(payload, Mapping):
+                        raise DiscoveryCatalogError(
+                            "actorops_discovery_catalog_invalid", retryable=True
+                        )
+                    return payload
+                except DiscoveryCatalogError:
+                    raise
+                except httpx.HTTPStatusError as error:
+                    status = int(error.response.status_code)
+                    if (status == 429 or status >= 500) and attempt < 2:
+                        await _retry_catalog_request(attempt, error.response)
+                        continue
+                    code = (
+                        "actorops_discovery_catalog_not_found"
+                        if status in {404, 410}
+                        else "actorops_discovery_catalog_unavailable"
+                    )
+                    raise DiscoveryCatalogError(
+                        code, retryable=status == 429 or status >= 500
+                    ) from None
+                except (httpx.HTTPError, ValueError):
+                    if attempt < 2:
+                        await _retry_catalog_request(attempt)
+                        continue
+                    raise DiscoveryCatalogError(
+                        "actorops_discovery_catalog_unavailable", retryable=True
+                    ) from None
+            raise AssertionError("unreachable")
+        finally:
+            if owns_client:
+                await client.aclose()
+
+
+async def _retry_catalog_request(
+    attempt: int, response: httpx.Response | None = None
+) -> None:
+    retry_after = response.headers.get("Retry-After") if response else None
+    try:
+        delay = float(retry_after) if retry_after else float(2**attempt)
+    except (TypeError, ValueError):
+        delay = float(2**attempt)
+    import asyncio
+
+    await asyncio.sleep(min(max(delay, 0.0), 30.0))
+
+
+def _unwrap(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    data = payload.get("data")
+    return data if isinstance(data, Mapping) else payload
 
 
 class ApifyDiscoveryCatalog:
@@ -177,4 +306,4 @@ def _schema_hash(value: Mapping[str, object]) -> str:
     ).hexdigest()
 
 
-__all__ = ["ApifyDiscoveryCatalog"]
+__all__ = ["ApifyDiscoveryCatalog", "ApifyStoreRestClient"]

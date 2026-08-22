@@ -15,7 +15,6 @@ from src.services.actorops.publication import (
 )
 from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepository
 from src.services.actorops.service import (
-    ActorOpsCompatibilityService,
     ActorOpsV2Service,
     V2ExecutionHandle,
     build_source_actorops_service,
@@ -80,7 +79,7 @@ def test_compatibility_service_uses_v2_for_active_and_disabled_routes(tmp_path) 
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     route_id, source_id = _seed_ready_binding(store)
-    service = ActorOpsCompatibilityService(store, workspace_id=DEFAULT_WORKSPACE_ID)
+    service = ActorOpsV2Service(store, workspace_id=DEFAULT_WORKSPACE_ID)
     connection = store.connect()
     connection.execute(
         "UPDATE actor_routes_v2 SET runtime_mode='active' WHERE route_id=?", (route_id,)
@@ -114,7 +113,6 @@ def test_source_factory_ignores_retired_feature_flag_and_uses_v2(
 ) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "false")
     statements: list[str] = []
     store.connect().set_trace_callback(statements.append)
     service = build_source_actorops_service(

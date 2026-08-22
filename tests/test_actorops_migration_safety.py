@@ -46,10 +46,10 @@ def test_actor_work_guard_includes_aborting_remote_runs(tmp_path: Path) -> None:
                id, workspace_id, logical_run_id, purpose, secret_id,
                secret_version, pool_generation, remote_run_id, dataset_id,
                status, created_at, started_at, updated_at,
-               charge_reserved_usd, charge_actual_usd, charge_final
+               last_error_code
            ) VALUES ('aborting-run', ?, NULL, 'validation', 'validation-key',
                      1, 1, 'remote-aborting', NULL, 'aborting', ?, ?, ?,
-                     0.02, NULL, 0)""",
+                     NULL)""",
         (DEFAULT_WORKSPACE_ID, stamp, stamp, stamp),
     )
     store.connect().commit()

@@ -46,7 +46,6 @@ async def admin_apify_key_pool(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    context.require_apify_actor_resilience()
     return ok(context.apify_key_pool.public_state(str(user["workspace_id"])))
 
 
@@ -55,7 +54,6 @@ async def admin_apify_key_pool_order(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    context.require_apify_actor_resilience()
     try:
         state = context.apify_key_pool.reorder(
             str(user["workspace_id"]),
@@ -80,7 +78,6 @@ async def admin_apify_validation_key(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    context.require_apify_actor_resilience()
     try:
         state = context.apify_key_pool.set_validation_key(
             str(user["workspace_id"]),
@@ -93,13 +90,6 @@ async def admin_apify_validation_key(
         ) from exc
     except ApifyKeyPoolError as exc:
         raise pool_api_error(exc) from exc
-    resilience = context.apify_actor_resilience_for(str(user["workspace_id"]))
-    resilience.emit_event(
-        phase="validation_key",
-        outcome="succeeded",
-        reason_code=("assigned" if payload.secret_id else "unassigned"),
-        request_id=getattr(request.state, "operation_request_id", None),
-    )
     request.state.operation_changed_fields = ["validation_key"]
     response.headers["Cache-Control"] = "no-store"
     return ok(state)
@@ -110,7 +100,6 @@ async def admin_apify_key_pool_drain(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    context.require_apify_actor_resilience()
     state = context.apify_key_pool.public_state(str(user["workspace_id"]))
     if secret_id not in {str(member["secret_id"]) for member in state["members"]}:
         raise ApiError(

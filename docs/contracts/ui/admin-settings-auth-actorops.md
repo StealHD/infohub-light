@@ -59,6 +59,10 @@
 
 ## 8A. ActorOps control plane
 
+- **现役单轨合同（2026-08-23）**：Owner/Admin 的 `/settings/actorops` 只读取 schema-2 v2 Route/Binding/Candidate/Attempt/Discovery/Maintenance/Replacement、共享 alerts 与脱敏 `actorops_v2_*` operation events。Route 状态只有 `active|disabled`；global 30 缺失、暂时不可用或旧 URL 410 都显示独立空状态，不回退或请求 v1。
+- 页面只提供 v2 的安全 Route priority、Binding verify、费用上限、免费 Discovery/metadata 与 Replacement 操作；任何可能远端启动的动作仍受服务端 CAS、确认词、单 POST、费用和结果对账栅栏约束。页面不显示或调用 v1 Pool、Stage、Canary、Freshness、目标、Manifest、密钥、remote Run/Dataset 或历史 diagnostic event。
+- 本节余下的早期 Pool/Canary/`shadow` 交互描述是已取代的历史 UI 记录，不是现役界面或 API 合同；D176 与本节前三条优先。
+
 - ActorOps 仅限 Owner/Admin 的 `/settings/actorops`；legacy hash 安全跳转。v1 使用固定抓取类型和 `主备配置/来源启用/运行与告警` 三个 tab，只显示产品名与路线状态。URL 规范为 `?route=<profile-id>&tab=pool|sources|operations[&source=<opaque-id>]`；无效值清除，切换路线保留 tab 并移除 source，浏览器不组合 platform/target。
 - v2 以紧凑 Route 列表显示三平台：每行仅平台健康、主用/备用商城名、已核验来源、单次上限和更多；隐藏内部 ID 与技术事实。Chip hover/focus/tap 预览安全商城数据，不加载第三方头像。商城标价只读，提价确认旧/新值。替换 Drawer 先列零费用已验证项；确认后才串行 Probe，成功仍须确认替换，失败不自动重试。运行与告警默认收起；各尺寸下无横滚，Popover/Drawer 可操作并回焦。
 - `主备配置`显示三个有序槽与唯一服务端 `workflow.next_action`，浏览器不得自行推断操作。空槽仅在 `actions.add` 时显示“添加 Actor”；已占用槽显示对应“替换”或“移出主备池”，备用还可在 `actions.promote` 时显示“设为主用”。后者要求 `确认设为主用 Actor`，只交换已认证槽位、无费用且不启动 Actor。新增/替换固定为 `免费搜索 → 付费确认 1/2 → Canary/来源验证/对账 → 手工选择 → 生效确认 2/2`；每次免费搜索只有一个 Discovery Job、内部最多三轮，不自动重复、付费或 apply。选择目录不显示未实测或失败 Actor，旧池在生效前不变。移出显示压紧顺序、保留历史且要求 `确认移出 Actor 主备池`。Route CAS 可把未来受控 Canary 的单次上限保存为 `$0.000001–$0.20`。pending remove/promote/paid/apply 锁定路由、页签与弹窗退出，冲突刷新权威状态且不重放付费请求。

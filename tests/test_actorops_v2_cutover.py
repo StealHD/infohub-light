@@ -254,12 +254,15 @@ def test_cutover_snapshot_uses_private_backup_and_safe_evidence(tmp_path: Path, 
 def test_youtube_rss_wrapper_keeps_a_v2_handle_out_of_v1_runtime(
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    result = [object()]
+    result: list[object] = []
     monkeypatch.setattr(
         "src.services.actorops.youtube_rss_compat.fetch_v2_youtube_rss",
         lambda **_kwargs: _return(result),
     )
-    source = SimpleNamespace(url="https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv")
+    source = SimpleNamespace(
+        url="https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv",
+        source_id="source-youtube",
+    )
     scraper = object.__new__(YouTubeNativeActorFallbackScraper)
     scraper.source = source
     scraper.actor_ops = object()
@@ -273,7 +276,7 @@ def test_youtube_rss_wrapper_keeps_a_v2_handle_out_of_v1_runtime(
         scraper._fetch_actor({"route_id": "route-youtube"}, snapshot, datetime.now())
     )
 
-    assert observed is result
+    assert observed == result
     assert scraper.publication_snapshots == [snapshot]
 
 

@@ -111,24 +111,16 @@ class ApifySocialScraper(BaseScraper):
         config: ApifySocialConfig,
         http_client: httpx.AsyncClient,
         apify_coordinator: ApifyRunCoordinator | None = None,
-        apify_actor_route: Any | None = None,
         apify_actor_ops: Any | None = None,
         actor_ops_snapshot: Any | None = None,
         route_job_id: str | None = None,
-        forced_candidate_id: str | None = None,
-        forced_route_generation: int | None = None,
-        paid_canary: bool = False,
     ):
         super().__init__(config.model_dump(), http_client)
         self.social_config = config
         self.apify_coordinator = apify_coordinator
-        self.apify_actor_route = apify_actor_route
         self.apify_actor_ops = apify_actor_ops
         self.actor_ops_snapshot = actor_ops_snapshot
         self.route_job_id = route_job_id
-        self.forced_candidate_id = forced_candidate_id
-        self.forced_route_generation = forced_route_generation
-        self.paid_canary = bool(paid_canary)
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
         if not self.social_config.enabled:
@@ -285,42 +277,6 @@ class ApifySocialScraper(BaseScraper):
                 job_id=self.route_job_id,
                 frozen_snapshot=self.actor_ops_snapshot,
                 public_http_client=self.client,
-            )
-
-        if (
-            self.paid_canary and self.apify_actor_route is not None
-            and sub.platform == ApifySocialPlatform.X
-            and sub.kind == "profile"
-            and sub.source_id
-        ):
-            from ..services.apify_actor_route import (
-                ApifyActorInvocationResult,
-            )
-
-            async def invoke(lease: Any) -> ApifyActorInvocationResult[list[ContentItem]]:
-                result = await self.fetch_x_profile_with_actor(
-                    sub,
-                    since,
-                    actor_id=str(lease.actor_id),
-                    logical_run_id=str(lease.attempt_id),
-                    resume_run_id=getattr(lease, "resume_run_id", None),
-                )
-                return ApifyActorInvocationResult(
-                    value=result.items,
-                    semantic_outcome=result.semantic_outcome,
-                    actual_cost_usd=result.actual_charge_usd,
-                    cost_final=result.cost_final,
-                    latest_published_at=result.latest_published_at,
-                    latest_item_id=result.latest_item_id,
-                )
-
-            return await self.apify_actor_route.execute_x_profile(
-                str(sub.source_id),
-                invoke,
-                job_id=self.route_job_id,
-                candidate_id=self.forced_candidate_id,
-                expected_generation=self.forced_route_generation,
-                canary=self.paid_canary,
             )
 
         token_records = (
@@ -736,7 +692,7 @@ class ApifySocialScraper(BaseScraper):
         platform = sub.platform
         if platform == ApifySocialPlatform.X:
             selected_actor_id = actor_id or self._actor_id(platform)
-            fetch_limit = 1 if self.paid_canary else sub.fetch_limit
+            fetch_limit = sub.fetch_limit
             if input_dialect and input_dialect != "controlled_default":
                 handle = self._x_handle(sub.target)
                 canonical_url = f"https://x.com/{handle}"

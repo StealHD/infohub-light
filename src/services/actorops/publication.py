@@ -38,26 +38,7 @@ def proof_from_items(items: Any) -> dict[str, Any] | None:
     v2 = getattr(items, "_actorops_v2_publication_proof", None)
     if isinstance(v2, dict) and _valid_v2(v2):
         return dict(v2)
-    if str(getattr(items, "_apify_actor_semantic_outcome", "") or "") != "advanced":
-        return None
-    route_generation = getattr(items, "_apify_actor_route_generation", None)
-    proof = {
-        "workspace_id": getattr(items, "_apify_actor_workspace_id", None),
-        "source_id": getattr(items, "_apify_actor_source_id", None),
-        "candidate_id": getattr(items, "_apify_actor_candidate_id", None),
-        "latest_published_at": getattr(items, "_apify_actor_latest_published_at", None),
-        "latest_item_id_hash": getattr(items, "_apify_actor_latest_item_id_hash", None),
-        "route_generation": route_generation,
-        "semantic_outcome": "advanced",
-    }
-    required = ("workspace_id", "source_id", "candidate_id", "latest_published_at", "latest_item_id_hash")
-    if (
-        not isinstance(route_generation, int)
-        or any(not isinstance(proof[key], str) or not str(proof[key]).strip() for key in required)
-        or len(str(proof["latest_item_id_hash"])) != 64
-    ):
-        return None
-    return proof
+    return None
 
 
 def with_publication_proof(items: list[Any], proof: dict[str, Any] | None) -> list[Any]:
@@ -65,18 +46,7 @@ def with_publication_proof(items: list[Any], proof: dict[str, Any] | None) -> li
         return items
     if proof.get("version") == 2 and _valid_v2(proof):
         return ActorOpsV2RoutedList(items, proof)
-    from ..apify_actor_route import ApifyActorRoutedList
-
-    return ApifyActorRoutedList(
-        items,
-        route_generation=int(proof["route_generation"]),
-        workspace_id=str(proof["workspace_id"]),
-        source_id=str(proof["source_id"]),
-        candidate_id=str(proof["candidate_id"]),
-        latest_published_at=str(proof["latest_published_at"]),
-        latest_item_id_hash=str(proof["latest_item_id_hash"]),
-        semantic_outcome="advanced",
-    )
+    return items
 
 
 def assert_cached_v2_proof(store: Any, proof: dict[str, Any]) -> None:
@@ -94,31 +64,12 @@ def capture_result(service: Any, items: Any) -> None:
 
 def publish_pending_watermarks(
     actor_ops: Any,
-    actor_route: Any,
-    proofs: list[dict[str, str]],
     *,
     connection: Any,
 ) -> None:
-    actor_service = actor_ops if actor_ops is not None else actor_route
-    publish_v2 = getattr(actor_service, "publish_pending_successes", None)
+    publish_v2 = getattr(actor_ops, "publish_pending_successes", None)
     if callable(publish_v2):
         publish_v2(connection=connection)
-    if not proofs:
-        return
-    if actor_service is None:
-        raise RuntimeError("Actor watermark proof is missing its runtime")
-    from ..apify_actor_resilience import ApifyActorResilienceService
-
-    for proof in proofs:
-        ApifyActorResilienceService(
-            actor_service.store, workspace_id=proof["workspace_id"]
-        ).publish_source_advance(
-            proof["source_id"],
-            candidate_id=proof["candidate_id"],
-            latest_published_at=proof["latest_published_at"],
-            latest_item_id_hash=proof["latest_item_id_hash"],
-            connection=connection,
-        )
 
 
 def publication_proof(value: dict[str, Any]) -> PublicationProof:

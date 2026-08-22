@@ -7,7 +7,7 @@ from typing import Any
 
 from ..storage.service_store import ServiceStore
 from .actorops.domain import AssignmentRole
-from .actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from .actorops.readiness import require_actorops_v2_schema
 from .actorops.repository import ActorOpsRepository
 from .worker_actorops_v2_discovery import _catalog
 
@@ -15,9 +15,7 @@ from .worker_actorops_v2_discovery import _catalog
 def run_actorops_v2_metadata_refresh(
     job: dict[str, Any], *, data_dir: str, store: ServiceStore,
 ) -> dict[str, Any]:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     payload = job.get("payload_json") if isinstance(job.get("payload_json"), dict) else {}
     route_id = str(payload.get("route_id") or "").strip()
     if set(payload) != {"route_id"} or not route_id:

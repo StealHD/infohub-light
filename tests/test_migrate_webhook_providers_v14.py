@@ -170,23 +170,7 @@ def test_v14_backs_up_preserves_legacy_rows_and_installs_constraints(
     assert repeated["schema_ready"] is True
 
 
-def test_v14_requires_v13_and_stopped_workers(tmp_path) -> None:
-    missing_v13_dir = tmp_path / "missing-v13"
-    store = _unmark_v14(missing_v13_dir)
-    store.connect().execute(
-        "DELETE FROM schema_migrations WHERE version = 13"
-    )
-    store.connect().commit()
-    store.close()
-
-    with pytest.raises(RuntimeError, match="routing v13"):
-        migrate_webhook_providers_v14(
-            data_dir=missing_v13_dir,
-            backup_dir=tmp_path / "backups-v13",
-            apply=True,
-        )
-    assert not (tmp_path / "backups-v13").exists()
-
+def test_v14_requires_stopped_workers_but_not_actorops_v1(tmp_path) -> None:
     active_dir = tmp_path / "active-worker"
     store = _unmark_v14(active_dir)
     store.upsert_worker_heartbeat("active-worker", "idle")

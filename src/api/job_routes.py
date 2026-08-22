@@ -105,20 +105,6 @@ def _create_job(
     store = context.store
     queue = context.job_queue
     quota = context.quota
-    reserved_canary_fields = {
-        "apify_actor_candidate_id",
-        "apify_actor_route_generation",
-    }
-    if (
-        payload.payload.get("reason") == "apify_actor_canary"
-        or reserved_canary_fields.intersection(payload.payload)
-    ):
-        raise ApiError(
-            "apify_actor_canary_unavailable",
-            "paid Actor canaries must be started from the confirmed canary action",
-            status_code=409,
-            action="Use the X Actor routing settings and confirm a paid canary.",
-        )
     if (
         job_type in {"source_test", "source_fetch"}
         and not payload.source_id
@@ -331,12 +317,6 @@ async def jobs_cancel(
 ) -> dict[str, Any]:
     require_mutating_member(user)
     current = _job_or_404(job_id, user, context)
-    if current.get("job_type") == "apify_actor_validation":
-        raise ApiError(
-            "job_not_cancelable",
-            "Paid Actor validation jobs are controlled by their approval action",
-            status_code=409,
-        )
     try:
         cancelled = public_job(
             context.job_queue.cancel_job(
@@ -364,20 +344,6 @@ async def jobs_retry(
     try:
         conn.execute("BEGIN IMMEDIATE")
         current = _job_or_404(job_id, user, context)
-        if current.get("job_type") == "apify_actor_validation":
-            raise ApiError(
-                "job_not_retryable",
-                "Paid Actor validation requires a new explicit approval",
-                status_code=409,
-            )
-        payload = current.get("payload_json")
-        if isinstance(payload, dict) and payload.get("reason") == "apify_actor_canary":
-            raise ApiError(
-                "job_not_retryable",
-                "paid Actor canaries must be started from the canary action",
-                status_code=409,
-                action="Confirm a new paid canary from the X Actor routing settings.",
-            )
         eligibility = JobEligibilityService(store).evaluate(current)
         if not eligibility.allowed:
             raise ApiError(

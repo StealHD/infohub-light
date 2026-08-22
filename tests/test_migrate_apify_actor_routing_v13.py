@@ -19,11 +19,12 @@ from scripts.migrate_apify_actor_ops_v15 import (
 from src.api.server import create_app
 from src.services.worker import run_worker_once
 from src.storage.service_store import ServiceStore
+from tests.actorops_v1_migration_fixture import initialize_historical_actorops
 
 
 def _downgrade_to_v12(data_dir) -> None:
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     connection = store.connect()
     connection.execute("PRAGMA foreign_keys = OFF")
     # Empty databases install the latest schema. Remove the later ActorOps
@@ -180,19 +181,13 @@ def test_existing_v12_database_requires_explicit_v13_apply(
 
     client = TestClient(create_app(data_dir=data_dir, static_dir=static_dir))
     ready = client.get("/api/health/ready")
-    assert ready.status_code == 503
-    assert ready.json()["error"]["code"] == "migration_required"
-    assert "Apify Actor routing v13" in ready.json()["error"]["message"]
+    assert ready.status_code == 200
 
     worker = run_worker_once(
         data_dir=str(data_dir),
         worker_id="v13-gated-worker",
     )
-    assert worker == {
-        "ok": False,
-        "error_code": "migration_required",
-        "migration": "webhook_providers_v14",
-    }
+    assert worker is None
     check = sqlite3.connect(data_dir / "service.db")
     try:
         assert check.execute(

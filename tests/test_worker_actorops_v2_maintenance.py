@@ -13,6 +13,7 @@ from src.services.worker_actorops_v2_maintenance import (
     run_actorops_v2_maintenance,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from src.storage.actorops_v2_single_track_schema import MIGRATION_VERSION
 
 
 def _authorized_candidate(store: ServiceStore) -> str:
@@ -53,20 +54,19 @@ def _authorized_candidate(store: ServiceStore) -> str:
     return route_id
 
 
-def test_flag_off_maintenance_queue_is_inert_without_global_v2_reads(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ACTOROPS_V2_ENABLED", raising=False)
+def test_maintenance_queue_requires_global_30(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
-    statements: list[str] = []
-    store.connect().set_trace_callback(statements.append)
-
-    assert enqueue_due_actorops_v2_maintenance(store, JobQueue(store)) == {"enqueued": 0, "deferred": 0}
-    assert not any("actor_maintenance_policies_v2" in statement for statement in statements)
+    store.connect().execute(
+        "DELETE FROM schema_migrations WHERE version=?", (MIGRATION_VERSION,)
+    )
+    store.connect().commit()
+    with pytest.raises(RuntimeError, match="migration_required"):
+        enqueue_due_actorops_v2_maintenance(store, JobQueue(store))
     store.close()
 
 
-def test_maintenance_queue_is_low_priority_and_idempotent_per_slot(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
+def test_maintenance_queue_is_low_priority_and_idempotent_per_slot(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     _authorized_candidate(store)
@@ -81,22 +81,19 @@ def test_maintenance_queue_is_low_priority_and_idempotent_per_slot(tmp_path, mon
     store.close()
 
 
-def test_maintenance_handler_is_flag_gated_before_v2_access(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ACTOROPS_V2_ENABLED", raising=False)
+def test_maintenance_handler_requires_global_30(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
-    statements: list[str] = []
-    store.connect().set_trace_callback(statements.append)
-
-    with pytest.raises(RuntimeError, match="actorops_v2_disabled"):
+    store.connect().execute(
+        "DELETE FROM schema_migrations WHERE version=?", (MIGRATION_VERSION,)
+    )
+    store.connect().commit()
+    with pytest.raises(RuntimeError, match="migration_required"):
         run_actorops_v2_maintenance({}, data_dir=str(store.data_dir), store=store)
-
-    assert not any("actor_" in statement for statement in statements)
     store.close()
 
 
-def test_maintenance_handler_uses_injected_probe_port(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
+def test_maintenance_handler_uses_injected_probe_port(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     route_id = _authorized_candidate(store)

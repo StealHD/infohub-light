@@ -20,6 +20,8 @@ from src.storage.service_store import (
     DEFAULT_WORKSPACE_ID,
     ServiceStore,
 )
+from src.apify_actor_identity import source_target_fingerprint
+from tests.actorops_v1_migration_fixture import initialize_historical_actorops
 
 
 _ATTEMPT_V13_DDL = """
@@ -85,7 +87,7 @@ _ATTEMPT_V13_COLUMNS = (
 
 def _downgrade_to_v14(data_dir) -> None:
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     connection = store.connect()
     connection.commit()
     connection.execute("PRAGMA foreign_keys = OFF")
@@ -320,7 +322,7 @@ def test_v15_upgrade_safely_removes_empty_youtube_profile_route(tmp_path) -> Non
     data_dir = tmp_path / "data"
     backup_dir = tmp_path / "backups"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     before_catalog_generation = int(
         store.connect().execute(
             "SELECT 1 + COALESCE(SUM(generation), 0) "
@@ -409,7 +411,7 @@ def test_v15_route_repair_restores_backup_when_material_evidence_exists(
     data_dir = tmp_path / evidence
     backup_dir = tmp_path / f"backups-{evidence}"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     route_id, _run_ids = _seed_invalid_youtube_profile_route(store)
     connection = store.connect()
     now = "2026-07-31T00:00:00+00:00"
@@ -502,7 +504,7 @@ def test_v15_refuses_active_discovery_job_before_backup(tmp_path) -> None:
     data_dir = tmp_path / "data"
     backup_dir = tmp_path / "backups"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     route_id, _run_ids = _seed_invalid_youtube_profile_route(
         store,
         job_status="queued",
@@ -590,7 +592,7 @@ def test_fresh_store_has_three_v15_profiles_and_legacy_x_projection(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path / "data")
-    store.initialize()
+    initialize_historical_actorops(store)
     connection = store.connect()
 
     assert store.apify_actor_ops_v15_migration_required() is False
@@ -688,7 +690,7 @@ def test_v15_attempt_adapter_snapshot_is_immutable(
     replacement,
 ) -> None:
     store = ServiceStore(tmp_path / "data")
-    store.initialize()
+    initialize_historical_actorops(store)
     connection = store.connect()
     slot = connection.execute(
         """
@@ -753,7 +755,7 @@ def test_v15_attempt_adapter_snapshot_is_immutable(
 
 def test_v15_rejects_cross_workspace_actor_ops_associations(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
-    store.initialize()
+    initialize_historical_actorops(store)
     other_workspace = _seed_second_workspace(store)
     other_source = store.create_source(
         workspace_id=other_workspace,
@@ -1184,7 +1186,7 @@ def test_normal_initialize_never_repairs_partial_actor_ops_marker(
 def test_explicit_migration_replaces_same_name_weak_trigger(tmp_path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     connection = store.connect()
     connection.executescript(
         """
@@ -1231,7 +1233,7 @@ def test_explicit_migration_replaces_same_name_weak_trigger(tmp_path) -> None:
 def test_explicit_migration_repairs_actor_ops_marker_checksum(tmp_path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     store.connect().execute(
         """
         UPDATE schema_migrations SET checksum = 'wrong-checksum'
@@ -1266,7 +1268,7 @@ def test_actor_ops_dependency_checks_precede_already_migrated_return(
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     store.connect().execute(
         "DELETE FROM schema_migrations WHERE version = 14"
     )
@@ -1524,24 +1526,12 @@ def test_v15_backs_up_preserves_v13_history_and_seeds_x_bindings(
     assert binding["route_id"] == expected_route_id
     assert binding["validation_status"] == "legacy_validation_pending"
     assert binding["verified_revision_set_hash"] is None
-    from src.services.apify_actor_ops import source_target_fingerprint
-
     assert str(binding["target_fingerprint"]) == source_target_fingerprint(
         DEFAULT_WORKSPACE_ID,
         expected_route_id,
         "@ExampleProfile",
         platform="x",
     )
-    from src.services.apify_actor_ops import ApifyActorOpsService
-
-    ApifyActorOpsService(migrated).assert_source_target(
-        expected_route_id,
-        source_id,
-        "https://x.com/exampleprofile",
-    )
-    assert ApifyActorOpsService(migrated).schedule_gate(
-        expected_route_id
-    ).allowed is True
     assert "target" not in binding.keys()
     migrated.close()
 
@@ -1594,11 +1584,6 @@ def test_v15_preserves_legacy_unknown_start_block(tmp_path) -> None:
         (DEFAULT_WORKSPACE_ID,),
     ).fetchone()
     assert route["status"] == "blocked_unknown_start"
-    from src.services.apify_actor_ops import ApifyActorOpsService
-
-    gate = ApifyActorOpsService(migrated).schedule_gate(str(route["route_id"]))
-    assert gate.allowed is False
-    assert gate.error_code == "apify_actor_route_blocked"
     migrated.close()
 
 

@@ -1,6 +1,6 @@
 # ActorOps v2 实施盘点
 
-> 状态：Phase 0 基线盘点，基于 `ce12561896642684ae310ba111f2ce4efb749cf1`。本文只记录实现路由、迁移映射和测试证据；当前/计划产品语义分别以 `docs/contracts/api/`、`docs/contracts/architecture/`、`PLAN.md` 和 D160 为唯一真源。
+> 状态：Phase 0 历史基线盘点，基于 `ce12561896642684ae310ba111f2ce4efb749cf1`。本文保留实现路由、迁移映射和测试证据；当前单轨语义以 `docs/contracts/api/`、`docs/contracts/architecture/`、`PLAN.md` 和 D176 为唯一真源。
 
 ## 1. 基线与结论
 
@@ -189,10 +189,10 @@ backfill 只读取 global 17–24：
 
 ## 9. Phase 2 实施结果
 
-- `ACTOROPS_V2_ENABLED` 默认关闭；关闭时不读 global 26，开启后才条件 gate API/Worker readiness；
+- global 30 是唯一 ActorOps 可用性门：缺失时仅 ActorOps API/Job 返回 migration-required，普通来源继续运行；
 - Active→Standby→LKG、Attempt 幂等账本、局部 publication fence 与 Feed 事务内 LKG/水位已进入通用 Runtime；
 - X Profile Items、Instagram Profile Items、YouTube Channel Items 使用独立 Adapter，只有 YouTube 明确提供公共 Atom 降级；
-- disabled/shadow Route 继续 v1，shadow 不创建 v2 Attempt 或额外付费 POST；本阶段未把任何 Route 切为 active；
+- 该阶段的 disabled/shadow→v1 观察语义已由 global 30 和 D176 取代；现役 Route 只允许 active/disabled，disabled 不回退 v1；
 - Reconciler、Discovery、站立授权、API/UI 投影和平台自然流量观察仍留在后续 Phase。
 
 ## 10. Phase 3 实施结果

@@ -70,17 +70,17 @@ const jobTypeLabels: Record<string, string> = {
   user_feed_refresh: '更新整个信息流',
   source_fetch: '抓取单个来源',
   source_test: '测试来源连接',
-  apify_actor_discovery: '更新 Actor 候选',
-  apify_actor_canary_batch: '验证 Actor 主备',
-  apify_actor_validation: '验证备用 Actor',
-  apify_actor_pool_apply: '启用 Actor 主备',
+  actorops_v2_discovery: '刷新 Actor 目录',
+  actorops_v2_maintenance: '维护 Actor 路由',
+  actorops_v2_metadata_refresh: '刷新 Actor 元数据',
+  actorops_v2_replacement: '替换 Actor 候选',
 }
 
 const actorOpsJobTypes = new Set([
-  'apify_actor_discovery',
-  'apify_actor_canary_batch',
-  'apify_actor_validation',
-  'apify_actor_pool_apply',
+  'actorops_v2_discovery',
+  'actorops_v2_maintenance',
+  'actorops_v2_metadata_refresh',
+  'actorops_v2_replacement',
 ])
 
 export function isActorOpsJob(job: Pick<Job, 'job_type'>): boolean {
@@ -99,31 +99,19 @@ export type ActorOpsJobIssue = {
 
 export function presentActorOpsJobIssue(job: Job): ActorOpsJobIssue {
   const code = String(job.error_code || '')
-  if (['apify_actor_canary_approval_stale', 'apify_actor_route_generation_conflict', 'apify_actor_canary_plan_conflict', 'apify_actor_manual_candidate_stale'].includes(code)) {
-    return { reason: 'Actor 配置已更新', impact: '这次验证没有启动，不会收费；当前主备没有变化。', next: '返回 ActorOps，重新选择 Actor 并确认。' }
+  if (['actorops_v2_migration_required', 'actorops_v2_unavailable'].includes(code)) {
+    return { reason: 'ActorOps 暂不可用', impact: '此任务没有启动远端 Actor，也不会产生新费用。', next: '完成数据库迁移或恢复服务后再试。' }
   }
-  if (code === 'apify_actor_validation_profile_unchanged') {
-    return { reason: '验证参数没有变化', impact: '系统已阻止原样重复启动，本次费用为 $0；当前主备没有变化。', next: '返回 ActorOps，按建议调整等待时间或样本数。' }
+  if (code === 'actorops_route_disabled') {
+    return { reason: 'Actor 路由已禁用', impact: '系统没有启动远端 Actor，也不会回退到旧线路。', next: '在 ActorOps 中完成验证后再启用该来源。' }
   }
-  if (['apify_actor_unexpected_empty', 'apify_actor_suspicious_empty', 'suspicious_empty', 'systemic_empty'].includes(code)) {
-    return { reason: '运行完成但没有返回内容', impact: '它没有加入主备；已有线路继续运行。费用只保留已终结部分。', next: '返回 ActorOps，扩大验证样本或更换候选。' }
-  }
-  if (['apify_actor_contract_mismatch', 'apify_actor_metadata_only', 'apify_actor_placeholder', 'apify_actor_target_identity_mismatch', 'apify_actor_revision_output_incompatible'].includes(code)) {
-    return { reason: '这个 Actor 不适合当前来源', impact: '它没有加入主备；已有线路继续运行。费用只保留已终结部分。', next: '返回 ActorOps，选择另一个候选。' }
-  }
-  if (['apify_actor_deleted', 'apify_actor_revision_unavailable', 'apify_actor_build_unavailable', 'apify_actor_revision_preflight_unavailable'].includes(code)) {
-    return { reason: '这个 Actor 已不可用', impact: '付费验证没有启动，费用为 $0；当前配置没有变化。', next: '返回 ActorOps，选择另一个候选。' }
-  }
-  if (['apify_actor_run_timed_out', 'apify_actor_canary_timeout'].includes(code)) {
-    return { reason: 'Actor 验证超时', impact: '运行已停止且不会自动重试；费用需要先完成对账。', next: '对账完成后返回 ActorOps，重新选择并确认。' }
-  }
-  if (['apify_start_outcome_unknown', 'apify_actor_start_outcome_unknown', 'apify_run_reconcile_required'].includes(code)) {
+  if (['apify_start_outcome_unknown', 'apify_run_reconcile_required'].includes(code)) {
     return { reason: '无法确认 Actor 是否已启动', impact: '为避免重复扣费，后续付费验证已锁定。', next: '先在 Apify 控制台核对，再返回 ActorOps 刷新；不要重试。' }
   }
-  if (['apify_run_status_unavailable', 'apify_actor_run_status_unavailable', 'apify_actor_validation_reconcile_required'].includes(code)) {
+  if (['apify_run_status_unavailable', 'actorops_v2_attempt_unrecoverable'].includes(code)) {
     return { reason: '原运行结果还没有确认', impact: '系统不会重新启动 Actor；当前主备没有变化。', next: '返回 ActorOps，免费重新核对同一个 Run 和 Dataset。' }
   }
-  if (['apify_actor_budget_blocked', 'apify_actor_pool_stage_budget_invalid', 'apify_actor_quota_unknown'].includes(code)) {
+  if (['actorops_v2_budget_blocked', 'apify_actor_quota_unknown'].includes(code)) {
     return { reason: '费用条件不满足', impact: '验证未启动或已暂停，系统不会自动放宽上限。', next: '返回 ActorOps 选择更便宜的候选，或查看运行与告警。' }
   }
   return { reason: 'Actor 配置没有完成', impact: '系统没有确认主备变化；现有线路继续运行。', next: '返回 ActorOps 查看当前状态和唯一下一步。' }

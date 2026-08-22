@@ -115,75 +115,11 @@ def test_catalog_rss_config_disables_global_hackernews(tmp_path, monkeypatch):
     }
 
 
-def test_catalog_source_runner_ignores_legacy_x_binding(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
-    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
-    store = ServiceStore(tmp_path)
-    store.initialize()
-    workspace = store.get_default_workspace()
-    owner = store.get_user_by_username("owner")
-    source_id = store.create_source(
-        workspace_id=workspace["id"],
-        scope="public",
-        owner_user_id=owner["id"],
-        source_type="apify_social",
-        display_name="Bound X source",
-        config={"platform": "x", "kind": "profile", "target": "OpenAI"},
-    )
-    subscription = store.create_subscription(user_id=owner["id"], source_id=source_id)
-    route = store.connect().execute(
-        """
-        SELECT route_id FROM apify_actor_route_profiles
-        WHERE workspace_id = ? AND route_key = 'x/profile'
-        """,
-        (workspace["id"],),
-    ).fetchone()
-    assert route is not None
-    route_id = str(route["route_id"])
-    # A historical v1 Binding is not an online projection authority.
-    store.connect().execute(
-        """INSERT INTO apify_source_route_bindings (
-               binding_id, workspace_id, source_id, route_id,
-               target_fingerprint, mode, validation_status, generation,
-               created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 'primary', 'valid', 1, ?, ?)""",
-        (
-            "legacy-binding",
-            workspace["id"],
-            source_id,
-            route_id,
-            source_target_fingerprint(
-                workspace["id"], route_id, "OpenAI", platform="x"
-            ),
-            "2026-08-22T00:00:00+00:00",
-            "2026-08-22T00:00:00+00:00",
-        ),
-    )
-    store.connect().commit()
-    statements: list[str] = []
-    store.connect().set_trace_callback(statements.append)
-
-    data = build_catalog_source_config_data(
-        store=store,
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        source_id=source_id,
-        subscription_id=subscription["id"],
-        base_config=_base_config(),
-    )
-
-    assert "profile_id" not in data["sources"]["apify_social"]["subscriptions"][0]
-    assert any("actor_source_bindings_v2" in statement for statement in statements)
-
-
 def test_catalog_runner_injects_ready_v2_binding_without_legacy_binding(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
     store = ServiceStore(tmp_path)
     store.initialize()
     workspace = store.get_default_workspace()

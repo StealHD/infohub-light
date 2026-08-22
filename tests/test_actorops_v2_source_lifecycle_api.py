@@ -41,7 +41,6 @@ def test_source_catalog_keeps_free_types_available_without_actorops_schema(
 def test_youtube_channel_is_canonical_idempotent_and_ready_before_enable(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
     client, _data_dir = build_client(tmp_path, monkeypatch)
     login(client)
     store = client.app.state.service_store

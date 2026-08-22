@@ -21,6 +21,16 @@ SCAN_ROOTS = (
     "frontend/src/api",
 )
 
+# These files are explicit offline migration/audit helpers. They do not take
+# part in API, Worker, source or UI composition.
+OFFLINE_ONLY_PATHS = frozenset(
+    {
+        "src/services/actorops/catalog_binding_bridge.py",
+        "src/services/actorops/legacy_cost_audit.py",
+        "src/services/actorops/legacy_cost_mutations.py",
+    }
+)
+
 TOKENS = {
     "runtime": (
         "ApifyActorOpsService",
@@ -132,6 +142,8 @@ def _findings(root: Path) -> dict[str, list[str]]:
     for path in _source_files(root):
         content = path.read_text(encoding="utf-8", errors="ignore")
         relative = path.relative_to(root).as_posix()
+        if relative in OFFLINE_ONLY_PATHS:
+            continue
         for group, tokens in TOKENS.items():
             if any(token in content for token in tokens):
                 findings[group].append(relative)
@@ -166,3 +178,11 @@ def test_actorops_v1_authorizer_groups_keep_shared_tables_outside_history() -> N
         "apify_key_pool_",
         "apify_actor_alert_",
     )
+
+
+def test_actorops_v1_offline_helpers_are_not_online_imports() -> None:
+    assert _findings(ROOT) == {
+        "runtime": [], "jobs": [], "tables": [], "frontend": [],
+    }
+    for relative in OFFLINE_ONLY_PATHS:
+        assert (ROOT / relative).is_file()

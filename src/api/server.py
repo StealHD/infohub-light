@@ -102,10 +102,6 @@ from ..services.apify_key_pool import (
     ApifyKeyPoolService,
     apify_key_pool_enabled,
 )
-from ..services.apify_actor_resilience import (
-    ActorResilienceError,
-    ApifyActorResilienceService,
-)
 from .actorops_source_lifecycle import ActorOpsSourceLifecycle
 from ..services.actorops.binding_service import ActorOpsBindingError
 from ..services.actorops.repository import ActorOpsNotFound, ActorOpsRepository
@@ -606,18 +602,6 @@ def create_app(
     )
     apify_key_pool = ApifyKeyPoolService(store, secret_store=secret_values)
 
-    def require_apify_actor_routing_v13() -> None:
-        if store.apify_actor_routing_v13_migration_required():
-            raise ApiError(
-                "migration_required",
-                "Apify Actor routing v13 migration must be applied before X routing is used",
-                status_code=503,
-                action=(
-                    "Stop API and Worker, then run "
-                    "scripts/migrate_apify_actor_routing_v13.py --apply."
-                ),
-            )
-
     def require_webhook_providers_v14() -> None:
         if store.webhook_providers_v14_migration_required():
             raise ApiError(
@@ -654,27 +638,6 @@ def create_app(
                     "scripts/migrate_notification_targets_v16.py --apply."
                 ),
             )
-
-    def require_apify_actor_resilience_v21() -> None:
-        if store.apify_actor_resilience_v21_migration_required():
-            raise ApiError(
-                "migration_required",
-                "Apify Actor resilience v21 migration must be applied before Actor routes are used",
-                status_code=503,
-                action=(
-                    "Stop API and Worker, then run "
-                    "scripts/migrate_apify_actor_resilience_v21.py --apply."
-                ),
-            )
-
-    def apify_actor_resilience_for(
-        workspace_id: str,
-    ) -> ApifyActorResilienceService:
-        require_apify_actor_resilience_v21()
-        return ApifyActorResilienceService(
-            store,
-            workspace_id=str(workspace_id),
-        )
 
     quota = QuotaService(
         store,
@@ -1129,7 +1092,6 @@ def create_app(
         storage_governance=storage_governance,
         apify_key_pool=apify_key_pool,
         apify_actor_alerts=apify_actor_alerts,
-        apify_actor_resilience_for=apify_actor_resilience_for,
         source_setup_availability=source_setup_availability,
         public_source=public_source,
         secret_values=secret_values,
@@ -1152,10 +1114,7 @@ def create_app(
         require_webhook_providers=require_webhook_providers_v14,
         require_notification_channels=require_notification_channels_v15,
         require_notification_targets=require_notification_targets_v16,
-        require_apify_actor_resilience=require_apify_actor_resilience_v21,
-        require_apify_actor_routing=require_apify_actor_routing_v13,
         readiness_checks=(
-            require_apify_actor_routing_v13,
             require_webhook_providers_v14,
             require_notification_targets_v16,
         ),
@@ -1592,25 +1551,6 @@ def create_app(
                         if exc.code == "apify_actor_alert_test_rate_limited"
                         else "Review the saved alert channel and retry."
                     )
-                ),
-            )
-        )
-
-    @app.exception_handler(ActorResilienceError)
-    async def _apify_actor_resilience_error_handler(
-        request: Request,
-        exc: ActorResilienceError,
-    ) -> JSONResponse:
-        mark_operation_error(request, exc.code)
-        return error_response(
-            ApiError(
-                exc.code,
-                str(exc),
-                status_code=exc.status_code,
-                action=(
-                    "Reload ActorOps before retrying."
-                    if "conflict" in exc.code
-                    else "Review the validation Key, cost authorization, and Route state."
                 ),
             )
         )

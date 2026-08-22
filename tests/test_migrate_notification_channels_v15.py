@@ -19,6 +19,7 @@ from src.storage.service_store import (
     ServiceStore,
     WEBHOOK_PROVIDER_TRIGGER_NAMES,
 )
+from tests.actorops_v1_migration_fixture import initialize_historical_actorops
 
 
 NOW = "2026-07-30T00:00:00+00:00"
@@ -33,9 +34,9 @@ def _has_column(store: ServiceStore, table: str, column: str) -> bool:
     }
 
 
-def _create_v14_fixture(data_dir) -> tuple[str, str, str]:
+def _create_v14_fixture(data_dir, *, historical_actorops: bool = False) -> tuple[str, str, str]:
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store) if historical_actorops else store.initialize()
     user = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
         username="notification-v15-user",
@@ -838,9 +839,7 @@ def test_v13_v14_v15_chain_maps_columns_by_name(
     tmp_path,
 ) -> None:
     data_dir = tmp_path / "data"
-    user_id, _subscription_id, _source_id = _create_v14_fixture(
-        data_dir
-    )
+    user_id, _subscription_id, _source_id = _create_v14_fixture(data_dir, historical_actorops=True)
     _downgrade_notification_schema_to_v13(data_dir)
 
     before = sqlite3.connect(data_dir / "service.db")

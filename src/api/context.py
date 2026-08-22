@@ -12,7 +12,6 @@ from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..services.feed_read import FeedReadService
 from ..services.feed_schedule import FeedScheduleService
 from ..services.job_queue import JobQueue
-from ..services.apify_actor_resilience import ApifyActorResilienceService
 from ..services.apify_actor_alerts import ApifyActorAlertService
 from ..services.apify_key_pool import ApifyKeyPoolService
 from ..services.media_cache import MediaCacheService
@@ -36,7 +35,6 @@ from ..storage.service_store import ServiceStore
 
 ReadinessCheck = Callable[[], None]
 FeedWindowDays = Callable[[], int]
-ApifyActorResilienceFactory = Callable[[str], ApifyActorResilienceService]
 SourceSetupAvailability = Callable[
     [str], tuple[int, dict[str, tuple[str, str | None]]]
 ]
@@ -72,7 +70,6 @@ class ApiContext:
     storage_governance: StorageGovernanceService
     apify_key_pool: ApifyKeyPoolService
     apify_actor_alerts: ApifyActorAlertService
-    apify_actor_resilience_for: ApifyActorResilienceFactory
     source_setup_availability: SourceSetupAvailability
     public_source: CatalogSourceProjection
     secret_values: SecretStore
@@ -95,6 +92,4 @@ class ApiContext:
     require_webhook_providers: ReadinessCheck
     require_notification_channels: ReadinessCheck
     require_notification_targets: ReadinessCheck
-    require_apify_actor_resilience: ReadinessCheck
-    require_apify_actor_routing: ReadinessCheck
     readiness_checks: tuple[ReadinessCheck, ...]

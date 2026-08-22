@@ -425,6 +425,11 @@ def test_authorizer_rejects_historical_table_but_allows_shared_ledger(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
+    # A migrated database may retain this historical table; fresh v2 stores
+    # deliberately do not create it, so model the retained shape explicitly.
+    store.connect().execute(
+        "CREATE TABLE apify_source_route_bindings (source_id TEXT)"
+    )
     uninstall = install_actorops_v1_deny_authorizer(store.connect())
     try:
         with pytest.raises(sqlite3.DatabaseError, match="prohibited|not authorized"):

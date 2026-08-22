@@ -136,9 +136,7 @@ def _actor_acquisition_origin(
         metadata = item.metadata if isinstance(item.metadata, dict) else {}
         if metadata.get("acquisition_origin") in {"apify_actor", "apify_fallback"}:
             return str(metadata["acquisition_origin"])
-    if str(provider or "").strip() == "apify_social":
-        return "apify_actor"
-    if isinstance(getattr(items, "_apify_actor_route_generation", None), int):
+    if _actor_publication_proof(items) is not None:
         return "apify_actor"
     return None
 
@@ -353,37 +351,6 @@ class SourceAcquisitionCoordinator:
                         refreshed_context,
                         actor_publication_proof=actor_publication_proof,
                     )
-                elif (
-                    actor_acquisition_origin is not None
-                    and context.actor_route_generation is not None
-                ):
-                    refreshed_context = self._context(
-                        source,
-                        window_hours=max(int(window_hours), 1),
-                    )
-                    if (
-                        refreshed_context.actor_route_generation
-                        != context.actor_route_generation
-                        or refreshed_context.actor_binding_version
-                        != context.actor_binding_version
-                    ):
-                        routed_generation = getattr(
-                            fetched,
-                            "_apify_actor_route_generation",
-                            None,
-                        )
-                        if (
-                            refreshed_context.pool_generation
-                            != context.pool_generation
-                            or not isinstance(routed_generation, int)
-                            or routed_generation
-                            != refreshed_context.actor_route_generation
-                        ):
-                            raise AcquisitionLeaseLostError(
-                                "Apify Actor route generation changed before "
-                                "cache publication"
-                            )
-                        publication_context = refreshed_context
                 neutral = self._neutral_items(fetched)
                 self._store_success(
                     publication_context,

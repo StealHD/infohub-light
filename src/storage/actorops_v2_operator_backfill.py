@@ -10,7 +10,25 @@ from ..services.actorops.store_metadata import normalize_store_metadata, pricing
 
 
 def backfill_v1_metadata(connection: sqlite3.Connection) -> int:
-    """Copy only existing public labels/pricing/quality for exact v2 revisions."""
+    """Copy only existing public labels/pricing/quality for exact v2 revisions.
+
+    A new global-30 store deliberately has no historical v1 catalog tables.
+    Global 28 remains repeatable there, but has no metadata to backfill.
+    """
+
+    required_tables = {
+        "actor_candidates_v2",
+        "apify_actor_adapter_revisions",
+        "apify_actor_candidates",
+    }
+    existing_tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    if not required_tables <= existing_tables:
+        return 0
 
     stamp = datetime.now(timezone.utc).isoformat()
     rows = connection.execute(

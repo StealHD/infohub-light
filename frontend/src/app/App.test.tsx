@@ -1582,7 +1582,7 @@ describe('App routes', () => {
     expect(completedCard.querySelectorAll('[data-disclosure-state="open"]')).toHaveLength(2)
   })
 
-  it('hides ActorOps internal successes and gives failed paid work one safe return action', async () => {
+  it('hides successful v2 ActorOps work and gives a failed task one safe return action', async () => {
     const browser = userEvent.setup()
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'user-live', username: 'owner', role: 'owner', enabled: true } }),
@@ -1592,20 +1592,20 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
       config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
       jobs: vi.fn().mockResolvedValue({ jobs: [
-        { id: 'hidden-discovery-job', user_id: 'user-live', job_type: 'apify_actor_discovery', status: 'succeeded', result: { message: 'RAW_DISCOVERY_SUCCESS' } },
-        { id: 'stale-paid-job', user_id: 'user-live', job_type: 'apify_actor_validation', status: 'failed', retryable: true, error_code: 'apify_actor_canary_approval_stale', error_message: 'RAW_STALE_ERROR' },
+        { id: 'hidden-discovery-job', user_id: 'user-live', job_type: 'actorops_v2_discovery', status: 'succeeded', result: { message: 'RAW_DISCOVERY_SUCCESS' } },
+        { id: 'unavailable-job', user_id: 'user-live', job_type: 'actorops_v2_maintenance', status: 'failed', retryable: true, error_code: 'actorops_v2_unavailable', error_message: 'RAW_STALE_ERROR' },
       ] }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions?tab=jobs']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
-    expect(await screen.findByText('Actor 配置已更新')).toBeInTheDocument()
-    expect(screen.getByText('影响：').parentElement).toHaveTextContent('不会收费')
-    expect(screen.getByText('下一步：').parentElement).toHaveTextContent('重新选择 Actor')
+    expect(await screen.findByText('ActorOps 暂不可用')).toBeInTheDocument()
+    expect(screen.getByText('影响：').parentElement).toHaveTextContent('不会产生新费用')
+    expect(screen.getByText('下一步：').parentElement).toHaveTextContent('完成数据库迁移')
     expect(screen.getByRole('button', { name: '返回 ActorOps 处理' })).toBeEnabled()
     expect(document.querySelectorAll('[data-compact-job-card]')).toHaveLength(1)
-    expect(screen.queryByText('更新 Actor 候选')).not.toBeInTheDocument()
+    expect(screen.queryByText('刷新 Actor 目录')).not.toBeInTheDocument()
     expect(screen.queryByText('RAW_DISCOVERY_SUCCESS')).not.toBeInTheDocument()
     expect(screen.queryByText('RAW_STALE_ERROR')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
@@ -1621,7 +1621,7 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
       config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
       jobs: vi.fn().mockResolvedValue({ jobs: [
-        { id: 'member-platform-job', user_id: 'member-live', job_type: 'apify_actor_validation', status: 'failed', error_code: 'apify_actor_canary_timeout' },
+        { id: 'member-platform-job', user_id: 'member-live', job_type: 'actorops_v2_maintenance', status: 'failed', error_code: 'actorops_v2_unavailable' },
         { id: 'member-source-job', user_id: 'member-live', job_type: 'source_test', status: 'succeeded' },
       ] }),
     } as Partial<ServiceApi>)

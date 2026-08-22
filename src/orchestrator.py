@@ -73,15 +73,9 @@ class HorizonOrchestrator:
         self._service_attempt_meter: Any | None = None
         self._service_acquisition_coordinator: Any | None = None
         self._service_apify_coordinator: Any | None = None
-        self._service_apify_actor_route: Any | None = None
         self._service_apify_actor_ops: Any | None = None
         self._service_apify_actor_ops_job_id: str | None = None
         self._service_apify_actor_ops_snapshots: list[Any] = []
-        self._service_apify_watermark_proofs: list[dict[str, str]] = []
-        self._service_apify_actor_route_job_id: str | None = None
-        self._service_apify_forced_candidate_id: str | None = None
-        self._service_apify_forced_route_generation: int | None = None
-        self._service_apify_paid_canary = False
         self._last_analysis_usage = AnalysisUsage()
         self.console = Console()
 
@@ -100,23 +94,6 @@ class HorizonOrchestrator:
     def set_service_apify_coordinator(self, coordinator: Any | None) -> None:
         """Attach the workspace Key-pool coordinator for Service Apify Runs."""
         self._service_apify_coordinator = coordinator
-
-    def set_service_apify_actor_route(
-        self,
-        route: Any | None,
-        *,
-        job_id: str | None = None,
-        candidate_id: str | None = None,
-        expected_generation: int | None = None,
-        paid_canary: bool = False,
-    ) -> None:
-        """Attach the independent X/profile Actor route to Service fetching."""
-
-        self._service_apify_actor_route = route
-        self._service_apify_actor_route_job_id = job_id
-        self._service_apify_forced_candidate_id = candidate_id
-        self._service_apify_forced_route_generation = expected_generation
-        self._service_apify_paid_canary = bool(paid_canary)
 
     def set_service_apify_actor_ops(
         self,
@@ -147,35 +124,11 @@ class HorizonOrchestrator:
     def _capture_service_apify_watermark(self, items: Any) -> None:
         from .services.actorops.publication import capture_result
         capture_result(self._service_apify_actor_ops, items)
-        if str(
-            getattr(items, "_apify_actor_semantic_outcome", "") or ""
-        ) != "advanced":
-            return
-        proof = {
-            "workspace_id": getattr(
-                items, "_apify_actor_workspace_id", None
-            ),
-            "source_id": getattr(items, "_apify_actor_source_id", None),
-            "candidate_id": getattr(
-                items, "_apify_actor_candidate_id", None
-            ),
-            "latest_published_at": getattr(
-                items, "_apify_actor_latest_published_at", None
-            ),
-            "latest_item_id_hash": getattr(
-                items, "_apify_actor_latest_item_id_hash", None
-            ),
-        }
-        if all(isinstance(value, str) and value for value in proof.values()):
-            self._service_apify_watermark_proofs.append(proof)  # type: ignore[arg-type]
 
     def publish_service_apify_watermarks(self, *, connection: Any) -> None:
         """Advance Actor source watermarks in the final Feed transaction."""
         from .services.actorops.publication import publish_pending_watermarks
-        publish_pending_watermarks(
-            self._service_apify_actor_ops, self._service_apify_actor_route,
-            self._service_apify_watermark_proofs, connection=connection,
-        )
+        publish_pending_watermarks(self._service_apify_actor_ops, connection=connection)
 
     def _service_acquisition_usage(self) -> AcquisitionUsage:
         metrics = getattr(self._service_acquisition_coordinator, "metrics", None)
@@ -196,7 +149,6 @@ class HorizonOrchestrator:
     ) -> FeedRunResult:
         """Run the Service pipeline without filesystem publishing side effects."""
         self._service_apify_actor_ops_snapshots = []
-        self._service_apify_watermark_proofs = []
         return await self._execute_structured(
             force_hours=force_hours,
             enrich=enrich,
@@ -421,20 +373,9 @@ class HorizonOrchestrator:
                             config,
                             client,
                             apify_coordinator=self._service_apify_coordinator,
-                            apify_actor_route=self._service_apify_actor_route,
                             apify_actor_ops=self._service_apify_actor_ops,
                             actor_ops_snapshot=actor_ops_snapshot,
-                            route_job_id=(
-                                self._service_apify_actor_ops_job_id
-                                or self._service_apify_actor_route_job_id
-                            ),
-                            forced_candidate_id=(
-                                self._service_apify_forced_candidate_id
-                            ),
-                            forced_route_generation=(
-                                self._service_apify_forced_route_generation
-                            ),
-                            paid_canary=self._service_apify_paid_canary,
+                            route_job_id=self._service_apify_actor_ops_job_id,
                         ),
                         source,
                     ))

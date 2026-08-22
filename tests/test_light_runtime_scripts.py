@@ -886,22 +886,20 @@ def test_apify_key_pool_is_wired_off_for_api_worker_and_release_smoke():
     assert 'HORIZON_APIFY_KEY_POOL_ENABLED: "false"' in release_smoke
 
 
-def test_actorops_v2_is_wired_off_for_api_worker_and_release_smoke():
+def test_actorops_v2_feature_flag_is_absent_from_runtime_files():
+    retired_flag = "_".join(("ACTOROPS", "V2", "ENABLED"))
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    assert "ACTOROPS_V2_ENABLED=false" in env_example
+    assert retired_flag not in env_example
     for filename in ("docker-compose.yml", "docker-compose.light.yml"):
         services = _compose_service_blocks(
             (ROOT / filename).read_text(encoding="utf-8")
         )
         for service_name in ("horizon-api", "horizon-worker"):
-            assert (
-                "ACTOROPS_V2_ENABLED: ${ACTOROPS_V2_ENABLED:-false}"
-                in services[service_name]
-            )
+            assert retired_flag not in services[service_name]
     release_smoke = (ROOT / "docker-compose.test-gate.yml").read_text(
         encoding="utf-8"
     )
-    assert 'ACTOROPS_V2_ENABLED: "false"' in release_smoke
+    assert retired_flag not in release_smoke
 
 
 def test_openclaw_browser_chat_is_wired_off_with_a_loopback_default():

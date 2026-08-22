@@ -11,6 +11,9 @@ from src.storage.apify_actor_auto_pool_schema import (
     migration_marker_exists,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from tests.actorops_v1_migration_fixture import (
+    initialize_historical_actorops_global24,
+)
 
 
 def test_v25_historical_migration_is_explicit_backed_up_and_idempotent(
@@ -18,7 +21,7 @@ def test_v25_historical_migration_is_explicit_backed_up_and_idempotent(
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops_global24(store)
     assert store.connect().execute(
         "SELECT 1 FROM schema_migrations WHERE version = 25"
     ).fetchone() is None
@@ -43,7 +46,7 @@ def test_v25_requires_exact_global_24_marker_and_shape(
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops_global24(store)
     if damage == "marker":
         store.connect().execute("DELETE FROM schema_migrations WHERE version = 24")
     elif damage == "checksum":
@@ -64,7 +67,7 @@ def test_v25_requires_exact_global_24_marker_and_shape(
 def test_v25_refuses_active_actor_work_before_backup(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops_global24(store)
     owner = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
         username="v25-history-owner",

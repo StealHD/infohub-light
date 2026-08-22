@@ -6,6 +6,7 @@ import pytest
 
 from scripts.migrate_apify_actor_pool_staging_v18 import migrate
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from tests.actorops_v1_migration_fixture import initialize_historical_actorops
 
 
 def _remove_v18_schema(store: ServiceStore) -> None:
@@ -21,7 +22,7 @@ def _remove_v18_schema(store: ServiceStore) -> None:
 def test_v18_offline_migration_adds_staging_schema_and_private_backup(tmp_path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     _remove_v18_schema(store)
     store.close()
 
@@ -60,7 +61,7 @@ def test_v18_offline_migration_adds_staging_schema_and_private_backup(tmp_path) 
 def test_v18_migration_refuses_active_actor_job_before_backup(tmp_path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     owner = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
         username="v18-migration-owner",
@@ -92,7 +93,7 @@ def test_v18_migration_refuses_active_actor_job_before_backup(tmp_path) -> None:
 def test_v18_migration_refuses_a_live_worker_before_backup(tmp_path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     _remove_v18_schema(store)
     store.upsert_worker_heartbeat("active-v18-worker", "idle")
     store.close()
@@ -105,7 +106,7 @@ def test_v18_migration_refuses_a_live_worker_before_backup(tmp_path) -> None:
 def test_v18_migration_repairs_a_drifted_schema_marker(tmp_path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     store.connect().execute(
         """
         UPDATE schema_migrations SET checksum = 'drifted-checksum'
@@ -131,7 +132,7 @@ def test_v18_migration_restores_v17_database_when_verification_fails(
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     owner = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
         username="v18-restore-owner",

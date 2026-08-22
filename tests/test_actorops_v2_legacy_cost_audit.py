@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import scripts.migrate_actorops_v2 as migration_module
+from tests.actorops_v1_migration_fixture import initialize_historical_actorops
 from src.services.actorops.legacy_cost_audit import (
     LegacyCostAuditError,
     RemoteCostObservation,
@@ -23,7 +24,7 @@ _STAMP = "2026-08-21T00:00:00+00:00"
 
 def _store(tmp_path: Path) -> ServiceStore:
     store = ServiceStore(tmp_path / "data")
-    store.initialize()
+    initialize_historical_actorops(store)
     return store
 
 

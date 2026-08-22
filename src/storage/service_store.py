@@ -29,6 +29,7 @@ from ..auth import hash_password, verify_password_hash
 from .service_store_subscription_queries import (
     has_enabled_user_subscriptions as _has_enabled_user_subscriptions,
 )
+from .actorops_shared_alert_schema import ensure_actorops_shared_alert_schema
 
 
 DEFAULT_WORKSPACE_ID = "default"
@@ -1116,6 +1117,17 @@ class ServiceStore:
         prepare_apify_actor_resilience_v21: bool = False,
     ) -> None:
         conn = self.connect()
+        prepare_legacy_actorops = any(
+            (
+                prepare_apify_actor_routing_v13,
+                prepare_apify_actor_ops_v15,
+                prepare_apify_discovery_limits_v16,
+                prepare_apify_actor_canary_batches_v17,
+                prepare_apify_actor_pool_staging_v18,
+                prepare_apify_actor_validation_tuning_v20,
+                prepare_apify_actor_resilience_v21,
+            )
+        )
         existing_schema = bool(
             conn.execute(
                 """
@@ -1144,8 +1156,8 @@ class ServiceStore:
             existing_schema and not apify_actor_v13_migrated
         )
         install_apify_actor_v13 = bool(
-            not existing_schema
-            or apify_actor_v13_migrated
+            apify_actor_v13_migrated
+            or (not existing_schema and prepare_legacy_actorops)
             or prepare_apify_actor_routing_v13
         )
         webhook_providers_v14_migrated = bool(
@@ -1160,11 +1172,8 @@ class ServiceStore:
         install_webhook_providers_v14 = bool(
             not existing_schema
             or (
-                apify_actor_v13_migrated
-                and (
-                    webhook_providers_v14_migrated
-                    or prepare_webhook_providers_v14
-                )
+                webhook_providers_v14_migrated
+                or prepare_webhook_providers_v14
             )
         )
         multichannel_notifications_v15_migrated = bool(
@@ -1179,8 +1188,7 @@ class ServiceStore:
         install_multichannel_notifications_v15 = bool(
             not existing_schema
             or (
-                apify_actor_v13_migrated
-                and webhook_providers_v14_migrated
+                webhook_providers_v14_migrated
                 and (
                     multichannel_notifications_v15_migrated
                     or prepare_multichannel_notifications_v15
@@ -1199,8 +1207,7 @@ class ServiceStore:
         install_notification_targets_v16 = bool(
             not existing_schema
             or (
-                apify_actor_v13_migrated
-                and webhook_providers_v14_migrated
+                webhook_providers_v14_migrated
                 and multichannel_notifications_v15_migrated
                 and (
                     notification_targets_v16_migrated
@@ -1229,7 +1236,7 @@ class ServiceStore:
         # explicit offline migration, which owns backup and integrity checks.
         # Normal API/Worker initialization remains read-only for this schema.
         install_apify_actor_ops_v15 = bool(
-            not existing_schema
+            (not existing_schema and prepare_legacy_actorops)
             or (
                 prepare_apify_actor_ops_v15
                 and apify_actor_v13_migrated
@@ -1254,7 +1261,7 @@ class ServiceStore:
             existing_schema and not apify_discovery_limits_v16_migrated
         )
         install_apify_discovery_limits_v16 = bool(
-            not existing_schema
+            (not existing_schema and prepare_legacy_actorops)
             or (
                 prepare_apify_discovery_limits_v16
                 and apify_actor_ops_v15_migrated
@@ -1278,7 +1285,7 @@ class ServiceStore:
             existing_schema and not apify_actor_canary_batches_v17_migrated
         )
         install_apify_actor_canary_batches_v17 = bool(
-            not existing_schema
+            (not existing_schema and prepare_legacy_actorops)
             or (
                 prepare_apify_actor_canary_batches_v17
                 and apify_discovery_limits_v16_migrated
@@ -1302,7 +1309,7 @@ class ServiceStore:
             existing_schema and not apify_actor_pool_staging_v18_migrated
         )
         install_apify_actor_pool_staging_v18 = bool(
-            not existing_schema
+            (not existing_schema and prepare_legacy_actorops)
             or (
                 prepare_apify_actor_pool_staging_v18
                 and apify_actor_canary_batches_v17_migrated
@@ -1340,7 +1347,7 @@ class ServiceStore:
             existing_schema and not apify_actor_validation_tuning_v20_migrated
         )
         install_apify_actor_validation_tuning_v20 = bool(
-            not existing_schema
+            (not existing_schema and prepare_legacy_actorops)
             or (
                 prepare_apify_actor_validation_tuning_v20
                 and apify_actor_manual_pool_selection_v19_migrated
@@ -1364,7 +1371,7 @@ class ServiceStore:
             existing_schema and not apify_actor_resilience_v21_migrated
         )
         install_apify_actor_resilience_v21 = bool(
-            not existing_schema
+            (not existing_schema and prepare_legacy_actorops)
             or (
                 prepare_apify_actor_resilience_v21
                 and apify_actor_validation_tuning_v20_migrated
@@ -2046,6 +2053,9 @@ class ServiceStore:
                 dataset_id TEXT,
                 status TEXT NOT NULL,
                 last_error_code TEXT,
+                charge_reserved_usd REAL NOT NULL DEFAULT 0,
+                charge_actual_usd REAL,
+                charge_final INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 terminal_at TEXT,
@@ -3774,6 +3784,7 @@ class ServiceStore:
             )
             schema_sql = before_resilience + after_resilience
         conn.executescript(schema_sql)
+        ensure_actorops_shared_alert_schema(conn)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
             """
@@ -3797,21 +3808,6 @@ class ServiceStore:
         self._ensure_column("secret_refs", "base_url", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("secret_refs", "version", "INTEGER NOT NULL DEFAULT 1")
         if install_apify_actor_v13:
-            self._ensure_column(
-                "apify_actor_runs",
-                "charge_reserved_usd",
-                "REAL NOT NULL DEFAULT 0",
-            )
-            self._ensure_column(
-                "apify_actor_runs",
-                "charge_actual_usd",
-                "REAL",
-            )
-            self._ensure_column(
-                "apify_actor_runs",
-                "charge_final",
-                "INTEGER NOT NULL DEFAULT 0",
-            )
             conn.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS
@@ -4034,11 +4030,6 @@ class ServiceStore:
                 "notification_enabled_at",
                 "TEXT",
             )
-            self._ensure_column(
-                "apify_actor_alert_deliveries",
-                "channel_generation",
-                "INTEGER NOT NULL DEFAULT 1",
-            )
         if install_notification_targets_v16:
             for table in (
                 "preferred_source_notification_deliveries",
@@ -4065,6 +4056,7 @@ class ServiceStore:
                     "binding_generation",
                     "INTEGER NOT NULL DEFAULT 0",
                 )
+            ensure_actorops_shared_alert_schema(conn)
             conn.executescript(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS
@@ -4077,18 +4069,6 @@ class ServiceStore:
                     idx_preferred_source_notification_target_unique
                     ON preferred_source_notification_deliveries(
                         subscription_id, article_id, target_id
-                    )
-                    WHERE target_id IS NOT NULL;
-                CREATE UNIQUE INDEX IF NOT EXISTS
-                    idx_apify_actor_alert_delivery_legacy_unique
-                    ON apify_actor_alert_deliveries(
-                        incident_id, event_type, channel
-                    )
-                    WHERE target_id IS NULL;
-                CREATE UNIQUE INDEX IF NOT EXISTS
-                    idx_apify_actor_alert_delivery_target_unique
-                    ON apify_actor_alert_deliveries(
-                        incident_id, event_type, target_id
                     )
                     WHERE target_id IS NOT NULL;
                 """

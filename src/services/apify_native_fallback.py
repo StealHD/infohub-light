@@ -140,27 +140,17 @@ def reattribute_youtube_fallback_items(
             }
         )
         projected.append(item)
-    generation = getattr(items, "_apify_actor_route_generation", None)
-    if not isinstance(generation, int):
-        return projected
-    from .apify_actor_route import ApifyActorRoutedList
+    from .actorops.publication import proof_from_items, with_publication_proof
 
-    return ApifyActorRoutedList(
-        projected,
-        route_generation=generation,
-        workspace_id=getattr(items, "_apify_actor_workspace_id", None),
-        source_id=getattr(items, "_apify_actor_source_id", None),
-        candidate_id=getattr(items, "_apify_actor_candidate_id", None),
-        latest_published_at=getattr(items, "_apify_actor_latest_published_at", None),
-        latest_item_id_hash=getattr(
-            items, "_apify_actor_latest_item_id_hash", None
-        ),
-        semantic_outcome=getattr(items, "_apify_actor_semantic_outcome", None),
-    )
+    return with_publication_proof(projected, proof_from_items(items))
 
 
 class YouTubeNativeActorFallbackScraper:
-    """Use a source-certified Actor before the public Atom degradation."""
+    """Use a v2 binding before the public Atom degradation.
+
+    The v2 service owns its Binding, candidate, Attempt and watermark state.
+    This wrapper retains only the free YouTube RSS fallback policy.
+    """
 
     def __init__(
         self,
@@ -205,21 +195,21 @@ class YouTubeNativeActorFallbackScraper:
         frozen_snapshot = None
         snapshot_error: BaseException | None = None
         try:
-            binding = self.actor_ops.get_source_binding(str(self.source.source_id))
+            binding = self.actor_ops.repository.get_binding(str(self.source.source_id))
         except Exception as exc:
-            if getattr(exc, "code", "") != "apify_actor_source_binding_not_found":
+            if type(exc).__name__ not in {"ActorOpsNotFound", "KeyError"}:
                 raise
-        validated = bool(
-            binding
-            and str(binding["validation_status"])
-            in {"ready_1of1", "ready_2of2", "ready_3of3", "revalidation_pending"}
-        )
+        validated = bool(binding and str(getattr(binding, "status", "")) == "BindingStatus.READY")
+        if binding is not None and not validated:
+            validated = str(getattr(getattr(binding, "status", None), "value", "")) == "ready"
         if validated and binding is not None:
             try:
-                route = self.actor_ops.get_route(str(binding["route_id"]))
-                if str(route["platform"]) != "youtube":
+                route = self.actor_ops.repository.get_route(str(binding.route_id))
+                if str(getattr(route, "platform", "")) != "youtube":
                     raise ValueError("YouTube binding has the wrong platform")
-                frozen_snapshot = self.actor_ops.freeze_execution(str(binding["route_id"]), source_id=str(self.source.source_id))
+                frozen_snapshot = self.actor_ops.freeze_execution(
+                    str(binding.route_id), source_id=str(self.source.source_id)
+                )
             except Exception as exc:
                 snapshot_error = exc
         actor_error: BaseException | None = None
@@ -302,7 +292,7 @@ class YouTubeNativeActorFallbackScraper:
                     getattr(
                         snapshot_error,
                         "code",
-                        "apify_actor_route_snapshot_unavailable",
+                        "actorops_v2_snapshot_unavailable",
                     )
                 ),
             ) from snapshot_error
@@ -316,35 +306,28 @@ class YouTubeNativeActorFallbackScraper:
         since: datetime,
     ) -> list[ContentItem]:
         self.publication_snapshots.append(frozen_snapshot)
-        if getattr(frozen_snapshot, "actorops_version", 1) == 2:
-            from .actorops.youtube_rss_compat import fetch_v2_youtube_rss
-            return await fetch_v2_youtube_rss(source=self.source, actor_ops=self.actor_ops, coordinator=self.apify_coordinator,
-                http_client=self.client, binding=binding, snapshot=frozen_snapshot, since=since, job_id=self.job_id)
-        from ..scrapers.apify_client import ApifyClient
-        from .apify_actor_manifest import ActorRuntime
-        from .apify_actor_runtime import ActorContentContext, ApifyActorRuntimeService, actor_target_for_route
+        from .actorops.youtube_rss_compat import fetch_v2_youtube_rss
 
-        result = await ApifyActorRuntimeService(self.actor_ops, ApifyClient(
-            coordinator=self.apify_coordinator, http_client=self.client,
-        )).fetch(
-            route_id=str(binding["route_id"]), source_id=str(self.source.source_id),
-            target=actor_target_for_route("youtube", str(self.source.url)),
-            runtime=ActorRuntime(max_items=int(self.source.fetch_limit),
-                since_iso=since.astimezone(timezone.utc).isoformat(),
-                until_iso=datetime.now(timezone.utc).isoformat()),
-            content=ActorContentContext(platform="youtube", source_id=str(self.source.source_id),
-                source_key=str(self.source.source_key or canonical_url),
-                source_name=str(self.source.source_display_name or self.source.name),
-                channel=self.source.channel, topics=tuple(self.source.topics),
-                tags=tuple(self.source.tags), personal_tags=tuple(self.source.personal_tags),
-                analysis_mode=(self.source.analysis_mode.value if hasattr(self.source.analysis_mode, "value") else str(self.source.analysis_mode))),
-            job_id=self.job_id, frozen_snapshot=frozen_snapshot,
-            source_target_value=str(self.source.url),
+        source_key = str(getattr(self.source, "source_key", "") or self.source.url)
+        route_id = getattr(binding, "route_id", None)
+        if route_id is None and isinstance(binding, dict):
+            route_id = binding.get("route_id")
+        items = await fetch_v2_youtube_rss(
+            source=self.source,
+            actor_ops=self.actor_ops,
+            coordinator=self.apify_coordinator,
+            http_client=self.client,
+            binding={"route_id": str(route_id or "")},
+            snapshot=frozen_snapshot,
+            since=since,
+            job_id=self.job_id,
         )
-        return reattribute_youtube_fallback_items(result.value or [],
+        return reattribute_youtube_fallback_items(
+            items,
             source_id=str(self.source.source_id),
-            source_key=str(self.source.source_key or self.source.url),
-            canonical_feed_url=str(self.source.url))
+            source_key=source_key,
+            canonical_feed_url=str(self.source.url),
+        )
 
     def _had_historical_content(self) -> bool:
         row = self.actor_ops.store.connect().execute(

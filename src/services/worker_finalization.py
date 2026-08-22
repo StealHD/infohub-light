@@ -9,7 +9,7 @@ from typing import Any
 
 from ..observability_context import update_observability_context
 from ..storage.service_store import ServiceStore
-from .actorops.readiness import require_actorops_v2_if_enabled
+from .actorops.readiness import require_actorops_v2_schema
 from .feed_production import FeedRunFailed
 from .feed_run import safe_run_diagnostics
 from .job_eligibility import JobEligibilityService
@@ -65,7 +65,7 @@ def _require_job_migrations(store: ServiceStore, job_type: str) -> None:
             )
     if job_type in ACTOROPS_V2_JOB_TYPES:
         try:
-            require_actorops_v2_if_enabled(store)
+            require_actorops_v2_schema(store)
         except RuntimeError as exc:
             if "migration_required" in str(exc):
                 raise MigrationRequiredError(

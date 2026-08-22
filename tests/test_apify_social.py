@@ -91,26 +91,25 @@ def test_x_profile_actor_inputs_match_published_contracts():
     asyncio.run(scraper.client.aclose())
 
 
-def test_paid_canary_caps_every_x_actor_contract_to_one_item():
+def test_x_actor_contracts_preserve_the_v2_request_limit():
     scraper = ApifySocialScraper(
         _social_config(_sub("x", "profile", "@openai", fetch_limit=50)),
         httpx.AsyncClient(),
-        paid_canary=True,
     )
     sub = scraper.social_config.subscriptions[0]
 
     assert scraper._actor_input(
         sub,
         actor_id="scrape.badger/twitter-tweets-scraper",
-    )["max_results"] == 1
+    )["max_results"] == 50
     assert scraper._actor_input(
         sub,
         actor_id="dami_studio/tweet-scraper",
-    )["maxItems"] == 1
+    )["maxItems"] == 50
     assert scraper._actor_input(
         sub,
         actor_id="xquik/x-tweet-scraper",
-    )["maxItems"] == 1
+    )["maxItems"] == 50
     asyncio.run(scraper.client.aclose())
 
 
@@ -118,7 +117,6 @@ def test_unknown_compatibility_actor_uses_value_free_standard_url_input():
     scraper = ApifySocialScraper(
         _social_config(_sub("x", "profile", "@openai", fetch_limit=50)),
         httpx.AsyncClient(),
-        paid_canary=True,
     )
     sub = scraper.social_config.subscriptions[0]
 

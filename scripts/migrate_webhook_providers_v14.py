@@ -177,10 +177,6 @@ def migrate_webhook_providers_v14(
     if inspection["migrated"] and inspection.get("schema_ready"):
         result["reason"] = "already_migrated"
         return result
-    if db_path.exists() and not inspection["v13_migrated"]:
-        raise RuntimeError(
-            "apply Apify Actor routing v13 before Webhook providers v14"
-        )
     if db_path.exists() and _active_workers(db_path):
         raise RuntimeError(
             "stop all horizon-worker processes before applying Webhook providers v14"

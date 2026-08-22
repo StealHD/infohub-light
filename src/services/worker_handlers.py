@@ -14,25 +14,6 @@ from .source_type_registry import build_source_payload
 from .usage_attempt_meter import UsageAttemptMeter
 
 
-class PaidCanaryUnavailableError(RuntimeError):
-    """Legacy-only error retained for the offline v1 Canary handler."""
-
-    code = "apify_actor_routing_disabled"
-    retryable = False
-
-
-class PaidCanaryAuthorizationError(RuntimeError):
-    """Legacy-only error retained for the offline v1 Canary handler."""
-
-    code = "apify_actor_canary_unavailable"
-    retryable = False
-
-
-class RetiredActorOpsV1CanaryError(RuntimeError):
-    code = "actorops_v1_retired"
-    retryable = False
-
-
 @dataclass(frozen=True, slots=True)
 class WorkerHandlerPorts:
     actor_handlers: dict[str, Callable[..., dict[str, Any]]]
@@ -65,8 +46,6 @@ def source_payload_from_catalog(
     canonical = build_source_payload(source, rsshub_base_url=rsshub_base_url)
     for reserved in (
         "reason",
-        "apify_actor_candidate_id",
-        "apify_actor_route_generation",
     ):
         canonical.pop(reserved, None)
     if source.get("type") == "rss":
@@ -84,8 +63,6 @@ def source_payload_from_catalog(
         in {
             "hours",
             "reason",
-            "apify_actor_candidate_id",
-            "apify_actor_route_generation",
         }
     }
     return {**canonical, **runtime}
@@ -99,11 +76,6 @@ def _run_source_test_job(
     store: ServiceStore,
     ports: WorkerHandlerPorts,
 ) -> dict[str, Any]:
-    raw_payload = (
-        job.get("payload_json")
-        if isinstance(job.get("payload_json"), dict)
-        else {}
-    )
     meter = UsageAttemptMeter(
         store,
         workspace_id=job["workspace_id"],
@@ -112,10 +84,6 @@ def _run_source_test_job(
     )
 
     def run_metered_test() -> dict[str, Any]:
-        if raw_payload.get("reason") == "apify_actor_canary":
-            raise RetiredActorOpsV1CanaryError(
-                "ActorOps v1 Canary source tests are retired"
-            )
         meter.before_fetch_attempt(
             provider=str(payload.get("source_type") or "unknown"),
             source_id=str(job.get("source_id") or ""),

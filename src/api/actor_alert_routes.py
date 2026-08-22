@@ -48,7 +48,6 @@ class ApifyActorAlertSettingsPatchRequest(BaseModel):
 
 
 def _require_actor_alerts(context: ApiContext) -> None:
-    context.require_apify_actor_routing()
     context.require_webhook_providers()
     context.require_notification_targets()
 

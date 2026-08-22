@@ -13,7 +13,6 @@ from .apify_key_pool import (
     ApifyKeyPoolService,
     apify_key_pool_enabled,
 )
-from .apify_actor_slot_recovery import recover_source_proven_slots
 from .apify_registered_run_reconciliation import (
     reconcile_blocked_unknown_start_pool,
 )
@@ -190,7 +189,6 @@ async def reconcile_all_apify_pools(
     ]
     outcomes: list[dict[str, Any]] = []
     for workspace_id in workspace_ids:
-        recover_source_proven_slots(store, workspace_id=workspace_id)
         coordinator = apify_coordinator_for_workspace(
             store,
             workspace_id=workspace_id,

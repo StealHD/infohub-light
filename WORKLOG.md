@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Redacted validation-cap migration health-gate failures into a structured blocked status after the local offline attempt exposed pre-existing SQLite corruption.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-validation-cap-safe-block",
-  "unresolved": [
-    "Latest local service.db integrity check is not clean; the newest verified clean backup predates it and must not be restored without an explicit recovery decision."
-  ],
-  "validation": [
-    "migration health-gate tests",
-    "safe local CLI blocked response"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "decisions",
     "interface"
@@ -419,6 +400,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "234 targeted ActorOps regression tests",
     "impacted preflight passed (17/17), including full Python and frontend checks",
     "code-size, product-doc, Markdown/control, JSON, and diff checks"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "Completed ActorOps Phase 8: v2 is the only online route, binding, source, Worker and browser path; global 30 is the direct gate, fresh stores seed v2 plus shared alerts, and historical v1 runtime was removed while offline migration/audit/retirement remains isolated.",
+  "status": "completed",
+  "task_id": "2026-08-23-actorops-v2-phase8-runtime-retirement",
+  "unresolved": [],
+  "validation": [
+    "Full Python suite passed.",
+    "Vitest passed: 76 files and 595 tests.",
+    "Impacted preflight passed 17/17, including code size, docs, controls, frontend build and lint.",
+    "No deployment, tag, push, real Actor, AI or paid source call was performed."
   ]
 }
 ```

@@ -11,12 +11,11 @@ from typing import Any
 
 from ..storage.service_store import ServiceStore
 from .actorops.adapters import build_default_registry
-from .actorops.apify_catalog import ApifyDiscoveryCatalog
+from .actorops.apify_catalog import ApifyDiscoveryCatalog, ApifyStoreRestClient
 from .actorops.discovery import ActorOpsDiscovery, DiscoveryCatalogError
 from .actorops.discovery_ai import open_actorops_discovery_ai_mapper
-from .actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from .actorops.readiness import require_actorops_v2_schema
 from .actorops.repository import ActorOpsRepository
-from .apify_actor_discovery import ApifyStoreRestClient
 from .job_queue import JobQueue
 from .secret_store import SecretStore
 
@@ -33,9 +32,7 @@ def run_actorops_v2_discovery(
     store: ServiceStore,
     ports: WorkerActorOpsV2DiscoveryPorts | None = None,
 ) -> dict[str, Any]:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     payload = job.get("payload_json") if isinstance(job.get("payload_json"), dict) else {}
     discovery_id = str(payload.get("discovery_id") or "").strip()
     if set(payload) != {"discovery_id"} or not discovery_id:
@@ -67,11 +64,9 @@ def enqueue_due_actorops_v2_discoveries(
     *,
     limit: int = 5,
 ) -> dict[str, int]:
-    """Queue only already-created v2 facts; flag-off must not read global 26."""
+    """Queue only already-created v2 facts when the single-track schema exists."""
 
-    if not actorops_v2_enabled():
-        return {"enqueued": 0, "deferred": 0}
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     connection = store.connect()
     enqueued = deferred = 0
     try:

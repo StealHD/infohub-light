@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-23',
-  change: 'ActorOps 来源和浏览器控制面只使用 v2 Route、Candidate、Binding 与 Discovery。管理员仍可沿用安全链接刷新 Candidate、切换备用 Candidate、调整单次费用上限或启用已就绪 Binding；这些操作均只写 v2 状态。旧 Pool、Canary、Freshness、Discovery 与 X profile 管理链接会返回明确、不可重试的“已退役”结果，不会回退旧运行时。平台来源会先建立待验证 Binding；X 与 Instagram 只在 Binding ready 且 Route active 时抓取，Actor 返回的重复内容会按稳定内容身份合并，并以最新发布时间优先、按来源设置的条数发布。YouTube 在 Route 未启用时只能使用受公共网络策略约束的免费 RSS fallback。ActorOps 单轨数据库升级必须由操作员在停机窗口显式执行：它先创建私有备份，再把旧 shadow 路线安全归一为停用；不会自动升级、重新付费、删除历史表或影响普通 RSS、GitHub、历史内容和信息流。',
+  change: 'ActorOps 已完成 v2 单轨化：来源、管理台、Worker 与浏览器只使用 v2 Route、Candidate、Binding 与 Discovery；Route 只有启用或停用，停用绝不回退旧运行时。旧 Pool、Canary、Freshness、Discovery 与 X profile 管理链接会返回明确、不可重试的“已退役”结果。平台来源会先建立待验证 Binding；X 与 Instagram 只在 Binding ready 且 Route active 时抓取，Actor 返回的重复内容会按稳定内容身份合并，并以最新发布时间优先、按来源设置的条数发布。YouTube 在 Route 未启用时只能使用受公共网络策略约束的免费 RSS fallback。ActorOps 单轨数据库升级必须由操作员在停机窗口显式执行：它先创建私有备份并归一历史 shadow，不会自动升级、重新付费、删除历史表或影响普通 RSS、GitHub、历史内容和信息流。',
 } as const
 
 export const manualSections: ManualSection[] = [

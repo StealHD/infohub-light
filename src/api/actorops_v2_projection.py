@@ -7,18 +7,16 @@ import json
 from typing import Any
 
 from ..services.actorops.domain import AssignmentRole, CandidateRecord, RouteHealth
-from ..services.actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from ..services.actorops.readiness import require_actorops_v2_schema
 from ..services.actorops.repository import ActorOpsRepository
 
 
 def actorops_v2_route_additions(
     store: Any, workspace_id: str, route_id: str
 ) -> dict[str, object] | None:
-    """Return no v2 facts at all while the global flag is disabled."""
+    """Return current v2 facts or fail closed when global 30 is absent."""
 
-    if not actorops_v2_enabled():
-        return None
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     repository = ActorOpsRepository(store.connect(), str(workspace_id))
     route = repository.get_route(route_id)
     candidates = repository.list_route_candidates(route_id)
@@ -124,9 +122,7 @@ def public_maintenance_policy(
 
 
 def _require_enabled(store: Any) -> None:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
 
 
 def actorops_v2_candidate_projection(

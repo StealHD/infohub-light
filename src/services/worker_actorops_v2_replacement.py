@@ -13,7 +13,7 @@ from ..scrapers.apify_client import ApifyClient
 from ..storage.service_store import ServiceStore
 from .actorops.adapters import build_default_registry
 from .actorops.apify_remote import ApifyV2RemoteClient
-from .actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from .actorops.readiness import require_actorops_v2_schema
 from .actorops.replacement import ActorOpsReplacementRunner
 from .actorops.repository import ActorOpsRepository
 from .apify_pool_runtime import apify_coordinator_for_workspace
@@ -30,9 +30,7 @@ def run_actorops_v2_replacement(
     job: dict[str, Any], *, data_dir: str, store: ServiceStore,
     ports: WorkerActorOpsV2ReplacementPorts | None = None,
 ) -> dict[str, Any]:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     payload = job.get("payload_json") if isinstance(job.get("payload_json"), dict) else {}
     plan_id = str(payload.get("plan_id") or "").strip()
     if set(payload) != {"plan_id"} or not plan_id:
@@ -70,9 +68,7 @@ async def _run_plan(job: dict[str, Any], data_dir: str, store: ServiceStore) -> 
 def enqueue_due_actorops_v2_replacements(store: ServiceStore, queue: JobQueue, *, limit: int = 5) -> dict[str, int]:
     """Only queue explicit authorized/running plans after normal Jobs have priority."""
 
-    if not actorops_v2_enabled():
-        return {"enqueued": 0, "deferred": 0}
-    require_actorops_v2_if_enabled(store)
+    require_actorops_v2_schema(store)
     connection = store.connect()
     enqueued = deferred = 0
     try:

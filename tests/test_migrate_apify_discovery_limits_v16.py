@@ -3,6 +3,7 @@ from __future__ import annotations
 from scripts.migrate_apify_actor_ops_v15 import migrate_apify_actor_ops_v15
 from scripts.migrate_apify_discovery_limits_v16 import migrate
 from src.storage.service_store import ServiceStore
+from tests.actorops_v1_migration_fixture import initialize_historical_actorops
 from tests.test_migrate_apify_actor_ops_v15 import _downgrade_to_v14
 
 

@@ -1,4 +1,4 @@
-"""Thin source-facing ActorOps v2 service and stable compatibility alias."""
+"""Thin source-facing ActorOps v2 service."""
 
 from __future__ import annotations
 
@@ -182,46 +182,6 @@ class ActorOpsV2Service:
         return projected
 
 
-class ActorOpsCompatibilityService:
-    """Stable name for callers not yet renamed to the v2 source protocol."""
-
-    def __init__(self, store: Any, *, workspace_id: str) -> None:
-        self.store = store
-        self.workspace_id = str(workspace_id)
-        self.v2 = ActorOpsV2Service(store, workspace_id=self.workspace_id)
-
-    def freeze_execution(self, route_id: str, *, source_id: str) -> V2ExecutionHandle:
-        return self.v2.freeze_execution(route_id, source_id=source_id)
-
-    def assert_publishable(self, snapshot: V2ExecutionHandle) -> None:
-        self.v2.assert_publishable(snapshot)
-
-    async def fetch_subscription(
-        self,
-        *,
-        subscription: Any,
-        since: datetime,
-        client_factory: Any,
-        job_id: str | None,
-        snapshot: V2ExecutionHandle,
-        public_http_client: Any | None = None,
-    ) -> list[Any]:
-        return await self.v2.fetch_subscription(
-            subscription=subscription,
-            since=since,
-            client_factory=client_factory,
-            job_id=job_id,
-            snapshot=snapshot,
-            public_http_client=public_http_client,
-        )
-
-    def publish_pending_successes(self, *, connection: Any) -> None:
-        self.v2.publish_pending_successes(connection=connection)
-
-    def capture_publication_result(self, items: Any) -> None:
-        self.v2.capture_publication_result(items)
-
-
 def build_source_actorops_service(
     store: Any, *, workspace_id: str
 ) -> ActorOpsSourceServiceProtocol:
@@ -230,7 +190,6 @@ def build_source_actorops_service(
 
 
 __all__ = [
-    "ActorOpsCompatibilityService",
     "ActorOpsSourceServiceProtocol",
     "ActorOpsV2Service",
     "V2ExecutionHandle",

@@ -223,7 +223,7 @@ def test_status_and_snapshot_accept_the_current_service_schema(tmp_path: Path) -
     )
 
     assert result["active_worker_count"] == 0
-    assert "apify_actor_attempts" in result["legacy_table_counts"]
+    assert result["legacy_table_counts"] == {}
     assert snapshotted["status"] == "snapshotted"
 
 

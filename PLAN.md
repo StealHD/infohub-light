@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- ActorOps v2 单轨退役：Phase 0–6 已完成 v2 Binding/Admin/UI/API/Worker 接管；前端只呈现 `active|disabled`，旧 Admin URL 返回 410，Worker 只执行四种 v2 Job，未知 v1 Job 保持离线隔离。最终 schema/Runtime 删除仍按 Phase 7–8 推进；不部署、不切真实流量或调用付费 Actor/AI。
+- ActorOps v2 单轨：Phase 0–8 已完成，v2 是 UI/API/来源/抓取/Worker 的唯一运行面，Route 仅 `active|disabled`。global 30 缺失仅 ActorOps 返回 migration-required；不部署或调用付费服务。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -40,7 +40,7 @@
 6. **Phase 6 — 已完成**：Worker registry、claim 与 stale lease recovery 使用显式允许列表，只执行 `actorops_v2_discovery`、`actorops_v2_maintenance`、`actorops_v2_replacement`、`actorops_v2_metadata_refresh` 与既有普通 Job；四种 v1 ActorOps Job 不再生产、claim、requeue 或执行。未开始且零费用的 v1 Job 在 `fetch_jobs` 内原子标记 `actorops_v1_retired`，已 claim/运行或费用不明的事实不改写，留给离线退役工具。v1 schema 不再阻断普通 RSS/GitHub/source fetch；v2 schema 只在 v2 Job 执行时局部检查。
 7. **Phase 7A — 已完成**：离线工具只安全取消未启动 v1 Job；snapshot/receipt、精确隔离、未知费用阻断与 verify 已覆盖，不 DROP 表、不联网。
 8. **Phase 7B1 — 已完成**：global30 重建 v2 Route/Binding 表，只接受 `active|disabled`，将历史 `shadow` 归一为 disabled，并删除 `source_v1_generation`。fresh store 由 Adapter Registry 种入 disabled Route/Policy；已有库只可离线备份、apply、校验，不联网、不 DROP v1 历史表。
-9. **Phase 7B2–8 — 后续**：删除 `ACTOROPS_V2_ENABLED` 的过渡门和其配置/测试，再删除零在线 import 的 v1 Runtime，并把 SQLite authorizer 在线 allowlist 收敛为空。
+9. **Phase 7B2–8 — 已完成**：移除 feature flag 与 v1 online Runtime/API/Worker/UI；fresh DB 直接建立 v2 和 shared alerts，历史表仅用于 offline migration/audit/retirement，authorizer online allowlist 为空。
 
 ## ActorOps v2 历史建设阶段
 

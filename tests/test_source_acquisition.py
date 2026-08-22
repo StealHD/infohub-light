@@ -461,7 +461,7 @@ def test_youtube_native_upstream_ignores_actor_context_change_during_fetch(
     ).assert_service_apify_actor_ops_publishable()
 
 
-def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
+def test_apify_pool_generation_changes_cache_identity_without_dropping_content(
     tmp_path,
     monkeypatch,
 ):
@@ -532,16 +532,16 @@ def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
         pool.complete_drain_and_failover(workspace["id"])
         return [_content_item(suffix="apify")]
 
-    with pytest.raises(AcquisitionLeaseLostError):
-        asyncio.run(
-            coordinator.acquire(
-                source=projection,
-                provider="apify_social",
-                window_hours=24,
-                fetch=fetch_during_failover,
-            )
+    items = asyncio.run(
+        coordinator.acquire(
+            source=projection,
+            provider="apify_social",
+            window_hours=24,
+            fetch=fetch_during_failover,
         )
+    )
 
+    assert [item.id for item in items] == ["rss:item:apify"]
     new_context = coordinator._context(projection, window_hours=24)
     assert new_context.pool_generation != old_context.pool_generation
     assert new_context.config_fingerprint != old_context.config_fingerprint
@@ -550,11 +550,11 @@ def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
             "SELECT COUNT(*) FROM source_content_snapshots WHERE source_id = ?",
             (source_id,),
         ).fetchone()[0]
-        == 0
+        == 1
     )
 
 
-def test_apify_actor_route_generation_blocks_stale_publication(
+def test_apify_actor_route_generation_changes_cache_identity_without_dropping_content(
     tmp_path,
     monkeypatch,
 ):
@@ -616,16 +616,16 @@ def test_apify_actor_route_generation_blocks_stale_publication(
         store.connect().commit()
         return [_content_item(suffix="apify-route")]
 
-    with pytest.raises(AcquisitionLeaseLostError):
-        asyncio.run(
-            coordinator.acquire(
-                source=projection,
-                provider="apify_social",
-                window_hours=24,
-                fetch=fetch_during_actor_switch,
-            )
+    items = asyncio.run(
+        coordinator.acquire(
+            source=projection,
+            provider="apify_social",
+            window_hours=24,
+            fetch=fetch_during_actor_switch,
         )
+    )
 
+    assert [item.id for item in items] == ["rss:item:apify-route"]
     new_context = coordinator._context(projection, window_hours=24)
     assert (
         new_context.actor_route_generation
@@ -637,7 +637,7 @@ def test_apify_actor_route_generation_blocks_stale_publication(
             "SELECT COUNT(*) FROM source_content_snapshots WHERE source_id = ?",
             (source_id,),
         ).fetchone()[0]
-        == 0
+        == 1
     )
 
 

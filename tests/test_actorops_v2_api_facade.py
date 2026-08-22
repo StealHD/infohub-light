@@ -63,11 +63,10 @@ def _route_with_two_assignments(store: ServiceStore) -> tuple[ActorOpsRepository
     return repository, route_id
 
 
-def _client(tmp_path: Path, monkeypatch, *, v2_enabled: bool = True) -> TestClient:
+def _client(tmp_path: Path, monkeypatch) -> TestClient:
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
     monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "test-session-secret")
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true" if v2_enabled else "false")
     data_dir = tmp_path / "api-data"
     static_dir = tmp_path / "static"
     data_dir.mkdir()
@@ -86,29 +85,23 @@ def _login(client: TestClient) -> None:
     assert response.status_code == 200
 
 
-def test_facade_flag_off_does_not_query_global_26_or_global_25(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_facade_reads_only_v2_route_facts(tmp_path: Path) -> None:
     store = _store(tmp_path)
     route_id = str(store.connect().execute(
-        "SELECT route_id FROM apify_actor_route_profiles ORDER BY route_id LIMIT 1"
+        "SELECT route_id FROM actor_routes_v2 ORDER BY route_id LIMIT 1"
     ).fetchone()[0])
     statements: list[str] = []
     store.connect().set_trace_callback(statements.append)
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "false")
-
-    assert actorops_v2_route_additions(store, DEFAULT_WORKSPACE_ID, route_id) is None
+    assert actorops_v2_route_additions(store, DEFAULT_WORKSPACE_ID, route_id)
 
     joined = "\n".join(statements).casefold()
-    assert "actor_routes_v2" not in joined
-    assert "version = 25" not in joined
+    assert "actor_routes_v2" in joined
+    assert "apify_actor_route_profiles" not in joined
     store.close()
 
 
-def test_admin_route_list_is_v2_only_when_feature_flag_is_off(
-    tmp_path: Path, monkeypatch
-) -> None:
-    client = _client(tmp_path, monkeypatch, v2_enabled=False)
+def test_admin_route_list_is_v2_only(tmp_path: Path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
     _login(client)
     response = client.get("/api/admin/apify-routes")
 
@@ -125,8 +118,6 @@ def test_facade_projects_health_assignment_lkg_and_disabled_policy(
 ) -> None:
     store = _store(tmp_path)
     _repository, route_id = _route_with_one_assignment(store)
-    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
-
     projection = actorops_v2_route_additions(store, DEFAULT_WORKSPACE_ID, route_id)
 
     assert projection is not None
@@ -334,7 +325,7 @@ def test_v2_binding_verify_returns_zero_cost_evidence_failure(
 def test_v2_manual_controls_ignore_feature_flag_and_read_only_v2(
     tmp_path: Path, monkeypatch
 ) -> None:
-    client = _client(tmp_path, monkeypatch, v2_enabled=False)
+    client = _client(tmp_path, monkeypatch)
     _login(client)
     repository, route_id = _route_with_one_assignment(client.app.state.service_store)
     source_id = client.app.state.service_store.create_source(
@@ -370,7 +361,7 @@ def test_v2_manual_controls_ignore_feature_flag_and_read_only_v2(
 def test_v2_operator_controls_ignore_feature_flag_and_read_only_v2(
     tmp_path: Path, monkeypatch
 ) -> None:
-    client = _client(tmp_path, monkeypatch, v2_enabled=False)
+    client = _client(tmp_path, monkeypatch)
     _login(client)
     _repository, route_id = _route_with_one_assignment(client.app.state.service_store)
     response = client.get(f"/api/admin/apify-routes/{route_id}/v2-candidates")
@@ -423,7 +414,7 @@ def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
 def test_v2_policy_endpoint_ignores_feature_flag_without_global_26_reads(
     tmp_path: Path, monkeypatch
 ) -> None:
-    client = _client(tmp_path, monkeypatch, v2_enabled=False)
+    client = _client(tmp_path, monkeypatch)
     _login(client)
     response = client.get("/api/admin/apify-maintenance-policy")
 

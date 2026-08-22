@@ -160,38 +160,38 @@ describe('subscription model', () => {
     expect(presentJob(job, new Map())).toMatchObject({ statusLabel, tone, icon })
   })
 
-  it('hides internal ActorOps successes and presents stale paid validation as a human action', () => {
+  it('hides successful v2 ActorOps maintenance and presents an unavailable service safely', () => {
     const succeeded: Job = {
-      id: 'actor-discovery-success',
+      id: 'actorops-v2-discovery-success',
       user_id: 'user-1',
-      job_type: 'apify_actor_discovery',
+      job_type: 'actorops_v2_discovery',
       status: 'succeeded',
     }
-    const stale: Job = {
-      id: 'actor-validation-stale',
+    const unavailable: Job = {
+      id: 'actorops-v2-unavailable',
       user_id: 'user-1',
-      job_type: 'apify_actor_validation',
+      job_type: 'actorops_v2_maintenance',
       status: 'failed',
       retryable: true,
-      error_code: 'apify_actor_canary_approval_stale',
+      error_code: 'actorops_v2_unavailable',
       error_message: 'RAW_JOB_ERROR_SHOULD_NOT_RENDER',
     }
 
     expect(shouldShowJob(succeeded)).toBe(false)
-    expect(shouldShowJob(stale)).toBe(true)
-    expect(presentActorOpsJobIssue(stale)).toEqual({
-      reason: 'Actor 配置已更新',
-      impact: '这次验证没有启动，不会收费；当前主备没有变化。',
-      next: '返回 ActorOps，重新选择 Actor 并确认。',
+    expect(shouldShowJob(unavailable)).toBe(true)
+    expect(presentActorOpsJobIssue(unavailable)).toEqual({
+      reason: 'ActorOps 暂不可用',
+      impact: '此任务没有启动远端 Actor，也不会产生新费用。',
+      next: '完成数据库迁移或恢复服务后再试。',
     })
-    expect(presentJob(stale, new Map())).toMatchObject({
-      title: '验证备用 Actor',
+    expect(presentJob(unavailable, new Map())).toMatchObject({
+      title: '维护 Actor 路由',
       statusLabel: '需要处理',
-      resultLabel: 'Actor 配置已更新',
+      resultLabel: 'ActorOps 暂不可用',
       detail: '',
       actorOpsHref: '/settings/actorops?tab=pool',
     })
-    expect(JSON.stringify(presentJob(stale, new Map()))).not.toContain('RAW_JOB_ERROR_SHOULD_NOT_RENDER')
+    expect(JSON.stringify(presentJob(unavailable, new Map()))).not.toContain('RAW_JOB_ERROR_SHOULD_NOT_RENDER')
   })
 
   it.each([

@@ -31,9 +31,12 @@ def _reconcile_actorops_v2(
     data_dir: str,
     logger: logging.Logger,
 ) -> None:
-    from .actorops.readiness import actorops_v2_enabled
+    from .actorops.readiness import actorops_v2_startup_migration_required
 
-    if not actorops_v2_enabled():
+    # ActorOps is unavailable until its explicit single-track migration is
+    # installed.  Housekeeping must not turn that local condition into a
+    # failure for ordinary RSS/GitHub Worker work.
+    if actorops_v2_startup_migration_required(store):
         return
     from .actorops.apify_ledger import ApifyRunLedger
     from .actorops.reconciliation import ActorOpsReconciler
