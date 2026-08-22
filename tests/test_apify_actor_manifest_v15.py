@@ -145,6 +145,57 @@ def test_manifest_latest_item_for_nonempty_result_uses_filtered_window() -> None
     assert result.latest_published_at == "2030-01-01T08:00:00+00:00"
 
 
+def test_manifest_deduplicates_unsorted_rows_and_keeps_latest_limited_items() -> None:
+    result = map_actor_output(
+        parse_actor_manifest(_manifest()),
+        [
+            {
+                "id": "older",
+                "url": "https://x.com/apify/status/older",
+                "createdAt": "2030-01-01T08:00:00Z",
+                "text": "older duplicate",
+                "author": {"handle": "apify"},
+            },
+            {
+                "id": "middle",
+                "url": "https://x.com/apify/status/middle",
+                "createdAt": "2030-01-01T09:00:00Z",
+                "text": "middle",
+                "author": {"handle": "apify"},
+            },
+            {
+                "id": "older",
+                "url": "https://x.com/apify/status/older",
+                "createdAt": "2030-01-01T08:00:00Z",
+                "text": "older duplicate",
+                "author": {"handle": "apify"},
+            },
+            {
+                "id": "latest",
+                "url": "https://x.com/apify/status/latest",
+                "createdAt": "2030-01-01T10:00:00Z",
+                "text": "latest",
+                "author": {"handle": "apify"},
+            },
+        ],
+        {
+            "canonical_url": "https://x.com/apify",
+            "native_id": "apify",
+            "handle": "apify",
+        },
+        {
+            "max_items": 2,
+            "since_iso": "2030-01-01T00:00:00Z",
+            "until_iso": "2030-01-02T00:00:00Z",
+        },
+    )
+
+    assert result.semantic_outcome == "valid_nonempty"
+    assert [item.native_id for item in result.items] == ["latest", "middle"]
+    assert result.latest_native_id == "latest"
+    assert result.latest_published_at == "2030-01-01T10:00:00+00:00"
+
+
 @pytest.mark.parametrize(
     "timestamp",
     [1893456000, 1893456000000, "1893456000"],

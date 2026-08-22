@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "capabilities",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Canary 在某个 exact Actor/Build 的输出合同不匹配时，现可将仅含字段路径与 JSON 类型的内存摘要交给全局 AI 提出该 Revision 专属输出指针；同一真实返回仍须通过来源身份、内容、URL 和时间的确定性校验，成功才固化新的不可变 Manifest。",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-per-revision-ai-output-mapping",
-  "unresolved": [
-    "本地 YouTube 仍缺少一条从未失败的可授权 exact revision；下一步只运行一次扩展免费 Discovery，再按单 Actor 串行验证。"
-  ],
-  "validation": [
-    "新增无值请求、candidate-local Manifest 与未观察 pointer 拒绝测试；Canary、批次记账、Worker 和 Pool 授权共 46 项 Pytest 通过。",
-    "代码大小、产品文档、Markdown/项目控制、impact map JSON 与 diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "decisions",
     "interface"
@@ -414,6 +393,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Added authorizer-denied v1-table regression coverage for all retired endpoints and v2 aliases.",
     "Impacted preflight passed: 17/17 commands, including full Python suite, frontend lint, typecheck, Vitest and build.",
     "Markdown/project controls, code-size, observability, product-doc and diff checks passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "Canonicalized v2 Actor Dataset rows by native identity and newest-first order before applying each source fetch limit, preventing duplicate X items from displacing newer content.",
+  "status": "completed",
+  "task_id": "actorops-x-output-canonicalization",
+  "unresolved": [
+    "Phase 6 Worker v1 Job isolation remains a separate next change.",
+    "No VPS deployment, remote Actor call, AI call, paid source call, tag, or push was performed."
+  ],
+  "validation": [
+    "Red test: test_manifest_deduplicates_unsorted_rows_and_keeps_latest_limited_items failed before implementation and passed after it.",
+    "Direct ActorOps manifest, runtime, adapter, source acquisition, legacy runtime, cutover, YouTube probe, and Apify social tests passed.",
+    "Impacted preflight passed 17/17, including full Python, Vitest, frontend build, control, documentation, and frozen-file checks."
   ]
 }
 ```

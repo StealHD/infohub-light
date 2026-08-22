@@ -34,6 +34,7 @@ from .apify_actor_row_classification import (
     is_metadata_only_mapping,
     is_placeholder_or_control,
 )
+from .apify_actor_output_canonicalization import canonicalize_actor_output
 
 
 MANIFEST_VERSION = 1
@@ -661,7 +662,6 @@ def map_actor_output(
 
     mapped: list[MappedActorItem] = []
     latest_observed_item: MappedActorItem | None = None
-    latest_mapped_item: MappedActorItem | None = None
     excluded = 0
     metadata_only = 0
     explicit_empty = 0
@@ -748,30 +748,24 @@ def map_actor_output(
             window_excluded += 1
             continue
         mapped.append(item)
-        if latest_mapped_item is None or (
-            item.published_at,
-            item.native_id,
-        ) > (
-            latest_mapped_item.published_at,
-            latest_mapped_item.native_id,
-        ):
-            latest_mapped_item = item
+
+    mapped, duplicate_rows = canonicalize_actor_output(
+        mapped, max_items=runtime_model.max_items
+    )
 
     if mapped:
         return ManifestMappingResult(
             tuple(mapped),
             "valid_nonempty",
             excluded_rows=(
-                excluded + explicit_empty + metadata_only + window_excluded
+                excluded
+                + explicit_empty
+                + metadata_only
+                + window_excluded
+                + duplicate_rows
             ),
-            latest_published_at=(
-                latest_mapped_item.published_at.isoformat()
-                if latest_mapped_item
-                else None
-            ),
-            latest_native_id=(
-                latest_mapped_item.native_id if latest_mapped_item else None
-            ),
+            latest_published_at=mapped[0].published_at.isoformat(),
+            latest_native_id=mapped[0].native_id,
         )
     if explicit_empty and explicit_empty + excluded + metadata_only == len(rows):
         return ManifestMappingResult(

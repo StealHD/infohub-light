@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v1 Admin APIs are retired; normal source workflow is unchanged.
+// Reviewed: ActorOps v2 social results are deduplicated and newest-first before publication.
 export type ManualStep = {
   title: string
   description: string
@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-22',
-  change: 'ActorOps 来源和浏览器控制面只使用 v2 Route、Candidate、Binding 与 Discovery。管理员仍可沿用安全链接刷新 Candidate、切换备用 Candidate、调整单次费用上限或启用已就绪 Binding；这些操作均只写 v2 状态。旧 Pool、Canary、Freshness、Discovery 与 X profile 管理链接会返回明确、不可重试的“已退役”结果，不会回退旧运行时。平台来源会先建立待验证 Binding；X 与 Instagram 只在 Binding ready 且 Route active 时抓取，YouTube 在 Route 未启用时只能使用受公共网络策略约束的免费 RSS fallback。普通 RSS、GitHub、历史内容和信息流不受 ActorOps 迁移状态影响。',
+  change: 'ActorOps 来源和浏览器控制面只使用 v2 Route、Candidate、Binding 与 Discovery。管理员仍可沿用安全链接刷新 Candidate、切换备用 Candidate、调整单次费用上限或启用已就绪 Binding；这些操作均只写 v2 状态。旧 Pool、Canary、Freshness、Discovery 与 X profile 管理链接会返回明确、不可重试的“已退役”结果，不会回退旧运行时。平台来源会先建立待验证 Binding；X 与 Instagram 只在 Binding ready 且 Route active 时抓取，Actor 返回的重复内容会按稳定内容身份合并，并以最新发布时间优先、按来源设置的条数发布。YouTube 在 Route 未启用时只能使用受公共网络策略约束的免费 RSS fallback。普通 RSS、GitHub、历史内容和信息流不受 ActorOps 迁移状态影响。',
 } as const
 
 export const manualSections: ManualSection[] = [
