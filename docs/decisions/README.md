@@ -1,7 +1,7 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/decisions/ -->
 # Inteliscope InfoHub Light 决策索引
 
-本目录是决策理由与兼容性取舍的唯一真源。普通任务只在需要追溯理由、状态或替代方案时读取对应记录；新增决策追加到当前 `D151–D175` 分桶，满桶后创建下一个连续分桶。
+本目录是决策理由与兼容性取舍的唯一真源。普通任务只在需要追溯理由、状态或替代方案时读取对应记录；新增决策追加到当前 `D176–D200` 分桶，满桶后创建下一个连续分桶。
 
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
@@ -179,3 +179,4 @@
 | D173 | 可配置 Canary 上限与真实费用证明一致 | 2026-08-21 | [查看](records/D151-D175.md#d173) |
 | D174 | ActorOps v2 管理台以脱敏主备切换与来源证据核验收口 | 2026-08-21 | [查看](records/D151-D175.md#d174) |
 | D175 | ActorOps v2 公开商城快照与替换采用显式费用授权 | 2026-08-21 | [查看](records/D151-D175.md#d175) |
+| D176 | OpenClaw 专属架构先行，通用 Agent Core 延后 | 2026-08-22 | [查看](records/D176-D200.md#d176) |

@@ -81,6 +81,14 @@
       ]
     },
     {
+      "id": "OpenClaw",
+      "globs": ["frontend/src/features/openclaw/**"],
+      "specs": [
+        "e2e/production-workbench.spec.ts",
+        "e2e/production-admin.spec.ts"
+      ]
+    },
+    {
       "id": "Settings",
       "globs": [
         "frontend/src/features/admin-heroui/**",
@@ -319,6 +327,7 @@
         "frontend/src/features/openclaw/**",
         "frontend/src/features/admin-heroui/HeroAgentsPage*",
         "scripts/remote_mcp_read_canary.py",
+        "scripts/openclaw_setup_*.py",
         "scripts/setup_openclaw_local.py",
         "scripts/setup_openclaw_local.sh",
         "integrations/openclaw/inteliscope/**",
@@ -329,6 +338,9 @@
         "tests/test_remote_mcp_diagnostics.py",
         "tests/test_bilibili_user_search.py",
         "tests/test_openclaw_skill.py",
+        "tests/test_openclaw_setup_public_surface.py",
+        "tests/test_remote_mcp_module_boundaries.py",
+        "tests/test_remote_mcp_read_service.py",
         "tests/test_setup_openclaw_local.py",
         "tests/test_source_resolution.py",
         "deploy/nginx/inteliscope-basic-auth.conf",

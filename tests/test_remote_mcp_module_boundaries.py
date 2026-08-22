@@ -38,6 +38,21 @@ def _registered_tools(name: str) -> set[str]:
     }
 
 
+def _remote_dependency_graph() -> dict[str, set[str]]:
+    modules = {path.stem: path for path in MCP_ROOT.glob("remote_*.py")}
+    graph: dict[str, set[str]] = {name: set() for name in modules}
+    for name, path in modules.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.level == 1
+                and node.module in modules
+            ):
+                graph[name].add(node.module)
+    return graph
+
+
 def test_remote_server_is_a_small_explicit_composition_facade() -> None:
     source = _source("remote_server.py")
 
@@ -135,3 +150,25 @@ def test_diagnostics_facade_composes_pure_projection_modules() -> None:
         assert "RuntimeStatusService" not in source
         assert "httpx" not in source
         assert "requests" not in source
+
+
+def test_remote_mcp_modules_have_no_dependency_cycles() -> None:
+    graph = _remote_dependency_graph()
+    visited: set[str] = set()
+    active: list[str] = []
+
+    def visit(module: str) -> None:
+        if module in active:
+            start = active.index(module)
+            cycle = " -> ".join([*active[start:], module])
+            raise AssertionError(f"Remote MCP dependency cycle: {cycle}")
+        if module in visited:
+            return
+        active.append(module)
+        for dependency in sorted(graph[module]):
+            visit(dependency)
+        active.pop()
+        visited.add(module)
+
+    for module in sorted(graph):
+        visit(module)

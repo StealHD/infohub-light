@@ -308,6 +308,11 @@ def test_mapping_file_rejects_unknown_group(tmp_path):
             False,
         ),
         (
+            "frontend/src/features/openclaw/ui/OpenClawComposer.tsx",
+            {"e2e/production-workbench.spec.ts", "e2e/production-admin.spec.ts"},
+            False,
+        ),
+        (
             "frontend/e2e/production-admin.spec.ts-snapshots/actorops-guided-light-mobile-linux.png",
             {"e2e/production-admin.spec.ts"},
             False,

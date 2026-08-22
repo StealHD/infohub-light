@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
@@ -18,6 +18,19 @@ function productionSources(directory = featureRoot): string[] {
     if (!/\.(?:ts|tsx)$/u.test(entry.name) || entry.name.includes('.test.')) return []
     return [path]
   })
+}
+
+function internalDependencies(path: string, sources: Set<string>): string[] {
+  const source = readFileSync(path, 'utf8')
+  const dependencies = new Set<string>()
+  const imports = /(?:from\s+|import\s*(?:\(\s*)?)["'](\.[^"']+)["']/gu
+  for (const match of source.matchAll(imports)) {
+    const base = resolve(dirname(path), match[1])
+    const target = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]
+      .find((candidate) => existsSync(candidate) && sources.has(candidate))
+    if (target) dependencies.add(target)
+  }
+  return [...dependencies]
 }
 
 describe('OpenClaw import boundaries', () => {
@@ -71,7 +84,8 @@ describe('OpenClaw import boundaries', () => {
       expect(source).not.toContain('workbench-live')
       expect(source).not.toContain('openclawGateway')
       expect(source).not.toContain('GatewayEvent')
-      expect(source).not.toContain('sessionStorage')
+      expect(source).not.toMatch(/(?:local|session)Storage/u)
+      expect(source).not.toContain('indexedDB')
     }
   })
 
@@ -79,5 +93,30 @@ describe('OpenClaw import boundaries', () => {
     expect(featureFile('../workbench-live/LazyOpenClawConversation.tsx'))
       .toContain("../openclaw/adapters/OpenClawConversation")
     expect(featureFile('OpenClawConversation.tsx')).not.toMatch(/export\s+\*/u)
+  })
+
+  it('has no circular dependencies inside OpenClaw production modules', () => {
+    const sources = new Set(productionSources())
+    const graph = new Map(
+      [...sources].map((path) => [path, internalDependencies(path, sources)]),
+    )
+
+    function findCycle(path: string, lineage: string[]): string[] | null {
+      const repeatedAt = lineage.indexOf(path)
+      if (repeatedAt >= 0) return [...lineage.slice(repeatedAt), path]
+      for (const dependency of graph.get(path) ?? []) {
+        const cycle = findCycle(dependency, [...lineage, path])
+        if (cycle) return cycle
+      }
+      return null
+    }
+
+    let cycle: string[] | null = null
+    for (const source of sources) {
+      cycle = findCycle(source, [])
+      if (cycle) break
+    }
+    expect(cycle?.map((path) => relative(featureRoot, path)).join(' -> ') ?? null)
+      .toBeNull()
   })
 })

@@ -56,4 +56,5 @@ Service UI 在小团体服务模式下必须先完成登录门禁，再加载用
 | --- | --- |
 | Feed、冷归档、存储与租户/用户隔离 | [Feed、存储与租户](feed-storage-tenancy.md) |
 | OpenClaw、MCP、日志、Key pool 与 ActorOps | [Agent、可观测性与 ActorOps](agent-observability-actorops.md) |
+| Browser OpenClaw、Remote MCP 与本地安装代码所有权 | [OpenClaw 模块所有权与依赖边界](openclaw-module-boundaries.md) |
 | Job、周期、通知、运行时、迁移、repair 与 AI | [Job、通知、运行时与迁移](jobs-notifications-runtime-migrations.md) |

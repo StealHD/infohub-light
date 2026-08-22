@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Hardened the validation-cap migration to verify SQLite integrity and foreign keys before backup or writes, after finding pre-existing local database corruption during the authorized offline attempt.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-validation-cap-prehealth",
-  "unresolved": [
-    "Local service.db requires separate offline recovery before paid Actor validation can resume."
-  ],
-  "validation": [
-    "101 targeted ActorOps tests",
-    "migration health-gate test",
-    "code-size and diff checks"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-21",
@@ -386,6 +365,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "本地安装入口与公共兼容面 20 项 mock/临时目录测试通过，未访问真实 ~/.openclaw、Gateway 或 Docker。",
     "后端代码尺寸门禁与累计 impacted preflight 16/16 通过，入口低于 150 行且所有新增模块低于 400 行。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 10 新增模块所有权合同与 D176，建立 OpenClaw→production-workbench/production-admin 专属 E2E 映射，补齐前后端无循环依赖门禁，并将范围内 6 个历史测试单体按共享 fixture 与职责拆至 600 行以内；Manual/Changelog 复核确认无用户可见条目。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal10-final-gates",
+  "unresolved": [],
+  "validation": [
+    "完整前端 Vitest 92 文件/642 项、全部 Remote MCP/setup 测试、typecheck、lint、UI/E2E contract、生产 build 与代码尺寸门禁通过。",
+    "production-workbench 与 production-admin 三项目 E2E 110 项通过、55 项按既有 spec 条件跳过；最终 full preflight 17/17 通过。",
+    "真实 Gateway 验收因没有可用的一次性配对条件未执行，未使用或记录任何 Token。"
   ]
 }
 ```
