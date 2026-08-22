@@ -24,7 +24,7 @@ from src.services.subscription_mutation import (
 )
 from src.services.user_config_builder import build_user_config_data
 from src.services.user_feed_store import UserFeedStore
-from src.services.worker import _source_payload_from_catalog
+from src.services.worker_handlers import source_payload_from_catalog as _source_payload_from_catalog
 from src.storage.service_store import ServiceStore
 from src.services.feed_payload import serialize_feed_item
 import src.services.subscription_mutation as subscription_mutation_module

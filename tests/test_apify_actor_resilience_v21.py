@@ -19,9 +19,7 @@ from src.services.apify_key_pool import (
     ApifyKeyBusyError,
     ApifyKeyPoolService,
 )
-from src.services.job_queue import JobQueue
 from src.services.secret_store import SecretStore
-from src.services.worker import _enqueue_due_actor_freshness_checks
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -307,101 +305,6 @@ def test_freshness_job_rejects_a_changed_actor_route(tmp_path) -> None:
     assert resilience.get_freshness_check(str(check["check_id"]))["status"] == (
         "queued"
     )
-
-
-def test_automatic_freshness_enqueue_is_due_only_and_deduplicated(tmp_path) -> None:
-    store = _store(tmp_path)
-    _validation_pool(store)
-    ops = ApifyActorOpsService(store)
-    route = _route(ops)
-    owner = store.create_user(
-        workspace_id=DEFAULT_WORKSPACE_ID,
-        username="freshness-scheduler-owner",
-        password="safe-test-password",
-        role="owner",
-    )
-    resilience = ApifyActorResilienceService(store)
-    resilience.update_freshness_settings(
-        str(route["route_id"]),
-        enabled=True,
-        interval_hours=24,
-        expected_generation=int(route["generation"]),
-        actor_user_id=str(owner["id"]),
-        standing_authorization_confirmed=True,
-    )
-    store.connect().execute(
-        """
-        UPDATE apify_actor_route_profiles
-        SET freshness_next_check_at = '2000-01-01T00:00:00+00:00'
-        WHERE workspace_id = ? AND route_id = ?
-        """,
-        (DEFAULT_WORKSPACE_ID, str(route["route_id"])),
-    )
-    store.connect().commit()
-    queue = JobQueue(store)
-
-    first = _enqueue_due_actor_freshness_checks(store, queue)
-    second = _enqueue_due_actor_freshness_checks(store, queue)
-
-    assert first == {"enqueued": 1, "blocked": 0}
-    assert second == {"enqueued": 0, "blocked": 0}
-    jobs = queue.list_jobs(
-        workspace_id=DEFAULT_WORKSPACE_ID,
-        user_id=str(owner["id"]),
-        limit=20,
-    )
-    freshness_jobs = [
-        job
-        for job in jobs
-        if job["job_type"] == "apify_actor_freshness_check"
-    ]
-    assert len(freshness_jobs) == 1
-    assert freshness_jobs[0]["priority"] == 100
-    assert freshness_jobs[0]["max_attempts"] == 1
-
-
-def test_due_freshness_blocks_without_borrowing_a_production_key(tmp_path) -> None:
-    store = _store(tmp_path)
-    pool, _acquisition, validation = _validation_pool(store)
-    ops = ApifyActorOpsService(store)
-    route = _route(ops)
-    owner = store.create_user(
-        workspace_id=DEFAULT_WORKSPACE_ID,
-        username="freshness-no-key-owner",
-        password="safe-test-password",
-        role="owner",
-    )
-    resilience = ApifyActorResilienceService(store)
-    resilience.update_freshness_settings(
-        str(route["route_id"]),
-        enabled=True,
-        interval_hours=24,
-        expected_generation=int(route["generation"]),
-        actor_user_id=str(owner["id"]),
-        standing_authorization_confirmed=True,
-    )
-    pool.set_validation_key(
-        DEFAULT_WORKSPACE_ID,
-        secret_id=None,
-        expected_generation=int(validation["generation"]),
-    )
-    store.connect().execute(
-        """
-        UPDATE apify_actor_route_profiles
-        SET freshness_next_check_at = '2000-01-01T00:00:00+00:00'
-        WHERE workspace_id = ? AND route_id = ?
-        """,
-        (DEFAULT_WORKSPACE_ID, str(route["route_id"])),
-    )
-    store.connect().commit()
-
-    result = _enqueue_due_actor_freshness_checks(store, JobQueue(store))
-
-    assert result == {"enqueued": 0, "blocked": 0}
-    assert resilience.route_resilience(str(route["route_id"]))["freshness"][
-        "status"
-    ] == "blocked_no_validation_key"
-    assert pool.public_state(DEFAULT_WORKSPACE_ID)["active_secret_id"] is not None
 
 
 def test_source_watermark_classifies_advance_repeat_and_regression(tmp_path) -> None:

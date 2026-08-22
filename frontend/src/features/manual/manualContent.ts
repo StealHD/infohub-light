@@ -231,6 +231,12 @@ export const manualSections: ManualSection[] = [
         linkLabel: '打开 ActorOps',
       },
       {
+        title: '历史 ActorOps 任务已安全隔离',
+        description: '当前 Worker 只处理 v2 ActorOps 维护任务；从未启动的旧验证、发现或新鲜度任务会安全结束，任何可能已经启动或费用未知的历史任务不会被重新排队、重试或再次付费。普通 RSS、GitHub 与信息流刷新不受这些历史记录影响。',
+        href: '/settings/actorops',
+        linkLabel: '查看 ActorOps',
+      },
+      {
         title: '预演清理与冷归档',
         description: '完成 Feed Storage v3 和内容时间索引迁移后，Owner/Admin 可在“存储与归档”先查看空间摘要，再预演固定策略清理、90 日冷归档或恢复。预演只显示有界计数和候选指纹，不会修改数据；应用前会再次核对候选。收藏、稍后读、当前 Feed、待通知内容和未提交归档受保护，系统永不自动永久删除。只有 Owner 能在归档已恢复且不再被在线内容引用后，输入页面给出的完整确认短语永久删除归档文件。',
         href: '/settings/storage',

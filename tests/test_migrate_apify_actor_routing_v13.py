@@ -191,7 +191,7 @@ def test_existing_v12_database_requires_explicit_v13_apply(
     assert worker == {
         "ok": False,
         "error_code": "migration_required",
-        "migration": "apify_actor_routing_v13",
+        "migration": "webhook_providers_v14",
     }
     check = sqlite3.connect(data_dir / "service.db")
     try:

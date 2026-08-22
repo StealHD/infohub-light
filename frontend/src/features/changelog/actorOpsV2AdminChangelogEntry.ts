@@ -2,6 +2,15 @@ import type { ChangelogEntry } from './changelogTypes'
 
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-08-23',
+    title: 'ActorOps Worker 不再执行旧任务',
+    summary: '历史验证、发现与新鲜度任务不会重新排队或重复付费；现役抓取继续由 v2 路径处理。',
+    items: [
+      { title: '旧任务安全结束或隔离', description: '从未启动的旧 ActorOps 任务会明确标记为已退役；可能已启动、有关联运行或费用仍待确认的记录保持隔离，等待离线核查，不会自动重试。' },
+      { title: '普通来源继续工作', description: 'RSS、GitHub、单来源获取和信息流刷新不再依赖历史 ActorOps 数据库迁移或后台维护；ActorOps v2 的独立维护失败也不会阻断它们。' },
+    ],
+  },
+  {
     date: '2026-08-22',
     title: 'ActorOps 旧管理接口正式退役',
     summary: '旧 Pool、Canary、Freshness、Discovery 与 X profile 管理接口现在明确返回已退役提示，兼容操作继续直接使用 v2 状态。',

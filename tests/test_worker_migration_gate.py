@@ -15,17 +15,9 @@ from src.storage.service_store import ServiceStore
 
 
 EXPECTED_MIGRATION_ORDER = [
-    "apify_actor_routing_v13",
     "webhook_providers_v14",
     "multichannel_notifications_v15",
     "notification_targets_v16",
-    "apify_actor_ops_v15",
-    "apify_discovery_limits_v16",
-    "apify_actor_canary_batches_v17",
-    "apify_actor_pool_staging_v18",
-    "apify_actor_manual_pool_selection_v19",
-    "apify_actor_validation_tuning_v20",
-    "apify_actor_resilience_v21",
 ]
 
 
@@ -91,7 +83,7 @@ def test_worker_startup_migration_gate_propagates_checker_error(
         first_required_worker_startup_migration(cast(ServiceStore, probe))
 
 
-def test_worker_startup_migration_gate_stops_before_provider_or_claim(
+def test_worker_startup_migration_gate_stops_before_claim(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -102,10 +94,6 @@ def test_worker_startup_migration_gate_stops_before_provider_or_claim(
         raise AssertionError("post-migration startup work must not run")
 
     monkeypatch.setattr(SecretStore, "load_into_environ", unexpected)
-    monkeypatch.setattr(
-        "src.services.worker.reconcile_all_apify_pools_sync",
-        unexpected,
-    )
     monkeypatch.setattr(JobQueue, "claim_next_job", unexpected)
 
     result = run_worker_once(
@@ -116,7 +104,7 @@ def test_worker_startup_migration_gate_stops_before_provider_or_claim(
     assert result == {
         "ok": False,
         "error_code": "migration_required",
-        "migration": "apify_actor_routing_v13",
+        "migration": "webhook_providers_v14",
     }
     store = ServiceStore(tmp_path)
     store.initialize()

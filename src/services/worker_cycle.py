@@ -19,6 +19,8 @@ from .secret_store import SecretStore
 from .source_schedule import SourceScheduleService
 from .worker_migration_gate import first_required_worker_startup_migration
 from .worker_housekeeping import WorkerCyclePorts, run_worker_housekeeping
+from .worker_job_policy import WORKER_CLAIMABLE_JOB_TYPES
+from .worker_retired_actorops_jobs import retire_queued_actorops_v1_jobs
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +46,9 @@ def _recover_stale_jobs(
     emit_operation_event: Callable[..., bool],
 ) -> None:
     update_observability_context(stage="lease_recovery")
-    for recovered in queue.recover_stale_running_jobs():
+    for recovered in queue.recover_stale_running_jobs(
+        allowed_job_types=WORKER_CLAIMABLE_JOB_TYPES,
+    ):
         failed = recovered["status"] == "failed"
         emit_operation_event(
             category="job",
@@ -184,8 +188,8 @@ def prepare_worker_cycle(
         if retry_base_seconds is not None
         else os.getenv("HORIZON_WORKER_RETRY_BASE_SECONDS", "30")
     )
+    retire_queued_actorops_v1_jobs(store)
     _recover_stale_jobs(queue, emit_operation_event=ports.emit_operation_event)
-    queue.prune_terminal_jobs()
     if enqueue_schedules:
         _enqueue_schedules(store, emit_operation_event=ports.emit_operation_event)
     notifications = PreferredSourceNotificationService(store, data_dir=data_dir)
@@ -198,7 +202,11 @@ def prepare_worker_cycle(
     if store.get_worker_heartbeat(worker_id) is None:
         store.upsert_worker_heartbeat(worker_id, "starting")
     update_observability_context(stage="claim")
-    job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
+    job = queue.claim_next_job(
+        worker_id=worker_id,
+        lease_seconds=lease,
+        allowed_job_types=WORKER_CLAIMABLE_JOB_TYPES,
+    )
     if job is None:
         run_worker_housekeeping(
             store,
@@ -209,7 +217,11 @@ def prepare_worker_cycle(
             include_maintenance=True,
         )
         update_observability_context(stage="claim")
-        job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
+        job = queue.claim_next_job(
+            worker_id=worker_id,
+            lease_seconds=lease,
+            allowed_job_types=WORKER_CLAIMABLE_JOB_TYPES,
+        )
     if job is None:
         result = ports.run_feed_end_messages(
             data_dir=data_dir,

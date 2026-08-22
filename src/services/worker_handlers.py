@@ -15,12 +15,21 @@ from .usage_attempt_meter import UsageAttemptMeter
 
 
 class PaidCanaryUnavailableError(RuntimeError):
+    """Legacy-only error retained for the offline v1 Canary handler."""
+
     code = "apify_actor_routing_disabled"
     retryable = False
 
 
 class PaidCanaryAuthorizationError(RuntimeError):
+    """Legacy-only error retained for the offline v1 Canary handler."""
+
     code = "apify_actor_canary_unavailable"
+    retryable = False
+
+
+class RetiredActorOpsV1CanaryError(RuntimeError):
+    code = "actorops_v1_retired"
     retryable = False
 
 
@@ -30,8 +39,6 @@ class WorkerHandlerPorts:
     run_user_feed_refresh: Callable[..., dict[str, Any]]
     run_source_test: Callable[..., dict[str, Any]]
     apify_coordinator: Callable[..., Any]
-    build_actor_route: Callable[..., Any]
-    apify_key_pool_enabled: Callable[[], bool]
     shared_acquisition_enabled: Callable[[], bool]
 
 
@@ -105,22 +112,9 @@ def _run_source_test_job(
     )
 
     def run_metered_test() -> dict[str, Any]:
-        paid = raw_payload.get("reason") == "apify_actor_canary"
-        x_profile = (
-            str(payload.get("source_type") or "") == "apify_social"
-            and str(payload.get("platform") or "").casefold() == "x"
-            and str(payload.get("kind") or "profile").casefold() == "profile"
-        )
-        if paid and (not ports.apify_key_pool_enabled() or not x_profile):
-            raise PaidCanaryUnavailableError(
-                "Paid Actor canary requires enabled X profile routing"
-            )
-        if paid and (
-            int(job.get("max_attempts") or 0) != 1
-            or int(job.get("priority") or 0) != 100
-        ):
-            raise PaidCanaryAuthorizationError(
-                "Paid Actor canary was not created by the confirmed canary action"
+        if raw_payload.get("reason") == "apify_actor_canary":
+            raise RetiredActorOpsV1CanaryError(
+                "ActorOps v1 Canary source tests are retired"
             )
         meter.before_fetch_attempt(
             provider=str(payload.get("source_type") or "unknown"),
@@ -131,40 +125,6 @@ def _run_source_test_job(
             workspace_id=str(job["workspace_id"]),
             data_dir=data_dir,
         )
-        actor_route = None
-        forced_id = None
-        forced_generation = None
-        if ports.apify_key_pool_enabled() and x_profile:
-            actor_route = ports.build_actor_route(
-                store,
-                data_dir=data_dir,
-                workspace_id=str(job["workspace_id"]),
-            )
-            if paid:
-                actor = store.get_user(str(job["user_id"]))
-                if not (
-                    actor
-                    and actor.get("enabled")
-                    and actor.get("role") in {"owner", "admin"}
-                ):
-                    raise PermissionError(
-                        "paid Actor canary requires an active administrator"
-                    )
-                forced_id = str(raw_payload.get("apify_actor_candidate_id") or "")
-                raw_generation = raw_payload.get("apify_actor_route_generation")
-                if not forced_id or not isinstance(raw_generation, int):
-                    raise ValueError("paid Actor canary routing metadata is invalid")
-                forced_generation = int(raw_generation)
-        if actor_route is not None:
-            return ports.run_source_test(
-                payload,
-                apify_coordinator=coordinator,
-                apify_actor_route=actor_route,
-                route_job_id=str(job["id"]),
-                forced_candidate_id=forced_id,
-                forced_route_generation=forced_generation,
-                paid_canary=paid,
-            )
         if coordinator is not None:
             return ports.run_source_test(payload, apify_coordinator=coordinator)
         return ports.run_source_test(payload)

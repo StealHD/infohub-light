@@ -24,7 +24,7 @@
 | Pool/Stage | `apify_actor_pool_*.py` | 多个 Mixin 通过 `globals().update(vars(ops))` 读取主模块私有符号 |
 | 恢复与对账 | `apify_actor_restart_recovery.py`、`apify_registered_run_reconciliation.py`、`apify_actor_recovery_continuation.py` | 同一远端 Run 事实存在多条恢复入口 |
 | Resilience/新鲜度 | `apify_actor_resilience.py`、`apify_actor_freshness.py` | Route、来源、Key、Stage 和费用状态交叉写入 |
-| Worker 编排 | `worker_cycle.py`、`worker_actor_cycle.py`、`worker_actor_*_handler.py` | Actor 控制维护位于普通 claim 前置路径 |
+| Worker 编排 | `worker_cycle.py`、`worker_actor_*_handler.py` | 本表记录 Phase 0 基线；当前单轨 Worker 已移除 v1 Actor 控制维护前置路径 |
 
 当前 `src/services/apify_actor*.py`、ActorOps API 和 schema helper 合计约 38,893 行。冻结文件包括 `apify_actor_ops.py`、`apify_actor_route.py`、`apify_actor_discovery.py`、`apify_actor_runtime.py`、`apify_actor_manifest.py`、`apify_actor_canary.py`、`apify_actor_resilience.py` 和 `service_store.py`；v2 不得让它们相对 task snapshot 增长。
 

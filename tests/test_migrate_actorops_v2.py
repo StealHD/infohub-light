@@ -418,7 +418,7 @@ def test_missing_v2_does_not_gate_v1_api_or_worker(tmp_path: Path) -> None:
         assert client.get("/api/health/ready").status_code == 200
 
 
-def test_enabled_v2_only_gates_unretired_worker_startup(
+def test_enabled_v2_does_not_gate_normal_worker_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_dir = tmp_path / "data"
@@ -429,7 +429,7 @@ def test_enabled_v2_only_gates_unretired_worker_startup(
     monkeypatch.setenv("HORIZON_AUTH_USER", "v2-schema-owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-test-password")
     monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "v2-schema-secret")
-    assert first_required_worker_startup_migration(store) == "actorops_v2"
+    assert first_required_worker_startup_migration(store) is None
     store.close()
     static_dir = tmp_path / "static"
     static_dir.mkdir()

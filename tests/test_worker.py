@@ -56,7 +56,7 @@ def test_worker_preclaim_failure_emits_safe_boundary_event(
     assert "pre-claim boundary failed" in caplog.records[-1].getMessage()
 
 
-def test_failed_actor_discovery_is_terminalized_without_reenqueue(
+def test_queued_v1_discovery_is_cancelled_without_execution(
     tmp_path,
     monkeypatch,
 ):
@@ -69,118 +69,26 @@ def test_failed_actor_discovery_is_terminalized_without_reenqueue(
         password="safe-test-password",
         role="owner",
     )
-    ops = ApifyActorOpsService(store)
-    route = next(
-        item
-        for item in ops.list_routes()
-        if item["route_key"] == "youtube/channel/items"
-    )
-    run = ops.create_discovery_run(
-        str(route["route_id"]),
-        trigger_reason="test_worker_failure",
-        expected_generation=int(route["generation"]),
-    )
     job = JobQueue(store).create_job(
         workspace_id="default",
         user_id=str(owner["id"]),
         job_type="apify_actor_discovery",
-        payload={"run_id": str(run["run_id"])},
+        payload={"run_id": "legacy-discovery"},
         priority=50,
         max_attempts=1,
     )
 
-    monkeypatch.setattr(
-        "src.services.worker_cycle.MaintenanceService.run_if_due",
-        lambda *_args, **_kwargs: {"ran": False},
-    )
-
-    def fail_discovery(*_args, **_kwargs):
-        raise NameError("simulated missing dependency")
-
-    monkeypatch.setattr("src.services.worker._run_job", fail_discovery)
     first = run_worker_once(
         data_dir=str(data_dir),
         worker_id="discovery-failure-worker",
         enqueue_schedules=False,
     )
 
-    assert first["id"] == job["id"]
-    assert first["status"] == "failed"
-    failed_run = ops.get_discovery_run(str(run["run_id"]))
-    assert failed_run["stage"] == "failed"
-    assert failed_run["error_code"] == "apify_actor_discovery_failed"
-
-    run_worker_once(
-        data_dir=str(data_dir),
-        worker_id="discovery-failure-worker",
-        enqueue_schedules=False,
-    )
-    jobs = store.connect().execute(
-        """
-        SELECT status FROM fetch_jobs
-        WHERE workspace_id = ?
-          AND job_type = 'apify_actor_discovery'
-          AND json_extract(payload_json, '$.run_id') = ?
-        """,
-        ("default", str(run["run_id"])),
-    ).fetchall()
-    assert [str(row["status"]) for row in jobs] == ["failed"]
-
-
-def test_worker_reconciles_actor_attempts_after_key_pool_before_claiming(
-    tmp_path,
-    monkeypatch,
-):
-    events = []
-    workspace_id = "default"
-
-    def reconcile_keys(_store, *, data_dir):
-        events.append(("keys", data_dir))
-        return [{"workspace_id": workspace_id, "ok": True, "status": "ready"}]
-
-    class _Route:
-        def reconcile_unfinished_attempts(self):
-            events.append(("route", workspace_id))
-            return {
-                "cancelled": 1,
-                "blocked_attempts": 0,
-                "route_blocked": False,
-            }
-
-        def public_state(self):
-            return {
-                "quota": {
-                    "estimated_days_remaining": None,
-                }
-            }
-
-    monkeypatch.setattr(
-        "src.services.worker.reconcile_all_apify_pools_sync",
-        reconcile_keys,
-    )
-    monkeypatch.setattr(
-        "src.services.worker.build_apify_actor_route",
-        lambda _store, *, data_dir, workspace_id: _Route(),
-    )
-    monkeypatch.setattr(
-        "src.services.worker.sync_apify_actor_quota_alert",
-        lambda _store, *, data_dir, workspace_id, route_state: events.append(
-            ("quota", workspace_id)
-        ),
-    )
-
-    result = run_worker_once(
-        data_dir=str(tmp_path),
-        worker_id="reconcile-worker",
-        enqueue_schedules=False,
-    )
-
-    assert result is None
-    assert events == [
-        ("keys", str(tmp_path)),
-        ("route", workspace_id),
-        ("quota", workspace_id),
-    ]
+    assert first is None
+    retired = JobQueue(store).get_job(str(job["id"]))
+    assert retired is not None
+    assert retired["status"] == "cancelled"
+    assert retired["error_code"] == "actorops_v1_retired"
 
 
 def test_worker_emits_lease_recovery_before_reclaiming_job(
@@ -508,27 +416,8 @@ def test_worker_source_test_uses_workspace_apify_pool_without_source_key_referen
     )
     calls = []
 
-    def fake_run_source_test(
-        payload,
-        *,
-        apify_coordinator,
-        apify_actor_route,
-        route_job_id,
-        forced_candidate_id,
-        forced_route_generation,
-        paid_canary,
-    ):
-        calls.append(
-            (
-                payload,
-                apify_coordinator,
-                apify_actor_route,
-                route_job_id,
-                forced_candidate_id,
-                forced_route_generation,
-                paid_canary,
-            )
-        )
+    def fake_run_source_test(payload, *, apify_coordinator):
+        calls.append((payload, apify_coordinator))
         return {"ok": True, "source_type": payload["source_type"]}
 
     monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
@@ -537,21 +426,8 @@ def test_worker_source_test_uses_workspace_apify_pool_without_source_key_referen
 
     assert result["status"] == "succeeded"
     assert len(calls) == 1
-    (
-        payload,
-        coordinator,
-        actor_route,
-        route_job_id,
-        forced_candidate_id,
-        forced_route_generation,
-        paid_canary,
-    ) = calls[0]
+    payload, coordinator = calls[0]
     assert coordinator.workspace_id == workspace["id"]
-    assert actor_route.workspace_id == workspace["id"]
-    assert route_job_id == result["id"]
-    assert forced_candidate_id is None
-    assert forced_route_generation is None
-    assert paid_canary is False
     assert coordinator.public_state(workspace["id"])["active_secret_id"] == secret["id"]
     assert "token_env" not in payload
     assert "secret_env" not in payload
@@ -606,7 +482,7 @@ def test_worker_paid_canary_fails_closed_when_actor_routing_is_disabled(
 
     assert result["id"] == job["id"]
     assert result["status"] == "failed"
-    assert result["error_code"] == "apify_actor_routing_disabled"
+    assert result["error_code"] == "actorops_v1_retired"
     assert calls == []
 
 
@@ -659,7 +535,7 @@ def test_worker_rejects_paid_canary_without_dedicated_job_limits(
 
     assert result["id"] == job["id"]
     assert result["status"] == "failed"
-    assert result["error_code"] == "apify_actor_canary_unavailable"
+    assert result["error_code"] == "actorops_v1_retired"
     assert calls == []
 
 
@@ -720,9 +596,7 @@ def test_worker_does_not_accept_canary_metadata_from_source_config(
     assert "reason" not in payload
     assert "apify_actor_candidate_id" not in payload
     assert "apify_actor_route_generation" not in payload
-    assert kwargs["paid_canary"] is False
-    assert kwargs["forced_candidate_id"] is None
-    assert kwargs["forced_route_generation"] is None
+    assert set(kwargs) == {"apify_coordinator"}
 
 
 def test_worker_source_fetch_with_catalog_source_uses_catalog_runner(tmp_path, monkeypatch):
@@ -1708,7 +1582,7 @@ def test_worker_defers_retention_until_feed_storage_v3_is_migrated(
         raise AssertionError("retention ran before backup-backed v3 migration")
 
     monkeypatch.setattr(
-        "src.services.worker_cycle.MaintenanceService.run_if_due",
+        "src.services.worker_housekeeping.MaintenanceService.run_if_due",
         unexpected_maintenance,
     )
 
@@ -1718,66 +1592,6 @@ def test_worker_defers_retention_until_feed_storage_v3_is_migrated(
         enqueue_schedules=False,
     ) is None
     assert calls == 0
-
-
-def test_worker_runs_actor_revision_and_metadata_maintenance_when_due(
-    tmp_path,
-    monkeypatch,
-):
-    calls = []
-    monkeypatch.setattr(
-        "src.services.worker_cycle.MaintenanceService.run_if_due",
-        lambda *_args, **_kwargs: {"ran": True},
-    )
-    monkeypatch.setattr(
-        "src.services.worker._promote_due_actor_revisions",
-        lambda _store: calls.append("promote") or {"promoted": 0},
-    )
-    monkeypatch.setattr(
-        "src.services.apify_actor_maintenance.run_due_actor_metadata_checks",
-        lambda _store: calls.append("metadata") or {"ran": True},
-    )
-
-    assert run_worker_once(
-        data_dir=str(tmp_path),
-        worker_id="actor-maintenance-worker",
-        enqueue_schedules=False,
-    ) is None
-    assert calls == ["promote", "metadata"]
-
-
-def test_worker_keeps_existing_routes_running_when_actor_metadata_check_fails(
-    tmp_path,
-    monkeypatch,
-    caplog,
-):
-    monkeypatch.setattr(
-        "src.services.worker_cycle.MaintenanceService.run_if_due",
-        lambda *_args, **_kwargs: {"ran": True},
-    )
-    monkeypatch.setattr(
-        "src.services.worker._promote_due_actor_revisions",
-        lambda _store: {"promoted": 0},
-    )
-
-    def fail_metadata(_store):
-        raise RuntimeError("private upstream detail")
-
-    monkeypatch.setattr(
-        "src.services.apify_actor_maintenance.run_due_actor_metadata_checks",
-        fail_metadata,
-    )
-    caplog.set_level("WARNING", logger="src.services.worker")
-
-    assert run_worker_once(
-        data_dir=str(tmp_path),
-        worker_id="actor-maintenance-failure-worker",
-        enqueue_schedules=False,
-    ) is None
-    assert any(
-        "Actor metadata maintenance failed" in record.getMessage()
-        for record in caplog.records
-    )
 
 
 def test_worker_runs_content_repair_without_schedules_or_feed_snapshot(tmp_path, monkeypatch):
@@ -1989,11 +1803,7 @@ def test_post_commit_cleanup_error_keeps_committed_media_file(
 
     monkeypatch.setattr("src.services.worker._run_job", fake_run_job)
     monkeypatch.setattr(
-        "src.services.worker.reconcile_all_apify_pools_sync",
-        lambda *_args, **_kwargs: [],
-    )
-    monkeypatch.setattr(
-        "src.services.worker_cycle.MaintenanceService.run_if_due",
+        "src.services.worker_housekeeping.MaintenanceService.run_if_due",
         lambda *_args, **_kwargs: {"ran": False},
     )
     monkeypatch.setattr(

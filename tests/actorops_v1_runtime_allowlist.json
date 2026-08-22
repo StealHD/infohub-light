@@ -10,12 +10,9 @@
     "src/services/apify_actor_monitoring.py",
     "src/services/apify_actor_ops.py",
     "src/services/apify_actor_runtime.py",
-    "src/services/worker.py",
     "src/services/worker_actor_canary_handler.py",
-    "src/services/worker_actor_cycle.py",
     "src/services/worker_actor_discovery_handler.py",
-    "src/services/worker_actor_validation_handler.py",
-    "src/services/worker_housekeeping.py"
+    "src/services/worker_actor_validation_handler.py"
   ],
   "jobs": [
     "src/api/job_routes.py",
@@ -48,18 +45,11 @@
     "src/services/apify_actor_source_proof.py",
     "src/services/apify_actor_verified_catalog.py",
     "src/services/apify_actor_youtube_observation_discovery.py",
-    "src/services/job_eligibility.py",
-    "src/services/worker.py",
     "src/services/worker_actor_canary_handler.py",
-    "src/services/worker_actor_cycle.py",
     "src/services/worker_actor_discovery_ai.py",
     "src/services/worker_actor_discovery_handler.py",
     "src/services/worker_actor_validation_handler.py",
-    "src/services/worker_actorops_v2_discovery.py",
-    "src/services/worker_finalization.py",
-    "src/services/worker_housekeeping.py",
-    "src/services/worker_lifecycle.py",
-    "src/services/worker_migration_gate.py"
+    "src/services/worker_actorops_v2_discovery.py"
   ],
   "tables": [
     "src/services/actorops/catalog_binding_bridge.py",
@@ -99,12 +89,7 @@
     "src/services/apify_actor_source_proof.py",
     "src/services/apify_actor_verified_catalog.py",
     "src/services/apify_actor_youtube_observation_discovery.py",
-    "src/services/worker_actor_cycle.py",
-    "src/services/worker_actor_discovery_handler.py",
-    "src/services/worker_finalization.py",
-    "src/services/worker_housekeeping.py",
-    "src/services/worker_lifecycle.py",
-    "src/services/worker_migration_gate.py"
+    "src/services/worker_actor_discovery_handler.py"
   ],
   "frontend": []
 }

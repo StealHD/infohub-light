@@ -13,25 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-21",
-  "result": "Raised the explicit ActorOps Route and Candidate-validation ceiling from $0.10 to $0.20 after a real content-valid Canary exceeded the former hard cap. Defaults remain $0.02; CAS, one-shot approval, final-cost accounting and over-cap rejection remain enforced.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-authorized-cost-cap",
-  "unresolved": [],
-  "validation": [
-    "ActorOps pool, staging, runtime, canary, settlement and API pytest suite passed (98 tests).",
-    "Code-size, product-doc, Markdown-control, init-pro structural, JSON and git diff checks passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
   "result": "Added explicit global 27 offline migration for authorized Actor validation caps: exact ledger CHECK upgrades to per-candidate $0.20 and batch $0.60, with pre-network fail-closed gating on un-migrated stores.",
   "status": "completed",
   "task_id": "2026-08-21-actorops-validation-cap-v27",
@@ -415,6 +396,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Red test: test_manifest_deduplicates_unsorted_rows_and_keeps_latest_limited_items failed before implementation and passed after it.",
     "Direct ActorOps manifest, runtime, adapter, source acquisition, legacy runtime, cutover, YouTube probe, and Apify social tests passed.",
     "Impacted preflight passed 17/17, including full Python, Vitest, frontend build, control, documentation, and frozen-file checks."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "ActorOps Worker now claims and executes only v2 control Jobs; never-started v1 Jobs are atomically retired while ambiguous historical Jobs remain isolated without new remote work.",
+  "status": "completed",
+  "task_id": "2026-08-23-actorops-v2-worker-single-track",
+  "unresolved": [],
+  "validation": [
+    "Targeted Worker, queue, migration, authorizer and retirement-boundary tests passed.",
+    "Impacted preflight passed 17/17, including full Python, frontend and control checks."
   ]
 }
 ```

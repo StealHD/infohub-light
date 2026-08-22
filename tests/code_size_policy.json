@@ -112,7 +112,6 @@
     "tests/test_apify_actor_pool_staging_v18.py",
     "tests/test_apify_actor_resilience_v21.py",
     "tests/test_apify_actor_route.py",
-    "tests/test_apify_actor_validation_worker.py",
     "tests/test_apify_social.py",
     "tests/test_feed_production.py",
     "tests/test_maintenance.py",

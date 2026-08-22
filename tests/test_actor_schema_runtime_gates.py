@@ -22,22 +22,21 @@ def _ready_response(data_dir: Path, static_dir: Path):
 
 
 @pytest.mark.parametrize(
-    ("version", "damage", "expected_worker_migration"),
+    ("version", "damage"),
     [
-        (23, "marker", "apify_actor_resilience_v21"),
-        (23, "checksum", "apify_actor_resilience_v21"),
-        (23, "shape", "apify_actor_resilience_v21"),
-        (24, "marker", "apify_actor_pool_management_v22"),
-        (24, "checksum", "apify_actor_pool_management_v22"),
-        (24, "shape", "apify_actor_pool_management_v22"),
+        (23, "marker"),
+        (23, "checksum"),
+        (23, "shape"),
+        (24, "marker"),
+        (24, "checksum"),
+        (24, "shape"),
     ],
 )
-def test_only_worker_is_gated_by_unretired_actor_schema_chain(
+def test_retired_actor_schema_chain_does_not_gate_the_worker(
     tmp_path: Path,
     monkeypatch,
     version: int,
     damage: str,
-    expected_worker_migration: str,
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
@@ -62,7 +61,7 @@ def test_only_worker_is_gated_by_unretired_actor_schema_chain(
 
     gated = ServiceStore(data_dir)
     gated.initialize()
-    assert first_required_worker_startup_migration(gated) == expected_worker_migration
+    assert first_required_worker_startup_migration(gated) is None
     gated.close()
     monkeypatch.setenv("HORIZON_AUTH_USER", "schema-runtime-owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-test-password")

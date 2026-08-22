@@ -42,7 +42,6 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/source_avatar.py",
     "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
-    "src/services/worker_actor_cycle.py",
     "src/services/worker_actor_canary_handler.py",
     "src/services/worker_actor_discovery_ai.py",
     "src/services/worker_actor_discovery_handler.py",
@@ -414,7 +413,6 @@ def check_repository(root: Path) -> list[Violation]:
     worker_event_pairs: set[tuple[str, str]] = set()
     for relative in (
         "src/services/worker.py",
-        "src/services/worker_actor_cycle.py",
         "src/services/worker_actor_canary_handler.py",
         "src/services/worker_actor_discovery_ai.py",
         "src/services/worker_actor_discovery_handler.py",

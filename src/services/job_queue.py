@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..storage.service_store import JOB_STATUSES, ServiceStore
 from .job_cancellation import cancel_job as cancel_job_transaction
+from .job_queue_claims import (
+    claim_next_job as claim_next_job_transaction,
+    recover_stale_running_jobs as recover_stale_running_jobs_transaction,
+)
 
 
 def _now_iso() -> str:
@@ -17,10 +22,6 @@ def _now_iso() -> str:
 
 def _new_id() -> str:
     return f"job_{uuid.uuid4().hex}"
-
-
-def _new_claim_token() -> str:
-    return uuid.uuid4().hex
 
 
 def _json_dumps(value: Any) -> str:
@@ -478,58 +479,19 @@ class JobQueue:
         jobs.sort(key=lambda job: str(job.get("created_at") or ""), reverse=True)
         return jobs
 
-    def claim_next_job(self, *, worker_id: str, lease_seconds: float = 900) -> dict[str, Any] | None:
-        conn = self.store.connect()
-        now_dt = datetime.now(timezone.utc)
-        now = now_dt.isoformat()
-        locked_until = (now_dt + timedelta(seconds=max(float(lease_seconds), 1))).isoformat()
-        claim_token = _new_claim_token()
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                """
-                SELECT id
-                FROM fetch_jobs
-                WHERE status = 'queued'
-                  AND (next_run_at IS NULL OR next_run_at <= ?)
-                ORDER BY priority DESC, created_at
-                LIMIT 1
-                """,
-                (now,),
-            ).fetchone()
-            if row is None:
-                conn.commit()
-                return None
-            job_id = str(row["id"])
-            updated = conn.execute(
-                """
-                UPDATE fetch_jobs
-                SET status = 'running',
-                    attempts = attempts + 1,
-                    worker_id = ?,
-                    claim_token = ?,
-                    started_at = COALESCE(started_at, ?),
-                    locked_until = ?,
-                    updated_at = ?
-                WHERE id = ?
-                  AND status = 'queued'
-                  AND (next_run_at IS NULL OR next_run_at <= ?)
-                """,
-                (worker_id, claim_token, now, locked_until, now, job_id, now),
-            )
-            if updated.rowcount != 1:
-                conn.rollback()
-                return None
-            claimed_row = conn.execute(
-                "SELECT * FROM fetch_jobs WHERE id = ?",
-                (job_id,),
-            ).fetchone()
-            conn.commit()
-        except Exception:
-            if conn.in_transaction:
-                conn.rollback()
-            raise
-        return self.store._job(claimed_row)
+    def claim_next_job(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: float = 900,
+        allowed_job_types: Collection[str] | None = None,
+    ) -> dict[str, Any] | None:
+        return claim_next_job_transaction(
+            self.store,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            allowed_job_types=allowed_job_types,
+        )
 
     def complete_job(
         self,
@@ -796,75 +758,29 @@ class JobQueue:
     def recover_stale_running_jobs(
         self,
         now: datetime | None = None,
+        *,
+        allowed_job_types: Collection[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Recover expired claims and return safe post-commit event descriptors."""
+        return recover_stale_running_jobs_transaction(
+            self.store,
+            now=now,
+            allowed_job_types=allowed_job_types,
+        )
 
-        now_dt = now or datetime.now(timezone.utc)
-        now_iso = now_dt.isoformat()
-        conn = self.store.connect()
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            rows = conn.execute(
-                """
-                SELECT id, workspace_id, user_id, source_id,
-                       subscription_id, attempts, max_attempts
-                FROM fetch_jobs
-                WHERE status = 'running'
-                  AND locked_until IS NOT NULL
-                  AND locked_until < ?
-                ORDER BY created_at ASC, id ASC
-                """,
-                (now_iso,),
-            ).fetchall()
-            conn.execute(
-                """
-                UPDATE fetch_jobs
-                SET status = CASE
-                        WHEN attempts >= max_attempts THEN 'failed'
-                        ELSE 'queued'
-                    END,
-                    worker_id = NULL,
-                    claim_token = NULL,
-                    locked_until = NULL,
-                    error_code = 'lease_expired',
-                    error_message = 'Worker lease expired before completion',
-                    finished_at = CASE
-                        WHEN attempts >= max_attempts THEN ?
-                        ELSE finished_at
-                    END,
-                    updated_at = ?
-                WHERE status = 'running'
-                  AND locked_until IS NOT NULL
-                  AND locked_until < ?
-                """,
-                (now_iso, now_iso, now_iso),
-            )
-            conn.commit()
-        except Exception:
-            if conn.in_transaction:
-                conn.rollback()
-            raise
-        return [
-            {
-                "job_id": str(row["id"]),
-                "workspace_id": str(row["workspace_id"]),
-                "user_id": str(row["user_id"]),
-                "source_id": row["source_id"],
-                "subscription_id": row["subscription_id"],
-                "attempts": int(row["attempts"]),
-                "status": (
-                    "failed"
-                    if int(row["attempts"]) >= int(row["max_attempts"])
-                    else "queued"
-                ),
-            }
-            for row in rows
-        ]
-
-    def requeue_stale_running_jobs(self, now: datetime | None = None) -> int:
+    def requeue_stale_running_jobs(
+        self,
+        now: datetime | None = None,
+        *,
+        allowed_job_types: Collection[str] | None = None,
+    ) -> int:
         """Compatibility count wrapper for the structured recovery API."""
 
-        return len(self.recover_stale_running_jobs(now=now))
+        return len(
+            self.recover_stale_running_jobs(
+                now=now,
+                allowed_job_types=allowed_job_types,
+            )
+        )
 
     def cancel_job(self, job_id: str, *, user_id: str | None = None) -> dict[str, Any]:
         return cancel_job_transaction(

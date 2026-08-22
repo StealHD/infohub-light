@@ -33,9 +33,9 @@ from src.services.apify_discovery_ai import (
     resolve_global_discovery_ai_config_id,
 )
 from src.services.secret_store import SecretStore
-from src.services.worker import (
-    _actor_discovery_queries,
-    _run_apify_actor_discovery,
+from tests.actorops_legacy_discovery_test_support import (
+    legacy_actor_discovery_queries as _actor_discovery_queries,
+    run_legacy_actor_discovery as _run_apify_actor_discovery,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 

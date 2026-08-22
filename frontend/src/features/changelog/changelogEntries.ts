@@ -2,7 +2,7 @@ import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntry } from './actorOpsV2SourceBindingChangelogEntry'
-import type { ChangelogMonth } from './changelogTypes' // Includes the Phase 5 v1 Admin retirement entry.
+import type { ChangelogMonth } from './changelogTypes' // Includes the v1 Admin retirement and v2 Worker isolation entries.
 export const changelogMonths: ChangelogMonth[] = [
   {
     id: 'month-2026-08',

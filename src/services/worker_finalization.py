@@ -9,9 +9,7 @@ from typing import Any
 
 from ..observability_context import update_observability_context
 from ..storage.service_store import ServiceStore
-from .apify_actor_pool_management_runtime import (
-    actor_pool_management_migration_required,
-)
+from .actorops.readiness import require_actorops_v2_if_enabled
 from .feed_production import FeedRunFailed
 from .feed_run import safe_run_diagnostics
 from .job_eligibility import JobEligibilityService
@@ -19,6 +17,7 @@ from .job_queue import JobQueue
 from .media_cache import PostCommitMediaCleanup
 from .preferred_source_notifications import PreferredSourceNotificationService
 from .source_health import SourceHealthService, sanitize_issue_message
+from .worker_job_policy import ACTOROPS_V2_JOB_TYPES
 
 
 class MigrationRequiredError(RuntimeError):
@@ -45,8 +44,6 @@ class WorkerFinalizationPorts:
     exception_code: Callable[[Exception], str]
     cancel_claimed_job: Callable[..., dict[str, Any]]
     emit_job_invalidation: Callable[..., None]
-    terminalize_failed_discovery: Callable[[ServiceStore, dict[str, Any]], bool]
-    terminalize_unstarted_validation: Callable[..., bool]
     is_retryable_exception: Callable[[Exception], bool]
     active_catalog_source_ids: Callable[..., set[str]]
 
@@ -66,43 +63,15 @@ def _require_job_migrations(store: ServiceStore, job_type: str) -> None:
             raise MigrationRequiredError(
                 "content timeline v11 migration is required before feed jobs can run"
             )
-    checks = (
-        (
-            store.apify_actor_ops_v15_migration_required,
-            "Apify ActorOps v15 migration is required before jobs can run",
-        ),
-        (
-            store.apify_discovery_limits_v16_migration_required,
-            "Apify Discovery limits v16 migration is required before jobs can run",
-        ),
-        (
-            store.apify_actor_canary_batches_v17_migration_required,
-            "Apify Actor Canary batch migration is required before jobs can run",
-        ),
-        (
-            store.apify_actor_pool_staging_v18_migration_required,
-            "Apify Actor pool staging migration is required before jobs can run",
-        ),
-        (
-            store.apify_actor_manual_pool_selection_v19_migration_required,
-            "Apify Actor manual pool selection migration is required before jobs can run",
-        ),
-        (
-            store.apify_actor_validation_tuning_v20_migration_required,
-            "Apify Actor validation tuning migration is required before jobs can run",
-        ),
-        (
-            store.apify_actor_resilience_v21_migration_required,
-            "Apify Actor resilience migration is required before jobs can run",
-        ),
-    )
-    for required, message in checks:
-        if required():
-            raise MigrationRequiredError(message)
-    if actor_pool_management_migration_required(store):
-        raise MigrationRequiredError(
-            "Apify Actor pool management migration is required before jobs can run"
-        )
+    if job_type in ACTOROPS_V2_JOB_TYPES:
+        try:
+            require_actorops_v2_if_enabled(store)
+        except RuntimeError as exc:
+            if "migration_required" in str(exc):
+                raise MigrationRequiredError(
+                    "ActorOps v2 migration is required before this job can run"
+                ) from exc
+            raise
 
 
 def _stage_preferred_notifications(
@@ -234,13 +203,6 @@ def _finalize_failed_job(
         return FinalizedJob(finalized, fingerprint)
     try:
         connection.execute("BEGIN IMMEDIATE")
-        ports.terminalize_failed_discovery(store, job)
-        ports.terminalize_unstarted_validation(
-            store,
-            job,
-            status="failed",
-            semantic_outcome=error_code,
-        )
         structured_result = (
             safe_run_diagnostics(exc.result, item_count=0)
             if isinstance(exc, FeedRunFailed)
