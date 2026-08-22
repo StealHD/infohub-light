@@ -5264,13 +5264,8 @@ def create_app(
                     .strip()
                     .casefold()
                 )
-                config_changed = any(
-                    current_config.get(field_name) != merged_config.get(field_name)
-                    for field_name in ("target", "fetch_limit", "analysis_mode")
-                    if field_name in payload.config
-                )
                 if (
-                    config_changed
+                    target_changed
                     and platform_availability is not None
                     and platform_availability[0] != "ready"
                 ):

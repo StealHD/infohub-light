@@ -753,8 +753,8 @@ def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
         f"/api/catalog/sources/{public_source['id']}",
         json={"config": {"fetch_limit": 4}},
     )
-    assert changed_fetch_limit.status_code == 409
-    assert changed_fetch_limit.json()["error"]["code"] == "apify_actor_route_not_ready"
+    assert changed_fetch_limit.status_code == 200, changed_fetch_limit.text
+    assert changed_fetch_limit.json()["data"]["config"]["fetch_limit"] == 4
 
     changed_enabled = client.patch(
         f"/api/catalog/sources/{public_source['id']}",

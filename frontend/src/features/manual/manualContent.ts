@@ -1,4 +1,4 @@
-// Reviewed for ActorOps v2 route layout; no user workflow or copy changes.
+// Reviewed: changing a source's item count or analysis mode does not alter its Actor binding.
 export type ManualStep = {
   title: string
   description: string

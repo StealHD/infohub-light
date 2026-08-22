@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Phase 6R.1 adds a private resumable legacy-cost evidence session: scan reuses one salt, covers at most 20 new terminal Runs per page, retries blocked observations only explicitly, and snapshot validates the complete session without network before creating a private backup/receipt; quarantine requires that receipt and applies all facts in one CAS transaction.",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-legacy-cost-evidence-session",
-  "unresolved": [
-    "Run the full read-only seven-page session against the local runtime database; obtain an exact evidence hash and conservative upper bound, then wait for explicit confirmation before snapshot/quarantine/global 26 migration."
-  ],
-  "validation": [
-    "36 focused ActorOps v2 audit/migration/cutover tests passed.",
-    "Impacted preflight passed 15/15: full Python domain, syntax, code size, product-doc review, frontend lint/typecheck/related Vitest and controls."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-21",
@@ -418,6 +398,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps v2 定向 Vitest 4 项、TypeScript 与 lint 通过。",
     "impacted preflight 12/12 通过；本地 Docker API/Worker health 通过。",
     "按 918×889 复验：Route 内容列和三条路线均无横向溢出，主用/备用槽位保持单行高度。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "Fixed platform-source settings so changing only fetch_limit or analysis_mode does not re-run legacy Actor Route certification; only a target change remains binding-gated.",
+  "status": "completed",
+  "task_id": "2026-08-22-source-settings-nonidentity-update",
+  "unresolved": [],
+  "validation": [
+    "Focused API test module: 33 passed.",
+    "Impacted preflight passed 15/15, including full backend, frontend checks, controls, code size and product-doc review."
   ]
 }
 ```
