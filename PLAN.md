@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- ActorOps v2 单轨退役：Phase 0–6 已完成静态边界、Attempt 恢复/费用单调性、平台来源 Binding 生命周期、直接 v2 Admin Service、v2-only 浏览器控制面、v1 Admin API retirement 与 Worker Job 隔离。设置页仅显示 `active|disabled` v2 Route、脱敏详情、Replacement、共享 alerts 和 v2 Operation Events；旧 Pool/Canary/Freshness 前端已删除，历史 Admin URL 统一返回稳定 410，保留的安全 alias 只读写 v2 状态。Worker 只 claim/执行四种 v2 ActorOps Job；未开始 v1 Job 原子取消，可能已启动的 v1 Job 保持离线隔离。最终 schema/Runtime 删除仍按后续 Phase 7–8 独立退役；本阶段不部署、不切真实流量、不调用付费 Actor/AI。
+- ActorOps v2 单轨退役：Phase 0–6 已完成 v2 Binding/Admin/UI/API/Worker 接管；前端只呈现 `active|disabled`，旧 Admin URL 返回 410，Worker 只执行四种 v2 Job，未知 v1 Job 保持离线隔离。最终 schema/Runtime 删除仍按 Phase 7–8 推进；不部署、不切真实流量或调用付费 Actor/AI。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -38,7 +38,8 @@
 4. **Phase 4 — 已完成**：`/settings/actorops` 永久移除 Hero v1 fallback，仅请求 schema-2 v2 Route/详情、共享 alerts 与 v2 Operation Events；Route view 只呈现 `active|disabled`，遗留 shadow 安全归一为 disabled。旧 Pool/Canary/Freshness 组件、types、query keys、服务与浏览器流程已删除。
 5. **Phase 5 — 已完成**：现役 Admin read/write 和稳定兼容 alias 均只读写 v2；v1 Pool/Stage/Freshness/Validation/Canary/Discovery/X profile URL 不列入 OpenAPI，并以已认证的稳定 410 `actorops_v1_retired` 返回。API Context 不再构造 v1 ActorOps Factory，v1 表 authorizer deny 下 v2 alias 仍可运行。
 6. **Phase 6 — 已完成**：Worker registry、claim 与 stale lease recovery 使用显式允许列表，只执行 `actorops_v2_discovery`、`actorops_v2_maintenance`、`actorops_v2_replacement`、`actorops_v2_metadata_refresh` 与既有普通 Job；四种 v1 ActorOps Job 不再生产、claim、requeue 或执行。未开始且零费用的 v1 Job 在 `fetch_jobs` 内原子标记 `actorops_v1_retired`，已 claim/运行或费用不明的事实不改写，留给离线退役工具。v1 schema 不再阻断普通 RSS/GitHub/source fetch；v2 schema 只在 v2 Job 执行时局部检查。
-7. **Phase 7–8 — 后续**：安装单轨 schema/离线退役工具，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
+7. **Phase 7A — 已完成**：离线工具只安全取消未启动 v1 Job；snapshot/receipt、精确隔离、未知费用阻断与 verify 已覆盖，不 DROP 表、不联网。
+8. **Phase 7B–8 — 后续**：安装 global 30 单轨 schema，移除 flag/shadow/source-v1 generation，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
 
 ## ActorOps v2 历史建设阶段
 

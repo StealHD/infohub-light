@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Added explicit global 27 offline migration for authorized Actor validation caps: exact ledger CHECK upgrades to per-candidate $0.20 and batch $0.60, with pre-network fail-closed gating on un-migrated stores.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-validation-cap-v27",
-  "unresolved": [],
-  "validation": [
-    "100 targeted ActorOps tests",
-    "schema migration dry-run",
-    "impacted control preflight",
-    "control validators"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface"
   ],
@@ -415,6 +394,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Targeted Worker, queue, migration, authorizer and retirement-boundary tests passed.",
     "Impacted preflight passed 17/17, including full Python, frontend and control checks."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "新增 ActorOps v1 离线退役工具：脱敏 status、停机/心跳安全 snapshot 收据、仅取消未启动 Job 的 fail-closed apply 和 hash/shape/integrity verify；未知启动、未结费用与非终态事实保持阻断。",
+  "status": "completed",
+  "task_id": "2026-08-23-actorops-v1-offline-retirement",
+  "unresolved": [
+    "global 30 单轨 schema、flag/shadow/source_v1_generation 删除及最终 v1 Runtime 清理仍属 Phase 7B–8。"
+  ],
+  "validation": [
+    "18 targeted ActorOps retirement and adjacent auto-pool tests",
+    "frontend TypeScript typecheck",
+    "impacted preflight passed (17/17; full Python, lint, Vitest and build)"
   ]
 }
 ```

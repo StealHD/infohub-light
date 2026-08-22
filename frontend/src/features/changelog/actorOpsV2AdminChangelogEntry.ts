@@ -3,6 +3,15 @@ import type { ChangelogEntry } from './changelogTypes'
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
     date: '2026-08-23',
+    title: 'ActorOps 历史运行可离线安全退役',
+    summary: '旧任务、授权与遗留路线可在停机窗口内核查和收敛，不会重新启动 Actor、改写历史费用或影响现役来源。',
+    items: [
+      { title: '只结束从未启动的旧任务', description: '未开始的旧发现、验证、Canary 或新鲜度任务会明确标记为已退役；已领取、可能已启动或费用不明的记录保持隔离，只有由操作员精确确认后才可继续离线处置。' },
+      { title: '先备份再核验', description: '离线操作要求 API/Worker 已停止并跨过心跳安全窗，先创建私有备份与脱敏收据；未知启动、未结费用、数据库漂移或非终态事实都会阻断，不会删除历史表或发起网络调用。' },
+    ],
+  },
+  {
+    date: '2026-08-23',
     title: 'ActorOps Worker 不再执行旧任务',
     summary: '历史验证、发现与新鲜度任务不会重新排队或重复付费；现役抓取继续由 v2 路径处理。',
     items: [
