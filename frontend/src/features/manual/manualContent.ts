@@ -1,4 +1,4 @@
-// Reviewed: changing a source's item count or analysis mode does not alter its Actor binding.
+// Reviewed: the OpenClaw architecture refactor preserves every user-visible workflow and instruction.
 export type ManualStep = {
   title: string
   description: string
