@@ -11,6 +11,12 @@ from ...storage.actorops_v2_operator_schema import (
 from ...storage.actorops_v2_operator_schema import (
     schema_shapes_valid as operator_schema_shapes_valid,
 )
+from ...storage.actorops_v2_attempt_recovery_schema import (
+    migration_marker_exists as recovery_migration_marker_exists,
+)
+from ...storage.actorops_v2_attempt_recovery_schema import (
+    schema_shapes_valid as recovery_schema_shapes_valid,
+)
 from ...storage.service_store import ServiceStore
 
 
@@ -32,6 +38,8 @@ def require_actorops_v2_if_enabled(store: ServiceStore) -> None:
         or not schema_shapes_valid(connection)
         or not operator_migration_marker_exists(connection)
         or not operator_schema_shapes_valid(connection)
+        or not recovery_migration_marker_exists(connection)
+        or not recovery_schema_shapes_valid(connection)
     ):
         raise RuntimeError("actorops_v2 migration_required")
 
@@ -45,4 +53,6 @@ def actorops_v2_startup_migration_required(store: ServiceStore) -> bool:
         and schema_shapes_valid(connection)
         and operator_migration_marker_exists(connection)
         and operator_schema_shapes_valid(connection)
+        and recovery_migration_marker_exists(connection)
+        and recovery_schema_shapes_valid(connection)
     )

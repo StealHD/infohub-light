@@ -1,4 +1,4 @@
-// Reviewed: source-setting validation fix does not require a user-visible changelog entry.
+// Reviewed: Attempt recovery has no user-visible changelog entry.
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes'

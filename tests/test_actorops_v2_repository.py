@@ -226,3 +226,106 @@ def test_database_triggers_reject_transition_shortcuts(tmp_path: Path) -> None:
             "UPDATE actor_candidates_v2 SET lifecycle = 'certified' WHERE candidate_id = 'candidate-v2-trigger'"
         )
     store.close()
+
+
+def test_attempt_identity_and_observation_facts_cannot_regress(tmp_path: Path) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    with repository.transaction():
+        repository.create_candidate(
+            candidate_id="candidate-v2-cost",
+            route_id=route_id,
+            actor_id="publisher/cost",
+            publisher="publisher",
+            build_id="build-cost",
+            build_number="1",
+            manifest_json='{"version":1}',
+            manifest_hash="6" * 64,
+            input_schema_hash="5" * 64,
+            output_schema_hash="4" * 64,
+            lifecycle=CandidateLifecycle.PROBATIONARY,
+        )
+        repository.create_attempt(
+            attempt_id="attempt-cost",
+            idempotency_key="attempt-cost-key",
+            route_id=route_id,
+            candidate_id="candidate-v2-cost",
+            kind="probe",
+            attempt_group_id="group-cost",
+            attempt_index=0,
+            route_generation=1,
+            binding_version=None,
+            target_fingerprint="3" * 64,
+            reserved_usd=0.05,
+            logical_job_id="job-cost",
+        )
+        repository.transition_attempt(
+            "attempt-cost", AttemptStatus.CREATED, AttemptStatus.STARTING
+        )
+        repository.register_attempt_run(
+            "attempt-cost",
+            expected_generation=2,
+            remote_run_id="remote-cost",
+            dataset_id="dataset-cost",
+        )
+        repository.transition_attempt(
+            "attempt-cost", AttemptStatus.REGISTERED, AttemptStatus.RUNNING
+        )
+        repository.observe_attempt_result(
+            "attempt-cost",
+            remote_run_id="remote-cost",
+            dataset_id="dataset-cost",
+            actual_cost_usd=0.01,
+            cost_final=False,
+        )
+        repository.complete_attempt(
+            "attempt-cost",
+            status=AttemptStatus.SUCCEEDED,
+            semantic_outcome="valid_nonempty",
+            actual_cost_usd=None,
+            cost_final=False,
+        )
+        current = repository.get_attempt("attempt-cost")
+        repository.reconcile_attempt(
+            "attempt-cost",
+            expected_status=AttemptStatus.SUCCEEDED,
+            expected_generation=int(current["generation"]),
+            target_status=None,
+            remote_run_id="remote-cost",
+            dataset_id="dataset-cost",
+            semantic_outcome=None,
+            actual_cost_usd=0.02,
+            cost_final=True,
+            failure_class=None,
+            error_code=None,
+        )
+
+    connection = store.connect()
+    for statement in (
+        "UPDATE actor_attempts_v2 SET actual_cost_usd=NULL WHERE attempt_id='attempt-cost'",
+        "UPDATE actor_attempts_v2 SET actual_cost_usd=0.001 WHERE attempt_id='attempt-cost'",
+        "UPDATE actor_attempts_v2 SET cost_final=0 WHERE attempt_id='attempt-cost'",
+        "UPDATE actor_attempts_v2 SET dataset_id='changed' WHERE attempt_id='attempt-cost'",
+        "UPDATE actor_attempts_v2 SET result_state='observed' WHERE attempt_id='attempt-cost'",
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match="cannot regress"):
+            connection.execute(statement)
+    with repository.transaction(), pytest.raises(sqlite3.IntegrityError):
+        repository.create_attempt(
+            attempt_id="attempt-cost-duplicate",
+            idempotency_key="attempt-cost-key-2",
+            route_id=route_id,
+            candidate_id="candidate-v2-cost",
+            kind="probe",
+            attempt_group_id="group-cost-2",
+            attempt_index=1,
+            route_generation=1,
+            binding_version=None,
+            target_fingerprint="3" * 64,
+            reserved_usd=0.05,
+            logical_job_id="job-cost",
+        )
+    row = repository.get_attempt("attempt-cost")
+    assert tuple(row[key] for key in (
+        "actual_cost_usd", "cost_final", "dataset_id", "result_state"
+    )) == (0.02, 1, "dataset-cost", "validated")
+    store.close()

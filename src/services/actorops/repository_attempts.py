@@ -25,8 +25,11 @@ def create_attempt(repository: Any, **values: Any) -> None:
                attempt_id, workspace_id, idempotency_key, route_id, source_id,
                candidate_id, kind, attempt_group_id, attempt_index,
                route_generation, binding_version, target_fingerprint,
-               status, reserved_usd, cost_final, generation, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, 0, 1, ?, ?)""",
+               status, reserved_usd, cost_final, generation, created_at, updated_at,
+               logical_job_id, request_schema_version, request_fingerprint,
+               window_since, window_until, max_items, result_state
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, 0, 1, ?, ?,
+                     ?, ?, ?, ?, ?, ?, 'pending')""",
         (
             values["attempt_id"], repository.workspace_id,
             values["idempotency_key"], values["route_id"], values["source_id"],
@@ -34,6 +37,9 @@ def create_attempt(repository: Any, **values: Any) -> None:
             values["attempt_index"], values["route_generation"],
             values["binding_version"], values["target_fingerprint"],
             values["reserved_usd"], stamp, stamp,
+            values["logical_job_id"], values["request_schema_version"],
+            values["request_fingerprint"], values["window_since"] or stamp,
+            values["window_until"], values["max_items"],
         ),
     )
 
@@ -53,6 +59,37 @@ def get_attempt(repository: Any, attempt_id: str):
     if row is None:
         raise ActorOpsNotFound(f"attempt not found: {attempt_id}")
     return row
+
+
+def observe_result(repository: Any, attempt_id: str, **values: Any) -> None:
+    repository._require_transaction()
+    row = get_attempt(repository, attempt_id)
+    changed = repository.connection.execute(
+        """UPDATE actor_attempts_v2
+           SET remote_run_id=COALESCE(remote_run_id, ?),
+               dataset_id=COALESCE(dataset_id, ?),
+               actual_cost_usd=CASE
+                   WHEN ? IS NULL THEN actual_cost_usd
+                   WHEN actual_cost_usd IS NULL THEN ?
+                   ELSE MAX(actual_cost_usd, ?) END,
+               cost_final=CASE WHEN ? THEN 1 ELSE cost_final END,
+               result_state=CASE WHEN result_state='pending' THEN 'observed'
+                                 ELSE result_state END,
+               result_observed_at=COALESCE(result_observed_at, ?),
+               generation=generation+1, updated_at=?
+           WHERE workspace_id=? AND attempt_id=? AND generation=?
+             AND (remote_run_id IS NULL OR remote_run_id=?)
+             AND (dataset_id IS NULL OR ? IS NULL OR dataset_id=?)""",
+        (
+            values["remote_run_id"], values["dataset_id"],
+            values["actual_cost_usd"], values["actual_cost_usd"],
+            values["actual_cost_usd"], int(values["cost_final"]),
+            _now(), _now(), repository.workspace_id, attempt_id,
+            int(row["generation"]), values["remote_run_id"],
+            values["dataset_id"], values["dataset_id"],
+        ),
+    ).rowcount
+    _changed(changed, "attempt changed before result observation")
 
 
 def update_start(repository: Any, attempt_id: str, **values: Any) -> None:
@@ -129,13 +166,22 @@ def complete(repository: Any, attempt_id: str, **values: Any) -> None:
     changed = repository.connection.execute(
         """UPDATE actor_attempts_v2
            SET status=?, semantic_outcome=?, failure_class=?, error_code=?,
-               actual_cost_usd=?, cost_final=?, terminal_at=?,
+               actual_cost_usd=CASE
+                   WHEN ? IS NULL THEN actual_cost_usd
+                   WHEN actual_cost_usd IS NULL THEN ?
+                   ELSE MAX(actual_cost_usd, ?) END,
+               cost_final=CASE WHEN ? THEN 1 ELSE cost_final END,
+               result_state=CASE WHEN ?='succeeded' THEN 'validated'
+                                 ELSE result_state END,
+               terminal_at=?,
                generation=generation+1, updated_at=?
            WHERE workspace_id=? AND attempt_id=? AND status=? AND generation=?""",
         (
             target.value, values["semantic_outcome"], values["failure_class"],
             values["error_code"], values["actual_cost_usd"],
-            int(values["cost_final"]), stamp, stamp, repository.workspace_id,
+            values["actual_cost_usd"], values["actual_cost_usd"],
+            int(values["cost_final"]), target.value, stamp, stamp,
+            repository.workspace_id,
             attempt_id, current.value, int(row["generation"]),
         ),
     ).rowcount
@@ -178,7 +224,10 @@ def list_reconcilable(repository: Any, *, limit: int):
         """SELECT * FROM actor_attempts_v2
            WHERE workspace_id=?
              AND (
-                 status IN ('start_unknown', 'registered', 'running')
+                 (
+                     status IN ('start_unknown', 'registered', 'running')
+                     AND (result_state='pending' OR cost_final=0)
+                 )
                  OR (
                      status IN ('succeeded', 'failed', 'cancelled')
                      AND cost_final=0 AND remote_run_id IS NOT NULL
@@ -210,8 +259,17 @@ def reconcile(repository: Any, attempt_id: str, **values: Any) -> None:
                semantic_outcome=COALESCE(?, semantic_outcome),
                failure_class=CASE WHEN ? IS NULL THEN failure_class ELSE ? END,
                error_code=CASE WHEN ? IS NULL THEN error_code ELSE ? END,
-               actual_cost_usd=COALESCE(?, actual_cost_usd),
+               actual_cost_usd=CASE
+                   WHEN ? IS NULL THEN actual_cost_usd
+                   WHEN actual_cost_usd IS NULL THEN ?
+                   ELSE MAX(actual_cost_usd, ?) END,
                cost_final=CASE WHEN ? THEN 1 ELSE cost_final END,
+               result_state=CASE
+                   WHEN ? IS NOT NULL AND result_state='pending' THEN 'observed'
+                   ELSE result_state END,
+               result_observed_at=CASE
+                   WHEN ? IS NOT NULL THEN COALESCE(result_observed_at, ?)
+                   ELSE result_observed_at END,
                terminal_at=COALESCE(?, terminal_at),
                generation=generation+1, updated_at=?
            WHERE workspace_id=? AND attempt_id=? AND status=? AND generation=?
@@ -225,8 +283,11 @@ def reconcile(repository: Any, attempt_id: str, **values: Any) -> None:
             values["failure_class"],
             values["error_code"],
             values["error_code"],
+            values["actual_cost_usd"], values["actual_cost_usd"],
             values["actual_cost_usd"],
             int(bool(values["cost_final"])),
+            values["dataset_id"],
+            values["dataset_id"], stamp,
             terminal,
             stamp,
             repository.workspace_id,

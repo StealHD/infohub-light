@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping
 from ...apify_actor_identity import source_target_fingerprint
 from ..apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from .attempt_events import RepositoryAttemptEvents
+from .attempt_recovery import request_fingerprint
 from .domain import AssignmentRole, AttemptStatus, CandidateLifecycle, FailureClass
 from .ports import (
     ActorManifest,
@@ -117,6 +118,16 @@ class ActorOpsProber:
                     expected_workspace_policy_generation=policy.workspace.generation,
                     expected_route_policy_generation=policy.route.generation,
                     reserved_usd=policy.max_charge_usd, now=now,
+                    logical_job_id=f"maintenance:{maintenance_slot}",
+                    request_fingerprint=request_fingerprint(
+                        target_fingerprint=fingerprint,
+                        candidate=candidate,
+                        route_cap_usd=policy.max_charge_usd,
+                        window=window,
+                    ),
+                    window_since=window.since.isoformat(),
+                    window_until=window.until.isoformat() if window.until else None,
+                    max_items=window.max_items,
                 )
         except ActorOpsConflict as error:
             return ProbeResult(None, candidate_id, "skipped", _safe_code(str(error), "actorops_maintenance_conflict"))
@@ -143,6 +154,14 @@ class ActorOpsProber:
             )
             self._record_remote_failure(attempt_id, error)
             return ProbeResult(attempt_id, candidate_id, "failed", error.code)
+        with self.repository.transaction():
+            self.repository.observe_attempt_result(
+                attempt_id,
+                remote_run_id=run.remote_run_id,
+                dataset_id=run.dataset_id,
+                actual_cost_usd=run.actual_cost_usd,
+                cost_final=run.cost_final,
+            )
         try:
             batch = adapter.validate_output(run.rows, target, manifest, window)
         except Exception:

@@ -157,6 +157,15 @@ class MaintenanceRepository:
             route_generation=route.generation, binding_version=binding.binding_version,
             target_fingerprint=binding.target_fingerprint, reserved_usd=reserved,
             created_at=now.isoformat(),
+            logical_job_id=str(
+                values.get("logical_job_id") or values["attempt_group_id"]
+            ),
+            request_fingerprint=str(
+                values.get("request_fingerprint") or values["idempotency_key"]
+            ),
+            window_since=str(values.get("window_since") or now.isoformat()),
+            window_until=values.get("window_until"),
+            max_items=int(values.get("max_items") or 1),
         )
 
     def successful_probe_targets(self, candidate_id: str) -> int:

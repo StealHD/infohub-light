@@ -118,7 +118,7 @@ class RemoteRunRequest:
     actor_input: Mapping[str, object]
     max_total_charge_usd: float
     max_items: int
-    max_remote_starts: int = 3
+    max_remote_starts: int = 1
     dataset_item_limit: int | None = None
 
 
@@ -177,6 +177,10 @@ class RemoteActorClient(Protocol):
     async def execute(
         self, request: RemoteRunRequest, events: AttemptEventSink
     ) -> RemoteRunResult: ...
+
+    async def read_dataset(
+        self, dataset_id: str, *, max_items: int
+    ) -> tuple[Mapping[str, object], ...]: ...
 
 
 @dataclass(frozen=True, slots=True)

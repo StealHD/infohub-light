@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import inspect
 from typing import Any
+from urllib.parse import quote
 
 from ...scrapers.apify_client import ApifyClient, ApifyClientError
 from .domain import FailureClass
+from .errors import ActorOpsRuntimeError
 from .ports import AttemptEventSink, RemoteRunRequest, RemoteRunResult
-from .runtime import ActorOpsRuntimeError
 
 
 class _LocalAttemptCoordinator:
@@ -108,6 +109,40 @@ class ApifyV2RemoteClient:
             actual_cost_usd=result.actual_charge_usd,
             cost_final=result.cost_final,
         )
+
+    async def read_dataset(
+        self, dataset_id: str, *, max_items: int
+    ) -> tuple[dict[str, object], ...]:
+        """GET one known Dataset through a zero-start credential reservation."""
+
+        lease = None
+        try:
+            lease, _legacy_index = await self.client._acquire_credential(
+                (), logical_run_id=f"actorops-dataset-replay:{dataset_id}"
+            )
+            rows = await self.client._request_json(
+                lease,
+                "GET",
+                f"/datasets/{quote(dataset_id, safe='')}/items",
+                params={"clean": "true", "limit": str(max_items)},
+                timeout=30.0,
+            )
+        except Exception:
+            raise ActorOpsRuntimeError(
+                "actorops_dataset_unrecoverable",
+                failure_class=FailureClass.REMOTE_UNKNOWN,
+            ) from None
+        finally:
+            if lease is not None:
+                await self.client._release_reservation(
+                    lease, "actorops_dataset_replay_read_only"
+                )
+        if not isinstance(rows, list):
+            raise ActorOpsRuntimeError(
+                "actorops_dataset_unrecoverable",
+                failure_class=FailureClass.REMOTE_UNKNOWN,
+            )
+        return tuple(row for row in rows if isinstance(row, dict))
 
 
 def _failure_class(code: str) -> FailureClass:

@@ -45,6 +45,8 @@ class _Adapter:
 
     def validate_output(self, rows, target, manifest, window):
         semantic = str(rows[0].get("semantic") if rows else "suspicious_empty")
+        if semantic == "contract_invalid":
+            raise ValueError("output contract mismatch")
         items = ()
         if semantic == "valid_nonempty":
             items = (
@@ -76,6 +78,8 @@ class _Remote:
     def __init__(self, outcomes) -> None:
         self.outcomes = list(outcomes)
         self.requests = []
+        self.dataset_reads = []
+        self.datasets = {}
 
     async def execute(self, request, events):
         self.requests.append(request)
@@ -85,12 +89,45 @@ class _Remote:
             raise outcome
         events.registered(remote_run_id=f"run-{len(self.requests)}", dataset_id="dataset")
         events.running()
+        self.datasets["dataset"] = ({"semantic": outcome},)
         return RemoteRunResult(
             rows=({"semantic": outcome},),
             remote_run_id=f"run-{len(self.requests)}",
             dataset_id="dataset",
             actual_cost_usd=0.001,
             cost_final=True,
+        )
+
+    async def read_dataset(self, dataset_id, *, max_items):
+        self.dataset_reads.append((dataset_id, max_items))
+        return self.datasets[dataset_id]
+
+
+class _DeferredCredentialRemote(_Remote):
+    def __init__(self) -> None:
+        super().__init__(["valid_nonempty"])
+        self.deferred = True
+
+    async def execute(self, request, events):
+        if self.deferred:
+            self.deferred = False
+            self.requests.append(request)
+            raise ActorOpsRuntimeError(
+                "actorops_credential_unavailable",
+                failure_class=FailureClass.CREDENTIAL,
+            )
+        return await super().execute(request, events)
+
+
+class _NonFinalRemote(_Remote):
+    async def execute(self, request, events):
+        result = await super().execute(request, events)
+        return RemoteRunResult(
+            rows=result.rows,
+            remote_run_id=result.remote_run_id,
+            dataset_id=result.dataset_id,
+            actual_cost_usd=result.actual_cost_usd,
+            cost_final=False,
         )
 
 
@@ -116,7 +153,14 @@ def _manifest(actor_id: str) -> str:
     )
 
 
-def _runtime(tmp_path: Path, outcomes, *, candidate_count: int = 2, native: bool = False):
+def _runtime(
+    tmp_path: Path,
+    outcomes,
+    *,
+    candidate_count: int = 2,
+    native: bool = False,
+    invalid_active: bool = False,
+):
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     connection = store.connect()
@@ -153,7 +197,11 @@ def _runtime(tmp_path: Path, outcomes, *, candidate_count: int = 2, native: bool
                 build_id=f"build-{index}",
                 build_number="1.0.0",
                 manifest_json=manifest_json,
-                manifest_hash=actor_manifest_hash(manifest_json),
+                manifest_hash=(
+                    "0" * 64
+                    if invalid_active and index == 0
+                    else actor_manifest_hash(manifest_json)
+                ),
                 input_schema_hash="a" * 64,
                 output_schema_hash="b" * 64,
                 lifecycle=CandidateLifecycle.CERTIFIED,
@@ -277,15 +325,16 @@ def test_remote_unknown_never_starts_a_second_paid_candidate(tmp_path) -> None:
     store, _repository, runtime, remote, route_id, source_id, _ = _runtime(
         tmp_path, [error, "valid_nonempty"], native=True
     )
-    result = asyncio.run(runtime.fetch(
-        route_id=route_id,
-        source_id=source_id,
-        source_config={"target": "openai"},
-        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
-        logical_job_id="job-unknown",
-    ))
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(
+            route_id=route_id,
+            source_id=source_id,
+            source_config={"target": "openai"},
+            window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+            logical_job_id="job-unknown",
+        ))
     assert len(remote.requests) == 1
-    assert result.execution_mode == "native_fallback"
+    assert caught.value.failure_class is FailureClass.REMOTE_UNKNOWN
     attempt = store.connect().execute(
         "SELECT status, failure_class FROM actor_attempts_v2"
     ).fetchone()
@@ -297,7 +346,7 @@ def test_remote_unknown_never_starts_a_second_paid_candidate(tmp_path) -> None:
     store.close()
 
 
-def test_settled_logical_attempt_replay_never_posts_again(tmp_path) -> None:
+def test_settled_logical_attempt_replays_dataset_without_posting_again(tmp_path) -> None:
     store, _repository, runtime, remote, route_id, source_id, _ = _runtime(
         tmp_path, ["valid_nonempty"]
     )
@@ -308,11 +357,175 @@ def test_settled_logical_attempt_replay_never_posts_again(tmp_path) -> None:
         window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
         logical_job_id="job-replay",
     )
-    asyncio.run(runtime.fetch(**kwargs))
-    with pytest.raises(ActorOpsRuntimeError, match="already settled") as error:
-        asyncio.run(runtime.fetch(**kwargs))
-    assert error.value.code == "actorops_attempt_already_settled"
+    first = asyncio.run(runtime.fetch(**kwargs))
+    replay = asyncio.run(runtime.fetch(**{
+        **kwargs,
+        "window": FetchWindow(
+            99,
+            datetime(2026, 8, 1, tzinfo=timezone.utc),
+            datetime(2026, 8, 22, tzinfo=timezone.utc),
+        ),
+    }))
+    assert [item.id for item in replay.items] == [item.id for item in first.items]
     assert len(remote.requests) == 1
+    assert remote.dataset_reads == [("dataset", 3)]
+    attempt = store.connect().execute(
+        """SELECT logical_job_id, request_schema_version, window_since,
+                  window_until, max_items, result_state, result_observed_at
+           FROM actor_attempts_v2"""
+    ).fetchone()
+    assert tuple(attempt[:2]) == ("job-replay", 2)
+    assert attempt[2] == "2026-08-19T00:00:00+00:00"
+    assert attempt[3] is None
+    assert attempt[4] == 3
+    assert attempt[5] == "validated"
+    assert attempt[6]
+    store.close()
+
+
+def test_candidate_reordering_does_not_change_attempt_identity(tmp_path) -> None:
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path, ["valid_nonempty"]
+    )
+    kwargs = dict(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-reordered",
+    )
+    asyncio.run(runtime.fetch(**kwargs))
+    with repository.transaction():
+        repository.promote_standby_candidate(
+            route_id,
+            candidates[1],
+            expected_route_generation=repository.get_route(route_id).generation,
+            expected_candidate_generation=repository.get_candidate(
+                candidates[1]
+            ).generation,
+        )
+    connection = store.connect()
+    asyncio.run(runtime.fetch(**kwargs))
+    assert len(remote.requests) == 1
+    assert connection.execute(
+        "SELECT COUNT(*) FROM actor_attempts_v2 WHERE logical_job_id='job-reordered'"
+    ).fetchone()[0] == 1
+    store.close()
+
+
+def test_output_failure_preserves_observed_dataset_and_known_cost(tmp_path) -> None:
+    store, _repository, runtime, remote, route_id, source_id, _ = _runtime(
+        tmp_path, ["contract_invalid"], candidate_count=1
+    )
+    with pytest.raises(ActorOpsRuntimeError):
+        asyncio.run(runtime.fetch(
+            route_id=route_id,
+            source_id=source_id,
+            source_config={"target": "openai"},
+            window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+            logical_job_id="job-contract-failure",
+        ))
+    row = store.connect().execute(
+        """SELECT status, dataset_id, actual_cost_usd, cost_final, result_state
+           FROM actor_attempts_v2"""
+    ).fetchone()
+    assert tuple(row) == ("failed", "dataset", pytest.approx(0.001), 1, "observed")
+    store.close()
+
+
+def test_created_attempt_without_credential_reuses_frozen_request(tmp_path) -> None:
+    store, repository, runtime, _remote, route_id, source_id, _ = _runtime(
+        tmp_path, []
+    )
+    remote = _DeferredCredentialRemote()
+    runtime.remote = remote
+    kwargs = dict(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-created-recovery",
+    )
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(**kwargs))
+    assert caught.value.failure_class is FailureClass.CREDENTIAL
+    result = asyncio.run(runtime.fetch(**{
+        **kwargs,
+        "window": FetchWindow(
+            50,
+            datetime(2026, 8, 1, tzinfo=timezone.utc),
+            datetime(2026, 8, 22, tzinfo=timezone.utc),
+        ),
+    }))
+    assert result.execution_mode == "actor"
+    assert len(remote.requests) == 2
+    assert {request.attempt_id for request in remote.requests} == {"id-0"}
+    assert remote.requests[-1].actor_input["limit"] == 3
+    assert remote.requests[-1].max_remote_starts == 1
+    assert repository.get_attempt("id-0")["max_items"] == 3
+    store.close()
+
+
+def test_invalid_active_manifest_falls_through_to_standby(tmp_path) -> None:
+    store, _repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path, ["valid_nonempty"], invalid_active=True
+    )
+
+    result = asyncio.run(runtime.fetch(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-invalid-active",
+    ))
+
+    assert result.candidate_id == candidates[1]
+    assert [request.candidate_id for request in remote.requests] == [candidates[1]]
+    store.close()
+
+
+def test_non_final_candidate_cost_blocks_paid_standby(tmp_path) -> None:
+    store, _repository, runtime, _remote, route_id, source_id, _ = _runtime(
+        tmp_path, []
+    )
+    remote = _NonFinalRemote(["suspicious_empty", "valid_nonempty"])
+    runtime.remote = remote
+
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(
+            route_id=route_id,
+            source_id=source_id,
+            source_config={"target": "openai"},
+            window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+            logical_job_id="job-non-final",
+        ))
+
+    assert caught.value.code == "actorops_cost_settlement_required"
+    assert len(remote.requests) == 1
+    store.close()
+
+
+def test_terminal_non_final_cost_is_reconciler_only(tmp_path) -> None:
+    store, _repository, runtime, _remote, route_id, source_id, _ = _runtime(
+        tmp_path, []
+    )
+    remote = _NonFinalRemote(["valid_nonempty"])
+    runtime.remote = remote
+    kwargs = dict(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-terminal-non-final",
+    )
+    assert asyncio.run(runtime.fetch(**kwargs)).execution_mode == "actor"
+
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(**kwargs))
+
+    assert caught.value.code == "actorops_cost_settlement_required"
+    assert len(remote.requests) == 1
+    assert remote.dataset_reads == []
     store.close()
 
 

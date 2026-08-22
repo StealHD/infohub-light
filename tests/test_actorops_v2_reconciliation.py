@@ -48,7 +48,7 @@ def _link(name: str, *, remote: str | None = "remote-1") -> ReconciliationRunLin
     return ReconciliationRunLink(
         reservation_id=name,
         remote_run_id=remote,
-        dataset_id="dataset-1" if remote else None,
+        dataset_id="dataset" if remote else None,
         status="running" if remote else "reserved",
         created_at="2026-08-20T00:00:00+00:00",
         updated_at="2026-08-20T00:00:31+00:00",
@@ -118,12 +118,12 @@ def _attempt(repository: ActorOpsRepository, route_id: str, attempt_id: str, sta
         )
 
 
-def test_reconciler_fails_lost_success_without_publishing(tmp_path: Path) -> None:
+def test_reconciler_observes_lost_success_without_publishing(tmp_path: Path) -> None:
     store, repository, route_id = _repository(tmp_path)
     _attempt(repository, route_id, "attempt-lost", AttemptStatus.RUNNING)
     ledger = _Ledger(
         {"attempt-lost": ReconciliationRunResolution(_link("reservation-lost", remote="remote-attempt-lost"))},
-        {"reservation-lost": ReconciliationRunObservation("SUCCEEDED", 0.03, True, "dataset-2")},
+        {"reservation-lost": ReconciliationRunObservation("SUCCEEDED", 0.03, True, "dataset")},
     )
 
     summary = asyncio.run(
@@ -136,10 +136,12 @@ def test_reconciler_fails_lost_success_without_publishing(tmp_path: Path) -> Non
 
     row = repository.get_attempt("attempt-lost")
     assert summary.settled == 1
-    assert row["status"] == "failed"
-    assert row["semantic_outcome"] == "actorops_reconciled_unpublished_success"
+    assert row["status"] == "running"
+    assert row["semantic_outcome"] is None
     assert row["actual_cost_usd"] == pytest.approx(0.03)
     assert row["cost_final"] == 1
+    assert row["result_state"] == "observed"
+    assert asyncio.run(ActorOpsReconciler(repository, ledger).reconcile()).scanned == 0
     assert store.connect().execute("SELECT COUNT(*) FROM actor_source_bindings_v2").fetchone()[0] == 0
     store.close()
 
@@ -153,7 +155,7 @@ def test_reconciler_does_not_settle_fresh_success_during_runtime_mapping(
     observed_at = datetime.fromisoformat(str(attempt["updated_at"]))
     ledger = _Ledger(
         {"attempt-fresh": ReconciliationRunResolution(_link("reservation-fresh", remote="remote-attempt-fresh"))},
-        {"reservation-fresh": ReconciliationRunObservation("succeeded", 0.03, True, "dataset-2")},
+        {"reservation-fresh": ReconciliationRunObservation("succeeded", 0.03, True, "dataset")},
     )
 
     summary = asyncio.run(

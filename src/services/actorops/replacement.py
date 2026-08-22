@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from ...apify_actor_identity import source_target_fingerprint
 from ..apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from .attempt_events import RepositoryAttemptEvents
+from .attempt_recovery import request_fingerprint
 from .domain import AttemptStatus, CandidateLifecycle, FailureClass, ReplacementStatus
 from .ports import ActorManifest, FetchWindow, RemoteActorClient, RemoteRunRequest
 from .registry import AdapterNotRegistered, AdapterRegistry
@@ -122,6 +123,16 @@ class ActorOpsReplacementRunner:
                     attempt_group_id=plan.plan_id, attempt_index=binding_version,
                     route_generation=route.generation, binding_version=binding_version,
                     target_fingerprint=fingerprint, reserved_usd=plan.per_probe_cap_usd,
+                    logical_job_id=plan.plan_id,
+                    request_fingerprint=request_fingerprint(
+                        target_fingerprint=fingerprint,
+                        candidate=candidate,
+                        route_cap_usd=plan.per_probe_cap_usd,
+                        window=window,
+                    ),
+                    window_since=window.since.isoformat(),
+                    window_until=window.until.isoformat() if window.until else None,
+                    max_items=window.max_items,
                 )
         except ActorOpsConflict:
             return self._stale(plan)
@@ -137,6 +148,14 @@ class ActorOpsReplacementRunner:
             return self._remote_failure(plan, attempt_id, error)
         except Exception:
             return self._remote_failure(plan, attempt_id, ActorOpsRuntimeError("actorops_replacement_remote_failed", failure_class=FailureClass.INTERNAL))
+        with self.repository.transaction():
+            self.repository.observe_attempt_result(
+                attempt_id,
+                remote_run_id=run.remote_run_id,
+                dataset_id=run.dataset_id,
+                actual_cost_usd=run.actual_cost_usd,
+                cost_final=run.cost_final,
+            )
         try:
             batch = adapter.validate_output(run.rows, target, manifest, window)
         except Exception:

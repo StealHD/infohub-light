@@ -267,6 +267,12 @@ class ActorOpsRepository:
         reserved_usd: float,
         source_id: str | None = None,
         created_at: str | None = None,
+        logical_job_id: str | None = None,
+        request_fingerprint: str | None = None,
+        window_since: str | None = None,
+        window_until: str | None = None,
+        max_items: int | None = None,
+        request_schema_version: int = 2,
     ) -> None:
         _attempts.create_attempt(
             self,
@@ -283,6 +289,12 @@ class ActorOpsRepository:
             target_fingerprint=target_fingerprint,
             reserved_usd=reserved_usd,
             created_at=created_at,
+            logical_job_id=logical_job_id or attempt_id,
+            request_fingerprint=request_fingerprint or idempotency_key,
+            window_since=window_since or created_at,
+            window_until=window_until,
+            max_items=max_items or 1,
+            request_schema_version=request_schema_version,
         )
 
     def get_attempt_by_idempotency(self, idempotency_key: str) -> sqlite3.Row | None:
@@ -342,6 +354,24 @@ class ActorOpsRepository:
 
     def get_attempt(self, attempt_id: str) -> sqlite3.Row:
         return _attempts.get_attempt(self, attempt_id)
+
+    def observe_attempt_result(
+        self,
+        attempt_id: str,
+        *,
+        remote_run_id: str,
+        dataset_id: str | None,
+        actual_cost_usd: float | None,
+        cost_final: bool,
+    ) -> None:
+        _attempts.observe_result(
+            self,
+            attempt_id,
+            remote_run_id=remote_run_id,
+            dataset_id=dataset_id,
+            actual_cost_usd=actual_cost_usd,
+            cost_final=cost_final,
+        )
 
     def annotate_attempt(
         self,

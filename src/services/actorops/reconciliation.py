@@ -176,14 +176,11 @@ class ActorOpsReconciler:
             else:
                 self._mutate(
                     row,
-                    target=AttemptStatus.FAILED,
+                    target=None,
                     remote_run_id=link.remote_run_id,
                     dataset_id=observation.dataset_id or link.dataset_id,
-                    semantic_outcome="actorops_reconciled_unpublished_success",
                     actual_cost_usd=observation.actual_cost_usd,
                     cost_final=observation.cost_final,
-                    failure_class=FailureClass.REMOTE_UNKNOWN.value,
-                    error_code="actorops_reconciled_unpublished_success",
                 )
             return ReconciliationSummary(remote_reads=1, settled=1)
         if normalized in _REMOTE_TERMINAL_FAILURE:

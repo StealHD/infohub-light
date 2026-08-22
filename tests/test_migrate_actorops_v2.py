@@ -22,6 +22,10 @@ from src.storage.actorops_v2_operator_schema import (
     ACTOROPS_V2_OPERATOR_MIGRATION_VERSION,
     OPERATOR_TABLES,
 )
+from src.storage.actorops_v2_attempt_recovery_schema import (
+    MIGRATION_NAME as ATTEMPT_RECOVERY_MIGRATION_NAME,
+    MIGRATION_VERSION as ATTEMPT_RECOVERY_MIGRATION_VERSION,
+)
 from src.storage.apify_actor_auto_pool_schema import (
     install_schema as install_auto_pool_schema,
     mark_migrated as mark_auto_pool_migrated,
@@ -198,6 +202,10 @@ def test_fresh_bootstrap_installs_v2_without_global_25(tmp_path: Path) -> None:
         "SELECT name FROM schema_migrations WHERE version = ?",
         (ACTOROPS_V2_OPERATOR_MIGRATION_VERSION,),
     ).fetchone()[0] == ACTOROPS_V2_OPERATOR_MIGRATION_NAME
+    assert connection.execute(
+        "SELECT name FROM schema_migrations WHERE version = ?",
+        (ATTEMPT_RECOVERY_MIGRATION_VERSION,),
+    ).fetchone()[0] == ATTEMPT_RECOVERY_MIGRATION_NAME
     assert connection.execute(
         "SELECT 1 FROM schema_migrations WHERE version = 25"
     ).fetchone() is None
