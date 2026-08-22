@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 import scripts.repair_actorops_v2_catalog_bindings as repair_module
-from scripts.actorops_v2_cutover import status as cutover_status
 from scripts.migrate_actorops_v2 import migrate
 from src.apify_actor_identity import source_target_fingerprint
 from src.storage.actorops_v2_schema import V2_TABLES
@@ -73,52 +72,21 @@ def test_v24_migration_backfills_unbound_catalog_social_source(tmp_path: Path) -
     migrated.close()
 
 
-def test_repair_dry_run_is_read_only_and_apply_is_idempotent(tmp_path: Path) -> None:
+def test_repair_refuses_single_track_schema_without_writing(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
     store.initialize()
-    source_id = _unbound_instagram_source(store)
+    _unbound_instagram_source(store)
     database = data_dir / "service.db"
     store.close()
     before = database.read_bytes()
 
-    preview = repair_module.repair(data_dir, apply=False)
-
-    assert preview == {
-        "status": "repair_required",
-        "planned_counts": {
-            "catalog_candidates": 1,
-            "existing_v1_bindings": 0,
-            "existing_v2_bindings": 0,
-            "invalid_targets": 0,
-            "unregistered_routes": 0,
-        },
-        "global_25_ignored": True,
-    }
+    with pytest.raises(repair_module.CatalogBindingRepairError, match="actorops_v1_retired"):
+        repair_module.repair(data_dir, apply=False)
     assert database.read_bytes() == before
 
-    applied = repair_module.repair(
-        data_dir, apply=True, backup_dir=tmp_path / "backups"
-    )
 
-    assert applied["status"] == "applied"
-    assert applied["inserted"] == 1
-    assert applied["backup_mode"] == "0o600"
-    repaired = ServiceStore(data_dir)
-    assert repaired.get_source(source_id)["config"] == {
-        "platform": "instagram", "kind": "profile", "target": "openai"
-    }
-    assert repaired.connect().execute(
-        "SELECT status FROM actor_source_bindings_v2 WHERE source_id=?", (source_id,)
-    ).fetchone()[0] == "pending"
-    repaired.close()
-    cutover = cutover_status(data_dir, platform="instagram")
-    assert cutover["legacy_v1_v2"]["catalog_binding_count"] == 1
-    assert cutover["legacy_v1_v2"]["binding_mismatches"] == 0
-    assert repair_module.repair(data_dir, apply=True)["status"] == "already_repaired"
-
-
-def test_repair_rejects_invalid_catalog_target_without_writing(tmp_path: Path) -> None:
+def test_repair_single_track_refusal_hides_catalog_target(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
     store.initialize()
@@ -127,10 +95,8 @@ def test_repair_rejects_invalid_catalog_target_without_writing(tmp_path: Path) -
     store.close()
     before = database.read_bytes()
 
-    report = repair_module.repair(data_dir, apply=False)
-
-    assert report["status"] == "nothing_to_repair"
-    assert report["planned_counts"]["invalid_targets"] == 1
+    with pytest.raises(repair_module.CatalogBindingRepairError, match="actorops_v1_retired"):
+        repair_module.repair(data_dir, apply=False)
     assert database.read_bytes() == before
 
 
@@ -149,7 +115,8 @@ def test_repair_never_queries_global_25(tmp_path: Path, monkeypatch: pytest.Monk
         return connection
 
     monkeypatch.setattr(repair_module.sqlite3, "connect", traced_connect)
-    assert repair_module.repair(data_dir, apply=False)["status"] == "repair_required"
+    with pytest.raises(repair_module.CatalogBindingRepairError, match="actorops_v1_retired"):
+        repair_module.repair(data_dir, apply=False)
     joined = "\n".join(statements).casefold()
     assert "version = 25" not in joined
     assert "apify_actor_auto_pool_runs" not in joined

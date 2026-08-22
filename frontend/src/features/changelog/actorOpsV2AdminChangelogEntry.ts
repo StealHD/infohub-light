@@ -3,6 +3,16 @@ import type { ChangelogEntry } from './changelogTypes'
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
     date: '2026-08-23',
+    title: 'ActorOps 准备切换到最终单轨数据库',
+    summary: 'Route 运行状态将只保留启用或停用；升级仍需由管理员在停机窗口明确执行，并且不会触发抓取或付费调用。',
+    items: [
+      { title: '旧观察状态安全停用', description: '离线升级会把历史 shadow 路线统一归为停用，不会回到旧 ActorOps 路径，也不会自动启用任何来源。' },
+      { title: '新库从现役 v2 目录开始', description: '新建数据库会直接准备 X、Instagram、YouTube 的停用 Route 和维护策略；来源仍须完成 Binding 验证并由管理员启用。' },
+      { title: '升级只在明确窗口完成', description: '安装前会检查 API/Worker 已停止，先创建私有备份并验证数据库完整性；失败会恢复备份，不会调用 Actor、AI 或真实来源。' },
+    ],
+  },
+  {
+    date: '2026-08-23',
     title: 'ActorOps 历史运行可离线安全退役',
     summary: '旧任务、授权与遗留路线可在停机窗口内核查和收敛，不会重新启动 Actor、改写历史费用或影响现役来源。',
     items: [

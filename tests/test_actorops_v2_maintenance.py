@@ -121,8 +121,8 @@ def _repository(tmp_path: Path):
         connection.execute(
             """INSERT INTO actor_source_bindings_v2 (
                 binding_id, workspace_id, source_id, route_id, target_fingerprint,
-                status, binding_version, source_v1_generation, created_at, updated_at
-            ) VALUES ('binding-maintenance', ?, ?, ?, ?, 'ready', 1, 1, ?, ?)""",
+                status, binding_version, created_at, updated_at
+            ) VALUES ('binding-maintenance', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
             (DEFAULT_WORKSPACE_ID, source_id, route_id, fingerprint,
              "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00"),
         )
@@ -236,8 +236,8 @@ def test_second_distinct_target_probe_certifies_the_same_standby(tmp_path: Path)
         repository.connection.execute(
             """INSERT INTO actor_source_bindings_v2 (
                 binding_id, workspace_id, source_id, route_id, target_fingerprint,
-                status, binding_version, source_v1_generation, created_at, updated_at
-            ) VALUES ('binding-maintenance-other', ?, ?, ?, ?, 'ready', 1, 1, ?, ?)""",
+                status, binding_version, created_at, updated_at
+            ) VALUES ('binding-maintenance-other', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
             (DEFAULT_WORKSPACE_ID, other_source_id, route_id, fingerprint,
              "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00"),
         )

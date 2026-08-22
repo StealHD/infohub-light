@@ -39,7 +39,8 @@
 5. **Phase 5 — 已完成**：现役 Admin read/write 和稳定兼容 alias 均只读写 v2；v1 Pool/Stage/Freshness/Validation/Canary/Discovery/X profile URL 不列入 OpenAPI，并以已认证的稳定 410 `actorops_v1_retired` 返回。API Context 不再构造 v1 ActorOps Factory，v1 表 authorizer deny 下 v2 alias 仍可运行。
 6. **Phase 6 — 已完成**：Worker registry、claim 与 stale lease recovery 使用显式允许列表，只执行 `actorops_v2_discovery`、`actorops_v2_maintenance`、`actorops_v2_replacement`、`actorops_v2_metadata_refresh` 与既有普通 Job；四种 v1 ActorOps Job 不再生产、claim、requeue 或执行。未开始且零费用的 v1 Job 在 `fetch_jobs` 内原子标记 `actorops_v1_retired`，已 claim/运行或费用不明的事实不改写，留给离线退役工具。v1 schema 不再阻断普通 RSS/GitHub/source fetch；v2 schema 只在 v2 Job 执行时局部检查。
 7. **Phase 7A — 已完成**：离线工具只安全取消未启动 v1 Job；snapshot/receipt、精确隔离、未知费用阻断与 verify 已覆盖，不 DROP 表、不联网。
-8. **Phase 7B–8 — 后续**：安装 global 30 单轨 schema，移除 flag/shadow/source-v1 generation，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
+8. **Phase 7B1 — 已完成**：global30 重建 v2 Route/Binding 表，只接受 `active|disabled`，将历史 `shadow` 归一为 disabled，并删除 `source_v1_generation`。fresh store 由 Adapter Registry 种入 disabled Route/Policy；已有库只可离线备份、apply、校验，不联网、不 DROP v1 历史表。
+9. **Phase 7B2–8 — 后续**：删除 `ACTOROPS_V2_ENABLED` 的过渡门和其配置/测试，再删除零在线 import 的 v1 Runtime，并把 SQLite authorizer 在线 allowlist 收敛为空。
 
 ## ActorOps v2 历史建设阶段
 

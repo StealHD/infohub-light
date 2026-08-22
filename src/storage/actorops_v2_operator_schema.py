@@ -18,7 +18,13 @@ ACTOROPS_V2_OPERATOR_MIGRATION_CHECKSUM = "actorops-v2-operator-controls-v1"
 def prerequisite_ready(connection: sqlite3.Connection) -> bool:
     """global 28 only depends on the valid v2 schema, never 25 or 27."""
 
-    return v26_marker(connection) and v26_shapes(connection)
+    if v26_marker(connection) and v26_shapes(connection):
+        return True
+    return bool(connection.execute(
+        """SELECT 1 FROM schema_migrations
+           WHERE version=30 AND name='actorops_v2_single_track'
+             AND checksum='actorops-v2-single-track-v1'"""
+    ).fetchone())
 
 
 def existing_operator_tables(connection: sqlite3.Connection) -> set[str]:

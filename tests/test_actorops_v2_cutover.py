@@ -9,11 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.observability_context import begin_observability_context, reset_observability_context
 from src.services.actorops.domain import CandidateLifecycle, RuntimeMode
 from src.services.actorops.identity import stable_actor_item_id
 from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepository
-from src.services.actorops.service import ActorOpsCompatibilityService
 from src.services.apify_native_fallback import YouTubeNativeActorFallbackScraper
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
@@ -30,7 +28,7 @@ def _repository(tmp_path: Path) -> tuple[ServiceStore, ActorOpsRepository, str]:
     return store, ActorOpsRepository(connection, DEFAULT_WORKSPACE_ID), route_id
 
 
-def test_route_mode_cas_only_allows_adjacent_transitions(tmp_path: Path) -> None:
+def test_route_mode_cas_only_allows_single_track_transitions(tmp_path: Path) -> None:
     store, repository, route_id = _repository(tmp_path)
     route = repository.get_route(route_id)
 
@@ -39,28 +37,28 @@ def test_route_mode_cas_only_allows_adjacent_transitions(tmp_path: Path) -> None
             repository.transition_route_mode(
                 route_id,
                 current=RuntimeMode.DISABLED,
-                target=RuntimeMode.ACTIVE,
+                target=RuntimeMode.DISABLED,
                 expected_generation=route.generation,
             )
 
     with repository.transaction():
-        shadow = repository.transition_route_mode(
+        active = repository.transition_route_mode(
             route_id,
             current=RuntimeMode.DISABLED,
-            target=RuntimeMode.SHADOW,
+            target=RuntimeMode.ACTIVE,
             expected_generation=route.generation,
         )
-    assert shadow.runtime_mode is RuntimeMode.SHADOW
-    assert shadow.generation == route.generation + 1
+    assert active.runtime_mode is RuntimeMode.ACTIVE
+    assert active.generation == route.generation + 1
 
-    with pytest.raises(ActorOpsConflict):
-        with repository.transaction():
-            repository.transition_route_mode(
-                route_id,
-                current=RuntimeMode.SHADOW,
-                target=RuntimeMode.ACTIVE,
-                expected_generation=route.generation,
-            )
+    with repository.transaction():
+        disabled = repository.transition_route_mode(
+            route_id,
+            current=RuntimeMode.ACTIVE,
+            target=RuntimeMode.DISABLED,
+            expected_generation=active.generation,
+        )
+    assert disabled.runtime_mode is RuntimeMode.DISABLED
     store.close()
 
 
@@ -98,7 +96,7 @@ def test_forward_mode_change_rejects_its_own_unsettled_attempt(tmp_path: Path) -
             repository.transition_route_mode(
                 route_id,
                 current=RuntimeMode.DISABLED,
-                target=RuntimeMode.SHADOW,
+                target=RuntimeMode.ACTIVE,
                 expected_generation=route.generation,
             )
     store.close()
@@ -112,12 +110,21 @@ def test_cutover_blockers_scope_to_one_route(tmp_path: Path) -> None:
             "SELECT route_id FROM actor_routes_v2 WHERE route_id != ?", (route_id,)
         ).fetchone()[0]
     )
-    candidate_id = str(
-        connection.execute(
-            "SELECT candidate_id FROM actor_candidates_v2 WHERE route_id=? LIMIT 1",
-            (other_route,),
-        ).fetchone()[0]
-    )
+    candidate_id = "other-route-candidate"
+    with repository.transaction():
+        repository.create_candidate(
+            candidate_id=candidate_id,
+            route_id=other_route,
+            actor_id="publisher/other",
+            publisher="publisher",
+            build_id="build",
+            build_number="1",
+            manifest_json="{}",
+            manifest_hash="c" * 64,
+            input_schema_hash="i" * 64,
+            output_schema_hash="o" * 64,
+            lifecycle=CandidateLifecycle.CERTIFIED,
+        )
     connection.execute(
         """INSERT INTO actor_attempts_v2(
                attempt_id, workspace_id, idempotency_key, route_id, candidate_id,
@@ -134,48 +141,6 @@ def test_cutover_blockers_scope_to_one_route(tmp_path: Path) -> None:
         "active_attempts": 0,
         "unsettled_costs": 0,
     }
-    store.close()
-
-
-def test_shadow_selection_is_observed_without_v2_attempts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, repository, route_id = _repository(tmp_path)
-    source_id = store.create_source(
-        workspace_id=DEFAULT_WORKSPACE_ID,
-        scope="workspace",
-        owner_user_id=None,
-        source_type="apify_social",
-        display_name="shadow source",
-        config={"platform": "youtube", "kind": "channel", "target": "channel"},
-    )
-    events: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        "src.services.actorops.service.safe_emit_operation_event",
-        lambda **event: events.append(event) or True,
-    )
-    service = ActorOpsCompatibilityService(store, workspace_id=DEFAULT_WORKSPACE_ID)
-    service.v1.freeze_execution = lambda *_args, **_kwargs: object()
-    route = repository.get_route(route_id)
-    with repository.transaction():
-        repository.transition_route_mode(
-            route_id,
-            current=RuntimeMode.DISABLED,
-            target=RuntimeMode.SHADOW,
-            expected_generation=route.generation,
-        )
-
-    token = begin_observability_context(job_id="shadow-job", source_id=source_id)
-    try:
-        assert service.freeze_execution(route_id, source_id=source_id) is not None
-    finally:
-        reset_observability_context(token)
-    assert events[-1]["action"] == "actorops_v2_shadow_selection"
-    assert events[-1]["outcome"] == "unavailable"
-    assert events[-1]["job_id"] == "shadow-job"
-    assert events[-1]["route"] == "/actorops/v2/shadow"
-    assert events[-1]["counts"] == {"candidates": 0, "shadow_mode": 1}
-    assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
     store.close()
 
 
@@ -250,18 +215,18 @@ def test_cutover_cli_transition_dry_run_has_zero_writes_and_apply_is_cas(
     before = database.read_bytes()
     dry_run = cutover.transition(
         tmp_path / "data", platform="youtube", current=RuntimeMode.DISABLED,
-        target=RuntimeMode.SHADOW, expected_generation=int(route[0]), apply=False,
+        target=RuntimeMode.ACTIVE, expected_generation=int(route[0]), apply=False,
     )
     assert dry_run["status"] == "dry_run"
     assert database.read_bytes() == before
     applied = cutover.transition(
         tmp_path / "data", platform="youtube", current=RuntimeMode.DISABLED,
-        target=RuntimeMode.SHADOW, expected_generation=int(route[0]), apply=True,
+        target=RuntimeMode.ACTIVE, expected_generation=int(route[0]), apply=True,
     )
     assert applied["generation"] == int(route[0]) + 1
     assert store.connect().execute(
         "SELECT runtime_mode FROM actor_routes_v2 WHERE route_id=?", (route_id,)
-    ).fetchone()[0] == "shadow"
+    ).fetchone()[0] == "active"
     assert repository.get_route(route_id).generation == int(route[0]) + 1
     store.close()
 

@@ -89,8 +89,8 @@ class ActorOpsBindingService:
                 """INSERT INTO actor_source_bindings_v2 (
                        binding_id, workspace_id, source_id, route_id,
                        target_fingerprint, status, binding_version,
-                       source_v1_generation, created_at, updated_at
-                   ) VALUES (?, ?, ?, ?, ?, 'pending', 1, 1, ?, ?)""",
+                       created_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, ?)""",
                 (
                     _binding_id(self.workspace_id, source_id),
                     self.workspace_id,

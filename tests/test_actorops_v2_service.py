@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 
+import pytest
+
 from src.apify_actor_identity import source_target_fingerprint
 from src.services.actorops.apify_remote import _LocalAttemptCoordinator
 from src.services.actorops.domain import CandidateLifecycle
@@ -11,7 +13,7 @@ from src.services.actorops.publication import (
     proof_from_items,
     with_publication_proof,
 )
-from src.services.actorops.repository import ActorOpsRepository
+from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepository
 from src.services.actorops.service import (
     ActorOpsCompatibilityService,
     ActorOpsV2Service,
@@ -60,8 +62,8 @@ def _seed_ready_binding(store: ServiceStore) -> tuple[str, str]:
         connection.execute(
             """INSERT INTO actor_source_bindings_v2 (
                 binding_id, workspace_id, source_id, route_id, target_fingerprint,
-                status, binding_version, source_v1_generation, created_at, updated_at
-            ) VALUES ('v2-service-binding', ?, ?, ?, ?, 'ready', 1, 1, ?, ?)""",
+                status, binding_version, created_at, updated_at
+            ) VALUES ('v2-service-binding', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
             (
                 DEFAULT_WORKSPACE_ID,
                 source_id,
@@ -74,7 +76,7 @@ def _seed_ready_binding(store: ServiceStore) -> tuple[str, str]:
     return route_id, source_id
 
 
-def test_compatibility_service_uses_v2_only_for_active_routes(tmp_path) -> None:
+def test_compatibility_service_uses_v2_for_active_and_disabled_routes(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     route_id, source_id = _seed_ready_binding(store)
@@ -88,25 +90,21 @@ def test_compatibility_service_uses_v2_only_for_active_routes(tmp_path) -> None:
         service.freeze_execution(route_id, source_id=source_id), V2ExecutionHandle
     )
 
-    sentinel = object()
-    service.v1.freeze_execution = lambda *_args, **_kwargs: sentinel
-    for mode in ("shadow", "disabled"):
-        connection.execute(
-            "UPDATE actor_routes_v2 SET runtime_mode=? WHERE route_id=?",
-            (mode, route_id),
-        )
-        connection.commit()
-        assert service.freeze_execution(route_id, source_id=source_id) is sentinel
+    connection.execute(
+        "UPDATE actor_routes_v2 SET runtime_mode='disabled' WHERE route_id=?",
+        (route_id,),
+    )
+    connection.commit()
+    assert isinstance(
+        service.freeze_execution(route_id, source_id=source_id), V2ExecutionHandle
+    )
     connection.execute(
         "UPDATE actor_source_bindings_v2 SET status='pending' WHERE source_id=?",
         (source_id,),
     )
-    connection.execute(
-        "UPDATE actor_routes_v2 SET runtime_mode='shadow' WHERE route_id=?",
-        (route_id,),
-    )
     connection.commit()
-    assert service.freeze_execution(route_id, source_id=source_id) is sentinel
+    with pytest.raises(ActorOpsConflict, match="binding is not ready"):
+        service.freeze_execution(route_id, source_id=source_id)
     assert connection.execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
     store.close()
 

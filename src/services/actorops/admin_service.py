@@ -333,8 +333,6 @@ class ActorOpsAdminService:
     def _degraded_reason(mode: str, health: RouteHealth, bindings: tuple[Any, ...]) -> str | None:
         if mode == "disabled":
             return "actorops_v2_route_disabled"
-        if mode == "shadow":
-            return "actorops_v2_route_shadow"
         if any(item.status != "ready" for item in bindings):
             return "actorops_v2_binding_not_ready"
         if health is RouteHealth.UNAVAILABLE:

@@ -276,9 +276,8 @@ def test_legacy_profile_id_is_normalized_through_existing_v2_binding(
     store.connect().execute(
         """INSERT INTO actor_source_bindings_v2 (
                binding_id, workspace_id, source_id, route_id,
-               target_fingerprint, status, binding_version,
-               source_v1_generation, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 'pending', 1, 1, ?, ?)""",
+               target_fingerprint, status, binding_version, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, ?)""",
         (
             "migrated-v2-binding",
             workspace_id,

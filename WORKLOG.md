@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Hardened the validation-cap migration to verify SQLite integrity and foreign keys before backup or writes, after finding pre-existing local database corruption during the authorized offline attempt.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-validation-cap-prehealth",
-  "unresolved": [
-    "Local service.db requires separate offline recovery before paid Actor validation can resume."
-  ],
-  "validation": [
-    "101 targeted ActorOps tests",
-    "migration health-gate test",
-    "code-size and diff checks"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-21",
@@ -416,6 +395,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "18 targeted ActorOps retirement and adjacent auto-pool tests",
     "frontend TypeScript typecheck",
     "impacted preflight passed (17/17; full Python, lint, Vitest and build)"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "Installed the global 30 ActorOps v2 single-track migration: final Route/Binding rebuild, disabled catalog seed, and offline backup/verification workflow without real database apply or network calls.",
+  "status": "completed",
+  "task_id": "2026-08-23-actorops-global30-single-track",
+  "unresolved": [
+    "Phase 7B2 still removes ACTOROPS_V2_ENABLED startup compatibility and its configuration/tests.",
+    "Phase 8 still removes remaining zero-online-import v1 runtime and empties the authorizer allowlist."
+  ],
+  "validation": [
+    "234 targeted ActorOps regression tests",
+    "impacted preflight passed (17/17), including full Python and frontend checks",
+    "code-size, product-doc, Markdown/control, JSON, and diff checks"
   ]
 }
 ```

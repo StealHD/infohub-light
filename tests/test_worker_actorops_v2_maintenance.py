@@ -29,8 +29,8 @@ def _authorized_candidate(store: ServiceStore) -> str:
         connection.execute(
             """INSERT INTO actor_source_bindings_v2 (
                 binding_id, workspace_id, source_id, route_id, target_fingerprint,
-                status, binding_version, source_v1_generation, created_at, updated_at
-            ) VALUES ('maintenance-binding', ?, ?, ?, ?, 'ready', 1, 1, ?, ?)""",
+                status, binding_version, created_at, updated_at
+            ) VALUES ('maintenance-binding', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
             (DEFAULT_WORKSPACE_ID, source_id, route_id, fingerprint,
              "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00"),
         )

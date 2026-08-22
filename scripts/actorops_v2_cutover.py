@@ -19,11 +19,13 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from scripts.actorops_migration_safety import active_workers_fail_closed
 from scripts.migrate_apify_actor_ops_v15 import _backup_database
-from scripts.actorops_v2_cutover_legacy import legacy_summary as _legacy_summary
 from src.services.actorops.domain import RuntimeMode
 from src.services.actorops.repository import ActorOpsRepository
 from src.services.actorops.repository_cutover import route_mode_transition_allowed
-from src.storage.actorops_v2_schema import migration_marker_exists, schema_shapes_valid
+from src.storage.actorops_v2_single_track_schema import (
+    migration_marker_exists,
+    schema_shapes_valid,
+)
 from src.storage.service_store import DEFAULT_WORKSPACE_ID
 
 
@@ -110,11 +112,10 @@ def status(
             (workspace_id, route_id),
         ).fetchall()
         binding_counts = {str(row["status"]): int(row["count"]) for row in bindings}
-        legacy = _legacy_summary(connection, workspace_id, route)
         blockers = repository.cutover_blockers(route_id)
         ready_bindings = binding_counts.get("ready", 0)
         total_bindings = sum(binding_counts.values())
-        ready = bool(runnable and total_bindings) and total_bindings == ready_bindings and legacy["compatible"]
+        ready = bool(runnable and total_bindings) and total_bindings == ready_bindings
         return {
             "status": "ready" if ready and not any(blockers.values()) else "blocked",
             "schema": schema,
@@ -146,8 +147,7 @@ def status(
                     (workspace_id, route_id),
                 ),
             },
-            "legacy_v1_v2": legacy,
-            "global_25_ignored": True,
+            "single_track": True,
         }
     finally:
         connection.close()
@@ -197,10 +197,7 @@ def transition(
         raise CutoverError("route mode transition is invalid")
     if route["runtime_mode"] != current.value or int(route["generation"]) != expected_generation:
         raise CutoverError("route mode or generation changed before transition")
-    forward = (current, target) in {
-        (RuntimeMode.DISABLED, RuntimeMode.SHADOW),
-        (RuntimeMode.SHADOW, RuntimeMode.ACTIVE),
-    }
+    forward = (current, target) == (RuntimeMode.DISABLED, RuntimeMode.ACTIVE)
     workers = active_workers_fail_closed(_database(data_dir))
     if workers:
         raise CutoverError("stop API and Worker before changing route mode")
@@ -261,7 +258,7 @@ def verify(
         ).fetchone()[0])
     finally:
         connection.close()
-    expected_zero_attempts = expected_mode is RuntimeMode.SHADOW
+    expected_zero_attempts = expected_mode is RuntimeMode.DISABLED
     passed = (
         not any(report["blocker_counts"].values())
         and (count == 0 if expected_zero_attempts else count >= required_successes)
@@ -282,7 +279,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, default=REPOSITORY_ROOT / "data")
     parser.add_argument("--workspace-id", default=DEFAULT_WORKSPACE_ID)
     subcommands = parser.add_subparsers(dest="command", required=True)
-    for name in ("status", "snapshot", "verify-shadow", "verify-active"):
+    for name in ("status", "snapshot", "verify-disabled", "verify-active"):
         command = subcommands.add_parser(name)
         command.add_argument("--platform", required=True, choices=("youtube", "instagram", "x"))
     change = subcommands.add_parser("transition")
@@ -314,8 +311,13 @@ def main() -> int:
         else:
             result = verify(
                 args.data_dir,
-                expected_mode=RuntimeMode.SHADOW if args.command == "verify-shadow" else RuntimeMode.ACTIVE,
-                required_successes=getattr(args, "required_successes", 20), **kwargs,
+            expected_mode=(
+                RuntimeMode.DISABLED
+                if args.command == "verify-disabled"
+                else RuntimeMode.ACTIVE
+            ),
+            required_successes=getattr(args, "required_successes", 20),
+            **kwargs,
             )
     except (CutoverError, sqlite3.Error) as error:
         print(json.dumps({"status": "failed", "error": str(error)}, sort_keys=True))

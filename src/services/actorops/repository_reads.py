@@ -29,7 +29,6 @@ def get_route(repository: Any, route_id: str) -> RouteRecord:
         runtime_mode=RuntimeMode(str(row["runtime_mode"])),
         per_run_cap_usd=float(row["per_run_cap_usd"]),
         generation=int(row["generation"]),
-        source_v1_generation=int(row["source_v1_generation"]),
     )
 
 

@@ -4,18 +4,11 @@ from __future__ import annotations
 
 import os
 
-from ...storage.actorops_v2_schema import migration_marker_exists, schema_shapes_valid
-from ...storage.actorops_v2_operator_schema import (
-    migration_marker_exists as operator_migration_marker_exists,
+from ...storage.actorops_v2_single_track_schema import (
+    migration_marker_exists as single_track_migration_marker_exists,
 )
-from ...storage.actorops_v2_operator_schema import (
-    schema_shapes_valid as operator_schema_shapes_valid,
-)
-from ...storage.actorops_v2_attempt_recovery_schema import (
-    migration_marker_exists as recovery_migration_marker_exists,
-)
-from ...storage.actorops_v2_attempt_recovery_schema import (
-    schema_shapes_valid as recovery_schema_shapes_valid,
+from ...storage.actorops_v2_single_track_schema import (
+    schema_shapes_valid as single_track_schema_shapes_valid,
 )
 from ...storage.service_store import ServiceStore
 
@@ -40,12 +33,8 @@ def require_actorops_v2_schema(store: ServiceStore) -> None:
 
     connection = store.connect()
     if (
-        not migration_marker_exists(connection)
-        or not schema_shapes_valid(connection)
-        or not operator_migration_marker_exists(connection)
-        or not operator_schema_shapes_valid(connection)
-        or not recovery_migration_marker_exists(connection)
-        or not recovery_schema_shapes_valid(connection)
+        not single_track_migration_marker_exists(connection)
+        or not single_track_schema_shapes_valid(connection)
     ):
         raise RuntimeError("actorops_v2 migration_required")
 
@@ -55,10 +44,6 @@ def actorops_v2_startup_migration_required(store: ServiceStore) -> bool:
         return False
     connection = store.connect()
     return not (
-        migration_marker_exists(connection)
-        and schema_shapes_valid(connection)
-        and operator_migration_marker_exists(connection)
-        and operator_schema_shapes_valid(connection)
-        and recovery_migration_marker_exists(connection)
-        and recovery_schema_shapes_valid(connection)
+        single_track_migration_marker_exists(connection)
+        and single_track_schema_shapes_valid(connection)
     )

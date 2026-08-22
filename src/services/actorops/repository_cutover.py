@@ -10,10 +10,8 @@ from .repository_errors import ActorOpsConflict
 
 _MODE_TRANSITIONS = frozenset(
     {
-        (RuntimeMode.DISABLED, RuntimeMode.SHADOW),
-        (RuntimeMode.SHADOW, RuntimeMode.ACTIVE),
-        (RuntimeMode.ACTIVE, RuntimeMode.SHADOW),
-        (RuntimeMode.SHADOW, RuntimeMode.DISABLED),
+        (RuntimeMode.DISABLED, RuntimeMode.ACTIVE),
+        (RuntimeMode.ACTIVE, RuntimeMode.DISABLED),
     }
 )
 
@@ -31,10 +29,9 @@ def transition_route_mode(
     repository._require_transaction()
     if (current, target) not in _MODE_TRANSITIONS:
         raise ActorOpsConflict("ActorOps route mode transition is invalid")
-    if (current, target) in {
-        (RuntimeMode.DISABLED, RuntimeMode.SHADOW),
-        (RuntimeMode.SHADOW, RuntimeMode.ACTIVE),
-    } and any(cutover_blockers(repository, route_id).values()):
+    if (current, target) == (RuntimeMode.DISABLED, RuntimeMode.ACTIVE) and any(
+        cutover_blockers(repository, route_id).values()
+    ):
         raise ActorOpsConflict("ActorOps route has unsettled cutover facts")
     changed = repository.connection.execute(
         """UPDATE actor_routes_v2

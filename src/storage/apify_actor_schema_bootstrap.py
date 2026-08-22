@@ -19,6 +19,9 @@ from .actorops_v2_operator_schema import (
 from .actorops_v2_attempt_recovery_schema import (
     bootstrap_service_store_schema as bootstrap_actorops_v2_attempt_recovery_schema,
 )
+from .actorops_v2_single_track_schema import (
+    bootstrap_service_store_schema as bootstrap_actorops_v2_single_track_schema,
+)
 
 
 def bootstrap_actor_schemas(
@@ -33,5 +36,10 @@ def bootstrap_actor_schemas(
     bootstrap_actorops_v2_schema(connection, existing_schema=existing_schema)
     bootstrap_actorops_v2_operator_schema(connection, existing_schema=existing_schema)
     bootstrap_actorops_v2_attempt_recovery_schema(
+        connection, existing_schema=existing_schema
+    )
+    if not existing_schema and connection.in_transaction:
+        connection.commit()
+    bootstrap_actorops_v2_single_track_schema(
         connection, existing_schema=existing_schema
     )

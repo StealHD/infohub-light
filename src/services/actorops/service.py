@@ -1,4 +1,4 @@
-"""Thin source-facing ActorOps v2 service and v1 compatibility facade."""
+"""Thin source-facing ActorOps v2 service and stable compatibility alias."""
 
 from __future__ import annotations
 
@@ -7,45 +7,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from ...observability_context import current_observability_context
 from .adapters import build_source_registry
 from .apify_remote import ApifyV2RemoteClient
 from .domain import ExecutionSnapshot, RuntimeMode
 from .identity import stable_actor_item_id
-from ..operation_log import safe_emit_operation_event
 from .ports import ExecutionResult, FetchWindow, PublicationProof
 from .publication import (
     ActorOpsV2RoutedList,
     publication_proof,
     v2_proof_payload,
 )
-from .readiness import (
-    actorops_v2_enabled,
-    require_actorops_v2_if_enabled,
-    require_actorops_v2_schema,
-)
+from .readiness import require_actorops_v2_schema
 from .repository import ActorOpsRepository
 from .runtime import ActorOpsRuntime
-
-
-def _emit_shadow_selection(
-    *, workspace_id: str, source_id: str, candidate_count: int, available: bool
-) -> None:
-    context = current_observability_context()
-    safe_emit_operation_event(
-        category="acquisition",
-        action="actorops_v2_shadow_selection",
-        outcome="succeeded" if available else "unavailable",
-        level="info" if available else "warning",
-        workspace_id=workspace_id,
-        job_id=context.job_id,
-        source_id=source_id,
-        stage="actorops_v2_shadow",
-        route="/actorops/v2/shadow",
-        changed_fields=("runtime_mode_shadow",),
-        error_code=None if available else "actorops_v2_shadow_unavailable",
-        counts={"candidates": candidate_count, "shadow_mode": 1},
-    )
 
 
 @dataclass(slots=True)
@@ -209,42 +183,18 @@ class ActorOpsV2Service:
 
 
 class ActorOpsCompatibilityService:
-    def __init__(self, store: Any, *, workspace_id: str) -> None:
-        from ..apify_actor_ops import ApifyActorOpsService
+    """Stable name for callers not yet renamed to the v2 source protocol."""
 
+    def __init__(self, store: Any, *, workspace_id: str) -> None:
         self.store = store
         self.workspace_id = str(workspace_id)
-        self.v1 = ApifyActorOpsService(store, workspace_id=self.workspace_id)
         self.v2 = ActorOpsV2Service(store, workspace_id=self.workspace_id)
 
-    def freeze_execution(self, route_id: str, *, source_id: str):
-        route = self.v2.repository.get_route(route_id)
-        if route.runtime_mode is RuntimeMode.ACTIVE:
-            return self.v2.freeze_execution(route_id, source_id=source_id)
-        if route.runtime_mode is RuntimeMode.SHADOW:
-            try:
-                snapshot = self.v2.freeze_execution(route_id, source_id=source_id)
-            except Exception:
-                _emit_shadow_selection(
-                    workspace_id=self.workspace_id,
-                    source_id=source_id,
-                    candidate_count=0,
-                    available=False,
-                )
-            else:
-                _emit_shadow_selection(
-                    workspace_id=self.workspace_id,
-                    source_id=source_id,
-                    candidate_count=len(snapshot.snapshot.candidates),
-                    available=True,
-                )
-        return self.v1.freeze_execution(route_id, source_id=source_id)
+    def freeze_execution(self, route_id: str, *, source_id: str) -> V2ExecutionHandle:
+        return self.v2.freeze_execution(route_id, source_id=source_id)
 
-    def assert_publishable(self, snapshot: Any) -> None:
-        if isinstance(snapshot, V2ExecutionHandle):
-            self.v2.assert_publishable(snapshot)
-        else:
-            self.v1.assert_publishable(snapshot)
+    def assert_publishable(self, snapshot: V2ExecutionHandle) -> None:
+        self.v2.assert_publishable(snapshot)
 
     async def fetch_subscription(
         self,
@@ -253,11 +203,9 @@ class ActorOpsCompatibilityService:
         since: datetime,
         client_factory: Any,
         job_id: str | None,
-        snapshot: Any,
+        snapshot: V2ExecutionHandle,
         public_http_client: Any | None = None,
     ) -> list[Any]:
-        if not isinstance(snapshot, V2ExecutionHandle):
-            raise TypeError("v1 snapshots use the compatibility source executor")
         return await self.v2.fetch_subscription(
             subscription=subscription,
             since=since,
@@ -272,9 +220,6 @@ class ActorOpsCompatibilityService:
 
     def capture_publication_result(self, items: Any) -> None:
         self.v2.capture_publication_result(items)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.v1, name)
 
 
 def build_source_actorops_service(

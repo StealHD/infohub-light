@@ -39,7 +39,6 @@ class RouteHealth(StrEnum):
 
 class RuntimeMode(StrEnum):
     DISABLED = "disabled"
-    SHADOW = "shadow"
     ACTIVE = "active"
 
 
@@ -235,7 +234,6 @@ class RouteRecord:
     runtime_mode: RuntimeMode
     per_run_cap_usd: float
     generation: int
-    source_v1_generation: int
 
 
 @dataclass(frozen=True, slots=True)

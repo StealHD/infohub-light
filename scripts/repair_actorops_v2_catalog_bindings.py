@@ -19,6 +19,9 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from scripts.actorops_migration_safety import active_workers_fail_closed
 from scripts.migrate_apify_actor_ops_v15 import _backup_database, _restore_database
 from src.services.actorops.catalog_binding_bridge import bridge_catalog_source_bindings
+from src.storage.actorops_v2_single_track_schema import (
+    migration_marker_exists as single_track_marker_exists,
+)
 from src.storage.actorops_v2_schema import migration_marker_exists, schema_shapes_valid
 
 
@@ -44,6 +47,8 @@ def _connect(database: Path, *, read_only: bool) -> sqlite3.Connection:
 
 
 def _require_v2_schema(connection: sqlite3.Connection) -> None:
+    if single_track_marker_exists(connection):
+        raise CatalogBindingRepairError("actorops_v1_retired")
     if not migration_marker_exists(connection) or not schema_shapes_valid(connection):
         raise CatalogBindingRepairError("ActorOps v2 schema is not valid")
 

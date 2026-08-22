@@ -119,9 +119,8 @@ def bootstrap_fresh_schema(connection: sqlite3.Connection) -> dict[str, int]:
     if not prerequisite_ready(connection):
         raise RuntimeError("global schema 24 is required before ActorOps v2")
     install_schema(connection)
-    counts = backfill_v1(connection)
     mark_migrated(connection)
-    return counts
+    return {"routes": 0, "candidates": 0, "bindings": 0, "policies": 0}
 
 
 def bootstrap_service_store_schema(

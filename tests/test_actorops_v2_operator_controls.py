@@ -77,8 +77,8 @@ def _setup(tmp_path: Path):
     repository = ActorOpsRepository(connection, DEFAULT_WORKSPACE_ID)
     with repository.transaction():
         connection.execute(
-            """INSERT INTO actor_source_bindings_v2 (binding_id,workspace_id,source_id,route_id,target_fingerprint,status,binding_version,source_v1_generation,created_at,updated_at)
-               VALUES ('operator-binding',?,?,?,?, 'ready',1,1,'2026-08-21T00:00:00+00:00','2026-08-21T00:00:00+00:00')""",
+            """INSERT INTO actor_source_bindings_v2 (binding_id,workspace_id,source_id,route_id,target_fingerprint,status,binding_version,created_at,updated_at)
+               VALUES ('operator-binding',?,?,?,?, 'ready',1,'2026-08-21T00:00:00+00:00','2026-08-21T00:00:00+00:00')""",
             (DEFAULT_WORKSPACE_ID, source_id, route_id, fingerprint),
         )
         for candidate_id, lifecycle in (("active", CandidateLifecycle.CERTIFIED), ("replacement", CandidateLifecycle.STATIC_VALID)):
