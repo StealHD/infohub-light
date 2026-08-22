@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Completed the full resumable read-only legacy Actor Run audit against the local runtime database: 126 terminal Runs are covered in one private 0600 evidence session across seven normal pages plus one explicit retry page. The session records 124 historical 404 quarantines, 2 exact provider costs totaling USD 0.01705, 17 orphan Attempt quarantines and 1 eligible legacy Batch quarantine; no service.db facts, routes, migration markers, sources or Actors were written or started.",
-  "status": "blocked",
-  "task_id": "2026-08-21-actorops-v2-legacy-cost-full-audit",
-  "unresolved": [
-    "Evidence hash 700c332c3f9e2952aa3cc0eb80d1713c062b98ca889dbb84d755e5827af7b7db has conservative unknown upper bound USD 1.28. Explicit confirmation of this exact value is required before stopping services, snapshot/quarantine apply and the same-window global 26 migration."
-  ],
-  "validation": [
-    "Evidence session: scan_pages=8, remaining_remote_runs=0, mode=0600; provider_cost=2, quarantine_run=124, quarantine_attempt=17, quarantine_batch=1.",
-    "Audit and migration status remain blocked at run_costs=126, attempt_costs=21 and batches=1, proving the read-only scan did not mutate legacy facts; global 25 remains ignored."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "phase",
@@ -415,6 +396,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Focused API test module: 33 passed.",
     "Impacted preflight passed 15/15, including full backend, frontend checks, controls, code size and product-doc review."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "phase"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "ActorOps v1 最终退役 Phase 0 已冻结执行基线并建立只减不增的运行时边界：当前 API、Service、Worker、SQL 与前端 v1 引用均进入显式 allowlist，后续提交不能新增或迁移这些依赖。",
+  "status": "completed",
+  "task_id": "2026-08-22-actorops-v1-retirement-boundary",
+  "unresolved": [
+    "后续 Phase 将逐项清空在线 allowlist；历史 migration、审计与共享 Run/Key Pool/alerts 仍按计划保留。"
+  ],
+  "validation": [
+    "边界扫描直接测试 2 项通过。",
+    "impacted preflight 17/17 通过，覆盖完整 Python、前端、控制面、产品文档和代码尺寸检查。"
   ]
 }
 ```
