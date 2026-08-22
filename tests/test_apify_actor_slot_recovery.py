@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from test_apify_actor_pool_staging_v18 import FIXED_NOW, _ready_source, _two_actor_pool
 
-from src.api.actor_ops_detail_projection import public_actor_ops_detail
+from tests.actorops_v1_projection_fixture import public_actor_ops_detail
 from src.services.apify_actor_ops import ApifyActorOpsService
 from src.services.apify_actor_slot_recovery import recover_source_proven_slots
 from src.services.apify_actor_source_proof import current_source_validation_ids

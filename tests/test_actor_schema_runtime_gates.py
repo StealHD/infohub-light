@@ -22,22 +22,22 @@ def _ready_response(data_dir: Path, static_dir: Path):
 
 
 @pytest.mark.parametrize(
-    ("version", "damage", "expected_worker_migration", "message_fragment"),
+    ("version", "damage", "expected_worker_migration"),
     [
-        (23, "marker", "apify_actor_resilience_v21", "resilience v21"),
-        (23, "checksum", "apify_actor_resilience_v21", "resilience v21"),
-        (23, "shape", "apify_actor_resilience_v21", "resilience v21"),
-        (24, "marker", "apify_actor_pool_management_v22", "pool management v22"),
-        (24, "checksum", "apify_actor_pool_management_v22", "pool management v22"),
-        (24, "shape", "apify_actor_pool_management_v22", "pool management v22"),
+        (23, "marker", "apify_actor_resilience_v21"),
+        (23, "checksum", "apify_actor_resilience_v21"),
+        (23, "shape", "apify_actor_resilience_v21"),
+        (24, "marker", "apify_actor_pool_management_v22"),
+        (24, "checksum", "apify_actor_pool_management_v22"),
+        (24, "shape", "apify_actor_pool_management_v22"),
     ],
 )
-def test_api_and_worker_fail_closed_for_active_actor_schema_chain(
+def test_only_worker_is_gated_by_unretired_actor_schema_chain(
     tmp_path: Path,
+    monkeypatch,
     version: int,
     damage: str,
     expected_worker_migration: str,
-    message_fragment: str,
 ) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
@@ -64,10 +64,11 @@ def test_api_and_worker_fail_closed_for_active_actor_schema_chain(
     gated.initialize()
     assert first_required_worker_startup_migration(gated) == expected_worker_migration
     gated.close()
+    monkeypatch.setenv("HORIZON_AUTH_USER", "schema-runtime-owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-test-password")
+    monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "schema-runtime-secret")
     ready = _ready_response(data_dir, tmp_path / "static")
-    assert ready.status_code == 503
-    assert ready.json()["error"]["code"] == "migration_required"
-    assert message_fragment in ready.json()["error"]["message"]
+    assert ready.status_code == 200, ready.text
 
 
 def test_global_25_is_inert_for_fresh_bootstrap_api_and_worker(

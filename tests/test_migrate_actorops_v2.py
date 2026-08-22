@@ -418,7 +418,7 @@ def test_missing_v2_does_not_gate_v1_api_or_worker(tmp_path: Path) -> None:
         assert client.get("/api/health/ready").status_code == 200
 
 
-def test_enabled_v2_conditionally_gates_api_and_worker(
+def test_enabled_v2_only_gates_unretired_worker_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_dir = tmp_path / "data"
@@ -426,6 +426,9 @@ def test_enabled_v2_conditionally_gates_api_and_worker(
     store.initialize()
     _drop_v2(store)
     monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_AUTH_USER", "v2-schema-owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-test-password")
+    monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "v2-schema-secret")
     assert first_required_worker_startup_migration(store) == "actorops_v2"
     store.close()
     static_dir = tmp_path / "static"
@@ -433,8 +436,7 @@ def test_enabled_v2_conditionally_gates_api_and_worker(
     (static_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
     with TestClient(create_app(data_dir=data_dir, static_dir=static_dir)) as client:
         response = client.get("/api/health/ready")
-        assert response.status_code == 503
-        assert response.json()["error"]["code"] == "migration_required"
+        assert response.status_code == 200, response.text
 
 
 def test_postcheck_failure_restores_pre_migration_database(

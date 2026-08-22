@@ -1,12 +1,5 @@
 {
   "runtime": [
-    "src/api/actor_ops_detail_projection.py",
-    "src/api/actor_ops_pool_management_routes.py",
-    "src/api/actor_ops_pool_operator_routes.py",
-    "src/api/actor_ops_projection.py",
-    "src/api/actor_ops_read_routes.py",
-    "src/api/actor_ops_verified_catalog_routes.py",
-    "src/api/server.py",
     "src/services/actorops/service.py",
     "src/services/apify_actor_auto_pool_reconcile.py",
     "src/services/apify_actor_canary.py",
@@ -25,10 +18,7 @@
     "src/services/worker_housekeeping.py"
   ],
   "jobs": [
-    "src/api/actor_ops_detail_projection.py",
-    "src/api/actor_ops_pool_management_routes.py",
     "src/api/job_routes.py",
-    "src/api/server.py",
     "src/services/actorops/legacy_cost_audit.py",
     "src/services/actorops/legacy_cost_mutations.py",
     "src/services/apify_actor_auto_pool_reconcile.py",
@@ -72,9 +62,6 @@
     "src/services/worker_migration_gate.py"
   ],
   "tables": [
-    "src/api/actor_ops_detail_projection.py",
-    "src/api/actor_ops_pool_management_routes.py",
-    "src/api/server.py",
     "src/services/actorops/catalog_binding_bridge.py",
     "src/services/actorops/legacy_cost_audit.py",
     "src/services/actorops/legacy_cost_mutations.py",

@@ -322,7 +322,9 @@ def test_v20_migration_refuses_active_actorops_before_backup(
     assert not (tmp_path / "backups").exists()
 
 
-def test_v20_migration_blocks_readiness_until_explicit_apply(tmp_path) -> None:
+def test_v20_migration_does_not_block_normal_api_readiness(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     data_dir = tmp_path / "data"
     static_dir = tmp_path / "static"
     static_dir.mkdir()
@@ -331,15 +333,14 @@ def test_v20_migration_blocks_readiness_until_explicit_apply(tmp_path) -> None:
     store.initialize()
     _downgrade_to_v19(store)
     store.close()
+    monkeypatch.setenv("HORIZON_AUTH_USER", "v20-readiness-owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-test-password")
+    monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "v20-readiness-secret")
 
     with TestClient(create_app(data_dir=data_dir, static_dir=static_dir)) as client:
         ready = client.get("/api/health/ready")
 
-    assert ready.status_code == 503
-    error = ready.json()["error"]
-    assert error["code"] == "migration_required"
-    assert "validation tuning migration" in error["message"]
-    assert "migrate_apify_actor_validation_tuning_v20.py --apply" in error["action"]
+    assert ready.status_code == 200, ready.text
 
 
 def test_v20_migration_restores_v19_database_when_verification_fails(

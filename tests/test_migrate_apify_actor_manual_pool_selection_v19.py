@@ -185,7 +185,7 @@ def test_v19_migration_refuses_active_actor_job_before_backup(tmp_path) -> None:
     assert not (tmp_path / "backups").exists()
 
 
-def test_v19_migration_blocks_readiness_until_explicit_apply(tmp_path) -> None:
+def test_v19_migration_does_not_block_normal_api_readiness(tmp_path) -> None:
     data_dir = tmp_path / "data"
     static_dir = tmp_path / "static"
     static_dir.mkdir()
@@ -204,17 +204,7 @@ def test_v19_migration_blocks_readiness_until_explicit_apply(tmp_path) -> None:
     with TestClient(create_app(data_dir=data_dir, static_dir=static_dir)) as client:
         ready = client.get("/api/health/ready")
 
-    assert ready.status_code == 503
-    error = ready.json()["error"]
-    assert error["code"] == "migration_required"
-    assert error["message"] == (
-        "Apify Actor manual pool selection migration must be applied "
-        "before Actor routes are used"
-    )
-    assert error["action"] == (
-        "Stop API and Worker, then run "
-        "scripts/migrate_apify_actor_manual_pool_selection_v19.py --apply."
-    )
+    assert ready.status_code == 200, ready.text
 
 
 def test_v19_migration_restores_v18_database_when_verification_fails(

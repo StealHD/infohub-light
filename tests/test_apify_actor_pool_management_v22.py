@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from test_apify_actor_ops_api import _client, _login, _ready_route
+from test_apify_actor_ops_api import _ready_route
 from test_apify_actor_pool_staging_v18 import (
     BATCH_CANARY_CONFIRMATION,
     _discovery_with_revisions,
@@ -18,60 +18,13 @@ from test_apify_actor_pool_staging_v18 import (
 )
 
 from src.services.apify_actor_ops import ActorOpsError, ApifyActorOpsService
-from src.api.actor_ops_projection import public_canary_plan
+from tests.actorops_v1_projection_fixture import public_canary_plan
 from src.services.apify_actor_pool_management import (
     ROUTE_POOL_REMOVE_CONFIRMATION,
     ROUTE_POOL_PROMOTE_CONFIRMATION,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
-
-def test_route_price_cap_does_not_require_a_prior_pool_activation(tmp_path, monkeypatch) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    route = _route(store, "youtube/channel/items")
-    response = client.patch(
-        f"/api/admin/apify-routes/{route['route_id']}/price-cap",
-        json={"expected_generation": route["generation"], "per_run_cap_usd": 0.20},
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()["data"]["per_run_cap_usd"] == 0.20
-
-
-@pytest.mark.parametrize("invalid_cap", [0, 0.200001, 100, float("inf"), float("nan")])
-def test_route_price_cap_endpoints_reject_unsafe_values(
-    tmp_path, monkeypatch, invalid_cap: float
-) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    _ops, route, _revisions = _ready_route(
-        store, route_key="instagram/profile/items"
-    )
-    route_id = str(route["route_id"])
-    patch = client.patch(
-        f"/api/admin/apify-routes/{route_id}/price-cap",
-        content=json.dumps({
-            "expected_generation": route["generation"],
-            "per_run_cap_usd": invalid_cap,
-        }),
-        headers={"content-type": "application/json"},
-    )
-    assert patch.status_code == 400
-
-    slots = [
-        {"slot": slot["slot_name"], "revision_id": slot["revision_id"]}
-        for slot in route["slots"]
-    ]
-    legacy = client.put(
-        f"/api/admin/apify-routes/{route_id}/active-pool",
-        content=json.dumps({
-            "expected_generation": route["generation"],
-            "per_run_cap_usd": invalid_cap,
-            "slots": slots,
-        }),
-        headers={"content-type": "application/json"},
-    )
-    assert legacy.status_code == 400
 
 
 @pytest.mark.parametrize("invalid_cap", [0.200001, 100, float("inf"), float("nan")])
@@ -164,142 +117,6 @@ def test_add_plan_binds_requested_slot_to_hash(tmp_path) -> None:
     )
     assert public_canary_plan(plan)["operation_slot"] == "backup_2"
 
-
-def test_api_remove_is_cas_guarded_and_projects_slot_actions(tmp_path, monkeypatch) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    _ops, route, revisions = _ready_route(store, route_key="x/profile")
-    url = f"/api/admin/apify-routes/{route['route_id']}"
-    slots = client.get(url).json()["data"]["slots"]
-    assert slots[0]["actions"]["replace"] and slots[2]["actions"]["remove"]
-    assert client.post(f"{url}/active-pool/remove", json={
-        "target_slot": "backup_2", "expected_generation": route["generation"], "confirmation": "移出",
-    }).status_code == 400
-    removed = client.post(f"{url}/active-pool/remove", json={
-        "target_slot": "backup_2", "expected_generation": route["generation"],
-        "confirmation": "确认移出 Actor 主备池",
-    })
-    assert removed.status_code == 200, removed.text
-    assert [slot["revision_id"] for slot in removed.json()["data"]["slots"]] == [
-        revisions[0], revisions[1], None,
-    ]
-    stale = client.post(f"{url}/active-pool/remove", json={
-        "target_slot": "backup_1", "expected_generation": route["generation"],
-        "confirmation": "确认移出 Actor 主备池",
-    })
-    assert stale.status_code == 409
-
-
-def test_backup_can_be_selected_as_primary_without_spending(tmp_path, monkeypatch) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    ops, route, revisions = _ready_route(store, route_key="x/profile")
-    url = f"/api/admin/apify-routes/{route['route_id']}"
-    assert ops.slot_operations(str(route["route_id"]))["backup_1"]["promote"]
-    assert ops.slot_operations(str(route["route_id"]))["primary"]["promote_reason"] == "primary_slot"
-    denied = client.post(f"{url}/active-pool/promote", json={
-        "target_slot": "backup_1", "expected_generation": route["generation"],
-        "confirmation": "确认",
-    })
-    assert denied.status_code == 400
-    promoted = client.post(f"{url}/active-pool/promote", json={
-        "target_slot": "backup_1", "expected_generation": route["generation"],
-        "confirmation": ROUTE_POOL_PROMOTE_CONFIRMATION,
-    })
-    assert promoted.status_code == 200, promoted.text
-    assert [slot["revision_id"] for slot in promoted.json()["data"]["slots"]] == [
-        revisions[1], revisions[0], revisions[2],
-    ]
-    assert store.connect().execute(
-        "SELECT COUNT(*) FROM apify_actor_runs"
-    ).fetchone()[0] == 0
-
-
-def test_route_price_cap_is_cas_guarded_and_does_not_replace_pool(tmp_path, monkeypatch) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    _ops, route, revisions = _ready_route(store, route_key="instagram/profile/items")
-    url = f"/api/admin/apify-routes/{route['route_id']}"
-    updated = client.patch(f"{url}/price-cap", json={
-        "expected_generation": route["generation"], "per_run_cap_usd": 0.20,
-    })
-    assert updated.status_code == 200, updated.text
-    data = updated.json()["data"]
-    assert data["per_run_cap_usd"] == 0.20
-    assert [slot["revision_id"] for slot in data["slots"]] == revisions
-    stale = client.patch(f"{url}/price-cap", json={
-        "expected_generation": route["generation"], "per_run_cap_usd": 0.05,
-    })
-    assert stale.status_code == 409
-
-
-def test_x_slot_refresh_uses_one_candidate_and_retains_prior_safe_revision(tmp_path, monkeypatch) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    ops, route, _active = _ready_route(store, route_key="x/profile")
-    route = ops.set_route_price_cap(
-        str(route["route_id"]),
-        per_run_cap_usd=0.20,
-        expected_generation=int(route["generation"]),
-    )
-    prior = ops.create_discovery_run(
-        str(route["route_id"]),
-        trigger_reason="manual_slot_candidate_refresh",
-        expected_generation=int(route["generation"]),
-    )
-    revision_id = _revision(
-        ops,
-        str(route["route_id"]),
-        actor_id="publisher-slot/x-safe-replacement",
-        publisher="publisher-slot",
-        build_number="35.0.1",
-        host="x.com",
-        discovery_run_id=str(prior["run_id"]),
-    )
-    ops.update_discovery_run(
-        str(prior["run_id"]), expected_stage="queued", stage="candidate_shortfall"
-    )
-
-    response = client.post(
-        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates/refresh",
-        json={
-            "expected_generation": int(route["generation"]),
-            "goal": "replace_slot",
-            "target_slot": "backup_1",
-        },
-    )
-    assert response.status_code == 200, response.text
-    latest_run_id = str(response.json()["data"]["run_id"])
-    latest = store.connect().execute(
-        "SELECT trigger_reason FROM apify_actor_discovery_runs WHERE run_id = ?",
-        (latest_run_id,),
-    ).fetchone()
-    assert latest["trigger_reason"] == "manual_slot_candidate_refresh"
-    ops.update_discovery_run(
-        latest_run_id, expected_stage="queued", stage="candidate_shortfall"
-    )
-
-    projected = ops.list_pool_candidates(
-        str(route["route_id"]), goal="replace_slot", target_slot="backup_1"
-    )
-    selected = next(
-        item for item in projected["candidates"] if item.get("revision_id") == revision_id
-    )
-    assert selected["selectable"] is True
-    assert selected["max_validation_charge_usd"] == 0.20
-    assert selected["validation_options"]["max_charge_limit_usd"] == 0.20
-    plan = ops.get_canary_plan(
-        latest_run_id,
-        goal="replace_slot",
-        target_slot="backup_1",
-        candidate_ids=[str(selected["candidate_id"])],
-        candidate_validation_profiles=[
-            {"candidate_id": str(selected["candidate_id"]), **selected["validation_options"]}
-        ],
-        target_slot_count=3,
-    )
-    assert plan["items"][0]["revision_id"] == revision_id
-    assert plan["items"][0]["authorized_cap_usd"] == 0.20
 
 
 def test_non_x_slot_refresh_retains_prior_safe_revision(tmp_path) -> None:

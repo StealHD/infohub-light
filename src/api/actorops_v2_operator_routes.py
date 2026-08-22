@@ -128,29 +128,11 @@ def _register_candidate_routes(app: FastAPI, context: ActorOpsV2OperatorContext)
         workspace_id = str(user["workspace_id"])
         try:
             repository = _repository(context.store, workspace_id)
-            with repository.transaction():
-                route = repository.get_route(route_id)
-                if route.generation != payload.expected_route_generation:
-                    raise ActorOpsConflict("route changed before discovery")
-                bucket = datetime.now(timezone.utc).strftime("%Y%m%d%H")
-                key = _hash("operator-discovery", route_id, str(route.generation), bucket)
-                discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
-                row, created = repository.discovery.ensure(discovery_id=discovery_id, idempotency_key=key, route_id=route_id, trigger_reason="operator_refresh", input_fingerprint=_hash("route", str(route.route_key)))
-                no_selectable_candidate = (
-                    str(row["status"]) == "completed"
-                    and not repository.discovery.list_accepted_candidate_ids(str(row["discovery_id"]))
-                )
-                if not created and (
-                    str(row["status"]) in {"failed", "cancelled"} or no_selectable_candidate
-                ):
-                    # A retry is a new explicit free operator action.  A
-                    # completed search with no selectable candidate must also
-                    # remain retryable: Store schemas and public pricing can
-                    # legitimately change within the hourly idempotency bucket.
-                    key = _hash("operator-discovery-retry", route_id, str(route.generation), bucket, uuid.uuid4().hex)
-                    discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
-                    row, created = repository.discovery.ensure(discovery_id=discovery_id, idempotency_key=key, route_id=route_id, trigger_reason="operator_refresh", input_fingerprint=_hash("route", str(route.route_key)))
-            discovery_id = str(row["discovery_id"])
+            discovery_id, created = ensure_operator_discovery(
+                repository,
+                route_id=route_id,
+                expected_route_generation=payload.expected_route_generation,
+            )
         except (ActorOpsConflict, ActorOpsNotFound) as error:
             raise _conflict("actorops_v2_discovery_conflict", "路线已更新，请刷新后再搜索候选。", error) from error
         except RuntimeError as error:
@@ -176,6 +158,59 @@ def _register_candidate_routes(app: FastAPI, context: ActorOpsV2OperatorContext)
         _record(request, user, "actorops_v2_price_cap")
         response.headers["Cache-Control"] = "no-store"
         return ok(_route(context.store, workspace_id, route_id))
+
+
+def ensure_operator_discovery(
+    repository: ActorOpsRepository,
+    *,
+    route_id: str,
+    expected_route_generation: int,
+) -> tuple[str, bool]:
+    """Create or safely reuse the free v2 operator Discovery fact."""
+
+    with repository.transaction():
+        route = repository.get_route(route_id)
+        if route.generation != int(expected_route_generation):
+            raise ActorOpsConflict("route changed before discovery")
+        bucket = datetime.now(timezone.utc).strftime("%Y%m%d%H")
+        key = _hash("operator-discovery", route_id, str(route.generation), bucket)
+        discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
+        row, created = repository.discovery.ensure(
+            discovery_id=discovery_id,
+            idempotency_key=key,
+            route_id=route_id,
+            trigger_reason="operator_refresh",
+            input_fingerprint=_hash("route", str(route.route_key)),
+        )
+        no_selectable_candidate = (
+            str(row["status"]) == "completed"
+            and not repository.discovery.list_accepted_candidate_ids(
+                str(row["discovery_id"])
+            )
+        )
+        if not created and (
+            str(row["status"]) in {"failed", "cancelled"}
+            or no_selectable_candidate
+        ):
+            # A retry is a new explicit free operator action. A completed
+            # search with no selectable candidate remains retryable because
+            # public Store schemas and pricing can change within an hour.
+            key = _hash(
+                "operator-discovery-retry",
+                route_id,
+                str(route.generation),
+                bucket,
+                uuid.uuid4().hex,
+            )
+            discovery_id = f"operator-discovery-{uuid.uuid4().hex}"
+            row, created = repository.discovery.ensure(
+                discovery_id=discovery_id,
+                idempotency_key=key,
+                route_id=route_id,
+                trigger_reason="operator_refresh",
+                input_fingerprint=_hash("route", str(route.route_key)),
+            )
+    return str(row["discovery_id"]), created
 
 
 def _register_replacement_routes(app: FastAPI, context: ActorOpsV2OperatorContext) -> None:
@@ -302,4 +337,7 @@ def _hash(*parts: str) -> str:
     return hashlib.sha256(json.dumps(parts, separators=(",", ":")).encode()).hexdigest()
 
 
-__all__ = ["register_actorops_v2_operator_routes"]
+__all__ = [
+    "ensure_operator_discovery",
+    "register_actorops_v2_operator_routes",
+]

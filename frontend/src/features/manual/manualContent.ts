@@ -1,4 +1,4 @@
-// Reviewed: v2 Admin reads are an Owner/Admin control-plane change; normal source workflow is unchanged.
+// Reviewed: ActorOps v1 Admin APIs are retired; normal source workflow is unchanged.
 export type ManualStep = {
   title: string
   description: string
@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-22',
-  change: '已绑定 ActorOps Route 的来源在单来源获取与信息流刷新中都执行当前主备池；浏览器只看到已完成精确 Build、全部来源验证和费用对账的候选，选择只做无费用原子生效。X、Instagram、YouTube 都要求两个不同发布者的实测 Actor，第三槽按需补充；平台的执行器、输入映射、输出验证和费用规则都必须在能力矩阵登记，YouTube 的 stringList 输入不得套用 X 的对象格式，视频行的 channel.id 也会作为严格来源身份验证。已失败的同一 Revision 保持排除；只有新 Build/Manifest 成功通过免费检查时才会重新开放候选，且其当前 Revision 没有失败证据时才可启动 Canary。重启中断的已知 Run 只会免费核对原 Run，绝不重新启动 Actor；当前原审批批次的恢复优先于历史核对积压，且兼容旧 Worker 写入的零费用待运行状态，避免可继续的已授权候选长期卡住。Worker 在领取任务后、调用来源或 Actor 前若无法启动心跳，会原样归还任务而不消耗重试次数、额度或费用；阶段对全部来源验证完成后，原子生效也会恢复该阶段目标槽的可运行熔断状态，绝不出现“Route 就绪但运行时没有 Actor”。观察 Canary 固化的 YouTube Manifest 与普通固定 Build 一样直接执行，不会落入 X 兼容分支；若旧熔断只记录为“Revision 不可执行”，系统仅在当前 Revision 的每个已启用来源均有晚于该失败的成功结算 Canary 时立即恢复这个槽；这条重验是唯一允许该旧熔断槽执行的路径，合同、权限、身份或内容失败仍绝不重放；历史 Canary 因而不会伪装为当前已通过，页面会明确要求按主备顺序重新实测。管理员在替换或新增备用 Actor 时可一键启动一次免费候选搜索；每次只创建一个 Discovery Job，内部最多三轮查询。冻结候选和精确费用上限必须经过付费确认 1/2，验证与费用对账完成后还需生效确认 2/2；系统不会自动重复搜索、自动付费或自动写入槽位，现有线路在两次确认前保持不变。YouTube 与 Instagram 的单次运行上限已从 $0.02 提到 $0.10，使更多标价在此区间的候选可进入付费验证。',
+  change: 'ActorOps 来源和浏览器控制面只使用 v2 Route、Candidate、Binding 与 Discovery。管理员仍可沿用安全链接刷新 Candidate、切换备用 Candidate、调整单次费用上限或启用已就绪 Binding；这些操作均只写 v2 状态。旧 Pool、Canary、Freshness、Discovery 与 X profile 管理链接会返回明确、不可重试的“已退役”结果，不会回退旧运行时。平台来源会先建立待验证 Binding；X 与 Instagram 只在 Binding ready 且 Route active 时抓取，YouTube 在 Route 未启用时只能使用受公共网络策略约束的免费 RSS fallback。普通 RSS、GitHub、历史内容和信息流不受 ActorOps 迁移状态影响。',
 } as const
 
 export const manualSections: ManualSection[] = [

@@ -3,6 +3,15 @@ import type { ChangelogEntry } from './changelogTypes'
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
     date: '2026-08-22',
+    title: 'ActorOps 旧管理接口正式退役',
+    summary: '旧 Pool、Canary、Freshness、Discovery 与 X profile 管理接口现在明确返回已退役提示，兼容操作继续直接使用 v2 状态。',
+    items: [
+      { title: '兼容链接不再触发旧运行时', description: '刷新 Candidate、切换备用 Candidate、调整费用上限和启用已就绪 Binding 保留原有安全 URL，但只读写 v2 Route、Candidate、Discovery 与 Binding。' },
+      { title: '旧操作返回明确结果', description: '已退役的管理 URL 需要管理员身份，并固定返回不可重试的 410；页面和普通 RSS、GitHub 获取不会被这些历史接口影响。' },
+    ],
+  },
+  {
+    date: '2026-08-22',
     title: 'ActorOps 管理视图切换到 v2',
     summary: 'Route、候选、Binding、费用与维护信息现在从 v2 事实直接投影，旧诊断记录不再混入当前控制面。',
     items: [

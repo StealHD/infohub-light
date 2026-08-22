@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Actor Canary 计划层已复用执行前的精确 Revision 授权检查；已终态失败且仍为 open 的 Build/Manifest 会在生成计划时直接排除，避免创建后被 Worker 以 approval_revoked 取消。",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-exact-revision-plan-guard",
-  "unresolved": [
-    "当前本地 YouTube 候选中没有新的可授权 exact revision；已停止进一步付费测试，待新的免费 Discovery 产生未失败的候选后再串行验证。"
-  ],
-  "validation": [
-    "新增计划/执行一致性回归，并与候选授权、Pool staging/management 共 47 项 Pytest 通过。",
-    "代码大小策略、产品文档定向门禁、impact map JSON 与 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "capabilities",
     "interface"
@@ -411,6 +392,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "v2 UI 定向 Vitest、lint、typecheck、production build 与桌面/平板/390px Playwright 均通过；E2E 断言不请求 retired Pool/Canary/Freshness URL。",
     "完整 impacted preflight 16/16 通过（snapshot: /tmp/actorops-phase4-impact.json），包含全域 Python、76 个 Vitest 文件/595 项、E2E contract、代码规模、文档与控制检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "ActorOps Phase 5 retired v1 Admin Pool/Canary/Freshness/Discovery/X profile routes behind authenticated stable 410 responses, while retained compatibility URLs now operate directly on v2 Discovery, Candidate, Route cap and Binding state. Removed online v1 projections and factories, and moved historical projections into a test-only fixture.",
+  "status": "completed",
+  "task_id": "2026-08-22-actorops-v2-phase5-api-retirement",
+  "unresolved": [
+    "v1 Worker job isolation, the final single-track schema and offline retirement tooling remain Phase 6–8 work."
+  ],
+  "validation": [
+    "Added authorizer-denied v1-table regression coverage for all retired endpoints and v2 aliases.",
+    "Impacted preflight passed: 17/17 commands, including full Python suite, frontend lint, typecheck, Vitest and build.",
+    "Markdown/project controls, code-size, observability, product-doc and diff checks passed."
   ]
 }
 ```

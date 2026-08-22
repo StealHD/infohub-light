@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- ActorOps v2 单轨退役：Phase 0–4 已完成静态边界、Attempt 恢复/费用单调性、平台来源 Binding 生命周期、直接 v2 Admin Service 与 v2-only 浏览器控制面。设置页仅显示 `active|disabled` v2 Route、脱敏详情、Replacement、共享 alerts 和 v2 Operation Events；旧 Pool/Canary/Freshness 前端已删除。旧 API、Worker handler、housekeeping 与最终 schema/Runtime 删除仍按后续 Phase 5–8 独立退役；本阶段不部署、不切真实流量、不调用付费 Actor/AI。
+- ActorOps v2 单轨退役：Phase 0–5 已完成静态边界、Attempt 恢复/费用单调性、平台来源 Binding 生命周期、直接 v2 Admin Service、v2-only 浏览器控制面与 v1 Admin API retirement。设置页仅显示 `active|disabled` v2 Route、脱敏详情、Replacement、共享 alerts 和 v2 Operation Events；旧 Pool/Canary/Freshness 前端已删除，历史 Admin URL 统一返回稳定 410，保留的安全 alias 只读写 v2 状态。旧 Worker handler、housekeeping 与最终 schema/Runtime 删除仍按后续 Phase 6–8 独立退役；本阶段不部署、不切真实流量、不调用付费 Actor/AI。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -36,7 +36,8 @@
 2. **Phase 2 — 已完成**：`ActorOpsBindingService` 接管平台来源的 ensure/rebind/verify/disable/reenable/soft-delete；现役来源 projection、schedule、acquisition、catalog fetch 和 user feed refresh 只读 v2。pending/disabled 不执行；disabled/shadow 不回退 v1；YouTube 仅使用受控免费 RSS fallback。
 3. **Phase 3 — 已完成**：直接 `ActorOpsAdminService` 读取 v2 Route/Candidate/Binding/Attempt/Discovery/Maintenance/Replacement/Store metadata；Route list/detail 固定 schema 2，Operation Events 改读脱敏 Operation Log，缺 schema 与其他不可用分别返回稳定 503。旧 Pool/Canary/Freshness 兼容接口暂留至 API retirement。
 4. **Phase 4 — 已完成**：`/settings/actorops` 永久移除 Hero v1 fallback，仅请求 schema-2 v2 Route/详情、共享 alerts 与 v2 Operation Events；Route view 只呈现 `active|disabled`，遗留 shadow 安全归一为 disabled。旧 Pool/Canary/Freshness 组件、types、query keys、服务与浏览器流程已删除。
-5. **Phase 5–8 — 后续**：依次以 410 退役 v1 API、隔离 v1 Worker Job、安装单轨 schema/离线退役工具，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
+5. **Phase 5 — 已完成**：现役 Admin read/write 和稳定兼容 alias 均只读写 v2；v1 Pool/Stage/Freshness/Validation/Canary/Discovery/X profile URL 不列入 OpenAPI，并以已认证的稳定 410 `actorops_v1_retired` 返回。API Context 不再构造 v1 ActorOps Factory，v1 表 authorizer deny 下 v2 alias 仍可运行。
+6. **Phase 6–8 — 后续**：隔离 v1 Worker Job、安装单轨 schema/离线退役工具，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
 
 ## ActorOps v2 历史建设阶段
 
