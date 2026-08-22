@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Actor Canary 计划层已复用执行前的精确 Revision 授权检查；已终态失败且仍为 open 的 Build/Manifest 会在生成计划时直接排除，避免创建后被 Worker 以 approval_revoked 取消。",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-exact-revision-plan-guard",
-  "unresolved": [
-    "当前本地 YouTube 候选中没有新的可授权 exact revision；已停止进一步付费测试，待新的免费 Discovery 产生未失败的候选后再串行验证。"
-  ],
-  "validation": [
-    "新增计划/执行一致性回归，并与候选授权、Pool staging/management 共 47 项 Pytest 通过。",
-    "代码大小策略、产品文档定向门禁、impact map JSON 与 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "capabilities",
     "interface"
@@ -393,6 +374,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "OpenClaw 与直接 Workbench 定向 Vitest 129 项、TypeScript typecheck、lint 和前端代码尺寸门禁通过。",
     "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 6 将 Conversation 拆为 Setup、Timeline、Message、Activity Trace、Runtime Controls、Context Summary、Image、Composer 与 Shell 组件，并以唯一 Workbench Adapter 隔离 handoff、draft 清理和失败恢复；旧 Conversation 缩为 3 行显式 façade，Agents 主页面拆出 Browser Settings 与 Delegation Views。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal6-ui-adapter",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw、Workbench 与 Agents 定向 Vitest 148 项，完整前端 Vitest 641 项，typecheck、lint、UI/E2E 合同和生产 build 通过。",
+    "累计 impacted preflight 16/16 通过；OpenClawConversation 3 行、HeroAgentsPage 365 行，所有新增生产文件低于 400 行且未新增尺寸例外。"
   ]
 }
 ```

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
@@ -13,7 +13,6 @@ import {
   actionToast,
   Button,
   Card,
-  FieldError,
   Form,
   Icons,
   Input,
@@ -21,30 +20,26 @@ import {
   LoadingState,
   Modal,
   PageFrame,
-  Popover,
-  Separator,
   StatusIndicator,
   Switch,
   TextField,
-  Tooltip,
-  TooltipTriggerButton,
-  topAnchoredTooltipProps,
 } from '../../design-system'
-import { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
-import { forgetOpenClawBrowser } from '../openclaw/openclawDevice'
-import { validateGatewayUrl } from '../openclaw/openclawGateway'
 import {
   agentConfiguration,
   oneTimeTokenWriteCommand,
 } from '../openclaw/openclawAgentConfiguration'
-import {
-  clearOpenClawTranscript,
-  readSavedGatewayUrl,
-  saveGatewayUrl,
-} from '../openclaw/useOpenClawChat'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
+import {
+  ConnectionCardActions,
+  DialogFrame,
+  OneTimeCopyAction,
+  OneTimeSetupCommand,
+  OpenClawConfigurationCard,
+  type ConnectionAction,
+} from './HeroAgentDelegationViews'
+import { OpenClawBrowserSettings } from './HeroAgentsPageBrowserSettings'
 
-const oneTimeCopyIconClass = 'absolute right-2 top-2 z-10 size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11'
+export { OpenClawBrowserSettings } from './HeroAgentsPageBrowserSettings'
 
 function dateTime(value: string) {
   const parsed = new Date(value)
@@ -59,296 +54,6 @@ function statusLabel(connection: AgentDelegation) {
 
 function accessLabel(access: AgentDelegationAccess) {
   return access === 'subscriptions_write' ? '可管理订阅' : '只读'
-}
-
-function OpenClawConfigurationCard({
-  title,
-  description,
-  configuration,
-  configurationLabel,
-  copyDisabled = false,
-  onCopy,
-}: {
-  title: string
-  description: string
-  configuration: string
-  configurationLabel: string
-  copyDisabled?: boolean
-  onCopy: () => void
-}) {
-  return <Card variant="secondary" className="min-w-0 p-4">
-    <div className="flex items-center justify-between gap-2">
-      <Card.Title>{title}</Card.Title>
-      <Button size="sm" variant="ghost" isDisabled={copyDisabled} onPress={onCopy}><Icons.Copy size={15} />复制</Button>
-    </div>
-    <Card.Description className="mt-1 min-h-10">{description}</Card.Description>
-    <pre aria-label={configurationLabel} tabIndex={0} className="type-meta mt-3 max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{configuration}</pre>
-  </Card>
-}
-
-function OneTimeCopyAction({
-  label,
-  disabled = false,
-  onCopy,
-}: {
-  label: string
-  disabled?: boolean
-  onCopy: () => void
-}) {
-  return <Tooltip delay={250}>
-    <TooltipTriggerButton
-      aria-label={label}
-      className={oneTimeCopyIconClass}
-      disabled={disabled}
-      onClick={onCopy}
-    >
-      <Icons.Copy size={15} aria-hidden="true" />
-    </TooltipTriggerButton>
-    <Tooltip.Content {...topAnchoredTooltipProps}>{label}</Tooltip.Content>
-  </Tooltip>
-}
-
-function OneTimeSetupCommand({
-  label,
-  command,
-  copyLabel,
-  copyDisabled = false,
-  onCopy,
-  className = '',
-}: {
-  label: string
-  command: string
-  copyLabel: string
-  copyDisabled?: boolean
-  onCopy: () => void
-  className?: string
-}) {
-  return <div className={`relative min-w-0 ${className}`}>
-    <OneTimeCopyAction label={copyLabel} disabled={copyDisabled} onCopy={onCopy} />
-    <pre
-      aria-label={label}
-      tabIndex={0}
-      className="type-meta max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 pr-14 [overflow-wrap:anywhere]"
-    >
-      {command}
-    </pre>
-  </div>
-}
-
-function DialogFrame({ title, children, footer, dismissable = true, testId }: {
-  title: string
-  children: React.ReactNode
-  footer: React.ReactNode
-  dismissable?: boolean
-  testId?: string
-}) {
-  return <Modal.Backdrop isDismissable={dismissable} isKeyboardDismissDisabled={!dismissable} data-testid={testId}>
-    <Modal.Container size="lg">
-      <Modal.Dialog>
-        <Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header>
-        <Modal.Body>{children}</Modal.Body>
-        <Modal.Footer>{footer}</Modal.Footer>
-      </Modal.Dialog>
-    </Modal.Container>
-  </Modal.Backdrop>
-}
-
-type ConnectionAction = 'copy' | 'rename' | 'revoke' | 'delete'
-
-function ConnectionCardActions({
-  connection,
-  open,
-  onOpenChange,
-  onAction,
-}: {
-  connection: AgentDelegation
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onAction: (action: ConnectionAction, trigger: HTMLButtonElement | null) => void
-}) {
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const dangerAction = connection.status === 'active'
-    ? { action: 'revoke' as const, label: '吊销连接', icon: Icons.Unplug }
-    : connection.status === 'revoked'
-      ? { action: 'delete' as const, label: '删除记录', icon: Icons.Trash2 }
-      : null
-
-  function choose(action: ConnectionAction) {
-    onAction(action, triggerRef.current)
-  }
-
-  return <Popover isOpen={open} onOpenChange={onOpenChange}>
-    <Popover.Trigger<'button'>
-      ref={triggerRef}
-      aria-label={`更多操作：${connection.name}`}
-      className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11"
-      render={(triggerProps) => <button {...triggerProps} type="button" />}
-    ><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
-    <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-44 p-0">
-      <Popover.Dialog aria-label={`${connection.name} 连接操作`} className="grid gap-0.5 p-2">
-        <Button variant="ghost" className="w-full justify-start" onPress={() => choose('copy')}>
-          <Icons.Copy size={15} aria-hidden="true" />复制配置
-        </Button>
-        <Button variant="ghost" className="w-full justify-start" onPress={() => choose('rename')}>
-          <Icons.Pencil size={15} aria-hidden="true" />重命名
-        </Button>
-        {dangerAction && <>
-          <Separator className="my-1" />
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-danger"
-            onPress={() => choose(dangerAction.action)}
-          >
-            <dangerAction.icon size={15} aria-hidden="true" />{dangerAction.label}
-          </Button>
-        </>}
-      </Popover.Dialog>
-    </Popover.Content>
-  </Popover>
-}
-
-export function OpenClawBrowserSettings({
-  userId,
-  enabled,
-  defaultUrl,
-  targetVersion,
-  vault: providedVault,
-  forgetBrowser = forgetOpenClawBrowser,
-}: {
-  userId: string
-  enabled: boolean
-  defaultUrl: string
-  targetVersion: string
-  vault?: OpenClawCredentialVault
-  forgetBrowser?: typeof forgetOpenClawBrowser
-}) {
-  const [url, setUrl] = useState(() => readSavedGatewayUrl(userId, defaultUrl))
-  const [paired, setPaired] = useState<boolean | null>(null)
-  const [urlError, setUrlError] = useState('')
-  const [forgetError, setForgetError] = useState('')
-  const [forgetOpen, setForgetOpen] = useState(false)
-  const [forgetPending, setForgetPending] = useState(false)
-  const saveAddressRef = useRef<HTMLButtonElement>(null)
-  const forgetTriggerRef = useRef<HTMLButtonElement>(null)
-  const defaultVault = useMemo(() => new OpenClawCredentialVault(), [])
-  const vault = providedVault ?? defaultVault
-
-  useEffect(() => {
-    let cancelled = false
-    void vault.load(userId, url).then((credential) => {
-      if (!cancelled) setPaired(Boolean(credential))
-    }).catch(() => {
-      if (!cancelled) setPaired(false)
-    })
-    return () => { cancelled = true }
-  }, [url, userId, vault])
-
-  function saveUrl() {
-    try {
-      const normalized = validateGatewayUrl(url)
-      saveGatewayUrl(userId, normalized)
-      setUrl(normalized)
-      setUrlError('')
-      actionToast.success('Gateway 地址已保存')
-    } catch (error) {
-      setUrlError(error instanceof Error ? error.message : 'Gateway 地址无效。')
-    }
-  }
-
-  function closeForgetDialog() {
-    setForgetOpen(false)
-    setForgetError('')
-    window.requestAnimationFrame(() => {
-      ;(forgetTriggerRef.current ?? saveAddressRef.current)?.focus()
-    })
-  }
-
-  async function confirmForget() {
-    setForgetPending(true)
-    setForgetError('')
-    try {
-      const gatewayUrl = validateGatewayUrl(url)
-      const result = await forgetBrowser({
-        userId,
-        gatewayUrl,
-        vault,
-        clearTranscripts: clearOpenClawTranscript,
-      })
-      setPaired(false)
-      closeForgetDialog()
-      actionToast.success(result === 'not-paired'
-        ? '当前浏览器已无可删除的 OpenClaw 配对'
-        : 'OpenClaw 服务端设备和当前浏览器配对已删除')
-    } catch (error) {
-      setForgetError(error instanceof Error ? error.message : '无法移除 OpenClaw 浏览器配对；本地凭据已保留。')
-    } finally {
-      setForgetPending(false)
-    }
-  }
-
-  return <>
-    <AdminSection
-      title="OpenClaw 对话连接"
-      description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inscope 服务器。`}
-    >
-      {!enabled && <HeroNotice title="管理员尚未启用站内 OpenClaw 对话；信息流仍提供复制交接模式。" status="warning" role="status" />}
-      <div className="mt-3 grid gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
-        <TextField fullWidth value={url} onChange={(value) => { setUrl(value); setUrlError('') }} isInvalid={Boolean(urlError)}>
-          <Label>OpenClaw Gateway URL</Label>
-          <Input aria-label="OpenClaw Gateway URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-          {urlError && <FieldError>{urlError}</FieldError>}
-        </TextField>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button ref={saveAddressRef} size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
-          {paired && <Tooltip delay={250}>
-            <TooltipTriggerButton
-              ref={forgetTriggerRef}
-              aria-label="忘记此浏览器"
-              disabled={forgetPending}
-              className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
-              onClick={() => { setForgetError(''); setForgetOpen(true) }}
-            ><Icons.Unplug size={16} aria-hidden="true" /></TooltipTriggerButton>
-            <Tooltip.Content {...topAnchoredTooltipProps}>忘记此浏览器</Tooltip.Content>
-          </Tooltip>}
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <StatusIndicator
-          iconOnly
-          label={paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}
-          tone={paired === null ? 'accent' : paired ? 'success' : 'neutral'}
-          icon={paired === null
-            ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            : paired
-              ? <Icons.CircleCheck size={13} aria-hidden="true" />
-              : <Icons.CircleDashed size={13} aria-hidden="true" />}
-        />
-        {enabled && <a className="type-control text-accent" href="/feed">打开信息流对话面板</a>}
-      </div>
-      <p className="type-meta mt-2 text-muted">确认忘记后会先从 OpenClaw Gateway 移除当前设备；只有服务端成功或设备已不存在时，才会清除本地对话和配对凭据。</p>
-      <p className="type-meta mt-3 text-muted">本地只允许 ws://127.0.0.1 或 ws://localhost；远程 Gateway 必须使用 wss://。首次 token 只在对话面板输入。</p>
-    </AdminSection>
-    <Modal isOpen={forgetOpen} onOpenChange={(open) => {
-      if (forgetPending) return
-      if (open) setForgetOpen(true)
-      else closeForgetDialog()
-    }}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开移除浏览器配对</Modal.Trigger>
-      <DialogFrame
-        title="移除 OpenClaw 浏览器配对"
-        dismissable={!forgetPending}
-        footer={<>
-          <Button variant="ghost" isDisabled={forgetPending} onPress={closeForgetDialog}>取消</Button>
-          <Button variant="danger" isDisabled={forgetPending} onPress={() => void confirmForget()}>
-            {forgetPending ? '正在移除…' : '确认移除并忘记'}
-          </Button>
-        </>}
-      >
-        <p className="type-body text-muted">这会让当前浏览器设备失去 OpenClaw 访问权限，并删除此用户在该 Gateway 下的本地对话与配对凭据。服务端拒绝时，本地恢复材料会保留。</p>
-        {forgetError && <div className="mt-4"><HeroNotice title={forgetError} /></div>}
-      </DialogFrame>
-    </Modal>
-  </>
 }
 
 export function HeroAgentsPage() {
