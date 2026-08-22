@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 
-import type { useOpenClawChat } from '../openclaw/useOpenClawChat'
+import type { OpenClawChatController } from '../openclaw'
 import { AgentPanelSkeleton } from './WorkbenchLoadingState'
 import type { WorkbenchAgentContextValue } from './workbenchAgentContext'
 
@@ -12,7 +12,7 @@ export function LazyOpenClawConversation({
   chat,
   value,
 }: {
-  chat: ReturnType<typeof useOpenClawChat>
+  chat: OpenClawChatController
   value: WorkbenchAgentContextValue
 }) {
   return <Suspense fallback={<AgentPanelSkeleton />}>

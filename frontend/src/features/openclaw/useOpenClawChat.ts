@@ -5,9 +5,6 @@ import {
   projectAgentHandoffDisplay,
   sanitizeAgentSourceReferences,
   sanitizeSourceUrl,
-  type AgentContextItem,
-  type AgentSourceReference,
-  type AgentSourceSnapshot,
 } from '../workbench-live/agentContext'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
 import { forgetOpenClawBrowser } from './openclawDevice'
@@ -27,118 +24,52 @@ import {
   parseOpenClawMediaTicket,
   releaseOpenClawImageUrl,
   ticketUrlForOpenClawMedia,
-  type OpenClawImageAttachment,
   type OpenClawImageMimeType,
   type OpenClawMessageImage,
 } from './openclawMedia'
+import type {
+  OpenClawChatController,
+  OpenClawChatMessage,
+  OpenClawChatOptions,
+  OpenClawClientPort,
+  OpenClawConnectionStatus,
+  OpenClawContextUsage,
+  OpenClawModelOption,
+  OpenClawModelSwitchFallback,
+  OpenClawRunActivity,
+  OpenClawRunTrace,
+  OpenClawRuntimeSelection,
+  OpenClawSanitizedAgentEvent,
+  OpenClawSendRequest,
+  OpenClawSendSnapshot,
+  OpenClawSetupIssue,
+  OpenClawThinkingOption,
+  OpenClawToolsStatus,
+} from './openclawContracts'
+export type {
+  OpenClawChatController,
+  OpenClawChatMessage,
+  OpenClawChatOptions,
+  OpenClawClientPort,
+  OpenClawConnectionStatus,
+  OpenClawContextUsage,
+  OpenClawModelOption,
+  OpenClawModelSwitchFallback,
+  OpenClawRunActivity,
+  OpenClawRunPhase,
+  OpenClawRunTrace,
+  OpenClawRuntimeSelection,
+  OpenClawSanitizedAgentEvent,
+  OpenClawSendRequest,
+  OpenClawSendSnapshot,
+  OpenClawSetupIssue,
+  OpenClawThinkingOption,
+  OpenClawToolsStatus,
+} from './openclawContracts'
 import {
   createOpenClawSessionLabel,
   isOpenClawSessionLabelConflict,
 } from './openclawSession'
-
-export type OpenClawConnectionStatus = 'disabled' | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
-export type OpenClawToolsStatus = 'unknown' | 'available' | 'missing'
-export type OpenClawRunPhase =
-  | 'sending'
-  | 'waiting'
-  | 'thinking'
-  | 'using_tool'
-  | 'composing'
-  | 'streaming'
-  | 'stopping'
-  | 'completed'
-  | 'aborted'
-  | 'failed'
-
-export type OpenClawRunActivity = {
-  id: string
-  label: string
-  status: 'running' | 'completed' | 'failed' | 'stopped'
-  startedAt: number
-  endedAt?: number
-}
-
-export type OpenClawRunTrace = {
-  runId: string | null
-  phase: OpenClawRunPhase
-  status: 'running' | 'completed' | 'aborted' | 'failed'
-  startedAt: number
-  endedAt?: number
-  activities: OpenClawRunActivity[]
-}
-
-export type OpenClawChatMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  status?: 'pending' | 'sent' | 'failed' | 'aborted'
-  contextCount?: number
-  contextSources?: AgentSourceReference[]
-  sendSnapshot?: OpenClawSendSnapshot
-  createdAt?: number
-  origin?: 'local' | 'gateway'
-  mergeId?: string
-  clientTurnId?: string
-  images?: OpenClawMessageImage[]
-}
-
-export type OpenClawSendRequest = {
-  displayText: string
-  gatewayPrompt: string
-  contextItems: AgentContextItem[]
-  contextCount?: number
-  sourceSnapshot?: AgentSourceSnapshot
-  attachments?: OpenClawImageAttachment[]
-}
-
-export type OpenClawSendSnapshot = OpenClawSendRequest & {
-  idempotencyKey: string
-  modelId: string | null
-  thinkingLevel: string | null
-}
-
-export type OpenClawModelOption = {
-  id: string
-  name: string
-  provider: string
-  alias?: string
-  contextWindow?: number
-  reasoning?: boolean
-  thinkingLevels?: OpenClawThinkingOption[]
-  thinkingDefault?: string
-  supportsImages: boolean
-}
-
-export type OpenClawThinkingOption = {
-  id: string
-  label: string
-}
-
-export type OpenClawRuntimeSelection = {
-  modelId: string | null
-  thinkingLevel: string | null
-  defaultModelId: string | null
-  defaultThinkingLevel: string | null
-}
-
-export type OpenClawContextUsage = {
-  sessionKey: string
-  usedTokens: number
-  contextTokens: number
-  percent: number
-  modelId?: string
-}
-
-export type OpenClawModelSwitchFallback = {
-  modelId: string
-  modelName: string
-}
-
-export type OpenClawSetupIssue = {
-  kind: 'origin' | 'pairing' | 'auth' | 'protocol' | 'permission' | 'network' | 'session' | 'unknown'
-  message: string
-  requestId?: string
-}
 
 type ChatEventPayload = {
   state?: 'delta' | 'final' | 'aborted' | 'error'
@@ -148,28 +79,6 @@ type ChatEventPayload = {
   replace?: boolean
   errorMessage?: string
   message?: unknown
-}
-
-export type OpenClawSanitizedAgentEvent = {
-  runId: string
-  seq: number
-  stream: string
-  phase: string | null
-  timestamp: number
-  toolCallId: string | null
-  toolKey: string | null
-  toolLabel: string | null
-  failed: boolean
-}
-
-type OpenClawChatOptions = {
-  enabled: boolean
-  imageIoEnabled?: boolean
-  mediaOrigins?: string[]
-  userId: string
-  defaultGatewayUrl: string
-  vault?: OpenClawCredentialVault
-  clientFactory?: (options: ConstructorParameters<typeof OpenClawGatewayClient>[0]) => OpenClawGatewayClient
 }
 
 export const OPENCLAW_GATEWAY_URL_KEY_PREFIX = 'inteliscope.openclaw.gateway.v1:'
@@ -912,7 +821,7 @@ type OpenClawSessionCreateParams = {
 }
 
 async function createOpenClawSession(
-  client: OpenClawGatewayClient,
+  client: OpenClawClientPort,
   params: OpenClawSessionCreateParams,
 ): Promise<{ key?: string }> {
   const create = () => client.request<{ key?: string }>('sessions.create', {
@@ -927,7 +836,7 @@ async function createOpenClawSession(
   }
 }
 
-export function useOpenClawChat(options: OpenClawChatOptions) {
+export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatController {
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const configurationKey = `${options.userId}\n${options.defaultGatewayUrl}`
   const hasConfiguredMediaOrigins = Boolean(options.mediaOrigins?.length)
@@ -965,7 +874,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [modelSwitchFallback, setModelSwitchFallback] = useState<OpenClawModelSwitchFallback | null>(null)
   const [contextUsage, setContextUsage] = useState<OpenClawContextUsage | null>(null)
   const [imageInputAvailable, setImageInputAvailable] = useState(false)
-  const clientRef = useRef<OpenClawGatewayClient | null>(null)
+  const clientRef = useRef<OpenClawClientPort | null>(null)
   const agentIdRef = useRef<string | null>(null)
   const sessionKeyRef = useRef<string | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -1086,7 +995,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   }, [configurationKey, options.userId])
 
   const resolveMediaTickets = useCallback(async (
-    client: OpenClawGatewayClient,
+    client: OpenClawClientPort,
     key: string,
     sourceMessages: OpenClawChatMessage[],
     force = false,
@@ -1130,7 +1039,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     }))
   }, [options.imageIoEnabled, options.mediaOrigins, persistVisibleTranscript])
 
-  const loadHistory = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
+  const loadHistory = useCallback(async (client: OpenClawClientPort, key: string, agentId: string) => {
     const history = await client.request('chat.history', { sessionKey: key, agentId, limit: MAX_MESSAGES, maxChars: MAX_HISTORY_CHARS })
     if (sessionKeyRef.current !== key) return
     const stored = readOpenClawTranscript(options.userId, gatewayUrlRef.current, key)
@@ -1143,7 +1052,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     void resolveMediaTickets(client, key, gatewayMessages)
   }, [options.userId, persistVisibleTranscript, resolveMediaTickets])
 
-  const readRuntime = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
+  const readRuntime = useCallback(async (client: OpenClawClientPort, key: string, agentId: string) => {
     const [modelsValue, agentsValue, sessionValue] = await Promise.all([
       client.request('models.list', { view: 'configured' }),
       client.request('agents.list', {}),
@@ -1175,7 +1084,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   }, [])
 
   const loadRuntime = useCallback(async (
-    client: OpenClawGatewayClient,
+    client: OpenClawClientPort,
     key: string,
     agentId: string,
     preserveThinking = false,
@@ -1194,7 +1103,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     }
   }, [applyRuntime, readRuntime])
 
-  const loadContextUsage = useCallback(async (client: OpenClawGatewayClient, key: string) => {
+  const loadContextUsage = useCallback(async (client: OpenClawClientPort, key: string) => {
     if (sessionKeyRef.current === key) setContextUsage(null)
     const [, listResult] = await Promise.allSettled([
       client.request('sessions.subscribe', {}),
@@ -1644,7 +1553,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   }, [stopping, updateRunTrace])
 
   const activateSession = useCallback(async (
-    client: OpenClawGatewayClient,
+    client: OpenClawClientPort,
     key: string,
     agentId: string,
     projection: RuntimeProjection,
@@ -1696,7 +1605,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     }
   }, [applyRuntime, gatewayUrl, loadContextUsage, loadHistory, options.userId, persistVisibleTranscript, replaceVisibleTranscript, updateRunTrace, vault])
 
-  const archiveFailedSession = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
+  const archiveFailedSession = useCallback(async (client: OpenClawClientPort, key: string, agentId: string) => {
     try {
       await client.request('sessions.patch', { key, agentId, archived: true })
     } catch {

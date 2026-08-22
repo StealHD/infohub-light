@@ -9,29 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "ActorOps v2 Phase 7 增加默认关闭的管理兼容门面：既有管理 URL 在 v2 已启用且 readiness 完整时只追加 health、runtime mode、Active/Standby/LKG、降级原因及脱敏维护策略；Owner/Admin 可通过零费用 policy generation CAS 授权维护，Settings 改为读取通用 v2 投影。",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-phase7-admin-facade",
-  "unresolved": [
-    "历史费用隔离、global 26 migration 与三平台真实切流仍需操作者确认，所有 Route 继续 disabled。",
-    "候选 Probe/activate/disable 控制须在 Phase 6 运行验收和独立授权后实现。"
-  ],
-  "validation": [
-    "ActorOps v2/API/observability 定向测试通过。",
-    "impacted preflight 17/17 通过，覆盖后端、前端、控制面、代码尺寸、产品文档和生产构建。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "decisions",
     "interface",
     "phase"
@@ -413,6 +390,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "新增 Vitest 与 Pytest 定向测试通过。",
     "累计 impacted preflight 15/15 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 2 新增显式 Chat Controller、Options、State、Domain Event 与 Client/Transcript Port 合同，建立无通配符公共 façade，并移除 Conversation、Workbench Shell 和 Lazy Adapter 对 Hook ReturnType 的耦合。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal2-contracts",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw、Workbench 与 Agents 定向 Vitest 123 项及 TypeScript typecheck 通过。",
+    "累计 impacted preflight 16/16 通过，覆盖完整前端与 Remote MCP 后端域。"
   ]
 }
 ```

@@ -27,14 +27,14 @@ import {
 import { buildAgentHandoffPrompt, type AgentContextItem } from '../workbench-live/agentContext'
 import { HandoffComposer } from '../workbench-live/HandoffComposer'
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
-import type { useOpenClawChat } from './useOpenClawChat'
 import type {
+  OpenClawChatController,
   OpenClawContextUsage,
   OpenClawModelOption,
   OpenClawRunActivity,
   OpenClawRunPhase,
   OpenClawRunTrace,
-} from './useOpenClawChat'
+} from './openclawContracts'
 import {
   OPENCLAW_MAX_IMAGES_PER_TURN,
   OPENCLAW_MAX_TOTAL_IMAGE_BYTES,
@@ -45,7 +45,7 @@ import {
 } from './openclawMedia'
 import { gatewayOriginSetupCommands } from './openclawOriginSetup'
 
-type ChatController = ReturnType<typeof useOpenClawChat>
+type ChatController = OpenClawChatController
 
 type FormattedMessageTime = {
   label: string
