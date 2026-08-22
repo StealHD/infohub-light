@@ -86,37 +86,37 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '订阅 YouTube 公开频道',
-        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。频道地址只用于确认频道身份，普通视频、Shorts、公开直播及回放均由已认证的 Apify Actor 直接获取；可设置每次保留的最新条数。每次获取都直接向认证 Actor 请求不超过该条数的最新项目，不会因信息流的短时间显示窗口把较早但仍是最新的内容误报为空，也不会回退 Atom/RSS。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
+        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。频道地址只用于确认频道身份，可设置每次保留的最新条数。Binding ready 且 Route active 时使用已认证 Actor；Route 停用时仅在适配器明确支持时使用受公共网络策略约束的免费 RSS fallback，不会创建付费 Attempt。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
       },
       {
         title: '新增 X 或 Instagram 账号',
         description: '新增来源时直接选择“X 账号”或“Instagram 账号”，只需填写公开用户名或主页链接、每次获取条数和分析模式。RSS、YouTube、GitHub、Reddit、Telegram 与 Hacker News 也会在各自的来源表单提供相应的每次获取数量设置；保存后从下一次手动或周期获取生效。页面不会要求选择 Apify、Actor、Route 或 Key，也不显示高级 JSON；平台线路由工作区管理员统一维护。若平台显示“正在准备中”或“暂不可用”，现有来源和历史内容不受影响；此时不能新建或更换账号目标，但仍可编辑既有来源的名称、说明、每次获取条数、分析模式、默认频道和主题。来源卡、筛选和编辑都使用平台名称，不再显示“社交平台”。',
       },
       {
-        title: '验证 Actor 来源',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。三条 Route 的标准配置都以两个不同发布者的实测 Actor 为运行门槛，第三槽只由管理员主动补充；只有通过免费检查、精确 Build Canary、全部已启用来源验证和费用对账的 Actor 才出现在选择目录，选择不会重跑 Canary。已有一条已验证线路但仍低于两路门槛时，可先对一个新 Actor 完成同样的受控验证再原子补到第二槽，不会因当前线路不足而卡住补位。不同平台分别绑定执行器、输入和输出合同；YouTube 的频道地址仅作身份，运行时直接使用认证 Actor，不回退 Atom/RSS。通过公开、固定 Build、权限、输入和费用门槛但输出 Schema 不透明的 YouTube Actor 不会显示给你或由 AI 猜字段，只能先由服务端执行一次受控观察 Canary；返回目标频道视频后才固化不可变映射。确定性失败、已在当前池运行的 Actor 和不安全候选不会出现在选择列表。费用待对账或启动结果未知时系统只免费核对原运行，不会重复启动。',
+        title: '查看 v2 ActorOps 路线',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。页面只显示 v2 Route 的当前主用、备用、最近成功 Candidate、Binding 就绪数、费用上限和健康状态；展开详情后可查看脱敏的商城信息、Attempt/费用、Discovery、维护与替换计划。Binding 必须针对当前目标和版本完成 v2 证据验证后才能 ready；pending 或 disabled 不会抓取。页面不会显示或调用旧 Pool、Canary、Freshness、目标、Manifest、密钥、远端 Run/Dataset 或原始错误。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
       {
         title: '恢复中断的 Actor Run',
-        description: 'Worker 重启后，已登记远端 Run 会由系统只读核对状态，不会重启 Actor、读取 Dataset 或在同一任务切换备用。远端尚未结束、无法读取或状态不完整时，Route 保持暂停；终态写回后，下一次正常抓取才按健康主备重新选择。主用和备用是配置优先级，不会因单个来源切备而自动重排。',
+        description: 'Worker 重启后，已登记远端 Run 只会核对原 Run；已有成功 Dataset 时只读取该 Dataset 并重新进行确定性验证，不会重新启动 Actor 或在同一任务抢跑备用。远端尚未结束、无法读取或状态不完整时，Route 保持保护；终态和已知费用写回后，下一次正常抓取才按健康主备重新选择。主用和备用是配置优先级，不会因单个来源切备而自动重排。',
         href: '/settings/actorops',
         linkLabel: '查看 ActorOps 状态',
       },
       {
         title: '比较并替换 Actor',
-        description: 'Owner/Admin 打开“设置 → ActorOps”后，每条技术线路只显示平台、当前主用/备用、已核验来源数和“单次最多允许费用”。Actor 名称旁的标签可悬停、键盘聚焦或触屏点击，查看公开商城名称、slug、Build、价格、评分、收藏、总用户、月活、开发者和 Apify 维护状态；这里的商城价格只用于比较，不会自动启动 Actor。若价格或质量不合适，可先免费刷新候选，再从“替换 Actor”中明确选择一个候选。系统会冻结当前来源和费用上限，按来源逐个串行测试；每次最多一个远端运行，全部返回属于目标账号的有效非空内容并完成费用结算后，页面才显示“确认替换”。已有完整同版本证据的候选无需再次收费。更换时只调整后续主备顺序，不发布测试内容、不改变信息流水位；失败、未知启动或费用待结算会停止后续收费，也不会自动换下一个 Actor。',
+        description: 'Owner/Admin 打开“设置 → ActorOps”后，每条 v2 Route 显示平台、当前主用/备用、已核验来源数和“单次最多允许费用”。Actor 标签可悬停、键盘聚焦或触屏点击，查看公开商城名称、Build、价格、评分、收藏、总用户、月活、开发者和 Apify 维护状态；商城价格只用于比较，不会自动启动 Actor。若价格或质量不合适，可先免费更新 Candidate，再从“替换 Actor”中明确选择一个候选。系统会冻结当前 Binding 和费用上限，按来源逐个串行测试；每次最多一个远端运行，全部返回有效非空内容并完成费用结算后，页面才显示“确认替换”。已有完整同版本证据的候选无需再次收费。更换只调整后续主备顺序，不发布测试内容、不改变信息流水位；失败、未知启动或费用待结算会停止后续收费，也不会自动换下一个 Candidate。',
         href: '/settings/actorops',
         linkLabel: '管理 Actor 替换',
       },
       {
-        title: '按内容类型发现 Actor',
-        description: '普通 Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，默认最多检查 12 个有效候选；旧 X 池升级例外使用最多 30 个的扩展召回，但最终只接受当前三个 Actor。免费检查不会启动 Actor；普通与旧池检查都使用当前 Route 已保存的单次上限，随后仍须人工确认才会付费。已通过静态检查的候选保留 Apify Store 的评分、评分人数和使用人数，帮助管理员排序选择，但不能放宽任何安全门槛。YouTube 的 channelId/channelIds 输入使用已验证的 UC Channel ID；输出字段从 Dataset row 根映射，不会凭空增加 candidate/item/data 包装。定价事件和 Manifest 都只能证明频道资料、统计或主页身份时会在付费前淘汰；精确 Build Schema 已同时证明视频 ID、URL、发布时间和正文时，不会再被模糊的计费事件名称误杀。某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。少返回或单个 Manifest 不合格只记录安全原因，不会降低公开性、固定 Build、官方输入校验、Schema、Manifest、发布者多样性或费用门槛。',
+        title: '发现与核验 Candidate',
+        description: 'v2 Discovery 分别按 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed 搜索 Candidate，并保存公开商城元数据、固定 Build、输入/输出合同和安全拒绝原因。免费搜索与 metadata 更新不会启动 Actor；有费用的 Replacement Probe 必须先冻结当前 Binding、Candidate 与费用上限并由管理员确认。固定 Build 已经因合同、身份或输出失败时不会自动重新付费；目标、Build、Manifest 或已保存证据改变后才可重新评估。',
       },
       {
         title: '理解验证失败',
-        description: 'Actor 启动被上游拒绝、返回不属于本次账号/频道的内容，或费用仍待核对时，候选会保留安全失败原因且不能继续生效；这不会改变当前主备池，也不会自动重试或再次收费。只有候选的 Build、输入合同、价格或已保存证据发生变化后，才可重新进行免费检查。',
+        description: 'Actor 启动被上游拒绝、返回不属于当前目标的内容、合同不匹配，或费用仍待核对时，Candidate 会保留安全失败原因且不能继续生效；这不会改变当前主备，也不会自动重试或再次收费。未知启动只核对原 Run。只有 Candidate 的 Build、输入合同、价格或已保存证据发生变化后，才可重新进行免费检查。',
       },
       {
         title: '全局与单源自动更新',

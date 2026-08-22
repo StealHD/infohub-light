@@ -51,6 +51,10 @@ describe('service api', () => {
     await api.updateNotificationService('service/1', { name: '主值班群' })
     await api.testAndEnableNotificationService('service/1')
     await api.archiveNotificationService('service/1')
+    await api.actorOpsV2Routes()
+    await api.actorOpsV2Route('route/1')
+    await api.actorOpsV2Events({ limit: 20 })
+    await api.promoteActorOpsV2Candidate('route/1', 'candidate/1', { expected_route_generation: 2, expected_candidate_generation: 3, confirmation: '确认设为主用 Actor' })
     await api.apifyActorAlertSettings()
     await api.updateApifyActorAlertSettings({
       enabled: true,
@@ -108,6 +112,14 @@ describe('service api', () => {
       enabled: true,
     })
     expect(client.delete).toHaveBeenCalledWith('/api/notification-targets/target%2F1')
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-routes', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-routes/route%2F1', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-events?limit=20', undefined)
+    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-routes/route%2F1/v2-candidates/candidate%2F1/promote', {
+      expected_route_generation: 2,
+      expected_candidate_generation: 3,
+      confirmation: '确认设为主用 Actor',
+    })
     expect(client.get).toHaveBeenCalledWith('/api/notification-services', undefined)
     expect(client.post).toHaveBeenCalledWith('/api/admin/notification-services', {
       name: '统一值班群',

@@ -4,8 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { useAppContext } from '../../app/AppContext'
 import { actionToast, Button, Drawer, Input, Label, TextField } from '../../design-system'
-import { type ActorOpsV2RouteView } from './ActorOpsV2ControlPlane'
-import { actorOpsV2CandidateLabel, actorOpsV2PriceLabel, type ActorOpsV2CandidateView } from './actorOpsV2RouteModel'
+import { actorOpsV2CandidateLabel, actorOpsV2PriceLabel, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 type ReplacementPlan = {
   plan_id: string
@@ -42,7 +41,7 @@ export function ActorOpsV2ReplacementDrawer({ route, open, onOpenChange, onUpdat
   const cap = Math.min(route.per_run_cap_usd, 0.20)
   const total = Math.min(0.60, cap * Math.max(1, route.binding_summary.ready_count))
   const preview = useMutation({
-    mutationFn: (candidate: ActorOpsV2CandidateView) => api.createActorOpsV2Replacement(route.route_id, { target_assignment: 'active', target_priority: 0, candidate_id: candidate.candidate_id, expected_route_generation: route.route_generation, expected_candidate_generation: candidate.generation, idempotency_key: crypto.randomUUID(), per_probe_cap_usd: cap, total_cap_usd: total }),
+    mutationFn: (candidate: ActorOpsV2CandidateView) => api.createActorOpsV2Replacement(route.route_id, { target_assignment: 'active', target_priority: 0, candidate_id: candidate.candidate_id, expected_route_generation: route.generation, expected_candidate_generation: candidate.generation, idempotency_key: crypto.randomUUID(), per_probe_cap_usd: cap, total_cap_usd: total }),
     onSuccess: (value) => { const next = unwrapPlan(value); if (next) setPlan(next) },
     onError: (error) => actionToast.danger(errorMessage(error, '未能创建替换计划。')),
   })

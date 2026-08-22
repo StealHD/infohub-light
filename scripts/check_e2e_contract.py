@@ -14,12 +14,19 @@ COUNT_PATTERN = re.compile(r"\.count\(\)")
 TRANSIENT_PATTERN = re.compile(r"aria-hidden|\binert\b")
 
 
-def _safe_file(root: Path, value: str) -> Path:
+def _safe_relative(value: str) -> PurePosixPath:
     relative = PurePosixPath(value)
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError(f"unsafe E2E path: {value}")
+    if relative.suffix != ".ts" or not str(relative).startswith("frontend/e2e/"):
+        raise ValueError(f"E2E contract input must be a frontend/e2e TypeScript file: {value}")
+    return relative
+
+
+def _safe_file(root: Path, value: str) -> Path:
+    relative = _safe_relative(value)
     path = root / relative
-    if path.suffix != ".ts" or not path.is_file() or not str(relative).startswith("frontend/e2e/"):
+    if not path.is_file():
         raise ValueError(f"E2E contract input must be an existing frontend/e2e TypeScript file: {value}")
     return path
 
@@ -27,7 +34,7 @@ def _safe_file(root: Path, value: str) -> Path:
 def _files(root: Path, changed: list[str]) -> list[Path]:
     selected = [value for value in changed if value.startswith("frontend/e2e/") and value.endswith(".ts")]
     if selected:
-        return sorted({_safe_file(root, value) for value in selected})
+        return sorted({_safe_file(root, value) for value in selected if (root / _safe_relative(value)).is_file()})
     return sorted((root / "frontend" / "e2e").glob("*.ts"))
 
 

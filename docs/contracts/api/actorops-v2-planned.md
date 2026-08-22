@@ -1,7 +1,7 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/contracts/api/actorops-v2-planned.md -->
 # ActorOps v2 计划合同
 
-本模块描述 ActorOps v2 数据面和后续控制面目标。单轨退役 Phase 2 起，Catalog 来源的创建、修改、禁用、调度、抓取和 Feed 发布只使用 v2 Binding/Route；Phase 3 起，现役 Route list/detail、候选、Binding、Attempt、Discovery、Maintenance、Replacement、商城元数据和 Operation Events 也只读取 v2 或脱敏 Operation Log。旧 ActorOps v15 仍可被尚未退役的 Pool/Canary/Freshness 兼容接口、Worker 与离线审计访问，但不再是现役来源或 v2 Admin 的授权事实。Phase 5 已在 Phase 1–4 的 Domain、Repository、global 26、三类 Adapter、Runtime、Reconciler、Worker claim 隔离与可恢复 Discovery 之上实现受限站立维护；Phase 7.1 增加 global 28 的公开商城快照、显式费用上限和串行替换计划。Worker 全面单轨化与最终 v1 文件删除仍按后续 retirement phase 独立完成。
+本模块描述 ActorOps v2 数据面和单轨控制面的已实现边界。Phase 2 起，Catalog 来源的创建、修改、禁用、调度、抓取和 Feed 发布只使用 v2 Binding/Route；Phase 3 起，现役 Route list/detail、候选、Binding、Attempt、Discovery、Maintenance、Replacement、商城元数据和 Operation Events 也只读取 v2 或脱敏 Operation Log；Phase 4 起，浏览器只请求这些 schema-2 v2 接口，显示 `active|disabled`，并将 migration-required、unavailable 与 v1-retired 作为独立安全状态。旧 ActorOps v15 仍可被尚未退役的 Pool/Canary/Freshness 兼容接口、Worker 与离线审计访问，但不再是现役来源、v2 Admin 或前端的授权事实。Worker 全面单轨化与最终 v1 文件删除仍按后续 retirement phase 独立完成。
 
 来源运行语义不再受 `ACTOROPS_V2_ENABLED` 控制：平台来源必须有当前 v2 Binding，缺少 v2 schema 时只让该 ActorOps 来源返回 migration-required，普通 RSS/GitHub 不受影响。Route `active` 使用 v2 Active、Standby、LKG；`disabled` 或过渡期遗留 `shadow` 都不得回退 v1，X/Instagram 返回稳定的非重试 blocked，YouTube 仅可使用 Adapter 明确声明的免费、公共网络受控 RSS fallback，且不创建 Attempt 或远端 POST。Phase 3 的 v2 Admin 入口同样不受该 flag 控制；缺少当前 v2 marker/shape 固定返回 503 `actorops_v2_migration_required`，其他读取故障固定返回 503 `actorops_v2_unavailable`。尚未退役的 Worker 与旧兼容接口保留各自的过渡门，最终由单轨 schema marker 取代。
 

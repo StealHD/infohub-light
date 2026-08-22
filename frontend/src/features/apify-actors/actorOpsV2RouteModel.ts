@@ -1,29 +1,27 @@
-export type ActorOpsV2CandidateView = {
-  candidate_id: string
-  build_number: string | null
-  lifecycle: string
-  assignment: string
-  priority: number | null
-  generation: number
-  store_metadata: ActorOpsV2StoreMetadata | null
-  evidence_progress: { verified_bindings: number; required_bindings: number }
+import type {
+  ActorOpsV2Candidate,
+  ActorOpsV2RouteTransport,
+  ActorOpsV2StoreMetadata,
+} from '../../api/actorOpsV2Types'
+
+export type ActorOpsV2CandidateView = ActorOpsV2Candidate
+export type { ActorOpsV2StoreMetadata }
+
+export type ActorOpsV2RouteView = Omit<ActorOpsV2RouteTransport, 'runtime_mode'> & {
+  runtime_mode: 'active' | 'disabled'
+  normalized_retired_mode: boolean
 }
 
-export type ActorOpsV2StoreMetadata = {
-  actor_slug: string
-  display_name: string
-  short_description: string | null
-  developer_name: string | null
-  maintained_by_apify: boolean
-  rating: number | null
-  review_count: number | null
-  bookmark_count: number | null
-  total_users: number | null
-  monthly_active_users: number | null
-  pricing: Array<Record<string, unknown>>
-  last_modified_at: string | null
-  observed_at: string
-  generation: number
+export function actorOpsV2RouteView(route: ActorOpsV2RouteTransport): ActorOpsV2RouteView {
+  const normalizedRetiredMode = route.runtime_mode !== 'active' && route.runtime_mode !== 'disabled'
+  return {
+    ...route,
+    runtime_mode: route.runtime_mode === 'active' ? 'active' : 'disabled',
+    normalized_retired_mode: normalizedRetiredMode,
+    degraded_reason: normalizedRetiredMode
+      ? 'actorops_v2_route_migration_required'
+      : route.degraded_reason,
+  }
 }
 
 export function actorOpsV2CandidateLabel(candidate: ActorOpsV2CandidateView | null) {

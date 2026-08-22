@@ -1,117 +1,126 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Slot = 'primary' | 'backup_1' | 'backup_2'
-
-const revisions = [
-  revision('primary', 'Publisher A Primary', 'publisher-a'),
-  revision('backup-1', 'Publisher B Backup', 'publisher-b'),
-]
-
-function revision(id: string, actor_public_name: string, publisher: string) {
+function candidate(candidateId: string, assignment: 'active' | 'standby', priority: number) {
   return {
-    revision_id: `revision-${id}`,
-    actor_id: `${publisher}/${id}`,
-    actor_public_name,
-    publisher,
-    build_id: `build-${id}`,
-    build_number: '2026.08.13',
-    manifest_hash: id.padEnd(64, id[0]).slice(0, 64),
+    candidate_id: candidateId,
+    build_number: '2026.08.22',
     lifecycle: 'certified',
-    last_canary_at: '2026-08-13T08:00:00Z',
-    last_canary_status: 'valid_nonempty',
-    can_canary: false,
-    can_activate: true,
+    assignment,
+    priority,
+    generation: priority + 2,
+    store_metadata: {
+      actor_slug: `publisher/${candidateId}`,
+      display_name: candidateId === 'active' ? 'Publisher A Primary' : 'Publisher B Standby',
+      short_description: '公开商城信息',
+      developer_name: 'Publisher',
+      maintained_by_apify: false,
+      rating: 4.8,
+      review_count: 12,
+      bookmark_count: 3,
+      total_users: 42,
+      monthly_active_users: 10,
+      pricing: [],
+      last_modified_at: null,
+      observed_at: '2026-08-22T08:00:00Z',
+      generation: 1,
+    },
+    evidence_progress: { verified_bindings: 1, required_bindings: 1 },
   }
 }
 
-function actorDetail() {
-  const slots = (['primary', 'backup_1', 'backup_2'] as Slot[]).map((slot, index) => {
-    const value = revisions[index] ?? null
-    return {
-      slot,
-      revision_id: value?.revision_id ?? null,
-      runnable: Boolean(value),
-      validation_status: value?.lifecycle ?? 'unconfigured',
-      revision: value,
-      actions: value
-        ? { add: false, replace: true, remove: true, add_reason: 'pool_full', replace_reason: null, remove_reason: null }
-        : { add: true, replace: false, remove: false, add_reason: null, replace_reason: 'replace_requires_occupied_slot', remove_reason: 'slot_empty' },
-    }
-  })
+function routeDetail() {
+  const active = candidate('active', 'active', 0)
+  const standby = candidate('standby', 'standby', 1)
+  const summary = {
+    route_id: 'route-x-profile',
+    route_key: 'x/profile/items',
+    platform: 'x',
+    target_type: 'profile',
+    capability: 'items',
+    runtime_mode: 'active',
+    generation: 12,
+    per_run_cap_usd: 0.02,
+    health: 'healthy',
+    active_candidate: active,
+    standby_candidates: [standby],
+    last_known_good: active,
+    binding_summary: { ready_count: 1, pending_count: 1, disabled_count: 0 },
+    maintenance_policy: {
+      authorized: false,
+      workspace: { enabled: false, monthly_budget_usd: 0, generation: 1 },
+      route: { enabled: false, max_probe_usd: 0.01, max_probes_per_utc_day: 1, auto_add_standby: false, auto_replace_non_last: false, generation: 1 },
+      budget: { spent_usd: 0, reserved_usd: 0, probe_count: 0 },
+    },
+    degraded_reason: null,
+    updated_at: '2026-08-22T08:00:00Z',
+  }
   return {
-    route_id: 'route-x-profile', route_key: 'x/profile', platform: 'x', target_type: 'profile', capability: 'items', mode: 'primary',
-    generation: 12, support_status: 'supported', runtime_status: 'ready', active_slot_count: revisions.length, runnable_slots: revisions.length,
-    required_slots: 3, min_runtime_healthy: 2, admission_mode: 'standard', publisher_count: 2, per_run_cap_usd: 0.02,
-    discovery_run_id: 'run-pool-e2e', blocked_reason: null, updated_at: '2026-08-13T08:00:00Z',
-    workflow: { kind: 'backup_2_candidate_selection_required', goal: 'add_slot', run_id: 'run-pool-e2e', progress: {}, blockers: [] },
-    slots, revisions, source_validations: [], source_validation_summary: { ready: 0, pending: 0, failed: 0 }, replacement_needed: false,
+    ...summary,
+    candidates: [active, standby],
+    bindings: [{ binding_id: 'binding-x', status: 'ready', binding_version: 2, preferred_candidate_id: 'active', last_known_good_candidate_id: 'active', last_success_at: '2026-08-22T08:00:00Z' }],
+    attempts: [{ attempt_id: 'attempt-x', kind: 'fetch', status: 'completed', result_state: 'validated', semantic_outcome: 'success', failure_class: null, error_code: null, reserved_usd: 0.02, actual_cost_usd: 0.01, cost_final: true, created_at: '2026-08-22T08:00:00Z', terminal_at: '2026-08-22T08:01:00Z', updated_at: '2026-08-22T08:01:00Z' }],
+    discoveries: [{ discovery_id: 'discovery-x', trigger_reason: 'manual', status: 'completed', stage: 'settled', stage_attempt: 1, candidate_count: 2, rejection_count: 0, error_code: null, created_at: '2026-08-22T08:00:00Z', terminal_at: '2026-08-22T08:01:00Z', updated_at: '2026-08-22T08:01:00Z' }],
+    replacements: [],
   }
 }
 
-async function mockActorOpsPool(page: Page) {
-  let removePayload: Record<string, unknown> | null = null
-  // The release suite serves the built frontend on a different port. Route by
-  // API path so this contract mock exercises both dev and production bundles.
+async function mockActorOpsV2(page: Page) {
+  let promotePayload: Record<string, unknown> | null = null
+  const retiredRequests: string[] = []
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    const detail = actorDetail()
+    const detail = routeDetail()
+    if (/\/(pool|canary|freshness|support-check|apify-discovery-settings)/.test(url.pathname)) retiredRequests.push(url.pathname)
     let data: unknown
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'owner-1', username: 'owner', role: 'owner', enabled: true } }
-    else if (url.pathname === '/api/admin/apify-routes') data = {
-      schema_version: 1,
-      generation: 12,
-      support_profiles: [{ id: 'x/profile/items', route_key: 'x/profile', platform: 'x', target_type: 'profile', capability: 'items', mode: 'primary', label: 'X 用户动态' }],
-      routes: [{ ...detail, slots: undefined, revisions: undefined, source_validations: undefined, source_validation_summary: undefined }],
-    }
+    else if (url.pathname === '/api/admin/apify-routes') data = { schema_version: 2, routes: [{ ...detail, candidates: undefined, bindings: undefined, attempts: undefined, discoveries: undefined, replacements: undefined }] }
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile' && request.method() === 'GET') data = detail
-    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/active-pool/remove' && request.method() === 'POST') {
-      removePayload = request.postDataJSON() as Record<string, unknown>
-      data = detail
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/v2-candidates/standby/promote' && request.method() === 'POST') {
+      promotePayload = request.postDataJSON() as Record<string, unknown>
+      data = { route_id: detail.route_id }
     }
-    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/pool-candidates') data = {
-      schema_version: 1, route_id: detail.route_id, generation: detail.generation, goal: url.searchParams.get('goal') || 'add_slot',
-      target_slot: url.searchParams.get('target_slot'), run_id: 'run-pool-e2e', required_selection_count: 1, blockers: [], candidates: [],
-    }
-    else if (url.pathname === '/api/admin/apify-discovery-runs/run-pool-e2e') data = { schema_version: 5, run_id: 'run-pool-e2e', route_id: detail.route_id, generation: detail.generation, stage: 'awaiting_canary_approval', status: 'completed', queries_completed: 1, queries_limit: 1, budget_cap_usd: 0.02, spent_usd: 0, candidate_count: 0, candidate_shortfall: 0, candidates: [], updated_at: detail.updated_at }
-    else if (url.pathname === '/api/catalog/sources') data = { sources: [] }
-    else if (url.pathname === '/api/admin/apify-actor-alert-settings') data = { schema_version: 4, enabled: false, channels: [], target_ids: [], selected_targets: [], channel_states: {}, events: [], updated_at: null }
-    else if (url.pathname === '/api/admin/apify-discovery-settings') data = { schema_version: 4, generation: 1, enabled: false, ai_options: [], max_queries_per_run: 3, max_candidates: 12, max_output_tokens: 4096, measurements: {}, updated_at: null }
-    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/freshness/plan') data = {}
-    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/events') data = { events: [] }
+    else if (url.pathname === '/api/admin/apify-actor-alert-settings') data = { schema_version: 4, enabled: false, target_ids: [], selected_targets: [], channels: [], channel: 'email', channel_states: {}, events: [], email_configured: false, email_transport_ready: false, webhook_configured: false, webhook_provider: 'generic_event', webhook_provider_explicit: false, webhook_signing_secret_configured: false, webhook_verification_mode: 'http_status', webhook_provider_options: [], telegram_configured: false, telegram_transport_ready: false, last_test_status: null, last_tested_at: null, last_test_error_code: null, last_alert_status: null, last_alerted_at: null, last_alert_error_code: null, updated_at: null }
+    else if (url.pathname === '/api/admin/apify-actor-alert-incidents') data = { incidents: [] }
+    else if (url.pathname === '/api/admin/apify-actor-events') data = { schema_version: 2, availability: 'empty', events: [], returned: 0, truncated: false, window: { from: '2026-08-21T00:00:00Z', to: '2026-08-22T00:00:00Z' } }
+    else if (url.pathname === '/api/notification-services') data = { schema_version: 1, services: [], channel_credentials: {} }
     else {
       await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found' } }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
   })
-  return { removePayload: () => removePayload }
+  return { promotePayload: () => promotePayload, retiredRequests: () => retiredRequests }
 }
 
-test('ActorOps pool operations keep a flat, safe desktop flow', async ({ page }) => {
-  const state = await mockActorOpsPool(page)
-  await page.goto('/settings/actorops?route=x%2Fprofile%2Fitems&tab=pool')
-  await expect(page.getByRole('list', { name: '当前 Actor 主备槽位' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '添加 Actor' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '替换' }).first()).toBeVisible()
-  await page.getByRole('button', { name: '移出主备池' }).first().click()
-  const dialog = page.getByRole('dialog', { name: '移出主备池' })
-  await expect(dialog).toContainText('压紧后顺序：备用 1 → 备用 2')
-  await expect(dialog.getByRole('button', { name: '确认移出主备池' })).toBeDisabled()
-  await dialog.getByRole('textbox', { name: '确认短语' }).fill('确认移出 Actor 主备池')
-  await dialog.getByRole('button', { name: '确认移出主备池' }).click()
-  await expect.poll(state.removePayload).toEqual({
-    target_slot: 'primary', expected_generation: 12, confirmation: '确认移出 Actor 主备池',
-  })
-  await expect(page.getByRole('tablist', { name: 'ActorOps 配置任务' })).toHaveClass(/shadow-none/)
-  await expect(page.locator('[data-settings-disclosure="高级设置与技术详情"]')).toHaveCount(1)
+test('ActorOps v2 route controls keep a flat, safe desktop flow', async ({ page }) => {
+  const state = await mockActorOpsV2(page)
+  await page.goto('/settings/actorops')
+
+  await expect(page.getByTestId('actorops-v2-control-plane')).toBeVisible()
+  await expect(page.getByText('X 动态', { exact: true })).toBeVisible()
+  await expect(page.getByText('Publisher A Primary', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: '查看运行详情' }).click()
+  await expect(page.getByText('候选与商城信息', { exact: true })).toBeVisible()
+  await expect(page.getByText('近期运行与费用', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Actor 路由更多操作' }).click()
+  await page.getByRole('button', { name: '设为主用' }).click()
+  const dialog = page.getByRole('dialog', { name: '设为当前主用' })
+  await dialog.getByRole('textbox', { name: '确认短语' }).fill('确认设为主用 Actor')
+  await dialog.getByRole('button', { name: '确认' }).click()
+  await expect.poll(state.promotePayload).toEqual({ expected_route_generation: 12, expected_candidate_generation: 3, confirmation: '确认设为主用 Actor' })
+  expect(state.retiredRequests()).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('ActorOps pool controls remain single-column at 390px', async ({ page }) => {
+test('ActorOps v2 route controls remain single-column at 390px', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await mockActorOpsPool(page)
-  await page.goto('/settings/actorops?route=x%2Fprofile%2Fitems&tab=pool')
-  await expect(page.getByRole('list', { name: '当前 Actor 主备槽位' })).toBeVisible()
+  const state = await mockActorOpsV2(page)
+  await page.goto('/settings/actorops')
+
+  await expect(page.getByTestId('actorops-v2-control-plane')).toBeVisible()
+  await expect(page.getByText('X 动态', { exact: true })).toBeVisible()
+  expect(state.retiredRequests()).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

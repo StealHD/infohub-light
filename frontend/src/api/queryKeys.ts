@@ -55,46 +55,14 @@ export const queryKeys = {
   users: (userId: string) => [...userKey(userId), 'users'] as const,
   secrets: (userId: string) => [...userKey(userId), 'secrets'] as const,
   apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,
-  apifyActorRoutes: (userId: string) => [
-    ...userKey(userId), 'apify-actor-routes',
+  actorOpsV2Routes: (userId: string) => [
+    ...userKey(userId), 'actorops-v2-routes',
   ] as const,
-  apifyActorRoute: (userId: string, routeId: string) => [
-    ...userKey(userId), 'apify-actor-routes', routeId,
+  actorOpsV2Route: (userId: string, routeId: string) => [
+    ...userKey(userId), 'actorops-v2-routes', routeId,
   ] as const,
-  apifyActorFreshnessPlan: (userId: string, routeId: string) => [
-    ...userKey(userId), 'apify-actor-routes', routeId, 'freshness-plan',
-  ] as const,
-  apifyActorFreshnessCheck: (userId: string, checkId: string) => [
-    ...userKey(userId), 'apify-actor-freshness-checks', checkId,
-  ] as const,
-  apifyActorEvents: (
-    userId: string,
-    routeId: string,
-    phase = '',
-    outcome = '',
-    sourceId = '',
-    candidateId = '',
-    windowHours = '24',
-  ) => [
-    ...userKey(userId), 'apify-actor-events', routeId, phase, outcome, sourceId, candidateId, windowHours,
-  ] as const,
-  apifyActorDiscoveryRun: (userId: string, runId: string) => [
-    ...userKey(userId), 'apify-actor-discovery-runs', runId,
-  ] as const,
-  apifyActorCanaryPlan: (userId: string, runId: string, goal = 'initial_pool', targetSlot = '') => [
-    ...userKey(userId), 'apify-actor-discovery-runs', runId, 'canary-plan', goal, targetSlot,
-  ] as const,
-  apifyActorPoolCandidates: (userId: string, routeId: string, goal: string, targetSlot = '') => [
-    ...userKey(userId), 'apify-actor-routes', routeId, 'pool-candidates', goal, targetSlot,
-  ] as const,
-  apifyActorCanaryBatch: (userId: string, batchId: string) => [
-    ...userKey(userId), 'apify-actor-canary-batches', batchId,
-  ] as const,
-  apifyActorSourceSupport: (userId: string, sourceId: string) => [
-    ...userKey(userId), 'apify-actor-source-support', sourceId,
-  ] as const,
-  apifyActorDiscoverySettings: (userId: string) => [
-    ...userKey(userId), 'apify-actor-discovery-settings',
+  actorOpsV2Events: (userId: string, sourceId = '') => [
+    ...userKey(userId), 'actorops-v2-events', sourceId,
   ] as const,
   apifyActorAlertSettings: (userId: string) => [
     ...userKey(userId), 'apify-actor-alert-settings',

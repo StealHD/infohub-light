@@ -25,8 +25,6 @@
     "src/services/worker_housekeeping.py"
   ],
   "jobs": [
-    "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
-    "frontend/src/features/apify-actors/actorOpsPresentation.ts",
     "src/api/actor_ops_detail_projection.py",
     "src/api/actor_ops_pool_management_routes.py",
     "src/api/job_routes.py",
@@ -121,16 +119,5 @@
     "src/services/worker_lifecycle.py",
     "src/services/worker_migration_gate.py"
   ],
-  "frontend": [
-    "frontend/src/features/apify-actors/ActorOpsWorkflowDialogs.tsx",
-    "frontend/src/features/apify-actors/HeroActorOpsControlPlane.test.tsx",
-    "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
-    "frontend/src/features/apify-actors/HeroApifyActorRouteSettings.test.tsx",
-    "frontend/src/features/apify-actors/actorOpsPoolManagementTestFixtures.tsx",
-    "frontend/src/features/apify-actors/actorOpsSourceCanary.ts",
-    "frontend/src/features/apify-actors/useActorOpsPoolCandidates.ts",
-    "frontend/src/features/apify-actors/useActorOpsPoolManagement.ts",
-    "frontend/src/features/apify-actors/useActorOpsVerifiedActivation.ts",
-    "frontend/src/features/settings/SettingsActorOpsPage.tsx"
-  ]
+  "frontend": []
 }

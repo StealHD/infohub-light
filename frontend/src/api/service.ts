@@ -1,5 +1,5 @@
 import type { ApiClient } from './client'
-import { actorOpsPoolManagementApi } from './actorOpsPoolManagementService'
+import { actorOpsV2Api } from './actorOpsV2Service'
 import type {
   AuthStatus,
   AgentDelegation,
@@ -9,29 +9,7 @@ import type {
   ApifyActorAlertIncidents,
   ApifyActorAlertSettings,
   ApifyActorAlertSettingsPatch,
-  ApifyActorActivePoolUpdate,
-  ApifyActorDiscoveryRun,
-  ApifyActorDiscoveryMeasurementRequest,
-  ApifyActorDiscoveryMeasurementResponse,
-  ApifyActorDiscoverySettings,
-  ApifyActorDiscoverySettingsPatch,
-  ApifyActorDiagnosticEvents,
-  ApifyActorEvaluationHistory,
-  ApifyActorFreshnessCheck,
-  ApifyActorFreshnessCheckResponse,
-  ApifyActorFreshnessPlan,
-  ApifyActorPaidCanaryRequest,
-  ApifyActorPaidCanaryResponse,
-  ApifyActorRecommendedPoolActivation,
-  ApifyActorRouteDetail,
-  ApifyActorRoutesResponse,
   ApifyActorSourceCapabilitiesResponse,
-  ApifyActorSourceBindingActivation,
-  ApifyActorSourceBindingActivationResponse,
-  ApifyActorSourceSupport,
-  ApifyActorSourcePreference,
-  ApifyActorSupportCheckRequest,
-  ApifyActorSupportCheckResponse,
   ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
@@ -77,7 +55,7 @@ const resource = (path: string, id: string) => `${path}/${encodeURIComponent(id)
 
 export function createServiceApi(client: ApiClient) {
   return {
-    ...actorOpsPoolManagementApi(client),
+    ...actorOpsV2Api(client),
     authStatus: (signal?: AbortSignal) => client.get<AuthStatus>('/api/auth/status', signal),
     login: (username: string, password: string) => client.post<AuthStatus>('/api/auth/login', { username, password }),
     logout: () => client.post<AuthStatus>('/api/auth/logout'),
@@ -241,160 +219,6 @@ export function createServiceApi(client: ApiClient) {
     ),
     drainApifyKey: (secretId: string) => client.post<ApifyKeyPool>(
       `${resource('/api/admin/apify-key-pool', secretId)}/drain`,
-    ),
-    apifyActorRoutes: (signal?: AbortSignal) => client.get<ApifyActorRoutesResponse>(
-      '/api/admin/apify-routes',
-      signal,
-    ),
-    apifyActorRoute: (routeId: string, signal?: AbortSignal) => client.get<ApifyActorRouteDetail>(
-      resource('/api/admin/apify-routes', routeId),
-      signal,
-    ),
-    apifyActorFreshnessPlan: (routeId: string, signal?: AbortSignal) => client.get<ApifyActorFreshnessPlan>(
-      `${resource('/api/admin/apify-routes', routeId)}/freshness-plan`,
-      signal,
-    ),
-    updateApifyActorFreshnessSettings: (
-      routeId: string,
-      payload: {
-        enabled: boolean
-        interval_hours: number
-        expected_generation: number
-        standing_authorization_confirmed: boolean
-      },
-    ) => client.patch<ApifyActorRouteDetail>(
-      `${resource('/api/admin/apify-routes', routeId)}/freshness-settings`,
-      payload,
-    ),
-    createApifyActorFreshnessCheck: (
-      routeId: string,
-      payload: {
-        cost_confirmed: boolean
-        expected_generation: number
-        max_total_charge_usd: number
-      },
-    ) => (
-      client.post<ApifyActorFreshnessCheckResponse>(
-        `${resource('/api/admin/apify-routes', routeId)}/freshness-checks`,
-        payload,
-      )
-    ),
-    apifyActorFreshnessCheck: (checkId: string, signal?: AbortSignal) => client.get<ApifyActorFreshnessCheck>(
-      resource('/api/admin/apify-freshness-checks', checkId),
-      signal,
-    ),
-    requestApifyActorSupportCheck: (payload: ApifyActorSupportCheckRequest) => (
-      client.post<ApifyActorSupportCheckResponse>('/api/admin/apify-support-checks', payload)
-    ),
-    apifyActorDiscoveryRun: (runId: string, signal?: AbortSignal) => client.get<ApifyActorDiscoveryRun>(
-      resource('/api/admin/apify-discovery-runs', runId),
-      signal,
-    ),
-    reconcileApifyActorValidation: (
-      routeId: string,
-      expectedGeneration: number,
-      candidateId: string,
-    ) => client.post<{
-      schema_version: 1
-      status: string
-      semantic_outcome: string
-      cost_usd: number | null
-      continued: boolean
-    }>(
-      `${resource('/api/admin/apify-routes', routeId)}/validations/reconcile`,
-      { expected_generation: expectedGeneration, candidate_id: candidateId },
-    ),
-    canaryApifyActorDiscoveryCandidate: (
-      runId: string,
-      revisionId: string,
-      payload: ApifyActorPaidCanaryRequest,
-    ) => client.post<ApifyActorPaidCanaryResponse>(
-      `${resource('/api/admin/apify-discovery-runs', runId)}/candidates/${encodeURIComponent(revisionId)}/canary`,
-      payload,
-    ),
-    updateApifyActorRouteActivePool: (
-      routeId: string,
-      payload: ApifyActorActivePoolUpdate,
-    ) => client.put<ApifyActorRouteDetail>(
-      `${resource('/api/admin/apify-routes', routeId)}/active-pool`,
-      payload,
-    ),
-    activateApifyActorRouteRecommendedPool: (
-      routeId: string,
-      payload: ApifyActorRecommendedPoolActivation,
-    ) => client.post<ApifyActorRouteDetail>(
-      `${resource('/api/admin/apify-routes', routeId)}/active-pool/activate`,
-      payload,
-    ),
-    apifyActorSourceSupport: (sourceId: string, signal?: AbortSignal) => client.get<ApifyActorSourceSupport>(
-      `${resource('/api/admin/sources', sourceId)}/apify-support`,
-      signal,
-    ),
-    canaryApifyActorSourceRevision: (
-      sourceId: string,
-      revisionId: string,
-      payload: ApifyActorPaidCanaryRequest,
-    ) => client.post<ApifyActorPaidCanaryResponse>(
-      `${resource('/api/admin/sources', sourceId)}/apify-validations/${encodeURIComponent(revisionId)}/canary`,
-      payload,
-    ),
-    activateApifyActorSourceBinding: (
-      sourceId: string,
-      payload: ApifyActorSourceBindingActivation,
-    ) => client.post<ApifyActorSourceBindingActivationResponse>(
-      `${resource('/api/admin/sources', sourceId)}/apify-binding/activate`,
-      payload,
-    ),
-    updateApifyActorSourcePreference: (
-      sourceId: string,
-      candidateId: string | null,
-      expectedGeneration: number,
-    ) => client.patch<ApifyActorSourcePreference>(
-      `${resource('/api/admin/sources', sourceId)}/apify-preference`,
-      { candidate_id: candidateId, expected_generation: expectedGeneration },
-    ),
-    apifyActorEvents: (
-      params: {
-        route_id?: string
-        source_id?: string
-        candidate_id?: string
-        phase?: string
-        outcome?: string
-        since?: string
-        until?: string
-        cursor?: string
-        limit?: number
-      } = {},
-      signal?: AbortSignal,
-    ) => {
-      const query = new URLSearchParams()
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') query.set(key, String(value))
-      })
-      const suffix = query.toString()
-      return client.get<ApifyActorDiagnosticEvents>(
-        `/api/admin/apify-actor-events${suffix ? `?${suffix}` : ''}`,
-        signal,
-      )
-    },
-    retryApifyActorEvaluation: (evaluationId: string) => client.post<{
-      schema_version: 1
-      evaluation: ApifyActorEvaluationHistory
-    }>(`${resource('/api/admin/apify-actor-evaluations', evaluationId)}/retry`, {
-      confirmation: '确认重新尝试一次',
-    }),
-    apifyActorDiscoverySettings: (signal?: AbortSignal) => client.get<ApifyActorDiscoverySettings>(
-      '/api/admin/apify-discovery-settings',
-      signal,
-    ),
-    updateApifyActorDiscoverySettings: (payload: ApifyActorDiscoverySettingsPatch) => (
-      client.patch<ApifyActorDiscoverySettings>('/api/admin/apify-discovery-settings', payload)
-    ),
-    measureApifyActorDiscovery: (payload: ApifyActorDiscoveryMeasurementRequest) => (
-      client.post<ApifyActorDiscoveryMeasurementResponse>(
-        '/api/admin/apify-discovery-measurements',
-        payload,
-      )
     ),
     apifyActorAlertSettings: (signal?: AbortSignal) => client.get<ApifyActorAlertSettings>(
       '/api/admin/apify-actor-alert-settings',

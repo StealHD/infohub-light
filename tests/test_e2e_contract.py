@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.check_e2e_contract import check_file
+from scripts.check_e2e_contract import _files, check_file
 
 
 def _write(root: Path, content: str) -> Path:
@@ -45,3 +45,7 @@ def test_deterministic_visual_contract_passes(tmp_path: Path) -> None:
     )
 
     assert check_file(tmp_path, path) == []
+
+
+def test_changed_e2e_selection_ignores_a_deleted_spec(tmp_path: Path) -> None:
+    assert _files(tmp_path, ["frontend/e2e/retired.spec.ts"]) == []

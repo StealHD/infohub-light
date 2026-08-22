@@ -8,29 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "补齐 ActorOps v2 既有 v1 binding 的离线 readiness CAS：切流摘要只比较当前 runtime 可执行的 exact revision，settled source-canary 证明才可将 pending 提升为 ready；本地 YouTube shadow 选择零 v2 Attempt/POST 后，因 v1 candidate_shortfall 未进入 active 并恢复 disabled。",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-youtube-readiness-guard",
-  "unresolved": [
-    "YouTube v1 Route 仅有 1 条 runnable exact revision，低于现役两个 Candidate 阈值；需要独立受测的 v1 pool 恢复，或显式修订切流决策后才可重开 shadow。"
-  ],
-  "validation": [
-    "定向回归 52 项通过，覆盖 terminal slot 过滤、精确来源证明、CAS/idempotency、global 25 惰性与切流摘要。",
-    "最终 impacted preflight 17/17 通过，覆盖完整 Python、前端 lint/typecheck/Vitest/build、控制、产品文档和代码尺寸检查。",
-    "本地 Route 已由 shadow CAS 恢复 disabled；状态确认 0 个 v2 Attempt、0 未结费用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-21",
@@ -413,6 +390,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "v1 表 SQLite authorizer deny 下的 v2 Admin list/detail、migration-required 与 unavailable、Operation Log 脱敏和 feature-flag 无语义回退测试通过。",
     "定向 ActorOps/API/来源生命周期/Operation Log 回归、v2 Repository/Runtime/Reconciliation/Maintenance 回归、前端 typecheck/lint、控制与产品文档校验均通过。",
     "最终 impacted preflight 15/15 通过（snapshot: /tmp/actorops-phase3-impact.json）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "完成 ActorOps v2 单轨退役 Phase 4：设置页永久移除 Hero/v1 fallback，前端只调用 schema-2 v2 Route、详情、Replacement、共享 alerts 与脱敏 Operation Events；旧 Pool/Canary/Freshness 组件、types、query keys、服务和浏览器流程已删除，v1 前端 allowlist 收敛为空。",
+  "status": "completed",
+  "task_id": "2026-08-22-actorops-v2-control-plane",
+  "unresolved": [
+    "Phase 5–8 继续以 410 退役 v1 API、隔离 v1 Worker Job、安装最终单轨 schema/离线退役工具并删除剩余 v1 Runtime；未部署、未调用真实 Actor、AI 或付费来源。"
+  ],
+  "validation": [
+    "v2 UI 定向 Vitest、lint、typecheck、production build 与桌面/平板/390px Playwright 均通过；E2E 断言不请求 retired Pool/Canary/Freshness URL。",
+    "完整 impacted preflight 16/16 通过（snapshot: /tmp/actorops-phase4-impact.json），包含全域 Python、76 个 Vitest 文件/595 项、E2E contract、代码规模、文档与控制检查。"
   ]
 }
 ```

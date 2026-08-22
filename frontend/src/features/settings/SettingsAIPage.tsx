@@ -247,7 +247,7 @@ export function SettingsAIPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.feedEndMessages(user.id) }),
         ...(submitted.sections.includes('ai')
-          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) })]
+          ? [queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Routes(user.id) })]
           : []),
       ])
     },

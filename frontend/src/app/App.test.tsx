@@ -172,10 +172,8 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
     subscribe: vi.fn().mockResolvedValue({ subscription: { reused_item_count: 0 } }),
     apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
-    apifyActorRoutes: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      generation: 1,
-      support_profiles: actorSupportProfiles,
+    actorOpsV2Routes: vi.fn().mockResolvedValue({
+      schema_version: 2,
       routes: [],
     }),
     sourceCapabilities: vi.fn().mockResolvedValue({
@@ -1989,7 +1987,7 @@ describe('App routes', () => {
       notificationSettings,
       notificationServices,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
-      apifyActorRoutes: vi.fn(),
+      actorOpsV2Routes: vi.fn(),
       apifyActorAlertSettings: vi.fn(),
       apifyActorAlertIncidents: vi.fn(),
       storageSummary: vi.fn(),
@@ -2018,7 +2016,7 @@ describe('App routes', () => {
     expect(config).not.toHaveBeenCalled()
     expect(secrets).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
-    expect(hiddenQueries.apifyActorRoutes).not.toHaveBeenCalled()
+    expect(hiddenQueries.actorOpsV2Routes).not.toHaveBeenCalled()
     expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
     expect(await screen.findByRole('heading', { name: '通知', level: 1 })).toBeInTheDocument()
     expect(document.querySelector('[data-settings-page="notifications"]')).toBeInTheDocument()
@@ -2047,12 +2045,12 @@ describe('App routes', () => {
 
   it('redirects members away from fetching without requesting config or ActorOps data', async () => {
     const config = vi.fn()
-    const apifyActorRoutes = vi.fn()
+    const actorOpsV2Routes = vi.fn()
     const apifyActorAlertSettings = vi.fn()
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-fetching-readonly', username: 'member', role: 'member', enabled: true } }),
       config,
-      apifyActorRoutes,
+      actorOpsV2Routes,
       apifyActorAlertSettings,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -2062,17 +2060,17 @@ describe('App routes', () => {
     expect(document.querySelector('[data-settings-page="fetching"]')).not.toBeInTheDocument()
     await act(async () => Promise.resolve())
     expect(config).not.toHaveBeenCalled()
-    expect(apifyActorRoutes).not.toHaveBeenCalled()
+    expect(actorOpsV2Routes).not.toHaveBeenCalled()
     expect(apifyActorAlertSettings).not.toHaveBeenCalled()
   })
 
   it('redirects members away from ActorOps without requesting routes, alerts, or incidents', async () => {
-    const apifyActorRoutes = vi.fn()
+    const actorOpsV2Routes = vi.fn()
     const apifyActorAlertSettings = vi.fn()
     const apifyActorAlertIncidents = vi.fn()
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-actorops-readonly', username: 'member', role: 'member', enabled: true } }),
-      apifyActorRoutes,
+      actorOpsV2Routes,
       apifyActorAlertSettings,
       apifyActorAlertIncidents,
     } as Partial<ServiceApi>)
@@ -2082,7 +2080,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
     expect(document.querySelector('[data-settings-page="actorops"]')).not.toBeInTheDocument()
     await act(async () => Promise.resolve())
-    expect(apifyActorRoutes).not.toHaveBeenCalled()
+    expect(actorOpsV2Routes).not.toHaveBeenCalled()
     expect(apifyActorAlertSettings).not.toHaveBeenCalled()
     expect(apifyActorAlertIncidents).not.toHaveBeenCalled()
   })

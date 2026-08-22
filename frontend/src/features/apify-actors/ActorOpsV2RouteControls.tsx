@@ -5,8 +5,7 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
 import { actionToast, Button, Icons, Input, Label, Modal, Popover, TextField } from '../../design-system'
-import { type ActorOpsV2RouteView } from './ActorOpsV2ControlPlane'
-import { actorOpsV2CandidateLabel, type ActorOpsV2CandidateView } from './actorOpsV2RouteModel'
+import { actorOpsV2CandidateLabel, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 import { ActorOpsV2ReplacementDrawer } from './ActorOpsV2ReplacementDrawer'
 
 export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView }) {
@@ -16,24 +15,24 @@ export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView 
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [replaceOpen, setReplaceOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
-  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Routes(user.id) })
   const promote = useMutation({
-    mutationFn: (target: ActorOpsV2CandidateView) => api.promoteActorOpsV2Candidate(route.route_id, target.candidate_id, { expected_route_generation: route.route_generation, expected_candidate_generation: target.generation, confirmation: '确认设为主用 Actor' }),
+    mutationFn: (target: ActorOpsV2CandidateView) => api.promoteActorOpsV2Candidate(route.route_id, target.candidate_id, { expected_route_generation: route.generation, expected_candidate_generation: target.generation, confirmation: '确认设为主用 Actor' }),
     onSuccess: () => { void refresh(); setCandidate(null); actionToast.success('已切换当前主用', { description: '没有启动 Actor，也没有产生费用。' }) },
     onError: (error) => { setCandidate(null); actionToast.danger(actionError(error, '未能切换主用，请刷新后重试。')) },
   })
   const verify = useMutation({
-    mutationFn: () => api.verifyActorOpsV2Bindings(route.route_id, { expected_route_generation: route.route_generation, confirmation: '确认核验来源绑定' }),
+    mutationFn: () => api.verifyActorOpsV2Bindings(route.route_id, { expected_route_generation: route.generation, confirmation: '确认核验来源绑定' }),
     onSuccess: () => { void refresh(); setVerifyOpen(false); actionToast.success('已完成来源核验', { description: '没有启动 Actor，也没有产生费用。' }) },
     onError: (error) => { setVerifyOpen(false); actionToast.danger(actionError(error, '当前来源还不能安全启用，请稍后再核验。')) },
   })
   const metadata = useMutation({
-    mutationFn: () => api.refreshActorOpsV2Metadata(route.route_id, { expected_route_generation: route.route_generation }),
+    mutationFn: () => api.refreshActorOpsV2Metadata(route.route_id, { expected_route_generation: route.generation }),
     onSuccess: () => actionToast.success('已排队更新商城信息', { description: '仅读取 Apify 公开信息，不启动 Actor。' }),
     onError: (error) => actionToast.danger(actionError(error, '未能更新商城信息。')),
   })
   const discovery = useMutation({
-    mutationFn: () => api.discoverActorOpsV2Candidates(route.route_id, { expected_route_generation: route.route_generation }),
+    mutationFn: () => api.discoverActorOpsV2Candidates(route.route_id, { expected_route_generation: route.generation }),
     onSuccess: () => actionToast.success('已开始免费搜索候选', { description: '搜索不会启动 Actor 或产生费用。' }),
     onError: (error) => actionToast.danger(actionError(error, '未能开始免费搜索候选。')),
   })
@@ -65,7 +64,7 @@ function PriceCapControl({ route, onSaved }: { route: ActorOpsV2RouteView; onSav
   const cap = Number(value)
   const raised = Number.isFinite(cap) && cap > route.per_run_cap_usd
   const update = useMutation({
-    mutationFn: () => api.setActorOpsV2PriceCap(route.route_id, { expected_route_generation: route.route_generation, cap_usd: cap, ...(raised ? { confirmation: '确认提高 Actor 费用上限' as const } : {}) }),
+    mutationFn: () => api.setActorOpsV2PriceCap(route.route_id, { expected_route_generation: route.generation, cap_usd: cap, ...(raised ? { confirmation: '确认提高 Actor 费用上限' as const } : {}) }),
     onSuccess: () => { void onSaved(); setOpen(false); actionToast.success('已更新单次费用上限') },
     onError: (error) => actionToast.danger(actionError(error, '未能更新费用上限。')),
   })

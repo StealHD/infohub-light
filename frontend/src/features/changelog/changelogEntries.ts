@@ -1,4 +1,4 @@
-import { actorOpsV2AdminChangelogEntry } from './actorOpsV2AdminChangelogEntry'
+import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry'
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntry } from './actorOpsV2SourceBindingChangelogEntry'
@@ -8,7 +8,7 @@ export const changelogMonths: ChangelogMonth[] = [
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [
-      actorOpsV2AdminChangelogEntry,
+      ...actorOpsV2AdminChangelogEntries,
       actorOpsV2SourceBindingChangelogEntry,
       codeHealthMaintenanceEntry,
       ...actorOpsPoolManagementChangelogEntries,

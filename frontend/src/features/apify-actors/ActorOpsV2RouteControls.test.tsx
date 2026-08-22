@@ -7,12 +7,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ServiceApi } from '../../api/service'
 import type { AppOutletContext } from '../../app/AppContext'
 import { ActorOpsV2RouteControls } from './ActorOpsV2RouteControls'
-import type { ActorOpsV2RouteView } from './ActorOpsV2ControlPlane'
+import { actorOpsV2RouteView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
-const route: ActorOpsV2RouteView = {
-  actorops_version: 2, route_id: 'route-instagram', route_generation: 4,
+const route: ActorOpsV2RouteView = actorOpsV2RouteView({
+  route_id: 'route-instagram', generation: 4,
   route_key: 'instagram/profile/items', platform: 'instagram', health: 'healthy',
-  runtime_mode: 'active', per_run_cap_usd: 0.05, last_known_good: null, last_success_at: null,
+  target_type: 'profile', capability: 'items', runtime_mode: 'active', per_run_cap_usd: 0.05, last_known_good: null,
   degraded_reason: 'actorops_v2_binding_not_ready',
   active_candidate: {
     candidate_id: 'active', build_number: '1.0.10', lifecycle: 'probationary', assignment: 'active', priority: 0, generation: 3,
@@ -22,8 +22,10 @@ const route: ActorOpsV2RouteView = {
     candidate_id: 'standby', build_number: '1.0.1', lifecycle: 'probationary', assignment: 'standby', priority: 1, generation: 2,
     store_metadata: null, evidence_progress: { verified_bindings: 1, required_bindings: 1 },
   }],
-  binding_summary: { ready_count: 1, pending_count: 1 },
-}
+  binding_summary: { ready_count: 1, pending_count: 1, disabled_count: 0 },
+  maintenance_policy: { authorized: false, workspace: { enabled: false, monthly_budget_usd: 0, generation: 1 }, route: { enabled: false, max_probe_usd: 0.01, max_probes_per_utc_day: 1, auto_add_standby: false, auto_replace_non_last: false, generation: 1 }, budget: { spent_usd: 0, reserved_usd: 0, probe_count: 0 } },
+  updated_at: null,
+})
 
 function renderControls() {
   const api = {
