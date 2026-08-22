@@ -393,7 +393,6 @@ def _run_job(
         cache_source_avatars=_cache_run_source_avatars,
         cache_media=_cache_run_media,
         apify_coordinator=apify_coordinator_for_workspace,
-        build_actor_route=build_apify_actor_route,
         apify_key_pool_enabled=apify_key_pool_enabled,
         shared_acquisition_enabled=shared_acquisition_enabled,
     )

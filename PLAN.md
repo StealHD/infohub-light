@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- 已实现但默认停用：ActorOps v2 Phase 1–5 已建立 global 26、Domain/Repository、三类 Adapter、稳定获取 Runtime、只读 Reconciler、Worker claim 隔离、可恢复 Discovery 与受限站立维护。Phase 6 的离线 Route CAS、摘要/备份 CLI、shadow 选择事件和稳定内容身份已就绪；2026-08-21 已在本地离线完成一次 global 26 只读 backfill，并以 pending catalog-binding bridge 补齐一条缺失的 Instagram 订阅映射。YouTube 的既有 binding 已以精确 v1 来源证明离线提升为 ready，并完成一次 shadow 选择：v2 没有创建 Attempt 或 POST，但 v1 在网络前因只有一个可运行 Candidate、旧阈值要求两个而拒绝 Job。该 shadow 失败阻止 active；收尾后全部 Route 恢复 disabled，现役 API/Worker 继续使用 v1。
+- ActorOps v2 单轨退役：Phase 0 的静态边界和 Phase 1 的 Attempt 恢复/费用单调性已完成；当前 Phase 2 把平台来源 CRUD、Binding verify、调度、共享获取、单源抓取和用户 Feed 刷新切为只依赖 v2 Binding/Route。旧 Admin API、Worker handler、housekeeping 与前端控制面仍按后续 Phase 3–8 独立退役；本阶段不部署、不切真实流量、不调用付费 Actor/AI。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -30,7 +30,13 @@
 4. 维持 Feed/History、用户隔离、通知 outbox、存储预演/恢复和三视口 UI 回归。
 5. 开发切片只运行直接受影响测试；任务末运行一次 impacted preflight，PR 的 Linux UI 只跑映射 spec，最终 main SHA 运行一次权威完整 Gate。已知问题进入 full/release、同根因重复和 VPS 上传前代码类失败均须为 0。
 
-## ActorOps v2 分阶段计划
+## ActorOps 单轨退役当前计划
+
+1. **Phase 0–1 — 已完成**：机器可复现的 v1 runtime 引用边界已建立；v2 Attempt 使用持久 logical identity、请求窗口、结果重放和费用单调规则，同一 logical Job 不重复 POST。
+2. **Phase 2 — 当前**：`ActorOpsBindingService` 接管平台来源的 ensure/rebind/verify/disable/reenable/soft-delete；现役来源 projection、schedule、acquisition、catalog fetch 和 user feed refresh 只读 v2。pending/disabled 不执行；disabled/shadow 不回退 v1；YouTube 仅使用受控免费 RSS fallback。
+3. **Phase 3–8 — 后续**：依次建立直接 v2 Admin Service、切换前端、410 退役 v1 API、隔离 v1 Worker Job、安装单轨 schema/离线退役工具，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
+
+## ActorOps v2 历史建设阶段
 
 1. **Phase 0 — 已完成条件**：从 `ce12561896642684ae310ba111f2ce4efb749cf1` 建立 `codex/actorops-v2`，保存 task snapshot，完成代码/表/状态/API/UI/测试盘点、D160 与 planned 合同；不修改产品代码或运行数据。
 2. **Phase 1 — 已完成：Domain 与 global 26**：七张核心表、单调状态模型、Adapter Port/Registry、Repository、显式离线迁移和 v24 只读摘要 backfill 已建立；global 25 永久惰性。迁移前必须排空 inflight/未结费用，v2 Attempt/Discovery 从空表开始。
@@ -38,11 +44,11 @@
 4. **Phase 3 — 已完成：统一对账与 Worker 隔离**：单一 Reconciler 只读取和结算既有远端 Run；unknown start 只冻结对应 Attempt/费用预留，Actor 控制任务不再成为普通 Fetch claim 的同步前置。
 5. **Phase 4 — 已完成：可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存安全 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成；不启动 Actor、Probe 或切流。
 6. **Phase 5 — 已完成：站立授权**：默认关闭，Owner/Admin 双策略授权后才按每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00` 的上限执行单 Candidate Probe；免费 exact-revision 预检、原子预算 reservation、自动补 Standby 与非最后一路替换均已实现，最后一个可运行 Actor 永不自动移除。无 HTTP API/UI，未执行真实调用。
-7. **Phase 6 — 当前：平台切换前历史费用隔离**：离线 Route CAS 只允许相邻 mode。`scripts/audit_actorops_v2_legacy_costs.py scan --evidence PATH` 以同一加盐、私有 `0600` session 每页最多 20 次 authenticated GET 核对 legacy terminal Run；`--resume` 只读未覆盖 Run，已阻断观察只有显式 `--retry-blocked` 才重读。仅精确 `usageTotalUsd` 可结算；远端 404 只写可审计 quarantine code 并保留 `cost_final=false` 和最坏预留，401/403/429/5xx/timeout、unknown-start 与非终态继续阻断。完整 evidence 才能由不联网的 `snapshot` 在停 API/Worker、heartbeat 过窗后建立 `0600` backup/receipt；`quarantine` 以 receipt、hash 和精确上限在一个 CAS 事务中写入。2026-08-21 已完成一次 local global 26 migration/backfill；它只忽略精确终态 quarantine 和恰好一个已结算 remote Run 可证明的遗失 Attempt 派生位，仍输出历史未知费用上限。YouTube shadow 首次执行证明 v2 的只读选择有效且零 v2 Attempt/POST，但现役 v1 路由只有一条 runnable exact revision，未达到旧的两个 Candidate 阈值，因而 Job 在网络前失败；依 D166 不得进入 active。下一次 YouTube 观察必须先以独立、受测的 v1 pool 恢复操作恢复至少两条可运行 exact revision，或显式修订该切流决策；不得静默降低门槛。收到每个平台单独费用确认后，才按 YouTube、Instagram、X 顺序执行 shadow、20 次自然获取和 3 次重启验收；shadow 不得额外启动付费 Actor，未确认前所有 Route 保持 disabled。
+7. **历史 Phase 6 — 已完成离线护栏**：离线 Route CAS、历史费用审计和备份/receipt 机制已实现；其 shadow→v1 语义已被单轨退役计划取代，不再是现役来源路径。
    - D173 的受控前置：为使已证实的 v1 Actor 输出合同以其实际费用完成 promotion，global 27 仅将 v1 Canary ledger 的单 Candidate 批准上限升至 `$0.20`、批次总额升至 `$0.60`。它必须显式离线安装；默认 `$0.02` 不变，未迁移数据库不得发起更高 cap 请求，也不改变 v2 schema、Route mode 或 Phase 6 切流条件。
    - 精确 Revision 失败不复活：一次 final `contract_mismatch` 后，同一 Actor/Build/Manifest 不得在后续 Discovery 中重新计入新 Candidate 或再被批准；只有 Build 或 Manifest 改变才能形成新的验证合同。
-8. **Phase 7.1 — 当前：发布收尾、Actor 信息与完整替换流**：global 28 在 flag=true 下以 global 26 为精确前置，保存安全商城快照、可编辑 future per-run cap 和冻结 Replacement Plan；free metadata/discovery 与显式串行 Probe 保持低优先级，Probe 不发布 Feed/LKG，apply 只以 CAS 改 assignment。Settings 使用扁平 Route 列表、Source Chip 预览、费用 Popover 和两次确认的 Replacement Drawer；商城价格只读。此切片完成后，按已授权上限在本地执行一次 Instagram 替换验收，不发布 VPS 或 Tag。
-9. **Phase 8 — 发布决定与完整门禁**：在本地验收、费用全部结算、ActorOps mapped Playwright 和完整受影响门禁通过后，评估是否删除旧链、准备发布或进入独立 VPS 交付；不把本地验收自动扩大成部署或 Tag。
+8. **历史 Phase 7.1 — 已完成控制面基础**：global 28、商城快照、费用上限、Replacement Plan 和 v2 UI 基础已经建立；全面 Admin/UI 单轨化由当前退役计划继续完成。
+9. **历史 Phase 8 — 已由单轨退役计划取代**：发布、VPS 与 Tag 仍是本地验收之后的独立决定。
 
 每个 Phase 独立提交；行为测试先在该 Phase 内观察失败，再随实现转绿，禁止提交已知失败。Phase 6 的三个平台各自独立提交和回退边界。
 

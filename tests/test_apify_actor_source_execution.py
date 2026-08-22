@@ -1,12 +1,11 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from src.models import ApifySocialSubscriptionConfig
 from src.scrapers.base import SourceFetchError
-from src.services.apify_actor_ops import RouteExecutionResult
-from src.services.apify_actor_runtime import ApifyActorRuntimeService
 from src.services.apify_actor_source_execution import fetch_actorops_source_subscription
 
 
@@ -21,39 +20,39 @@ def _youtube_subscription(*, profile_id: str = "route-youtube"):
     )
 
 
-def test_registered_actorops_source_fetches_latest_items_without_feed_window(monkeypatch):
-    class Ops:
-        @staticmethod
-        def get_route(_profile_id):
-            return {"platform": "youtube", "target_type": "channel", "capability": "items"}
-
+def test_registered_actorops_source_forwards_only_v2_execution_snapshot():
     captured = {}
 
-    async def fetch(_self, **kwargs):
-        captured["runtime"] = kwargs["runtime"]
-        return RouteExecutionResult([], "valid_empty", "primary", ())
+    class Ops:
+        async def fetch_subscription(self, **kwargs):
+            captured.update(kwargs)
+            return ["v2-result"]
 
-    monkeypatch.setattr(ApifyActorRuntimeService, "fetch", fetch)
-    asyncio.run(
+    snapshot = SimpleNamespace(actorops_version=2)
+    since = datetime.now(timezone.utc)
+    public_client = object()
+    result = asyncio.run(
         fetch_actorops_source_subscription(
             subscription=_youtube_subscription(),
-            since=datetime.now(timezone.utc) - timedelta(days=30),
+            since=since,
             ops=Ops(),
             client_factory=object,
             job_id="job",
-            frozen_snapshot=None,
+            frozen_snapshot=snapshot,
+            public_http_client=public_client,
         )
     )
 
-    assert captured["runtime"].since_iso is None
-    assert captured["runtime"].max_items == 3
+    assert result == ["v2-result"]
+    assert captured["snapshot"] is snapshot
+    assert captured["since"] is since
+    assert captured["public_http_client"] is public_client
 
 
-def test_unregistered_actorops_source_is_rejected_before_client_creation():
+def test_legacy_actorops_snapshot_is_rejected_before_client_creation():
     class Ops:
-        @staticmethod
-        def get_route(_profile_id):
-            return {"platform": "youtube", "target_type": "profile", "capability": "items"}
+        async def fetch_subscription(self, **_kwargs):
+            raise AssertionError("legacy snapshot must not reach ActorOps")
 
     created_client = False
 
@@ -70,9 +69,9 @@ def test_unregistered_actorops_source_is_rejected_before_client_creation():
                 ops=Ops(),
                 client_factory=client_factory,
                 job_id="job",
-                frozen_snapshot=None,
+                frozen_snapshot=SimpleNamespace(actorops_version=1),
             )
         )
 
-    assert raised.value.code == "apify_actor_route_unregistered"
+    assert raised.value.code == "actorops_v2_snapshot_required"
     assert created_client is False

@@ -14,6 +14,7 @@ from src.services.actorops.publication import (
 from src.services.actorops.repository import ActorOpsRepository
 from src.services.actorops.service import (
     ActorOpsCompatibilityService,
+    ActorOpsV2Service,
     V2ExecutionHandle,
     build_source_actorops_service,
 )
@@ -110,14 +111,19 @@ def test_compatibility_service_uses_v2_only_for_active_routes(tmp_path) -> None:
     store.close()
 
 
-def test_disabled_factory_does_not_query_v2_tables(tmp_path, monkeypatch) -> None:
+def test_source_factory_ignores_retired_feature_flag_and_uses_v2(
+    tmp_path, monkeypatch
+) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     monkeypatch.setenv("ACTOROPS_V2_ENABLED", "false")
     statements: list[str] = []
     store.connect().set_trace_callback(statements.append)
-    build_source_actorops_service(store, workspace_id=DEFAULT_WORKSPACE_ID)
-    assert not any("_v2" in statement.casefold() for statement in statements)
+    service = build_source_actorops_service(
+        store, workspace_id=DEFAULT_WORKSPACE_ID
+    )
+    assert isinstance(service, ActorOpsV2Service)
+    assert any("_v2" in statement.casefold() for statement in statements)
     store.close()
 
 

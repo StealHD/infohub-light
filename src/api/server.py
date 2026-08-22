@@ -7,6 +7,7 @@ import hashlib
 import logging
 import os
 import re
+import sqlite3
 import time
 import uuid
 from copy import deepcopy
@@ -136,6 +137,9 @@ from .actor_ops_pool_management_routes import (
     validate_pool_candidate_refresh,
 )
 from .actor_ops_detail_projection import public_actor_ops_detail as project_actor_ops_detail
+from .actorops_source_lifecycle import ActorOpsSourceLifecycle
+from ..services.actorops.binding_service import ActorOpsBindingError
+from ..services.actorops.repository import ActorOpsNotFound, ActorOpsRepository
 from ..scrapers.apify_client import ApifyClient
 from ..services.apify_discovery_ai import (
     list_global_discovery_ai_options,
@@ -1291,45 +1295,41 @@ def create_app(
             None,
         )
 
-    def workspace_apify_credential_ready(workspace_id: str) -> bool:
-        if not apify_key_pool_enabled():
-            return False
-        state = apify_key_pool.public_state(workspace_id)
-        active_secret_id = state.get("active_secret_id")
-        if state.get("status") != "ready" or not active_secret_id:
-            return False
-        secret = store.get_secret_ref(str(active_secret_id))
-        return bool(
-            secret
-            and secret_values.status(str(secret["env_name"]))["is_set"]
-        )
-
     def source_setup_availability(
         workspace_id: str,
     ) -> tuple[int, dict[str, tuple[str, str | None]]]:
-        ops = apify_actor_ops_for(workspace_id)
-        credential_ready = workspace_apify_credential_ready(workspace_id)
+        repository = ActorOpsRepository(store.connect(), workspace_id)
         statuses: dict[str, tuple[str, str | None]] = {}
+        generations: list[int] = []
         for setup_type, platform in (
             (X_PROFILE_SETUP_TYPE, "x"),
             (INSTAGRAM_PROFILE_SETUP_TYPE, "instagram"),
         ):
-            route = primary_actor_route_for_platform(ops, platform)
-            if route is None or not ops.source_capability_ready(
-                str(route["route_id"])
-            ):
+            try:
+                row = store.connect().execute(
+                    """SELECT route_id FROM actor_routes_v2
+                       WHERE workspace_id=? AND platform=?
+                         AND target_type='profile' AND capability='items'""",
+                    (workspace_id, platform),
+                ).fetchone()
+                route = repository.get_route(str(row["route_id"])) if row else None
+            except sqlite3.OperationalError:
+                # ActorOps schema readiness is local to Actor-backed sources;
+                # ordinary RSS/GitHub setup remains available.
+                route = None
+            if route is not None:
+                generations.append(route.generation)
+            if route is None:
                 statuses[setup_type] = (
                     "temporarily_unavailable",
                     "platform_setup_pending",
                 )
-            elif not credential_ready:
-                statuses[setup_type] = (
-                    "temporarily_unavailable",
-                    "workspace_credential_unavailable",
-                )
             else:
+                # Route mode, Candidate readiness and credentials are
+                # execution gates.  They must not prevent an operator from
+                # creating the pending Binding that Discovery will prepare.
                 statuses[setup_type] = ("ready", None)
-        return ops.catalog_generation(), statuses
+        return max(generations, default=1), statuses
 
     def workspace_catalog_source_setup_type(
         workspace_id: str,
@@ -1344,20 +1344,19 @@ def create_app(
         ):
             return setup_type
         try:
-            route = apify_actor_ops_for(workspace_id).get_route(
-                str(config["profile_id"])
-            )
-        except ActorOpsError:
+            route = ActorOpsRepository(
+                store.connect(), workspace_id
+            ).get_route(str(config["profile_id"]))
+        except ActorOpsNotFound:
             return setup_type
         identity = (
-            str(route.get("platform") or ""),
-            str(route.get("target_type") or ""),
-            str(route.get("capability") or ""),
-            str(route.get("mode") or ""),
+            route.route_key.platform,
+            route.route_key.target_type,
+            route.route_key.capability,
         )
-        if identity == ("x", "profile", "items", "primary"):
+        if identity == ("x", "profile", "items"):
             return X_PROFILE_SETUP_TYPE
-        if identity == ("instagram", "profile", "items", "primary"):
+        if identity == ("instagram", "profile", "items"):
             return INSTAGRAM_PROFILE_SETUP_TYPE
         return setup_type
 
@@ -4900,132 +4899,32 @@ def create_app(
             payload.type,
             payload.config,
         )
-        actor_ops_route: dict[str, Any] | None = None
-        actor_ops_target: str | None = None
-        actor_ops_mode: Literal["primary", "fallback"] | None = None
-        actor_ops = apify_actor_ops_for(str(user["workspace_id"]))
-        if (
-            catalog_type == "apify_social"
-            and not normalized_config.get("profile_id")
-            and (
-                str(normalized_config.get("platform") or "").casefold(),
-                str(normalized_config.get("kind") or "").casefold(),
-            )
-            in {("x", "profile"), ("instagram", "profile")}
-        ):
-            legacy_platform = str(
-                normalized_config["platform"]
-            ).casefold()
-            actor_ops_route = primary_actor_route_for_platform(
-                actor_ops,
-                legacy_platform,
-            )
-            if (
-                actor_ops_route is None
-                or not actor_ops.source_capability_ready(
-                    str(actor_ops_route["route_id"])
-                )
-            ):
-                raise ApiError(
-                    "apify_actor_route_not_ready",
-                    "The selected Actor Route is not certified for new sources",
-                    status_code=409,
-                )
-            if (
-                payload.type in PLATFORM_PROFILE_SETUP_TYPES
-                and not workspace_apify_credential_ready(
-                    str(user["workspace_id"])
-                )
-            ):
-                raise ApiError(
-                    "workspace_credential_unavailable",
-                    "The workspace credential for this platform is unavailable",
-                    status_code=409,
-                    action="Ask an administrator to configure the platform connection.",
-                )
-            normalized_config = {
-                key: value
-                for key, value in normalized_config.items()
-                if key not in {"platform", "kind"}
-            }
-            normalized_config["profile_id"] = str(
-                actor_ops_route["route_id"]
-            )
-            key = build_source_key(catalog_type, normalized_config)
-        if (
-            catalog_type == "apify_social"
-            and normalized_config.get("profile_id")
-        ):
-            actor_ops_route = (
-                actor_ops_route
-                or actor_ops.get_route(str(normalized_config["profile_id"]))
-            )
-            if not actor_ops.source_capability_ready(
-                str(actor_ops_route["route_id"])
-            ):
-                raise ApiError(
-                    "apify_actor_route_not_ready",
-                    "The selected Actor Route is not certified for new sources",
-                    status_code=409,
-                )
-            actor_ops_target = str(normalized_config["target"])
-            validate_actor_ops_source_target(
-                actor_ops_route,
-                actor_ops_target,
-                primary=True,
-            )
-            actor_ops_mode = "primary"
-        elif (
-            catalog_source_setup_type(catalog_type, normalized_config)
-            == YOUTUBE_CHANNEL_SETUP_TYPE
-        ):
-            actor_ops_route = next(
-                (
-                    route
-                    for route in actor_ops.list_routes()
-                    if str(route["platform"]) == "youtube"
-                    and str(route["target_type"]) == "channel"
-                    and str(route["capability"]) == "items"
-                ),
-                None,
-            )
-            if actor_ops_route is None:
-                raise ApiError("apify_actor_route_not_ready", "The selected Actor Route is not certified for new sources", status_code=409)
-            actor_ops_target = str(normalized_config["url"])
-            validate_actor_ops_source_target(actor_ops_route, actor_ops_target, primary=True)
-            actor_ops_mode = "primary"
+        lifecycle = ActorOpsSourceLifecycle(
+            store, workspace_id=str(user["workspace_id"])
+        )
+        normalized_config = lifecycle.normalize_config(
+            catalog_type, normalized_config
+        )
+        key = build_source_key(catalog_type, normalized_config)
+        managed = lifecycle.is_managed(catalog_type, normalized_config)
         enforce_public_network = (
             catalog_source_setup_type(catalog_type, normalized_config)
             == YOUTUBE_CHANNEL_SETUP_TYPE
         )
-        source_enabled = bool(payload.enabled)
-        if (
-            actor_ops_mode == "primary"
-            and catalog_type == "apify_social"
-            and str((actor_ops_route or {}).get("admission_mode") or "standard")
-            != "compatibility"
-        ):
-            existing_source = store.get_source_by_key(
-                workspace_id=str(user["workspace_id"]),
-                source_key=key,
-            )
-            existing_binding = None
-            if existing_source is not None:
-                try:
-                    existing_binding = apify_actor_ops_for(
-                        str(user["workspace_id"])
-                    ).get_source_binding(str(existing_source["id"]))
-                except ActorOpsError as exc:
-                    if exc.status_code != 404:
-                        raise
-            source_enabled = bool(
-                existing_source
-                and existing_binding
-                and existing_binding.get("validation_status")
-                in {"ready_1of1", "ready_2of2", "ready_3of3"}
-                and existing_source.get("enabled")
-            )
+        existing_source = store.get_source_by_key(
+            workspace_id=str(user["workspace_id"]),
+            source_key=key,
+        )
+        source_enabled = bool(
+            existing_source.get("enabled")
+            if managed and existing_source is not None
+            else payload.enabled if not managed else False
+        )
+        connection = store.connect()
+        owns_transaction = not connection.in_transaction
         try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             source = upsert_catalog_source(
                 user=user,
                 workspace_id=user["workspace_id"],
@@ -5042,58 +4941,31 @@ def create_app(
                 enforce_public_network=enforce_public_network,
                 enabled=source_enabled,
             )
+            if managed:
+                source = lifecycle.after_create(str(source["id"]))
+            if owns_transaction:
+                connection.commit()
         except SourceKeyConflictError as exc:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
             raise ApiError(
                 "source_key_conflict",
                 str(exc),
                 status_code=409,
                 action="Use the existing visible source or choose a different source configuration.",
             ) from exc
-        if (
-            actor_ops_route is not None
-            and actor_ops_target is not None
-            and actor_ops_mode is not None
-        ):
-            target_fingerprint = source_target_fingerprint(
-                str(user["workspace_id"]),
-                str(actor_ops_route["route_id"]),
-                actor_ops_target,
-                platform=str(actor_ops_route["platform"]),
-            )
-            ops = apify_actor_ops_for(str(user["workspace_id"]))
-            try:
-                existing_binding = ops.get_source_binding(str(source["id"]))
-            except ActorOpsError as exc:
-                if exc.status_code != 404:
-                    raise
-                existing_binding = None
-            current_binding = store.connect().execute(
-                """
-                SELECT route_id, target_fingerprint, mode
-                FROM apify_source_route_bindings
-                WHERE workspace_id = ? AND source_id = ?
-                """,
-                (str(user["workspace_id"]), str(source["id"])),
-            ).fetchone()
-            if (
-                current_binding is None
-                or str(current_binding["route_id"])
-                != str(actor_ops_route["route_id"])
-                or str(current_binding["target_fingerprint"])
-                != target_fingerprint
-                or str(current_binding["mode"]) != actor_ops_mode
-            ):
-                ops.bind_source(
-                    source_id=str(source["id"]),
-                    route_id=str(actor_ops_route["route_id"]),
-                    target_fingerprint=target_fingerprint,
-                    mode=actor_ops_mode,
-                    expected_generation=(
-                        int(existing_binding["generation"])
-                        if existing_binding is not None
-                        else None
-                    ),
-                )
+        except ActorOpsBindingError as exc:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise ApiError(
+                exc.code,
+                "ActorOps v2 could not prepare this source binding.",
+                status_code=409,
+            ) from exc
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
         request.state.operation_source_id = str(source["id"])
         request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(public_source(source, user))
@@ -5122,48 +4994,15 @@ def create_app(
         if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
             raise ApiError("forbidden", "cannot update another user's private source", status_code=403)
         provided = payload.model_fields_set
-        actor_binding_plan: tuple[
-            dict[str, Any],
-            str,
-            Literal["primary", "fallback"],
-        ] | None = None
         setup_type = workspace_catalog_source_setup_type(
             str(user["workspace_id"]),
             str(source["type"]),
             source.get("config"),
         )
-        platform_availability: tuple[str, str | None] | None = None
-        if setup_type in PLATFORM_PROFILE_SETUP_TYPES:
-            _generation, platform_statuses = source_setup_availability(
-                str(user["workspace_id"])
-            )
-            platform_availability = platform_statuses.get(setup_type)
-
-        def reject_locked_platform_mutation() -> None:
-            reason = (
-                platform_availability[1]
-                if platform_availability is not None
-                else "platform_setup_pending"
-            )
-            if reason == "workspace_credential_unavailable":
-                raise ApiError(
-                    "workspace_credential_unavailable",
-                    "The workspace credential for this platform is unavailable",
-                    status_code=409,
-                    action="Ask an administrator to configure the platform connection.",
-                )
-            raise ApiError(
-                "apify_actor_route_not_ready",
-                "The selected Actor Route is not certified for this source",
-                status_code=409,
-            )
-
         if (
             "secret_env" in provided
-            and setup_type in (
-                YOUTUBE_CHANNEL_SETUP_TYPE,
-                *PLATFORM_PROFILE_SETUP_TYPES,
-            )
+            and setup_type
+            in (YOUTUBE_CHANNEL_SETUP_TYPE, *PLATFORM_PROFILE_SETUP_TYPES)
             and payload.secret_env is not None
         ):
             raise ApiError(
@@ -5171,45 +5010,56 @@ def create_app(
                 "This source setup does not accept per-source credentials.",
                 status_code=400,
             )
+
+        lifecycle = ActorOpsSourceLifecycle(
+            store, workspace_id=str(user["workspace_id"])
+        )
+        previous_config = (
+            dict(source["config"])
+            if isinstance(source.get("config"), dict)
+            else {}
+        )
+        managed_before = lifecycle.is_managed(
+            str(source["type"]), previous_config
+        )
         updates: dict[str, Any] = {}
-        if "display_name" in provided:
-            updates["display_name"] = payload.display_name
-        if "description" in provided:
-            updates["description"] = payload.description
-        if "default_channel" in provided:
-            updates["default_channel"] = payload.default_channel
-        if "default_topics" in provided and payload.default_topics is not None:
-            updates["default_topics"] = payload.default_topics
+        for field_name in (
+            "display_name",
+            "description",
+            "default_channel",
+            "default_topics",
+        ):
+            if field_name in provided:
+                value = getattr(payload, field_name)
+                if field_name != "default_topics" or value is not None:
+                    updates[field_name] = value
+
         if "config" in provided and payload.config is not None:
-            current_config = (
-                source["config"]
-                if isinstance(source.get("config"), dict)
-                else {}
-            )
-            legacy_apify_request = (
-                source["type"] == "apify_social"
-                and any(
-                    field_name in payload.config
-                    for field_name in ("profile_id", "platform", "kind")
+            request_setup_type = setup_type
+            request_config = dict(payload.config)
+            if setup_type in PLATFORM_PROFILE_SETUP_TYPES:
+                current = lifecycle.normalize_config(
+                    str(source["type"]),
+                    previous_config,
+                    source_id=source_id,
                 )
-            )
-            request_setup_type = (
-                "apify_social" if legacy_apify_request else setup_type
-            )
-            request_config = payload.config
-            if (
-                setup_type in PLATFORM_PROFILE_SETUP_TYPES
-                and not legacy_apify_request
-            ):
                 request_config = {
-                    field_name: current_config[field_name]
+                    field_name: current[field_name]
                     for field_name in ("target", "fetch_limit", "analysis_mode")
-                    if field_name in current_config
-                }
-                request_config.update(payload.config)
-            catalog_type, normalized_config, key = await resolve_catalog_source_config(
-                request_setup_type,
-                request_config,
+                    if field_name in current
+                } | request_config
+            elif managed_before and source["type"] == "apify_social":
+                request_setup_type = "apify_social"
+                current = lifecycle.normalize_config(
+                    str(source["type"]),
+                    previous_config,
+                    source_id=source_id,
+                )
+                request_config = current | request_config
+            catalog_type, normalized_config, _key = (
+                await resolve_catalog_source_config(
+                    request_setup_type, request_config
+                )
             )
             if catalog_type != source["type"]:
                 raise ApiError(
@@ -5217,238 +5067,48 @@ def create_app(
                     "source storage type cannot be changed",
                     status_code=400,
                 )
-            if (
-                setup_type in PLATFORM_PROFILE_SETUP_TYPES
-                and legacy_apify_request
-                and platform_availability is not None
-                and platform_availability[1] == "platform_setup_pending"
-            ):
-                current_profile_id = str(
-                    current_config.get("profile_id") or ""
-                ).strip()
-                next_profile_id = str(
-                    normalized_config.get("profile_id") or ""
-                ).strip()
-                legacy_config_changed = any(
-                    current_config.get(field_name)
-                    != normalized_config.get(field_name)
-                    for field_name in ("target", "fetch_limit", "analysis_mode")
+            normalized_config = lifecycle.normalize_config(
+                catalog_type,
+                normalized_config,
+                source_id=source_id,
+            )
+            managed_after_config = lifecycle.is_managed(
+                catalog_type, normalized_config
+            )
+            if managed_before and not managed_after_config:
+                raise ApiError(
+                    "invalid_source_config",
+                    "ActorOps-managed sources must keep a registered v2 RouteKey.",
+                    status_code=400,
                 )
-                if current_profile_id:
-                    legacy_config_changed = (
-                        legacy_config_changed
-                        or next_profile_id != current_profile_id
-                    )
-                else:
-                    legacy_config_changed = legacy_config_changed or any(
-                        str(current_config.get(field_name) or "").casefold()
-                        != str(normalized_config.get(field_name) or "").casefold()
-                        for field_name in ("profile_id", "platform", "kind")
-                    )
-                if legacy_config_changed:
-                    reject_locked_platform_mutation()
-            if (
-                setup_type in PLATFORM_PROFILE_SETUP_TYPES
-                and not legacy_apify_request
-            ):
-                merged_config = dict(current_config)
-                for field_name in ("target", "fetch_limit", "analysis_mode"):
-                    if field_name in payload.config:
-                        merged_config[field_name] = normalized_config[field_name]
-                current_profile_id = str(
-                    current_config.get("profile_id") or ""
-                ).strip()
-                target_changed = (
-                    str(current_config.get("target") or "").strip().casefold()
-                    != str(merged_config.get("target") or "")
-                    .strip()
-                    .casefold()
-                )
-                if (
-                    target_changed
-                    and platform_availability is not None
-                    and platform_availability[0] != "ready"
-                ):
-                    reject_locked_platform_mutation()
-                if target_changed:
-                    actor_ops = apify_actor_ops_for(
-                        str(user["workspace_id"])
-                    )
-                    platform = platform_for_profile_setup_type(setup_type)
-                    route = (
-                        primary_actor_route_for_platform(actor_ops, platform)
-                        if platform is not None
-                        else None
-                    )
-                    if route is None or not actor_ops.source_capability_ready(
-                        str(route["route_id"])
-                    ):
-                        raise ApiError(
-                            "apify_actor_route_not_ready",
-                            "The selected Actor Route is not certified for this source",
-                            status_code=409,
-                        )
-                    if not workspace_apify_credential_ready(
-                        str(user["workspace_id"])
-                    ):
-                        raise ApiError(
-                            "workspace_credential_unavailable",
-                            "The workspace credential for this platform is unavailable",
-                            status_code=409,
-                            action="Ask an administrator to configure the platform connection.",
-                        )
-                    validate_actor_ops_source_target(
-                        route,
-                        str(merged_config["target"]),
-                        primary=True,
-                    )
-                    merged_config.pop("platform", None)
-                    merged_config.pop("kind", None)
-                    merged_config["profile_id"] = str(route["route_id"])
-                    actor_binding_plan = (
-                        route,
-                        str(merged_config["target"]),
-                        "primary",
-                    )
-                    updates["enabled"] = False
-                elif current_profile_id:
-                    merged_config.pop("platform", None)
-                    merged_config.pop("kind", None)
-                    merged_config["profile_id"] = current_profile_id
-                else:
-                    merged_config["platform"] = str(
-                        current_config.get("platform")
-                        or platform_for_profile_setup_type(setup_type)
-                        or ""
-                    )
-                    merged_config["kind"] = str(
-                        current_config.get("kind") or "profile"
-                    )
-                normalized_config, key = validate_catalog_source_config(
-                    "apify_social",
-                    merged_config,
-                )
-            elif source["type"] == "apify_social":
-                current_profile_id = str(
-                    current_config.get("profile_id") or ""
-                ).strip()
-                next_profile_id = str(
-                    normalized_config.get("profile_id") or ""
-                ).strip()
-                if current_profile_id and not next_profile_id:
-                    raise ApiError(
-                        "invalid_source_config",
-                        "ActorOps-managed sources cannot be changed to a legacy adapter",
-                        status_code=400,
-                    )
-                target_changed = (
-                    str(current_config.get("target") or "").strip().casefold()
-                    != str(normalized_config.get("target") or "")
-                    .strip()
-                    .casefold()
-                )
-                if next_profile_id and (
-                    next_profile_id != current_profile_id or target_changed
-                ):
-                    actor_ops = apify_actor_ops_for(
-                        str(user["workspace_id"])
-                    )
-                    route = actor_ops.get_route(next_profile_id)
-                    if not actor_ops.source_capability_ready(
-                        str(route["route_id"])
-                    ):
-                        raise ApiError(
-                            "apify_actor_route_not_ready",
-                            "The selected Actor Route is not certified for this source",
-                            status_code=409,
-                        )
-                    validate_actor_ops_source_target(
-                        route,
-                        str(normalized_config["target"]),
-                        primary=True,
-                    )
-                    actor_binding_plan = (
-                        route,
-                        str(normalized_config["target"]),
-                        "primary",
-                    )
-                    updates["enabled"] = False
             updates["config"] = normalized_config
-            updates["source_key"] = key
+            updates["source_key"] = build_source_key(
+                catalog_type, normalized_config
+            )
             if (
                 source["type"] == "rss"
-                and catalog_source_setup_type(catalog_type, normalized_config)
+                and catalog_source_setup_type(
+                    catalog_type, normalized_config
+                )
                 == YOUTUBE_CHANNEL_SETUP_TYPE
             ):
                 updates["enforce_public_network"] = True
-                if (
-                    str(current_config.get("url") or "").strip()
-                    != str(normalized_config.get("url") or "").strip()
-                ):
-                    route = next(
-                        (
-                            item
-                            for item in apify_actor_ops_for(
-                                str(user["workspace_id"])
-                            ).list_routes()
-                            if str(item["platform"]) == "youtube"
-                            and str(item["target_type"]) == "channel"
-                            and str(item["capability"]) == "items"
-                        ),
-                        None,
-                    )
-                    if route is None:
-                        raise ApiError("apify_actor_route_not_ready", "The selected Actor Route is not certified for this source", status_code=409)
-                    validate_actor_ops_source_target(route, str(normalized_config["url"]), primary=True)
-                    actor_binding_plan = (route, str(normalized_config["url"]), "primary")
+
         if "secret_env" in provided:
             updates["secret_env"] = _validate_secret_env(payload.secret_env)
-        if "enabled" in provided:
-            if (
-                setup_type in PLATFORM_PROFILE_SETUP_TYPES
-                and bool(payload.enabled) != bool(source.get("enabled"))
-                and platform_availability is not None
-                and platform_availability[0] != "ready"
-            ):
-                reject_locked_platform_mutation()
-            effective_config = (
-                updates["config"]
-                if isinstance(updates.get("config"), dict)
-                else source.get("config") or {}
-            )
-            profile_id = str(effective_config.get("profile_id") or "").strip()
-            if profile_id and payload.enabled:
-                try:
-                    binding = apify_actor_ops_for(
-                        str(user["workspace_id"])
-                    ).get_source_binding(source_id)
-                except ActorOpsError as exc:
-                    if exc.status_code != 404:
-                        raise
-                    raise ApiError(
-                        "apify_actor_source_binding_not_ready",
-                        "Actor source must validate every active Actor before activation",
-                        status_code=409,
-                    ) from exc
-                if str(binding["validation_status"]) not in {
-                    "ready_1of1",
-                    "ready_2of2",
-                    "ready_3of3",
-                }:
-                    raise ApiError(
-                        "apify_actor_source_binding_not_ready",
-                        "Actor source must validate every active Actor before activation",
-                        status_code=409,
-                    )
-            updates["enabled"] = (
-                False
-                if actor_binding_plan is not None
-                and actor_binding_plan[2] == "primary"
-                else payload.enabled
-            )
+        requested_enabled = (
+            bool(payload.enabled) if "enabled" in provided else None
+        )
+        if requested_enabled is not None:
+            updates["enabled"] = requested_enabled
+
+        next_config = updates.get("config", previous_config)
+        managed_after = lifecycle.is_managed(
+            str(source["type"]), next_config
+        )
         connection = store.connect()
         cleanup = PostCommitMediaCleanup()
-        owns_transaction = actor_binding_plan is not None
+        owns_transaction = not connection.in_transaction
         try:
             if owns_transaction:
                 connection.execute("BEGIN IMMEDIATE")
@@ -5456,33 +5116,15 @@ def create_app(
                 source,
                 updates,
                 user=user,
-                post_commit_cleanup=(cleanup if owns_transaction else None),
+                post_commit_cleanup=cleanup,
             )
-            if actor_binding_plan is not None:
-                route, target, mode = actor_binding_plan
-                ops = apify_actor_ops_for(str(user["workspace_id"]))
-                try:
-                    binding = ops.get_source_binding(source_id)
-                except ActorOpsError as exc:
-                    if exc.status_code != 404:
-                        raise
-                    binding = None
-                ops.bind_source(
-                    source_id=source_id,
-                    route_id=str(route["route_id"]),
-                    target_fingerprint=source_target_fingerprint(
-                        str(user["workspace_id"]),
-                        str(route["route_id"]),
-                        target,
-                        platform=str(route["platform"]),
-                    ),
-                    mode=mode,
-                    expected_generation=(
-                        int(binding["generation"])
-                        if binding is not None
-                        else None
-                    ),
+            if managed_after:
+                updated = lifecycle.after_update(
+                    source_id,
+                    previous_config=previous_config,
+                    requested_enabled=requested_enabled,
                 )
+            if owns_transaction:
                 connection.commit()
                 cleanup.run()
         except SourceKeyConflictError as exc:
@@ -5493,7 +5135,18 @@ def create_app(
                 "source_key_conflict",
                 str(exc),
                 status_code=409,
-                action="Keep the current source configuration or choose a different source.",
+                action=(
+                    "Keep the current source configuration or choose a different source."
+                ),
+            ) from exc
+        except ActorOpsBindingError as exc:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+                cleanup.discard()
+            raise ApiError(
+                exc.code,
+                "ActorOps v2 could not update this source binding.",
+                status_code=409,
             ) from exc
         except Exception:
             if owns_transaction and connection.in_transaction:

@@ -318,6 +318,38 @@ def test_watermark_no_advance_stops_but_stale_regression_tries_standby(tmp_path)
     store.close()
 
 
+def test_disabled_route_never_posts_or_creates_attempt(tmp_path) -> None:
+    store, repository, runtime, remote, route_id, source_id, _ = _runtime(
+        tmp_path, ["valid_nonempty"], native=False
+    )
+    with repository.transaction():
+        repository.connection.execute(
+            "UPDATE actor_routes_v2 SET runtime_mode='disabled' WHERE route_id=?",
+            (route_id,),
+        )
+
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(
+            runtime.fetch(
+                route_id=route_id,
+                source_id=source_id,
+                source_config={"target": "openai"},
+                window=FetchWindow(
+                    3, datetime(2026, 8, 19, tzinfo=timezone.utc), None
+                ),
+                logical_job_id="job-disabled-route",
+            )
+        )
+
+    assert caught.value.code == "actorops_v2_route_disabled"
+    assert remote.requests == []
+    assert repository.connection.execute(
+        "SELECT COUNT(*) FROM actor_attempts_v2 WHERE source_id=?",
+        (source_id,),
+    ).fetchone()[0] == 0
+    store.close()
+
+
 def test_remote_unknown_never_starts_a_second_paid_candidate(tmp_path) -> None:
     error = ActorOpsRuntimeError(
         "actorops_remote_unknown", failure_class=FailureClass.REMOTE_UNKNOWN

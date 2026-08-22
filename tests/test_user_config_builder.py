@@ -1,8 +1,7 @@
 from datetime import datetime, timezone
 
 from src.models import Config
-from src.apify_actor_identity import source_target_fingerprint
-from src.services.apify_actor_ops import ApifyActorOpsService
+from src.services.actorops.binding_service import ActorOpsBindingService
 from src.services.feed_run import RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.source_health import SourceHealthService
@@ -10,6 +9,9 @@ from src.services.source_schedule import SourceScheduleService
 from src.services.source_type_registry import validate_source_config
 from src.services.user_config_builder import build_user_config, build_user_config_data
 from src.storage.service_store import ServiceStore
+from tests.test_actorops_v1_retirement_boundary import (
+    install_actorops_v1_deny_authorizer,
+)
 
 
 def _base_config():
@@ -282,21 +284,15 @@ def test_user_config_builder_projects_bound_youtube_channel_to_actorops(
         ),
     )
     store.create_subscription(user_id=owner["id"], source_id=source_id)
-    route_id = str(store.connect().execute(
-        """
-        SELECT route_id FROM apify_actor_route_profiles
-        WHERE workspace_id = ? AND route_key = 'youtube/channel/items'
-        """,
-        (workspace["id"],),
-    ).fetchone()["route_id"])
-    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
-        source_id=source_id,
-        route_id=route_id,
-        target_fingerprint=source_target_fingerprint(
-            workspace["id"], route_id, feed_url, platform="youtube"
-        ),
-        mode="fallback",
+    bindings = ActorOpsBindingService(store, workspace_id=workspace["id"])
+    pending = bindings.ensure(source_id)
+    bindings.verify(
+        source_id,
+        expected_binding_version=pending.binding_version,
+        expected_target_fingerprint=pending.target_fingerprint,
     )
+    bindings.enable_ready(source_id)
+    route_id = pending.route_id
 
     data = build_user_config_data(
         store=store,
@@ -429,7 +425,7 @@ def test_user_config_builder_ignores_legacy_apify_source_secret_in_pool_mode(
     assert data["sources"]["apify_social"]["token_envs"] == ["APIFY_TOKEN"]
 
 
-def test_user_config_builder_injects_bound_actorops_route_for_legacy_x_source(
+def test_user_config_builder_injects_only_ready_v2_x_binding(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
@@ -454,30 +450,27 @@ def test_user_config_builder_injects_bound_actorops_route_for_legacy_x_source(
         },
     )
     store.create_subscription(user_id=owner["id"], source_id=source_id)
-    route = store.connect().execute(
-        """
-        SELECT route_id FROM apify_actor_route_profiles
-        WHERE workspace_id = ? AND route_key = 'x/profile'
-        """,
-        (workspace["id"],),
-    ).fetchone()
-    assert route is not None
-    route_id = str(route["route_id"])
-    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
-        source_id=source_id,
-        route_id=route_id,
-        target_fingerprint=source_target_fingerprint(
-            workspace["id"], route_id, "OpenAI", platform="x"
-        ),
-        mode="primary",
+    bindings = ActorOpsBindingService(store, workspace_id=workspace["id"])
+    binding = bindings.ensure(source_id)
+    store.connect().execute(
+        """UPDATE actor_source_bindings_v2 SET status='ready'
+           WHERE workspace_id=? AND source_id=?""",
+        (workspace["id"], source_id),
     )
+    store.update_source(source_id, enabled=True, commit=False)
+    store.connect().commit()
+    route_id = binding.route_id
 
-    data = build_user_config_data(
-        store=store,
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        base_config=_base_config(),
-    )
+    uninstall = install_actorops_v1_deny_authorizer(store.connect())
+    try:
+        data = build_user_config_data(
+            store=store,
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            base_config=_base_config(),
+        )
+    finally:
+        uninstall()
 
     subscription = data["sources"]["apify_social"]["subscriptions"][0]
     assert subscription["profile_id"] == route_id

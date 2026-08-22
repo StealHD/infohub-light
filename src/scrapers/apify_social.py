@@ -267,7 +267,6 @@ class ApifySocialScraper(BaseScraper):
         if sub.profile_id:
             if (
                 self.apify_actor_ops is None
-                or self.apify_coordinator is None
                 or not sub.source_id
             ):
                 raise SourceFetchError(
@@ -285,10 +284,11 @@ class ApifySocialScraper(BaseScraper):
                 client_factory=lambda: self._client_for_subscription(sub),
                 job_id=self.route_job_id,
                 frozen_snapshot=self.actor_ops_snapshot,
+                public_http_client=self.client,
             )
 
         if (
-            self.apify_actor_route is not None
+            self.paid_canary and self.apify_actor_route is not None
             and sub.platform == ApifySocialPlatform.X
             and sub.kind == "profile"
             and sub.source_id

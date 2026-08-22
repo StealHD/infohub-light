@@ -212,7 +212,7 @@ def test_readiness_repair_is_cas_backed_and_idempotent(tmp_path: Path) -> None:
         "SELECT status, binding_version FROM actor_source_bindings_v2 WHERE route_id=?",
         (route_id,),
     ).fetchone()
-    assert tuple(binding) == ("ready", 2)
+    assert tuple(binding) == ("ready", 1)
     repository = ActorOpsRepository(reopened.connect(), DEFAULT_WORKSPACE_ID)
     with repository.transaction(), pytest.raises(ActorOpsConflict):
         repository.mark_binding_ready(

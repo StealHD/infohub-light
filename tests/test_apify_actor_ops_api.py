@@ -609,8 +609,8 @@ def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
         for item in before_key.json()["data"]["source_types"]
         if item["type"] == "x_profile"
     )
-    assert before_x["availability"] == "temporarily_unavailable"
-    assert before_x["unavailable_reason"] == "workspace_credential_unavailable"
+    assert before_x["availability"] == "ready"
+    assert before_x["unavailable_reason"] is None
 
     secret = client.post(
         "/api/admin/secrets",
@@ -684,12 +684,16 @@ def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
     assert public_source["source_key"].startswith("apify_social:")
 
     stored = store.get_source(public_source["id"])
-    assert stored["config"]["profile_id"] == route["route_id"]
-    assert "platform" not in stored["config"]
-    assert "kind" not in stored["config"]
-    binding = ApifyActorOpsService(store).get_source_binding(public_source["id"])
-    assert binding["route_id"] == route["route_id"]
-    assert binding["validation_status"] == "pending_validation"
+    assert "profile_id" not in stored["config"]
+    assert stored["config"]["platform"] == "x"
+    assert stored["config"]["kind"] == "profile"
+    binding = store.connect().execute(
+        """SELECT * FROM actor_source_bindings_v2
+           WHERE workspace_id=? AND source_id=?""",
+        (DEFAULT_WORKSPACE_ID, public_source["id"]),
+    ).fetchone()
+    assert binding["status"] == "pending"
+    assert binding["binding_version"] == 1
 
     partial_config_patch = client.patch(
         f"/api/catalog/sources/{public_source['id']}",
@@ -698,7 +702,7 @@ def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
     assert partial_config_patch.status_code == 200, partial_config_patch.text
     assert partial_config_patch.json()["data"]["config"] == public_source["config"]
     partial_stored = store.get_source(public_source["id"])
-    assert partial_stored["config"]["profile_id"] == route["route_id"]
+    assert "profile_id" not in partial_stored["config"]
     assert partial_stored["config"]["fetch_limit"] == 3
     assert partial_stored["config"]["analysis_mode"] == "full"
 
@@ -724,29 +728,34 @@ def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
         f"/api/catalog/sources/{public_source['id']}",
         json={
             "config": {
-                "target": "another-account",
+                "target": "another_account",
                 "fetch_limit": 3,
                 "analysis_mode": "full",
             }
         },
     )
-    assert changed_target.status_code == 409
-    assert changed_target.json()["error"]["code"] == "apify_actor_route_not_ready"
+    assert changed_target.status_code == 200, changed_target.text
+    changed_binding = store.connect().execute(
+        """SELECT status, binding_version FROM actor_source_bindings_v2
+           WHERE source_id=?""",
+        (public_source["id"],),
+    ).fetchone()
+    assert dict(changed_binding) == {"status": "pending", "binding_version": 2}
 
     legacy_changed_target = client.patch(
         f"/api/catalog/sources/{public_source['id']}",
         json={
             "config": {
                 "profile_id": route["route_id"],
-                "target": "another-account",
+                "target": "another_account",
                 "fetch_limit": 3,
                 "analysis_mode": "full",
             }
         },
     )
-    assert legacy_changed_target.status_code == 409
+    assert legacy_changed_target.status_code == 400
     assert legacy_changed_target.json()["error"]["code"] == (
-        "apify_actor_route_not_ready"
+        "invalid_source_config"
     )
 
     changed_fetch_limit = client.patch(
@@ -755,13 +764,18 @@ def test_platform_alias_auto_routes_redacts_config_and_locks_changed_target(
     )
     assert changed_fetch_limit.status_code == 200, changed_fetch_limit.text
     assert changed_fetch_limit.json()["data"]["config"]["fetch_limit"] == 4
+    assert store.connect().execute(
+        """SELECT binding_version FROM actor_source_bindings_v2
+           WHERE source_id=?""",
+        (public_source["id"],),
+    ).fetchone()["binding_version"] == 2
 
     changed_enabled = client.patch(
         f"/api/catalog/sources/{public_source['id']}",
         json={"enabled": True},
     )
-    assert changed_enabled.status_code == 409
-    assert changed_enabled.json()["error"]["code"] == "apify_actor_route_not_ready"
+    assert changed_enabled.status_code == 200
+    assert changed_enabled.json()["data"]["enabled"] is False
 
 
 def test_route_detail_projects_newer_exact_build_revision_diff(
@@ -896,10 +910,11 @@ def test_support_catalog_and_checks_are_owner_admin_only(
     assert denied.status_code == 403
 
 
-def test_youtube_source_requires_actor_validation_and_gets_primary_binding(
+def test_youtube_source_gets_pending_v2_binding_then_enables_after_verify(
     tmp_path,
     monkeypatch,
 ):
+    monkeypatch.setenv("ACTOROPS_V2_ENABLED", "true")
     client, store = _client(tmp_path, monkeypatch)
     _login(client)
 
@@ -916,19 +931,31 @@ def test_youtube_source_requires_actor_validation_and_gets_primary_binding(
     assert created.status_code == 200, created.text
     source = created.json()["data"]
     assert source["type"] == "rss"
-    assert source["enabled"] is True
+    assert source["enabled"] is False
 
-    binding = ApifyActorOpsService(
-        store,
-        workspace_id=DEFAULT_WORKSPACE_ID,
-    ).get_source_binding(source["id"])
-    assert binding["mode"] == "primary"
-    assert binding["validation_status"] == "pending_validation"
-    support = client.get(
-        f"/api/admin/sources/{source['id']}/apify-support"
+    binding = store.connect().execute(
+        """SELECT * FROM actor_source_bindings_v2
+           WHERE workspace_id=? AND source_id=?""",
+        (DEFAULT_WORKSPACE_ID, source["id"]),
+    ).fetchone()
+    assert binding["status"] == "pending"
+    route = store.connect().execute(
+        "SELECT generation FROM actor_routes_v2 WHERE route_id=?",
+        (binding["route_id"],),
+    ).fetchone()
+    verified = client.post(
+        f"/api/admin/apify-routes/{binding['route_id']}/v2-bindings/verify",
+        json={
+            "expected_route_generation": route["generation"],
+            "confirmation": "确认核验来源绑定",
+        },
     )
-    assert support.status_code == 200, support.text
-    assert support.json()["data"]["binding_status"] == "pending_validation"
+    assert verified.status_code == 200, verified.text
+    enabled = client.patch(
+        f"/api/catalog/sources/{source['id']}", json={"enabled": True}
+    )
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["data"]["enabled"] is True
 
 
 def test_source_support_projects_independent_budget_and_inflight_canary(
@@ -938,22 +965,24 @@ def test_source_support_projects_independent_budget_and_inflight_canary(
     monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
     client, store = _client(tmp_path, monkeypatch)
     _login(client)
-    _ops, route, revisions = _ready_route(store)
-    created = client.post(
-        "/api/catalog/sources",
-        json={
-            "scope": "workspace",
-            "type": "apify_social",
-            "display_name": "Private target must stay hidden",
-            "config": {
-                "profile_id": route["route_id"],
-                "target": "private_target_secret_123",
-            },
-            "enabled": True,
+    ops, route, revisions = _ready_route(store)
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Private target must stay hidden",
+        config={
+            "profile_id": route["route_id"],
+            "target": "private_target_secret_123",
         },
     )
-    assert created.status_code == 200, created.text
-    source_id = created.json()["data"]["id"]
+    ops.bind_source(
+        source_id=source_id,
+        route_id=route["route_id"],
+        target_fingerprint="a" * 64,
+        mode="primary",
+    )
     support_endpoint = f"/api/admin/sources/{source_id}/apify-support"
     support = client.get(support_endpoint)
     assert support.status_code == 200, support.text
@@ -1062,84 +1091,6 @@ def test_legacy_source_support_blocks_paid_canary_before_job_creation(
     ).fetchone()[0] == counts_before["jobs"]
 
 
-def test_generic_actor_primary_source_rejects_uncertified_route(
-    tmp_path,
-    monkeypatch,
-):
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    route = next(
-        route
-        for route in ApifyActorOpsService(store).list_routes()
-        if route["route_key"] == "instagram/profile/items"
-    )
-
-    response = client.post(
-        "/api/catalog/sources",
-        json={
-            "scope": "workspace",
-            "type": "apify_social",
-            "display_name": "Instagram profile",
-            "config": {
-                "profile_id": route["route_id"],
-                "target": "openai",
-            },
-            "enabled": True,
-        },
-    )
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "apify_actor_route_not_ready"
-    assert store.connect().execute(
-        "SELECT COUNT(*) FROM source_catalog"
-    ).fetchone()[0] == 0
-
-
-def test_legacy_x_profile_create_rejects_status_only_actor_route(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    client, store = _client(tmp_path, monkeypatch)
-    _login(client)
-    connection = store.connect()
-    connection.execute(
-        """
-        UPDATE apify_actor_route_profiles
-        SET status = 'ready'
-        WHERE workspace_id = ? AND route_key = 'x/profile'
-        """,
-        (DEFAULT_WORKSPACE_ID,),
-    )
-    connection.execute(
-        """
-        UPDATE apify_actor_candidates
-        SET state = 'closed'
-        WHERE workspace_id = ? AND route_key = 'x/profile'
-        """,
-        (DEFAULT_WORKSPACE_ID,),
-    )
-    connection.commit()
-
-    response = client.post(
-        "/api/catalog/sources",
-        json={
-            "scope": "workspace",
-            "type": "apify_social",
-            "display_name": "Legacy shaped X profile",
-            "config": {
-                "platform": "x",
-                "kind": "profile",
-                "target": "openai",
-            },
-            "enabled": True,
-        },
-    )
-    assert response.status_code == 409, response.text
-    assert response.json()["error"]["code"] == "apify_actor_route_not_ready"
-    assert connection.execute(
-        "SELECT COUNT(*) FROM source_catalog"
-    ).fetchone()[0] == 0
-
-
 def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
     tmp_path,
     monkeypatch,
@@ -1173,18 +1124,22 @@ def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
     }
     assert "profile_id" not in source["config"]
     stored = store.get_source(source["id"])
-    assert stored["config"]["profile_id"] == route["route_id"]
+    assert "profile_id" not in stored["config"]
+    assert stored["config"]["platform"] == "x"
+    assert stored["config"]["kind"] == "profile"
     assert "platform" not in source["config"]
     assert "kind" not in source["config"]
-    binding = ApifyActorOpsService(store).get_source_binding(source["id"])
-    assert binding["validation_status"] == "pending_validation"
-    assert binding["route_id"] == stored["config"]["profile_id"]
+    binding = store.connect().execute(
+        """SELECT status, route_id FROM actor_source_bindings_v2
+           WHERE source_id=?""",
+        (source["id"],),
+    ).fetchone()
+    assert binding["status"] == "pending"
 
     legacy_patch = client.patch(
         f"/api/catalog/sources/{source['id']}",
         json={
             "config": {
-                "profile_id": route["route_id"],
                 "target": "openai",
                 "fetch_limit": 25,
                 "analysis_mode": "personal_only",
@@ -1198,7 +1153,7 @@ def test_legacy_x_profile_create_is_mapped_after_full_capability_gate(
         "fetch_limit": 25,
         "analysis_mode": "personal_only",
     }
-    assert store.get_source(source["id"])["config"]["profile_id"] == route["route_id"]
+    assert "profile_id" not in store.get_source(source["id"])["config"]
 
 
 def test_discovery_settings_use_global_ai_and_are_cas_guarded(tmp_path, monkeypatch):

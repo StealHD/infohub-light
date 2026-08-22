@@ -6,6 +6,9 @@ from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel, Field, StrictBool, StrictInt, field_validator
 
 from .context import ApiContext
+from .actorops_source_lifecycle import (
+    assert_actorops_subscription_enable_allowed,
+)
 from .responses import ApiError, ok
 from .schedule_routes import bulk_source_schedule_jobs, source_schedule_payload
 from .system_auth import (
@@ -15,6 +18,7 @@ from .system_auth import (
     visible_source_or_404,
 )
 from ..services.subscription_mutation import SubscriptionActor
+from ..services.actorops.binding_service import ActorOpsBindingError
 
 
 class SubscriptionRequest(BaseModel):
@@ -116,6 +120,19 @@ async def subscriptions_create(
             ),
         )
     visible_source_or_404(context.store, payload.source_id, user)
+    if payload.enabled:
+        try:
+            assert_actorops_subscription_enable_allowed(
+                context.store,
+                workspace_id=str(user["workspace_id"]),
+                source_id=payload.source_id,
+            )
+        except ActorOpsBindingError as exc:
+            raise ApiError(
+                exc.code,
+                "ActorOps v2 Binding must be ready before enabling this subscription.",
+                status_code=409,
+            ) from exc
     notification_values = (
         {"notify_on_new_items": payload.notify_on_new_items}
         if "notify_on_new_items" in payload.model_fields_set
@@ -163,6 +180,23 @@ async def subscriptions_patch(
         if field in provided
     }
     current = context.store.get_subscription(subscription_id)
+    if (
+        payload.enabled is True
+        and current is not None
+        and current.get("user_id") == user["id"]
+    ):
+        try:
+            assert_actorops_subscription_enable_allowed(
+                context.store,
+                workspace_id=str(user["workspace_id"]),
+                source_id=str(current["source_id"]),
+            )
+        except ActorOpsBindingError as exc:
+            raise ApiError(
+                exc.code,
+                "ActorOps v2 Binding must be ready before enabling this subscription.",
+                status_code=409,
+            ) from exc
     if payload.notify_on_new_items is True and (
         payload.analysis_mode == "personal_only"
         or payload.enabled is False

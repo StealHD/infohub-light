@@ -15,12 +15,12 @@ def mark_ready(
     expected_binding_version: int,
     expected_target_fingerprint: str,
 ):
-    """Promote one pending binding after an offline exact-evidence check."""
+    """Promote one pending binding without changing its target version."""
 
     repository._require_transaction()
     changed = repository.connection.execute(
         """UPDATE actor_source_bindings_v2
-           SET status='ready', binding_version=binding_version+1, updated_at=?
+           SET status='ready', updated_at=?
            WHERE workspace_id=? AND source_id=? AND status='pending'
              AND binding_version=? AND target_fingerprint=?""",
         (

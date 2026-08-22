@@ -21,7 +21,6 @@ class WorkerFeedPorts:
     cache_source_avatars: Callable[..., None]
     cache_media: Callable[..., None]
     apify_coordinator: Callable[..., Any]
-    build_actor_route: Callable[..., Any]
     apify_key_pool_enabled: Callable[[], bool]
     shared_acquisition_enabled: Callable[[], bool]
 
@@ -72,18 +71,7 @@ def _configure_orchestrator(
                 data_dir=data_dir,
             )
         )
-    if ports.apify_key_pool_enabled() and hasattr(
-        orchestrator, "set_service_apify_actor_route"
-    ):
-        orchestrator.set_service_apify_actor_route(
-            ports.build_actor_route(
-                store,
-                data_dir=data_dir,
-                workspace_id=str(job["workspace_id"]),
-            ),
-            job_id=str(job["id"]),
-        )
-    if ports.apify_key_pool_enabled() and hasattr(
+    if _has_actorops_source(orchestrator) and hasattr(
         orchestrator, "set_service_apify_actor_ops"
     ):
         from .actorops.service import build_source_actorops_service
@@ -108,6 +96,20 @@ def _configure_orchestrator(
                 job_id=job["id"],
             )
         )
+
+
+def _has_actorops_source(orchestrator: HorizonOrchestrator) -> bool:
+    config = getattr(orchestrator, "config", None)
+    sources = getattr(config, "sources", None)
+    apify = getattr(sources, "apify_social", None)
+    return bool(
+        apify
+        and any(
+            str(source.profile_id or "").strip()
+            for source in apify.subscriptions
+            if source.enabled
+        )
+    )
 
 
 def _stage_user_feed_publication(

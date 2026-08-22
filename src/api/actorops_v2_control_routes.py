@@ -10,9 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from .actorops_v2_projection import actorops_v2_route_additions
 from .responses import ApiError, ok
 from .system_auth import current_admin
-from ..services.actorops.legacy_readiness import (
-    apply_legacy_ready_bindings,
-    legacy_ready_binding_plans,
+from ..services.actorops.binding_service import (
+    ActorOpsBindingError,
+    ActorOpsBindingService,
 )
 from ..services.actorops.readiness import (
     actorops_v2_enabled,
@@ -106,20 +106,41 @@ def register_actorops_v2_control_routes(
         try:
             _require_enabled(context.store)
             repository = ActorOpsRepository(context.store.connect(), workspace_id)
-            with repository.transaction():
-                route = repository.get_route(route_id)
-                if route.generation != int(payload.expected_route_generation):
-                    raise ActorOpsConflict("route changed before binding verification")
-                plans, report = legacy_ready_binding_plans(
-                    repository.connection, workspace_id=workspace_id, route_id=route_id,
+            route = repository.get_route(route_id)
+            if route.generation != int(payload.expected_route_generation):
+                raise ActorOpsConflict("route changed before binding verification")
+            service = ActorOpsBindingService(
+                context.store, workspace_id=workspace_id
+            )
+            pending = tuple(
+                binding
+                for binding in repository.list_route_bindings(route_id)
+                if binding.status == "pending"
+            )
+            promoted = 0
+            for binding in pending:
+                service.verify(
+                    binding.source_id,
+                    expected_binding_version=binding.binding_version,
+                    expected_target_fingerprint=binding.target_fingerprint,
                 )
-                if report.pending_bindings and not plans:
-                    raise ApiError(
-                        "actorops_v2_binding_evidence_missing",
-                        "Current source evidence cannot yet prove this binding.",
-                        status_code=409,
-                    )
-                promoted = apply_legacy_ready_bindings(repository, plans)
+                promoted += 1
+            if pending and promoted == 0:
+                raise ActorOpsBindingError(
+                    "actorops_v2_binding_evidence_missing"
+                )
+        except ActorOpsBindingError as error:
+            if error.code == "actorops_v2_binding_evidence_missing":
+                raise ApiError(
+                    error.code,
+                    "Current v2 evidence cannot yet prove this binding.",
+                    status_code=409,
+                ) from error
+            raise ApiError(
+                "actorops_v2_binding_conflict",
+                "The binding changed; reload before verifying it.",
+                status_code=409,
+            ) from error
         except (ActorOpsConflict, ActorOpsNotFound) as error:
             raise ApiError(
                 "actorops_v2_binding_conflict",

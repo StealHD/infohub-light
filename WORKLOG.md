@@ -14,30 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-21",
-  "result": "ActorOps v2 修复了旧 terminal Attempt 遗失 cost_final 派生位的离线迁移判定：只有恰好一个已终态且已保存最终实际费用的 remote Run 可作证明。经确认的历史费用 quarantine 后，已在本地离线完成 global 26 只读 backfill；所有 Route 仍为 disabled。",
-  "status": "partial",
-  "task_id": "2026-08-21-actorops-v2-global26-local-migration",
-  "unresolved": [
-    "YouTube、Instagram、X 的 shadow/active、20 次自然获取和重启验收仍需逐平台单独费用授权。",
-    "ACTOROPS_V2_ENABLED 仍保持 false；Phase 7 候选操作和 Phase 8 v1 退役尚未开始。"
-  ],
-  "validation": [
-    "迁移与历史费用审计定向测试 29 项通过。",
-    "impacted preflight 15/15 通过，覆盖后端、前端、控制面、代码尺寸和产品文档。",
-    "本地 apply 已通过 marker/shape、integrity_check 与 foreign_key_check；global 25 保持惰性。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
   "result": "修复 ActorOps v2 global 26 backfill 只复制旧 ActorOps binding、遗漏既有 Instagram 目录订阅的缺口：新增通用离线 catalog binding bridge 与受控 repair CLI，已在本地库只插入 1 条经 Adapter 重验的 pending v2 binding；不改写订阅、v1 binding、Candidate、LKG、水位、Attempt、费用或 Route mode。切流摘要现在能重验该 bridge 而不把 pending 当作 ready。",
   "status": "completed",
   "task_id": "2026-08-21-actorops-v2-catalog-binding-repair",
@@ -414,6 +390,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2 与迁移直接测试 160 项通过。",
     "impacted preflight 17/17 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "Phase 2 完成 ActorOpsBindingService、纯 v2 Binding verify 与平台来源 CRUD/调度/共享获取/单源和 Feed 执行接管；X、Instagram、YouTube 不再以 v1 Binding 或 Route 作为现役来源授权事实。",
+  "status": "completed",
+  "task_id": "2026-08-22-actorops-v2-source-binding-lifecycle",
+  "unresolved": [
+    "Phase 3–8 继续退役旧 Admin API、Worker/housekeeping、前端 v1 控制面与剩余 allowlist。",
+    "两次 impacted preflight 分别在两个已修复的过期 v1 语义测试处中止；依门禁上限未执行第三次，完整剩余 Python 与前端/控制组件已直接复验通过。"
+  ],
+  "validation": [
+    "Phase 2 定向后端回归 362 项通过；preflight 第二次中断点后的剩余 Python 测试集合 100% 通过，两个过期测试修正后各自模块通过。",
+    "前端 lint、typecheck、UI contract、84 个 Vitest 文件/625 项测试、production build 与 E2E contract 通过。",
+    "代码规模、产品文档、Markdown/control、JSON、syntax 与 git diff 检查通过；未调用真实 Actor、AI 或付费来源。"
   ]
 }
 ```

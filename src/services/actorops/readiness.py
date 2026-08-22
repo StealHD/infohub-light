@@ -32,6 +32,12 @@ def actorops_v2_enabled() -> bool:
 def require_actorops_v2_if_enabled(store: ServiceStore) -> None:
     if not actorops_v2_enabled():
         return
+    require_actorops_v2_schema(store)
+
+
+def require_actorops_v2_schema(store: ServiceStore) -> None:
+    """Require the current v2 source runtime schema without a feature flag."""
+
     connection = store.connect()
     if (
         not migration_marker_exists(connection)

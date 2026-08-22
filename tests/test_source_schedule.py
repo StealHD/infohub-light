@@ -9,6 +9,7 @@ import pytest
 
 from src.services.job_queue import JobQueue
 from src.services.feed_run import SourceOutcome
+from src.services.actorops.binding_service import ActorOpsBindingService
 from src.services.quota import QuotaService
 from src.services.worker import run_worker_once
 from src.storage.service_store import ServiceStore
@@ -49,6 +50,26 @@ def _subscribed_owner(tmp_path, monkeypatch):
     )
     subscription = store.create_subscription(user_id=owner["id"], source_id=source_id)
     return store, workspace, owner, source_id, subscription
+
+
+def _ready_v2_source(
+    store: ServiceStore, workspace_id: str, source_id: str
+) -> None:
+    bindings = ActorOpsBindingService(store, workspace_id=workspace_id)
+    binding = bindings.ensure(source_id)
+    connection = store.connect()
+    connection.execute(
+        """UPDATE actor_source_bindings_v2 SET status='ready'
+           WHERE workspace_id=? AND source_id=?""",
+        (workspace_id, source_id),
+    )
+    connection.execute(
+        """UPDATE actor_routes_v2 SET runtime_mode='active'
+           WHERE workspace_id=? AND route_id=?""",
+        (workspace_id, binding.route_id),
+    )
+    store.update_source(source_id, enabled=True, commit=False)
+    connection.commit()
 
 
 def test_source_schedule_schema_is_additive_and_projects_missing_defaults(
@@ -315,6 +336,7 @@ def test_exhausted_apify_pool_defers_only_apify_schedule(tmp_path, monkeypatch):
         user_id=owner["id"],
         source_id=apify_source_id,
     )
+    _ready_v2_source(store, workspace["id"], apify_source_id)
     due = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
     service = SourceScheduleService(store)
     for subscription in (rss_subscription, apify_subscription):
@@ -752,11 +774,10 @@ def test_full_refresh_cancels_participating_queued_scheduled_source_job(
     assert JobQueue(store).get_job(scheduled["id"])["status"] == "cancelled"
 
 
-def test_actor_route_gate_applies_only_to_apify_x_profile(
+def test_v2_binding_gate_applies_only_to_managed_sources(
     tmp_path,
     monkeypatch,
 ):
-    from src.services.apify_actor_route import ApifyActorScheduleGate
     from src.services.source_schedule import SourceScheduleService
 
     monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
@@ -775,7 +796,7 @@ def test_actor_route_gate_applies_only_to_apify_x_profile(
             config={
                 "platform": platform,
                 "kind": kind,
-                "target": f"{platform}-target",
+                "target": "OpenAI",
             },
         )
         subscriptions.append(
@@ -784,6 +805,17 @@ def test_actor_route_gate_applies_only_to_apify_x_profile(
                 source_id=source_id,
             )
         )
+    pending_x_source_id = subscriptions[1]["source_id"]
+    ActorOpsBindingService(
+        store, workspace_id=workspace["id"]
+    ).ensure(pending_x_source_id)
+    ready_instagram_source_id = subscriptions[2]["source_id"]
+    _ready_v2_source(
+        store, workspace["id"], ready_instagram_source_id
+    )
+    # Prove the Binding gate still applies if a stale caller flips the catalog
+    # bit behind the lifecycle service.
+    store.update_source(pending_x_source_id, enabled=True)
     due = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     service = SourceScheduleService(store)
     for subscription in subscriptions:
@@ -804,44 +836,21 @@ def test_actor_route_gate_applies_only_to_apify_x_profile(
             "retry_at": None,
         },
     )
-    actor_gate_sources = []
-
-    class ActorRoute:
-        def schedule_gate(self, source_id=None):
-            actor_gate_sources.append(source_id)
-            return ApifyActorScheduleGate(
-                allowed=False,
-                status="exhausted",
-                retry_at=due + timedelta(hours=1),
-                error_code="apify_actor_route_exhausted",
-            )
-
-        def stage_pending_transitions(self):
-            return None
-
-    monkeypatch.setattr(
-        "src.services.source_schedule.build_apify_actor_route",
-        lambda *_args, **_kwargs: ActorRoute(),
-    )
-
     result = service.enqueue_due(now=due)
 
-    x_source_id = subscriptions[1]["source_id"]
-    assert actor_gate_sources == [x_source_id]
     assert result["enqueued"] == 2
     assert result["skipped"] == 1
     assert [
         outcome["reason"]
         for outcome in result["outcomes"]
         if outcome["action"] == "skipped"
-    ] == ["apify_actor_route_exhausted"]
+    ] == ["actorops_v2_binding_pending"]
 
 
-def test_actor_ops_profile_schedule_fails_closed_when_route_has_fewer_than_two(
+def test_actor_ops_profile_schedule_fails_closed_when_binding_is_pending(
     tmp_path,
     monkeypatch,
 ):
-    from src.services.apify_actor_ops import RouteScheduleGate
     from src.services.source_schedule import SourceScheduleService
 
     monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
@@ -856,7 +865,8 @@ def test_actor_ops_profile_schedule_fails_closed_when_route_has_fewer_than_two(
         source_type="apify_social",
         display_name="Instagram profile",
         config={
-            "profile_id": "route-instagram-profile-items",
+            "platform": "instagram",
+            "kind": "profile",
             "target": "example",
         },
     )
@@ -864,6 +874,11 @@ def test_actor_ops_profile_schedule_fails_closed_when_route_has_fewer_than_two(
         user_id=owner["id"],
         source_id=source_id,
     )
+    binding = ActorOpsBindingService(
+        store, workspace_id=workspace["id"]
+    ).ensure(source_id)
+    assert binding.status == "pending"
+    store.update_source(source_id, enabled=True)
     due = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     service = SourceScheduleService(store)
     service.update_subscription_schedule(
@@ -882,33 +897,14 @@ def test_actor_ops_profile_schedule_fails_closed_when_route_has_fewer_than_two(
             "retry_at": None,
         },
     )
-    seen = []
-
-    def route_gate(_service, route_id, *, source_id=None):
-        seen.append((route_id, source_id))
-        return RouteScheduleGate(
-            False,
-            "candidate_shortfall",
-            1,
-            "apify_actor_route_candidate_shortfall",
-        )
-
-    monkeypatch.setattr(
-        "src.services.source_schedule.ApifyActorOpsService.schedule_gate",
-        route_gate,
-    )
-
     result = service.enqueue_due(now=due)
 
-    assert seen == [("route-instagram-profile-items", source_id)]
     assert result["enqueued"] == 0
     assert result["skipped"] == 1
-    assert result["outcomes"][0]["reason"] == (
-        "apify_actor_route_candidate_shortfall"
-    )
+    assert result["outcomes"][0]["reason"] == "actorops_v2_binding_pending"
 
 
-def test_x_profile_schedule_releases_budget_incident_through_alert_bridge(
+def test_x_profile_schedule_uses_v2_state_without_mutating_v1_incident(
     tmp_path,
     monkeypatch,
 ):
@@ -968,6 +964,7 @@ def test_x_profile_schedule_releases_budget_incident_through_alert_bridge(
         (quota_ref["id"], due.isoformat(), workspace["id"]),
     )
     store.connect().commit()
+    _ready_v2_source(store, workspace["id"], source_id)
     service = SourceScheduleService(store)
     service.update_subscription_schedule(
         workspace_id=workspace["id"],
@@ -1021,8 +1018,8 @@ def test_x_profile_schedule_releases_budget_incident_through_alert_bridge(
         """,
         (workspace["id"],),
     ).fetchone()
-    assert dict(incident)["status"] == "resolved"
-    assert dict(incident)["resolved_at"] is not None
+    assert dict(incident)["status"] == "open"
+    assert dict(incident)["resolved_at"] is None
 
 
 def test_retrying_terminal_source_fetch_reuses_another_active_subscription_job(

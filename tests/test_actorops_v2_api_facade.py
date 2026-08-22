@@ -299,18 +299,28 @@ def test_v2_binding_verify_returns_zero_cost_evidence_failure(
     _login(client)
     store = client.app.state.service_store
     repository, route_id = _route_with_one_assignment(store)
-    import src.api.actorops_v2_control_routes as controls
-    from src.services.actorops.legacy_readiness import LegacyBindingReadinessReport
-
-    monkeypatch.setattr(
-        controls,
-        "legacy_ready_binding_plans",
-        lambda *_args, **_kwargs: ((), LegacyBindingReadinessReport(pending_bindings=1)),
+    route = repository.get_route(route_id)
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Pending v2 proof",
+        config={
+            "platform": route.route_key.platform,
+            "kind": route.route_key.target_type,
+            "target": "example",
+        },
     )
+    from src.services.actorops.binding_service import ActorOpsBindingService
+
+    ActorOpsBindingService(
+        store, workspace_id=DEFAULT_WORKSPACE_ID
+    ).ensure(source_id)
     response = client.post(
         f"/api/admin/apify-routes/{route_id}/v2-bindings/verify",
         json={
-            "expected_route_generation": repository.get_route(route_id).generation,
+            "expected_route_generation": route.generation,
             "confirmation": "确认核验来源绑定",
         },
     )

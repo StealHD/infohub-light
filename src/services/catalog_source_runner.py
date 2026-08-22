@@ -26,8 +26,6 @@ from .source_acquisition import (
 from .user_analysis_cache import UserAnalysisCache
 from .usage_attempt_meter import UsageAttemptMeter
 from .apify_pool_runtime import apify_coordinator_for_workspace
-from .apify_key_pool import apify_key_pool_enabled
-from .apify_actor_monitoring import build_apify_actor_route
 from .apify_actor_source_runtime import with_actorops_runtime_profiles
 from .operation_log import safe_emit_operation_event
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
@@ -158,6 +156,18 @@ def build_catalog_source_config_data(
     return data
 
 
+def _has_actorops_source(config: Config) -> bool:
+    apify = config.sources.apify_social
+    return bool(
+        apify
+        and any(
+            str(source.profile_id or "").strip()
+            for source in apify.subscriptions
+            if source.enabled
+        )
+    )
+
+
 def run_catalog_source_fetch(
     job: dict[str, Any],
     *,
@@ -217,21 +227,8 @@ def run_catalog_source_fetch(
                     data_dir=data_dir,
                 )
             )
-        if (
-            apify_key_pool_enabled()
-            and hasattr(orchestrator, "set_service_apify_actor_route")
-        ):
-            orchestrator.set_service_apify_actor_route(
-                build_apify_actor_route(
-                    store,
-                    data_dir=data_dir,
-                    workspace_id=str(job["workspace_id"]),
-                ),
-                job_id=str(job["id"]),
-            )
-        if (
-            apify_key_pool_enabled()
-            and hasattr(orchestrator, "set_service_apify_actor_ops")
+        if _has_actorops_source(config) and hasattr(
+            orchestrator, "set_service_apify_actor_ops"
         ):
             from .actorops.service import build_source_actorops_service
 

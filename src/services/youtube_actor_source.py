@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..apify_actor_identity import source_target_fingerprint
 from ..storage.service_store import ServiceStore
+from .actorops.binding_service import ActorOpsBindingService
+from .actorops.repository import ActorOpsRepository
+from .job_queue import JobQueue
 from .source_type_registry import is_youtube_channel_config
 
 
@@ -41,7 +44,7 @@ def project_youtube_actor_runtime_record(
         "kind": "channel",
         "target": target,
         "fetch_limit": int(config.get("fetch_limit") or 20),
-        "enabled": bool(config.get("enabled", True)),
+        "enabled": True,
         "analysis_mode": str(config.get("analysis_mode") or "full"),
     }
     projected = dict(record)
@@ -51,33 +54,18 @@ def project_youtube_actor_runtime_record(
 
 
 def provision_youtube_actor_sources(store: ServiceStore) -> dict[str, int]:
-    """Bind subscribed YouTube channels and queue bounded free discovery.
-
-    This runs in the Worker maintenance cycle.  It creates no paid validation:
-    an existing pending candidate remains pending for the regular controlled
-    Canary approval workflow.
-    """
-
-    from .apify_actor_ops import ActorOpsError, ApifyActorOpsService
-    from .apify_key_pool import apify_key_pool_enabled
-
-    if not apify_key_pool_enabled():
-        return {"bound": 0, "discoveries": 0, "skipped": 0}
+    """Ensure pending v2 bindings and queue only v2 Discovery jobs."""
 
     connection = store.connect()
     rows = connection.execute(
-        """
-        SELECT DISTINCT source.id, source.workspace_id, source.config_json
-        FROM source_catalog AS source
-        JOIN user_subscriptions AS subscription
-          ON subscription.source_id = source.id AND subscription.enabled = 1
-        WHERE source.type = 'rss' AND source.enabled = 1
-        ORDER BY source.workspace_id, source.id
-        """
+        """SELECT DISTINCT source.id, source.workspace_id, source.config_json
+           FROM source_catalog AS source
+           JOIN user_subscriptions AS subscription
+             ON subscription.source_id=source.id AND subscription.enabled=1
+           WHERE source.type='rss'
+           ORDER BY source.workspace_id, source.id"""
     ).fetchall()
-    bound = 0
-    discoveries = 0
-    skipped = 0
+    bound = discoveries = skipped = 0
     now = datetime.now(timezone.utc)
     for row in rows:
         try:
@@ -85,69 +73,109 @@ def provision_youtube_actor_sources(store: ServiceStore) -> dict[str, int]:
         except json.JSONDecodeError:
             skipped += 1
             continue
-        record = {"type": "rss", "config": config}
-        if not is_youtube_channel_record(record):
+        if not is_youtube_channel_record({"type": "rss", "config": config}):
             continue
         workspace_id = str(row["workspace_id"])
-        ops = ApifyActorOpsService(store, workspace_id=workspace_id)
-        route = next(
-            (
-                item
-                for item in ops.list_routes()
-                if str(item.get("route_key")) == YOUTUBE_ROUTE_KEY
-            ),
-            None,
-        )
-        if route is None:
-            skipped += 1
-            continue
-        route_id = str(route["route_id"])
         source_id = str(row["id"])
-        try:
-            ops.get_source_binding(source_id)
-        except ActorOpsError as exc:
-            if exc.status_code != 404:
-                raise
-            ops.bind_source(
-                source_id=source_id,
-                route_id=route_id,
-                target_fingerprint=source_target_fingerprint(
-                    workspace_id,
-                    route_id,
-                    str(config["url"]),
-                    platform="youtube",
-                ),
-                mode="primary",
-            )
-            bound += 1
-        if ops.source_capability_ready(route_id):
+        existed = connection.execute(
+            """SELECT 1 FROM actor_source_bindings_v2
+               WHERE workspace_id=? AND source_id=?""",
+            (workspace_id, source_id),
+        ).fetchone() is not None
+        binding = ActorOpsBindingService(
+            store, workspace_id=workspace_id
+        ).ensure(source_id)
+        bound += int(not existed)
+        repository = ActorOpsRepository(connection, workspace_id)
+        selectable = connection.execute(
+            """SELECT 1 FROM actor_candidates_v2
+               WHERE workspace_id=? AND route_id=?
+                 AND assignment_role IN ('active','standby')
+                 AND lifecycle IN ('probationary','certified')
+               LIMIT 1""",
+            (workspace_id, binding.route_id),
+        ).fetchone()
+        if selectable is not None:
             continue
         recent = connection.execute(
-            """
-            SELECT stage, updated_at
-            FROM apify_actor_discovery_runs
-            WHERE workspace_id = ? AND route_id = ?
-            ORDER BY updated_at DESC, run_id DESC
-            LIMIT 1
-            """,
-            (workspace_id, route_id),
+            """SELECT updated_at FROM actor_discovery_jobs_v2
+               WHERE workspace_id=? AND route_id=?
+               ORDER BY updated_at DESC, discovery_id DESC LIMIT 1""",
+            (workspace_id, binding.route_id),
         ).fetchone()
-        if recent is not None:
-            updated_at = datetime.fromisoformat(str(recent["updated_at"]))
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            if updated_at.astimezone(timezone.utc) >= now - _DISCOVERY_COOLDOWN:
-                continue
-        result = ops.request_support_check(
-            platform="youtube",
-            target_type="channel",
-            capability="items",
-            trigger_reason="youtube_source_provisioning",
-            expected_generation=ops.catalog_generation(),
-        )
-        if result.get("kind") == "discovery":
-            discoveries += 1
+        if recent is not None and _utc(str(recent["updated_at"])) >= (
+            now - _DISCOVERY_COOLDOWN
+        ):
+            continue
+        operator_id = _operator(connection, workspace_id)
+        if operator_id is None:
+            skipped += 1
+            continue
+        bucket = now.strftime("%Y%m%d")
+        key = _hash("youtube_source_provisioning", binding.route_id, bucket)
+        discovery_id = f"youtube-provisioning-{key[:24]}"
+        try:
+            with repository.transaction():
+                discovery, _created = repository.discovery.ensure(
+                    discovery_id=discovery_id,
+                    idempotency_key=key,
+                    route_id=binding.route_id,
+                    trigger_reason="youtube_source_provisioning",
+                    input_fingerprint=_hash(YOUTUBE_ROUTE_KEY),
+                )
+                if _active_job(
+                    connection, workspace_id, str(discovery["discovery_id"])
+                ):
+                    continue
+                JobQueue(store).create_job(
+                    workspace_id=workspace_id,
+                    user_id=operator_id,
+                    job_type="actorops_v2_discovery",
+                    payload={"discovery_id": str(discovery["discovery_id"])},
+                    priority=50,
+                    max_attempts=1,
+                    retention_days=14,
+                    commit=False,
+                )
+                discoveries += 1
+        except Exception:
+            skipped += 1
     return {"bound": bound, "discoveries": discoveries, "skipped": skipped}
+
+
+def _active_job(
+    connection: Any, workspace_id: str, discovery_id: str
+) -> bool:
+    return connection.execute(
+        """SELECT 1 FROM fetch_jobs
+           WHERE workspace_id=? AND job_type='actorops_v2_discovery'
+             AND status IN ('queued','running')
+             AND json_extract(payload_json, '$.discovery_id')=?
+           LIMIT 1""",
+        (workspace_id, discovery_id),
+    ).fetchone() is not None
+
+
+def _operator(connection: Any, workspace_id: str) -> str | None:
+    row = connection.execute(
+        """SELECT id FROM users WHERE workspace_id=? AND enabled=1
+           AND role IN ('owner','admin')
+           ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, created_at, id
+           LIMIT 1""",
+        (workspace_id,),
+    ).fetchone()
+    return str(row["id"]) if row else None
+
+
+def _utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _hash(*values: str) -> str:
+    return hashlib.sha256("\x1f".join(values).encode("utf-8")).hexdigest()
 
 
 __all__ = [

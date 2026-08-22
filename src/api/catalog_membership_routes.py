@@ -6,6 +6,10 @@ from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel, ConfigDict
 
 from .context import ApiContext
+from .actorops_source_lifecycle import (
+    ActorOpsSourceLifecycle,
+    assert_actorops_subscription_enable_allowed,
+)
 from .responses import ApiError, ok
 from .system_auth import (
     api_context,
@@ -15,6 +19,7 @@ from .system_auth import (
     visible_source_or_404,
 )
 from ..services.subscription_mutation import SubscriptionActor
+from ..services.actorops.binding_service import ActorOpsBindingError
 
 
 class SourceShareRequest(BaseModel):
@@ -114,11 +119,28 @@ async def catalog_delete(
             "cannot delete another user's private source",
             status_code=403,
         )
-    updated = context.subscription_mutations.rest_update_source(
-        SubscriptionActor.from_user(user),
-        source_id=source_id,
-        updates={"enabled": False},
+    lifecycle = ActorOpsSourceLifecycle(
+        context.store, workspace_id=str(user["workspace_id"])
     )
+    if lifecycle.is_managed(str(source["type"]), source.get("config")):
+        connection = context.store.connect()
+        owns_transaction = not connection.in_transaction
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            updated = lifecycle.soft_delete(source_id)
+            if owns_transaction:
+                connection.commit()
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
+    else:
+        updated = context.subscription_mutations.rest_update_source(
+            SubscriptionActor.from_user(user),
+            source_id=source_id,
+            updates={"enabled": False},
+        )
     internal_safe = dict(updated)
     internal_safe.pop("enforce_public_network", None)
     request.state.operation_changed_fields = ["enabled"]
@@ -133,6 +155,18 @@ async def catalog_subscribe(
 ) -> dict[str, Any]:
     require_mutating_member(user)
     visible_source_or_404(context.store, source_id, user)
+    try:
+        assert_actorops_subscription_enable_allowed(
+            context.store,
+            workspace_id=str(user["workspace_id"]),
+            source_id=source_id,
+        )
+    except ActorOpsBindingError as exc:
+        raise ApiError(
+            exc.code,
+            "ActorOps v2 Binding must be ready before enabling this subscription.",
+            status_code=409,
+        ) from exc
     subscription = context.subscription_mutations.rest_create_subscription(
         SubscriptionActor.from_user(user),
         source_id=source_id,

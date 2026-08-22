@@ -257,53 +257,6 @@ def test_catalog_source_post_is_idempotent_by_workspace_source_key(tmp_path, mon
     assert len(matching) == 1
 
 
-def test_youtube_channel_setup_is_canonical_rss_and_idempotent(
-    tmp_path,
-    monkeypatch,
-):
-    client, data_dir = _client(tmp_path, monkeypatch)
-    _login(client)
-    channel_id = "UCabcdefghijklmnopqrstuv"
-    canonical = (
-        "https://www.youtube.com/feeds/videos.xml?"
-        f"channel_id={channel_id}"
-    )
-    payload = {
-        "type": "youtube_channel",
-        "display_name": "YouTube Channel",
-        "config": {"url": channel_id},
-    }
-
-    first = client.post("/api/catalog/sources", json=payload)
-    second = client.post(
-        "/api/catalog/sources",
-        json={
-            **payload,
-            "display_name": "Same Channel",
-            "config": {"url": f"https://youtube.com/channel/{channel_id}"},
-        },
-    )
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    source = second.json()["data"]
-    assert source["id"] == first.json()["data"]["id"]
-    assert source["type"] == "rss"
-    assert source["setup_type"] == "youtube_channel"
-    assert source["source_key"] == f"rss:{canonical}"
-    assert source["config"]["url"] == canonical
-    assert source["config"]["keep_latest_item"] is True
-    assert ServiceStore(data_dir).get_source(source["id"])[
-        "enforce_public_network"
-    ] is True
-
-    subscribed = client.post(
-        f"/api/catalog/sources/{source['id']}/subscribe"
-    )
-    assert subscribed.status_code == 200
-    assert client.get("/api/jobs").json()["data"]["jobs"] == []
-
-
 def test_existing_youtube_rss_projects_setup_type_without_migration(
     tmp_path,
     monkeypatch,
@@ -1839,13 +1792,8 @@ def test_catalog_source_types_endpoint_and_validated_source_writes(tmp_path, mon
     )
     assert type_map["youtube_channel"]["catalog_source_type"] == "rss"
     for platform_type in ("x_profile", "instagram_profile"):
-        assert type_map[platform_type]["availability"] == (
-            "temporarily_unavailable"
-        )
-        assert type_map[platform_type]["unavailable_reason"] in {
-            "platform_setup_pending",
-            "workspace_credential_unavailable",
-        }
+        assert type_map[platform_type]["availability"] == "ready"
+        assert type_map[platform_type]["unavailable_reason"] is None
         assert "catalog_source_type" not in type_map[platform_type]
         assert [
             field["name"] for field in type_map[platform_type]["fields"]

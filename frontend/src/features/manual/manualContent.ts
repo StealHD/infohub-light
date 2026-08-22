@@ -226,7 +226,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看 ActorOps 运行与告警',
-        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor；候选经过免费检查、受控 Canary 与来源级验证后才可运行。主备池固定三槽，新增、替换、移出、调序与单次费用上限均由服务端按 Route generation、Build、Manifest、来源证据和审批边界执行。Worker 中断的已启动 Run 只会免费查询原 Run；若它已终态失败，只会在确认版本号仅由该中断保护步骤改变后继续同一审批内尚未运行的候选。若旧 Worker 已把这些零费用剩余项误取消为“审批过期”，同一证据链会将它们恢复为原审批的待执行项；绝不重发失败 Actor 或跨越真实配置变化。YouTube 保留公开频道地址和稳定内容 ID 作为身份，但运行时只使用认证 Actor；验证前会明确阻止获取，不会回退 Atom/RSS 或伪装成成功。',
+        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor。新建平台来源会先保存为停用并建立待验证的 v2 Binding；修改账号或频道会清除旧目标的主选、最近成功和水位证据，重新验证后才能启用。名称、说明、获取条数、分析模式、频道和主题不会触发重新验证。X 与 Instagram 仅在 Binding ready 且 Route active 时抓取；Route 未启用时不会回退旧 ActorOps。YouTube 保留公开频道地址和稳定内容 ID，在 Binding ready 但 Actor Route 未启用时可使用受公共网络策略约束的免费 RSS fallback。已启动但状态未知的远端 Run 只会免费查询原 Run，不会重复付费。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

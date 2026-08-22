@@ -11,8 +11,7 @@ import pytest
 
 from src.models import ContentItem, SourceType
 from src.orchestrator import HorizonOrchestrator
-from src.services.apify_actor_ops import ApifyActorOpsService
-from src.services.apify_actor_route import ApifyActorRoutedList
+from src.services.actorops.binding_service import ActorOpsBindingService
 from src.services.apify_key_pool import ApifyKeyPoolService
 from src.services.source_acquisition import (
     AcquisitionBusyError,
@@ -30,6 +29,26 @@ def _store(tmp_path, monkeypatch, request=None):
     if request is not None:
         request.addfinalizer(store.close)
     return store, store.get_default_workspace(), store.get_user_by_username("owner")
+
+
+def _ready_v2_binding(
+    store: ServiceStore, workspace_id: str, source_id: str
+):
+    bindings = ActorOpsBindingService(store, workspace_id=workspace_id)
+    binding = bindings.ensure(source_id)
+    connection = store.connect()
+    connection.execute(
+        """UPDATE actor_source_bindings_v2
+           SET status='ready' WHERE workspace_id=? AND source_id=?""",
+        (workspace_id, source_id),
+    )
+    connection.execute(
+        """UPDATE actor_routes_v2 SET runtime_mode='active'
+           WHERE workspace_id=? AND route_id=?""",
+        (workspace_id, binding.route_id),
+    )
+    connection.commit()
+    return binding.route_id, bindings.repository.get_binding(source_id)
 
 
 def test_source_acquisition_schema_is_additive(tmp_path, monkeypatch):
@@ -156,14 +175,16 @@ def _youtube_fallback_source(
 ) -> tuple[str, str, SimpleNamespace]:
     route = store.connect().execute(
         """
-        SELECT route_id FROM apify_actor_route_profiles
-        WHERE workspace_id = ? AND route_key = 'youtube/channel/items'
+        SELECT route_id FROM actor_routes_v2
+        WHERE workspace_id = ? AND platform = 'youtube'
+          AND target_type = 'channel' AND capability = 'items'
         """,
         (workspace["id"],),
     ).fetchone()
     assert route is not None
     canonical_url = (
-        "https://www.youtube.com/feeds/videos.xml?channel_id=UC-fence-test"
+        "https://www.youtube.com/feeds/videos.xml?"
+        "channel_id=UCabcdefghijklmnopqrstuv"
     )
     source_id = store.create_source(
         workspace_id=workspace["id"],
@@ -178,11 +199,14 @@ def _youtube_fallback_source(
         user_id=owner["id"],
         source_id=source_id,
     )
-    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
-        source_id=source_id,
-        route_id=str(route["route_id"]),
-        target_fingerprint="a" * 64,
-        mode="fallback",
+    bindings = ActorOpsBindingService(
+        store, workspace_id=workspace["id"]
+    )
+    binding = bindings.ensure(source_id)
+    bindings.verify(
+        source_id,
+        expected_binding_version=binding.binding_version,
+        expected_target_fingerprint=binding.target_fingerprint,
     )
     projection = _projection(
         source_id,
@@ -215,7 +239,7 @@ def _bump_youtube_actor_context(
     if changed_context == "route":
         cursor = conn.execute(
             """
-            UPDATE apify_actor_route_profiles
+            UPDATE actor_routes_v2
             SET generation = generation + 1
             WHERE workspace_id = ? AND route_id = ?
             """,
@@ -224,8 +248,8 @@ def _bump_youtube_actor_context(
     elif changed_context == "binding":
         cursor = conn.execute(
             """
-            UPDATE apify_source_route_bindings
-            SET generation = generation + 1
+            UPDATE actor_source_bindings_v2
+            SET binding_version = binding_version + 1
             WHERE workspace_id = ? AND source_id = ?
             """,
             (workspace_id, source_id),
@@ -243,7 +267,7 @@ def _bump_youtube_actor_context(
     conn.commit()
 
 
-@pytest.mark.parametrize("changed_context", ("route", "binding", "key"))
+@pytest.mark.parametrize("changed_context", ("route", "binding"))
 def test_youtube_fallback_cache_hit_is_fenced_from_changed_actor_context(
     tmp_path,
     monkeypatch,
@@ -461,6 +485,7 @@ def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
         user_id=owner["id"],
         source_id=source_id,
     )
+    _ready_v2_binding(store, workspace["id"], source_id)
     first_secret = store.create_secret_ref(
         workspace_id=workspace["id"],
         owner_user_id=owner["id"],
@@ -553,6 +578,9 @@ def test_apify_actor_route_generation_blocks_stale_publication(
         user_id=owner["id"],
         source_id=source_id,
     )
+    route_id, _binding = _ready_v2_binding(
+        store, workspace["id"], source_id
+    )
     projection = SimpleNamespace(
         source_id=source_id,
         subscription_id=subscription["id"],
@@ -578,12 +606,12 @@ def test_apify_actor_route_generation_blocks_stale_publication(
     async def fetch_during_actor_switch():
         store.connect().execute(
             """
-            UPDATE apify_actor_routes
+            UPDATE actor_routes_v2
             SET generation = generation + 1,
                 updated_at = '2026-07-29T00:00:00+00:00'
-            WHERE workspace_id = ? AND route_key = 'x/profile'
+            WHERE workspace_id = ? AND route_id = ?
             """,
-            (workspace["id"],),
+            (workspace["id"], route_id),
         )
         store.connect().commit()
         return [_content_item(suffix="apify-route")]
@@ -610,121 +638,6 @@ def test_apify_actor_route_generation_blocks_stale_publication(
             (source_id,),
         ).fetchone()[0]
         == 0
-    )
-
-
-def test_apify_actor_route_generation_accepts_proven_backup_result(
-    tmp_path,
-    monkeypatch,
-):
-    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
-    store, workspace, owner = _store(tmp_path, monkeypatch)
-    source_id = store.create_source(
-        workspace_id=workspace["id"],
-        scope="public",
-        owner_user_id=owner["id"],
-        source_type="apify_social",
-        display_name="Shared X",
-        config={
-            "platform": "x",
-            "kind": "profile",
-            "target": "OpenAI",
-            "fetch_limit": 1,
-        },
-        source_key="apify:x:profile:openai-proven-generation",
-    )
-    subscription = store.create_subscription(
-        user_id=owner["id"],
-        source_id=source_id,
-    )
-    projection = SimpleNamespace(
-        source_id=source_id,
-        subscription_id=subscription["id"],
-        source_key="apify:x:profile:openai-proven-generation",
-        source_display_name="Shared X",
-        catalog_source_type="apify_social",
-        source_priority=0,
-        analysis_mode="full",
-        channel="AI",
-        category="AI",
-        topics=[],
-        tags=[],
-        personal_tags=[],
-    )
-    coordinator = SourceAcquisitionCoordinator(
-        store,
-        workspace_id=workspace["id"],
-        user_id=owner["id"],
-        job_id="job-apify-proven-route",
-    )
-    old_context = coordinator._context(projection, window_hours=24)
-
-    async def fetch_from_backup():
-        store.connect().execute(
-            """
-            UPDATE apify_actor_routes
-            SET generation = generation + 1,
-                updated_at = '2026-07-29T00:00:00+00:00'
-            WHERE workspace_id = ? AND route_key = 'x/profile'
-            """,
-            (workspace["id"],),
-        )
-        store.connect().commit()
-        generation = store.connect().execute(
-            """
-            SELECT generation FROM apify_actor_routes
-            WHERE workspace_id = ? AND route_key = 'x/profile'
-            """,
-            (workspace["id"],),
-        ).fetchone()["generation"]
-        return ApifyActorRoutedList(
-            [_content_item(suffix="apify-proven-route")],
-            route_generation=int(generation),
-            workspace_id=str(workspace["id"]),
-            source_id=source_id,
-            candidate_id="candidate-publication-proof",
-            latest_published_at="2026-07-29T00:00:00+00:00",
-            latest_item_id="publication-item",
-            semantic_outcome="advanced",
-        )
-
-    items = asyncio.run(
-        coordinator.acquire(
-            source=projection,
-            provider="apify_social",
-            window_hours=24,
-            fetch=fetch_from_backup,
-        )
-    )
-
-    new_context = coordinator._context(projection, window_hours=24)
-    snapshot = store.connect().execute(
-        """
-        SELECT acquisition_key, config_fingerprint
-        FROM source_content_snapshots WHERE source_id = ?
-        """,
-        (source_id,),
-    ).fetchone()
-    assert [item.id for item in items] == [
-        _content_item(suffix="apify-proven-route").id
-    ]
-    assert new_context.actor_route_generation != old_context.actor_route_generation
-    assert snapshot["acquisition_key"] == new_context.acquisition_key
-    assert snapshot["config_fingerprint"] == new_context.config_fingerprint
-    assert items._apify_actor_candidate_id == "candidate-publication-proof"
-    assert items._apify_actor_semantic_outcome == "advanced"
-
-    cached = asyncio.run(
-        coordinator.acquire(
-            source=projection,
-            provider="apify_social",
-            window_hours=24,
-            fetch=fetch_from_backup,
-        )
-    )
-    assert cached._apify_actor_candidate_id == "candidate-publication-proof"
-    assert cached._apify_actor_latest_item_id_hash == (
-        items._apify_actor_latest_item_id_hash
     )
 
 

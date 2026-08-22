@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from ...observability_context import current_observability_context
 from .adapters import build_source_registry
@@ -19,7 +19,11 @@ from .publication import (
     publication_proof,
     v2_proof_payload,
 )
-from .readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from .readiness import (
+    actorops_v2_enabled,
+    require_actorops_v2_if_enabled,
+    require_actorops_v2_schema,
+)
 from .repository import ActorOpsRepository
 from .runtime import ActorOpsRuntime
 
@@ -53,6 +57,16 @@ class V2ExecutionHandle:
     actorops_version: int = 2
 
 
+class ActorOpsSourceServiceProtocol(Protocol):
+    def freeze_execution(self, route_id: str, *, source_id: str) -> Any: ...
+
+    async def fetch_subscription(self, **values: Any) -> list[Any]: ...
+
+    def assert_publishable(self, handle: Any) -> None: ...
+
+    def publish_pending_successes(self, *, connection: Any) -> None: ...
+
+
 class ActorOpsV2Service:
     def __init__(self, store: Any, *, workspace_id: str) -> None:
         self.store = store
@@ -77,12 +91,16 @@ class ActorOpsV2Service:
         since: datetime,
         client_factory: Any,
         job_id: str | None,
-        handle: V2ExecutionHandle,
+        snapshot: V2ExecutionHandle,
+        public_http_client: Any | None = None,
     ) -> list[Any]:
-        client = client_factory()
-        registry = build_source_registry(subscription, client.http_client)
+        handle = snapshot
+        active = handle.snapshot.route.runtime_mode is RuntimeMode.ACTIVE
+        client = client_factory() if active else None
+        http_client = public_http_client or getattr(client, "http_client", None)
+        registry = build_source_registry(subscription, http_client)
         runtime = ActorOpsRuntime(
-            self.repository, registry, ApifyV2RemoteClient(client)
+            self.repository, registry, ApifyV2RemoteClient(client)  # type: ignore[arg-type]
         )
         result = await runtime.fetch(
             route_id=handle.snapshot.route.route_id,
@@ -236,6 +254,7 @@ class ActorOpsCompatibilityService:
         client_factory: Any,
         job_id: str | None,
         snapshot: Any,
+        public_http_client: Any | None = None,
     ) -> list[Any]:
         if not isinstance(snapshot, V2ExecutionHandle):
             raise TypeError("v1 snapshots use the compatibility source executor")
@@ -244,7 +263,8 @@ class ActorOpsCompatibilityService:
             since=since,
             client_factory=client_factory,
             job_id=job_id,
-            handle=snapshot,
+            snapshot=snapshot,
+            public_http_client=public_http_client,
         )
 
     def publish_pending_successes(self, *, connection: Any) -> None:
@@ -257,17 +277,16 @@ class ActorOpsCompatibilityService:
         return getattr(self.v1, name)
 
 
-def build_source_actorops_service(store: Any, *, workspace_id: str) -> Any:
-    if not actorops_v2_enabled():
-        from ..apify_actor_ops import ApifyActorOpsService
-
-        return ApifyActorOpsService(store, workspace_id=workspace_id)
-    require_actorops_v2_if_enabled(store)
-    return ActorOpsCompatibilityService(store, workspace_id=workspace_id)
+def build_source_actorops_service(
+    store: Any, *, workspace_id: str
+) -> ActorOpsSourceServiceProtocol:
+    require_actorops_v2_schema(store)
+    return ActorOpsV2Service(store, workspace_id=workspace_id)
 
 
 __all__ = [
     "ActorOpsCompatibilityService",
+    "ActorOpsSourceServiceProtocol",
     "ActorOpsV2Service",
     "V2ExecutionHandle",
     "build_source_actorops_service",

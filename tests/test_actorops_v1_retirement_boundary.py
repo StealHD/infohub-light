@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -69,6 +71,46 @@ TOKENS = {
     ),
 }
 
+HISTORICAL_ACTOROPS_V1_TABLES = frozenset(TOKENS["tables"])
+SHARED_ACTOROPS_TABLE_PREFIXES = (
+    "apify_actor_runs",
+    "apify_key_pool_",
+    "apify_actor_alert_",
+)
+_TABLE_ACTIONS = frozenset(
+    {
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_INSERT,
+        sqlite3.SQLITE_UPDATE,
+        sqlite3.SQLITE_DELETE,
+    }
+)
+
+
+def install_actorops_v1_deny_authorizer(
+    connection: sqlite3.Connection,
+) -> Callable[[], None]:
+    """Deny online access to historical v1 tables on an initialized store."""
+
+    def authorize(
+        action: int,
+        arg1: str | None,
+        _arg2: str | None,
+        _database: str | None,
+        _trigger: str | None,
+    ) -> int:
+        table = str(arg1 or "")
+        if action in _TABLE_ACTIONS and table in HISTORICAL_ACTOROPS_V1_TABLES:
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+    connection.set_authorizer(authorize)
+
+    def uninstall() -> None:
+        connection.set_authorizer(None)
+
+    return uninstall
+
 
 def _source_files(root: Path) -> tuple[Path, ...]:
     files: list[Path] = []
@@ -113,3 +155,14 @@ def test_actorops_v1_boundary_scanner_detects_new_reference(tmp_path: Path) -> N
     )
     findings = _findings(tmp_path)
     assert findings["runtime"] == ["src/api/new_route.py"]
+
+
+def test_actorops_v1_authorizer_groups_keep_shared_tables_outside_history() -> None:
+    assert "apify_actor_runs" not in HISTORICAL_ACTOROPS_V1_TABLES
+    assert "apify_key_pool_state" not in HISTORICAL_ACTOROPS_V1_TABLES
+    assert "apify_actor_alert_events" not in HISTORICAL_ACTOROPS_V1_TABLES
+    assert SHARED_ACTOROPS_TABLE_PREFIXES == (
+        "apify_actor_runs",
+        "apify_key_pool_",
+        "apify_actor_alert_",
+    )

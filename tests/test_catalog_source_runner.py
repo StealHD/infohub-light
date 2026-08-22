@@ -5,7 +5,6 @@ import pytest
 
 from src.models import ContentItem, SourceType
 from src.apify_actor_identity import source_target_fingerprint
-from src.services.apify_actor_ops import ApifyActorOpsService
 from src.services.feed_run import FeedRunResult, SourceAvatarHint, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.catalog_source_runner import (
@@ -116,7 +115,7 @@ def test_catalog_rss_config_disables_global_hackernews(tmp_path, monkeypatch):
     }
 
 
-def test_catalog_source_runner_injects_bound_actorops_route_for_legacy_x_source(
+def test_catalog_source_runner_ignores_legacy_x_binding(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
@@ -143,14 +142,26 @@ def test_catalog_source_runner_injects_bound_actorops_route_for_legacy_x_source(
     ).fetchone()
     assert route is not None
     route_id = str(route["route_id"])
-    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
-        source_id=source_id,
-        route_id=route_id,
-        target_fingerprint=source_target_fingerprint(
-            workspace["id"], route_id, "OpenAI", platform="x"
+    # A historical v1 Binding is not an online projection authority.
+    store.connect().execute(
+        """INSERT INTO apify_source_route_bindings (
+               binding_id, workspace_id, source_id, route_id,
+               target_fingerprint, mode, validation_status, generation,
+               created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'primary', 'valid', 1, ?, ?)""",
+        (
+            "legacy-binding",
+            workspace["id"],
+            source_id,
+            route_id,
+            source_target_fingerprint(
+                workspace["id"], route_id, "OpenAI", platform="x"
+            ),
+            "2026-08-22T00:00:00+00:00",
+            "2026-08-22T00:00:00+00:00",
         ),
-        mode="primary",
     )
+    store.connect().commit()
     statements: list[str] = []
     store.connect().set_trace_callback(statements.append)
 
@@ -163,8 +174,8 @@ def test_catalog_source_runner_injects_bound_actorops_route_for_legacy_x_source(
         base_config=_base_config(),
     )
 
-    assert data["sources"]["apify_social"]["subscriptions"][0]["profile_id"] == route_id
-    assert not any("_v2" in statement.casefold() for statement in statements)
+    assert "profile_id" not in data["sources"]["apify_social"]["subscriptions"][0]
+    assert any("actor_source_bindings_v2" in statement for statement in statements)
 
 
 def test_catalog_runner_injects_ready_v2_binding_without_legacy_binding(

@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..storage.service_store import ServiceStore
-from .apify_actor_monitoring import build_apify_actor_route
-from .apify_actor_ops import ApifyActorOpsService
 from .apify_key_pool import ApifyKeyPoolService, apify_key_pool_enabled
+from .actorops.binding_service import (
+    ActorOpsBindingError,
+    ActorOpsBindingService,
+    BindingExecutionState,
+)
+from .actorops.repository import ActorOpsNotFound
 from .job_queue import JobQueue
 from .quota import QuotaExceeded, QuotaService
+from .source_type_registry import is_youtube_channel_config
 
 
 SOURCE_ALLOWED_INTERVALS = (30, 60, 180, 360, 720, 1440)
@@ -332,7 +338,6 @@ class SourceScheduleService:
         now_iso = now_dt.isoformat()
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
-        actor_routes: list[Any] = []
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
@@ -381,11 +386,21 @@ class SourceScheduleService:
                     and bool(subscription["source_enabled"])
                 ):
                     reason = "subscription_disabled"
-                elif (
-                    subscription is not None
-                    and subscription["source_type"] == "apify_social"
-                ):
-                    if apify_key_pool_enabled():
+                elif subscription is not None:
+                    actor_state = self._actorops_execution_state(subscription)
+                    if actor_state is not None and not actor_state.allowed:
+                        reason = str(actor_state.reason)
+                    elif (
+                        actor_state is not None
+                        and actor_state.execution_mode == "actor"
+                        and not apify_key_pool_enabled()
+                    ):
+                        reason = "apify_key_pool_disabled"
+                    elif (
+                        actor_state is not None
+                        and actor_state.execution_mode == "actor"
+                        and apify_key_pool_enabled()
+                    ):
                         pool_gate = ApifyKeyPoolService(self.store).schedule_gate(
                             str(schedule["workspace_id"]),
                             now=now_dt,
@@ -395,44 +410,6 @@ class SourceScheduleService:
                             retry_at = _parse_time(pool_gate.get("retry_at"))
                             if retry_at is not None and retry_at > now_dt:
                                 interval_next = retry_at
-                    profile_id = self._actor_ops_profile_id(subscription)
-                    if reason is None and profile_id is not None:
-                        route_gate = ApifyActorOpsService(
-                            self.store,
-                            workspace_id=str(schedule["workspace_id"]),
-                        ).schedule_gate(
-                            profile_id,
-                            source_id=str(subscription["source_id"]),
-                        )
-                        if not route_gate.allowed:
-                            reason = str(
-                                route_gate.error_code
-                                or "apify_actor_route_candidate_shortfall"
-                            )
-                    elif (
-                        reason is None
-                        and apify_key_pool_enabled()
-                        and self._is_x_profile_subscription(subscription)
-                    ):
-                        actor_route = build_apify_actor_route(
-                            self.store,
-                            data_dir=str(self.store.data_dir),
-                            workspace_id=str(schedule["workspace_id"]),
-                        )
-                        actor_routes.append(actor_route)
-                        actor_gate = actor_route.schedule_gate(
-                            str(subscription["source_id"])
-                        )
-                        if not actor_gate.allowed:
-                            reason = str(
-                                actor_gate.error_code
-                                or "apify_actor_route_exhausted"
-                            )
-                            if (
-                                actor_gate.retry_at is not None
-                                and actor_gate.retry_at > now_dt
-                            ):
-                                interval_next = actor_gate.retry_at
 
                 if reason is not None:
                     self._record_skip(
@@ -602,8 +579,6 @@ class SourceScheduleService:
                         "job_id": job["id"],
                     }
                 )
-            for actor_route in actor_routes:
-                actor_route.stage_pending_transitions()
             if owns_transaction:
                 conn.commit()
         except Exception:
@@ -612,30 +587,50 @@ class SourceScheduleService:
             raise
         return result
 
-    @staticmethod
-    def _actor_ops_profile_id(subscription: Any) -> str | None:
+    def _actorops_execution_state(
+        self, subscription: Any
+    ) -> BindingExecutionState | None:
         try:
             config = json.loads(str(subscription["source_config_json"] or "{}"))
         except (KeyError, TypeError, json.JSONDecodeError):
             return None
         if not isinstance(config, dict):
             return None
-        profile_id = str(config.get("profile_id") or "").strip()
-        return profile_id or None
-
-    @staticmethod
-    def _is_x_profile_subscription(subscription: Any) -> bool:
-        try:
-            config = json.loads(str(subscription["source_config_json"] or "{}"))
-        except (KeyError, TypeError, json.JSONDecodeError):
-            return False
-        if not isinstance(config, dict):
-            return False
-        return (
-            str(config.get("platform") or "").strip().casefold() == "x"
-            and str(config.get("kind") or "profile").strip().casefold()
-            == "profile"
+        managed = bool(
+            (
+                str(subscription["source_type"]) == "apify_social"
+                and (
+                    str(config.get("profile_id") or "").strip()
+                    or (
+                        str(config.get("platform") or "").casefold(),
+                        str(config.get("kind") or "").casefold(),
+                    )
+                    in {("x", "profile"), ("instagram", "profile")}
+                )
+            )
+            or (
+                str(subscription["source_type"]) == "rss"
+                and is_youtube_channel_config(config)
+            )
         )
+        if not managed:
+            return None
+        try:
+            return ActorOpsBindingService(
+                self.store,
+                workspace_id=str(subscription["workspace_id"]),
+            ).execution_state(str(subscription["source_id"]))
+        except (ActorOpsBindingError, ActorOpsNotFound, sqlite3.OperationalError):
+            return BindingExecutionState(
+                str(subscription["source_id"]),
+                "",
+                0,
+                "missing",
+                "disabled",
+                False,
+                "blocked",
+                "actorops_v2_binding_not_ready",
+            )
 
     def advance_after_full_refresh(
         self,

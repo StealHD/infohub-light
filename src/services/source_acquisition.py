@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import sqlite3
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -16,6 +17,8 @@ from urllib.parse import urlsplit
 
 from ..models import ContentItem
 from .apify_key_pool import apify_key_pool_enabled, apify_pool_generation
+from .actorops.binding_service import ActorOpsBindingError
+from .source_type_registry import is_youtube_channel_config
 from .source_projection import (
     TargetSubscriptionProjection,
     target_subscription_projection,
@@ -118,7 +121,7 @@ class _AcquisitionContext:
     pool_generation: int | None
     actor_route_id: str | None
     actor_route_generation: int | None
-    actor_binding_generation: int | None
+    actor_binding_version: int | None
     source_id: str
     window_hours: int
     actor_publication_proof: dict[str, Any] | None = None
@@ -330,15 +333,24 @@ class SourceAcquisitionCoordinator:
                         pool_generation=None,
                         actor_route_id=None,
                         actor_route_generation=None,
-                        actor_binding_generation=None,
+                        actor_binding_version=None,
                     )
                 )
                 if (
                     actor_publication_proof
                     and actor_publication_proof.get("version") == 2
                 ):
+                    from .actorops.publication import assert_cached_v2_proof
+
+                    assert_cached_v2_proof(
+                        self.store, actor_publication_proof
+                    )
+                    refreshed_context = self._context(
+                        source,
+                        window_hours=max(int(window_hours), 1),
+                    )
                     publication_context = replace(
-                        publication_context,
+                        refreshed_context,
                         actor_publication_proof=actor_publication_proof,
                     )
                 elif (
@@ -352,8 +364,8 @@ class SourceAcquisitionCoordinator:
                     if (
                         refreshed_context.actor_route_generation
                         != context.actor_route_generation
-                        or refreshed_context.actor_binding_generation
-                        != context.actor_binding_generation
+                        or refreshed_context.actor_binding_version
+                        != context.actor_binding_version
                     ):
                         routed_generation = getattr(
                             fetched,
@@ -412,7 +424,7 @@ class SourceAcquisitionCoordinator:
             pool_generation=base_context.pool_generation,
             actor_route_id=base_context.actor_route_id,
             actor_route_generation=base_context.actor_route_generation,
-            actor_binding_generation=base_context.actor_binding_generation,
+            actor_binding_version=base_context.actor_binding_version,
             source_id=base_context.source_id,
             window_hours=1,
         )
@@ -448,106 +460,92 @@ class SourceAcquisitionCoordinator:
             if catalog["scope"] == "private"
             else f"workspace:{self.workspace_id}"
         )
-        actor_ops_binding = self.store.connect().execute(
-            """
-            SELECT binding.route_id,
-                   binding.generation AS binding_generation,
-                   profile.generation AS route_generation
-            FROM apify_source_route_bindings AS binding
-            JOIN apify_actor_route_profiles AS profile
-              ON profile.workspace_id = binding.workspace_id
-             AND profile.route_id = binding.route_id
-            WHERE binding.workspace_id = ? AND binding.source_id = ?
-            """,
-            (self.workspace_id, source_id),
-        ).fetchone()
+        catalog_config = (
+            catalog.get("config")
+            if isinstance(catalog.get("config"), dict)
+            else {}
+        )
+        managed_hint = bool(
+            (
+                catalog["type"] == "apify_social"
+                and (
+                    str(catalog_config.get("profile_id") or "").strip()
+                    or (
+                        str(catalog_config.get("platform") or "").casefold(),
+                        str(catalog_config.get("kind") or "").casefold(),
+                    )
+                    in {("x", "profile"), ("instagram", "profile")}
+                )
+            )
+            or (
+                catalog["type"] == "rss"
+                and is_youtube_channel_config(catalog_config)
+            )
+        )
+        actor_ops_binding = None
+        if managed_hint:
+            try:
+                actor_ops_binding = self.store.connect().execute(
+                    """SELECT binding.route_id, binding.binding_version,
+                              binding.target_fingerprint, binding.status,
+                              route.generation AS route_generation,
+                              route.runtime_mode, route.platform
+                       FROM actor_source_bindings_v2 AS binding
+                       JOIN actor_routes_v2 AS route
+                         ON route.workspace_id=binding.workspace_id
+                        AND route.route_id=binding.route_id
+                       WHERE binding.workspace_id=? AND binding.source_id=?""",
+                    (self.workspace_id, source_id),
+                ).fetchone()
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc).casefold():
+                    raise
+                raise ActorOpsBindingError(
+                    "actorops_v2_migration_required"
+                ) from exc
+            if (
+                actor_ops_binding is None
+                or str(actor_ops_binding["status"]) != "ready"
+            ):
+                raise ActorOpsBindingError("actorops_v2_binding_not_ready")
         pool_managed = bool(
             apify_key_pool_enabled()
-            and (
-                catalog["type"] == "apify_social"
-                or actor_ops_binding is not None
-            )
+            and actor_ops_binding is not None
+            and str(actor_ops_binding["runtime_mode"]) == "active"
         )
         pool_generation = (
             apify_pool_generation(self.store, self.workspace_id)
             if pool_managed
             else None
         )
-        catalog_config = (
-            catalog.get("config")
-            if isinstance(catalog.get("config"), dict)
-            else {}
+        actor_route_id = (
+            str(actor_ops_binding["route_id"])
+            if actor_ops_binding is not None
+            else None
         )
-        actor_route_managed = bool(
-            pool_managed
-            and (
-                bool(str(catalog_config.get("profile_id") or "").strip())
-                or actor_ops_binding is not None
-                or (
-                    str(catalog_config.get("platform") or "").casefold() == "x"
-                    and str(catalog_config.get("kind") or "profile").casefold()
-                    == "profile"
-                )
-            )
+        actor_route_generation = (
+            int(actor_ops_binding["route_generation"])
+            if actor_ops_binding is not None
+            else None
         )
-        actor_route_id: str | None = None
-        actor_route_generation: int | None = None
-        actor_binding_generation: int | None = None
-        if actor_route_managed:
-            profile_id = str(catalog_config.get("profile_id") or "").strip()
-            if actor_ops_binding is not None:
-                actor_route_id = str(actor_ops_binding["route_id"])
-                actor_route_generation = int(
-                    actor_ops_binding["route_generation"]
-                )
-                actor_binding_generation = int(
-                    actor_ops_binding["binding_generation"]
-                )
-                route_row = None
-            elif profile_id:
-                actor_route_id = profile_id
-                route_row = self.store.connect().execute(
-                    """
-                    SELECT profile.generation,
-                           binding.generation AS binding_generation
-                    FROM apify_actor_route_profiles AS profile
-                    LEFT JOIN apify_source_route_bindings AS binding
-                      ON binding.workspace_id = profile.workspace_id
-                     AND binding.route_id = profile.route_id
-                     AND binding.source_id = ?
-                    WHERE profile.workspace_id = ? AND profile.route_id = ?
-                    """,
-                    (source_id, self.workspace_id, profile_id),
-                ).fetchone()
-                actor_binding_generation = (
-                    int(route_row["binding_generation"])
-                    if route_row is not None
-                    and route_row["binding_generation"] is not None
-                    else None
-                )
-            else:
-                route_row = self.store.connect().execute(
-                    """
-                    SELECT generation
-                    FROM apify_actor_routes
-                    WHERE workspace_id = ? AND route_key = 'x/profile'
-                    """,
-                    (self.workspace_id,),
-                ).fetchone()
-            if actor_ops_binding is None:
-                actor_route_generation = (
-                    int(route_row["generation"])
-                    if route_row is not None
-                    else None
-                )
+        actor_binding_version = (
+            int(actor_ops_binding["binding_version"])
+            if actor_ops_binding is not None
+            else None
+        )
         secret_identity: dict[str, Any] | None = None
-        if pool_managed:
+        if actor_ops_binding is not None:
             secret_identity = {
-                "mode": "workspace_apify_pool",
-                "generation": pool_generation,
+                "mode": "actorops_v2",
+                "pool_generation": pool_generation,
                 "actor_route_id": actor_route_id,
                 "actor_route_generation": actor_route_generation,
-                "actor_binding_generation": actor_binding_generation,
+                "actor_binding_version": actor_binding_version,
+                "target_fingerprint": str(
+                    actor_ops_binding["target_fingerprint"]
+                ),
+                "binding_status": str(actor_ops_binding["status"]),
+                "route_mode": str(actor_ops_binding["runtime_mode"]),
             }
         else:
             secret_env = str(catalog.get("secret_env") or "")
@@ -595,7 +593,7 @@ class SourceAcquisitionCoordinator:
             pool_generation=pool_generation,
             actor_route_id=actor_route_id,
             actor_route_generation=actor_route_generation,
-            actor_binding_generation=actor_binding_generation,
+            actor_binding_version=actor_binding_version,
             source_id=source_id,
             window_hours=window_hours,
         )
@@ -974,48 +972,36 @@ class SourceAcquisitionCoordinator:
             )
         if context.actor_route_generation is None:
             return
-        if context.actor_route_id is not None:
-            route_row = conn.execute(
-                """
-                SELECT profile.generation,
-                       binding.generation AS binding_generation
-                FROM apify_actor_route_profiles AS profile
-                LEFT JOIN apify_source_route_bindings AS binding
-                  ON binding.workspace_id = profile.workspace_id
-                 AND binding.route_id = profile.route_id
-                 AND binding.source_id = ?
-                WHERE profile.workspace_id = ? AND profile.route_id = ?
-                """,
-                (
-                    context.source_id,
-                    self.workspace_id,
-                    context.actor_route_id,
-                ),
-            ).fetchone()
-        else:
-            route_row = conn.execute(
-                """
-                SELECT generation, NULL AS binding_generation
-                FROM apify_actor_routes
-                WHERE workspace_id = ? AND route_key = 'x/profile'
-                """,
-                (self.workspace_id,),
-            ).fetchone()
+        route_row = conn.execute(
+            """SELECT route.generation,
+                      binding.binding_version, binding.target_fingerprint,
+                      binding.status
+               FROM actor_routes_v2 AS route
+               JOIN actor_source_bindings_v2 AS binding
+                 ON binding.workspace_id=route.workspace_id
+                AND binding.route_id=route.route_id
+               WHERE route.workspace_id=? AND route.route_id=?
+                 AND binding.source_id=?""",
+            (
+                self.workspace_id,
+                context.actor_route_id,
+                context.source_id,
+            ),
+        ).fetchone()
         current_route_generation = (
             int(route_row["generation"]) if route_row is not None else None
         )
-        current_binding_generation = (
-            int(route_row["binding_generation"])
-            if route_row is not None
-            and route_row["binding_generation"] is not None
-            else None
+        current_binding_version = (
+            int(route_row["binding_version"]) if route_row is not None else None
         )
         if (
             current_route_generation != context.actor_route_generation
-            or current_binding_generation != context.actor_binding_generation
+            or current_binding_version != context.actor_binding_version
+            or route_row is None
+            or str(route_row["status"]) != "ready"
         ):
             raise AcquisitionLeaseLostError(
-                "Apify Actor route generation changed before publication"
+                "ActorOps v2 Route or Binding changed before publication"
             )
 
     def _record_failure(

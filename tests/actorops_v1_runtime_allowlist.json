@@ -19,15 +19,12 @@
     "src/services/apify_actor_monitoring.py",
     "src/services/apify_actor_ops.py",
     "src/services/apify_actor_runtime.py",
-    "src/services/catalog_source_runner.py",
-    "src/services/source_schedule.py",
     "src/services/worker.py",
     "src/services/worker_actor_canary_handler.py",
     "src/services/worker_actor_cycle.py",
     "src/services/worker_actor_discovery_handler.py",
     "src/services/worker_actor_validation_handler.py",
-    "src/services/worker_housekeeping.py",
-    "src/services/youtube_actor_source.py"
+    "src/services/worker_housekeeping.py"
   ],
   "jobs": [
     "frontend/src/features/apify-actors/HeroActorOpsControlPlane.tsx",
@@ -76,8 +73,7 @@
     "src/services/worker_finalization.py",
     "src/services/worker_housekeeping.py",
     "src/services/worker_lifecycle.py",
-    "src/services/worker_migration_gate.py",
-    "src/services/youtube_actor_source.py"
+    "src/services/worker_migration_gate.py"
   ],
   "tables": [
     "src/api/actor_ops_detail_projection.py",
@@ -118,17 +114,14 @@
     "src/services/apify_actor_route.py",
     "src/services/apify_actor_slot_recovery.py",
     "src/services/apify_actor_source_proof.py",
-    "src/services/apify_actor_source_runtime.py",
     "src/services/apify_actor_verified_catalog.py",
     "src/services/apify_actor_youtube_observation_discovery.py",
-    "src/services/source_acquisition.py",
     "src/services/worker_actor_cycle.py",
     "src/services/worker_actor_discovery_handler.py",
     "src/services/worker_finalization.py",
     "src/services/worker_housekeeping.py",
     "src/services/worker_lifecycle.py",
-    "src/services/worker_migration_gate.py",
-    "src/services/youtube_actor_source.py"
+    "src/services/worker_migration_gate.py"
   ],
   "frontend": [
     "frontend/src/features/apify-actors/ActorOpsWorkflowDialogs.tsx",

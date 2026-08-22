@@ -39,11 +39,6 @@ class ActorOpsRuntime:
         logical_job_id: str,
     ) -> ExecutionResult:
         route = self.repository.get_route(route_id)
-        if route.runtime_mode is not RuntimeMode.ACTIVE:
-            raise ActorOpsRuntimeError(
-                "actorops_v2_route_not_active",
-                failure_class=FailureClass.CONFIGURATION,
-            )
         try:
             adapter = self.registry.require(route.route_key)
         except AdapterNotRegistered:
@@ -68,6 +63,27 @@ class ActorOpsRuntime:
             route_id, source_id, fingerprint
         )
         health = self.repository.route_health(route_id)
+        if route.runtime_mode is not RuntimeMode.ACTIVE:
+            fallback = await adapter.fetch_native_fallback(target, window)
+            if fallback.supported:
+                return ExecutionResult(
+                    items=fallback.items,
+                    execution_mode="native_fallback",
+                    health=health.value,
+                    degraded_reason=(
+                        fallback.degraded_reason
+                        or "actorops_v2_route_disabled_native_fallback"
+                    ),
+                    candidate_id=None,
+                    semantic_outcome="native_fallback",
+                    publication_proof=self.repository.publication_proof(
+                        snapshot, None
+                    ),
+                )
+            raise ActorOpsRuntimeError(
+                "actorops_v2_route_disabled",
+                failure_class=FailureClass.CONFIGURATION,
+            )
         group_id = attempt_group_identity(
             self.repository.workspace_id,
             logical_job_id,
