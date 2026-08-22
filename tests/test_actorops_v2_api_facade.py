@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,7 +12,11 @@ from src.services.actorops.domain import (
     AssignmentRole, CandidateLifecycle, DiscoveryStage, DiscoveryStatus,
 )
 from src.services.actorops.repository import ActorOpsRepository
+from src.services.actorops.admin_service import ActorOpsAdminUnavailable
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from tests.test_actorops_v1_retirement_boundary import (
+    install_actorops_v1_deny_authorizer,
+)
 
 
 def _store(tmp_path: Path) -> ServiceStore:
@@ -100,23 +105,19 @@ def test_facade_flag_off_does_not_query_global_26_or_global_25(
     store.close()
 
 
-def test_v1_route_list_stays_global_26_and_25_inert_when_flag_is_off(
+def test_admin_route_list_is_v2_only_when_feature_flag_is_off(
     tmp_path: Path, monkeypatch
 ) -> None:
     client = _client(tmp_path, monkeypatch, v2_enabled=False)
     _login(client)
-    statements: list[str] = []
-    client.app.state.service_store.connect().set_trace_callback(statements.append)
-
     response = client.get("/api/admin/apify-routes")
 
     assert response.status_code == 200, response.text
     payload = response.json()["data"]
-    assert payload.get("actorops_version") is None
-    assert all("actorops_version" not in route for route in payload["routes"])
-    joined = "\n".join(statements).casefold()
-    assert "actor_routes_v2" not in joined
-    assert "version = 25" not in joined
+    assert payload["schema_version"] == 2
+    assert {route["route_key"] for route in payload["routes"]} == {
+        "x/profile/items", "instagram/profile/items", "youtube/channel/items",
+    }
 
 
 def test_facade_projects_health_assignment_lkg_and_disabled_policy(
@@ -330,42 +331,54 @@ def test_v2_binding_verify_returns_zero_cost_evidence_failure(
     assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
 
 
-def test_v2_manual_controls_are_flag_gated_without_global_26_or_25_reads(
+def test_v2_manual_controls_ignore_feature_flag_and_read_only_v2(
     tmp_path: Path, monkeypatch
 ) -> None:
     client = _client(tmp_path, monkeypatch, v2_enabled=False)
     _login(client)
+    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    source_id = client.app.state.service_store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace", owner_user_id=None, source_type="apify_social",
+        display_name="Pending proof",
+        config={"platform": "x", "kind": "profile", "target": "example"},
+    )
+    from src.services.actorops.binding_service import ActorOpsBindingService
+
+    ActorOpsBindingService(
+        client.app.state.service_store, workspace_id=DEFAULT_WORKSPACE_ID
+    ).ensure(source_id)
     statements: list[str] = []
     client.app.state.service_store.connect().set_trace_callback(statements.append)
 
     response = client.post(
-        "/api/admin/apify-routes/route-x/v2-bindings/verify",
-        json={"expected_route_generation": 1, "confirmation": "确认核验来源绑定"},
+        f"/api/admin/apify-routes/{route_id}/v2-bindings/verify",
+        json={
+            "expected_route_generation": repository.get_route(route_id).generation,
+            "confirmation": "确认核验来源绑定",
+        },
     )
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "actorops_v2_unavailable"
+    assert response.json()["error"]["code"] == "actorops_v2_binding_evidence_missing"
     joined = "\n".join(statements).casefold()
-    assert "actor_routes_v2" not in joined
+    assert "actor_routes_v2" in joined
+    assert "apify_source_route_bindings" not in joined
     assert "version = 25" not in joined
 
 
-def test_v2_operator_controls_are_flag_gated_without_global_26_28_25_or_27_reads(
+def test_v2_operator_controls_ignore_feature_flag_and_read_only_v2(
     tmp_path: Path, monkeypatch
 ) -> None:
     client = _client(tmp_path, monkeypatch, v2_enabled=False)
     _login(client)
-    statements: list[str] = []
-    client.app.state.service_store.connect().set_trace_callback(statements.append)
+    _repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    response = client.get(f"/api/admin/apify-routes/{route_id}/v2-candidates")
 
-    response = client.get("/api/admin/apify-routes/route-x/v2-candidates")
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "actorops_v2_unavailable"
-    joined = "\n".join(statements).casefold()
-    assert "actor_routes_v2" not in joined
-    assert "actor_candidate_store_metadata_v2" not in joined
-    assert "version = 25" not in joined and "version = 27" not in joined and "version = 28" not in joined
+    assert response.status_code == 200
+    assert "facade-candidate" in {
+        item["candidate_id"] for item in response.json()["data"]["candidates"]
+    }
 
 
 def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
@@ -385,7 +398,7 @@ def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
     assert enabled_workspace.status_code == 200, enabled_workspace.text
 
     routes = client.get("/api/admin/apify-routes").json()["data"]["routes"]
-    assert routes[0]["actorops_version"] == 2
+    assert client.get("/api/admin/apify-routes").json()["data"]["schema_version"] == 2
     assert routes[0]["health"] in {"healthy", "degraded", "unavailable"}
     assert "maintenance_policy" in routes[0]
     assert "manifest_json" not in json.dumps(routes[0], sort_keys=True)
@@ -407,18 +420,116 @@ def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
     ).fetchone()[0] == 0
 
 
-def test_v2_policy_endpoint_is_flag_gated_without_global_26_reads(
+def test_v2_policy_endpoint_ignores_feature_flag_without_global_26_reads(
     tmp_path: Path, monkeypatch
 ) -> None:
     client = _client(tmp_path, monkeypatch, v2_enabled=False)
     _login(client)
-    statements: list[str] = []
-    client.app.state.service_store.connect().set_trace_callback(statements.append)
-
     response = client.get("/api/admin/apify-maintenance-policy")
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "actorops_v2_unavailable"
-    joined = "\n".join(statements).casefold()
-    assert "actor_routes_v2" not in joined
-    assert "version = 25" not in joined
+    assert response.status_code == 200
+
+
+def test_admin_list_and_detail_work_when_v1_history_reads_are_denied(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    _repository, route_id = _route_with_one_assignment(store)
+    original_connect = store.connect
+
+    def denied_connect():
+        connection = original_connect()
+        install_actorops_v1_deny_authorizer(connection)
+        return connection
+
+    monkeypatch.setattr(store, "connect", denied_connect)
+
+    listed = client.get("/api/admin/apify-routes")
+    detail = client.get(f"/api/admin/apify-routes/{route_id}")
+
+    assert listed.status_code == 200, listed.text
+    assert detail.status_code == 200, detail.text
+    data = detail.json()["data"]
+    assert data["schema_version"] == 2
+    assert data["candidates"]
+    serialized = json.dumps(data, sort_keys=True)
+    for forbidden in (
+        "apify_actor_", "target_fingerprint", "manifest_json", "remote_run_id",
+        "dataset_id", "secret_ref_id", "idempotency_key",
+    ):
+        assert forbidden not in serialized
+
+
+def test_admin_distinguishes_missing_v2_migration_from_unavailable_store(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    store.connect().execute("DROP TABLE actor_replacement_plans_v2")
+    store.connect().commit()
+
+    migration = client.get("/api/admin/apify-routes")
+
+    assert migration.status_code == 503
+    assert migration.json()["error"]["code"] == "actorops_v2_migration_required"
+
+    from src.api import actorops_admin_routes
+
+    monkeypatch.setattr(
+        actorops_admin_routes.ActorOpsAdminService,
+        "list_routes",
+        lambda _self: (_ for _ in ()).throw(ActorOpsAdminUnavailable("store_down")),
+    )
+    unavailable = client.get("/api/admin/apify-routes")
+
+    assert unavailable.status_code == 503
+    assert unavailable.json()["error"]["code"] == "actorops_v2_unavailable"
+
+
+def test_actorops_events_use_redacted_operation_log_actions_only(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    workspace_id = DEFAULT_WORKSPACE_ID
+    user_id = str(
+        client.app.state.service_store.connect().execute(
+            "SELECT id FROM users WHERE username='owner'"
+        ).fetchone()[0]
+    )
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    stamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    entries = [
+        {
+            "schema_version": 1, "event_id": "evt_v2", "timestamp": stamp,
+            "level": "info", "service": "api", "category": "source",
+            "action": "actorops_v2_candidate_promote", "outcome": "succeeded",
+            "workspace_id": workspace_id, "actor_user_id": user_id,
+            "target_fingerprint": "do-not-expose",
+        },
+        {
+            "schema_version": 1, "event_id": "evt_legacy", "timestamp": stamp,
+            "level": "info", "service": "api", "category": "source",
+            "action": "actor_canary_queue", "outcome": "queued",
+            "workspace_id": workspace_id, "actor_user_id": user_id,
+        },
+    ]
+    (log_dir / "operations-api.jsonl").write_text(
+        "\n".join(json.dumps(item) for item in entries) + "\n", encoding="utf-8"
+    )
+
+    response = client.get(
+        "/api/admin/apify-actor-events",
+        params={"action": "actorops_v2_candidate_promote"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()["data"]
+    events = payload["events"]
+    assert [event["event_id"] for event in events] == ["evt_v2"]
+    assert payload["truncated"] is False
+    assert "target_fingerprint" not in json.dumps(events)

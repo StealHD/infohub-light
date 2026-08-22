@@ -7,21 +7,20 @@ from typing import Any, Literal, Protocol
 from fastapi import Depends, FastAPI, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .actorops_v2_projection import actorops_v2_route_additions
 from .responses import ApiError, ok
 from .system_auth import current_admin
 from ..services.actorops.binding_service import (
     ActorOpsBindingError,
     ActorOpsBindingService,
 )
-from ..services.actorops.readiness import (
-    actorops_v2_enabled,
-    require_actorops_v2_if_enabled,
+from ..services.actorops.admin_service import (
+    ActorOpsAdminMigrationRequired,
+    ActorOpsAdminService,
+    ActorOpsAdminUnavailable,
 )
 from ..services.actorops.repository import (
     ActorOpsConflict,
     ActorOpsNotFound,
-    ActorOpsRepository,
 )
 from ..services.operation_log import safe_emit_operation_event
 
@@ -73,8 +72,9 @@ def register_actorops_v2_control_routes(
     ) -> dict[str, Any]:
         workspace_id = str(user["workspace_id"])
         try:
-            _require_enabled(context.store)
-            repository = ActorOpsRepository(context.store.connect(), workspace_id)
+            repository = ActorOpsAdminService(
+                context.store, workspace_id=workspace_id
+            ).repository()
             with repository.transaction():
                 repository.promote_standby_candidate(
                     route_id,
@@ -104,8 +104,9 @@ def register_actorops_v2_control_routes(
     ) -> dict[str, Any]:
         workspace_id = str(user["workspace_id"])
         try:
-            _require_enabled(context.store)
-            repository = ActorOpsRepository(context.store.connect(), workspace_id)
+            repository = ActorOpsAdminService(
+                context.store, workspace_id=workspace_id
+            ).repository()
             route = repository.get_route(route_id)
             if route.generation != int(payload.expected_route_generation):
                 raise ActorOpsConflict("route changed before binding verification")
@@ -158,22 +159,18 @@ def register_actorops_v2_control_routes(
 
 
 def _route_projection(store: Any, workspace_id: str, route_id: str) -> dict[str, object]:
-    projection = actorops_v2_route_additions(store, workspace_id, route_id)
-    if projection is None:
-        raise RuntimeError("actorops_v2_disabled")
-    return projection
-
-
-def _require_enabled(store: Any) -> None:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
+    return ActorOpsAdminService(store, workspace_id=workspace_id).route_summary(route_id)
 
 
 def _unavailable(_error: RuntimeError) -> ApiError:
-    return ApiError(
-        "actorops_v2_unavailable", "ActorOps v2 is not available", status_code=409,
-    )
+    if isinstance(_error, ActorOpsAdminMigrationRequired):
+        return ApiError(
+            "actorops_v2_migration_required", "ActorOps v2 数据库迁移尚未完成。",
+            status_code=503,
+        )
+    if isinstance(_error, ActorOpsAdminUnavailable):
+        return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503)
+    return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503)
 
 
 def _record_action(request: Request, user: dict[str, Any], action: str) -> None:

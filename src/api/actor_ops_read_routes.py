@@ -1,66 +1,14 @@
 """Read-only Apify ActorOps HTTP adapters."""
 
-from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Query, Response
 
-from .actor_ops_projection import (
-    public_actor_ops_route,
-    public_canary_batch,
-    public_canary_plan,
-)
-from .actorops_v2_projection import actorops_v2_route_additions
+from .actor_ops_projection import public_canary_batch, public_canary_plan
 from .context import ApiContext
 from .responses import ok
 from .system_auth import api_context, current_admin
-from ..services.apify_actor_ops import supported_route_profiles
-
-
-async def admin_apify_routes(
-    response: Response,
-    user: dict[str, Any] = Depends(current_admin),
-    context: ApiContext = Depends(api_context),
-) -> dict[str, Any]:
-    workspace_id = str(user["workspace_id"])
-    ops = context.apify_actor_ops_for(workspace_id)
-    routes = [
-        _route_projection(
-            public_actor_ops_route(ops, ops.get_route(str(route["route_id"]))),
-            context, workspace_id,
-        )
-        for route in ops.list_routes()
-    ]
-    response.headers["Cache-Control"] = "no-store"
-    payload: dict[str, Any] = {
-        "schema_version": 1, "generation": ops.catalog_generation(),
-        "support_profiles": supported_route_profiles(), "routes": routes,
-    }
-    if routes and routes[0].get("actorops_version") == 2:
-        payload["actorops_version"] = 2
-    return ok(payload)
-
-
-async def admin_apify_route_detail(
-    route_id: str,
-    response: Response,
-    user: dict[str, Any] = Depends(current_admin),
-    context: ApiContext = Depends(api_context),
-) -> dict[str, Any]:
-    workspace_id = str(user["workspace_id"])
-    result = context.public_actor_ops_detail(
-        context.apify_actor_ops_for(workspace_id), route_id
-    )
-    additions = actorops_v2_route_additions(context.store, workspace_id, route_id)
-    response.headers["Cache-Control"] = "no-store"
-    return ok({"schema_version": 1, **result, **(additions or {})})
-
-
-def _route_projection(
-    route: dict[str, Any], context: ApiContext, workspace_id: str,
-) -> dict[str, Any]:
-    additions = actorops_v2_route_additions(context.store, workspace_id, str(route["route_id"]))
-    return {**route, **(additions or {})}
+from ..services.apify_actor_ops import ApifyActorOpsService
 
 
 async def admin_apify_pool_candidates(
@@ -78,9 +26,9 @@ async def admin_apify_pool_candidates(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    result = context.apify_actor_ops_for(
-        str(user["workspace_id"])
-    ).list_verified_pool_candidates(route_id, goal=goal, target_slot=target_slot)
+    result = _legacy_ops(context, str(user["workspace_id"])).list_verified_pool_candidates(
+        route_id, goal=goal, target_slot=target_slot
+    )
     response.headers["Cache-Control"] = "no-store"
     return ok(result)
 
@@ -111,37 +59,6 @@ async def admin_apify_freshness_check_detail(
     return ok({"schema_version": 1, **result})
 
 
-async def admin_apify_actor_events(
-    response: Response,
-    route_id: str | None = Query(default=None, max_length=128),
-    source_id: str | None = Query(default=None, max_length=128),
-    candidate_id: str | None = Query(default=None, max_length=128),
-    phase: str | None = Query(default=None, max_length=96),
-    outcome: str | None = Query(default=None, max_length=96),
-    since: datetime | None = Query(default=None),
-    until: datetime | None = Query(default=None),
-    cursor: str | None = Query(default=None, max_length=512),
-    limit: int = Query(default=50, ge=1, le=100),
-    user: dict[str, Any] = Depends(current_admin),
-    context: ApiContext = Depends(api_context),
-) -> dict[str, Any]:
-    result = context.apify_actor_resilience_for(
-        str(user["workspace_id"])
-    ).list_events(
-        route_id=route_id,
-        source_id=source_id,
-        candidate_id=candidate_id,
-        phase=phase,
-        outcome=outcome,
-        since=since,
-        until=until,
-        cursor=cursor,
-        limit=limit,
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return ok(result)
-
-
 async def admin_apify_canary_plan(
     run_id: str,
     response: Response,
@@ -157,9 +74,9 @@ async def admin_apify_canary_plan(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    plan = context.apify_actor_ops_for(
-        str(user["workspace_id"])
-    ).get_canary_plan(run_id, goal=goal, target_slot=target_slot)
+    plan = _legacy_ops(context, str(user["workspace_id"])).get_canary_plan(
+        run_id, goal=goal, target_slot=target_slot
+    )
     response.headers["Cache-Control"] = "no-store"
     return ok(public_canary_plan(plan))
 
@@ -170,24 +87,14 @@ async def admin_apify_canary_batch(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    batch = context.apify_actor_ops_for(
-        str(user["workspace_id"])
-    ).get_canary_batch(batch_id)
+    batch = _legacy_ops(context, str(user["workspace_id"])).get_canary_batch(batch_id)
     response.headers["Cache-Control"] = "no-store"
     return ok(public_canary_batch(batch))
 
 
-def register_actor_ops_route_read_routes(app: FastAPI) -> None:
-    """Register route list/detail/pool queries in their stable order."""
+def register_actor_ops_legacy_read_routes(app: FastAPI) -> None:
+    """Keep only pre-retirement Pool/Canary reads on the legacy service."""
 
-    app.add_api_route(
-        "/api/admin/apify-routes", admin_apify_routes, methods=["GET"]
-    )
-    app.add_api_route(
-        "/api/admin/apify-routes/{route_id}",
-        admin_apify_route_detail,
-        methods=["GET"],
-    )
     app.add_api_route(
         "/api/admin/apify-routes/{route_id}/pool-candidates",
         admin_apify_pool_candidates,
@@ -215,16 +122,6 @@ def register_actor_ops_freshness_detail_route(app: FastAPI) -> None:
     )
 
 
-def register_actor_ops_events_route(app: FastAPI) -> None:
-    """Register the Actor event query at its stable position."""
-
-    app.add_api_route(
-        "/api/admin/apify-actor-events",
-        admin_apify_actor_events,
-        methods=["GET"],
-    )
-
-
 def register_actor_ops_canary_plan_read_route(app: FastAPI) -> None:
     """Register the Canary plan query at its stable position."""
 
@@ -243,3 +140,7 @@ def register_actor_ops_canary_batch_read_route(app: FastAPI) -> None:
         admin_apify_canary_batch,
         methods=["GET"],
     )
+
+
+def _legacy_ops(context: ApiContext, workspace_id: str) -> ApifyActorOpsService:
+    return ApifyActorOpsService(context.store, workspace_id=workspace_id)

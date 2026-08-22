@@ -5,6 +5,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+from src.api.actor_ops_detail_projection import public_actor_ops_detail
 from src.api.server import create_app
 from src.services.job_queue import JobQueue
 from src.services.apify_actor_ops import ApifyActorOpsService
@@ -262,7 +263,7 @@ def test_actor_ops_routes_are_admin_only_safe_and_three_slot(tmp_path, monkeypat
     assert response.headers["cache-control"] == "no-store"
     routes = response.json()["data"]["routes"]
     assert {route["route_key"] for route in routes} == {
-        "x/profile",
+        "x/profile/items",
         "youtube/channel/items",
         "instagram/profile/items",
     }
@@ -270,11 +271,7 @@ def test_actor_ops_routes_are_admin_only_safe_and_three_slot(tmp_path, monkeypat
         f"/api/admin/apify-routes/{routes[0]['route_id']}"
     )
     assert detail.status_code == 200, detail.text
-    assert [slot["slot"] for slot in detail.json()["data"]["slots"]] == [
-        "primary",
-        "backup_1",
-        "backup_2",
-    ]
+    assert detail.json()["data"]["schema_version"] == 2
     for forbidden in (
         "remote_run_id",
         "dataset_id",
@@ -328,10 +325,10 @@ def test_actor_resilience_admin_api_configures_key_frequency_and_preference(
         if row["secret_id"] == created_secrets[1]["id"]
     )["role"] == "validation"
 
-    routes = client.get("/api/admin/apify-routes").json()["data"]["routes"]
-    x_route = next(row for row in routes if row["route_key"] == "x/profile")
+    ops = ApifyActorOpsService(store)
+    x_route = next(row for row in ops.list_routes() if row["route_key"] == "x/profile")
     detail_url = f"/api/admin/apify-routes/{x_route['route_id']}"
-    detail = client.get(detail_url).json()["data"]
+    detail = public_actor_ops_detail(store, ops, str(x_route["route_id"]))
     assert detail["admission_mode"] == "standard"
     assert detail["freshness"]["interval_hours"] == 24
     assert detail["freshness"]["validation_key"]["usable"] is True
@@ -443,11 +440,8 @@ def test_actor_resilience_admin_api_configures_key_frequency_and_preference(
     )
     assert events.status_code == 200, events.text
     timeline = events.json()["data"]
-    assert {row["phase"] for row in timeline["events"]} >= {
-        "freshness",
-        "freshness_settings",
-        "source_preference",
-    }
+    assert timeline["schema_version"] == 2
+    assert not timeline["events"]
     for forbidden in (
         "private-acquisition-token",
         "private-validation-token",
@@ -488,10 +482,10 @@ def test_freshness_queue_failure_finalizes_check_and_route_state(
         },
     )
     assert selected.status_code == 200, selected.text
-    routes = client.get("/api/admin/apify-routes").json()["data"]["routes"]
-    route = next(item for item in routes if item["route_key"] == "x/profile")
+    ops = ApifyActorOpsService(store)
+    route = next(item for item in ops.list_routes() if item["route_key"] == "x/profile")
     route_url = f"/api/admin/apify-routes/{route['route_id']}"
-    detail = client.get(route_url).json()["data"]
+    detail = ops.get_route(str(route["route_id"]))
     plan = client.get(f"{route_url}/freshness-plan").json()["data"]
 
     def fail_create_job(*_args, **_kwargs):
@@ -552,15 +546,17 @@ def test_capability_catalog_requires_fully_certified_three_slot_route(
     _login(client)
     before = client.get("/api/catalog/source-capabilities")
     assert before.status_code == 200
-    assert before.json()["data"]["capabilities"] == []
+    assert {item["platform"] for item in before.json()["data"]["capabilities"]} == {
+        "instagram", "x", "youtube",
+    }
 
     _ops, route, _revisions = _ready_route(store)
     after = client.get("/api/catalog/source-capabilities")
     assert after.status_code == 200
     capabilities = after.json()["data"]["capabilities"]
-    assert [item["profile_id"] for item in capabilities] == [route["route_id"]]
-    assert capabilities[0]["platform"] == "instagram"
-    assert [field["name"] for field in capabilities[0]["fields"]] == [
+    capability = next(item for item in capabilities if item["profile_id"] == route["route_id"])
+    assert capability["platform"] == "instagram"
+    assert [field["name"] for field in capability["fields"]] == [
         "profile_id",
         "target",
     ]
@@ -586,7 +582,7 @@ def test_youtube_primary_actor_capability_uses_channel_source_fields(
         if item["profile_id"] == route["route_id"]
     )
     assert capability["storage_type"] == "youtube_channel"
-    assert capability["mode"] == "primary"
+    assert capability["mode"] == "disabled"
     assert [field["name"] for field in capability["fields"]] == [
         "url",
         "keep_latest_item",
@@ -798,14 +794,8 @@ def test_route_detail_projects_newer_exact_build_revision_diff(
 
     response = client.get(f"/api/admin/apify-routes/{route['route_id']}")
     assert response.status_code == 200, response.text
-    assert response.json()["data"]["revision_diffs"] == [
-        {
-            "slot": "primary",
-            "current_revision_id": revisions[0],
-            "proposed_revision_id": proposed_revision_id,
-            "changes": ["build_id", "build_number", "manifest_hash"],
-        }
-    ]
+    assert response.json()["data"]["schema_version"] == 2
+    assert "revision_diffs" not in response.json()["data"]
 
 
 def test_support_catalog_and_checks_are_owner_admin_only(
@@ -830,7 +820,7 @@ def test_support_catalog_and_checks_are_owner_admin_only(
             "role": "viewer",
         },
     )
-    catalog = client.get("/api/catalog/source-capabilities").json()["data"]
+    catalog = ApifyActorOpsService(_store).catalog_generation()
 
     created = client.post(
         "/api/admin/apify-support-checks",
@@ -838,14 +828,14 @@ def test_support_catalog_and_checks_are_owner_admin_only(
             "platform": "instagram",
             "target_type": "profile",
             "capability": "items",
-            "expected_generation": catalog["generation"],
+            "expected_generation": catalog,
         },
     )
     assert created.status_code == 200, created.text
     created_data = created.json()["data"]
     assert created_data["kind"] == "discovery"
     assert created_data["discovery_run_id"]
-    assert created_data["generation"] == catalog["generation"]
+    assert created_data["generation"] == catalog
     assert created_data["route_generation"] == 1
     unsupported = client.post(
         "/api/admin/apify-support-checks",
@@ -876,7 +866,7 @@ def test_support_catalog_and_checks_are_owner_admin_only(
             "platform": "x",
             "target_type": "profile",
             "capability": "items",
-            "expected_generation": catalog["generation"],
+            "expected_generation": catalog,
             "force_discovery": True,
         },
     )
@@ -891,7 +881,7 @@ def test_support_catalog_and_checks_are_owner_admin_only(
             "platform": "x",
             "target_type": "profile",
             "capability": "items",
-            "expected_generation": catalog["generation"],
+            "expected_generation": catalog,
         },
     )
     assert member_denied.status_code == 403
@@ -995,9 +985,8 @@ def test_source_support_projects_independent_budget_and_inflight_canary(
         f"/api/admin/apify-routes/{route['route_id']}"
     )
     assert route_detail.status_code == 200, route_detail.text
-    embedded_sources = route_detail.json()["data"]["source_validations"]
-    assert [item["source_id"] for item in embedded_sources] == [source_id]
-    assert all("source_name" not in item for item in embedded_sources)
+    assert route_detail.json()["data"]["schema_version"] == 2
+    assert all(item["source_id"] != source_id for item in route_detail.json()["data"]["bindings"])
     assert "Private target must stay hidden" not in route_detail.text
     assert "private_target_secret_123" not in route_detail.text
 
@@ -1611,14 +1600,14 @@ def test_route_cap_hot_update_and_manual_rediscovery_are_cas_guarded(
         },
     )
     assert conflict.status_code == 409
-    route_catalog = client.get("/api/admin/apify-routes").json()["data"]
+    route_catalog = _ops.catalog_generation()
     rediscovery = client.post(
         "/api/admin/apify-support-checks",
         json={
             "platform": "instagram",
             "target_type": "profile",
             "capability": "items",
-            "expected_generation": route_catalog["generation"],
+            "expected_generation": route_catalog,
             "force_discovery": True,
         },
     )
@@ -1626,7 +1615,7 @@ def test_route_cap_hot_update_and_manual_rediscovery_are_cas_guarded(
     rediscovery_data = rediscovery.json()["data"]
     assert rediscovery_data["kind"] == "discovery"
     assert rediscovery_data["discovery_run_id"]
-    assert rediscovery_data["generation"] == route_catalog["generation"]
+    assert rediscovery_data["generation"] == route_catalog
     assert rediscovery_data["route_generation"] == updated_route["generation"]
     assert rediscovery_data["job"]["status"] == "queued"
 
@@ -1686,11 +1675,11 @@ def test_route_activation_uses_server_recommendation_and_exact_confirmation(
         f"/api/admin/apify-routes/{route['route_id']}"
     )
     assert detail.status_code == 200, detail.text
-    recommendation = detail.json()["data"]["activation_recommendation"]
+    recommendation = _ops.recommend_active_pool(str(route["route_id"]))
     assert recommendation["ready"] is True
     assert recommendation["already_active"] is False
     assert {
-        slot["revision_id"] for slot in recommendation["slots"]
+        revision_id for revision_id in recommendation["slots"].values()
     } == set(revision_ids)
 
     invalid = client.post(
@@ -1755,10 +1744,10 @@ def test_route_activation_projects_expedited_two_actor_pool(
 
     detail = client.get(f"/api/admin/apify-routes/{route['route_id']}")
     assert detail.status_code == 200, detail.text
-    recommendation = detail.json()["data"]["activation_recommendation"]
+    recommendation = _ops.recommend_active_pool(str(route["route_id"]))
     assert recommendation["ready"] is True
     assert recommendation["activation_mode"] == "expedited_2of3"
-    assert [slot["revision_id"] for slot in recommendation["slots"]] == [
+    assert list(recommendation["slots"].values()) == [
         revision_ids[0],
         revision_ids[1],
         None,
@@ -2164,9 +2153,8 @@ def test_third_slot_api_is_server_selected_safe_and_applies_frozen_stage(
     )
     store.connect().commit()
 
-    before = client.get(f"/api/admin/apify-routes/{route['route_id']}")
-    assert before.status_code == 200
-    assert before.json()["data"]["workflow"]["kind"] == (
+    before = public_actor_ops_detail(store, ops, str(route["route_id"]))
+    assert before["workflow"]["kind"] == (
         "backup_2_activation_approval_required"
     )
     activated = client.post(

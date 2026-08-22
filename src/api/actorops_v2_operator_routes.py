@@ -12,11 +12,15 @@ from typing import Any, Literal, Protocol
 from fastapi import Depends, FastAPI, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .actorops_v2_projection import actorops_v2_candidate_projection, actorops_v2_route_additions
+from .actorops_v2_projection import actorops_v2_candidate_projection
 from .responses import ApiError, ok
 from .system_auth import current_admin
 from ..services.actorops.domain import AssignmentRole, ReplacementStatus
-from ..services.actorops.readiness import actorops_v2_enabled, require_actorops_v2_if_enabled
+from ..services.actorops.admin_service import (
+    ActorOpsAdminMigrationRequired,
+    ActorOpsAdminService,
+    ActorOpsAdminUnavailable,
+)
 from ..services.actorops.repository import ActorOpsConflict, ActorOpsNotFound, ActorOpsRepository
 from ..services.operation_log import safe_emit_operation_event
 
@@ -96,7 +100,6 @@ def _register_candidate_routes(app: FastAPI, context: ActorOpsV2OperatorContext)
     async def candidates(route_id: str, response: Response, user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:
         try:
             repository = _repository(context.store, str(user["workspace_id"]))
-            _require_enabled(context.store)
             items = [actorops_v2_candidate_projection(repository, item) for item in repository.list_route_candidates(route_id)]
         except (ActorOpsNotFound, RuntimeError) as error:
             raise _unavailable(error) from error
@@ -251,8 +254,7 @@ def _register_replacement_routes(app: FastAPI, context: ActorOpsV2OperatorContex
 
 
 def _repository(store: Any, workspace_id: str) -> ActorOpsRepository:
-    _require_enabled(store)
-    return ActorOpsRepository(store.connect(), workspace_id)
+    return ActorOpsAdminService(store, workspace_id=workspace_id).repository()
 
 
 def _plan_for_mutation(store: Any, workspace_id: str, route_id: str, plan_id: str) -> tuple[ActorOpsRepository, Any]:
@@ -267,10 +269,7 @@ def _plan_for_mutation(store: Any, workspace_id: str, route_id: str, plan_id: st
 
 
 def _route(store: Any, workspace_id: str, route_id: str) -> dict[str, object]:
-    result = actorops_v2_route_additions(store, workspace_id, route_id)
-    if result is None:
-        raise RuntimeError("actorops_v2_disabled")
-    return result
+    return ActorOpsAdminService(store, workspace_id=workspace_id).route_summary(route_id)
 
 
 def _plan_view(repository: ActorOpsRepository, plan: Any) -> dict[str, object]:
@@ -278,14 +277,15 @@ def _plan_view(repository: ActorOpsRepository, plan: Any) -> dict[str, object]:
     return {"plan_id": plan.plan_id, "route_id": plan.route_id, "target_assignment": plan.target_assignment.value, "target_priority": plan.target_priority, "status": plan.status.value, "generation": plan.generation, "per_probe_cap_usd": plan.per_probe_cap_usd, "total_cap_usd": plan.total_cap_usd, "binding_count": plan.binding_count, "error_code": plan.error_code, "candidate": actorops_v2_candidate_projection(repository, candidate)}
 
 
-def _require_enabled(store: Any) -> None:
-    if not actorops_v2_enabled():
-        raise RuntimeError("actorops_v2_disabled")
-    require_actorops_v2_if_enabled(store)
-
-
 def _unavailable(_error: Exception) -> ApiError:
-    return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=409)
+    if isinstance(_error, ActorOpsAdminMigrationRequired):
+        return ApiError(
+            "actorops_v2_migration_required", "ActorOps v2 数据库迁移尚未完成。",
+            status_code=503,
+        )
+    if isinstance(_error, ActorOpsAdminUnavailable):
+        return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503)
+    return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503)
 
 
 def _conflict(code: str, message: str, _error: Exception) -> ApiError:

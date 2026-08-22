@@ -7,7 +7,7 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- ActorOps v2 单轨退役：Phase 0 的静态边界和 Phase 1 的 Attempt 恢复/费用单调性已完成；当前 Phase 2 把平台来源 CRUD、Binding verify、调度、共享获取、单源抓取和用户 Feed 刷新切为只依赖 v2 Binding/Route。旧 Admin API、Worker handler、housekeeping 与前端控制面仍按后续 Phase 3–8 独立退役；本阶段不部署、不切真实流量、不调用付费 Actor/AI。
+- ActorOps v2 单轨退役：Phase 0–2 已完成静态边界、Attempt 恢复/费用单调性和平台来源 Binding 生命周期；当前 Phase 3 把 Route list/detail、v2 Candidate/Binding/Attempt/Discovery/Maintenance/Replacement 与 Operation Events 切到直接 v2 Admin Service。旧 Pool/Canary/Freshness 兼容接口、Worker handler、housekeeping 与前端控制面仍按后续 Phase 4–8 独立退役；本阶段不部署、不切真实流量、不调用付费 Actor/AI。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -33,8 +33,9 @@
 ## ActorOps 单轨退役当前计划
 
 1. **Phase 0–1 — 已完成**：机器可复现的 v1 runtime 引用边界已建立；v2 Attempt 使用持久 logical identity、请求窗口、结果重放和费用单调规则，同一 logical Job 不重复 POST。
-2. **Phase 2 — 当前**：`ActorOpsBindingService` 接管平台来源的 ensure/rebind/verify/disable/reenable/soft-delete；现役来源 projection、schedule、acquisition、catalog fetch 和 user feed refresh 只读 v2。pending/disabled 不执行；disabled/shadow 不回退 v1；YouTube 仅使用受控免费 RSS fallback。
-3. **Phase 3–8 — 后续**：依次建立直接 v2 Admin Service、切换前端、410 退役 v1 API、隔离 v1 Worker Job、安装单轨 schema/离线退役工具，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
+2. **Phase 2 — 已完成**：`ActorOpsBindingService` 接管平台来源的 ensure/rebind/verify/disable/reenable/soft-delete；现役来源 projection、schedule、acquisition、catalog fetch 和 user feed refresh 只读 v2。pending/disabled 不执行；disabled/shadow 不回退 v1；YouTube 仅使用受控免费 RSS fallback。
+3. **Phase 3 — 当前**：直接 `ActorOpsAdminService` 读取 v2 Route/Candidate/Binding/Attempt/Discovery/Maintenance/Replacement/Store metadata；Route list/detail 固定 schema 2，Operation Events 改读脱敏 Operation Log，缺 schema 与其他不可用分别返回稳定 503。旧 Pool/Canary/Freshness 兼容接口暂留至 API retirement。
+4. **Phase 4–8 — 后续**：依次切换前端、410 退役 v1 API、隔离 v1 Worker Job、安装单轨 schema/离线退役工具，最后删除零在线 import 的 v1 Runtime 并把 authorizer allowlist 收敛为空。
 
 ## ActorOps v2 历史建设阶段
 

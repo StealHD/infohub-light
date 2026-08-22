@@ -7,9 +7,13 @@ from typing import Any, Protocol
 from fastapi import Depends, FastAPI, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
-from .actorops_v2_projection import actorops_v2_route_policy, actorops_v2_workspace_policy
 from .responses import ApiError, ok
 from .system_auth import current_admin
+from ..services.actorops.admin_service import (
+    ActorOpsAdminMigrationRequired,
+    ActorOpsAdminService,
+    ActorOpsAdminUnavailable,
+)
 from ..services.actorops.repository import ActorOpsConflict, ActorOpsRepository
 from ..services.operation_log import safe_emit_operation_event
 
@@ -134,16 +138,31 @@ def _record_policy_mutation(
 
 def _workspace_policy(store: Any, workspace_id: str) -> dict[str, object]:
     try:
-        return actorops_v2_workspace_policy(store, workspace_id)
+        return ActorOpsAdminService(
+            store, workspace_id=workspace_id
+        ).workspace_maintenance_policy()
     except RuntimeError as error:
-        raise ApiError("actorops_v2_unavailable", "ActorOps v2 is not available", status_code=409) from error
+        raise _unavailable(error) from error
 
 
 def _route_policy(store: Any, workspace_id: str, route_id: str) -> dict[str, object]:
     try:
-        return actorops_v2_route_policy(store, workspace_id, route_id)
+        return ActorOpsAdminService(
+            store, workspace_id=workspace_id
+        ).route_maintenance_policy(route_id)
     except RuntimeError as error:
-        raise ApiError("actorops_v2_unavailable", "ActorOps v2 is not available", status_code=409) from error
+        raise _unavailable(error) from error
+
+
+def _unavailable(error: RuntimeError) -> ApiError:
+    if isinstance(error, ActorOpsAdminMigrationRequired):
+        return ApiError(
+            "actorops_v2_migration_required", "ActorOps v2 数据库迁移尚未完成。",
+            status_code=503,
+        )
+    if isinstance(error, ActorOpsAdminUnavailable):
+        return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503)
+    return ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503)
 
 
 __all__ = ["register_actorops_v2_maintenance_policy_routes"]

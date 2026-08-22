@@ -5,9 +5,11 @@ from typing import Any
 from fastapi import Depends, FastAPI, Response
 
 from .context import ApiContext
-from .responses import ok
+from .responses import ApiError, ok
 from .system_auth import api_context, current_admin, current_user
-from ..services.apify_actor_ops import supported_route_profiles
+from ..services.actorops.admin_service import (
+    ActorOpsAdminMigrationRequired, ActorOpsAdminService, ActorOpsAdminUnavailable,
+)
 from ..services.source_type_registry import (
     YOUTUBE_CHANNEL_SETUP_TYPE,
     list_source_setup_types,
@@ -36,7 +38,7 @@ def _public_source_capability(route: dict[str, Any]) -> dict[str, Any]:
         "platform": platform,
         "target_type": str(route["target_type"]),
         "capability": str(route["capability"]),
-        "mode": str(route["mode"]),
+        "mode": str(route["runtime_mode"]),
         "generation": int(route["generation"]),
         "storage_type": (
             YOUTUBE_CHANNEL_SETUP_TYPE
@@ -70,18 +72,25 @@ async def catalog_source_capabilities(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
-    ops = context.apify_actor_ops_for(str(user["workspace_id"]))
-    capabilities = [
-        _public_source_capability(route)
-        for route in ops.list_routes()
-        if ops.source_capability_ready(str(route["route_id"]))
-    ]
+    try:
+        routes = ActorOpsAdminService(
+            context.store, workspace_id=str(user["workspace_id"])
+        ).list_routes()
+    except ActorOpsAdminMigrationRequired as error:
+        raise ApiError(
+            "actorops_v2_migration_required",
+            "ActorOps v2 数据库迁移尚未完成。",
+            status_code=503,
+        ) from error
+    except ActorOpsAdminUnavailable as error:
+        raise ApiError("actorops_v2_unavailable", "ActorOps v2 当前不可用。", status_code=503) from error
+    capabilities = [_public_source_capability(route) for route in routes]
     response.headers["Cache-Control"] = "no-store"
     return ok(
         {
-            "schema_version": 1,
-            "generation": ops.catalog_generation(),
-            "support_profiles": supported_route_profiles(),
+            "schema_version": 2,
+            "generation": max((int(route["generation"]) for route in routes), default=1),
+            "support_profiles": [str(route["route_key"]) for route in routes],
             "capabilities": capabilities,
         }
     )

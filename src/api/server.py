@@ -37,11 +37,11 @@ from .actor_ops_projection import (
 from .actor_ops_read_routes import (
     register_actor_ops_canary_batch_read_route,
     register_actor_ops_canary_plan_read_route,
-    register_actor_ops_events_route,
     register_actor_ops_freshness_detail_route,
     register_actor_ops_freshness_plan_route,
-    register_actor_ops_route_read_routes,
+    register_actor_ops_legacy_read_routes,
 )
+from .actorops_admin_routes import register_actorops_admin_routes
 from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
 from .catalog_metadata_routes import register_catalog_metadata_routes
 from .catalog_membership_routes import (
@@ -133,7 +133,7 @@ from .actor_ops_pool_management_routes import (
     ApifyActorCanaryBatchRequest,
     ApifyActorManualCanaryPlanRequest,
     ApifyActorValidationProfileRequest,
-    register_actor_ops_pool_management_routes,
+    register_legacy_actor_ops_pool_management_routes,
     validate_pool_candidate_refresh,
 )
 from .actor_ops_detail_projection import public_actor_ops_detail as project_actor_ops_detail
@@ -1052,6 +1052,7 @@ def create_app(
             store,
             workspace_id=str(workspace_id),
         )
+
     quota = QuotaService(
         store,
         max_fetch_jobs_per_day=int(os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")),
@@ -1843,8 +1844,6 @@ def create_app(
     app.state.workspace_email_transport = workspace_email_transport
     app.state.workspace_telegram_transport = workspace_telegram_transport
     app.state.apify_actor_alerts = apify_actor_alerts
-    app.state.apify_actor_route_for = apify_actor_route_for
-    app.state.apify_actor_ops_for = apify_actor_ops_for
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
     app.state.youtube_channel_resolver = youtube_channels
     app.state.source_summary_service = SourceSummaryService(store, quota=quota)
@@ -1866,8 +1865,6 @@ def create_app(
         apify_key_pool=apify_key_pool,
         apify_actor_alerts=apify_actor_alerts,
         apify_actor_resilience_for=apify_actor_resilience_for,
-        apify_actor_ops_for=apify_actor_ops_for,
-        public_actor_ops_detail=public_actor_ops_detail,
         source_setup_availability=source_setup_availability,
         public_source=public_source,
         secret_values=secret_values,
@@ -1899,7 +1896,9 @@ def create_app(
             require_current_actor_schema,
         ),
     )
-    register_actor_ops_pool_management_routes(app, app.state.api_context)
+    register_legacy_actor_ops_pool_management_routes(
+        app, store, queue, quota, apify_actor_ops_for, public_actor_ops_detail
+    )
 
     @app.middleware("http")
     async def _remote_mcp_body_limit(request: Request, call_next):
@@ -3091,7 +3090,8 @@ def create_app(
 
     register_apify_key_pool_routes(app)
 
-    register_actor_ops_route_read_routes(app)
+    register_actorops_admin_routes(app, store=store, operation_logs=operation_logs)
+    register_actor_ops_legacy_read_routes(app)
 
     @app.patch("/api/admin/apify-routes/{route_id}/freshness-settings")
     async def admin_apify_freshness_settings(
@@ -3202,8 +3202,6 @@ def create_app(
         request.state.operation_changed_fields = ["actor_preference"]
         response.headers["Cache-Control"] = "no-store"
         return ok({"schema_version": 1, **result})
-
-    register_actor_ops_events_route(app)
 
     @app.post(
         "/api/admin/apify-actor-evaluations/{evaluation_id}/retry"

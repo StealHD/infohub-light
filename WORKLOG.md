@@ -14,28 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-21",
-  "result": "修复 ActorOps v2 global 26 backfill 只复制旧 ActorOps binding、遗漏既有 Instagram 目录订阅的缺口：新增通用离线 catalog binding bridge 与受控 repair CLI，已在本地库只插入 1 条经 Adapter 重验的 pending v2 binding；不改写订阅、v1 binding、Candidate、LKG、水位、Attempt、费用或 Route mode。切流摘要现在能重验该 bridge 而不把 pending 当作 ready。",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-v2-catalog-binding-repair",
-  "unresolved": [
-    "Instagram Route 仍因未验证 binding 与 active slot 不一致保持 disabled；未执行 shadow、active、真实来源或付费 Actor。"
-  ],
-  "validation": [
-    "新增 migration/repair/global-25 fail-closed/切流摘要契约测试，以及现有 migration、cutover、Adapter、目录来源与 source-acquisition 回归全部通过。",
-    "impacted preflight 17/17 通过；本地 API/Worker Docker 健康，ready 返回 ready；repair apply 后 integrity/foreign keys 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
   "result": "补齐 ActorOps v2 既有 v1 binding 的离线 readiness CAS：切流摘要只比较当前 runtime 可执行的 exact revision，settled source-canary 证明才可将 pending 提升为 ready；本地 YouTube shadow 选择零 v2 Attempt/POST 后，因 v1 candidate_shortfall 未进入 active 并恢复 disabled。",
   "status": "partial",
   "task_id": "2026-08-21-actorops-v2-youtube-readiness-guard",
@@ -413,6 +391,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Phase 2 定向后端回归 362 项通过；preflight 第二次中断点后的剩余 Python 测试集合 100% 通过，两个过期测试修正后各自模块通过。",
     "前端 lint、typecheck、UI contract、84 个 Vitest 文件/625 项测试、production build 与 E2E contract 通过。",
     "代码规模、产品文档、Markdown/control、JSON、syntax 与 git diff 检查通过；未调用真实 Actor、AI 或付费来源。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "完成 ActorOps v2 单轨退役 Phase 3：新增直接 v2 Admin 读模型，Route list/detail、候选、Binding、Attempt、Discovery、Maintenance、Replacement 与安全商城元数据不再拼接或读取 v1；ApiContext 移除 v1 ActorOps Factory，Operation Events 仅查询脱敏 actorops_v2_* Operation Log。",
+  "status": "completed",
+  "task_id": "2026-08-22-actorops-v2-admin-service",
+  "unresolved": [
+    "旧 Pool/Canary/Freshness 兼容接口、Worker 与前端控制面按 Phase 4–8 继续退役；未部署、未调用真实 Actor、AI 或付费来源。"
+  ],
+  "validation": [
+    "v1 表 SQLite authorizer deny 下的 v2 Admin list/detail、migration-required 与 unavailable、Operation Log 脱敏和 feature-flag 无语义回退测试通过。",
+    "定向 ActorOps/API/来源生命周期/Operation Log 回归、v2 Repository/Runtime/Reconciliation/Maintenance 回归、前端 typecheck/lint、控制与产品文档校验均通过。",
+    "最终 impacted preflight 15/15 通过（snapshot: /tmp/actorops-phase3-impact.json）。"
   ]
 }
 ```

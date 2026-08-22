@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from types import SimpleNamespace
 from typing import Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, Request, Response
@@ -128,6 +129,28 @@ def validate_pool_candidate_refresh(
             "The requested Actor slot operation is currently blocked",
             status_code=409,
         )
+
+
+def register_legacy_actor_ops_pool_management_routes(
+    app: FastAPI,
+    store: Any,
+    job_queue: Any,
+    quota: Any,
+    apify_actor_ops_for: Any,
+    public_actor_ops_detail: Any,
+) -> None:
+    """Compose legacy-only Pool routes without extending the shared API context."""
+
+    register_actor_ops_pool_management_routes(
+        app,
+        SimpleNamespace(
+            store=store,
+            job_queue=job_queue,
+            quota=quota,
+            apify_actor_ops_for=apify_actor_ops_for,
+            public_actor_ops_detail=public_actor_ops_detail,
+        ),
+    )
 
 
 def register_actor_ops_pool_management_routes(

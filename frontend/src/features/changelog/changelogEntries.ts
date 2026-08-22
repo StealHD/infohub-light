@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 source lifecycle changes are documented below.
+import { actorOpsV2AdminChangelogEntry } from './actorOpsV2AdminChangelogEntry'
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntry } from './actorOpsV2SourceBindingChangelogEntry'
@@ -8,6 +8,7 @@ export const changelogMonths: ChangelogMonth[] = [
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [
+      actorOpsV2AdminChangelogEntry,
       actorOpsV2SourceBindingChangelogEntry,
       codeHealthMaintenanceEntry,
       ...actorOpsPoolManagementChangelogEntries,
@@ -810,7 +811,6 @@ export const changelogMonths: ChangelogMonth[] = [
   },
 ]
 export const defaultChangelogMonthId = changelogMonths[0].id
-
 export function isChangelogMonthId(value: string): value is ChangelogMonth['id'] {
   return changelogMonths.some((month) => month.id === value)
 }

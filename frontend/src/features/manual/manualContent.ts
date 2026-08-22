@@ -1,4 +1,4 @@
-// Reviewed: Attempt recovery changes no documented ActorOps workflow.
+// Reviewed: v2 Admin reads are an Owner/Admin control-plane change; normal source workflow is unchanged.
 export type ManualStep = {
   title: string
   description: string
