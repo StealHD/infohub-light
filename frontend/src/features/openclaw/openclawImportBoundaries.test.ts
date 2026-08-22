@@ -23,6 +23,8 @@ describe('OpenClaw import boundaries', () => {
 
   it('uses only explicit facade exports and keeps contracts free of Workbench imports', () => {
     expect(featureFile('index.ts')).not.toMatch(/export\s+\*/u)
+    expect(featureFile('openclawGateway.ts')).not.toMatch(/export\s+\*/u)
+    expect(featureFile('openclawGateway.ts')).not.toMatch(/\b(?:class|function)\s+/u)
     expect(featureFile('openclawContracts.ts')).not.toContain('workbench-live')
     expect(featureFile('useOpenClawChat.ts')).not.toContain('workbench-live')
   })

@@ -14,28 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-21",
-  "result": "修复 ActorOps v2 global 26 backfill 只复制旧 ActorOps binding、遗漏既有 Instagram 目录订阅的缺口：新增通用离线 catalog binding bridge 与受控 repair CLI，已在本地库只插入 1 条经 Adapter 重验的 pending v2 binding；不改写订阅、v1 binding、Candidate、LKG、水位、Attempt、费用或 Route mode。切流摘要现在能重验该 bridge 而不把 pending 当作 ready。",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-v2-catalog-binding-repair",
-  "unresolved": [
-    "Instagram Route 仍因未验证 binding 与 active slot 不一致保持 disabled；未执行 shadow、active、真实来源或付费 Actor。"
-  ],
-  "validation": [
-    "新增 migration/repair/global-25 fail-closed/切流摘要契约测试，以及现有 migration、cutover、Adapter、目录来源与 source-acquisition 回归全部通过。",
-    "impacted preflight 17/17 通过；本地 API/Worker Docker 健康，ready 返回 ready；repair apply 后 integrity/foreign keys 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-21",
   "result": "补齐 ActorOps v2 既有 v1 binding 的离线 readiness CAS：切流摘要只比较当前 runtime 可执行的 exact revision，settled source-canary 证明才可将 pending 提升为 ready；本地 YouTube shadow 选择零 v2 Attempt/POST 后，因 v1 candidate_shortfall 未进入 active 并恢复 disabled。",
   "status": "partial",
   "task_id": "2026-08-21-actorops-v2-youtube-readiness-guard",
@@ -401,6 +379,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "unresolved": [],
   "validation": [
     "OpenClaw 与直接 Workbench 定向 Vitest 124 项及 TypeScript typecheck 通过。",
+    "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 4 将 Gateway URL、Protocol/scopes、Device Identity 与 RPC Client 拆为独立模块，旧 openclawGateway.ts 缩为 25 行显式兼容 façade；Transcript Store 与 Gateway Preferences 具备直接的用户/Gateway/session 隔离、容量和清理测试。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal4-gateway-storage",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw 与直接 Workbench 定向 Vitest 127 项及 TypeScript typecheck 通过。",
     "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
   ]
 }
