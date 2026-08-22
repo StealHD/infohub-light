@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
+from scripts import openclaw_setup_workflow, setup_openclaw_local
 from scripts.setup_openclaw_local import (
     FULL_TOOL_FILTER,
     LEGACY_FULL_TOOL_FILTER,
@@ -125,15 +128,24 @@ def test_compose_image_from_ps_reuses_the_running_api_image() -> None:
     assert compose_image_from_ps("") is None
 
 
-def test_wrapper_is_executable_and_routes_to_python_entrypoint() -> None:
+def test_wrapper_is_executable_and_routes_to_python_entrypoint(tmp_path: Path) -> None:
     wrapper = ROOT / "scripts" / "setup_openclaw_local.sh"
 
     assert wrapper.stat().st_mode & 0o111
     assert "setup_openclaw_local.py" in wrapper.read_text(encoding="utf-8")
+    result = subprocess.run(
+        [str(wrapper), "--help"],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--dry-run" in result.stdout
 
 
 def test_managed_values_do_not_enable_subscription_writes() -> None:
-    source = (ROOT / "scripts" / "setup_openclaw_local.py").read_text(encoding="utf-8")
+    source = (ROOT / "scripts" / "openclaw_setup_env.py").read_text(encoding="utf-8")
 
     assert '("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false")' in source
     assert "INTELISCOPE_MCP_TOKEN" not in json.dumps(source)
@@ -163,15 +175,116 @@ def test_skill_tree_matches_ignores_install_metadata_and_detects_drift(
     assert skill_tree_matches(source, installed) is False
 
 
-def test_setup_refreshes_a_stale_installed_skill_and_restarts_gateway() -> None:
-    source = (ROOT / "scripts" / "setup_openclaw_local.py").read_text(encoding="utf-8")
-
-    assert '"refresh needed" if skill_present else "install needed"' in source
-    assert 'install_command.append("--force")' in source
-    assert (
-        "elif origins_changed or skill_changed or "
-        "mcp_filter_upgrade is not None:" in source
+def test_setup_refreshes_a_stale_installed_skill_and_restarts_gateway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    origin = "http://127.0.0.1:8080"
+    gateway_url = "ws://127.0.0.1:18789"
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            (
+                "HORIZON_REMOTE_MCP_ENABLED=true",
+                f"HORIZON_REMOTE_MCP_PUBLIC_URL={origin}/mcp",
+                "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false",
+                "HORIZON_OPENCLAW_CHAT_ENABLED=true",
+                f"HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL={gateway_url}",
+                "",
+            )
+        ),
+        encoding="utf-8",
     )
+    skill_dir = tmp_path / "integrations" / "openclaw" / "inteliscope"
+    installed_dir = tmp_path / "installed-skill"
+    skill_dir.mkdir(parents=True)
+    installed_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("current\n", encoding="utf-8")
+    (installed_dir / "SKILL.md").write_text("stale\n", encoding="utf-8")
+
+    gateway_status = {
+        "cli": {"version": "2026.7.1"},
+        "service": {"runtime": {"status": "running"}},
+        "gateway": {"probeUrl": gateway_url},
+    }
+    executed: list[list[str]] = []
+
+    class FakeRunner:
+        def __init__(self, *, cwd: Path, dry_run: bool = False) -> None:
+            assert cwd == tmp_path
+            assert dry_run is False
+
+        def capture(
+            self,
+            argv: list[str],
+            *,
+            check: bool = True,
+            env_override: dict[str, str] | None = None,
+        ) -> subprocess.CompletedProcess[str]:
+            del check, env_override
+            if argv[:3] == ["openclaw", "gateway", "status"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(gateway_status), "")
+            if argv[:4] == ["openclaw", "config", "get", "gateway.controlUi.allowedOrigins"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps([origin]), "")
+            if argv[:4] == ["openclaw", "mcp", "show", "inteliscope"]:
+                return subprocess.CompletedProcess(argv, 1, "", "missing")
+            if argv[:4] == ["openclaw", "skills", "info", "inteliscope"]:
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    json.dumps({"baseDir": str(installed_dir)}),
+                    "",
+                )
+            raise AssertionError(f"unexpected capture: {argv}")
+
+        def execute(
+            self,
+            argv: list[str],
+            *,
+            env_override: dict[str, str] | None = None,
+        ) -> None:
+            assert env_override is None
+            executed.append(argv)
+
+    monkeypatch.setattr(openclaw_setup_workflow, "CommandRunner", FakeRunner)
+    monkeypatch.setattr(openclaw_setup_workflow.shutil, "which", lambda _: "/bin/tool")
+    args = argparse.Namespace(
+        project_root=str(tmp_path),
+        env_file=None,
+        dry_run=False,
+        gateway_url=None,
+        origin=origin,
+        skip_service=True,
+        rebuild=False,
+        skip_skill=False,
+        no_open=True,
+        timeout=1,
+    )
+
+    openclaw_setup_workflow.run_setup(args)
+
+    assert [
+        "openclaw",
+        "skills",
+        "install",
+        str(skill_dir),
+        "--as",
+        "inteliscope",
+        "--force",
+    ] in executed
+    assert ["openclaw", "gateway", "restart"] in executed
+
+
+def test_main_maps_setup_error_to_stable_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_setup(_: argparse.Namespace) -> None:
+        raise SetupError("mocked failure")
+
+    monkeypatch.setattr(setup_openclaw_local, "run_setup", fail_setup)
+
+    assert setup_openclaw_local.main(["--dry-run"]) == 2
+    assert "OpenClaw setup failed: mocked failure" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

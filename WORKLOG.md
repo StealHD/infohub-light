@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-21",
-  "result": "Added explicit global 27 offline migration for authorized Actor validation caps: exact ledger CHECK upgrades to per-candidate $0.20 and batch $0.60, with pre-network fail-closed gating on un-migrated stores.",
-  "status": "completed",
-  "task_id": "2026-08-21-actorops-validation-cap-v27",
-  "unresolved": [],
-  "validation": [
-    "100 targeted ActorOps tests",
-    "schema migration dry-run",
-    "impacted control preflight",
-    "control validators"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface"
   ],
@@ -389,6 +368,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "全部 test_remote_mcp_* 套件、诊断大测试集、读服务/HTTP 定向测试、observability 和后端代码尺寸门禁通过。",
     "累计 impacted preflight 16/16 通过；RemoteMCPNotFound、RemoteMCPReadService 与 diagnose_source/diagnose_job 的导入、shape、脱敏和只读语义保持兼容。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-22",
+  "result": "OpenClaw 重构 Goal 9 将本地安装入口拆为 validation、process、env、gateway、skill、MCP、compose 与 workflow 模块；setup_openclaw_local.py 缩至 116 行显式兼容 façade，并保持 CLI、退出码、环境合并、Origin、Skill、toolFilter、Compose 与 Gateway 重启语义。",
+  "status": "completed",
+  "task_id": "2026-08-22-openclaw-refactor-goal9-local-setup",
+  "unresolved": [],
+  "validation": [
+    "本地安装入口与公共兼容面 20 项 mock/临时目录测试通过，未访问真实 ~/.openclaw、Gateway 或 Docker。",
+    "后端代码尺寸门禁与累计 impacted preflight 16/16 通过，入口低于 150 行且所有新增模块低于 400 行。"
   ]
 }
 ```
