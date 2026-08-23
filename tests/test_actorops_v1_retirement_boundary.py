@@ -26,6 +26,7 @@ SCAN_ROOTS = (
 OFFLINE_ONLY_PATHS = frozenset(
     {
         "src/services/actorops/catalog_binding_bridge.py",
+        "src/services/actorops/legacy_aggregate_costs.py",
         "src/services/actorops/legacy_cost_audit.py",
         "src/services/actorops/legacy_cost_mutations.py",
     }

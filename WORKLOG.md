@@ -13,29 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-22",
-  "result": "Phase 2 完成 ActorOpsBindingService、纯 v2 Binding verify 与平台来源 CRUD/调度/共享获取/单源和 Feed 执行接管；X、Instagram、YouTube 不再以 v1 Binding 或 Route 作为现役来源授权事实。",
-  "status": "completed",
-  "task_id": "2026-08-22-actorops-v2-source-binding-lifecycle",
-  "unresolved": [
-    "Phase 3–8 继续退役旧 Admin API、Worker/housekeeping、前端 v1 控制面与剩余 allowlist。",
-    "两次 impacted preflight 分别在两个已修复的过期 v1 语义测试处中止；依门禁上限未执行第三次，完整剩余 Python 与前端/控制组件已直接复验通过。"
-  ],
-  "validation": [
-    "Phase 2 定向后端回归 362 项通过；preflight 第二次中断点后的剩余 Python 测试集合 100% 通过，两个过期测试修正后各自模块通过。",
-    "前端 lint、typecheck、UI contract、84 个 Vitest 文件/625 项测试、production build 与 E2E contract 通过。",
-    "代码规模、产品文档、Markdown/control、JSON、syntax 与 git diff 检查通过；未调用真实 Actor、AI 或付费来源。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-22",
   "result": "完成 ActorOps v2 单轨退役 Phase 3：新增直接 v2 Admin 读模型，Route list/detail、候选、Binding、Attempt、Discovery、Maintenance、Replacement 与安全商城元数据不再拼接或读取 v1；ApiContext 移除 v1 ActorOps Factory，Operation Events 仅查询脱敏 actorops_v2_* Operation Log。",
   "status": "completed",
   "task_id": "2026-08-22-actorops-v2-admin-service",
@@ -399,6 +376,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "validation": [
     "v2.4.0 仅更新 pyproject 产品版本；manual 与 changelog 已复核。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "新增证据约束的 v1 历史聚合费用收敛工具：仅凭 shared Run ledger 与已结算子项，在停服务、0600 evidence/backup/receipt、hash 与行级 CAS 下补齐终态 Attempt/Validation/Batch item/Batch 的派生费用终态；已有非空 Batch 总额只保留、不下调。",
+  "status": "completed",
+  "task_id": "2026-08-23-actorops-v1-historical-cost-finalizer",
+  "unresolved": [
+    "v2.4.1 发布后仍须在 VPS 停服务并按 evidence snapshot/apply/verify、retirement、global 29/30 的显式顺序完成部署。"
+  ],
+  "validation": [
+    "新增红测后，历史费用 finalizer、退役边界、legacy cost audit、global 29/30 定向测试共 32 项通过。",
+    "impacted preflight 17/17 通过：全量 Python、前端 lint/typecheck/Vitest/build、代码规模、产品文档与控制校验均通过。",
+    "对生产库仅执行只读聚合核验；未调用 Actor、AI、付费来源或写入 VPS 数据库。"
   ]
 }
 ```
