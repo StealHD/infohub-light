@@ -92,6 +92,18 @@ class ActorOpsReconciler:
         if link is None:
             self._mark_error(row, "actorops_reconcile_run_missing")
             return ReconciliationSummary(pending=1)
+        if (
+            not link.remote_run_id
+            and str(link.status).casefold() == "start_rejected"
+            and AttemptStatus(str(row["status"])) in TERMINAL_ATTEMPT_STATUSES
+        ):
+            self._mutate(
+                row,
+                target=None,
+                actual_cost_usd=0.0,
+                cost_final=True,
+            )
+            return ReconciliationSummary(settled=1)
         if link.remote_run_id:
             if reads_remaining <= 0:
                 self._mark_error(row, "actorops_reconcile_deferred")

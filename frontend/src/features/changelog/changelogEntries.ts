@@ -2,7 +2,7 @@ import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntry } from './actorOpsV2SourceBindingChangelogEntry'
-import type { ChangelogMonth } from './changelogTypes' // v2.4.1 review: includes the completed ActorOps v2 single-track rollout; OpenClaw refactor has no separate user-visible entry.
+import type { ChangelogMonth } from './changelogTypes' // v2.4.2 review: includes ActorOps watermark catch-up, stale-result failover, and evidence-bound no-start settlement.
 export const changelogMonths: ChangelogMonth[] = [
   {
     id: 'month-2026-08',

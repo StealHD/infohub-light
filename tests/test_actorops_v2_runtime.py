@@ -47,6 +47,13 @@ class _Adapter:
         semantic = str(rows[0].get("semantic") if rows else "suspicious_empty")
         if semantic == "contract_invalid":
             raise ValueError("output contract mismatch")
+        if semantic == "stale_window":
+            return NormalizedBatch(
+                items=(),
+                semantic_outcome="valid_empty",
+                latest_published_at="2026-08-18T00:00:00+00:00",
+                latest_item_id="stale-item",
+            )
         items = ()
         if semantic == "valid_nonempty":
             items = (
@@ -315,6 +322,102 @@ def test_watermark_no_advance_stops_but_stale_regression_tries_standby(tmp_path)
     result = asyncio.run(runtime.fetch(**{**kwargs, "logical_job_id": "job-stale"}))
     assert result.execution_mode == "native_fallback"
     assert len(remote.requests) == 3
+    store.close()
+
+
+def test_window_filtered_stale_rows_try_standby_instead_of_stopping_empty(
+    tmp_path,
+) -> None:
+    store, _repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path, ["stale_window", "valid_nonempty"]
+    )
+    connection = store.connect()
+    connection.execute(
+        """UPDATE actor_source_bindings_v2
+           SET watermark_latest_published_at=?, watermark_item_id_hash=?
+           WHERE source_id=?""",
+        (
+            "2026-08-20T00:00:00+00:00",
+            hashlib.sha256(b"watermark-item").hexdigest(),
+            source_id,
+        ),
+    )
+    connection.commit()
+
+    result = asyncio.run(runtime.fetch(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-window-stale",
+    ))
+
+    assert result.candidate_id == candidates[1]
+    assert [request.candidate_id for request in remote.requests] == list(candidates)
+    failed = connection.execute(
+        "SELECT semantic_outcome, cost_final FROM actor_attempts_v2 WHERE candidate_id=?",
+        (candidates[0],),
+    ).fetchone()
+    assert tuple(failed) == ("stale_regression", 1)
+    store.close()
+
+
+def test_proven_start_rejection_settles_zero_and_tries_standby(tmp_path) -> None:
+    rejected = ActorOpsRuntimeError(
+        "apify_actor_start_rejected",
+        failure_class=FailureClass.CANDIDATE,
+        proven_no_start=True,
+    )
+    store, _repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path, [rejected, "valid_nonempty"]
+    )
+
+    result = asyncio.run(runtime.fetch(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-start-rejected",
+    ))
+
+    assert result.candidate_id == candidates[1]
+    first = store.connect().execute(
+        """SELECT status, actual_cost_usd, cost_final, error_code
+           FROM actor_attempts_v2 WHERE candidate_id=?""",
+        (candidates[0],),
+    ).fetchone()
+    assert tuple(first) == (
+        "failed", 0.0, 1, "apify_actor_start_rejected"
+    )
+    assert len(remote.requests) == 2
+    store.close()
+
+
+def test_unproven_start_rejection_keeps_cost_unknown_and_blocks_standby(
+    tmp_path,
+) -> None:
+    rejected = ActorOpsRuntimeError(
+        "apify_actor_start_rejected", failure_class=FailureClass.CANDIDATE
+    )
+    store, _repository, runtime, remote, route_id, source_id, _ = _runtime(
+        tmp_path, [rejected, "valid_nonempty"]
+    )
+
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(
+            route_id=route_id,
+            source_id=source_id,
+            source_config={"target": "openai"},
+            window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+            logical_job_id="job-unproven-start-rejected",
+        ))
+
+    assert caught.value.code == "actorops_cost_settlement_required"
+    attempt = store.connect().execute(
+        "SELECT actual_cost_usd, cost_final FROM actor_attempts_v2"
+    ).fetchone()
+    assert tuple(attempt) == (None, 0)
+    assert len(remote.requests) == 1
     store.close()
 
 

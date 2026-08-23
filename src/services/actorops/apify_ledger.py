@@ -48,6 +48,7 @@ class ApifyRunLedger:
         remote_run_id = str(attempt["remote_run_id"] or "") or None
         rows = self.store.connect().execute(
             """SELECT id, logical_run_id, remote_run_id, dataset_id, status,
+                      charge_actual_usd, charge_final,
                       created_at, updated_at
                FROM apify_actor_runs
                WHERE workspace_id=? AND purpose='acquisition' AND logical_run_id=?
@@ -67,7 +68,20 @@ class ApifyRunLedger:
         pending = [row for row in rows if str(row["status"] or "") in _PENDING_STATUSES]
         if len(pending) == 1:
             return ReconciliationRunResolution(self._link(pending[0]))
-        return ReconciliationRunResolution(None, ambiguous=bool(pending))
+        settled_no_start = [
+            row
+            for row in rows
+            if str(row["status"] or "") == "start_rejected"
+            and not row["remote_run_id"]
+            and not row["dataset_id"]
+            and bool(row["charge_final"])
+            and self._cost(row["charge_actual_usd"]) == 0.0
+        ]
+        if len(settled_no_start) == 1 and not pending:
+            return ReconciliationRunResolution(self._link(settled_no_start[0]))
+        return ReconciliationRunResolution(
+            None, ambiguous=bool(pending or settled_no_start)
+        )
 
     async def read_known(
         self, link: ReconciliationRunLink

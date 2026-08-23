@@ -148,3 +148,36 @@ def test_apify_ledger_reads_existing_run_and_settles_only_its_reservation(tmp_pa
     assert "run_actor_detailed" not in source
     assert ".abort" not in source
     store.close()
+
+
+def test_apify_ledger_links_only_evidence_bound_settled_start_rejection(
+    tmp_path: Path,
+) -> None:
+    store, repository, attempt = _attempt(tmp_path)
+    _reservation(store, "reservation-rejected")
+    connection = store.connect()
+    connection.execute(
+        """UPDATE apify_actor_runs
+           SET status='start_rejected', remote_run_id=NULL, dataset_id=NULL,
+               charge_reserved_usd=0, charge_actual_usd=0, charge_final=1
+           WHERE id='reservation-rejected'"""
+    )
+    connection.commit()
+
+    link = asyncio.run(
+        ApifyRunLedger(store, workspace_id=DEFAULT_WORKSPACE_ID).resolve(attempt)
+    ).link
+
+    assert link is not None
+    assert link.status == "start_rejected"
+    connection.execute(
+        "UPDATE apify_actor_runs SET charge_final=0 WHERE id='reservation-rejected'"
+    )
+    connection.commit()
+    unresolved = asyncio.run(
+        ApifyRunLedger(store, workspace_id=DEFAULT_WORKSPACE_ID).resolve(
+            repository.get_attempt("attempt-ledger")
+        )
+    )
+    assert unresolved.link is None
+    store.close()

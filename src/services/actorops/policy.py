@@ -81,13 +81,21 @@ def ordered_candidates(
 
 
 def classify_batch_freshness(batch: Any, binding: Any) -> Any:
-    if batch.semantic_outcome != "valid_nonempty":
+    if batch.semantic_outcome not in {"valid_nonempty", "valid_empty"}:
         return batch
     if not batch.latest_published_at or not batch.latest_item_id:
-        return replace(batch, semantic_outcome="suspicious_empty")
+        return (
+            replace(batch, semantic_outcome="suspicious_empty")
+            if batch.semantic_outcome == "valid_nonempty"
+            else batch
+        )
     watermark = binding.watermark_latest_published_at
     if not watermark:
-        return replace(batch, semantic_outcome="advanced")
+        return (
+            replace(batch, semantic_outcome="advanced")
+            if batch.semantic_outcome == "valid_nonempty"
+            else batch
+        )
     try:
         latest = datetime.fromisoformat(
             str(batch.latest_published_at).replace("Z", "+00:00")
@@ -104,4 +112,6 @@ def classify_batch_freshness(batch: Any, binding: Any) -> Any:
     item_hash = hashlib.sha256(batch.latest_item_id.encode("utf-8")).hexdigest()
     if latest == previous and item_hash == binding.watermark_item_id_hash:
         return replace(batch, semantic_outcome="no_advance")
+    if batch.semantic_outcome == "valid_empty":
+        return replace(batch, semantic_outcome="suspicious_empty")
     return replace(batch, semantic_outcome="advanced")

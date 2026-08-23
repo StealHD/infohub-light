@@ -414,13 +414,14 @@ class CandidateExecution:
             AttemptStatus.RUNNING,
         }:
             return
+        proven_no_start = bool(error.proven_no_start)
         with self.repository.transaction():
             self.repository.complete_attempt(
                 attempt_id,
                 status=AttemptStatus.FAILED,
                 semantic_outcome=error.code,
-                actual_cost_usd=None,
-                cost_final=False,
+                actual_cost_usd=0.0 if proven_no_start else None,
+                cost_final=proven_no_start,
                 failure_class=error.failure_class.value,
                 error_code=error.code,
             )

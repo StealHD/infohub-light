@@ -144,7 +144,7 @@ class ApifySocialScraper(BaseScraper):
             if isinstance(result, Exception):
                 logger.warning(
                     "Apify social subscription failed error_code=%s",
-                    type(result).__name__,
+                    str(getattr(result, "code", None) or type(result).__name__),
                 )
                 if self.strict_errors:
                     raise result

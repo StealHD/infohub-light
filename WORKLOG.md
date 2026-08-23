@@ -13,28 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-22",
-  "result": "完成 ActorOps v2 单轨退役 Phase 3：新增直接 v2 Admin 读模型，Route list/detail、候选、Binding、Attempt、Discovery、Maintenance、Replacement 与安全商城元数据不再拼接或读取 v1；ApiContext 移除 v1 ActorOps Factory，Operation Events 仅查询脱敏 actorops_v2_* Operation Log。",
-  "status": "completed",
-  "task_id": "2026-08-22-actorops-v2-admin-service",
-  "unresolved": [
-    "旧 Pool/Canary/Freshness 兼容接口、Worker 与前端控制面按 Phase 4–8 继续退役；未部署、未调用真实 Actor、AI 或付费来源。"
-  ],
-  "validation": [
-    "v1 表 SQLite authorizer deny 下的 v2 Admin list/detail、migration-required 与 unavailable、Operation Log 脱敏和 feature-flag 无语义回退测试通过。",
-    "定向 ActorOps/API/来源生命周期/Operation Log 回归、v2 Repository/Runtime/Reconciliation/Maintenance 回归、前端 typecheck/lint、控制与产品文档校验均通过。",
-    "最终 impacted preflight 15/15 通过（snapshot: /tmp/actorops-phase3-impact.json）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-22",
   "result": "完成 ActorOps v2 单轨退役 Phase 4：设置页永久移除 Hero/v1 fallback，前端只调用 schema-2 v2 Route、详情、Replacement、共享 alerts 与脱敏 Operation Events；旧 Pool/Canary/Freshness 组件、types、query keys、服务和浏览器流程已删除，v1 前端 allowlist 收敛为空。",
   "status": "completed",
   "task_id": "2026-08-22-actorops-v2-control-plane",
@@ -398,6 +376,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增红测后，历史费用 finalizer、退役边界、legacy cost audit、global 29/30 定向测试共 32 项通过。",
     "impacted preflight 17/17 通过：全量 Python、前端 lint/typecheck/Vitest/build、代码规模、产品文档与控制校验均通过。",
     "对生产库仅执行只读聚合核验；未调用 Actor、AI、付费来源或写入 VPS 数据库。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "修复生产 X 订阅遗漏最新数据：ActorOps v2 从持久水位追赶抓取窗口，将仅含旧帖的 Actor Dataset 分类为 stale/suspicious 并安全切换候补；明确未启动且共享账本证明零费用的拒绝可收敛并继续候补。",
+  "status": "completed",
+  "task_id": "2026-08-23-actorops-x-freshness-recovery",
+  "unresolved": [
+    "生产当前两个 X Candidate 分别为失效 Build 与旧缓存；替换为测试环境已验证 Actor 前，仍需用户单独授权一次受 $0.10 Route cap 约束的付费生产 Probe。"
+  ],
+  "validation": [
+    "ActorOps v2 全套定向后端测试、手册与更新日志 Vitest、代码规模及控制文件校验通过。",
+    "impacted preflight 17/17 通过；诊断期间只读取既有 Dataset、Run ledger 与公开 Actor metadata，未创建新 Actor Run 或费用。"
   ]
 }
 ```

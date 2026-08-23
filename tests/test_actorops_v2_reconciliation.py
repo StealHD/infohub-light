@@ -202,6 +202,65 @@ def test_reconciler_settles_terminal_cost_and_proven_no_start(tmp_path: Path) ->
     store.close()
 
 
+def test_reconciler_repairs_terminal_attempt_from_settled_start_rejection(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    with repository.transaction():
+        repository.create_attempt(
+            attempt_id="attempt-rejected",
+            idempotency_key="key-attempt-rejected",
+            route_id=route_id,
+            candidate_id="candidate-reconcile",
+            kind="fetch",
+            attempt_group_id="group",
+            attempt_index=0,
+            route_generation=1,
+            binding_version=None,
+            target_fingerprint="1" * 64,
+            reserved_usd=0.05,
+            logical_job_id="job-rejected",
+            request_fingerprint="2" * 64,
+            window_since="2026-08-20T00:00:00+00:00",
+            max_items=1,
+        )
+        repository.transition_attempt(
+            "attempt-rejected", AttemptStatus.CREATED, AttemptStatus.STARTING
+        )
+        repository.complete_attempt(
+            "attempt-rejected",
+            status=AttemptStatus.FAILED,
+            semantic_outcome="apify_actor_start_rejected",
+            actual_cost_usd=None,
+            cost_final=False,
+        )
+    ledger = _Ledger(
+        {
+            "attempt-rejected": ReconciliationRunResolution(
+                ReconciliationRunLink(
+                    reservation_id="reservation-rejected",
+                    remote_run_id=None,
+                    dataset_id=None,
+                    status="start_rejected",
+                    created_at="2026-08-20T00:00:00+00:00",
+                    updated_at="2026-08-20T00:00:01+00:00",
+                )
+            )
+        }
+    )
+
+    summary = asyncio.run(ActorOpsReconciler(repository, ledger).reconcile())
+
+    row = repository.get_attempt("attempt-rejected")
+    assert summary.settled == 1
+    assert summary.remote_reads == 0
+    assert row["status"] == "failed"
+    assert row["actual_cost_usd"] == 0
+    assert row["cost_final"] == 1
+    assert ledger.reads == []
+    store.close()
+
+
 def test_unknown_start_with_one_known_run_advances_without_reposting(tmp_path: Path) -> None:
     store, repository, route_id = _repository(tmp_path)
     _attempt(repository, route_id, "attempt-discovered", AttemptStatus.START_UNKNOWN)

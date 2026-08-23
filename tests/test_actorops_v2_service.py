@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +19,7 @@ from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepositor
 from src.services.actorops.service import (
     ActorOpsV2Service,
     V2ExecutionHandle,
+    _acquisition_since,
     build_source_actorops_service,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
@@ -166,3 +169,16 @@ def test_local_attempt_coordinator_never_calls_workspace_unknown_barriers() -> N
     asyncio.run(coordinator.report_start_outcome_unknown(object(), "start-code"))
     asyncio.run(coordinator.block_run_reconciliation(object(), "remote-code"))
     assert events.values == [("start", "start-code"), ("remote", "remote-code")]
+
+
+def test_actor_acquisition_window_catches_up_from_binding_watermark() -> None:
+    requested = datetime(2026, 8, 22, tzinfo=timezone.utc)
+    binding = SimpleNamespace(
+        watermark_latest_published_at="2026-08-10T12:00:00Z"
+    )
+    assert _acquisition_since(binding, requested) == datetime(
+        2026, 8, 10, 12, tzinfo=timezone.utc
+    )
+    assert _acquisition_since(
+        SimpleNamespace(watermark_latest_published_at=None), requested
+    ) == datetime(2000, 1, 1, tzinfo=timezone.utc)

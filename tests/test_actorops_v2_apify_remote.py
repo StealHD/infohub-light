@@ -6,7 +6,9 @@ import pytest
 
 from src.services.actorops.apify_remote import ApifyV2RemoteClient
 from src.services.actorops.domain import FailureClass
+from src.services.actorops.ports import RemoteRunRequest
 from src.services.actorops.runtime import ActorOpsRuntimeError
+from src.scrapers.apify_client import ApifyClientError
 
 
 class _Client:
@@ -58,3 +60,37 @@ def test_expired_dataset_is_stable_unrecoverable_and_never_posts() -> None:
     assert caught.value.failure_class is FailureClass.REMOTE_UNKNOWN
     assert all(call[0] != "POST" for call in client.calls)
     assert len(client.released) == 1
+
+
+def test_explicit_http_start_rejection_carries_no_start_evidence() -> None:
+    class Client:
+        coordinator = object()
+
+        async def run_actor_detailed(self, *_args, **_kwargs):
+            raise ApifyClientError(
+                "apify_actor_start_rejected",
+                "safe rejection",
+                retryable=False,
+                status_code=403,
+            )
+
+    class Events:
+        pass
+
+    request = RemoteRunRequest(
+        attempt_id="attempt",
+        candidate_id="candidate",
+        actor_id="publisher/actor",
+        build_number="1.0.0",
+        actor_input={},
+        max_total_charge_usd=0.05,
+        max_items=1,
+    )
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(
+            ApifyV2RemoteClient(Client()).execute(request, Events())  # type: ignore[arg-type]
+        )
+
+    assert caught.value.code == "apify_actor_start_rejected"
+    assert caught.value.failure_class is FailureClass.CANDIDATE
+    assert caught.value.proven_no_start is True

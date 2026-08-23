@@ -12,6 +12,15 @@ from .errors import ActorOpsRuntimeError
 from .ports import AttemptEventSink, RemoteRunRequest, RemoteRunResult
 
 
+_PROVEN_NO_START_CODES = frozenset(
+    {
+        "apify_actor_deleted",
+        "apify_actor_build_unavailable",
+        "apify_actor_start_rejected",
+    }
+)
+
+
 class _LocalAttemptCoordinator:
     def __init__(self, base: Any, events: AttemptEventSink) -> None:
         self.base = base
@@ -92,8 +101,11 @@ class ApifyV2RemoteClient:
                 max_remote_starts=request.max_remote_starts,
             )
         except ApifyClientError as error:
+            code = str(error.code)
             raise ActorOpsRuntimeError(
-                str(error.code), failure_class=_failure_class(str(error.code))
+                code,
+                failure_class=_failure_class(code),
+                proven_no_start=code in _PROVEN_NO_START_CODES,
             ) from None
         finally:
             self.client.coordinator = base

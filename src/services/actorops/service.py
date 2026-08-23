@@ -9,7 +9,8 @@ from typing import Any, Protocol
 
 from .adapters import build_source_registry
 from .apify_remote import ApifyV2RemoteClient
-from .domain import ExecutionSnapshot, RuntimeMode
+from .domain import ExecutionSnapshot, FailureClass, RuntimeMode
+from .errors import ActorOpsRuntimeError
 from .identity import stable_actor_item_id
 from .ports import ExecutionResult, FetchWindow, PublicationProof
 from .publication import (
@@ -82,7 +83,10 @@ class ActorOpsV2Service:
             source_config={"target": str(subscription.target)},
             window=FetchWindow(
                 max_items=int(subscription.fetch_limit),
-                since=since.astimezone(timezone.utc),
+                since=_acquisition_since(
+                    handle.snapshot.binding,
+                    since.astimezone(timezone.utc),
+                ),
                 until=datetime.now(timezone.utc),
             ),
             logical_job_id=str(job_id or subscription.source_id),
@@ -187,6 +191,28 @@ def build_source_actorops_service(
 ) -> ActorOpsSourceServiceProtocol:
     require_actorops_v2_schema(store)
     return ActorOpsV2Service(store, workspace_id=workspace_id)
+
+
+def _acquisition_since(binding: Any, requested: datetime) -> datetime:
+    """Catch up from the durable source watermark, not the Feed display window."""
+
+    raw_watermark = getattr(binding, "watermark_latest_published_at", None)
+    if not raw_watermark:
+        return datetime(2000, 1, 1, tzinfo=timezone.utc)
+    try:
+        watermark = datetime.fromisoformat(
+            str(raw_watermark).replace("Z", "+00:00")
+        )
+    except ValueError:
+        raise ActorOpsRuntimeError(
+            "actorops_v2_watermark_invalid",
+            failure_class=FailureClass.CONFIGURATION,
+        ) from None
+    if watermark.tzinfo is None:
+        watermark = watermark.replace(tzinfo=timezone.utc)
+    else:
+        watermark = watermark.astimezone(timezone.utc)
+    return min(requested, watermark)
 
 
 __all__ = [

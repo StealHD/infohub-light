@@ -230,7 +230,8 @@ def list_reconcilable(repository: Any, *, limit: int):
                  )
                  OR (
                      status IN ('succeeded', 'failed', 'cancelled')
-                     AND cost_final=0 AND remote_run_id IS NOT NULL
+                     AND cost_final=0
+                     AND (remote_run_id IS NOT NULL OR request_schema_version=2)
                  )
              )
            ORDER BY updated_at, attempt_id

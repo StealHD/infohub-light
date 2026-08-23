@@ -3,6 +3,16 @@ import type { ChangelogEntry } from './changelogTypes'
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
     date: '2026-08-23',
+    title: 'X 抓取会追赶水位并识别 Actor 旧缓存',
+    summary: '中断超过日常窗口的更新不再永久漏过；有记录但全是旧帖的 Dataset 会切备用，明确未启动的拒绝按 0 费用收敛。',
+    items: [
+      { title: '从来源水位补齐更新', description: 'X、Instagram 与认证 YouTube Actor 的抓取窗口会从来源已发布水位和当前窗口的较早者开始；首次抓取也会在条数与费用上限内读取最新结果，不把 Feed 的 24 小时展示范围误当成永久获取边界。' },
+      { title: '旧缓存不再显示成功 0 条', description: 'Actor 返回可识别帖子但全部早于当前窗口时，系统保留最新观察时间并和来源水位比较；倒退或可疑结果会标记 Candidate 失败并串行尝试备用，不推进水位。' },
+      { title: '未启动费用按证据收敛', description: '只有 Apify 明确拒绝启动且共享账本同时证明没有远端 Run、Dataset 和费用时，Attempt 才会按 0 美元终结并继续备用；未知启动、费用不明或证据冲突仍会停止后续付费。' },
+    ],
+  },
+  {
+    date: '2026-08-23',
     title: 'ActorOps 已完成 v2 单轨化',
     summary: '现役来源、管理台、Worker 和浏览器只使用 v2；Route 只保留启用或停用，数据库升级仍需由管理员在停机窗口明确执行。',
     items: [

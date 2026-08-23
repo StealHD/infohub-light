@@ -1,4 +1,4 @@
-// v2.4.1 review: ActorOps v2 social results are deduplicated and newest-first before publication; OpenClaw refactor preserves every user-visible workflow and instruction.
+// v2.4.2 review: ActorOps v2 catches up from source watermarks and treats stale Actor datasets as failures eligible for safe standby selection.
 export type ManualStep = {
   title: string
   description: string
@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-23',
-  change: 'ActorOps 已完成 v2 单轨化：来源、管理台、Worker 与浏览器只使用 v2 Route、Candidate、Binding 与 Discovery；Route 只有启用或停用，停用绝不回退旧运行时。旧 Pool、Canary、Freshness、Discovery 与 X profile 管理链接会返回明确、不可重试的“已退役”结果。平台来源会先建立待验证 Binding；X 与 Instagram 只在 Binding ready 且 Route active 时抓取，Actor 返回的重复内容会按稳定内容身份合并，并以最新发布时间优先、按来源设置的条数发布。YouTube 在 Route 未启用时只能使用受公共网络策略约束的免费 RSS fallback。ActorOps 单轨数据库升级必须由操作员在停机窗口显式执行：它先创建私有备份并归一历史 shadow，不会自动升级、重新付费、删除历史表或影响普通 RSS、GitHub、历史内容和信息流。',
+  change: 'ActorOps 已完成 v2 单轨化，并修复 X 等平台来源的增量追赶：抓取会从来源持久水位补齐中断期间的更新；Actor Dataset 有内容但只返回旧记录时会标为旧数据并切备用，不再显示为正常空结果。Apify 明确拒绝启动且账本证明没有远端 Run 时按 0 费用结算，未知启动仍只核对原 Run。来源、管理台、Worker 与浏览器只使用 v2 Route、Candidate、Binding 与 Discovery；Route 停用绝不回退旧运行时。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -100,7 +100,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '恢复中断的 Actor Run',
-        description: 'Worker 重启后，已登记远端 Run 只会核对原 Run；已有成功 Dataset 时只读取该 Dataset 并重新进行确定性验证，不会重新启动 Actor 或在同一任务抢跑备用。远端尚未结束、无法读取或状态不完整时，Route 保持保护；终态和已知费用写回后，下一次正常抓取才按健康主备重新选择。主用和备用是配置优先级，不会因单个来源切备而自动重排。',
+        description: 'Worker 重启后，已登记远端 Run 只会核对原 Run；已有成功 Dataset 时只读取该 Dataset 并重新进行确定性验证，不会重新启动 Actor 或在同一任务抢跑备用。抓取窗口会从来源已发布水位补齐中断期间的更新；Dataset 有可识别内容但最新记录落后于水位时会标记旧数据并切备用，不会当作正常 0 条。Apify 明确拒绝启动且共享账本证明没有远端 Run 时按 0 费用结算后可安全切备用；无法证明时仍保持保护。主用和备用是配置优先级，不会因单个来源切备而自动重排。',
         href: '/settings/actorops',
         linkLabel: '查看 ActorOps 状态',
       },
