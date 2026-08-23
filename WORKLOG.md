@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase"
   ],
   "recorded_on": "2026-08-22",
-  "result": "Phase 1 完成 global 29、确定性 Attempt 身份、Dataset GET 重放、费用单调持久化及 Reconciler observed 语义。",
-  "status": "completed",
-  "task_id": "2026-08-22-actorops-v2-attempt-recovery",
-  "unresolved": [
-    "后续 Phase 2–8 继续收缩 v1 在线 allowlist。"
-  ],
-  "validation": [
-    "ActorOps v2 与迁移直接测试 160 项通过。",
-    "impacted preflight 17/17 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-22",
   "result": "Phase 2 完成 ActorOpsBindingService、纯 v2 Binding verify 与平台来源 CRUD/调度/共享获取/单源和 Feed 执行接管；X、Instagram、YouTube 不再以 v1 Binding 或 Route 作为现役来源授权事实。",
   "status": "completed",
   "task_id": "2026-08-22-actorops-v2-source-binding-lifecycle",
@@ -401,6 +380,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "完整前端 Vitest 92 文件/642 项、全部 Remote MCP/setup 测试、typecheck、lint、UI/E2E contract、生产 build 与代码尺寸门禁通过。",
     "production-workbench 与 production-admin 三项目 E2E 110 项通过、55 项按既有 spec 条件跳过；最终 full preflight 17/17 通过。",
     "真实 Gateway 验收因没有可用的一次性配对条件未执行，未使用或记录任何 Token。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "为已合入 main 的 ActorOps v2 单轨化与 OpenClaw 模块化变更准备 v2.4.0 发布版本，保留显式数据库迁移与主分支 Gate 作为部署前置。",
+  "status": "completed",
+  "task_id": "2026-08-23-release-v2-4-0",
+  "unresolved": [
+    "等待精确最终 main SHA 的 CI；VPS 需在受控停机窗口显式执行 global 29→30。"
+  ],
+  "validation": [
+    "v2.4.0 仅更新 pyproject 产品版本；manual 与 changelog 已复核。"
   ]
 }
 ```
