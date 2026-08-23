@@ -37,14 +37,14 @@ def test_agent_source_type_validator_owns_exact_public_enum():
         "website",
         "youtube",
         "apify",
+        "github_user", "reddit_user", "instagram", "hackernews",
     }
-
     assert {
         source_type_registry.validate_agent_source_type(item)
         for item in public_types
     } == public_types
     with pytest.raises(SourceConfigError, match="unsupported source type"):
-        source_type_registry.validate_agent_source_type("hackernews")
+        source_type_registry.validate_agent_source_type("unknown")
 
 
 def test_source_type_registry_lists_supported_types_and_templates():

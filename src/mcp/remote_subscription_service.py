@@ -15,6 +15,7 @@ from ..services.source_type_registry import (
     catalog_source_matches_agent_type,
     get_source_setup_guide,
     project_catalog_source_public_summary,
+    self_service_agent_type_for_catalog,
     validate_agent_source_type,
 )
 from ..services.source_resolution import (
@@ -136,7 +137,11 @@ class RemoteMCPSubscriptionService:
                 if source.get("type") == "rss"
                 and isinstance(public_target, dict)
                 and public_target.get("site") == "bilibili"
-                else source["type"]
+                else self_service_agent_type_for_catalog(
+                    str(source["type"]), dict(source.get("config") or {})
+                )
+                or ("apify" if source["type"] == "apify_social" else None)
+                or source["type"]
             )
             items.append(
                 {

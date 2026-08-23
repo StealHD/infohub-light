@@ -18,10 +18,14 @@ SOURCE_TYPES = {
     "bilibili",
     "telegram",
     "github",
+    "github_user",
     "reddit",
+    "reddit_user",
     "twitter",
+    "instagram",
     "website",
     "youtube",
+    "hackernews",
     "apify",
 }
 
@@ -90,10 +94,14 @@ def test_setup_guide_summaries_include_safe_minimum_required_fields():
         "bilibili": ["site", "route_key", "params"],
         "telegram": ["channel"],
         "github": ["repository"],
+        "github_user": ["username"],
         "reddit": ["subreddit"],
+        "reddit_user": ["username"],
         "twitter": ["handle"],
+        "instagram": ["handle"],
         "website": ["url"],
         "youtube": ["url"],
+        "hackernews": [],
         "apify": ["platform", "kind", "target"],
     }
 
@@ -235,18 +243,19 @@ def test_agent_normalization_maps_public_types_to_catalog_types():
     assert telegram["catalog_source_type"] == "telegram_channel"
     assert telegram["config"]["channel"] == "durov"
     assert twitter == {
-        "lookup_identity": {
-            "catalog_source_type": "apify_social",
-            "config": {
-                "platform": "x",
-                "kind": "profile",
-                "target": "openai",
-            },
+        "catalog_source_type": "apify_social",
+        "config": {
+            "platform": "x",
+            "kind": "profile",
+            "target": "openai",
+            "enabled": True,
+            "fetch_limit": 20,
+            "analysis_mode": "full",
         },
         "policy": {
-            "resolution_mode": "existing_visible_only",
-            "self_service": False,
-            "requires_web_setup": True,
+            "resolution_mode": "create_or_existing",
+            "self_service": True,
+            "requires_web_setup": False,
         },
     }
     assert website["catalog_source_type"] == "rss"
@@ -934,6 +943,7 @@ def test_apify_lookup_rejects_source_customization_with_stable_web_setup_error(
         ("telegram", {"channel": "durov"}, "telegram_channel"),
         ("github", {"repository": "openai/codex"}, "github_release"),
         ("reddit", {"subreddit": "LocalLLaMA"}, "reddit_subreddit"),
+        ("twitter", {"handle": "@openai"}, "apify_social"),
         ("website", {"url": "https://example.com/feed.xml"}, "rss"),
         (
             "youtube",
@@ -962,14 +972,13 @@ def test_self_service_normalization_returns_create_config_with_explicit_policy(
 @pytest.mark.parametrize(
     ("source_type", "config"),
     [
-        ("twitter", {"handle": "@openai"}),
         (
             "apify",
             {"platform": "x", "kind": "profile", "target": "openai"},
         ),
     ],
 )
-def test_managed_sources_return_lookup_identity_and_existing_visible_only_policy(
+def test_generic_managed_sources_return_existing_visible_only_policy(
     source_type, config
 ):
     result = normalize_source_setup_input(source_type, config)

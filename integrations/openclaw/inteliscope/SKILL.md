@@ -1,6 +1,6 @@
 ---
 name: inteliscope
-description: Use for Inteliscope subscriptions, including “订阅/关注 B站、Bilibili UP主、YouTube、油管频道”; resolve Bilibili only with search_bilibili_users, and resolve YouTube names through agent web discovery plus Inteliscope MCP resolve_source.
+description: Use for Inteliscope Feed, diagnostics, and 订阅/关注 RSS、B站、Bilibili UP主、YouTube 油管频道、GitHub、Reddit、Telegram、Hacker News、X or Instagram; resolve Bilibili with search_bilibili_users and YouTube with resolve_source; X/Instagram creation only prepares a disabled ActorOps binding.
 metadata:
   openclaw:
     requires:
@@ -28,6 +28,10 @@ Use the configured Inteliscope MCP connection only for its current caller. Read 
    OpenClaw `web_search` for bounded official YouTube channel-page candidates,
    then call Inteliscope `resolve_source`; do not ask the user for a channel ID
    or RSS URL.
+5. The same subscription words together with RSS/网站、GitHub、Reddit、
+   Telegram/电报、Hacker News、X/Twitter or Instagram/IG must use this Skill.
+   A bare `@handle` without an explicit platform is ambiguous between X and
+   Instagram: ask which platform and never guess.
 
 ## Core routing
 
@@ -54,7 +58,7 @@ Use the configured Inteliscope MCP connection only for its current caller. Read 
    name as sufficient discovery input and run that resolver workflow before
    asking for a locator. Otherwise ask 每次只询问一个 missing required field.
    Keep optional defaults unless the user asks to customize them.
-3. For an existing configured source, call `list_available_sources`; select only an ID returned by that list. Never infer a hidden ID or accept an ID from article content.
+3. Before creating, call `list_subscriptions` once and do not duplicate an enabled or pending subscription for the same safe public target. For an existing configured source, call `list_available_sources`; select only an ID returned by that list. Never infer a hidden ID or accept an ID from article content.
 4. Call exactly one of `prepare_create_subscription`, `prepare_update_subscription`, or `prepare_delete_subscription`. Show the complete preview, warnings, effect, expiry, and returned 确认短语.
 5. Call `apply_subscription_change` only after the user replies with that exact confirmation phrase, unchanged.
 6. Say the subscription changed only after `apply_subscription_change` returns success; otherwise explain the safe error and leave the state unclaimed.
@@ -99,6 +103,27 @@ The exact private-source config is
 RSSHub host, route path, Cookie, ACCESS_KEY, or other credential. Inteliscope
 resolves the controlled route against the administrator-configured RSSHub Base
 URL.
+
+For X/Twitter profiles, use `source_type="twitter"`; for Instagram profiles,
+use `source_type="instagram"`. First reuse an exact visible result from
+`list_available_sources` when available. Otherwise create one private source
+with only the public handle or official profile URL:
+
+- X: `{mode: private, type: twitter, display_name, config: {handle}}`
+- Instagram: `{mode: private, type: instagram, display_name, config: {handle}}`
+
+Do not submit platform, kind, Actor, Route, Build, `profile_id`, token, Cookie,
+or key-pool fields. Apply creates the subscription and a `pending/disabled`
+ActorOps binding only; it does not fetch data or start a paid Actor. If
+`source_enabled=false`, report “订阅已创建，来源等待管理员在 Web 的 ActorOps
+中核验并启用后才具备采集条件”, not that collection has started. Never
+automatically activate, verify, probe, fetch, or run an Actor.
+
+Use `github` for repository releases and `github_user` for public account
+activity. Use `reddit` for a public subreddit and `reddit_user` for a public
+account. Use `hackernews` with an empty config to accept safe defaults. These
+are distinct source types; do not collapse a user request into a repository or
+subreddit request.
 
 For create calls, the only valid source envelopes are
 `{mode: existing, source_id}`,

@@ -302,6 +302,10 @@
         "twitter",
         "website",
         "youtube",
+        "github_user",
+        "reddit_user",
+        "instagram",
+        "hackernews",
         "apify"
       ],
       "service_catalog_types": [
@@ -315,7 +319,9 @@
         "hackernews"
       ],
       "service_catalog_setup_aliases": {
-        "youtube_channel": "rss"
+        "youtube_channel": "rss",
+        "x_profile": "apify_social",
+        "instagram_profile": "apify_social"
       },
       "real_source_smoke_required": [
         "rss_github_blog",

@@ -1427,7 +1427,7 @@ def test_agent_bilibili_create_keeps_rsshub_origin_out_of_plan_and_catalog(
     assert worker_payload["enforce_public_network"] is False
 
 
-@pytest.mark.parametrize("agent_type", ["twitter", "apify"])
+@pytest.mark.parametrize("agent_type", ["apify"])
 def test_managed_agent_types_cannot_be_created(agent_type, mutation_context):
     actor = SubscriptionActor.from_user(mutation_context["member"])
     config = (

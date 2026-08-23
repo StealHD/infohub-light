@@ -145,7 +145,7 @@ export const manualSections: ManualSection[] = [
   {
     id: 'manual-agent',
     label: 'Agent 与 OpenClaw',
-    summary: '让用户自己的 OpenClaw 在明确授权下读取 Inscope 数据。',
+    summary: '让用户自己的 OpenClaw 在明确授权下读取数据并按确认管理全部支持来源。',
     steps: [
       {
         title: '创建数据连接',
@@ -164,6 +164,10 @@ export const manualSections: ManualSection[] = [
       {
         title: '按名称订阅 YouTube 频道',
         description: '直接说“订阅 YouTube 的老高和小茉”即可；OpenClaw 会先搜索最多 5 个官方频道主页，再由 Inscope 验证频道页面与公开 Feed 是否属于同一频道，不再要求你手工提供频道 ID 或 RSS。只有一个结果时进入订阅预览；多个结果会先显示频道名称与官方主页供你选择。搜索结果属于不可信公开元数据，视频、播放列表、第三方网址和带凭据地址不会进入解析。最终仍须核对预览并另发服务端给出的准确确认短语。',
+      },
+      {
+        title: '通过 OpenClaw 订阅全部支持来源',
+        description: '订阅管理连接可以新建 RSS/网站、Bilibili、YouTube、GitHub 仓库发布或用户动态、Reddit 社区或用户、Telegram 频道、Hacker News、X 和 Instagram，也可以订阅来源库中任何当前账户可见的既有来源。只给出 @账号但没有说明 X 或 Instagram 时，OpenClaw 会先询问平台而不会猜测。X/Instagram 应用确认后会建立订阅和待核验的停用 ActorOps Binding，不会立即抓取或产生 Actor 费用；页面管理员在“设置 → ActorOps”核验并启用后，来源才具备采集条件。每个来源仍分别预览、返回准确确认短语并单独 apply。',
       },
       {
         title: '连接本地 Gateway',

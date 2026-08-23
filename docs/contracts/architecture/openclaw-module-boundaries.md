@@ -5,7 +5,7 @@
 
 本合同只定义 Browser OpenClaw、Remote MCP 与本地安装入口的代码所有权和依赖方向。部署、认证、scope、凭据、网络、事务和业务安全语义继续以 [Agent、可观测性与 ActorOps](agent-observability-actorops.md#36f-local-agent--remote-mcp-boundary) 为唯一真源；17 个 Remote MCP 工具的输入输出合同继续以 `docs/contracts/api/` 为准。
 
-本边界不引入通用 Agent Core、capability registry、新 scope、新工具、数据库、迁移、ActorOps 或采集能力。此类变化必须在本重构稳定后另立计划和决策。
+本边界不引入通用 Agent Core。D179 作为 D177 之后的独立 capability 切片，在不增加工具、scope、数据库或迁移的前提下扩展 registry 来源创建，并复用现役 ActorOps v2 Binding 生命周期；未来新增工具、授权或通用 Agent Adapter 仍须另立计划和决策。
 
 ## 2. 稳定公共合同
 
@@ -67,6 +67,8 @@ register_diagnostic_tools(server, context)
 - `remote_read_tools.py`、`remote_subscription_tools.py`、`remote_diagnostic_tools.py` 只注册对应类别，不直接导入 Store 或 composition root；三者工具并集必须精确为既有 17 个。
 - `remote_service.py` 是读取兼容 façade，组合 Feed、Subscription/Health 与 Job 三个 focused read service；安全公共投影归 `remote_read_projection.py`。
 - `remote_diagnostics.py` 是只读诊断兼容 façade，组合 records、sanitization、classification、evidence 与 projection；纯诊断模块不导入 Store、JobQueue、RuntimeStatus 或网络 Client。
+- Agent 来源能力的核心兼容 façade 为 `services/source_type_registry.py`，新增公开类型、别名、确定性账号 URL 规范化与安全 preview target 归 `services/agent_source_extensions.py`。任何当前用户可见的既有 catalog source 可按 returned ID 订阅；新建类型必须经过可逆 registry 校验，未知类型失败关闭。
+- Web 与 Remote MCP 的 ActorOps 来源事务共同使用 `services/actorops/source_lifecycle.py`；`api/actorops_source_lifecycle.py` 只保留兼容导出。X/Instagram 的 Agent apply 只创建 disabled source、enabled subscription 与 pending Binding，不创建 Attempt/Job 或触发远端调用；激活继续属于 Web 管理流程。
 
 `AgentDelegationTokenVerifier`、`DelegationRateLimiter`、`ExactMCPPathApp`、`RemoteMCPApplication`、`SafeRemoteMCP`、`create_remote_mcp`、`RemoteMCPNotFound`、`RemoteMCPReadService` 和 `RemoteMCPDiagnostics` 的历史导入路径保持兼容。任何 façade 都不得使用通配符 re-export。
 

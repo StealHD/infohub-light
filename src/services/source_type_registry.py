@@ -1010,12 +1010,12 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "twitter": _guide_source(
         "X / Twitter",
         "X / Twitter",
-        "Follow a public X account through a preconfigured Apify source.",
-        "通过预配置的 Apify 来源关注公开 X 账号。",
-        self_service=False,
-        requires_web_setup=True,
-        en_web_setup_note="X sources require Web setup because they use a managed Apify credential.",
-        zh_web_setup_note="X 来源使用托管的 Apify 凭据，需在 Web 中配置。",
+        "Prepare a public X account source without starting collection.",
+        "创建公开 X 账号来源，但不立即开始采集。",
+        self_service=True,
+        requires_web_setup=False,
+        en_web_setup_note="Creation prepares a disabled ActorOps binding; an administrator must verify and activate it before the source can collect.",
+        zh_web_setup_note="创建时只准备停用的 ActorOps 绑定；管理员核验并启用后才具备采集条件。",
         fields={
             "handle": _guide_field(
                 "Handle", "账号", "Public X handle or profile URL.", "公开 X 账号或主页网址。",
@@ -1220,9 +1220,9 @@ def list_source_setup_types(
 
 def validate_agent_source_type(source_type: str) -> str:
     """Validate one of the registry-owned public Agent source types."""
-
-    public_type = str(source_type)
-    if public_type not in _AGENT_BY_TYPE:
+    from .agent_source_extensions import canonical_agent_source_type, extension_definition
+    public_type = canonical_agent_source_type(source_type)
+    if public_type not in _AGENT_BY_TYPE and extension_definition(public_type) is None:
         raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     return public_type
 
@@ -1232,18 +1232,16 @@ def get_source_setup_guide(
     locale: str = "zh-CN",
 ) -> dict[str, Any]:
     """Return the safe, bilingual source setup guide for MCP proposal flows."""
-
+    from .agent_source_extensions import extension_definition, extension_definitions
     selected_locale = _guide_locale(locale)
     if source_type is None:
         return {
             "locale": selected_locale,
-            "source_types": [item.guide_summary(selected_locale) for item in _AGENT_SOURCE_TYPES],
+            "source_types": [item.guide_summary(selected_locale) for item in (*_AGENT_SOURCE_TYPES, *extension_definitions())],
         }
-    definition = _AGENT_BY_TYPE[validate_agent_source_type(source_type)]
-    return {
-        "locale": selected_locale,
-        "source_type": definition.guide_detail(selected_locale),
-    }
+    public_type = validate_agent_source_type(source_type)
+    definition = _AGENT_BY_TYPE.get(public_type) or extension_definition(public_type)
+    return {"locale": selected_locale, "source_type": definition.guide_detail(selected_locale)}
 
 
 def catalog_source_matches_agent_type(
@@ -1252,16 +1250,15 @@ def catalog_source_matches_agent_type(
 ) -> bool:
     """Match a safe discovery filter to the registry's public Agent type.
 
-    Several public setup types deliberately map to sets or subsets of internal
-    catalog types. RSS and Website intentionally expose the same direct,
-    non-YouTube RSS rows. Controlled RSSHub-backed Bilibili rows use their
-    explicit provider discriminator. Twitter owns the managed X/profile subset
-    while generic Apify owns the remaining managed rows.
+    Public setup types may map to a subset of one catalog storage type.
     """
 
+    from .agent_source_extensions import extension_catalog_match, is_extension_source_type
     public_type = validate_agent_source_type(source_type)
     catalog_type = str(source.get("type") or "")
     config = source.get("config")
+    if is_extension_source_type(public_type):
+        return extension_catalog_match(public_type, catalog_type, config)
 
     def is_youtube_rss() -> bool:
         if catalog_type != "rss" or not isinstance(config, dict):
@@ -1270,12 +1267,14 @@ def catalog_source_matches_agent_type(
             return False
         return is_youtube_feed_config(config)
 
-    def is_twitter_managed() -> bool:
+    def is_profile_managed(platform: str) -> bool:
+        profile_id = f"{platform}/profile/items"
         return bool(
             catalog_type == "apify_social"
             and isinstance(config, dict)
-            and config.get("platform") == "x"
-            and config.get("kind") == "profile"
+            and (config.get("profile_id") == profile_id or (
+                config.get("platform") == platform and config.get("kind") == "profile"
+            ))
             and isinstance(config.get("target"), str)
             and config.get("target")
         )
@@ -1301,9 +1300,11 @@ def catalog_source_matches_agent_type(
     if public_type == "telegram":
         return catalog_type == "telegram_channel"
     if public_type == "twitter":
-        return is_twitter_managed()
+        return is_profile_managed("x")
     if public_type == "apify":
-        return catalog_type == "apify_social" and not is_twitter_managed()
+        return catalog_type == "apify_social" and not (
+            is_profile_managed("x") or is_profile_managed("instagram")
+        )
     return False
 
 
@@ -1319,11 +1320,13 @@ def self_service_agent_type_for_catalog(
         if is_youtube_feed_config(config):
             return "youtube"
         return "rss"
-    return {
-        "github_release": "github",
-        "reddit_subreddit": "reddit",
-        "telegram_channel": "telegram",
-    }.get(source_type)
+    if source_type == "apify_social":
+        identity = (config.get("platform"), config.get("kind"))
+        profile_id = str(config.get("profile_id") or "")
+        return {"x/profile/items": "twitter", "instagram/profile/items": "instagram"}.get(profile_id) or {("x", "profile"): "twitter", ("instagram", "profile"): "instagram"}.get(identity)
+    return {"github_release": "github", "github_user": "github_user",
+            "reddit_subreddit": "reddit", "reddit_user": "reddit_user",
+            "telegram_channel": "telegram", "hackernews": "hackernews"}.get(source_type)
 
 
 def _safe_urlparse(value: str) -> Any:
@@ -1502,10 +1505,10 @@ def _twitter_handle(value: str) -> str:
     if parsed.scheme:
         if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in {
             "x.com", "www.x.com", "twitter.com", "www.twitter.com",
-        }:
+        } or parsed.query or parsed.fragment or parsed.params:
             raise SourceConfigError("handle must be a public X URL or name")
         parts = [part for part in parsed.path.split("/") if part]
-        if len(parts) != 1:
+        if len(parts) != 1 or parsed.path not in {f"/{parts[0]}", f"/{parts[0]}/"}:
             raise SourceConfigError("handle must be a public X account name")
         text = parts[0]
     handle = text.lstrip("@")
@@ -1864,21 +1867,20 @@ def normalize_source_setup_input(
     config: dict[str, Any],
 ) -> dict[str, Any]:
     """Normalize agent-supplied public setup inputs before catalog validation."""
-
-    source_type = str(source_type or "").strip()
-    if source_type not in _AGENT_BY_TYPE:
-        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    from .agent_source_extensions import extension_definition, normalize_extension_aliases
+    source_type = validate_agent_source_type(source_type)
     if not isinstance(config, dict):
         raise SourceConfigError("config must be an object")
     raw = dict(config)
     if _contains_secret_shape(raw):
         raise SourceConfigError(_CREDENTIAL_ERROR)
     _validate_public_url_inputs(raw)
-    definition = _AGENT_BY_TYPE[source_type]
+    extension = extension_definition(source_type)
+    definition = _AGENT_BY_TYPE.get(source_type) or extension
     if source_type == "apify" and set(raw) - {"platform", "kind", "target"}:
         raise SourceConfigError(_SOURCE_REQUIRES_WEB_SETUP_ERROR)
     _validate_agent_field_types(definition, raw)
-    aliased = _normalize_agent_aliases(source_type, raw)
+    aliased = normalize_extension_aliases(source_type, raw) if extension is not None else _normalize_agent_aliases(source_type, raw)
     if source_type == "youtube":
         aliased.setdefault("keep_latest_item", True)
     if source_type in {"rss", "website"} and isinstance(aliased.get("url"), str):
@@ -1910,16 +1912,10 @@ def validate_normalized_source_setup(
     catalog_source_type: str,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Validate a planner-normalized setup without retaining the raw request.
-
-    Persisted mutation plans contain the public Agent type and its normalized
-    catalog config.  Restoration uses this reverse check to prove the mapping,
-    catalog config, and execution policy still match the registry contract.
-    """
-
-    definition = _AGENT_BY_TYPE.get(str(source_type))
-    if definition is None:
-        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    """Prove that a stored Agent plan still matches the registry contract."""
+    from .agent_source_extensions import extension_definition, is_extension_source_type, reverse_extension_input
+    source_type = validate_agent_source_type(source_type)
+    definition = _AGENT_BY_TYPE.get(source_type) or extension_definition(source_type)
     if str(catalog_source_type) != definition.catalog_source_type:
         raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     if not isinstance(config, dict):
@@ -2006,6 +2002,8 @@ def validate_normalized_source_setup(
             for key in ("platform", "kind", "target")
             if key in config
         }
+    elif is_extension_source_type(source_type):
+        reverse_input = reverse_extension_input(source_type, config)
     else:  # pragma: no cover - registry membership above closes this branch
         raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
 

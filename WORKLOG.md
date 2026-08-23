@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "Canonicalized v2 Actor Dataset rows by native identity and newest-first order before applying each source fetch limit, preventing duplicate X items from displacing newer content.",
-  "status": "completed",
-  "task_id": "actorops-x-output-canonicalization",
-  "unresolved": [
-    "Phase 6 Worker v1 Job isolation remains a separate next change.",
-    "No VPS deployment, remote Actor call, AI call, paid source call, tag, or push was performed."
-  ],
-  "validation": [
-    "Red test: test_manifest_deduplicates_unsorted_rows_and_keeps_latest_limited_items failed before implementation and passed after it.",
-    "Direct ActorOps manifest, runtime, adapter, source acquisition, legacy runtime, cutover, YouTube probe, and Apify social tests passed.",
-    "Impacted preflight passed 17/17, including full Python, Vitest, frontend build, control, documentation, and frozen-file checks."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "phase"
@@ -391,6 +369,31 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "OpenClaw Hook Vitest and TypeScript checks passed.",
     "Impacted preflight passed 16/16 commands, including full Python, frontend and control checks.",
     "Markdown and project-control validation, JSON checks and diff check passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "OpenClaw and Remote MCP now subscribe to any visible catalog source and can create all current public source types; X and Instagram create atomic pending/disabled ActorOps bindings without fetch, Job, Attempt, AI, notification, or paid Actor work.",
+  "status": "completed",
+  "task_id": "2026-08-23-openclaw-all-source-subscriptions",
+  "unresolved": [
+    "No deployment, release, tag, push, real source fetch, Actor call, AI call, notification, or paid operation was performed.",
+    "The second aggregate preflight stopped on stale source-guide expectations; after correcting them, the full Python suite and every remaining planned gate command passed independently, and the aggregate was not invoked a third time."
+  ],
+  "validation": [
+    "Full Python suite passed with ResourceWarning promoted to errors.",
+    "Frontend passed 83 Vitest files / 611 tests, lint, typecheck, UI and E2E contracts, and production build.",
+    "Code-size, Markdown/control, JSON, syntax, product documentation, and diff checks passed.",
+    "X/Instagram tests proved pending Binding creation, atomic rollback, deletion lifecycle, Web-only activation/retargeting, and zero fetch/discovery Jobs or Actor Attempts."
   ]
 }
 ```

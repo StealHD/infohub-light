@@ -249,7 +249,7 @@ def test_available_source_filter_uses_explicit_public_type_matrix(context):
             source_type="apify_social",
             config={
                 "platform": "instagram",
-                "kind": "profile",
+                "kind": "hashtag",
                 "target": "openai",
             },
         ),
@@ -302,7 +302,7 @@ def test_available_source_filter_rejects_unknown_public_type_before_catalog_scan
     with pytest.raises(SourceConfigError, match="unsupported source type"):
         context["service"].list_available_sources(
             actor=_read_actor(context),
-            source_type="hackernews",
+            source_type="unknown",
             unsubscribed_only=False,
         )
 

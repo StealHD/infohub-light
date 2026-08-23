@@ -1,11 +1,4 @@
-"""Shared subscription mutation planning and atomic application.
-
-The Agent-facing planner is deliberately narrower than the REST catalog API:
-it can subscribe to visible shared sources, but it can only create and mutate
-the caller's own private sources.  REST adapters use the explicit ``rest_*``
-methods below so administrator catalog permissions are not accidentally
-reduced to the Agent boundary.
-"""
+"""Atomic subscription planning for Agent-private and explicit REST contexts."""
 
 from __future__ import annotations
 
@@ -14,6 +7,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..storage.service_store import ServiceStore, SourceKeyConflictError
+from .agent_source_extensions import project_agent_public_target
+from .actorops.binding_service import ActorOpsBindingError
+from .actorops.source_lifecycle import ActorOpsSourceLifecycle, agent_source_update_requires_web, is_actorops_managed_source
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .quota import QuotaExceeded, QuotaService
 from .source_health import SourceHealthService
@@ -29,6 +25,7 @@ from .source_type_registry import (
     project_catalog_source_public_summary,
     self_service_agent_type_for_catalog,
     source_key,
+    validate_agent_source_type,
     validate_normalized_source_setup,
     validate_public_source_metadata,
     validate_source_config,
@@ -64,6 +61,7 @@ _PLAN_SNAPSHOT_KEYS = {
     "targets",
     "fingerprints",
 }
+_MANAGED_PENDING_WARNING = "The managed source will remain pending and disabled until an administrator verifies and activates its ActorOps binding; this change does not fetch data or start a paid Actor."
 _CATALOG_SOURCE_TYPES = {
     "rss",
     "github_release",
@@ -413,35 +411,6 @@ class SubscriptionMutationService:
         }
 
     @staticmethod
-    def _public_target(source_type: str, config: dict[str, Any]) -> Any:
-        if source_type == "rss":
-            if config.get("provider") == "rsshub":
-                return {
-                    "site": config.get("site"),
-                    "route_key": config.get("route_key"),
-                    "params": config.get("params"),
-                }
-            return config.get("url")
-        if source_type == "github_release":
-            return f"{config.get('owner', '')}/{config.get('repo', '')}".strip("/")
-        if source_type in {"github_user", "reddit_user"}:
-            return config.get("username")
-        if source_type == "reddit_subreddit":
-            return config.get("subreddit")
-        if source_type == "telegram_channel":
-            return config.get("channel")
-        if source_type == "apify_social":
-            return {
-                key: config.get(key) for key in ("platform", "kind", "target")
-            }
-        if source_type == "hackernews":
-            return {
-                key: config.get(key)
-                for key in ("fetch_top_stories", "min_score")
-            }
-        return None
-
-    @staticmethod
     def _require_exact_keys(
         value: Any,
         expected: set[str],
@@ -653,7 +622,7 @@ class SubscriptionMutationService:
                 preview_source = {
                     "display_name": source_values["display_name"],
                     "type": source_values["agent_type"],
-                    "public_target": self._public_target(
+                    "public_target": project_agent_public_target(
                         source_values["catalog_source_type"],
                         source_values["config"],
                     ),
@@ -666,7 +635,15 @@ class SubscriptionMutationService:
                 "subscription": payload["subscription"],
                 "schedule": payload["schedule_preview"],
                 "impact": "Create or enable the caller's subscription.",
-                "warnings": [],
+                "warnings": (
+                    [_MANAGED_PENDING_WARNING]
+                    if source_values["mode"] == "private"
+                    and is_actorops_managed_source(
+                        source_values["catalog_source_type"],
+                        source_values["config"],
+                    )
+                    else []
+                ),
             }
         if kind == "update":
             return {
@@ -752,7 +729,6 @@ class SubscriptionMutationService:
                 if (
                     policy.get("resolution_mode") != "create_or_existing"
                     or policy.get("self_service") is not True
-                    or source_values["catalog_source_type"] == "apify_social"
                     or source_values["enforce_public_network"]
                     is not bool(policy.get("public_network_only", False))
                     or source_values["source_key"]
@@ -822,9 +798,10 @@ class SubscriptionMutationService:
                 normalized["schedule_preview"]
             )
             final_source_enabled = bool(
-                True
-                if source_values["mode"] == "private"
-                else source_values["enabled"]
+                not is_actorops_managed_source(
+                    source_values["catalog_source_type"], source_values["config"]
+                )
+                if source_values["mode"] == "private" else source_values["enabled"]
             )
             final_subscription_enabled = bool(subscription["enabled"])
             subject_enabled = final_source_enabled and final_subscription_enabled
@@ -1029,6 +1006,7 @@ class SubscriptionMutationService:
         target_source: dict[str, Any] | None = None
         existing_subscription: dict[str, Any] | None = None
         existing_schedule: dict[str, Any] | None = None
+        managed_source_pending = False
 
         if mode == "existing":
             if set(source) != {"mode", "source_id"}:
@@ -1094,6 +1072,7 @@ class SubscriptionMutationService:
                 }
             )
             try:
+                agent_type = validate_agent_source_type(agent_type)
                 setup = normalize_source_setup_input(
                     agent_type, source.get("config") or {}
                 )
@@ -1115,11 +1094,10 @@ class SubscriptionMutationService:
                     "source_requires_web_setup", "source_requires_web_setup"
                 )
             catalog_type = str(setup["catalog_source_type"])
-            if catalog_type == "apify_social":
-                raise self._error(
-                    "source_requires_web_setup", "source_requires_web_setup"
-                )
             config = dict(setup["config"])
+            managed_source_pending = is_actorops_managed_source(
+                catalog_type, config
+            )
             key = source_key(catalog_type, config)
             if self.store.get_source_by_key(
                 workspace_id=actor.workspace_id, source_key=key
@@ -1145,14 +1123,15 @@ class SubscriptionMutationService:
                 ),
             }
             preview_type = agent_type
-            public_target = self._public_target(catalog_type, config)
+            public_target = project_agent_public_target(catalog_type, config)
         else:
             raise self._error(
                 "invalid_request", "source mode must be existing or private"
             )
 
         final_source_enabled = bool(
-            target_source.get("enabled") if target_source is not None else True
+            target_source.get("enabled")
+            if target_source is not None else not managed_source_pending
         )
         final_subscription_enabled = bool(normalized_subscription["enabled"])
         if (
@@ -1188,7 +1167,10 @@ class SubscriptionMutationService:
             "subscription": dict(normalized_subscription),
             "schedule": dict(schedule_preview),
             "impact": "Create or enable the caller's subscription.",
-            "warnings": [],
+            "warnings": (
+                [_MANAGED_PENDING_WARNING]
+                if managed_source_pending else []
+            ),
         }
         target_ids = {}
         if target_source is not None:
@@ -1242,6 +1224,8 @@ class SubscriptionMutationService:
                     "Agent changes cannot modify shared sources",
                     status_code=403,
                 )
+            if agent_source_update_requires_web(source, source_updates):
+                raise self._error("source_requires_web_setup", "managed source activation requires Web")
             normalized_source_updates = {}
             for field, value in source_updates.items():
                 if field in {"display_name", "description"}:
@@ -1626,6 +1610,16 @@ class SubscriptionMutationService:
                 status_code=409,
                 action="Enable the subscription and source before enabling its schedule.",
             ) from exc
+        except ActorOpsBindingError as exc:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+                cleanup.discard()
+            raise self._error(
+                "source_discovery_unavailable",
+                "managed source setup is temporarily unavailable",
+                status_code=503,
+                action="Retry after an administrator prepares the platform route.",
+            ) from exc
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
@@ -1641,6 +1635,9 @@ class SubscriptionMutationService:
     ) -> dict[str, Any]:
         if plan.kind == "create":
             source_values = plan.payload["source"]
+            managed_private = source_values["mode"] == "private" and is_actorops_managed_source(
+                source_values["catalog_source_type"], source_values["config"]
+            )
             if source_values["mode"] == "private":
                 source_id = self.store.create_source(
                     workspace_id=actor.workspace_id,
@@ -1657,7 +1654,7 @@ class SubscriptionMutationService:
                     enforce_public_network=source_values[
                         "enforce_public_network"
                     ],
-                    enabled=True,
+                    enabled=not managed_private,
                     commit=False,
                 )
             else:
@@ -1666,6 +1663,8 @@ class SubscriptionMutationService:
             source = self.store.get_source(source_id)
             if source is None:
                 raise LookupError("created source not found")
+            if managed_private:
+                source = ActorOpsSourceLifecycle(self.store, workspace_id=actor.workspace_id).after_create(source_id)
             existing_subscription = self.store.get_user_subscription_for_source(
                 actor.user_id, source_id
             )
@@ -1713,6 +1712,8 @@ class SubscriptionMutationService:
         if plan.kind == "update":
             source_updates = plan.payload.get("source_updates")
             subscription_updates = plan.payload.get("subscription_updates")
+            if agent_source_update_requires_web(source, source_updates):
+                raise self._error("source_requires_web_setup", "managed source activation requires Web")
             final_source_enabled = bool(
                 source_updates.get("enabled", source.get("enabled"))
                 if source_updates is not None
@@ -1771,11 +1772,6 @@ class SubscriptionMutationService:
             raise self._error(
                 "not_found", "subscription not found", status_code=404
             )
-        # Removing the final subscription to an owner-held private source
-        # automatically soft-disables the orphan in ServiceStore.  Report the
-        # actual persisted state even when the proposal chose `keep` (keep the
-        # source definition), otherwise MCP would claim the source remained
-        # active while no subscriber can own its polling lifecycle.
         persisted_source = self.store.get_source(source_id)
         source_disabled = bool(persisted_source is not None and not persisted_source.get("enabled"))
         if plan.payload["source_disposition"] == "disable_private":
@@ -1791,6 +1787,10 @@ class SubscriptionMutationService:
                 )
             self.store.update_source(source_id, enabled=False, commit=False)
             source_disabled = True
+        if source_disabled and is_actorops_managed_source(
+            str(source["type"]), source.get("config")
+        ):
+            ActorOpsSourceLifecycle(self.store, workspace_id=actor.workspace_id).soft_delete(source_id)
         return {
             "action": "deleted",
             "deleted": True,

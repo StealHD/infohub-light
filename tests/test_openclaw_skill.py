@@ -289,3 +289,20 @@ def test_youtube_name_subscription_uses_agent_web_then_bounded_resolver():
     ):
         assert status in combined
     assert "not a channel ID or RSS URL" in combined or "not a channel ID" in combined
+
+
+def test_social_profile_workflow_creates_pending_binding_without_paid_fetch():
+    combined = all_skill_text()
+    flattened = " ".join(combined.split())
+
+    assert 'source_type="twitter"' in combined
+    assert 'source_type="instagram"' in combined
+    assert 'type="twitter"' in combined
+    assert 'type="instagram"' in combined
+    assert 'config={"handle"' in combined
+    assert "bare `@handle`" in combined
+    assert "ask which platform" in combined
+    assert "pending/disabled" in combined
+    assert "source_enabled=false" in combined
+    assert "does not fetch data or start a paid Actor" in combined
+    assert "Never automatically activate, verify, probe, fetch" in flattened
