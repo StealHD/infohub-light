@@ -9,27 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "完成 ActorOps v2 单轨退役 Phase 4：设置页永久移除 Hero/v1 fallback，前端只调用 schema-2 v2 Route、详情、Replacement、共享 alerts 与脱敏 Operation Events；旧 Pool/Canary/Freshness 组件、types、query keys、服务和浏览器流程已删除，v1 前端 allowlist 收敛为空。",
-  "status": "completed",
-  "task_id": "2026-08-22-actorops-v2-control-plane",
-  "unresolved": [
-    "Phase 5–8 继续以 410 退役 v1 API、隔离 v1 Worker Job、安装最终单轨 schema/离线退役工具并删除剩余 v1 Runtime；未部署、未调用真实 Actor、AI 或付费来源。"
-  ],
-  "validation": [
-    "v2 UI 定向 Vitest、lint、typecheck、production build 与桌面/平板/390px Playwright 均通过；E2E 断言不请求 retired Pool/Canary/Freshness URL。",
-    "完整 impacted preflight 16/16 通过（snapshot: /tmp/actorops-phase4-impact.json），包含全域 Python、76 个 Vitest 文件/595 项、E2E contract、代码规模、文档与控制检查。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "capabilities",
     "interface"
   ],
@@ -395,6 +374,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps v2 全套定向后端测试、手册与更新日志 Vitest、代码规模及控制文件校验通过。",
     "impacted preflight 17/17 通过；诊断期间只读取既有 Dataset、Run ledger 与公开 Actor metadata，未创建新 Actor Run 或费用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "收敛 v2.4.2 发布后 SQLite 锁竞争：全库 integrity/FK/active-job 校验固定在 Worker 停止阶段，容器启动后只以共享 runtime health 验收，避免正常 Job 触发误回滚；同时移除 Test Gate 中 Phase 8 已删除测试的陈旧映射。",
+  "status": "completed",
+  "task_id": "2026-08-23-v2-4-2-release-cutover-lock-hardening",
+  "unresolved": [],
+  "validation": [
+    "生产 v2.4.2 API/Worker 双 healthy，current、镜像版本、revision、内网 live/ready 与公网 health 一致；离线数据库 integrity=ok、foreign_key_errors=0，0600 部署备份存在。",
+    "Release/runtime health 定向测试与 Test Gate 映射自检通过；修复后 impacted preflight 18/18 通过。"
   ]
 }
 ```

@@ -51,3 +51,18 @@ def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
         'cd "$previous_release"'
     )
     assert 'docker image rm "$LOCAL_RELEASE_IMAGE"' in script
+
+
+def test_normal_vps_release_does_not_run_full_database_scan_after_worker_start():
+    script = (ROOT / "scripts" / "release_vps.sh").read_text(encoding="utf-8")
+    cutover = script.split("trap rollback_cutover ERR INT TERM", 1)[1].split(
+        "trap - ERR INT TERM", 1
+    )[0]
+
+    assert cutover.count("validate_database") == 1
+    assert cutover.index("validate_database") < cutover.index(
+        "horizon-api horizon-worker"
+    )
+    assert cutover.index("horizon-api horizon-worker") < cutover.index(
+        'wait_runtime "$release_dir"'
+    )

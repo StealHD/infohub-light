@@ -2,7 +2,7 @@ import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry
 import { codeHealthMaintenanceEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntry } from './actorOpsV2SourceBindingChangelogEntry'
-import type { ChangelogMonth } from './changelogTypes' // v2.4.2 review: includes ActorOps freshness recovery; initialization locking has no separate user-visible workflow.
+import type { ChangelogMonth } from './changelogTypes' // v2.4.2 review: includes ActorOps freshness recovery; store/release locking has no user-visible workflow.
 export const changelogMonths: ChangelogMonth[] = [
   {
     id: 'month-2026-08',

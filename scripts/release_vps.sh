@@ -398,7 +398,8 @@ cd "$release_dir"
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
   horizon-api horizon-worker
 wait_runtime "$release_dir" "$public_url"
-validate_database
+# The full integrity/FK/active-job check ran while Worker was stopped above.
+# Runtime health is the authoritative post-start check; do not race live jobs.
 ln -sfn "$release_dir" "$base/current"
 rm -rf "$remote_stage"
 trap - ERR INT TERM

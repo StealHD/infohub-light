@@ -1,4 +1,4 @@
-// v2.4.2 review: ActorOps catches up from watermarks; concurrent store initialization is serialized without changing user workflows.
+// v2.4.2 review: ActorOps catches up from watermarks; store/release locking fixes do not change user workflows.
 export type ManualStep = {
   title: string
   description: string
