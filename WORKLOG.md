@@ -92,22 +92,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 1 建立了独立 characterization tests，锁定浏览器聊天 Controller 完整字段面和本地 setup 入口兼容导出；未移动或修改生产行为。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal1-characterization",
-  "unresolved": [],
-  "validation": [
-    "新增 Vitest 与 Pytest 定向测试通过。",
-    "累计 impacted preflight 15/15 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
-  ]
-}
-```
 
 ```json
 {
@@ -394,6 +378,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Frontend passed 83 Vitest files / 611 tests, lint, typecheck, UI and E2E contracts, and production build.",
     "Code-size, Markdown/control, JSON, syntax, product documentation, and diff checks passed.",
     "X/Instagram tests proved pending Binding creation, atomic rollback, deletion lifecycle, Web-only activation/retargeting, and zero fetch/discovery Jobs or Actor Attempts."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "X profile ActorOps adapter now validates full datasets, removes only structurally proven reply rows, and remaps remaining posts so replies do not consume limits or advance watermarks; existing history remains untouched.",
+  "status": "completed",
+  "task_id": "2026-08-24-x-profile-reply-filter",
+  "unresolved": [],
+  "validation": [
+    "46 targeted ActorOps adapter, runtime, and maintenance tests passed.",
+    "Frontend TypeScript typecheck passed.",
+    "Backend code-size policy passed against the task baseline."
   ]
 }
 ```

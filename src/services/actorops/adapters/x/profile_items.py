@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from .....models import SourceType
+from ....apify_actor_manifest import ActorManifestError
 from ...domain import RouteKey
 from ...ports import (
     ActorManifest,
@@ -19,6 +20,7 @@ from ...ports import (
 from .._discovery import deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_profile_target
+from .post_relationship import exclude_x_reply_rows
 
 
 class XProfileItemsAdapter:
@@ -50,10 +52,28 @@ class XProfileItemsAdapter:
         manifest: ActorManifest,
         window: FetchWindow,
     ) -> NormalizedBatch:
-        return validate_and_map(
+        validated = validate_and_map(
             rows, target, manifest, window,
             platform="x", source_type=SourceType.TWITTER,
         )
+        visible_rows, excluded_replies = exclude_x_reply_rows(rows)
+        if not excluded_replies:
+            return validated
+        if not visible_rows:
+            return _valid_empty_batch()
+        try:
+            return validate_and_map(
+                visible_rows, target, manifest, window,
+                platform="x", source_type=SourceType.TWITTER,
+            )
+        except ActorManifestError as error:
+            if error.code == "apify_actor_metadata_only":
+                return _valid_empty_batch()
+            raise
 
     async def fetch_native_fallback(self, target, window):
         return NativeFallbackResult.unsupported()
+
+
+def _valid_empty_batch() -> NormalizedBatch:
+    return NormalizedBatch(items=(), semantic_outcome="valid_empty")

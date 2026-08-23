@@ -2,6 +2,15 @@ import type { ChangelogEntry } from './changelogTypes'
 
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-08-24',
+    title: 'X 账号回复不再混入信息流',
+    summary: 'X 账号订阅会在发布前识别并排除断开父帖语境的回复，同时保留原创、引用、转发和无法可靠判断关系的帖子。',
+    items: [
+      { title: '回复不占最终获取条数', description: '系统先验证 Actor 结果，再按结构化回复标记或父帖关系过滤，并对剩余帖子重新应用时间窗口和每次获取条数；较新的回复不会挤掉同批次较早的主帖。' },
+      { title: '不靠正文猜测', description: '回复数量、正文以 @ 或 RT 开头都不会触发过滤；只有上游明确提供的关系证据才会排除，引用和转发保持现有行为。历史信息流不会被自动重抓、删除或改写。' },
+    ],
+  },
+  {
     date: '2026-08-23',
     title: 'X 抓取会追赶水位并识别 Actor 旧缓存',
     summary: '中断超过日常窗口的更新不再永久漏过；有记录但全是旧帖的 Dataset 会切备用，明确未启动的拒绝按 0 费用收敛。',
