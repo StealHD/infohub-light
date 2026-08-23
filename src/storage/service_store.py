@@ -30,12 +30,11 @@ from .service_store_subscription_queries import (
     has_enabled_user_subscriptions as _has_enabled_user_subscriptions,
 )
 from .actorops_shared_alert_schema import ensure_actorops_shared_alert_schema
+from .service_store_initialization import serialized_store_initialization
 
 
 DEFAULT_WORKSPACE_ID = "default"
 DEFAULT_WORKSPACE_NAME = "Default Workspace"
-# ActorOps keeps its feature/DSL name "v15".  The shared runtime migration
-# ledger already reserves global versions 15 and 16 for notification schemas.
 APIFY_ACTOR_OPS_MIGRATION_VERSION = 17
 APIFY_ACTOR_OPS_MIGRATION_NAME = "apify_actor_ops_v15"
 APIFY_ACTOR_OPS_MIGRATION_CHECKSUM = (
@@ -1102,6 +1101,7 @@ class ServiceStore:
                     if current is not connection
                 ]
 
+    @serialized_store_initialization
     def initialize(
         self,
         *,

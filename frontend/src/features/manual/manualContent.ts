@@ -1,4 +1,4 @@
-// v2.4.2 review: ActorOps v2 catches up from source watermarks and treats stale Actor datasets as failures eligible for safe standby selection.
+// v2.4.2 review: ActorOps catches up from watermarks; concurrent store initialization is serialized without changing user workflows.
 export type ManualStep = {
   title: string
   description: string
