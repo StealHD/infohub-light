@@ -1,6 +1,6 @@
 # ActorOps v2 实施盘点
 
-> 状态：Phase 0 基线盘点，基于 `ce12561896642684ae310ba111f2ce4efb749cf1`。本文只记录实现路由、迁移映射和测试证据；当前/计划产品语义分别以 `docs/contracts/api/`、`docs/contracts/architecture/`、`PLAN.md` 和 D160 为唯一真源。
+> 状态：Phase 0 历史基线盘点，基于 `ce12561896642684ae310ba111f2ce4efb749cf1`。本文保留实现路由、迁移映射和测试证据；当前单轨语义以 `docs/contracts/api/`、`docs/contracts/architecture/`、`PLAN.md` 和 D176 为唯一真源。
 
 ## 1. 基线与结论
 
@@ -24,7 +24,7 @@
 | Pool/Stage | `apify_actor_pool_*.py` | 多个 Mixin 通过 `globals().update(vars(ops))` 读取主模块私有符号 |
 | 恢复与对账 | `apify_actor_restart_recovery.py`、`apify_registered_run_reconciliation.py`、`apify_actor_recovery_continuation.py` | 同一远端 Run 事实存在多条恢复入口 |
 | Resilience/新鲜度 | `apify_actor_resilience.py`、`apify_actor_freshness.py` | Route、来源、Key、Stage 和费用状态交叉写入 |
-| Worker 编排 | `worker_cycle.py`、`worker_actor_cycle.py`、`worker_actor_*_handler.py` | Actor 控制维护位于普通 claim 前置路径 |
+| Worker 编排 | `worker_cycle.py`、`worker_actor_*_handler.py` | 本表记录 Phase 0 基线；当前单轨 Worker 已移除 v1 Actor 控制维护前置路径 |
 
 当前 `src/services/apify_actor*.py`、ActorOps API 和 schema helper 合计约 38,893 行。冻结文件包括 `apify_actor_ops.py`、`apify_actor_route.py`、`apify_actor_discovery.py`、`apify_actor_runtime.py`、`apify_actor_manifest.py`、`apify_actor_canary.py`、`apify_actor_resilience.py` 和 `service_store.py`；v2 不得让它们相对 task snapshot 增长。
 
@@ -189,10 +189,10 @@ backfill 只读取 global 17–24：
 
 ## 9. Phase 2 实施结果
 
-- `ACTOROPS_V2_ENABLED` 默认关闭；关闭时不读 global 26，开启后才条件 gate API/Worker readiness；
+- global 30 是唯一 ActorOps 可用性门：缺失时仅 ActorOps API/Job 返回 migration-required，普通来源继续运行；
 - Active→Standby→LKG、Attempt 幂等账本、局部 publication fence 与 Feed 事务内 LKG/水位已进入通用 Runtime；
 - X Profile Items、Instagram Profile Items、YouTube Channel Items 使用独立 Adapter，只有 YouTube 明确提供公共 Atom 降级；
-- disabled/shadow Route 继续 v1，shadow 不创建 v2 Attempt 或额外付费 POST；本阶段未把任何 Route 切为 active；
+- 该阶段的 disabled/shadow→v1 观察语义已由 global 30 和 D176 取代；现役 Route 只允许 active/disabled，disabled 不回退 v1；
 - Reconciler、Discovery、站立授权、API/UI 投影和平台自然流量观察仍留在后续 Phase。
 
 ## 10. Phase 3 实施结果

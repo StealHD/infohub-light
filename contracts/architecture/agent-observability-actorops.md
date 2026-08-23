@@ -1,5 +1,7 @@
 ### 3.6F Local Agent / Remote MCP Boundary
 
+Browser OpenClaw、Remote MCP 与本地安装入口的代码模块所有权和依赖方向以 [OpenClaw 模块所有权与依赖边界](openclaw-module-boundaries.md) 为唯一真源；本节只定义部署、授权、凭据、网络、事务和业务兼容边界，不复制内部拆分清单。
+
 OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑或其专属云端 Gateway；Service 端不新增 Agent、LLM、Worker、端口或容器，也不代理 Gateway。浏览器的 `frontend/src/features/openclaw/` 直接实现 OpenClaw Gateway WebSocket v4、设备签名、用户/Gateway 隔离凭证库和有界聊天状态；功能关闭时不得创建 WebSocket。未来从本地切换云端只替换为用户专属 `wss://` URL 和对应 Origin allowlist，不改变 Remote MCP 或 Service 部署。
 
 `scripts/setup_openclaw_local.py` 是仓库托管 Inteliscope Skill 的本地 reconcile 入口：比较 bundled 与已安装目录中的非隐藏文件，忽略 OpenClaw 自己的 `.openclaw` 元数据；缺失时安装，漂移时使用 `--force` 刷新，并只在 Skill 或 Origin 变化时重启已运行 Gateway。旧会话可能保留历史路由指令，刷新后必须用新会话验收；`--skip-skill` 是保留用户自主管理 Skill 的显式退出路径。该流程不得读取或写入 MCP/Gateway token，也不得触发订阅 prepare/apply。
@@ -121,3 +123,7 @@ class ActorRouteAdapter(Protocol):
 9. `repository_cutover.py` 只实现相邻 Route mode CAS 与本 Route Attempt/费用 blocker；`scripts/actorops_v2_cutover.py` 是唯一读取 v1/v2 摘要、创建 `0600` backup 和调用该 CAS 的离线组合根，不查询 global 25。它不得调用来源、Actor、AI、通知或 Feed。`actorops_v2_cutover_legacy.py` 比较当前 v1 runtime 可调用的 ordered exact revisions，而非历史 slot 原貌；catalog pending binding 只能由 `catalog_binding_bridge.py` 重验，绝不满足 binding readiness。shadow facade 只冻结 v2 候选并发无值 operation event，随后继续 v1；v1 Job 失败不得被这条选择事件视为 shadow 成功。YouTube RSS compatibility bridge 识别 v2 handle 并直达 v2 source executor，X/Instagram 的绑定 source 已经由同一 executor 进入对应 Adapter。所有跨 runtime 内容身份归 `actorops/identity.py`，不得在平台 Adapter 之外复制哈希公式。
 
 新生产文件遵守 `tests/code_size_policy.json`；通用模块目标不超过 400 行，Adapter 目标不超过约 300 行。现有冻结的 `apify_actor_ops.py`、`apify_actor_route.py`、`service_store.py` 和 ActorOps React 巨型组件只能通过兼容 facade 缩小，不得承载 v2 新行为。
+
+### 3.6L ActorOps v2 Admin 读取边界
+
+`ActorOpsAdminService` 是现役管理读模型的唯一组合服务：它只经 v2 Repository 查询 Route、Candidate、Binding、Attempt、Discovery、Maintenance、Replacement 与安全 Store metadata，既不构造或读取任何 v1 Route、Pool、Canary、Freshness 或 diagnostic 表。`actorops_admin_routes.py` 只负责 Owner/Admin 鉴权、HTTP envelope 与 503 映射；list/detail 固定为 `schema_version=2`，并对 target fingerprint、水位、Manifest、remote Run/Dataset、idempotency 与 Secret 相关字段脱敏。ActorOps 事件只由脱敏的 `OperationLogQueryService` 提供，且只暴露 `actorops_v2_*` action。缺少 global 30 时 API 返回 `actorops_v2_migration_required`，其他存储不可用为 `actorops_v2_unavailable`；不存在 feature flag、shadow 或旧 HTTP 适配器回退。
