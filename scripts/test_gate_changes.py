@@ -206,6 +206,11 @@ def load_mapping(path: Path) -> dict[str, Any]:
     group_tests = payload.get("group_tests", {})
     if not isinstance(group_tests, dict) or set(group_tests) - KNOWN_GROUPS:
         raise GateConfigError("mapping group_tests contains an unknown group")
+    for group, tests in group_tests.items():
+        if not isinstance(tests, list) or not all(isinstance(test, str) for test in tests):
+            raise GateConfigError(f"mapping group_tests {group} must be an array of test paths")
+        if len(tests) != len(set(tests)):
+            raise GateConfigError(f"mapping group_tests {group} contains duplicate test paths")
     return payload
 
 

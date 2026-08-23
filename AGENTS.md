@@ -23,7 +23,7 @@ Current domain objects:
 - Do not read `data/site/history-data.json`, `data/site/history/**`, cached media, full logs, generated summaries, or `data/horizon.db` unless the task specifically concerns those files.
 - Keys pasted into a task are compromised evidence: never persist or call them. DeepSeek activation requires a replacement value written through SecretStore and a one-call smoke.
 - `content_repair` may refetch only free sources in bulk, updates existing stable content only, and must never create a Feed snapshot or call AI. Paid social repair requires separate per-item authorization.
-- Every merge containing product code must review both `frontend/src/features/manual/manualContent.ts` and `frontend/src/features/changelog/changelogEntries.ts`; `scripts/check_product_docs.py` enforces this in the Test Gate.
+- Review the user-visible impact of every product-code change: update the changelog for visible behavior or API compatibility changes, and update the manual when an operation or configuration workflow changes. Internal refactors, tests, and CI changes do not require a documentation diff.
 - Never build an Inteliscope production image on `vps-tokyo`. Build the revision-locked `linux/amd64` image locally, verify it, upload the image archive, and use `docker load` on the VPS. The VPS may pull pinned third-party runtime images such as RSSHub, but it must not compile or build this repository.
 
 <!-- init-pro:section name=precedence -->

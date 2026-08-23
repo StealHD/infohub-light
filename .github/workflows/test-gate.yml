@@ -46,7 +46,6 @@ jobs:
             BASE_SHA="$(git rev-parse "$HEAD_SHA^")"
           fi
           python scripts/check_code_size.py --scope policy --compare-base "$BASE_SHA"
-          python scripts/check_product_docs.py --base "$BASE_SHA" --head "$HEAD_SHA"
           python scripts/test_gate.py plan \
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             --output /tmp/impact-plan.json | tee /tmp/impact-summary.json

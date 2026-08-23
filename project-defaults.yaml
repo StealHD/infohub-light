@@ -120,7 +120,6 @@
       "test_gate_targeted_selection_enabled": true,
       "test_gate_ci_full_enabled": true,
       "test_gate_release_api_only_smoke_enabled": true,
-      "product_documentation_merge_gate_enabled": true,
       "private_structured_logging_enabled": true,
       "observability_contract_gate_enabled": true,
       "openclaw_operation_log_query_enabled": true,

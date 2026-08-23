@@ -120,22 +120,6 @@ def _control_specs(
     ]
 
 
-def _product_docs_spec(root: Path, changed_files: list[str]) -> CommandSpec | None:
-    if not changed_files:
-        return None
-    python = _python(root)
-    return _spec(
-        "product_docs_preflight",
-        [
-            python,
-            "scripts/check_product_docs.py",
-            *[f"--changed-file={relative}" for relative in changed_files],
-        ],
-        root,
-        domain="control",
-    )
-
-
 def _changed_shell_spec(root: Path, changed_files: list[str]) -> CommandSpec | None:
     shell_files = [
         relative
@@ -367,9 +351,6 @@ def build_command_specs(
         compare_base=compare_base,
     )
     if mode == "preflight":
-        product_docs = _product_docs_spec(root, plan["changed_files"])
-        if product_docs is not None:
-            specs.append(product_docs)
         shell_syntax = _changed_shell_spec(root, plan["changed_files"])
         if shell_syntax is not None:
             specs.append(shell_syntax)

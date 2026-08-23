@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "capabilities",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "ActorOps Phase 5 retired v1 Admin Pool/Canary/Freshness/Discovery/X profile routes behind authenticated stable 410 responses, while retained compatibility URLs now operate directly on v2 Discovery, Candidate, Route cap and Binding state. Removed online v1 projections and factories, and moved historical projections into a test-only fixture.",
-  "status": "completed",
-  "task_id": "2026-08-22-actorops-v2-phase5-api-retirement",
-  "unresolved": [
-    "v1 Worker job isolation, the final single-track schema and offline retirement tooling remain Phase 6–8 work."
-  ],
-  "validation": [
-    "Added authorizer-denied v1-table regression coverage for all retired endpoints and v2 aliases.",
-    "Impacted preflight passed: 17/17 commands, including full Python suite, frontend lint, typecheck, Vitest and build.",
-    "Markdown/project controls, code-size, observability, product-doc and diff checks passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -391,6 +369,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "生产 v2.4.2 API/Worker 双 healthy，current、镜像版本、revision、内网 live/ready 与公网 health 一致；离线数据库 integrity=ok、foreign_key_errors=0，0600 部署备份存在。",
     "Release/runtime health 定向测试与 Test Gate 映射自检通过；修复后 impacted preflight 18/18 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "context",
+    "decisions"
+  ],
+  "recorded_on": "2026-08-23",
+  "result": "Removed mechanical product-documentation and OpenClaw structure-locking test gates; retained behavior coverage and hardened impact-map group-test integrity.",
+  "status": "completed",
+  "task_id": "2026-08-23-test-constraint-cleanup",
+  "unresolved": [],
+  "validation": [
+    "Focused OpenClaw setup, Test Gate and workflow-contract tests passed.",
+    "OpenClaw Hook Vitest and TypeScript checks passed.",
+    "Impacted preflight passed 16/16 commands, including full Python, frontend and control checks.",
+    "Markdown and project-control validation, JSON checks and diff check passed."
   ]
 }
 ```

@@ -181,3 +181,4 @@
 | D175 | ActorOps v2 公开商城快照与替换采用显式费用授权 | 2026-08-21 | [查看](records/D151-D175.md#d175) |
 | D176 | ActorOps 以 global 30 完成 v2 单轨运行面 | 2026-08-23 | [查看](records/D176-D200.md#d176) |
 | D177 | OpenClaw 专属架构先行，通用 Agent Core 延后 | 2026-08-22 | [查看](records/D176-D200.md#d177) |
+| D178 | 产品文档按用户影响维护，不以机械 diff 代替审查 | 2026-08-23 | [查看](records/D176-D200.md#d178) |

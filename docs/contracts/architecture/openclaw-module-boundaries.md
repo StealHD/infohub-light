@@ -81,7 +81,7 @@ register_diagnostic_tools(server, context)
 - `openclawImportBoundaries.test.ts` 固定外部合同、Workbench Adapter、UI/Gateway/Storage 隔离和内部无循环依赖。
 - `openclawLifecycleBoundaries.test.ts` 固定单一 Event Router 与子 Controller 所有权。
 - `test_remote_mcp_module_boundaries.py` 固定 composition façade、三个 registrar、17 工具并集、read/diagnostic façade 与 Remote MCP 无循环依赖。
-- `test_openclaw_setup_public_surface.py` 和 `test_setup_openclaw_local.py` 固定旧入口导出、CLI、退出码和安全 reconcile 行为。
+- `test_setup_openclaw_local.py` 覆盖 CLI、退出码、校验、幂等配置更新和安全 reconcile 行为；内部模块导出不是兼容面。
 - `tests/test_impact_map.json` 中 OpenClaw 专属 E2E rule 必须把 `frontend/src/features/openclaw/**` 映射到 `production-workbench.spec.ts` 与 `production-admin.spec.ts`。
 
 尺寸目标为 `useOpenClawChat.ts ≤ 300`、`OpenClawConversation.tsx ≤ 200`、`remote_server.py ≤ 200`、`remote_diagnostics.py ≤ 200`、`setup_openclaw_local.py ≤ 150`；其他新增生产文件遵守 `tests/code_size_policy.json` 且不新增例外。

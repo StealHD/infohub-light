@@ -238,7 +238,6 @@ describe('useOpenClawChat', () => {
     expect(result.current.contextUsage).toBeNull()
   })
 
-
   it('does not create a Gateway client while browser chat is disabled', async () => {
     const clientFactory = vi.fn()
     const { result } = renderHook(() => useOpenClawChat({
@@ -251,6 +250,7 @@ describe('useOpenClawChat', () => {
 
     await act(async () => { await Promise.resolve() })
     expect(result.current.status).toBe('disabled')
+    expect([result.current.toolsStatus, result.current.isRunning]).toEqual(['unknown', false])
     expect(clientFactory).not.toHaveBeenCalled()
   })
 

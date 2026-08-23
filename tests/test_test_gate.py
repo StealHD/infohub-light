@@ -294,6 +294,37 @@ def test_mapping_file_rejects_unknown_group(tmp_path):
         load_mapping(mapping_path)
 
 
+def test_mapping_file_rejects_duplicate_group_test_paths(tmp_path):
+    mapping_path = tmp_path / "mapping.json"
+    mapping_path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "rules": [],
+                "group_tests": {
+                    "python_api_store": ["tests/test_example.py", "tests/test_example.py"]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GateConfigError, match="duplicate test paths"):
+        load_mapping(mapping_path)
+
+
+def test_mapping_group_tests_reference_existing_files():
+    mapping = load_mapping(MAPPING)
+    missing = [
+        test
+        for tests in mapping["group_tests"].values()
+        for test in tests
+        if not (ROOT / test).is_file()
+    ]
+
+    assert not missing, f"missing mapped tests: {missing}"
+
+
 @pytest.mark.parametrize(
     ("changed_file", "targets", "full"),
     [
@@ -614,7 +645,6 @@ def test_preflight_fail_closed_runs_full_code_checks_without_docker_or_playwrigh
     ids = {spec.command_id for spec in specs}
 
     assert plan["mapping_miss"] is True
-    assert "product_docs_preflight" in ids
     assert "python_full" in ids
     assert "frontend_vitest" in ids
     assert "code_size_backend" in ids
@@ -886,7 +916,6 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
         "scripts/check_markdown_controls.py",
         "scripts/check_code_size.py",
         "scripts/code_size_policy.py",
-        "scripts/check_product_docs.py",
         "scripts/test_gate_log.py",
         "tests/code_size_policy.json",
         "AGENTS.md",
