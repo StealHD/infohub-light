@@ -42,7 +42,7 @@ import {
   writeAgentContextDraft,
   type AgentContextDraftV6,
 } from './agentContext'
-import { useOpenClawChat } from '../openclaw/useOpenClawChat'
+import { useOpenClawChat, type OpenClawChatController } from '../openclaw'
 import { HandoffComposer } from './HandoffComposer'
 import { FeedInsightsPanel, type FeedInsightsMetric } from './FeedInsightsPanel'
 import {
@@ -487,7 +487,7 @@ function AgentPanelContent({
   open: boolean
   onClose: () => void
   closeDisabled: boolean
-  chat: ReturnType<typeof useOpenClawChat>
+  chat: OpenClawChatController
   configLoading: boolean
   value: WorkbenchAgentContextValue
   api: ServiceApi

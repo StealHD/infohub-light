@@ -1,4 +1,4 @@
-// Reviewed: ActorOps v2 social results are deduplicated and newest-first before publication.
+// Reviewed: ActorOps v2 social results are deduplicated and newest-first before publication; OpenClaw refactor preserves every user-visible workflow and instruction.
 export type ManualStep = {
   title: string
   description: string

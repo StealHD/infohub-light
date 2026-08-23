@@ -49,7 +49,7 @@ export type AgentHandoffDisplay = {
   sources?: AgentSourceReference[]
 }
 
-export const INTELISCOPE_HANDOFF_MARKER = '[INTELISCOPE_HANDOFF_V8]'
+export { INTELISCOPE_HANDOFF_MARKER }
 
 const storageKey = (userId: string) => `inteliscope.agent-context.v6:${userId}`
 const v5StorageKey = (userId: string) => `inteliscope.agent-context.v5:${userId}`
@@ -57,14 +57,10 @@ const v4StorageKey = (userId: string) => `inteliscope.agent-context.v4:${userId}
 const v3StorageKey = (userId: string) => `inteliscope.agent-context.v3:${userId}`
 const v2StorageKey = (userId: string) => `inteliscope.agent-context.v2:${userId}`
 const legacyStorageKey = (userId: string) => `inteliscope.agent-context.v1:${userId}`
-const previousHandoffMarkers = ['[INTELISCOPE_HANDOFF_V7]', '[INTELISCOPE_HANDOFF_V6]', '[INTELISCOPE_HANDOFF_V5]', '[INTELISCOPE_HANDOFF_V4]', '[INTELISCOPE_HANDOFF_V3]'] as const
 const maxItems = 8
 export const MAX_AGENT_SOURCE_SNAPSHOT_ITEMS = 100
 export const MAX_AGENT_SOURCE_SNAPSHOT_CHARS = 32_000
 const maxQuestionLength = 1200
-const maxSourceUrlLength = 2048
-const sensitiveQueryParameter = /(?:^|[_-])(?:access[_-]?token|auth|authorization|code|credential|key|password|secret|session|sig|signature|token)(?:$|[_-])/iu
-const trackingQueryParameter = /^(?:fbclid|gclid|mc_[a-z]+|utm_[a-z]+)$/iu
 const inlineUrlPattern = /(?:https?:\/\/|www\.)[^\s<>"']+/giu
 
 function emptyDraft(userId: string): AgentContextDraftV6 {
@@ -80,25 +76,11 @@ function safeSnapshotText(value: unknown, maxLength: number): string {
 }
 
 export function sanitizeSourceUrl(value: unknown): string {
-  const raw = safeText(value, 4096)
-  if (!raw) return ''
-  try {
-    const parsed = new URL(raw)
-    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) return ''
-    parsed.hash = ''
-    for (const key of Array.from(parsed.searchParams.keys())) {
-      if (trackingQueryParameter.test(key) || sensitiveQueryParameter.test(key)) parsed.searchParams.delete(key)
-    }
-    const normalized = parsed.toString()
-    return normalized.length <= maxSourceUrlLength ? normalized : ''
-  } catch {
-    return ''
-  }
+  return sanitizeOpenClawSourceUrl(value)
 }
 
 export function sanitizeSourceAvatarUrl(value: unknown): string {
-  const avatarUrl = safeText(value, 256)
-  return /^\/api\/media\/[A-Za-z0-9_-]{1,128}$/u.test(avatarUrl) ? avatarUrl : ''
+  return sanitizeOpenClawSourceAvatarUrl(value)
 }
 
 function sanitizeItem(value: unknown): AgentContextItem | null {
@@ -289,32 +271,11 @@ export function clearAgentContextDraft(userId: string): void {
 }
 
 export function agentSourceReferences(items: AgentContextItem[]): AgentSourceReference[] {
-  return items.flatMap((item) => {
-    const url = sanitizeSourceUrl(item.sourceUrl)
-    if (item.resourceType === 'job' || !url) return []
-    return [{
-      title: safeText(item.title, 300) || url,
-      url,
-      ...(safeText(item.sourceName, 160) ? { sourceName: safeText(item.sourceName, 160) } : {}),
-      ...(sanitizeSourceAvatarUrl(item.sourceAvatarUrl) ? { sourceAvatarUrl: sanitizeSourceAvatarUrl(item.sourceAvatarUrl) } : {}),
-    }]
-  }).slice(0, maxItems)
+  return openClawSourceReferences(items)
 }
 
 export function sanitizeAgentSourceReferences(value: unknown): AgentSourceReference[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== 'object') return []
-    const source = candidate as Partial<AgentSourceReference>
-    const url = sanitizeSourceUrl(source.url)
-    if (!url) return []
-    return [{
-      title: safeText(source.title, 300) || url,
-      url,
-      ...(safeText(source.sourceName, 160) ? { sourceName: safeText(source.sourceName, 160) } : {}),
-      ...(sanitizeSourceAvatarUrl(source.sourceAvatarUrl) ? { sourceAvatarUrl: sanitizeSourceAvatarUrl(source.sourceAvatarUrl) } : {}),
-    }]
-  }).slice(0, maxItems)
+  return sanitizeOpenClawSourceReferences(value)
 }
 
 export function buildAgentHandoffPrompt(
@@ -389,45 +350,14 @@ export function buildAgentHandoffPrompt(
   ].join('\n')
 }
 
-function safeContextCount(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(0, Math.min(MAX_AGENT_SOURCE_SNAPSHOT_ITEMS, Math.floor(value)))
-    : 0
-}
-
-function safeImageCount(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(0, Math.min(4, Math.floor(value)))
-    : 0
-}
-
 export function projectAgentHandoffDisplay(text: string): AgentHandoffDisplay | null {
-  const normalized = text.trim()
-  const versionedMarker = [INTELISCOPE_HANDOFF_MARKER, ...previousHandoffMarkers]
-    .find((marker) => normalized.startsWith(marker))
-  if (versionedMarker) {
-    const metadata = normalized.slice(versionedMarker.length).trimStart().split('\n', 1)[0]
-    try {
-      const parsed = JSON.parse(metadata) as { displayText?: unknown; contextCount?: unknown; imageCount?: unknown; sources?: unknown }
-      const displayText = safeText(parsed.displayText, maxQuestionLength)
-      if (displayText) {
-        const sources = sanitizeAgentSourceReferences(parsed.sources)
-        return {
-          displayText,
-          contextCount: safeContextCount(parsed.contextCount),
-          ...(safeImageCount(parsed.imageCount) ? { imageCount: safeImageCount(parsed.imageCount) } : {}),
-          ...(sources.length ? { sources } : {}),
-        }
-      }
-    } catch {
-      return null
-    }
-  }
-
-  if (!normalized.startsWith('请使用 Inteliscope Remote MCP 完成以下任务。')) return null
-  const questionMatch = normalized.match(/(?:^|\n)问题：([\s\S]*?)(?:\n模型偏好：|\n必须按顺序读取上下文)/u)
-  const displayText = safeText(questionMatch?.[1], maxQuestionLength)
-  if (!displayText) return null
-  const contextCount = Math.min(maxItems, normalized.match(/调用 (?:get_item，article_id|get_job，job_id|diagnose_job，job_id)=/gu)?.length ?? 0)
-  return { displayText, contextCount }
+  return projectOpenClawHandoffDisplay(text)
 }
+import {
+  INTELISCOPE_HANDOFF_MARKER,
+  openClawSourceReferences,
+  projectOpenClawHandoffDisplay,
+  sanitizeOpenClawSourceAvatarUrl,
+  sanitizeOpenClawSourceReferences,
+  sanitizeOpenClawSourceUrl,
+} from '../openclaw/chat/openclawHandoffProtocol'
