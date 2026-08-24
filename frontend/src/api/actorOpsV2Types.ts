@@ -133,6 +133,17 @@ export type ActorOpsV2RouteDetail = ActorOpsV2RouteTransport & {
   attempts: ActorOpsV2Attempt[]
   discoveries: ActorOpsV2Discovery[]
   replacements: ActorOpsV2ReplacementPlan[]
+  repairs?: Array<{
+    repair_id: string
+    source_id: string
+    origin_job_id: string | null
+    trigger_code: string
+    status: string
+    candidate_id: string | null
+    error_code: string | null
+    updated_at: string
+  }>
+  freshness_summary?: Record<'neutral' | 'suspected_stale' | 'source_stale' | 'confirmed_no_change', number>
 }
 
 export type ActorOpsV2RoutesResponse = {
@@ -149,13 +160,24 @@ export type ActorOpsV2OperationEvent = {
   source_id?: string
   error_code?: string
   changed_fields?: string[]
+  kind?: 'execution' | 'operation'
+  root_job_id?: string | null
+  route_id?: string | null
+  candidate_id?: string | null
+  repair_id?: string | null
+  phase?: string
+  reason_code?: string | null
+  counts?: Record<string, number>
+  final_cost_usd?: number | null
 }
 
 export type ActorOpsV2OperationEvents = {
-  schema_version: 2
+  schema_version: 2 | 3
   availability: 'available' | 'empty' | 'unavailable'
   events: ActorOpsV2OperationEvent[]
   returned: number
   truncated: boolean
+  next_cursor?: string | null
+  completeness?: 'complete' | 'partial' | 'not_recorded'
   window: { from: string; to: string }
 }

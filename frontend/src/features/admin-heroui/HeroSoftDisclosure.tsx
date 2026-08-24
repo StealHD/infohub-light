@@ -1,6 +1,9 @@
 import { useId, useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 import { Icons } from '../../design-system'
+import type { ActorOpsV2OperationEvents } from '../../api/actorOpsV2Types'
+import type { Job } from '../../api/types'
 
 export function HeroSoftDisclosure({
   label,
@@ -49,4 +52,36 @@ export function HeroSoftDisclosure({
       </div>
     </div>
   </div>
+}
+
+type ActorOpsTraceApi = {
+  actorOpsV2Events: (params?: { job_id?: string; limit?: number }, signal?: AbortSignal) => Promise<ActorOpsV2OperationEvents>
+}
+
+export function HeroActorOpsTraceDisclosure({
+  api, job, actorOps, fallback,
+}: {
+  api: ActorOpsTraceApi
+  job: Job
+  actorOps: boolean
+  fallback: Record<string, unknown>
+}) {
+  const [open, setOpen] = useState(false)
+  const trace = useQuery({
+    queryKey: ['actorops-execution-trace', job.id],
+    queryFn: ({ signal }) => api.actorOpsV2Events({ job_id: job.id, limit: 50 }, signal),
+    enabled: open && actorOps,
+    retry: false,
+    refetchInterval: open && actorOps && ['queued', 'running'].includes(job.status) ? 3_000 : false,
+  })
+  return <HeroSoftDisclosure label={actorOps ? 'Actor 执行链路' : '技术详情'} onOpenChange={setOpen}>
+    {!actorOps && <pre className="type-meta whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify(fallback, null, 2)}</pre>}
+    {actorOps && trace.isLoading && <p className="type-meta text-muted">正在读取安全执行链路…</p>}
+    {actorOps && trace.isError && <p className="type-meta text-muted">执行链路暂不可用；任务结果不受影响。</p>}
+    {actorOps && trace.data && <div className="grid gap-2">
+      <p className="type-meta text-muted">链路记录：{trace.data.completeness === 'partial' ? '部分可用' : trace.data.completeness === 'not_recorded' ? '该历史任务未记录' : '完整'}。</p>
+      {trace.data.events.map((event) => <p key={event.event_id} className="type-meta text-muted">{new Date(event.timestamp).toLocaleTimeString('zh-CN')} · {event.phase || event.action} · {event.outcome}{event.reason_code || event.error_code ? ` · ${event.reason_code || event.error_code}` : ''}</p>)}
+      {!trace.data.events.length && <p className="type-meta text-muted">该任务尚无 Actor 执行链路。</p>}
+    </div>}
+  </HeroSoftDisclosure>
 }

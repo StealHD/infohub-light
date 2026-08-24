@@ -61,12 +61,12 @@ API、Worker、legacy Scheduler 和 CLI 统一调用 `src/logging_utils.py::conf
 
 ### 4A. ActorOps 数据库诊断时间线
 
-ActorOps 另有 Owner/Admin 专用的数据库型诊断时间线，用于把 API 与 Worker 中分散的 Discovery、静态检查、Canary、费用对账、运行切备、新鲜度、Key 和人工操作按同一关联模型汇总。它不替代 `operations-*.jsonl`：业务事务提交后以 best-effort 写 `apify_actor_diagnostic_events`，再通过 `safe_emit_operation_event()` 镜像同一安全事件；任一诊断 sink 失败都不回滚业务结果。
+ActorOps 另有 Owner/Admin 专用的数据库型执行时间线，用于串联单次来源抓取的候选选择、启动、注册、运行、结算、结果判定、回退、新鲜度和异步 repair。它不替代 `operations-*.jsonl`：业务事务提交后以 best-effort 写 `actor_execution_events_v2`，再通过 `safe_emit_operation_event()` 镜像同一安全事件；任一诊断 sink 失败都不回滚业务结果。
 
-- 数据库事件只接受 workspace、opaque Route/source/Candidate、公共 Actor 名称、稳定 `phase/outcome/reason_code`、有界整数计数、最终费用、request/job ID 和 UTC 时间。不得接收 Token、真实目标/目标指纹、Actor input、正文、上游 payload/错误、远端 Run/Dataset ID、Secret 引用或 confirmation。
+- 数据库事件只接受 workspace、opaque Route/source/Candidate/repair、稳定 `phase/outcome/reason_code`、有界整数计数、最终费用、root Job/Worker Job ID 和 UTC 时间。不得接收 Token、真实目标/目标指纹、Actor input、正文、上游 payload/错误、远端 Run/Dataset ID、Secret 引用或 confirmation。
 - 相同业务动作必须使用稳定 event/occurrence 语义避免轮询重复扩张；30 天后由维护路径有界删除。API 默认回看 24 小时，最大 30 天，游标分页且 `limit<=100`；Route、source、Candidate、phase、outcome 和时间过滤始终受 workspace 隔离。
-- `GET /api/admin/apify-actor-events` 是该表唯一公开读取面，只允许 Owner/Admin；它返回公共 Actor 名称、稳定原因码、计数、最终费用及 request/job 关联，不返回数据库内部字段或原始日志。普通 operation-log MCP 查询边界和 retention 独立保持不变。
-- validation Key 故障、自动新鲜度因无专用 Key 阻断、来源首选暂停/恢复、`no_advance/stale_regression`、评估指纹跳过/一次性重试和人工兼容确认都必须留下时间线事件；日志写入失败仍不得让抓取、切备或设置保存回滚。
+- `GET /api/admin/apify-actor-events` 是该表唯一公开读取面，只允许 Owner/Admin；schema 3 可按 Job、Route、source、repair、phase、outcome、时间和 cursor 读取执行事件，并在未收窄时合并既有脱敏 operation event。普通 operation-log MCP 查询边界和 retention 独立保持不变。
+- 候选选择、启动/注册/运行、结算、结果分类、`no_advance` 交叉验证、来源首选暂停/恢复、route exhaustion 和 repair 状态都必须留下时间线事件；日志写入失败仍不得让抓取、切备或设置保存回滚。
 
 ## 5. OpenClaw 查询边界
 

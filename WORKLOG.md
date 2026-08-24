@@ -100,42 +100,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface"
   ],
   "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 2 新增显式 Chat Controller、Options、State、Domain Event 与 Client/Transcript Port 合同，建立无通配符公共 façade，并移除 Conversation、Workbench Shell 和 Lazy Adapter 对 Hook ReturnType 的耦合。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal2-contracts",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw、Workbench 与 Agents 定向 Vitest 123 项及 TypeScript typecheck 通过。",
-    "累计 impacted preflight 16/16 通过，覆盖完整前端与 Remote MCP 后端域。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 3 将 Handoff V8–V3/legacy 协议、Transcript/History、Agent Event/Run Trace、Runtime/Context Usage、Setup Issue 与 Gateway Preferences 从大 Hook 抽为独立模块；Workbench agentContext 改为兼容委托，OpenClaw Core 不再反向导入 Workbench。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal3-projections",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw 与直接 Workbench 定向 Vitest 124 项及 TypeScript typecheck 通过。",
-    "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
   "result": "OpenClaw 重构 Goal 4 将 Gateway URL、Protocol/scopes、Device Identity 与 RPC Client 拆为独立模块，旧 openclawGateway.ts 缩为 25 行显式兼容 façade；Transcript Store 与 Gateway Preferences 具备直接的用户/Gateway/session 隔离、容量和清理测试。",
   "status": "completed",
   "task_id": "2026-08-22-openclaw-refactor-goal4-gateway-storage",
@@ -397,6 +361,47 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "46 targeted ActorOps adapter, runtime, and maintenance tests passed.",
     "Frontend TypeScript typecheck passed.",
     "Backend code-size policy passed against the task baseline."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Added explicit Global 31 ActorOps resilience storage: source-scoped stale-data cross-checking, bounded asynchronous repair coordination, and owner/admin-safe execution timelines with JSONL mirrors.",
+  "status": "completed",
+  "task_id": "2026-08-24-actorops-resilience-closure",
+  "unresolved": [
+    "No production migration, source fetch, paid Actor call, AI call, notification, deployment, release, tag, or push was performed."
+  ],
+  "validation": [
+    "Targeted ActorOps resilience, runtime, maintenance, worker and API tests passed (65 tests).",
+    "Frontend TypeScript typecheck, observability contract, code-size policy, migration backup/restore tests and control validation passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "ActorOps 替换抽屉现展示公开名称、商城地址、评分、收藏、用户数、开发者、维护方、价格和核验状态；缺少公开身份的候选不会被选择，已按用户数降序排列。",
+  "status": "completed",
+  "task_id": "2026-08-24-actorops-candidate-display",
+  "unresolved": [],
+  "validation": [
+    "Vitest：4 个定向文件、9 项测试通过。",
+    "前端 typecheck 与 lint 通过；本地 Docker API/Worker healthy。",
+    "impacted preflight 11/11 通过。"
   ]
 }
 ```

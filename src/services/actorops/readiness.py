@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from ...storage.actorops_v2_single_track_schema import (
-    migration_marker_exists as single_track_migration_marker_exists,
-)
-from ...storage.actorops_v2_single_track_schema import (
-    schema_shapes_valid as single_track_schema_shapes_valid,
+from ...storage.actorops_v2_resilience_schema import (
+    migration_marker_exists as resilience_migration_marker_exists,
+    schema_shapes_valid as resilience_schema_shapes_valid,
 )
 from ...storage.service_store import ServiceStore
 
@@ -16,8 +14,8 @@ def require_actorops_v2_schema(store: ServiceStore) -> None:
 
     connection = store.connect()
     if (
-        not single_track_migration_marker_exists(connection)
-        or not single_track_schema_shapes_valid(connection)
+        not resilience_migration_marker_exists(connection)
+        or not resilience_schema_shapes_valid(connection)
     ):
         raise RuntimeError("actorops_v2 migration_required")
 
@@ -25,6 +23,6 @@ def require_actorops_v2_schema(store: ServiceStore) -> None:
 def actorops_v2_startup_migration_required(store: ServiceStore) -> bool:
     connection = store.connect()
     return not (
-        single_track_migration_marker_exists(connection)
-        and single_track_schema_shapes_valid(connection)
+        resilience_migration_marker_exists(connection)
+        and resilience_schema_shapes_valid(connection)
     )

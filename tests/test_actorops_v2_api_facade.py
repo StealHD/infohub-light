@@ -521,6 +521,38 @@ def test_actorops_events_use_redacted_operation_log_actions_only(
     assert response.status_code == 200, response.text
     payload = response.json()["data"]
     events = payload["events"]
+    assert payload["schema_version"] == 3
+    assert payload["completeness"] == "not_recorded"
     assert [event["event_id"] for event in events] == ["evt_v2"]
     assert payload["truncated"] is False
     assert "target_fingerprint" not in json.dumps(events)
+
+
+def test_actorops_events_reads_schema_three_execution_timeline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    repository.resilience.emit(
+        root_job_id="safe-fetch-job", route_id=route_id,
+        candidate_id="facade-candidate", phase="candidate_selection",
+        outcome="selected", counts={"candidate_count": 1},
+    )
+
+    response = client.get(
+        "/api/admin/apify-actor-events",
+        params={"job_id": "safe-fetch-job", "phase": "candidate_selection"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()["data"]
+    assert payload["schema_version"] == 3
+    assert payload["availability"] == "available"
+    assert payload["completeness"] in {"complete", "partial"}
+    assert len(payload["events"]) == 1
+    event = payload["events"][0]
+    assert event["kind"] == "execution"
+    assert event["root_job_id"] == "safe-fetch-job"
+    assert event["counts"] == {"candidate_count": 1}
+    assert "target" not in json.dumps(event)

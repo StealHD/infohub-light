@@ -55,6 +55,12 @@ def register_actorops_admin_routes(
     async def actorops_events(
         response: Response,
         action: str | None = Query(default=None, min_length=1, max_length=96),
+        job_id: str | None = Query(default=None, max_length=128),
+        route_id: str | None = Query(default=None, max_length=128),
+        repair_id: str | None = Query(default=None, max_length=128),
+        phase: str | None = Query(default=None, max_length=96),
+        outcome: str | None = Query(default=None, max_length=96),
+        cursor: str | None = Query(default=None, max_length=128),
         source_id: str | None = Query(default=None, max_length=128),
         since: datetime | None = Query(default=None),
         until: datetime | None = Query(default=None),
@@ -66,10 +72,26 @@ def register_actorops_admin_routes(
         end = _utc(until) if until is not None else now
         if start > end or end > now + timedelta(minutes=1):
             raise ApiError("actorops_events_window_invalid", "ActorOps 事件时间窗口无效。", status_code=422)
+        trace: list[dict[str, object]] = []
+        next_cursor: str | None = None
+        completeness = "not_recorded"
+        service = ActorOpsAdminService(store, workspace_id=str(user["workspace_id"]))
+        try:
+            service.repository()
+            if action in {None, "actorops_v2_execution_trace"}:
+                trace, next_cursor, completeness = service.execution_events(
+                    root_job_id=job_id, route_id=route_id, source_id=source_id,
+                    repair_id=repair_id, phase=phase, outcome=outcome,
+                    since=start.isoformat(), until=end.isoformat(), before=cursor,
+                    limit=limit,
+                )
+        except (ActorOpsAdminMigrationRequired, ActorOpsAdminUnavailable) as error:
+            raise _admin_error(error) from error
         lookback = max(1, min(720, int((now - start).total_seconds() // 3600) + 1))
         result = operation_logs.query(
             workspace_id=str(user["workspace_id"]), user_id=str(user["id"]),
-            scope="workspace", lookback_hours=lookback, source_id=source_id, limit=100,
+            scope="workspace", lookback_hours=lookback, source_id=source_id,
+            job_id=job_id, limit=100,
         )
         filtered = [
             event for event in result["events"]
@@ -77,15 +99,36 @@ def register_actorops_admin_routes(
             and (action is None or event.get("action") == action)
             and _inside_window(event.get("timestamp"), start, end)
         ]
-        selected = filtered[:limit]
+        legacy = [
+            {"kind": "operation", **event}
+            for event in filtered
+            # The database record is the canonical timeline entry.  Its JSONL
+            # mirror remains useful for operational recovery but would otherwise
+            # duplicate every execution stage in the admin timeline.
+            if event.get("action") != "actorops_v2_execution_trace"
+            if not any((route_id, repair_id, phase, outcome, cursor))
+        ]
+        execution = [
+            {
+                "kind": "execution", "timestamp": event.pop("created_at"),
+                "action": "actorops_v2_execution_trace", "level": "info", **event,
+            }
+            for event in trace
+        ]
+        selected = sorted(
+            [*execution, *legacy],
+            key=lambda event: str(event.get("timestamp") or ""), reverse=True,
+        )[:limit]
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 2,
-                "availability": result["availability"],
+                "schema_version": 3,
+                "availability": "available" if trace else result["availability"],
                 "events": selected,
                 "returned": len(selected),
-                "truncated": bool(result["truncated"]) or len(filtered) > limit,
+                "truncated": bool(result["truncated"]) or len(filtered) > limit or bool(next_cursor),
+                "next_cursor": next_cursor,
+                "completeness": completeness,
                 "window": {"from": start.isoformat(), "to": end.isoformat()},
             }
         )

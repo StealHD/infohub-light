@@ -13,6 +13,10 @@ from .errors import ActorOpsRuntimeError
 from .ports import ExecutionResult, FetchWindow, RemoteActorClient
 from .registry import AdapterNotRegistered, AdapterRegistry
 from .repository import ActorOpsRepository
+from .runtime_resilience import (
+    queue_repair_and_trace, record_fetch_result, trace_candidate_plan,
+    trace_native_fallback,
+)
 
 
 class ActorOpsRuntime:
@@ -100,6 +104,19 @@ class ActorOpsRuntime:
             source_id=source_id,
             logical_job_id=logical_job_id,
         )
+        natural_schedule = self.repository.resilience.is_natural_schedule(
+            logical_job_id
+        )
+        plan = self.repository.resilience.plan_candidates(
+            binding=snapshot.binding,
+            candidates=candidates,
+            natural_schedule=natural_schedule,
+        )
+        candidates = plan.candidates
+        trace_candidate_plan(
+            self.repository, logical_job_id=logical_job_id, route_id=route_id,
+            source_id=source_id, candidates=candidates, cross_check=plan.cross_check,
+        )
         for index, candidate in enumerate(candidates):
             try:
                 result = await executor.fetch(
@@ -116,12 +133,32 @@ class ActorOpsRuntime:
                 )
             except ActorOpsRuntimeError as error:
                 if error.failure_class is FailureClass.CANDIDATE:
+                    self.repository.resilience.emit(
+                        root_job_id=logical_job_id, route_id=route_id, source_id=source_id,
+                        candidate_id=candidate.candidate_id, phase="candidate_execution",
+                        outcome="failed", reason_code=error.code,
+                    )
                     continue
+                queue_repair_and_trace(
+                    self.repository, logical_job_id=logical_job_id, route_id=route_id,
+                    source_id=source_id, error_code=error.code,
+                    blocked_code=(error.code if error.failure_class is FailureClass.REMOTE_UNKNOWN else None),
+                )
                 raise
             if result is not None:
+                record_fetch_result(
+                    self.repository, binding=snapshot.binding, plan=plan, result=result,
+                    candidate=candidate, index=index, logical_job_id=logical_job_id,
+                    route_id=route_id, source_id=source_id,
+                    natural_schedule=natural_schedule,
+                )
                 return result
         fallback = await adapter.fetch_native_fallback(target, window)
         if fallback.supported:
+            trace_native_fallback(
+                self.repository, logical_job_id=logical_job_id, route_id=route_id,
+                source_id=source_id,
+            )
             return ExecutionResult(
                 items=fallback.items,
                 execution_mode="native_fallback",
@@ -133,6 +170,10 @@ class ActorOpsRuntime:
                     snapshot, None
                 ),
             )
+        queue_repair_and_trace(
+            self.repository, logical_job_id=logical_job_id, route_id=route_id,
+            source_id=source_id,
+        )
         raise ActorOpsRuntimeError(
             "actorops_v2_route_unavailable",
             failure_class=FailureClass.CANDIDATE,

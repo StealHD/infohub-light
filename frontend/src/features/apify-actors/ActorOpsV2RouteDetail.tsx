@@ -64,6 +64,8 @@ function RouteDetailPanel({ detail }: { detail: RouteDetail }) {
     <DetailSection title="发现与替换">
       {detail.discoveries.slice(0, 3).map((discovery) => <p key={discovery.discovery_id} className="type-meta text-muted">发现任务 · {discovery.status} · {discovery.stage} · 候选 {discovery.candidate_count}</p>)}
       {detail.replacements.slice(0, 3).map((plan) => <p key={plan.plan_id} className="type-meta text-muted">替换计划 · {plan.status} · {actorOpsV2CandidateLabel(plan.candidate)} · 上限 ${plan.total_cap_usd.toFixed(2)}</p>)}
+      {detail.freshness_summary && <p className="type-meta text-muted">新鲜度 · 疑似旧数据 {detail.freshness_summary.suspected_stale} · 已来源级降级 {detail.freshness_summary.source_stale}</p>}
+      {detail.repairs?.slice(0, 2).map((repair) => <p key={repair.repair_id} className="type-meta text-muted">自动修复 · {repair.status}{repair.error_code ? ` · ${repair.error_code}` : ''}</p>)}
       {!detail.discoveries.length && !detail.replacements.length && <Empty label="尚无 Discovery 或替换计划。" />}
     </DetailSection>
     <DetailSection title="维护预算">

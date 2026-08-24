@@ -50,7 +50,7 @@ import {
 } from '../subscriptions/subscriptionModel'
 import { HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
-import { HeroSoftDisclosure } from './HeroSoftDisclosure'
+import { HeroActorOpsTraceDisclosure } from './HeroSoftDisclosure'
 import {
   SourceLibraryListView,
   SourceFilterMenu,
@@ -752,7 +752,7 @@ export function HeroSubscriptionsPage() {
               <p><strong>下一步：</strong>{presented.actorOpsIssue.next}</p>
             </div>}
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-separator pt-2">
-              {isAdmin && !presented.actorOpsIssue && <HeroSoftDisclosure label="技术详情"><pre className="type-meta whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify({ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }, null, 2)}</pre></HeroSoftDisclosure>}
+              {isAdmin && !presented.actorOpsIssue && <HeroActorOpsTraceDisclosure api={api} job={job} actorOps={isActorOpsJob(job)} fallback={{ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }} />}
               {!presented.actorOpsIssue && !['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} api={api} userId={user.id} className="m-0" />}
               {editable && job.retryable && !presented.actorOpsIssue && <Button size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
               {presented.actorOpsHref && <Button size="sm" className="ml-auto" onPress={() => navigate(presented.actorOpsHref || '/settings/actorops?tab=pool')}>返回 ActorOps 处理</Button>}

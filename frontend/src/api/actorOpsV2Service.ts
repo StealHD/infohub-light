@@ -18,7 +18,7 @@ export function actorOpsV2Api(client: ApiClient) {
       resource('/api/admin/apify-routes', routeId), signal,
     ),
     actorOpsV2Events: (
-      params: { action?: string; source_id?: string; since?: string; until?: string; limit?: number } = {},
+      params: { action?: string; job_id?: string; route_id?: string; repair_id?: string; phase?: string; outcome?: string; cursor?: string; source_id?: string; since?: string; until?: string; limit?: number } = {},
       signal?: AbortSignal,
     ) => {
       const query = new URLSearchParams()

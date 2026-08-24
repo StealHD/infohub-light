@@ -250,11 +250,17 @@ class MaintenanceRepository:
                  AND last_failure_at IS NOT NULL
                  AND (last_success_at IS NULL OR last_failure_at > last_success_at)
                  AND last_error_class='candidate'
-                 AND 2 <= (SELECT COUNT(*) FROM actor_attempts_v2 AS attempt
-                           WHERE attempt.workspace_id=candidate.workspace_id
-                             AND attempt.candidate_id=candidate.candidate_id
-                             AND attempt.status='failed' AND attempt.failure_class='candidate'
-                             AND attempt.updated_at>=datetime('now', '-1 day'))
+                 AND (
+                    candidate.last_error_code IN (
+                        'apify_actor_deleted','apify_actor_build_unavailable',
+                        'actorops_v2_candidate_contract_invalid'
+                    )
+                    OR 2 <= (SELECT COUNT(*) FROM actor_attempts_v2 AS attempt
+                             WHERE attempt.workspace_id=candidate.workspace_id
+                               AND attempt.candidate_id=candidate.candidate_id
+                               AND attempt.status='failed' AND attempt.failure_class='candidate'
+                               AND attempt.updated_at>=datetime('now', '-1 day'))
+                 )
                ORDER BY assignment_role DESC, priority, candidate_id""",
             (self.repository.workspace_id, route_id),
         ).fetchall()
@@ -278,7 +284,12 @@ class MaintenanceRepository:
         assigned = [item for item in self.repository.list_route_candidates(route_id)
                     if item.assignment_role is not AssignmentRole.INACTIVE]
         active = next((item for item in assigned if item.assignment_role is AssignmentRole.ACTIVE), None)
-        if active is None or len(assigned) >= 2:
+        if active is None or (
+            len(assigned) >= 2
+            and not self.repository.resilience.allows_repair_headroom(
+                route_id, candidate_id
+            )
+        ) or len(assigned) >= 3:
             return False
         self.repository.assign_candidate(
             route_id, candidate_id, AssignmentRole.STANDBY,

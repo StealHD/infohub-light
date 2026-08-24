@@ -26,7 +26,27 @@ export function actorOpsV2RouteView(route: ActorOpsV2RouteTransport): ActorOpsV2
 
 export function actorOpsV2CandidateLabel(candidate: ActorOpsV2CandidateView | null) {
   if (!candidate) return '未配置'
-  return candidate.store_metadata?.display_name || '待更新商城信息'
+  const displayName = stringValue(candidate.store_metadata?.display_name)
+  if (displayName && !isOpaqueActorIdentity(displayName)) return displayName
+  return actorOpsV2PublicActorSlug(candidate) || '商城信息待更新'
+}
+
+/** Only return an Apify storefront slug when it is a human-readable public identity. */
+export function actorOpsV2PublicActorSlug(candidate: ActorOpsV2CandidateView | null) {
+  const actorSlug = stringValue(candidate?.store_metadata?.actor_slug)
+  return actorSlug && !isOpaqueActorIdentity(actorSlug) ? actorSlug : null
+}
+
+export function actorOpsV2CandidateHasPublicIdentity(candidate: ActorOpsV2CandidateView) {
+  return actorOpsV2CandidateLabel(candidate) !== '商城信息待更新'
+}
+
+export function compareActorOpsV2ReplacementCandidates(left: ActorOpsV2CandidateView, right: ActorOpsV2CandidateView) {
+  const userDifference = (right.store_metadata?.total_users ?? -1) - (left.store_metadata?.total_users ?? -1)
+  if (userDifference !== 0) return userDifference
+  const leftReady = left.evidence_progress.verified_bindings >= left.evidence_progress.required_bindings ? 0 : 1
+  const rightReady = right.evidence_progress.verified_bindings >= right.evidence_progress.required_bindings ? 0 : 1
+  return leftReady - rightReady || actorOpsV2CandidateLabel(left).localeCompare(actorOpsV2CandidateLabel(right), 'zh-CN')
 }
 
 export function actorOpsV2PriceLabel(candidate: ActorOpsV2CandidateView | null) {
@@ -40,7 +60,7 @@ export function actorOpsV2PriceLabel(candidate: ActorOpsV2CandidateView | null) 
 
 export function compactNumber(value: number | null) {
   if (value === null) return '—'
-  return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
 function numberValue(value: unknown) {
@@ -49,4 +69,8 @@ function numberValue(value: unknown) {
 
 function stringValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function isOpaqueActorIdentity(value: string) {
+  return /^[A-Za-z0-9]{12,}$/.test(value)
 }

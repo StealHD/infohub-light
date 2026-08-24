@@ -35,6 +35,7 @@ def freeze_execution(
         raise ActorOpsConflict("source target changed before execution")
     candidates = ordered_candidates(
         list_route_candidates(repository, route_id),
+        preferred_candidate_id=binding.preferred_candidate_id,
         last_known_good_candidate_id=binding.last_known_good_candidate_id,
     )
     return ExecutionSnapshot(

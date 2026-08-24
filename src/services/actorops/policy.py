@@ -50,6 +50,7 @@ def target_fingerprint(target: TargetSpec) -> str:
 def ordered_candidates(
     candidates: tuple[CandidateRecord, ...],
     *,
+    preferred_candidate_id: str | None = None,
     last_known_good_candidate_id: str | None,
 ) -> tuple[CandidateRecord, ...]:
     runnable = {
@@ -68,6 +69,7 @@ def ordered_candidates(
             if item.assignment_role in {AssignmentRole.ACTIVE, AssignmentRole.STANDBY}
         ),
         key=lambda item: (
+            0 if item.candidate_id == preferred_candidate_id else 1,
             0 if item.assignment_role is AssignmentRole.ACTIVE else 1,
             item.priority if item.priority is not None else 1_000_000,
             item.candidate_id,

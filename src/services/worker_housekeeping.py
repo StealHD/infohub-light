@@ -98,11 +98,13 @@ def _run_v2_enqueuers(
     from .worker_actorops_v2_discovery import enqueue_due_actorops_v2_discoveries
     from .worker_actorops_v2_maintenance import enqueue_due_actorops_v2_maintenance
     from .worker_actorops_v2_replacement import enqueue_due_actorops_v2_replacements
+    from .worker_actorops_v2_repair import enqueue_due_actorops_v2_repairs
 
     for stage, enqueue in (
         ("actorops_v2_discovery_enqueue", enqueue_due_actorops_v2_discoveries),
         ("actorops_v2_maintenance_enqueue", enqueue_due_actorops_v2_maintenance),
         ("actorops_v2_replacement_enqueue", enqueue_due_actorops_v2_replacements),
+        ("actorops_v2_repair_enqueue", enqueue_due_actorops_v2_repairs),
     ):
         try:
             update_observability_context(stage=stage)

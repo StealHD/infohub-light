@@ -4,7 +4,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { useAppContext } from '../../app/AppContext'
 import { actionToast, Button, Drawer, Input, Label, TextField } from '../../design-system'
-import { actorOpsV2CandidateLabel, actorOpsV2PriceLabel, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
+import { ActorOpsV2CandidateCard } from './ActorOpsV2CandidateCard'
+import { actorOpsV2CandidateHasPublicIdentity, actorOpsV2CandidateLabel, compareActorOpsV2ReplacementCandidates, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 type ReplacementPlan = {
   plan_id: string
@@ -30,14 +31,12 @@ export function ActorOpsV2ReplacementDrawer({ route, open, onOpenChange, onUpdat
   const candidatesQuery = useQuery({ queryKey: ['actorops-v2-candidates', route.route_id], queryFn: ({ signal }) => api.actorOpsV2Candidates(route.route_id, signal), enabled: open, retry: false })
   const planQuery = useQuery({ queryKey: ['actorops-v2-replacement', route.route_id, plan?.plan_id], queryFn: ({ signal }) => api.actorOpsV2Replacement(route.route_id, plan?.plan_id || '', signal), enabled: open && Boolean(plan?.plan_id) && ['authorized', 'running'].includes(plan?.status || ''), retry: false, refetchInterval: 3_000 })
   const visiblePlan = unwrapPlan(planQuery.data) || plan
-  const candidates = useMemo(() => {
-    const values = unwrapCandidates(candidatesQuery.data)
-    return values.filter((item) => item.assignment === 'inactive' && item.store_metadata !== null && ['static_valid', 'probationary', 'certified'].includes(item.lifecycle)).sort((left, right) => {
-      const leftReady = left.evidence_progress.verified_bindings >= left.evidence_progress.required_bindings ? 0 : 1
-      const rightReady = right.evidence_progress.verified_bindings >= right.evidence_progress.required_bindings ? 0 : 1
-      return leftReady - rightReady || actorOpsV2CandidateLabel(left).localeCompare(actorOpsV2CandidateLabel(right), 'zh-CN')
-    })
+  const candidateList = useMemo(() => {
+    const eligible = unwrapCandidates(candidatesQuery.data).filter((item) => item.assignment === 'inactive' && item.store_metadata !== null && ['static_valid', 'probationary', 'certified'].includes(item.lifecycle))
+    const candidates = eligible.filter(actorOpsV2CandidateHasPublicIdentity).sort(compareActorOpsV2ReplacementCandidates)
+    return { candidates, incompleteCount: eligible.length - candidates.length }
   }, [candidatesQuery.data])
+  const candidates = candidateList.candidates
   const cap = Math.min(route.per_run_cap_usd, 0.20)
   const total = Math.min(0.60, cap * Math.max(1, route.binding_summary.ready_count))
   const preview = useMutation({
@@ -62,7 +61,7 @@ export function ActorOpsV2ReplacementDrawer({ route, open, onOpenChange, onUpdat
   return <Drawer isOpen={open} onOpenChange={close}>
     <Drawer.Trigger aria-hidden="true" className="hidden">替换 Actor</Drawer.Trigger>
     <Drawer.Backdrop variant="blur"><Drawer.Content placement="right"><Drawer.Dialog aria-label="替换 Actor" className="flex h-full w-[min(460px,100vw)] flex-col bg-surface outline-none"><Drawer.Header className="border-b border-separator px-5 py-4"><Drawer.Heading>替换主用 Actor</Drawer.Heading><p className="mt-1 type-meta text-muted">先免费比较候选；选定一个后才会要求授权实测。</p></Drawer.Header><Drawer.Body className="min-h-0 flex-1 overflow-y-auto p-5">
-      {!visiblePlan ? <div className="grid gap-3"><p className="type-meta text-muted">每次实测最多 ${cap.toFixed(2)}；本计划总额最多 ${total.toFixed(2)}。只会串行测试当前选中的一个 Candidate，不会自动换下一个。</p>{candidatesQuery.isLoading && <p className="type-meta text-muted">正在加载候选…</p>}{candidates.map((candidate) => <button key={candidate.candidate_id} type="button" onClick={() => setSelected(candidate)} className={`grid gap-1 rounded-xl border p-3 text-left outline-none transition-colors focus-visible:outline-2 focus-visible:outline-focus ${selected?.candidate_id === candidate.candidate_id ? 'border-focus bg-surface-secondary' : 'border-separator hover:bg-surface-secondary'}`}><span className="type-control">{actorOpsV2CandidateLabel(candidate)}</span><span className="type-meta text-muted">{actorOpsV2PriceLabel(candidate)} · 已核验 {candidate.evidence_progress.verified_bindings}/{candidate.evidence_progress.required_bindings}</span></button>)}{!candidatesQuery.isLoading && !candidates.length && <p className="type-meta text-muted">没有可替换的已映射 Candidate。请先在更多菜单免费更新候选。</p>}<Button isDisabled={!selected || preview.isPending || total <= 0} onPress={() => selected && preview.mutate(selected)}>{preview.isPending ? '创建中…' : '创建实测计划'}</Button></div> : <PlanStep plan={visiblePlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={authorize.isPending || apply.isPending} onAuthorize={() => authorize.mutate()} onApply={() => apply.mutate()} />}
+      {!visiblePlan ? <div className="grid gap-3"><p className="type-meta text-muted">每次实测最多 ${cap.toFixed(2)}；本计划总额最多 ${total.toFixed(2)}。只会串行测试当前选中的一个候选 Actor，不会自动换下一个。</p>{candidatesQuery.isLoading && <p className="type-meta text-muted">正在加载候选…</p>}{candidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={selected?.candidate_id === candidate.candidate_id} onSelect={setSelected} />)}{candidateList.incompleteCount > 0 && <p className="type-meta text-muted">另有 {candidateList.incompleteCount} 个候选缺少可读的商城公开资料，暂不允许选择；可在更多菜单选择“更新商城信息”后再比较。</p>}{!candidatesQuery.isLoading && !candidates.length && <p className="type-meta text-muted">没有可替换的已映射 Actor。请先在更多菜单免费更新候选。</p>}<Button isDisabled={!selected || preview.isPending || total <= 0} onPress={() => selected && preview.mutate(selected)}>{preview.isPending ? '创建中…' : '创建实测计划'}</Button></div> : <PlanStep plan={visiblePlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={authorize.isPending || apply.isPending} onAuthorize={() => authorize.mutate()} onApply={() => apply.mutate()} />}
     </Drawer.Body></Drawer.Dialog></Drawer.Content></Drawer.Backdrop>
   </Drawer>
 }
@@ -89,11 +88,11 @@ function unwrapPlan(value: unknown) {
 }
 
 function replacementError(code: string | null) {
-  const labels: Record<string, string> = { actorops_replacement_contract_mismatch: '返回内容无法安全映射为目标账号的更新，已停止这个 Candidate。', actorops_replacement_no_evidence: '没有取得可证明的更新内容，未自动测试其他 Candidate。', actorops_replacement_plan_stale: '来源、价格或槽位已变化，请重新创建计划。', actorops_replacement_credential_unavailable: '当前没有可用凭据，Candidate 没有被惩罚。' }
-  return labels[code || ''] || '替换计划未通过；没有自动测试其他 Candidate。'
+  const labels: Record<string, string> = { actorops_replacement_contract_mismatch: '返回内容无法安全映射为目标账号的更新，已停止这个候选 Actor。', actorops_replacement_no_evidence: '没有取得可证明的更新内容，未自动测试其他候选 Actor。', actorops_replacement_plan_stale: '来源、价格或槽位已变化，请重新创建计划。', actorops_replacement_credential_unavailable: '当前没有可用凭据，候选 Actor 没有被惩罚。' }
+  return labels[code || ''] || '替换计划未通过；没有自动测试其他候选 Actor。'
 }
 
 function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError) return replacementError(error.code) === '替换计划未通过；没有自动测试其他 Candidate。' ? fallback : replacementError(error.code)
+  if (error instanceof ApiError) return replacementError(error.code) === '替换计划未通过；没有自动测试其他候选 Actor。' ? fallback : replacementError(error.code)
   return fallback
 }

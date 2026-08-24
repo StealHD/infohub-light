@@ -258,6 +258,12 @@ class CandidateExecution:
                 actual_cost_usd=run.actual_cost_usd,
                 cost_final=run.cost_final,
             )
+        self.repository.resilience.emit(
+            root_job_id=str(self.repository.get_attempt(prepared.attempt_id)["logical_job_id"]),
+            route_id=candidate.route_id, source_id=str(self.repository.get_attempt(prepared.attempt_id)["source_id"] or "") or None,
+            candidate_id=candidate.candidate_id, phase="attempt_settlement", outcome="settled",
+            counts={"row_count": len(run.rows)}, final_cost_usd=run.actual_cost_usd,
+        )
         return run
 
     def _validate(
@@ -310,6 +316,13 @@ class CandidateExecution:
                     cost_final=run.cost_final,
                 )
         self._candidate_outcome(candidate, succeeded=True)
+        self.repository.resilience.emit(
+            root_job_id=str(self.repository.get_attempt(prepared.attempt_id)["logical_job_id"]),
+            route_id=candidate.route_id, source_id=str(self.repository.get_attempt(prepared.attempt_id)["source_id"] or "") or None,
+            candidate_id=candidate.candidate_id, phase="attempt_result",
+            outcome=batch.semantic_outcome, counts={"item_count": len(batch.items)},
+            final_cost_usd=run.actual_cost_usd,
+        )
         return ExecutionResult(
             items=batch.items,
             execution_mode="actor",
@@ -367,6 +380,13 @@ class CandidateExecution:
                 )
         self._candidate_outcome(
             candidate, succeeded=False, error_code=f"actorops_{outcome}"
+        )
+        self.repository.resilience.emit(
+            root_job_id=str(self.repository.get_attempt(attempt_id)["logical_job_id"]),
+            route_id=candidate.route_id, source_id=str(self.repository.get_attempt(attempt_id)["source_id"] or "") or None,
+            candidate_id=candidate.candidate_id, phase="attempt_result",
+            outcome="failed", reason_code=f"actorops_{outcome}",
+            final_cost_usd=run.actual_cost_usd,
         )
         if not bool(self.repository.get_attempt(attempt_id)["cost_final"]):
             raise _cost_settlement_required()

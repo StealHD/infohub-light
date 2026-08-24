@@ -51,6 +51,8 @@ class ActorOpsAdminService:
                 "attempts": self._attempts(repository, route_id),
                 "discoveries": self._discoveries(repository, route_id),
                 "replacements": self._replacements(repository, route_id, metadata),
+                "repairs": repository.resilience.route_repairs(route_id),
+                "freshness_summary": self._freshness_summary(repository, route_id),
             }
         )
         return result
@@ -65,6 +67,11 @@ class ActorOpsAdminService:
     def route_maintenance_policy(self, route_id: str) -> dict[str, object]:
         repository = self.repository()
         return self._route_policy(repository, route_id)
+
+    def execution_events(
+        self, **filters: object,
+    ) -> tuple[list[dict[str, object]], str | None, str]:
+        return self.repository().resilience.execution_events(**filters)
 
     def repository(self) -> ActorOpsRepository:
         try:
@@ -245,6 +252,25 @@ class ActorOpsAdminService:
             "ready_count": sum(item.status == "ready" for item in bindings),
             "pending_count": sum(item.status == "pending" for item in bindings),
             "disabled_count": sum(item.status == "disabled" for item in bindings),
+        }
+
+    def _freshness_summary(
+        self, repository: ActorOpsRepository, route_id: str,
+    ) -> dict[str, int]:
+        rows = repository.connection.execute(
+            """SELECT state, COUNT(*) AS count FROM actor_source_candidate_freshness_v2
+                 WHERE workspace_id=? AND source_id IN (
+                    SELECT source_id FROM actor_source_bindings_v2
+                    WHERE workspace_id=? AND route_id=?
+                 ) GROUP BY state""",
+            (self.workspace_id, self.workspace_id, route_id),
+        ).fetchall()
+        values = {str(row["state"]): int(row["count"]) for row in rows}
+        return {
+            "neutral": values.get("neutral", 0),
+            "suspected_stale": values.get("suspected_stale", 0),
+            "source_stale": values.get("source_stale", 0),
+            "confirmed_no_change": values.get("confirmed_no_change", 0),
         }
 
     def _attempts(
