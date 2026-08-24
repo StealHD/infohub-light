@@ -125,7 +125,7 @@
       "openclaw_operation_log_query_enabled": true,
       "openclaw_workspace_diagnostics_enabled": true,
       "workspace_system_settings_enabled": true,
-      "explicit_workspace_system_settings_v31_migration_enabled": true,
+      "explicit_workspace_system_settings_v32_migration_enabled": true,
       "admin_system_settings_web_enabled": true,
       "openclaw_system_settings_write_enabled": false,
       "agent_source_resolution_enabled": true,

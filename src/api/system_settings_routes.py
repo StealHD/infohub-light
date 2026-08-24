@@ -74,7 +74,7 @@ def _api_error(error: Exception) -> ApiError:
             status_code=503,
             action=(
                 "停止 API 和 Worker，然后运行 "
-                "scripts/migrate_system_settings_v31.py --apply。"
+                "scripts/migrate_system_settings_v32.py --apply。"
             ),
         )
     if isinstance(error, SystemSettingsGenerationConflict):

@@ -27,7 +27,7 @@ from src.services.worker_schedule_gate import (
     worker_schedule_polling_enabled,
 )
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
-from src.storage.system_settings_v31_schema import (
+from src.storage.system_settings_v32_schema import (
     MIGRATION_VERSION,
     migration_marker_exists,
     schema_shapes_valid,
@@ -61,7 +61,7 @@ def test_registry_has_exact_typed_allowlist_and_aliases() -> None:
         canonical_setting_key("DATABASE_URL")
 
 
-def test_fresh_store_bootstraps_global_31_and_workspace_row(tmp_path) -> None:
+def test_fresh_store_bootstraps_global_32_and_workspace_row(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     connection = store.connect()

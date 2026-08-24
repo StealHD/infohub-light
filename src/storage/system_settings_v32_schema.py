@@ -1,11 +1,11 @@
-"""Global 31 workspace runtime settings schema."""
+"""Global 32 workspace runtime settings schema."""
 
 from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
 
-MIGRATION_VERSION = 31
+MIGRATION_VERSION = 32
 MIGRATION_NAME = "workspace_system_settings"
 MIGRATION_CHECKSUM = "workspace-system-settings-v1"
 REQUIRED_TABLES = {"workspace_system_settings", "system_setting_change_proposals"}
@@ -67,12 +67,12 @@ def _table_names(connection: sqlite3.Connection) -> set[str]:
 
 
 def prerequisite_ready(connection: sqlite3.Connection) -> bool:
-    from .actorops_v2_single_track_schema import (
-        migration_marker_exists as v30_marker,
-        schema_shapes_valid as v30_shapes,
+    from .actorops_v2_resilience_schema import (
+        migration_marker_exists as v31_marker,
+        schema_shapes_valid as v31_shapes,
     )
 
-    return v30_marker(connection) and v30_shapes(connection)
+    return v31_marker(connection) and v31_shapes(connection)
 
 
 def migration_marker_exists(connection: sqlite3.Connection) -> bool:
@@ -117,7 +117,7 @@ def _assert_available_version(connection: sqlite3.Connection) -> None:
     if row is not None and (
         str(row[0]) != MIGRATION_NAME or str(row[1]) != MIGRATION_CHECKSUM
     ):
-        raise RuntimeError("global schema migration version 31 is already occupied")
+        raise RuntimeError("global schema migration version 32 is already occupied")
 
 
 def apply_migration(connection: sqlite3.Connection) -> dict[str, int]:
@@ -129,7 +129,7 @@ def apply_migration(connection: sqlite3.Connection) -> dict[str, int]:
             raise RuntimeError("system settings marker exists with an invalid schema")
         return {"workspace_rows_seeded": 0}
     if not prerequisite_ready(connection):
-        raise RuntimeError("valid global schema 30 is required before system settings migration")
+        raise RuntimeError("valid global schema 31 is required before system settings migration")
     if REQUIRED_TABLES & _table_names(connection):
         raise RuntimeError("partial system settings schema must be restored")
     stamp = datetime.now(timezone.utc).isoformat()

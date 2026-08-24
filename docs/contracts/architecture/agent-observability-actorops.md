@@ -14,7 +14,7 @@ OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电�
 
 Remote MCP 是唯一 Service MCP，入口固定为 FastAPI `/mcp`；仓库不再提供本地 stdio server、run store 或 legacy adapter。抓取、AI、通知、密钥和任意直接执行型系统写工具不得注册。唯一配置例外是 typed system-settings proposal：独立 `inteliscope:system-settings:write` scope、默认关闭开关、实时 `owner/admin`、严格 allowlist 与精确确认全部满足后才可 CAS 写当前 workspace override；它不调用抓取、Actor、AI 或通知。订阅写、系统写和 workspace 诊断三种授权相互独立，既有连接不升级，角色降级立即失效。
 
-`SystemSettingsService` 与 `system_settings_registry.py` 是 21 项安全运行参数的唯一解析/类型边界，顺序固定为 DB override、环境 alias、内置默认。global 31 只保存 workspace overrides/generation 与短期 proposal；已有数据库必须停 API/Worker 显式迁移，fresh DB 自动建立。`SystemSettingProposalService` 由 Web 与 MCP 共用，在一次写事务中重验 actor/delegation/generation 并 CAS；日志只能记录 canonical key 名称与计数，不能记录值、alias 或确认短语。运行时消费者每次 admission、新 Job、失败、维护、快照或采集决定时解析对应值，显式测试构造参数仍优先。
+`SystemSettingsService` 与 `system_settings_registry.py` 是 21 项安全运行参数的唯一解析/类型边界，顺序固定为 DB override、环境 alias、内置默认。global 32 只保存 workspace overrides/generation 与短期 proposal；已有数据库必须先处于有效 global 31，再停 API/Worker 显式迁移，fresh DB 自动建立。`SystemSettingProposalService` 由 Web 与 MCP 共用，在一次写事务中重验 actor/delegation/generation 并 CAS；日志只能记录 canonical key 名称与计数，不能记录值、alias 或确认短语。运行时消费者每次 admission、新 Job、失败、维护、快照或采集决定时解析对应值，显式测试构造参数仍优先。
 
 `SubscriptionMutationService` 是 REST 与 Remote MCP 的唯一 subscription/source/schedule 业务 mutation owner；Remote MCP 不复制 REST 写逻辑。`AgentChangeProposalService` 只拥有短期密封 proposal 的授权、指纹和 lifecycle：prepare 在自己的短事务持久化 preview/确认 hash，apply 在 `BEGIN IMMEDIATE` 内重验实时主体与 mutation 先决条件，并与业务 mutation 原子提交。proposal record 只保存安全 snapshot、preview、指纹和结果摘要；cleanup 是 commit 后 best-effort，绝不把已提交业务变化伪装成失败。
 

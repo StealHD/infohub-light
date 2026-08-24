@@ -20,7 +20,7 @@ from .actorops_v2_single_track_schema import (
 from .actorops_v2_resilience_schema import (
     bootstrap_service_store_schema as bootstrap_actorops_v2_resilience_schema,
 )
-from .system_settings_v31_schema import (
+from .system_settings_v32_schema import (
     bootstrap_service_store_schema as bootstrap_system_settings_schema,
 )
 

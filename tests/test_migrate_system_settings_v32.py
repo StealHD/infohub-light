@@ -3,9 +3,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from scripts.migrate_system_settings_v31 import migrate, preview
+from scripts.migrate_system_settings_v32 import migrate, preview
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
-from src.storage.system_settings_v31_schema import (
+from src.storage.system_settings_v32_schema import (
     MIGRATION_CHECKSUM,
     MIGRATION_NAME,
     MIGRATION_VERSION,
@@ -14,7 +14,7 @@ from src.storage.system_settings_v31_schema import (
 )
 
 
-def _restore_global_30(data_dir: Path) -> None:
+def _restore_global_31(data_dir: Path) -> None:
     connection = sqlite3.connect(data_dir / "service.db")
     connection.execute("PRAGMA foreign_keys=ON")
     try:
@@ -29,12 +29,12 @@ def _restore_global_30(data_dir: Path) -> None:
         connection.close()
 
 
-def test_global_31_is_explicit_atomic_and_idempotent(tmp_path: Path) -> None:
+def test_global_32_is_explicit_atomic_and_idempotent(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     store = ServiceStore(data_dir)
     store.initialize()
     store.close()
-    _restore_global_30(data_dir)
+    _restore_global_31(data_dir)
 
     assert preview(data_dir)["status"] == "migration_required"
     result = migrate(data_dir, apply=True, backup_dir=tmp_path / "backups")

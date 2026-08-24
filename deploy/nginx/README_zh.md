@@ -108,7 +108,7 @@ HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false
 HORIZON_REQUIRE_WORKER_FOR_READINESS=false
 ```
 
-只读生产发布只启动 `horizon-api`，不得启动 Worker 或 scheduler。两个写开关保持 `false`；本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。系统参数写入还要求先显式应用 global31 迁移。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 delegation、schema v7 proposal 与 global31 system settings additive 表均保留。
+只读生产发布只启动 `horizon-api`，不得启动 Worker 或 scheduler。两个写开关保持 `false`；本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。系统参数写入还要求先显式应用 global32 迁移。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 delegation、schema v7 proposal 与 global32 system settings additive 表均保留。
 
 ## 浏览器直连 OpenClaw
 

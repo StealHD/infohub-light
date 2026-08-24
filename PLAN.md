@@ -8,7 +8,7 @@
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 v14–v16、ActorOps v17–v24、付费 Canary、自动新鲜度与外部通知。global 25 仅作惰性历史数据；后续迁移从 26 继续。
 - ActorOps v2 单轨：Phase 0–8 已完成，v2 独占 UI/API/来源/抓取/Worker；Route 仅 `active|disabled`。缺 global 30 时仅 ActorOps 返回 migration-required；不调用付费服务。
-- 系统参数：global 31 提供 21 项 workspace 热调；Owner/Admin Web 与独立 MCP 共用 proposal、精确确认和 generation CAS；已有库须离线迁移；排除秘密、端点和付费 Actor。
+- 系统参数：global 32 提供 21 项 workspace 热调；Owner/Admin Web/MCP 共用 proposal、确认、CAS；已有库须先完成 global 31；排除秘密、端点和付费 Actor。
 - OpenClaw 全来源订阅已实现；社交源仅建 pending Binding。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。

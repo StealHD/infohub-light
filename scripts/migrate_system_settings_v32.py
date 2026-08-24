@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit offline installer for global 31 workspace system settings."""
+"""Explicit offline installer for global 32 workspace system settings."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.actorops_migration_safety import active_workers_fail_closed
 from scripts.migrate_apify_actor_ops_v15 import _backup_database, _restore_database
-from src.storage.system_settings_v31_schema import (
+from src.storage.system_settings_v32_schema import (
     MIGRATION_CHECKSUM,
     MIGRATION_NAME,
     MIGRATION_VERSION,
@@ -44,12 +44,12 @@ def _state(connection: sqlite3.Connection) -> str:
     ).fetchone()
     if row is not None:
         if str(row["name"]) != MIGRATION_NAME or str(row["checksum"]) != MIGRATION_CHECKSUM:
-            raise RuntimeError("global schema migration version 31 is already occupied")
+            raise RuntimeError("global schema migration version 32 is already occupied")
         if not schema_shapes_valid(connection):
             raise RuntimeError("system settings marker exists with an invalid schema")
         return "ready"
     if not prerequisite_ready(connection):
-        raise RuntimeError("valid global schema 30 is required before system settings migration")
+        raise RuntimeError("valid global schema 31 is required before system settings migration")
     tables = {
         str(item[0]) for item in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -85,13 +85,13 @@ def migrate(
     if not apply or result["status"] == "already_migrated":
         return result
     if result["status"] == "blocked":
-        raise RuntimeError("API and Worker must stop before global 31 migration")
+        raise RuntimeError("API and Worker must stop before global 32 migration")
     destination = backup_dir or data_dir / "backups"
     original_mode = database.stat().st_mode & 0o777
     raw_backup = _backup_database(database, destination)
     backup = raw_backup.with_name(
         raw_backup.name.replace(
-            "service-apify-actor-ops-v15-", "service-system-settings-v31-", 1
+            "service-apify-actor-ops-v15-", "service-system-settings-v32-", 1
         )
     )
     raw_backup.replace(backup)
@@ -101,7 +101,7 @@ def migrate(
         connection = _connect(database, read_only=False)
         _state(connection)
         if active_workers_fail_closed(database):
-            raise RuntimeError("API and Worker must stop before global 31 migration")
+            raise RuntimeError("API and Worker must stop before global 32 migration")
         changes = apply_migration(connection)
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()

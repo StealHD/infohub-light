@@ -22,7 +22,7 @@ def test_nginx_remote_mcp_runbook_keeps_production_writes_off_and_schema_v7():
 
     assert "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false" in docs
     assert "HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false" in docs
-    assert "global31" in docs
+    assert "global32" in docs
     assert "schema v7" in docs
     assert "只启动 `horizon-api`" in docs
 

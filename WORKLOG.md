@@ -97,42 +97,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 4 将 Gateway URL、Protocol/scopes、Device Identity 与 RPC Client 拆为独立模块，旧 openclawGateway.ts 缩为 25 行显式兼容 façade；Transcript Store 与 Gateway Preferences 具备直接的用户/Gateway/session 隔离、容量和清理测试。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal4-gateway-storage",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw 与直接 Workbench 定向 Vitest 127 项及 TypeScript typecheck 通过。",
-    "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 5 引入单一根 Reducer、Connection、Session/Runtime、Conversation Run 与 Transcript 生命周期模块；根 Hook 成为唯一 Gateway Event Router，在投影前后统一校验 generation、exact session 和 exact run，并缩至 221 行。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal5-lifecycle",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw 与直接 Workbench 定向 Vitest 129 项、TypeScript typecheck、lint 和前端代码尺寸门禁通过。",
-    "累计 impacted preflight 16/16 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface",
     "ui"
   ],
@@ -424,6 +388,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "System settings, global31 migration, REST/MCP authorization, scheduling, retention, storage governance, OpenClaw and adjacent targeted tests passed.",
     "Frontend lint/typecheck passed; full Vitest passed 84 files and 614 tests; production build and preview artifact check passed.",
     "Two bounded impacted-preflight runs found an observability map omission and a stale delegation error assertion; both were fixed and their failing specs passed. Full Python coverage was then completed in bounded segments, and remaining syntax, JSON, code-size, UI/E2E contract, Markdown/control and diff checks passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Merged Admin MCP system settings into local main, resolved Global 31 migration-version collision by moving workspace settings to Global 32 with an explicit ActorOps Global 31 prerequisite, and routed ActorOps repair job retention through the typed workspace resolver.",
+  "status": "completed",
+  "task_id": "2026-08-24-admin-mcp-system-settings-merge-fix",
+  "unresolved": [
+    "No push, production migration, VPS deployment, source fetch, Actor call, AI call, or notification was performed."
+  ],
+  "validation": [
+    "The previously failing historical-schema initialization test and 30 focused system-settings, migration, REST/MCP and ActorOps resilience tests passed.",
+    "A final impacted preflight for the merged main SHA is pending."
   ]
 }
 ```

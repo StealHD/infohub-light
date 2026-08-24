@@ -8,7 +8,7 @@ import sqlite3
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Mapping
 
-from ..storage.system_settings_v31_schema import (
+from ..storage.system_settings_v32_schema import (
     migration_marker_exists,
     schema_shapes_valid,
 )
@@ -132,7 +132,7 @@ class SystemSettingsService:
     def require_ready(self, connection: sqlite3.Connection | None = None) -> None:
         if not system_settings_ready(connection or self.store.connect()):
             raise SystemSettingsUnavailable(
-                "global 31 system settings migration must be applied"
+                "global 32 system settings migration must be applied"
             )
 
     def state(
