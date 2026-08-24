@@ -10,47 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "ActorOps Worker now claims and executes only v2 control Jobs; never-started v1 Jobs are atomically retired while ambiguous historical Jobs remain isolated without new remote work.",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-v2-worker-single-track",
-  "unresolved": [],
-  "validation": [
-    "Targeted Worker, queue, migration, authorizer and retirement-boundary tests passed.",
-    "Impacted preflight passed 17/17, including full Python, frontend and control checks."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "新增 ActorOps v1 离线退役工具：脱敏 status、停机/心跳安全 snapshot 收据、仅取消未启动 Job 的 fail-closed apply 和 hash/shape/integrity verify；未知启动、未结费用与非终态事实保持阻断。",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-v1-offline-retirement",
-  "unresolved": [
-    "global 30 单轨 schema、flag/shadow/source_v1_generation 删除及最终 v1 Runtime 清理仍属 Phase 7B–8。"
-  ],
-  "validation": [
-    "18 targeted ActorOps retirement and adjacent auto-pool tests",
-    "frontend TypeScript typecheck",
-    "impacted preflight passed (17/17; full Python, lint, Vitest and build)"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
     "phase",
     "ui"
   ],
@@ -92,99 +51,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 6 将 Conversation 拆为 Setup、Timeline、Message、Activity Trace、Runtime Controls、Context Summary、Image、Composer 与 Shell 组件，并以唯一 Workbench Adapter 隔离 handoff、draft 清理和失败恢复；旧 Conversation 缩为 3 行显式 façade，Agents 主页面拆出 Browser Settings 与 Delegation Views。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal6-ui-adapter",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw、Workbench 与 Agents 定向 Vitest 148 项，完整前端 Vitest 641 项，typecheck、lint、UI/E2E 合同和生产 build 通过。",
-    "累计 impacted preflight 16/16 通过；OpenClawConversation 3 行、HeroAgentsPage 365 行，所有新增生产文件低于 400 行且未新增尺寸例外。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 7 将 Remote MCP Auth、Rate Limit、HTTP façade、Audit、Call Runtime、Tool Context 与 read/subscription/diagnostic 三类工具注册拆为独立模块；remote_server.py 缩至 142 行组合根，并显式保留六个既有公共导出及精确 17 工具合同。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal7-remote-runtime",
-  "unresolved": [],
-  "validation": [
-    "全部 test_remote_mcp_* 套件、41 项 HTTP/注册定向测试、observability 和后端代码尺寸门禁通过。",
-    "累计 impacted preflight 16/16 通过，审计 logger、脱敏字段、request ID、structured content、scope 与工具 annotations 保持兼容。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 8 将 Remote MCP Feed、Subscription/Health 与 Job 读取拆为三个小服务，并将诊断的 actor-scoped records、sanitization、classification、evidence 和 projection 分离；remote_service.py 与 remote_diagnostics.py 保留为 113/153 行显式兼容 façade。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal8-remote-reads",
-  "unresolved": [],
-  "validation": [
-    "全部 test_remote_mcp_* 套件、诊断大测试集、读服务/HTTP 定向测试、observability 和后端代码尺寸门禁通过。",
-    "累计 impacted preflight 16/16 通过；RemoteMCPNotFound、RemoteMCPReadService 与 diagnose_source/diagnose_job 的导入、shape、脱敏和只读语义保持兼容。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 9 将本地安装入口拆为 validation、process、env、gateway、skill、MCP、compose 与 workflow 模块；setup_openclaw_local.py 缩至 116 行显式兼容 façade，并保持 CLI、退出码、环境合并、Origin、Skill、toolFilter、Compose 与 Gateway 重启语义。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal9-local-setup",
-  "unresolved": [],
-  "validation": [
-    "本地安装入口与公共兼容面 20 项 mock/临时目录测试通过，未访问真实 ~/.openclaw、Gateway 或 Docker。",
-    "后端代码尺寸门禁与累计 impacted preflight 16/16 通过，入口低于 150 行且所有新增模块低于 400 行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 10 新增模块所有权合同与 D177，建立 OpenClaw→production-workbench/production-admin 专属 E2E 映射，补齐前后端无循环依赖门禁，并将范围内 6 个历史测试单体按共享 fixture 与职责拆至 600 行以内；Manual/Changelog 复核确认无用户可见条目。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal10-final-gates",
-  "unresolved": [],
-  "validation": [
-    "完整前端 Vitest 92 文件/642 项、全部 Remote MCP/setup 测试、typecheck、lint、UI/E2E contract、生产 build 与代码尺寸门禁通过。",
-    "production-workbench 与 production-admin 三项目 E2E 110 项通过、55 项按既有 spec 条件跳过；最终 full preflight 17/17 通过。",
-    "真实 Gateway 验收因没有可用的一次性配对条件未执行，未使用或记录任何 Token。"
-  ]
-}
-```
 
 ```json
 {
@@ -408,6 +274,139 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "The previously failing historical-schema initialization test and 30 focused system-settings, migration, REST/MCP and ActorOps resilience tests passed.",
     "A final impacted preflight for the merged main SHA is pending."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "instructions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "固化全站组件参数矩阵与默认 UI 继承规则；HeroUI Pro 仅作层级参考，生产继续使用 HeroUI v3 OSS 和本地设计系统。",
+  "status": "completed",
+  "task_id": "2026-08-24-ui-component-parameter-contract",
+  "unresolved": [],
+  "validation": [
+    "UI contract、TypeScript、ESLint、完整前端 Vitest、生产构建和 impacted preflight 通过。",
+    "Subscriptions 与 Login 的暗色/亮色、桌面/平板/手机既有 Playwright 快照全部通过，未更新基线。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Addressed the annotated UI consistency issues: fixed the desktop sidebar account footer track, standardized the notification-service form dialog, compacted Apify Key cards and status placement, and rebuilt ActorOps routes as independent cards.",
+  "status": "completed",
+  "task_id": "2026-08-24-ui-annotation-remediation",
+  "unresolved": [],
+  "validation": [
+    "Targeted Vitest passed (83 tests across notification, ActorOps, workbench, UI contract and Apify scenarios).",
+    "UI contract, TypeScript, ESLint and production build passed.",
+    "Targeted Playwright passed for ActorOps three-viewport visual baseline, notification/key surfaces and desktop workbench shell."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Refined the refresh Bootstrap sidebar skeleton to mirror the loaded 52px brand header, grouped navigation and fixed 64px account footer; collapsed refresh now uses light icon silhouettes and expanded refresh adds text silhouettes without adding product colors.",
+  "status": "completed",
+  "task_id": "2026-08-24-bootstrap-sidebar-skeleton",
+  "unresolved": [],
+  "validation": [
+    "Dedicated desktop refresh-sidebar visual regression passed with fixed light theme and Reduced Motion.",
+    "Existing hard-refresh handoff regression, UI contract, TypeScript, ESLint and production build passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "统一通知新增与编辑表单的渠道、服务商及 Webhook 类型选择为共享 HeroSelect，并用 UI 合约拒绝业务代码原生 select。",
+  "status": "completed",
+  "task_id": "2026-08-24-notification-select-contract",
+  "unresolved": [],
+  "validation": [
+    "HeroNotificationTargets 与 uiContract Vitest 50 项通过",
+    "通知服务 390/580/768/1440 Playwright 通过",
+    "check:ui、typecheck、lint、build 通过"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Refined the desktop sidebar gutter and rebuilt ActorOps as URL-driven Route/Log tabs with compact route cards, actionable incident guidance, and safe operation records.",
+  "status": "completed",
+  "task_id": "2026-08-24-actorops-sidebar-log-tabs",
+  "unresolved": [
+    "Local Docker rebuild could not pull ghcr.io/astral-sh/uv because the external registry TLS certificate did not validate; the existing runtime was not replaced."
+  ],
+  "validation": [
+    "Targeted Vitest passed (95 tests).",
+    "ActorOps Playwright passed across desktop, tablet and mobile, including direct 390/768/1440 Tab checks.",
+    "UI contract, TypeScript, ESLint, production build and frontend code-size policy passed."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Rebuilt the wide-desktop sidebar as fixed 72px/232px canvas layers with opacity handoff, one persistent toggle, a stable 48px account trigger, and real-overflow-only navigation scrolling; intermediate-width label reflow and footer jumping are removed.",
+  "status": "completed",
+  "task_id": "2026-08-24-desktop-sidebar-fixed-canvas-motion",
+  "unresolved": [],
+  "validation": [
+    "Sidebar Vitest and UI-contract tests passed (77 assertions).",
+    "Dedicated desktop Playwright sampled the full expand/collapse motion, rapid reversal, Reduced Motion, 1359px fallback, and low-height overflow.",
+    "Local Docker rebuild completed with healthy API/Worker; final impacted preflight passed 16/16."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "新增 RSSHub 固定访问密钥专用接口和设置页写入、轮换、安全移除流程，环境托管保持只读；Actor 商城信息浮层支持跨标签/浮层悬停、键盘与触控交互。",
+  "status": "completed",
+  "task_id": "2026-08-24-rsshub-access-key-and-actor-popover",
+  "unresolved": [],
+  "validation": [
+    "定向 API、Vitest 与 Playwright 通过（RSSHub 390/768/1440、Actor 浮层）。",
+    "当前 worktree 本地 Docker 重建完成，API/Worker 均 healthy。",
+    "impacted preflight passed 16/16：完整 Python、Vitest、UI 契约、lint、typecheck、build 与控制校验通过。"
   ]
 }
 ```

@@ -17,7 +17,7 @@ export function SettingsLayout({ user, children }: { user: User; children: React
 
   return <div
     data-settings-workspace
-    className="grid h-dvh min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background min-[768px]:grid-cols-[var(--inteliscope-width-settings-sidebar)_minmax(0,1fr)]"
+    className="grid h-dvh min-h-0 min-w-0 grid-rows-[var(--inteliscope-size-page-header)_minmax(0,1fr)] overflow-hidden bg-background min-[768px]:grid-cols-[var(--inteliscope-width-settings-sidebar)_minmax(0,1fr)]"
   >
     <aside
       aria-label="设置侧栏"
@@ -26,7 +26,7 @@ export function SettingsLayout({ user, children }: { user: User; children: React
       <SettingsSidebar role={user.role} returnTo={returnTo} onBack={goBack} />
     </aside>
 
-    <header className="flex h-[52px] min-w-0 items-center gap-1 border-b border-separator bg-surface px-2.5 min-[768px]:gap-2 min-[768px]:px-4">
+    <header className="flex h-[var(--inteliscope-size-page-header)] min-w-0 items-center gap-1 border-b border-separator bg-surface px-2.5 min-[768px]:gap-2 min-[768px]:px-4">
       <Button
         size="sm"
         variant="ghost"

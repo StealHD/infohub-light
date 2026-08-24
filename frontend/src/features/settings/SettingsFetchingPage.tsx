@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -12,12 +12,12 @@ import {
   SettingsGroup,
   SettingsItem,
   SettingsSection,
-  StatusBadge,
 } from '../../components/settings'
 import { actionToast, Button, Icons, Input, Label, LoadingState, PageFrame, StatusNotice, TextField } from '../../design-system'
 import { HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { canAdministerWorkspace } from './settingsModel'
 import { SettingsTopicLibrary } from './SettingsTopicLibrary'
+import { RsshubServiceSettings } from './RsshubServiceSettings'
 import {
   buildFilteringPayload,
   buildRsshubPayload,
@@ -64,7 +64,6 @@ export function SettingsFetchingPage() {
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
   const location = useLocation()
-  const navigate = useNavigate()
   const admin = canAdministerWorkspace(user)
   const returnState = preserveSettingsReturnState(location.state)
   const config = useQuery({
@@ -92,9 +91,6 @@ export function SettingsFetchingPage() {
   const topicsDraftRef = useRef(topicsDraft)
   const rssInitialFetchWindow = rssInitialFetchWindowOverride ?? String(filtering.rss_initial_fetch_window_hours ?? 168)
   const feedWindowDays = feedWindowDaysOverride ?? String(filtering.feed_window_days ?? 7)
-  const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
-    (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
-  )
 
   useLayoutEffect(() => {
     topicsDraftRef.current = topicsDraft
@@ -236,28 +232,17 @@ export function SettingsFetchingPage() {
         </div>
       </StatusNotice></div>}
 
-      <SettingsSection title="RSSHub 服务" description="受控来源在运行时通过此服务地址访问，不会向浏览器暴露访问密钥。">
-        {config.isPending
-          ? <LoadingState label="正在读取 RSSHub 设置" rows={2} />
-          : config.isError
-            ? <StatusNotice title="RSSHub 设置读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></StatusNotice>
-            : <SettingsGroup ariaLabel="RSSHub 服务">
-              <SettingsItem
-                label="连接地址"
-                description="可使用自建、反向代理前缀或第三方 RSSHub。"
-                icon={<Icons.Rss size={17} aria-hidden="true" />}
-                trailing={<div className="flex flex-wrap items-center gap-2"><StatusBadge tone={rsshubAccessKeySet ? 'success' : 'neutral'}>{rsshubAccessKeySet ? '访问密钥已配置' : '无需密钥或尚未配置'}</StatusBadge><Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>管理密钥</Button></div>}
-              >
-                <form ref={rsshubFormRef} className="grid gap-3 min-[640px]:grid-cols-[minmax(0,1fr)_auto] min-[640px]:items-end" onChange={() => refreshDirty('rsshub')} onSubmit={saveRsshub}>
-                  <FormField name="base_url" label="RSSHub Base URL" type="url" defaultValue={String(rsshub.base_url ?? 'http://rsshub:1200')} required />
-                  <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>{configMutation.isPending && configMutation.variables?.sections.includes('rsshub') ? '保存中…' : '保存 RSSHub 地址'}</Button>
-                </form>
-                <SettingsDisclosure title="连接说明" description="了解访问密钥和服务端边界。" className="mt-4">
-                  <p className="type-body text-muted">自建公网实例可通过 SecretStore 的 <code>RSSHUB_ACCESS_KEY</code> 启用访问控制；Worker 只发送路由级 code，助手不接收地址或密钥。</p>
-                </SettingsDisclosure>
-              </SettingsItem>
-            </SettingsGroup>}
-      </SettingsSection>
+      {config.isPending
+        ? <LoadingState label="正在读取 RSSHub 设置" rows={2} />
+        : config.isError
+          ? <StatusNotice title="RSSHub 设置读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></StatusNotice>
+          : <RsshubServiceSettings
+              baseUrl={String(rsshub.base_url ?? 'http://rsshub:1200')}
+              formRef={rsshubFormRef}
+              isSaving={configMutation.isPending && Boolean(configMutation.variables?.sections.includes('rsshub'))}
+              onFormChange={() => refreshDirty('rsshub')}
+              onSave={saveRsshub}
+            />}
 
       <SettingsSection title="获取窗口" description="调整工作区抓取和 Feed 展示的时间范围；不会删除既有内容。">
         {config.isPending

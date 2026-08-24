@@ -145,7 +145,7 @@ export function FeedInsightsPanel({
     || (preference.subscriptionScope !== 'all' && sources.isLoading)
 
   return <>
-    <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
+    <header className="flex h-[var(--inteliscope-size-page-header)] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
       <Icons.ChartNoAxesCombined className="shrink-0" size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">信息概览</strong>
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭信息概览" onPress={onClose}>

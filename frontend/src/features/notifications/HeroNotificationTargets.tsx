@@ -26,7 +26,7 @@ import {
   Table,
   TextField,
 } from '../../design-system'
-import { HeroNotice } from '../admin-heroui/HeroAdminControls'
+import { HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { safeNotificationError } from './notificationModel'
 
 const channelLabels: Record<NotificationChannel, string> = {
@@ -356,6 +356,10 @@ export function HeroNotificationTargets({
     }
   }
 
+  function closeCreateDialog() {
+    if (!creating) { setCreateOpen(false); setName(''); setChannel('email'); setDestination(''); setProvider('generic_event'); setSigningSecret(''); setBotToken(''); setEmailDraft(emptyEmailDraft); setReplaceEmailCredential(false); setRequestError('') }
+  }
+
   async function testAndEnable(service: NotificationService) {
     setBusyService(service.id)
     setRequestError('')
@@ -601,65 +605,32 @@ export function HeroNotificationTargets({
         </Table.ScrollContainer>
       </Table>}
 
-    {admin && <Modal isOpen={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
+    {admin && <Modal isOpen={createOpen} onOpenChange={(open) => open ? setCreateOpen(true) : closeCreateDialog()}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开新增通知服务</Modal.Trigger>
       <Modal.Backdrop isDismissable={!creating} isKeyboardDismissDisabled={creating}>
         <Modal.Container size="lg">
           <Modal.Dialog>
             <Modal.Header><Modal.Heading>新增通知服务</Modal.Heading></Modal.Header>
             <Modal.Body>
-              <form
-      className="grid min-w-0 gap-3 rounded-control border border-separator bg-surface-secondary p-4 min-[768px]:grid-cols-2"
-      noValidate
-      onSubmit={createService}
-    >
+              <form id="notification-service-create-form" className="grid min-w-0 gap-3 min-[768px]:grid-cols-2" noValidate onSubmit={createService}>
       <div className="min-[768px]:col-span-2">
-        <h4 className="type-control">新增通知服务</h4>
         <Description>新服务固定为工作区共享；唯一提交动作会保存配置、发送一次测试并在成功后自动启用。</Description>
       </div>
       <TextField fullWidth value={name} onChange={setName} isRequired>
         <Label>服务名称</Label>
         <Input maxLength={80} placeholder="例如：值班群 Telegram" />
       </TextField>
-      <label className="grid gap-1">
-        <span className="type-control">发送方式</span>
-        <select
-          className="min-h-10 rounded-control border border-separator bg-surface px-3"
-          value={channel}
-          onChange={(event) => {
-            setChannel(event.target.value as NotificationChannel)
-            setDestination('')
-            setBotToken('')
-            setSigningSecret('')
-            setEmailDraft((current) => ({
-              ...current,
-              senderEmail: '',
-              credential: '',
-              smtpUsername: '',
-            }))
-            setReplaceEmailCredential(false)
-            setRequestError('')
-          }}
-        >
-          <option value="email">邮箱</option>
-          <option value="webhook">Webhook</option>
-          <option value="telegram">Telegram</option>
-        </select>
-      </label>
+      <HeroSelect label="发送方式" value={channel} className="w-full" options={Object.entries(channelLabels).map(([id, label]) => ({ id, label }))} onChange={(value) => {
+        setChannel(value as NotificationChannel)
+        setDestination('')
+        setBotToken('')
+        setSigningSecret('')
+        setEmailDraft((current) => ({ ...current, senderEmail: '', credential: '', smtpUsername: '' }))
+        setReplaceEmailCredential(false)
+        setRequestError('')
+      }} />
 
-      {channel === 'webhook' && <label className="grid gap-1">
-        <span className="type-control">Webhook 类型</span>
-        <select
-          className="min-h-10 rounded-control border border-separator bg-surface px-3"
-          value={provider}
-          onChange={(event) => setProvider(event.target.value as WebhookProvider)}
-        >
-          {services.data.webhook_provider_options.map((option) => <option
-            key={option.provider}
-            value={option.provider}
-          >{option.label}</option>)}
-        </select>
-      </label>}
+      {channel === 'webhook' && <HeroSelect label="Webhook 类型" value={provider} className="w-full" options={services.data.webhook_provider_options.map((option) => ({ id: option.provider, label: option.label }))} onChange={(value) => setProvider(value as WebhookProvider)} />}
 
       <TextField fullWidth value={destination} onChange={setDestination} isRequired>
         <Label>{destinationLabel(channel)}</Label>
@@ -707,11 +678,6 @@ export function HeroNotificationTargets({
 
       {requestError && <div className="min-[768px]:col-span-2"><HeroNotice title={requestError} /></div>}
 
-      <div className="flex items-end min-[768px]:col-span-2">
-        <Button type="submit" isDisabled={creating || !name.trim() || !destination.trim()}>
-          {creating ? '保存并测试中…' : '保存并测试'}
-        </Button>
-      </div>
       {providerPreset
         && channel === 'email'
         && (!emailCredential?.configured || replaceEmailCredential)
@@ -720,6 +686,12 @@ export function HeroNotificationTargets({
       </Description>}
               </form>
             </Modal.Body>
+            <Modal.Footer data-notification-service-dialog-footer>
+              <Button variant="ghost" isDisabled={creating} onPress={closeCreateDialog}>取消</Button>
+              <Button type="submit" form="notification-service-create-form" isDisabled={creating || !name.trim() || !destination.trim()}>
+                {creating ? '保存并测试中…' : '保存并测试'}
+              </Button>
+            </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
@@ -749,12 +721,7 @@ export function HeroNotificationTargets({
                 <Label>更换签名密钥（可选）</Label>
                 <Input type="password" autoComplete="new-password" placeholder="留空保持当前值" />
               </TextField>}
-              {editingTarget.channel === 'webhook' && <label className="grid gap-1">
-                <span className="type-control">Webhook 类型</span>
-                <select className="min-h-10 rounded-control border border-separator bg-surface px-3" value={editWebhookProvider} onChange={(event) => setEditWebhookProvider(event.target.value as WebhookProvider)}>
-                  {services.data.webhook_provider_options.map((option) => <option key={option.provider} value={option.provider}>{option.label}</option>)}
-                </select>
-              </label>}
+              {editingTarget.channel === 'webhook' && <HeroSelect label="Webhook 类型" value={editWebhookProvider} className="w-full" options={services.data.webhook_provider_options.map((option) => ({ id: option.provider, label: option.label }))} onChange={(value) => setEditWebhookProvider(value as WebhookProvider)} />}
               {editingTarget.channel === 'email' && emailCredential?.configured && !editReplaceEmailCredential && <div className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 min-[640px]:col-span-2">
                 <Description>当前共享邮件凭据保持不变，测试会直接复用。</Description>
                 <Button type="button" size="sm" variant="ghost" onPress={() => setEditReplaceEmailCredential(true)}>更换共享邮件凭据</Button>
@@ -810,22 +777,7 @@ function EmailCredentialFields({
   const preset = providers.find((option) => option.provider === draft.provider)
   const usesSes = draft.provider === 'amazon_ses'
   return <>
-    <label className="grid gap-1">
-      <span className="type-control">邮件服务商</span>
-      <select
-        className="min-h-10 rounded-control border border-separator bg-surface px-3"
-        value={draft.provider}
-        onChange={(event) => onChange({
-          ...draft,
-          provider: event.target.value as NotificationEmailProvider,
-          credential: '',
-        })}
-      >
-        {providers.map((option) => <option key={option.provider} value={option.provider}>
-          {option.label}
-        </option>)}
-      </select>
-    </label>
+    <HeroSelect label="邮件服务商" value={draft.provider} className="w-full" options={providers.map((option) => ({ id: option.provider, label: option.label }))} onChange={(value) => onChange({ ...draft, provider: value as NotificationEmailProvider, credential: '' })} />
     <TextField fullWidth value={draft.senderEmail} onChange={(value) => onChange({ ...draft, senderEmail: value })}>
       <Label>发件邮箱</Label>
       <Input type="email" autoComplete="email" />

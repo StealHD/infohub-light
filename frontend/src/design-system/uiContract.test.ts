@@ -97,6 +97,40 @@ describe('HeroUI import contract', () => {
     expect(result.status).toBe(1)
   }, 15_000)
 
+  it.each([
+    'export const Example = () => <div className="rounded-[22px]" />\n',
+    'export const Example = () => <div className="shadow-[0_1px_2px_black]" />\n',
+    'export const Example = () => <div className="duration-200" />\n',
+    'export const Example = () => <div className="duration-[200ms]" />\n',
+    'export const Example = () => <div className="animate-[pulse_200ms_ease-out]" />\n',
+    "export const Example = () => <div style={{ borderRadius: '22px' }} />\n",
+  ])('rejects literal component parameters from business code', (source) => {
+    const result = checkSource('src/components/Violation.tsx', source)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('圆角、阴影和动效时长必须使用设计系统 CSS 变量')
+  })
+
+  it('allows design-system visual tokens in business code', () => {
+    const result = checkSource(
+      'src/components/TokenizedControl.tsx',
+      'export const Example = () => <div className="rounded-[var(--inteliscope-radius-card)] shadow-[var(--overlay-shadow)] duration-[var(--inteliscope-motion-standard)]" />\n',
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+  })
+
+  it('rejects native select elements from business forms', () => {
+    const result = checkSource(
+      'src/features/notifications/ChannelForm.tsx',
+      'export const Example = () => <select aria-label="发送方式"><option>邮箱</option></select>\n',
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('业务表单选择必须使用设计系统 Select 或 HeroSelect')
+  })
+
   it('rejects visual constants in business CSS', () => {
     const result = checkSource(
       'src/features/feed/feed-surface.css',
@@ -104,7 +138,7 @@ describe('HeroUI import contract', () => {
     )
 
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('视觉常量必须来自设计系统主题')
+    expect(result.stderr).toContain('圆角、阴影和动效时长必须使用设计系统 CSS 变量')
   })
 
   it.each([
@@ -146,7 +180,7 @@ describe('HeroUI import contract', () => {
     expect(result.stderr).toBe('')
   })
 
-  it.each(['820', '1180', '960'])('rejects business-owned Quiet Studio max width %spx', (width) => {
+  it.each(['820', '920', '1180', '960'])('rejects business-owned Quiet Studio max width %spx', (width) => {
     const result = checkSource(
       'src/features/feed/PageSurface.tsx',
       `export const PageSurface = () => <main className="max-w-[${width}px]">内容</main>\n`,
@@ -154,6 +188,22 @@ describe('HeroUI import contract', () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('页面宽度必须使用设计系统 PageFrame')
+  })
+
+  it('rejects a copied page-header height while allowing the header token', () => {
+    const copied = checkSource(
+      'src/features/feed/PageHeader.tsx',
+      'export const Example = () => <header className="h-[52px]" />\n',
+    )
+    const tokenized = checkSource(
+      'src/features/feed/PageHeader.tsx',
+      'export const Example = () => <header className="h-[var(--inteliscope-size-page-header)]" />\n',
+    )
+
+    expect(copied.status).toBe(1)
+    expect(copied.stderr).toContain('页面头高度必须使用设计系统页头令牌')
+    expect(tokenized.status).toBe(0)
+    expect(tokenized.stderr).toBe('')
   })
 
   it('defines one application font stack and the complete semantic typography scale', () => {
@@ -179,8 +229,25 @@ describe('HeroUI import contract', () => {
 
     expect(theme).toContain('--inteliscope-width-reading: 820px')
     expect(theme).toContain('--inteliscope-width-admin: 1180px')
+    expect(theme).toContain('--inteliscope-width-settings: 920px')
     expect(theme).toContain('--inteliscope-width-auth: 960px')
+    expect(theme).toContain('--inteliscope-size-page-header: 52px')
+    expect(theme).toContain('--inteliscope-size-sidebar-footer: 64px')
+    expect(theme).toContain('--inteliscope-radius-table: 22px')
+    expect(theme).toContain('--inteliscope-radius-status-badge: 5px')
+    expect(theme).toContain('--inteliscope-motion-disclosure: 200ms')
     expect(theme).toMatch(/:where\([^)]*\.input-group__input[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-control-size\)/s)
     expect(theme).toMatch(/\.quiet-compact-select[^}]*\.select__value[^}]*\{[^}]*font-size:\s*var\(--inteliscope-type-control-size\)/s)
+  })
+
+  it('keeps desktop sidebar motion on fixed canvases instead of reflowing its labels', () => {
+    const theme = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
+
+    expect(theme).toContain('--inteliscope-width-workbench-sidebar-collapsed: 72px')
+    expect(theme).toContain('--inteliscope-width-workbench-sidebar-expanded: 232px')
+    expect(theme).toMatch(/\[data-sidebar-layer="collapsed"\][\s\S]*\[data-sidebar-layer="expanded"\][\s\S]*width:\s*var\(--inteliscope-width-workbench-sidebar-expanded\)/)
+    expect(theme).toMatch(/\[data-sidebar-layer\],[\s\S]*transition:\s*opacity\s+var\(--inteliscope-motion-standard\)/)
+    expect(theme).toContain('.sidebar-account-avatar')
+    expect(theme).toContain('translate: var(--inteliscope-size-sidebar-avatar-shift) 0')
   })
 })

@@ -1,56 +1,56 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import { useAppContext } from '../../app/AppContext'
-import { Button, Card, LoadingState, PageFrame, PageIntro, StatusNotice } from '../../design-system'
-import { ActorOpsAlertIncidentList, ActorOpsAlertSettingsPanel } from '../apify-actors/ActorOpsAlerts'
+import { Button, LoadingState, PageFrame, PageIntro, ScrollAdaptiveViewBar, StatusNotice, Tabs } from '../../design-system'
 import { ActorOpsV2ControlPlane } from '../apify-actors/ActorOpsV2ControlPlane'
-import { ActorOpsV2OperationEvents } from '../apify-actors/ActorOpsV2OperationEvents'
-import { ActorOpsV2RouteDetail } from '../apify-actors/ActorOpsV2RouteDetail'
+import { ActorOpsV2Logs } from '../apify-actors/ActorOpsV2Logs'
 import { ActorOpsV2RouteControls } from '../apify-actors/ActorOpsV2RouteControls'
 import { actorOpsV2RouteView } from '../apify-actors/actorOpsV2RouteModel'
+import { actorOpsCanonicalSearchParams, actorOpsTabFromSearchParams, safeActorOpsEventJobId, safeActorOpsRouteKey } from './actorOpsTabModel'
 import { canAdministerWorkspace } from './settingsModel'
 import { preserveSettingsReturnState } from './settingsReturnState'
 
 export function SettingsActorOpsPage() {
   const { api, user } = useAppContext()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const returnState = preserveSettingsReturnState(location.state)
   const canAdminister = canAdministerWorkspace(user)
+  const tab = actorOpsTabFromSearchParams(searchParams)
+  const jobId = tab === 'logs' ? safeActorOpsEventJobId(searchParams.get('job')) : undefined
+  const focusedRouteKey = tab === 'routes' ? safeActorOpsRouteKey(searchParams.get('route')) : undefined
   const routes = useQuery({
     queryKey: queryKeys.actorOpsV2Routes(user.id),
     queryFn: ({ signal }) => api.actorOpsV2Routes(signal),
-    enabled: canAdminister,
+    enabled: canAdminister && tab === 'routes',
     staleTime: queryStaleTime.settings,
     retry: false,
   })
+  useEffect(() => {
+    const canonical = actorOpsCanonicalSearchParams(searchParams, tab)
+    if (canonical.toString() !== searchParams.toString()) setSearchParams(canonical, { replace: true })
+  }, [searchParams, setSearchParams, tab])
   if (!canAdminister) return <Navigate to="/settings" state={returnState} replace />
-  const operations = <>
-    <Card variant="secondary" className="grid gap-4 border border-separator p-4">
-      <div><Card.Title>运行告警</Card.Title><Card.Description className="mt-1">告警设置适用于整个工作区；任一通知服务失败不会阻断抓取。</Card.Description></div>
-      <ActorOpsAlertSettingsPanel />
-    </Card>
-    <Card variant="secondary" className="grid gap-4 border border-separator p-4">
-      <div><Card.Title>最近事件</Card.Title><Card.Description className="mt-1">默认查看最新切换、熔断、费用保护与恢复记录。</Card.Description></div>
-      <ActorOpsAlertIncidentList />
-    </Card>
-    <Card variant="secondary" className="grid gap-4 border border-separator p-4">
-      <div><Card.Title>v2 操作记录</Card.Title><Card.Description className="mt-1">只显示脱敏的 v2 管理操作，不混入旧 Pool、Canary 或诊断事件。</Card.Description></div>
-      <ActorOpsV2OperationEvents />
-    </Card>
-  </>
 
   return <div data-settings-page="actorops" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-5 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <PageIntro description="为 X、Instagram 和 YouTube 管理 v2 Actor 路由。未就绪或停用的路线不会回退到旧 ActorOps。" />
-      {routes.isPending ? <LoadingState label="正在读取 ActorOps v2 路由" rows={3} />
-        : routes.isError ? <ActorOpsRouteError error={routes.error} onRetry={() => void routes.refetch()} />
-          : routes.data?.schema_version !== 2 ? <ActorOpsRouteError error={new ApiError(503, { code: 'actorops_v2_unavailable', message: 'ActorOps v2 响应不可用。' })} onRetry={() => void routes.refetch()} />
-            : routes.data.routes.length === 0 ? <StatusNotice title="暂无 ActorOps v2 Route" status="warning">当前工作区没有可管理的 v2 Route；系统不会改走旧 ActorOps。</StatusNotice>
-              : <ActorOpsV2ControlPlane routes={routes.data.routes.map(actorOpsV2RouteView)} operationsContent={operations} renderRouteActions={(route) => <ActorOpsV2RouteControls route={route} />} renderRouteDetails={(route) => <ActorOpsV2RouteDetail route={route} />} />}
+      <Tabs selectedKey={tab} onSelectionChange={(key) => setSearchParams(actorOpsCanonicalSearchParams(searchParams, String(key) === 'logs' ? 'logs' : 'routes'), { replace: true })}>
+        <div data-actorops-tabs-toolbar className="sticky top-0 z-20 px-2 py-2"><ScrollAdaptiveViewBar state="expanded" className="min-w-0"><div className="quiet-scroll-region min-w-0 max-w-full overflow-x-auto"><Tabs.List aria-label="ActorOps 页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0"><Tabs.Tab id="routes" aria-label="路由管理" className="min-h-9 w-auto shrink-0 justify-center rounded-lg px-3">路由管理<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="logs" aria-label="运行日志" className="min-h-9 w-auto shrink-0 justify-center rounded-lg px-3">运行日志<Tabs.Indicator /></Tabs.Tab></Tabs.List></div></ScrollAdaptiveViewBar></div>
+        <Tabs.Panel id="routes" className="grid gap-5 pt-5">
+          {routes.isPending ? <LoadingState label="正在读取 ActorOps v2 路由" rows={3} />
+            : routes.isError ? <ActorOpsRouteError error={routes.error} onRetry={() => void routes.refetch()} />
+              : routes.data?.schema_version !== 2 ? <ActorOpsRouteError error={new ApiError(503, { code: 'actorops_v2_unavailable', message: 'ActorOps v2 响应不可用。' })} onRetry={() => void routes.refetch()} />
+                : routes.data.routes.length === 0 ? <StatusNotice title="暂无 ActorOps v2 Route" status="warning">当前工作区没有可管理的 v2 Route；系统不会改走旧 ActorOps。</StatusNotice>
+                  : <ActorOpsV2ControlPlane routes={routes.data.routes.map(actorOpsV2RouteView)} focusedRouteKey={focusedRouteKey} renderRouteActions={(route) => <ActorOpsV2RouteControls route={route} />} />}
+        </Tabs.Panel>
+        <Tabs.Panel id="logs" className="pt-5"><ActorOpsV2Logs jobId={jobId} /></Tabs.Panel>
+      </Tabs>
     </PageFrame>
   </div>
 }

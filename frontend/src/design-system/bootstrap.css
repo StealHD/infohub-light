@@ -7,6 +7,13 @@
   --inteliscope-bootstrap-right-rail-width: 400px;
   --inteliscope-bootstrap-loading-duration: 1400ms;
   --inteliscope-bootstrap-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
+  --inteliscope-bootstrap-sidebar-header-size: 52px;
+  --inteliscope-bootstrap-sidebar-footer-size: 64px;
+  --inteliscope-bootstrap-sidebar-row-size: 40px;
+  --inteliscope-bootstrap-sidebar-icon-size: 18px;
+  --inteliscope-bootstrap-sidebar-avatar-size: 28px;
+  --inteliscope-bootstrap-radius-control: 10px;
+  --inteliscope-bootstrap-radius-compact: 8px;
 }
 
 :root[data-theme="light"] {
@@ -67,7 +74,6 @@ html[data-theme="light"] body {
 .bootstrap-shell-title,
 .bootstrap-shell-control,
 .bootstrap-shell-mark,
-.bootstrap-shell-nav-item,
 .bootstrap-shell-card,
 .bootstrap-shell-card-meta,
 .bootstrap-shell-card-title,
@@ -81,7 +87,6 @@ html[data-theme="light"] body {
 .bootstrap-shell-title { width: 84px; height: 16px; border-radius: 6px; }
 .bootstrap-shell-control { width: 34px; height: 32px; margin-left: auto; border-radius: 10px; }
 .bootstrap-shell-mark { width: 26px; height: 26px; border-radius: 10px; }
-.bootstrap-shell-nav-item { width: 40px; height: 40px; border-radius: 12px; }
 
 .bootstrap-shell-main {
   min-width: 0;
@@ -182,7 +187,6 @@ html[data-theme="light"] body {
 
 .bootstrap-shell-title,
 .bootstrap-shell-control,
-.bootstrap-shell-nav-item,
 .bootstrap-shell-card,
 .bootstrap-shell-card-meta,
 .bootstrap-shell-card-title,
@@ -255,18 +259,139 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
   }
 
   .bootstrap-shell-navigation {
-    display: flex;
+    display: grid;
     grid-column: 1;
     grid-row: 1 / span 2;
     min-height: 0;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding: 13px 8px;
+    grid-template-rows: var(--inteliscope-bootstrap-sidebar-header-size) minmax(0, 1fr) var(--inteliscope-bootstrap-sidebar-footer-size);
     border-right: 1px solid var(--inteliscope-bootstrap-separator);
   }
 
-  .bootstrap-shell-navigation .bootstrap-shell-mark { margin-bottom: 10px; }
+  .bootstrap-shell-navigation-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 12px;
+  }
+
+  .bootstrap-shell-navigation-brand-copy,
+  .bootstrap-shell-navigation-toggle,
+  .bootstrap-shell-account-copy { display: none; }
+
+  .bootstrap-shell-navigation .bootstrap-shell-mark {
+    width: 20px;
+    height: 20px;
+    border-radius: var(--inteliscope-bootstrap-radius-compact);
+  }
+
+  .bootstrap-shell-navigation-list {
+    display: grid;
+    align-content: start;
+    min-height: 0;
+    gap: 8px;
+    overflow: hidden;
+    padding: 8px 16px;
+  }
+
+  .bootstrap-shell-navigation-group { display: grid; gap: 2px; }
+
+  .bootstrap-shell-nav-item {
+    position: relative;
+    display: block;
+    width: var(--inteliscope-bootstrap-sidebar-row-size);
+    height: var(--inteliscope-bootstrap-sidebar-row-size);
+    margin: 0 auto;
+    opacity: 0.72;
+  }
+
+  .bootstrap-shell-nav-item::before {
+    position: absolute;
+    top: calc((var(--inteliscope-bootstrap-sidebar-row-size) - var(--inteliscope-bootstrap-sidebar-icon-size)) / 2);
+    left: calc((var(--inteliscope-bootstrap-sidebar-row-size) - var(--inteliscope-bootstrap-sidebar-icon-size)) / 2);
+    width: var(--inteliscope-bootstrap-sidebar-icon-size);
+    height: var(--inteliscope-bootstrap-sidebar-icon-size);
+    border-radius: var(--inteliscope-bootstrap-radius-compact);
+    background: var(--inteliscope-bootstrap-surface-secondary);
+    content: "";
+  }
+
+  .bootstrap-shell-navigation-divider {
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: var(--inteliscope-bootstrap-separator);
+  }
+
+  .bootstrap-shell-navigation-account {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px;
+    border-top: 1px solid var(--inteliscope-bootstrap-separator);
+    box-sizing: border-box;
+  }
+
+  .bootstrap-shell-account-avatar {
+    display: block;
+    width: var(--inteliscope-bootstrap-sidebar-avatar-size);
+    height: var(--inteliscope-bootstrap-sidebar-avatar-size);
+    border-radius: 50%;
+    background: var(--inteliscope-bootstrap-surface-secondary);
+  }
+
+  .bootstrap-shell-navigation-brand,
+  .bootstrap-shell-nav-item,
+  .bootstrap-shell-account-avatar { animation: bootstrap-shell-breathe var(--inteliscope-bootstrap-loading-duration) ease-in-out infinite; }
+
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-navigation-brand { justify-content: flex-start; gap: 10px; }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-navigation-brand-copy {
+    display: block;
+    width: 82px;
+    height: 14px;
+    border-radius: var(--inteliscope-bootstrap-radius-compact);
+    background: var(--inteliscope-bootstrap-surface-secondary);
+  }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-navigation-toggle {
+    display: block;
+    width: 32px;
+    height: 32px;
+    margin-left: auto;
+    border-radius: var(--inteliscope-bootstrap-radius-control);
+    background: var(--inteliscope-bootstrap-surface-secondary);
+  }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-navigation-list { padding-inline: 12px; }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-nav-item { width: 100%; margin: 0; }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-nav-item::before { left: 11px; }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-nav-item::after {
+    position: absolute;
+    top: 14px;
+    left: 42px;
+    width: min(82px, calc(100% - 54px));
+    height: 12px;
+    border-radius: var(--inteliscope-bootstrap-radius-compact);
+    background: var(--inteliscope-bootstrap-surface-secondary);
+    content: "";
+  }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-navigation-account { justify-content: flex-start; padding-inline: 12px; }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy {
+    position: relative;
+    display: block;
+    width: 80px;
+    height: 26px;
+  }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy::before,
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy::after {
+    position: absolute;
+    left: 0;
+    border-radius: var(--inteliscope-bootstrap-radius-compact);
+    background: var(--inteliscope-bootstrap-surface-secondary);
+    content: "";
+  }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy::before { top: 2px; width: 66px; height: 11px; }
+  html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy::after { bottom: 1px; width: 42px; height: 9px; }
   .bootstrap-shell-header { grid-column: 2; grid-row: 1; padding-inline: 16px; }
   .bootstrap-shell-main { grid-column: 2; grid-row: 2; }
   .bootstrap-shell-mobile-navigation { display: none; }

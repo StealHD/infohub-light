@@ -36,6 +36,8 @@ describe('ActorOpsV2ControlPlane', () => {
     )
 
     expect(screen.getByTestId('actorops-v2-control-plane')).toBeInTheDocument()
+    expect(screen.getAllByTestId('actorops-v2-control-plane').length).toBe(1)
+    expect(screen.getByTestId('actorops-v2-control-plane').querySelectorAll('[data-actorops-route-card]')).toHaveLength(1)
     expect(screen.getByText('降级可用')).toBeInTheDocument()
     expect(screen.getByText('YouTube 视频更新')).toBeInTheDocument()
     expect(screen.getByText('主用')).toBeInTheDocument()

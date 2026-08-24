@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { Card, StatusIndicator } from '../../design-system'
 import { ActorOpsV2ActorChip } from './ActorOpsV2ActorChip'
+import { ActorOpsV2RouteDetailPanel, ActorOpsV2RouteDetailTrigger } from './ActorOpsV2RouteDetail'
 import { type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 export type { ActorOpsV2RouteView } from './actorOpsV2RouteModel'
@@ -11,37 +12,57 @@ type CandidateView = ActorOpsV2CandidateView
 const healthTone = { healthy: 'success', degraded: 'warning', unavailable: 'danger' } as const
 const healthLabel = { healthy: '健康', degraded: '降级可用', unavailable: '不可用' } as const
 
-export function ActorOpsV2ControlPlane({ routes, operationsContent, renderRouteActions, renderRouteDetails }: {
+export function ActorOpsV2ControlPlane({ routes, focusedRouteKey, renderRouteActions }: {
   routes: ActorOpsV2RouteView[]
-  operationsContent?: ReactNode
+  focusedRouteKey?: string
   renderRouteActions?: (route: ActorOpsV2RouteView) => ReactNode
-  renderRouteDetails?: (route: ActorOpsV2RouteView) => ReactNode
 }) {
+  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null)
   return <div className="grid gap-5" data-testid="actorops-v2-control-plane">
-    <Card variant="secondary" className="overflow-hidden border border-separator">
-      <div className="border-b border-separator px-4 py-4"><Card.Title>ActorOps v2 路由</Card.Title><Card.Description className="mt-1">商城标价只作参考；费用上限和替换都需要单独确认。</Card.Description></div>
-      <div className="divide-y divide-separator">
-        {routes.map((route) => <RouteRow key={route.route_id} route={route} details={renderRouteDetails?.(route)}>{renderRouteActions?.(route)}</RouteRow>)}
-      </div>
-    </Card>
-    {operationsContent}
+    <section className="grid gap-1" aria-labelledby="actorops-v2-routes-heading">
+      <h2 id="actorops-v2-routes-heading" className="type-page-title">ActorOps v2 路由</h2>
+      <p className="type-body text-muted">商城标价只作参考；费用上限和替换都需要单独确认。</p>
+    </section>
+    <div className="grid gap-3">
+      {routes.map((route) => <RouteCard
+        key={route.route_id}
+        route={route}
+        isFocused={Boolean(focusedRouteKey && route.route_key.startsWith(focusedRouteKey))}
+        open={expandedRouteId === route.route_id}
+        onOpenChange={(open) => setExpandedRouteId(open ? route.route_id : null)}
+      >{renderRouteActions?.(route)}</RouteCard>)}
+    </div>
   </div>
 }
 
-function RouteRow({ route, children, details }: { route: ActorOpsV2RouteView; children?: ReactNode; details?: ReactNode }) {
-  return <section className="grid gap-3 px-4 py-4 min-[768px]:grid-cols-[minmax(132px,0.72fr)_minmax(0,1.5fr)_auto] min-[768px]:items-center min-[768px]:gap-x-5 min-[1200px]:grid-cols-[minmax(145px,0.8fr)_minmax(270px,1.7fr)_auto]">
-    <div className="flex min-w-0 items-center justify-between gap-3 min-[768px]:row-span-2 min-[768px]:grid min-[768px]:gap-1">
-      <div><h3 className="type-control">{routeTitle(route.platform)}</h3><p className="mt-0.5 type-meta text-muted">{modeLabel(route.runtime_mode)}</p></div>
+function RouteCard({ route, children, isFocused, open, onOpenChange }: {
+  route: ActorOpsV2RouteView
+  children?: ReactNode
+  isFocused: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  return <Card data-actorops-route-card={route.platform} data-actorops-route-key={route.route_key} data-actorops-route-focused={isFocused || undefined} variant="secondary" className={`gap-0 border border-separator bg-surface-secondary p-0 ${isFocused ? 'ring-2 ring-focus' : ''}`}>
+    <Card.Header className="flex min-w-0 flex-row items-start justify-between gap-3 px-4 py-2.5">
+      <div className="min-w-0"><Card.Title className="type-control">{routeTitle(route.platform)}</Card.Title><Card.Description className="type-meta mt-0.5 text-muted">{modeLabel(route.runtime_mode)}</Card.Description></div>
       <StatusIndicator label={healthLabel[route.health]} tone={healthTone[route.health]} />
-    </div>
-    <div className="grid min-w-0 gap-1.5"><CandidateSlot label="主用" candidate={route.active_candidate} />{route.standby_candidates.map((candidate, index) => <CandidateSlot key={candidate.candidate_id} label={`备用 ${index + 1}`} candidate={candidate} />)}<CandidateSlot label="最近成功" candidate={route.last_known_good} /></div>
-    <div className="flex items-center justify-between gap-3 min-[768px]:row-span-2 min-[768px]:justify-self-end">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 type-meta text-muted"><span>已核验 {route.binding_summary.ready_count} 条</span><span>上限 ${route.per_run_cap_usd.toFixed(2)}</span></div>
-      <div className="shrink-0">{children}</div>
-    </div>
-    {route.degraded_reason && <p className="min-[768px]:col-span-3 type-meta text-muted">{reasonLabel(route.degraded_reason, route.binding_summary.pending_count)}</p>}
-    {details}
-  </section>
+    </Card.Header>
+    <Card.Content className="grid gap-1.5 px-4 pb-2.5 pt-0">
+      <div className="grid min-w-0 gap-1.5 min-[768px]:grid-cols-2 min-[768px]:gap-x-6">
+        <CandidateSlot label="主用" candidate={route.active_candidate} />
+        {route.standby_candidates.map((candidate, index) => <CandidateSlot key={candidate.candidate_id} label={`备用 ${index + 1}`} candidate={candidate} />)}
+      </div>
+      {route.degraded_reason && <p className="type-meta text-muted">{reasonLabel(route.degraded_reason, route.binding_summary.pending_count)}</p>}
+    </Card.Content>
+    <Card.Footer className="flex min-w-0 flex-row flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-separator px-4 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 type-meta text-muted">
+        <RecentSuccess candidate={route.last_known_good} />
+        <span>已核验 {route.binding_summary.ready_count} 条</span><span>上限 ${route.per_run_cap_usd.toFixed(2)}</span>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-1"><ActorOpsV2RouteDetailTrigger open={open} onOpenChange={onOpenChange} />{children}</div>
+    </Card.Footer>
+    {open && <div className="px-4 pb-3"><ActorOpsV2RouteDetailPanel route={route} open={open} /></div>}
+  </Card>
 }
 
 function CandidateSlot({ label, candidate }: { label: string; candidate: CandidateView | null }) {
@@ -49,6 +70,10 @@ function CandidateSlot({ label, candidate }: { label: string; candidate: Candida
     <span className="type-label whitespace-nowrap text-muted">{label}</span>
     <ActorOpsV2ActorChip candidate={candidate} />
   </div>
+}
+
+function RecentSuccess({ candidate }: { candidate: CandidateView | null }) {
+  return <span className="min-w-0 truncate">最近成功：{candidate?.store_metadata?.display_name || '未记录'}</span>
 }
 
 function modeLabel(mode: ActorOpsV2RouteView['runtime_mode']) {

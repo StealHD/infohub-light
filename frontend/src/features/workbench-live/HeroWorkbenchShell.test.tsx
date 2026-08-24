@@ -132,8 +132,10 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     const second = { id: 'sidebar-b', username: 'beta', role: 'member' as const, enabled: true }
     const view = render(<Shell user={first} />)
 
-    await browser.click(screen.getByRole('button', { name: '展开侧栏' }))
-    expect(screen.getByRole('button', { name: '收起侧栏' })).toBeInTheDocument()
+    const sidebarToggle = screen.getByRole('button', { name: '展开侧栏' })
+    await browser.click(sidebarToggle)
+    expect(screen.getByRole('button', { name: '收起侧栏' })).toBe(sidebarToggle)
+    expect(sidebarToggle).toHaveFocus()
     expect(screen.getByText('浏览')).toBeInTheDocument()
     expect(screen.getByText('常用视图')).toBeInTheDocument()
     expect(screen.getByText('管理')).toBeInTheDocument()
@@ -225,7 +227,9 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(shell).toHaveAttribute('data-layout-motion', 'deliberate')
     expect(shell).toHaveClass('transition-[grid-template-columns]', 'duration-[var(--inteliscope-motion-deliberate)]')
     expect(shell.style.gridTemplateColumns).toContain('232px')
+    expect(screen.getByRole('navigation', { name: '分类导航内容' })).toHaveClass('sidebar-scroll-region')
     const collapse = screen.getByRole('button', { name: '收起侧栏' })
+    expect(collapse).toBe(expand)
     const route = screen.getAllByRole('link', { name: '信息流' }).find((candidate) => candidate.dataset.sidebarNavItem === 'expanded')
     if (!route) throw new Error('expanded Feed route was not rendered')
     const quickView = screen.getByRole('button', { name: '公共订阅' })
@@ -239,6 +243,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(quickView.className).not.toContain('scale-')
     const documentation = screen.getByRole('button', { name: '打开文档与发布菜单' })
     expect(documentation.closest('[data-sidebar-account-strip]')).toHaveClass('p-2')
+    expect(documentation.closest('[data-sidebar-account-strip]')).toHaveClass('h-[var(--inteliscope-size-sidebar-footer)]', 'shrink-0')
     expect(documentation.querySelector('.lucide-book-marked')).not.toBeNull()
     expect(documentation.parentElement?.querySelector('.lucide-chevron-up')).toBeNull()
     await browser.click(documentation)
@@ -250,6 +255,35 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     await browser.click(within(menu).getByRole('button', { name: '更新日志' }))
     expect(screen.getByTestId('location-probe')).toHaveTextContent('/changelog')
     expect(screen.getByRole('heading', { name: '更新日志' })).toBeInTheDocument()
+  })
+
+  it('keeps both fixed navigation canvases mounted while only the active one is interactive', async () => {
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'sidebar-fixed-canvas', username: 'canvas', role: 'member', enabled: true }} />)
+
+    const sidebar = screen.getByRole('complementary', { name: '桌面导航' })
+    const collapsedLayer = sidebar.querySelector<HTMLElement>('[data-sidebar-layer="collapsed"]')
+    const expandedLayer = sidebar.querySelector<HTMLElement>('[data-sidebar-layer="expanded"]')
+    const accountStrip = sidebar.querySelector<HTMLElement>('[data-sidebar-account-strip]')
+    const accountTrigger = screen.getByRole('button', { name: '打开账户菜单' })
+    if (!collapsedLayer || !expandedLayer || !accountStrip) throw new Error('fixed desktop sidebar canvases were not rendered')
+
+    expect(sidebar).toHaveAttribute('data-sidebar-state', 'collapsed')
+    expect(collapsedLayer.querySelector('nav')).toHaveClass('w-[var(--inteliscope-width-workbench-sidebar-collapsed)]')
+    expect(expandedLayer.querySelector('nav')).toHaveClass('w-[var(--inteliscope-width-workbench-sidebar-expanded)]')
+    expect(expandedLayer).toHaveAttribute('aria-hidden', 'true')
+    expect(expandedLayer).toHaveAttribute('inert')
+    expect(accountStrip).toHaveClass('h-[var(--inteliscope-size-sidebar-footer)]', 'shrink-0')
+    expect(accountTrigger).toHaveClass('h-12')
+
+    await browser.click(screen.getByRole('button', { name: '展开侧栏' }))
+    expect(sidebar).toHaveAttribute('data-sidebar-state', 'expanded')
+    expect(collapsedLayer).toHaveAttribute('aria-hidden', 'true')
+    expect(collapsedLayer).toHaveAttribute('inert')
+    expect(expandedLayer).not.toHaveAttribute('aria-hidden')
+    expect(expandedLayer).not.toHaveAttribute('inert')
+    expect(sidebar.querySelector('[data-sidebar-account-copy]')).toHaveAttribute('aria-hidden', 'false')
+    expect(sidebar.querySelector('[data-sidebar-brand]')).toHaveAttribute('aria-hidden', 'false')
   })
 
   it('opens account actions from the avatar and logs out only from the menu action', async () => {

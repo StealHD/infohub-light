@@ -71,11 +71,13 @@
       "globs": [
         "frontend/src/features/workbench-heroui/**",
         "frontend/src/features/workbench-live/**",
+        "frontend/e2e/desktop-sidebar-motion.spec.ts",
         "frontend/e2e/heroui-workbench-preview.spec.ts",
         "frontend/e2e/production-workbench.spec.ts",
         "frontend/e2e/production-workbench.spec.ts-snapshots/**"
       ],
       "specs": [
+        "e2e/desktop-sidebar-motion.spec.ts",
         "e2e/heroui-workbench-preview.spec.ts",
         "e2e/production-workbench.spec.ts"
       ]
@@ -98,6 +100,18 @@
         "frontend/e2e/production-admin.spec.ts-snapshots/**"
       ],
       "specs": ["e2e/production-admin.spec.ts"]
+    },
+    {
+      "id": "RSSHub settings key",
+      "globs": [
+        "src/api/secret_routes.py",
+        "frontend/src/api/rsshubAccessKeyService.ts",
+        "frontend/src/features/settings/RsshubServiceSettings.tsx",
+        "frontend/src/features/settings/RsshubServiceSettings.test.tsx",
+        "frontend/e2e/rsshub-settings.spec.ts",
+        "tests/test_rsshub_access_key_api.py"
+      ],
+      "specs": ["e2e/rsshub-settings.spec.ts"]
     },
     {
       "id": "Design system visual",

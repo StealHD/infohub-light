@@ -6,6 +6,7 @@
 :root {
   --inteliscope-motion-fast: 120ms;
   --inteliscope-motion-standard: 160ms;
+  --inteliscope-motion-disclosure: 200ms;
   --inteliscope-motion-deliberate: 220ms;
   --inteliscope-motion-loading: 1400ms;
   --inteliscope-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
@@ -13,7 +14,12 @@
   --inteliscope-width-admin: 1180px;
   --inteliscope-width-settings: 920px;
   --inteliscope-width-settings-sidebar: 232px;
+  --inteliscope-width-workbench-sidebar-collapsed: 72px;
+  --inteliscope-width-workbench-sidebar-expanded: 232px;
   --inteliscope-width-auth: 960px;
+  --inteliscope-size-page-header: 52px;
+  --inteliscope-size-sidebar-footer: 64px;
+  --inteliscope-size-sidebar-avatar-shift: 6px;
 
   --inteliscope-type-display-size: 24px;
   --inteliscope-type-display-line: 32px;
@@ -73,8 +79,10 @@
   --inteliscope-radius-panel: 16px;
   --inteliscope-radius-card: 14px;
   --inteliscope-radius-feed-card: 18px;
+  --inteliscope-radius-table: 22px;
   --inteliscope-radius-control: 10px;
   --inteliscope-radius-compact: 8px;
+  --inteliscope-radius-status-badge: 5px;
   --radius: var(--inteliscope-radius-compact);
   --radius-xs: var(--inteliscope-radius-compact);
   --radius-sm: var(--inteliscope-radius-compact);
@@ -214,6 +222,62 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   scrollbar-color: color-mix(in oklab, var(--muted) 42%, transparent) transparent;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
+}
+
+/* The desktop rail owns a fixed footer and only needs a scrollbar when its
+ * navigation really overflows. Reserving a gutter at normal viewport heights
+ * makes the rail look misaligned while adding no usable affordance. */
+.inteliscope-design-system .sidebar-scroll-region {
+  scrollbar-gutter: auto;
+}
+
+/* The desktop rail animates its outer grid track. Its navigation and account
+ * copy must keep their final canvas width while that track is still narrow,
+ * otherwise labels reflow vertically before the track reaches 232px. */
+.inteliscope-design-system [data-desktop-sidebar] {
+  --inteliscope-sidebar-toggle-collapsed-inset: 16px;
+  --inteliscope-sidebar-toggle-expanded-inset: 12px;
+}
+
+.inteliscope-design-system [data-sidebar-layer],
+.inteliscope-design-system [data-sidebar-brand],
+.inteliscope-design-system [data-sidebar-account-copy],
+.inteliscope-design-system .sidebar-account-documentation {
+  transition: opacity var(--inteliscope-motion-standard) ease-out;
+}
+
+.inteliscope-design-system [data-sidebar-layer="collapsed"],
+.inteliscope-design-system [data-sidebar-layer="expanded"] {
+  width: var(--inteliscope-width-workbench-sidebar-expanded);
+}
+
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="collapsed"] [data-sidebar-layer="expanded"],
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="collapsed"] [data-sidebar-brand],
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="collapsed"] [data-sidebar-account-copy],
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="collapsed"] .sidebar-account-documentation,
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="expanded"] [data-sidebar-layer="collapsed"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.inteliscope-design-system .sidebar-desktop-toggle {
+  position: absolute;
+  inset-block-start: calc((var(--inteliscope-size-page-header) - 40px) / 2);
+  inset-inline-end: var(--inteliscope-sidebar-toggle-collapsed-inset);
+  z-index: 1;
+}
+
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="expanded"] .sidebar-desktop-toggle {
+  inset-inline-end: var(--inteliscope-sidebar-toggle-expanded-inset);
+}
+
+.inteliscope-design-system .sidebar-account-avatar {
+  translate: var(--inteliscope-size-sidebar-avatar-shift) 0;
+  transition: translate var(--inteliscope-motion-standard) ease-out;
+}
+
+.inteliscope-design-system [data-desktop-sidebar][data-sidebar-state="expanded"] .sidebar-account-avatar {
+  translate: 0 0;
 }
 
 .inteliscope-design-system .quiet-scroll-region:hover {

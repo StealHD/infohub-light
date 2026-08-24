@@ -50,7 +50,7 @@ export function PageFrame({ width, children, className = '' }: {
 }
 
 export function PageHeader({ title, actions, className = '' }: { title: string; actions?: ReactNode; className?: string }) {
-  return <header data-page-header data-header-visual="quiet-studio" className={`flex h-[52px] shrink-0 items-center gap-2 border-b border-separator bg-surface/95 px-3 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg min-[768px]:px-4 ${className}`}>
+  return <header data-page-header data-header-visual="quiet-studio" className={`flex h-[var(--inteliscope-size-page-header)] shrink-0 items-center gap-2 border-b border-separator bg-surface/95 px-3 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg min-[768px]:px-4 ${className}`}>
     <h1 className="type-page-title min-w-0 flex-1 truncate">{title}</h1>
     {actions}
   </header>

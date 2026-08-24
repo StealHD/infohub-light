@@ -55,6 +55,7 @@ export const queryKeys = {
   storageArchives: (userId: string) => [...userKey(userId), 'storage-archives'] as const,
   users: (userId: string) => [...userKey(userId), 'users'] as const,
   secrets: (userId: string) => [...userKey(userId), 'secrets'] as const,
+  rsshubAccessKey: (userId: string) => [...userKey(userId), 'rsshub-access-key'] as const,
   apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,
   actorOpsV2Routes: (userId: string) => [
     ...userKey(userId), 'actorops-v2-routes',

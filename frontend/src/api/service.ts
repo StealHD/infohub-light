@@ -1,5 +1,5 @@
 import type { ApiClient } from './client'
-import { actorOpsV2Api, systemSettingsApi } from './serviceExtensions'
+import { actorOpsV2Api, rsshubAccessKeyApi, systemSettingsApi } from './serviceExtensions'
 import type {
   AuthStatus,
   AgentDelegation,
@@ -55,7 +55,7 @@ const resource = (path: string, id: string) => `${path}/${encodeURIComponent(id)
 
 export function createServiceApi(client: ApiClient) {
   return {
-    ...actorOpsV2Api(client), ...systemSettingsApi(client),
+    ...actorOpsV2Api(client), ...rsshubAccessKeyApi(client), ...systemSettingsApi(client),
     authStatus: (signal?: AbortSignal) => client.get<AuthStatus>('/api/auth/status', signal),
     login: (username: string, password: string) => client.post<AuthStatus>('/api/auth/login', { username, password }),
     logout: () => client.post<AuthStatus>('/api/auth/logout'),

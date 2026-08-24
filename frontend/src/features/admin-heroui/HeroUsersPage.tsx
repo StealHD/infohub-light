@@ -423,8 +423,8 @@ export function HeroUsersPage() {
       </form>
       {users.isLoading && <LoadingState label="正在读取成员" rows={2} />}
       {users.isError && <div className="mt-4"><HeroNotice title="成员列表读取失败" /></div>}
-      {!users.isLoading && !users.isError && <Table className="mt-5 overflow-hidden rounded-[22px] border border-separator bg-surface-secondary shadow-sm" variant="secondary">
-        <Table.ScrollContainer className="max-w-full overflow-x-auto overscroll-x-contain rounded-[22px]">
+      {!users.isLoading && !users.isError && <Table className="mt-5 overflow-hidden rounded-[var(--inteliscope-radius-table)] border border-separator bg-surface-secondary shadow-sm" variant="secondary">
+        <Table.ScrollContainer className="max-w-full overflow-x-auto overscroll-x-contain rounded-[var(--inteliscope-radius-table)]">
           <Table.Content
             aria-label="成员列表"
             className="min-w-[820px]"

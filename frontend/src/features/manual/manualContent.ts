@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-23',
-  change: 'ActorOps 已完成 v2 单轨化，并修复 X 等平台来源的增量追赶：抓取会从来源持久水位补齐中断期间的更新；Actor Dataset 有内容但只返回旧记录时会标为旧数据并切备用，不再显示为正常空结果。Apify 明确拒绝启动且账本证明没有远端 Run 时按 0 费用结算，未知启动仍只核对原 Run。来源、管理台、Worker 与浏览器只使用 v2 Route、Candidate、Binding 与 Discovery；Route 停用绝不回退旧运行时。',
+  reviewedAt: '2026-08-24',
+  change: 'ActorOps 现将 Route 管理和运行日志分为可分享的同页 Tab：待处理事件会给出原因、影响、下一步和安全入口；未知启动只核对既有运行，不会重复启动。侧栏只在导航真实溢出时显示滚动槽，展开状态下的账户底线保持固定。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -229,6 +229,12 @@ export const manualSections: ManualSection[] = [
         linkLabel: '打开设置',
       },
       {
+        title: '配置 RSSHub 访问密钥',
+        description: 'Owner/Admin 在“设置 → 获取与主题”的 RSSHub 服务卡中直接管理访问密钥。先保存 Base URL；状态会明确为未配置、已配置或环境托管。页面托管时，点击“配置访问密钥”或“更新访问密钥”后只提交一次 password 值，成功不会回显；需要停用访问控制时，再经单独确认移除。移除只影响仍要求访问码的 RSSHub 来源，既有 Base URL 和订阅都保留。显示“环境托管”代表变量由部署环境注入，页面不能覆盖或删除，须由运维先移除后才能接管。',
+        href: '/settings/fetching',
+        linkLabel: '打开获取与主题',
+      },
+      {
         title: '调节系统参数',
         description: 'Owner/Admin 可在“设置 → 系统参数”调节 21 项安全白名单参数。每行会显示当前有效值来自数据库覆盖、环境变量或内置默认，并说明范围、风险和生效时机。先编辑一个或多个值并点击预演，完整核对前后值和警告，再输入页面给出的精确确认短语应用；并发修改、过期或确认不符都不会部分保存。点击“恢复环境/默认值”只删除数据库覆盖，不修改服务器环境文件。密钥、服务地址、数据库路径和 Actor 费用或启用不在这里管理。',
         href: '/settings/system',
@@ -236,7 +242,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看 ActorOps 运行与告警',
-        description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor。新建平台来源会先保存为停用并建立待验证的 v2 Binding；修改账号或频道会清除旧目标的主选、最近成功和水位证据，重新验证后才能启用。名称、说明、获取条数、分析模式、频道和主题不会触发重新验证。X 与 Instagram 仅在 Binding ready 且 Route active 时抓取；Route 未启用时不会回退旧 ActorOps。YouTube 保留公开频道地址和稳定内容 ID，在 Binding ready 但 Actor Route 未启用时可使用受公共网络策略约束的免费 RSS fallback。已启动但状态未知的远端 Run 只会免费查询原 Run，不会重复付费。',
+        description: 'Owner/Admin 在“设置 → ActorOps”的“路由管理”维护 X、Instagram 与 YouTube 的认证 Actor；“运行日志”集中显示告警设置、待处理事件和安全操作记录，链接可用 `?tab=routes|logs` 直接打开。新建平台来源会先保存为停用并建立待验证的 v2 Binding；修改账号或频道会清除旧目标的主选、最近成功和水位证据，重新验证后才能启用。名称、说明、获取条数、分析模式、频道和主题不会触发重新验证。X 与 Instagram 仅在 Binding ready 且 Route active 时抓取；Route 未启用时不会回退旧 ActorOps。YouTube 保留公开频道地址和稳定内容 ID，在 Binding ready 但 Actor Route 未启用时可使用受公共网络策略约束的免费 RSS fallback。待处理事件会明确原因、影响和下一步；已启动但状态未知的远端 Run 只会打开固定运行记录并免费刷新安全轨迹，不会重复付费或允许人工关闭。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },

@@ -1,8 +1,9 @@
 密钥规则：
 
-1. `secret_env` 必须是环境变量名，不得是疑似真实密钥；`secret_refs` 只保存 `name/kind/provider/env_name/version` 等元数据，`kind` 仅为 `ai|apify`。每次原地轮换必须令 `version` 原子加一。
+1. `secret_env` 必须是环境变量名，不得是疑似真实密钥；`secret_refs` 只保存 `name/kind/provider/env_name/version` 等元数据，`kind` 仅为 `ai|apify`。每次原地轮换必须令 `version` 原子加一。固定运行密钥不伪装为通用 SecretRef：`RSSHUB_ACCESS_KEY` 只通过其专用接口管理。
 2. 真实值只保存在 Git/Docker 忽略的 `data/secrets.env`，由 `SecretStore` 以临时文件、`fsync`、原子替换和固定 `0600` 权限维护；Service DB、API、日志、job、Feed 和 DOM 均不得包含真实值。
 3. API 和 Worker 在需要配置或执行任务时重新加载密钥文件；新增/轮换无需重启。密钥列表及 create/rotate 响应只返回 `id/name/kind/provider/env_name/is_set/used_by` 和时间元数据，不返回 `value`。
+3A. `GET /api/admin/rsshub-access-key` 只向 Owner/Admin 返回 `{configured, management_source}`，其中 source 精确为 `secret_store|environment|none`；`PUT` 只接受 write-only `{value}` 并固定写入 `RSSHUB_ACCESS_KEY`，`DELETE` 只删除 SecretStore 托管值。接口不接受任意变量名、不创建 `secret_refs`，所有响应、错误和日志均不得返回真实值。空值、控制字符或超长值必须在写入前失败且保留旧值；环境托管时 PUT/DELETE 固定返回 `409 rsshub_access_key_environment_managed`，不覆盖或删除部署注入值。每次写入/删除后立即刷新当前进程环境，Worker 在下一周期重新加载。
 4. 同 workspace 的 `env_name` 唯一，重复创建返回 `409 secret_env_conflict`。被 AI 配置或 legacy catalog source 引用时删除返回 `409 secret_in_use`。池模式下 active、draining 或仍有非终态 Actor Run 的 Apify Key 轮换/删除返回 `409 apify_key_busy`，必须先安全排空；新建 Apify secret 在 secret ref 与真实值均成功后自动追加为备用，追加失败必须回滚两者。空闲 Key 成功轮换后必须清除旧额度/周期/错误状态并令 generation 加一；已有 active 时把该 Key 放到备用队尾，只有池原本无 active 时才把它激活。
 5. Apify 额度接口从 `SecretStore` 读取目标 Token，以 Authorization header 分别调用官方 `/v2/users/me` 和 `/v2/users/me/limits`，不把 Token 放入 URL。成功响应的 `data` 精确包含 `secret_id/provider/currency/cycle_start_at/cycle_end_at/checked_at/monthly_included_credits_usd/monthly_usage_usd/remaining_included_credits_usd/max_monthly_usage_usd/remaining_hard_limit_usd`；`provider=apify`、`currency=USD`，金额为非负有限数字，两个 remaining 字段最低为 `0`。Token、账户 ID、用户名、邮箱、profile、proxy、原始响应和其他套餐字段不得进入浏览器、数据库、日志或错误 envelope。
 6. 单个额度上游请求失败不得影响密钥列表。跨 workspace secret 与不存在 secret 统一 `not_found`；非 Apify 返回 `quota_not_supported`；SecretStore 中无值返回 `secret_not_configured`。保存或轮换 Key 只验证本地元数据和值格式，不得以额度上游可用性作为成功前提。

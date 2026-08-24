@@ -24,6 +24,7 @@ Current domain objects:
 - Keys pasted into a task are compromised evidence: never persist or call them. DeepSeek activation requires a replacement value written through SecretStore and a one-call smoke.
 - `content_repair` may refetch only free sources in bulk, updates existing stable content only, and must never create a Feed snapshot or call AI. Paid social repair requires separate per-item authorization.
 - Review the user-visible impact of every product-code change: update the changelog for visible behavior or API compatibility changes, and update the manual when an operation or configuration workflow changes. Internal refactors, tests, and CI changes do not require a documentation diff.
+- Production UI changes inherit the component roles and parameters in `docs/contracts/ui/` unless the user explicitly scopes a different style. Use HeroUI v3 OSS only through `frontend/src/design-system/**`; HeroUI Pro is a visual-hierarchy reference, not a code or dependency source. New or changed pages must reuse an existing component role before introducing a local size, spacing, radius, icon or motion parameter; reusable additions belong in the design system and UI contract.
 - Never build an Inteliscope production image on `vps-tokyo`. Build the revision-locked `linux/amd64` image locally, verify it, upload the image archive, and use `docker load` on the VPS. The VPS may pull pinned third-party runtime images such as RSSHub, but it must not compile or build this repository.
 
 <!-- init-pro:section name=precedence -->
@@ -74,7 +75,7 @@ Read `project-defaults.yaml` only when capability, limit, degradation, provider 
 | --- | --- |
 | API, public payload, auth, error, Job or compatibility | `docs/contracts/api/README.md`, then only the linked module |
 | Source/AI/frontend/store/tenant boundary | `docs/contracts/architecture/README.md`, then only the linked module |
-| React visual, layout, interaction or browser acceptance | `docs/contracts/ui/README.md`, its linked module, relevant `frontend/src/` and Vitest/Playwright |
+| React visual, layout, interaction or browser acceptance | `docs/contracts/ui/README.md`, `component-parameters.md`, its linked route module, relevant `frontend/src/` and Vitest/Playwright |
 | Storage or migration | API Feed/storage module, architecture runtime/migration module, target migration and tests |
 | Remote MCP or Browser OpenClaw | API Remote MCP/Gateway module, target integration code and tests |
 | Durable reason, supersession or compatibility dispute | `docs/decisions/README.md`, then the matching record bucket |

@@ -8,11 +8,12 @@
 
 ## 1. Authority
 
-This file is the sole source of truth for production UI technology, visual language, responsive behavior, and browser acceptance. `PLAN.md` records delivery state, `docs/decisions/` records durable choices, and `tests/test_impact_map.json` selects verification; they must reference this contract rather than restate its visual rules. API fields, authorization, query ownership, and error envelopes remain governed by `docs/contracts/api/` and existing application tests.
+This directory, indexed by this file, is the sole source of truth for production UI technology, visual language, component parameters, responsive behavior, and browser acceptance. `PLAN.md` records delivery state, `docs/decisions/` records durable choices, and `tests/test_impact_map.json` selects verification; they must reference this contract rather than restate its visual rules. API fields, authorization, query ownership, and error envelopes remain governed by `docs/contracts/api/` and existing application tests.
 
 ## 2. Production UI system
 
 - Production uses React 19, HeroUI v3, Tailwind CSS v4, Lucide icons, and the self-hosted Noto Sans SC variable font.
+- HeroUI Pro Default pages are the reference for finished hierarchy, density and component composition. Production uses only HeroUI v3 OSS components and repository-owned code, tokens and patterns; it neither imports nor copies HeroUI Pro code or dependencies.
 - `frontend/src/design-system/**` owns the semantic theme, approved component exports, icon exports, and React Router bridge. Production application and feature code import UI components through this boundary and do not import `@heroui/*` directly.
 - `AppBootstrap` mounts exactly one `DesignSystemProvider`, inside `BrowserRouter` and outside production routes. It remains inside the existing `QueryClientProvider`; Query Client, authentication, `ServiceApi`, caches, permissions, and query keys retain their existing lifetimes.
 - MUI, MUI Icons, and Emotion are not production dependencies or source technologies. `frontend/src/ui/**`, the MUI prototype, and page-level legacy visual CSS Modules do not exist.
@@ -20,6 +21,7 @@ This file is the sole source of truth for production UI technology, visual langu
 
 ## 3. Visual language
 
+- When a task does not name a different style, every new or changed surface inherits the current Quiet Studio / graphite-purple component roles and parameters. A user-requested color or style change is local to the named surface by default; it becomes a global family change only when the user explicitly asks for the whole application to change. Any reusable new parameter is added once to the design system and the component-parameter contract rather than repeated in page code.
 - Production exposes exactly two application color modes: dark and light. Dark is the compatibility default and preserves the current graphite appearance; a shared icon-only control at the top-right of authenticated headers and the login surface changes the browser-persisted choice. The HTML bootstrap sanitizes and restores the same `inteliscope.ui.theme.v1` preference before React starts, so refresh does not flash the other mode and later operating-system appearance changes do not override the explicit choice. Color mode remains separate from the `graphite-purple` theme-family identifier so a future family can be added without changing the two-mode control. Both modes use quiet neutral canvases, layered semantic surfaces, restrained purple accents, semantic separators, and visible accessible focus rings; raw palette values belong only in design-system theme assets.
 - The entire production application uses one system UI font stack: `-apple-system`, `BlinkMacSystemFont`, SF Pro where available, `PingFang SC` for Chinese on Apple platforms, then the self-hosted `Noto Sans SC Variable` and system sans-serif fallbacks. Routes and feature components may not define a competing font stack.
 - Typography has exactly eleven semantic roles. Their implementation lives in `frontend/src/design-system/theme.css`; business code selects a role and never recreates its size, weight, line height, or letter spacing.
@@ -70,6 +72,7 @@ This file is the sole source of truth for production UI technology, visual langu
 
 | 任务 | 模块 |
 | --- | --- |
+| 全站组件角色、尺寸、间距、图标和变体参数 | [组件参数](component-parameters.md) |
 | Workbench shell、Feed、虚拟列表与 OpenClaw | [Workbench、Feed 与 OpenClaw](workbench-feed-openclaw.md) |
 | Admin、Settings、认证与 ActorOps | [Admin、Settings、认证与 ActorOps](admin-settings-auth-actorops.md) |
 | 设计系统/路由以外的可执行验收门禁 | [验收](acceptance.md) |

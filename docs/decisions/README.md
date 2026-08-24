@@ -1,7 +1,7 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/decisions/ -->
 # Inteliscope InfoHub Light 决策索引
 
-本目录是决策理由与兼容性取舍的唯一真源。普通任务只在需要追溯理由、状态或替代方案时读取对应记录；新增决策追加到当前 `D151–D175` 分桶，满桶后创建下一个连续分桶。
+本目录是决策理由与兼容性取舍的唯一真源。普通任务只在需要追溯理由、状态或替代方案时读取对应记录；新增决策追加到当前 `D176–D200` 分桶，满桶后创建下一个连续分桶。
 
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
@@ -186,3 +186,5 @@
 | D180 | X 账号订阅默认排除断上下文回复 | 2026-08-24 | [查看](records/D176-D200.md#d180) |
 | D181 | ActorOps 用来源级交叉验证、异步 repair 与安全执行链路维持健康 | 2026-08-24 | [查看](records/D176-D200.md#d181) |
 | D182 | 系统运行参数采用 typed workspace override 与独立 Admin MCP 授权 | 2026-08-24 | [查看](records/D176-D200.md#d182) |
+| D183 | UI 默认继承以组件参数矩阵和语义令牌收口 | 2026-08-24 | [查看](records/D176-D200.md#d183) |
+| D184 | 固定 RSSHub 运行密钥使用用途专用入口 | 2026-08-24 | [查看](records/D176-D200.md#d184) |

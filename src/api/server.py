@@ -504,11 +504,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("POST", "/api/admin/secrets"): ("secret", "create"),
     ("PUT", "/api/admin/secrets/{secret_id}/value"): ("secret", "rotate"),
-    ("PATCH", "/api/admin/secrets/{secret_id}/connection"): (
-        "secret",
-        "connection_update",
-    ),
+    ("PATCH", "/api/admin/secrets/{secret_id}/connection"): ("secret", "connection_update"),
     ("DELETE", "/api/admin/secrets/{secret_id}"): ("secret", "delete"),
+    ("PUT", "/api/admin/rsshub-access-key"): ("secret", "rsshub_access_key_update"),
+    ("DELETE", "/api/admin/rsshub-access-key"): ("secret", "rsshub_access_key_delete"),
     ("POST", "/api/admin/storage/plans"): ("storage", "plan_preview"),
     ("POST", "/api/admin/storage/plans/{plan_id}/apply"): (
         "storage",

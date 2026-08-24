@@ -1,5 +1,8 @@
 import type { CatalogSource, Job, SourceHealthItem, SourceHealthStatus, SourceTypeDefinition, Subscription, User } from '../../api/types'
+import { presentActorOpsJobIssue } from '../apify-actors/actorOpsIssuePresentation'
 import { newItemCountOf } from '../jobs/jobModel'
+
+export { presentActorOpsJobIssue } from '../apify-actors/actorOpsIssuePresentation'
 
 export type HealthFilter = SourceHealthStatus | 'all' | 'problem'
 
@@ -91,32 +94,6 @@ export function shouldShowJob(job: Job): boolean {
   return !isActorOpsJob(job) || job.status === 'failed' || job.status === 'partial'
 }
 
-export type ActorOpsJobIssue = {
-  reason: string
-  impact: string
-  next: string
-}
-
-export function presentActorOpsJobIssue(job: Job): ActorOpsJobIssue {
-  const code = String(job.error_code || '')
-  if (['actorops_v2_migration_required', 'actorops_v2_unavailable'].includes(code)) {
-    return { reason: 'ActorOps 暂不可用', impact: '此任务没有启动远端 Actor，也不会产生新费用。', next: '完成数据库迁移或恢复服务后再试。' }
-  }
-  if (code === 'actorops_route_disabled') {
-    return { reason: 'Actor 路由已禁用', impact: '系统没有启动远端 Actor，也不会回退到旧线路。', next: '在 ActorOps 中完成验证后再启用该来源。' }
-  }
-  if (['apify_start_outcome_unknown', 'apify_run_reconcile_required'].includes(code)) {
-    return { reason: '无法确认 Actor 是否已启动', impact: '为避免重复扣费，后续付费验证已锁定。', next: '先在 Apify 控制台核对，再返回 ActorOps 刷新；不要重试。' }
-  }
-  if (['apify_run_status_unavailable', 'actorops_v2_attempt_unrecoverable'].includes(code)) {
-    return { reason: '原运行结果还没有确认', impact: '系统不会重新启动 Actor；当前主备没有变化。', next: '返回 ActorOps，免费重新核对同一个 Run 和 Dataset。' }
-  }
-  if (['actorops_v2_budget_blocked', 'apify_actor_quota_unknown'].includes(code)) {
-    return { reason: '费用条件不满足', impact: '验证未启动或已暂停，系统不会自动放宽上限。', next: '返回 ActorOps 选择更便宜的候选，或查看运行与告警。' }
-  }
-  return { reason: 'Actor 配置没有完成', impact: '系统没有确认主备变化；现有线路继续运行。', next: '返回 ActorOps 查看当前状态和唯一下一步。' }
-}
-
 const jobStatusLabels: Record<Job['status'], string> = {
   queued: '等待后台处理',
   running: '正在获取',
@@ -168,7 +145,7 @@ export function presentJob(job: Job, sources: Map<string, CatalogSource>) {
     resultLabel: actorOpsIssue ? actorOpsIssue.reason : resultLabel,
     detail: actorOpsIssue ? '' : job.error_message || message || '',
     actorOpsIssue,
-    actorOpsHref: actorOpsIssue ? '/settings/actorops?tab=pool' : null,
+    actorOpsHref: actorOpsIssue ? `/settings/actorops?tab=logs&job=${encodeURIComponent(job.id)}` : null,
   }
 }
 

@@ -26,6 +26,7 @@ describe('Quiet Studio shared page patterns', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
 
     expect(css).toContain('--inteliscope-motion-loading: 1400ms')
+    expect(css).toContain('--inteliscope-size-page-header: 52px')
     expect(css).toContain('@keyframes inteliscope-skeleton-exit')
     expect(css).toContain('animation: inteliscope-skeleton-exit var(--inteliscope-motion-fast)')
     expect(css).toContain('@keyframes inteliscope-content-reveal')

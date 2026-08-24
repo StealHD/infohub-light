@@ -29,7 +29,7 @@ describe('HeroResponseSchemaDetails', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(contentId).toBeTruthy()
     expect(content).toHaveAttribute('aria-hidden', 'true')
-    expect(content).toHaveClass('duration-200', 'motion-reduce:transition-none')
+    expect(content).toHaveClass('duration-[var(--inteliscope-motion-disclosure)]', 'motion-reduce:transition-none')
     expect(disclosure).toHaveAttribute('data-disclosure-state', 'closed')
     await browser.click(trigger)
     expect(trigger).toHaveAttribute('aria-expanded', 'true')

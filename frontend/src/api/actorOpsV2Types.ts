@@ -169,6 +169,11 @@ export type ActorOpsV2OperationEvent = {
   reason_code?: string | null
   counts?: Record<string, number>
   final_cost_usd?: number | null
+  service?: string
+  category?: string
+  route?: string
+  method?: string
+  status_code?: number
 }
 
 export type ActorOpsV2OperationEvents = {

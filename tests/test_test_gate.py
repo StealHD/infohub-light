@@ -335,7 +335,11 @@ def test_mapping_group_tests_reference_existing_files():
         ),
         (
             "frontend/src/features/workbench-live/VirtualFeed.tsx",
-            {"e2e/heroui-workbench-preview.spec.ts", "e2e/production-workbench.spec.ts"},
+            {
+                "e2e/desktop-sidebar-motion.spec.ts",
+                "e2e/heroui-workbench-preview.spec.ts",
+                "e2e/production-workbench.spec.ts",
+            },
             False,
         ),
         (

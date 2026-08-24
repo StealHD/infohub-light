@@ -1339,19 +1339,19 @@ test('unified notification services stay bounded at 390, 580, 768 and 1440 pixel
     await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
-    await page.getByRole('combobox', { name: '发送方式' }).selectOption('email')
-    await page.getByRole('combobox', { name: '邮件服务商' }).selectOption('amazon_ses')
-    await expect(page.getByLabel('Amazon SES Region')).toBeVisible()
-    await expect(page.getByLabel('SES SMTP 用户名')).toBeVisible()
+    await page.getByRole('button', { name: /发送方式/ }).click()
+    await page.getByRole('option', { name: '邮箱', exact: true }).click()
+    await page.getByRole('button', { name: /邮件服务商/ }).click()
+    await page.getByRole('option', { name: 'Amazon SES', exact: true }).click()
+    for (const label of ['Amazon SES Region', 'SES SMTP 用户名']) await expect(page.getByLabel(label)).toBeVisible()
     await expect(page.getByLabel('SES SMTP Password')).toHaveAttribute('type', 'password')
-    await page.getByRole('combobox', { name: '发送方式' }).selectOption('telegram')
-    await expect(page.getByLabel('群组或会话 Chat ID')).toHaveAttribute('type', 'password')
-    await expect(page.getByLabel('Bot Token')).toHaveAttribute('type', 'password')
+    await page.getByRole('button', { name: /发送方式/ }).click()
+    await page.getByRole('option', { name: 'Telegram', exact: true }).click()
+    for (const label of ['群组或会话 Chat ID', 'Bot Token']) await expect(page.getByLabel(label)).toHaveAttribute('type', 'password')
     await expect(page.getByRole('button', { name: '保存并测试' })).toBeDisabled()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   }
 })
-
 
 test('account and documentation menus open upward and expose manual, changelog, and Release destinations', async ({ page }, testInfo) => {
   await mockAdminApi(page)
@@ -1415,8 +1415,7 @@ test('account and documentation menus open upward and expose manual, changelog, 
 })
 
 test('settings key surfaces retain quota, refresh, safety locks and accessible modal behavior', async ({ page }) => {
-  const apiState = await mockAdminApi(page)
-  await page.goto('/settings/secrets')
+  const apiState = await mockAdminApi(page); await page.goto('/settings/secrets')
 
   await expect(page.getByRole('heading', { name: '密钥', exact: true, level: 1 })).toBeVisible()
   const apifyGroup = page.getByRole('list', { name: 'Apify Key 池' })
@@ -1439,12 +1438,13 @@ test('settings key surfaces retain quota, refresh, safety locks and accessible m
   await expect(apifyPrimaryItem.getByText('$36.50', { exact: true })).toBeVisible()
   apiState.releaseQuotaRefresh()
   await expect(refreshQuota).toBeEnabled()
-  const rotateTrigger = apifyPrimaryItem.getByRole('button', { name: '轮换 Apify Primary' })
+  const moreTrigger = apifyPrimaryItem.getByRole('button', { name: '更多 Key 操作：Apify Primary' }); await moreTrigger.click()
+  const rotateTrigger = page.getByRole('dialog', { name: 'Apify Primary Key 操作' }).getByRole('button', { name: '轮换 Apify Primary' })
   await rotateTrigger.click()
   await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toHaveCount(0)
-  await expect(rotateTrigger).toBeFocused()
+  await expect(moreTrigger).toBeFocused()
   await expect(page.getByRole('button', { name: '删除 Gemini Primary' })).toBeDisabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()

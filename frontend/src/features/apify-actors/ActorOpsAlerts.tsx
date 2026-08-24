@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 
 import { queryKeys } from '../../api/queryKeys'
 import type { ApifyActorAlertEvent, ApifyActorAlertSettings, ApifyActorAlertSettingsPatch } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { Button, Checkbox, LoadingState, Modal, StatusIndicator, StatusNotice, Switch } from '../../design-system'
+import { type ActorOpsIssueActionTarget, presentActorOpsIncidentIssue } from './actorOpsIssuePresentation'
 
 const eventLabels: Record<ApifyActorAlertEvent, string> = {
   actor_switched: '自动切换 Actor',
@@ -103,6 +105,8 @@ function AlertEditor({ settings, services, saving, saveError, onSave, onClose }:
 
 export function ActorOpsAlertIncidentList() {
   const { api, user } = useAppContext()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const incidents = useQuery({
     queryKey: queryKeys.apifyActorAlertIncidents(user.id),
     queryFn: ({ signal }) => api.apifyActorAlertIncidents(signal),
@@ -114,11 +118,30 @@ export function ActorOpsAlertIncidentList() {
   </StatusNotice>
   if (!incidents.data.incidents.length) return <p className="type-meta text-muted">尚无需要处理的 ActorOps 告警。</p>
   return <ol className="grid gap-2" aria-label="ActorOps 告警事件">
-    {incidents.data.incidents.slice(0, 5).map((incident) => <li key={incident.id} className="rounded-control border border-separator bg-surface-secondary p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><p className="type-control">{eventLabels[incident.event_type]}</p><StatusIndicator label={incident.status === 'resolved' ? '已恢复' : '需处理'} tone={incident.status === 'resolved' ? 'success' : 'warning'} /></div>
-      <p className="mt-1 type-meta text-muted">{incident.reason_code || '状态已更新'} · {formatTime(incident.last_seen_at)}</p>
-    </li>)}
+    {[...incidents.data.incidents].sort((left, right) => Number(left.status === 'resolved') - Number(right.status === 'resolved')).slice(0, 5).map((incident) => {
+      const issue = presentActorOpsIncidentIssue(incident.event_type)
+      const refreshLogs = () => {
+        void incidents.refetch()
+        void queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Events(user.id) })
+      }
+      return <li key={incident.id} className="rounded-control border border-separator bg-surface-secondary p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="type-control">{eventLabels[incident.event_type]}</p><StatusIndicator label={incident.status === 'resolved' ? '已恢复' : '需处理'} tone={incident.status === 'resolved' ? 'success' : 'warning'} /></div>
+        <dl className="mt-2 grid gap-1 type-meta"><div><dt className="inline text-muted">原因： </dt><dd className="inline">{issue.reason}</dd></div><div><dt className="inline text-muted">影响： </dt><dd className="inline">{issue.impact}</dd></div><div><dt className="inline text-muted">下一步： </dt><dd className="inline">{issue.next}</dd></div></dl>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {incident.status === 'open' && <IncidentAction target={issue.action?.target} route={incident.route} onNavigate={navigate} />}
+          {incident.status === 'open' && issue.action?.target === 'apify-runs' && <Button size="sm" variant="ghost" onPress={refreshLogs}>刷新日志</Button>}
+          <time className="type-meta text-muted">{formatTime(incident.last_seen_at)}</time>
+        </div>
+      </li>
+    })}
   </ol>
+}
+
+function IncidentAction({ target, route, onNavigate }: { target?: ActorOpsIssueActionTarget; route: string; onNavigate: (to: string) => void }) {
+  if (target === 'apify-runs') return <a href="https://console.apify.com/actors/runs" target="_blank" rel="noreferrer" className="type-control inline-flex min-h-8 items-center rounded-lg px-2 text-accent hover:bg-default focus-visible:outline-2 focus-visible:outline-focus">打开 Apify 运行记录</a>
+  if (target === 'secrets') return <Button size="sm" variant="secondary" onPress={() => onNavigate('/settings/secrets')}>查看密钥额度</Button>
+  if (target === 'route' || target === 'route-cost') return <Button size="sm" variant="secondary" onPress={() => onNavigate(`/settings/actorops?tab=routes&route=${encodeURIComponent(route)}`)}>{target === 'route-cost' ? '查看 Route 费用设置' : '查看相关 Route'}</Button>
+  return null
 }
 
 function formatTime(value: string) {

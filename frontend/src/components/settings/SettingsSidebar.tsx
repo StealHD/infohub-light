@@ -19,7 +19,7 @@ export function SettingsSidebar({ role, returnTo, onBack, onNavigate, className 
   const groups = settingsNavigationForRole(role)
 
   return <div data-settings-sidebar className={`flex h-full min-h-0 flex-col bg-surface ${className}`}>
-    <div className="flex h-[52px] shrink-0 items-center border-b border-separator px-3">
+    <div className="flex h-[var(--inteliscope-size-page-header)] shrink-0 items-center border-b border-separator px-3">
       <Button
         variant="ghost"
         className="min-h-9 w-full justify-start gap-2 px-2 text-muted hover:text-foreground"

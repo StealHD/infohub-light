@@ -1602,7 +1602,7 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
     expect(await screen.findByText('ActorOps 暂不可用')).toBeInTheDocument()
     expect(screen.getByText('影响：').parentElement).toHaveTextContent('不会产生新费用')
-    expect(screen.getByText('下一步：').parentElement).toHaveTextContent('完成数据库迁移')
+    expect(screen.getByText('下一步：').parentElement).toHaveTextContent('恢复服务或完成迁移')
     expect(screen.getByRole('button', { name: '返回 ActorOps 处理' })).toBeEnabled()
     expect(document.querySelectorAll('[data-compact-job-card]')).toHaveLength(1)
     expect(screen.queryByText('刷新 Actor 目录')).not.toBeInTheDocument()
@@ -2309,11 +2309,8 @@ describe('App routes', () => {
     }))
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-live', username: 'owner', role: 'owner', enabled: true } }),
-      config: vi.fn().mockResolvedValue({
-        config: { ai: {}, filtering: {} },
-        taxonomy: { channels: ['AI'], topics: ['Agent'] },
-        env_status: [{ name: 'RSSHUB_ACCESS_KEY', set: true, used_by: ['rsshub.access_key'] }],
-      }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: ['AI'], topics: ['Agent'] } }),
+      rsshubAccessKey: vi.fn().mockResolvedValue({ configured: true, management_source: 'secret_store' }),
       secrets: vi.fn().mockResolvedValue({ secrets: [] }),
       users: vi.fn().mockResolvedValue({ users: [] }),
       createSecret,
@@ -2324,7 +2321,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('textbox', { name: 'RSSHub Base URL' })).toBeInTheDocument()
     expect(document.querySelector('[data-settings-page="fetching"]')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
-    expect(screen.getByText('访问密钥已配置')).toBeInTheDocument()
+    expect(await screen.findByText('已配置')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('live-workbench-shell')).not.toBeInTheDocument()
     expect(document.querySelector('[data-settings-workspace]')).toBeInTheDocument()
@@ -2513,20 +2510,17 @@ describe('App routes', () => {
 
     expect(await screen.findByText('Apify Key 池尚未启用')).toBeInTheDocument()
     const primaryItem = screen.getByText('Legacy Primary').closest<HTMLElement>('[data-apify-key-card]')!
-    const rotateTrigger = within(primaryItem).getByRole('button', { name: '轮换 Legacy Primary' })
-    expect(rotateTrigger).toBeEnabled()
-    expect(within(primaryItem).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
     expect(within(primaryItem).getByRole('button', { name: '下移 Legacy Primary' })).toBeEnabled()
     expect(within(primaryItem).queryByRole('button', { name: '安全排空 Legacy Primary' })).not.toBeInTheDocument()
+    const moreTrigger = within(primaryItem).getByRole('button', { name: '更多 Key 操作：Legacy Primary' }); await browser.click(moreTrigger)
+    const actionMenu = screen.getByRole('dialog', { name: 'Legacy Primary Key 操作' }); expect(within(actionMenu).getByRole('button', { name: '轮换 Legacy Primary' })).toBeEnabled(); expect(within(actionMenu).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
 
-    await browser.click(within(primaryItem).getByRole('button', { name: '下移 Legacy Primary' }))
-    await waitFor(() => expect(reorderApifyKeyPool).toHaveBeenCalledWith(['legacy-backup', 'legacy-primary'], 4))
-
-    await browser.click(screen.getByRole('button', { name: '轮换 Legacy Primary' }))
+    await browser.click(within(actionMenu).getByRole('button', { name: '轮换 Legacy Primary' }))
     const dialog = screen.getByRole('dialog', { name: '轮换 Legacy Primary' })
     await browser.type(within(dialog).getByLabelText('新 Key 值'), 'legacy-write-only')
     await browser.click(within(dialog).getByRole('button', { name: '确认轮换' }))
     await waitFor(() => expect(rotateSecret).toHaveBeenCalledWith('legacy-primary', 'legacy-write-only'))
+    await browser.click(within(primaryItem).getByRole('button', { name: '下移 Legacy Primary' })); await waitFor(() => expect(reorderApifyKeyPool).toHaveBeenCalledWith(['legacy-backup', 'legacy-primary'], 4))
     expect(drainApifyKey).not.toHaveBeenCalled()
     expect(document.body.textContent).not.toContain('legacy-write-only')
   }, 10_000)
@@ -2611,7 +2605,7 @@ describe('App routes', () => {
     )
 
     const firstView = renderSettings()
-    expect(await screen.findByText('Ready')).toBeInTheDocument()
+    expect(screen.queryByText('Ready')).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText('$36.50')).toHaveLength(3))
     expect(screen.getAllByText('$12.50')).toHaveLength(3)
     expect(screen.getAllByText('剩余：')).toHaveLength(3)
@@ -2632,10 +2626,10 @@ describe('App routes', () => {
     expect(within(primaryItem).getByText(/最近检查/)).toBeInTheDocument()
     expect(within(primaryItem).queryByText(/额度周期至/)).not.toBeInTheDocument()
     expect(within(primaryItem).queryByText('请先安全排空，再轮换或删除')).not.toBeInTheDocument()
-    expect(within(primaryItem).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled()
-    expect(within(primaryItem).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
-    expect(within(primaryItem).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled()
-    expect(within(primaryItem).getByRole('button', { name: '安全排空 Apify Primary' })).toBeEnabled()
+    expect(within(primaryItem).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled(); expect(within(primaryItem).getByRole('button', { name: '安全排空 Apify Primary' })).toBeEnabled()
+    const primaryMore = within(primaryItem).getByRole('button', { name: '更多 Key 操作：Apify Primary' }); await browser.click(primaryMore)
+    const primaryActionMenu = screen.getByRole('dialog', { name: 'Apify Primary Key 操作' })
+    expect(within(primaryActionMenu).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled(); expect(within(primaryActionMenu).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
 
     firstView.unmount()
     renderSettings()
@@ -2662,8 +2656,8 @@ describe('App routes', () => {
 
     const secondBackupItem = screen.getByText('APIFY_BACKUP_TWO').closest<HTMLElement>('[data-apify-key-card]')!
     expect(within(secondBackupItem).getAllByText('APIFY_BACKUP_TWO')).toHaveLength(1)
-    const rotateTrigger = within(secondBackupItem).getByRole('button', { name: '轮换 APIFY_BACKUP_TWO' })
-    await browser.click(rotateTrigger)
+    const rotateTrigger = within(secondBackupItem).getByRole('button', { name: '更多 Key 操作：APIFY_BACKUP_TWO' })
+    await browser.click(rotateTrigger); await browser.click(screen.getByRole('button', { name: '轮换 APIFY_BACKUP_TWO' }))
     const rotateDialog = screen.getByRole('dialog', { name: '轮换 APIFY_BACKUP_TWO' })
     await browser.type(within(rotateDialog).getByLabelText('新 Key 值'), 'rotated-write-only')
     await browser.click(within(rotateDialog).getByRole('button', { name: '确认轮换' }))
@@ -2745,7 +2739,7 @@ describe('App routes', () => {
     expect(await within(validationCard).findByText('专用校验')).toBeVisible()
     const cancelRole = within(validationCard).getByRole('button', { name: '取消校验角色' })
     await waitFor(() => expect(cancelRole).toHaveFocus())
-    expect(within(validationCard).getByText('角色：专用校验（不参与生产）')).toBeVisible()
+    expect(within(validationCard).getByText('专用校验')).toBeVisible()
   })
 
   it('announces deferred Apify quota retries and preserves the last trusted quota after refresh failure', async () => {

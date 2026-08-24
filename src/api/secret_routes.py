@@ -1,6 +1,7 @@
 """Workspace SecretStore HTTP adapters."""
 
 from copy import deepcopy
+import os
 from typing import Any
 
 from fastapi import Depends, FastAPI
@@ -17,6 +18,7 @@ from ..services.apify_key_pool import (
 )
 from ..services.secret_quota import SecretQuotaError
 from ..services.secret_store import SecretValueError
+from ..rsshub import RSSHUB_ACCESS_KEY_ENV
 from ..storage.service_store import SecretEnvConflictError
 
 
@@ -43,6 +45,12 @@ class SecretConnectionRequest(BaseModel):
     base_url: str = ""
 
 
+class RsshubAccessKeyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+
+
 def _is_apify_secret(secret: dict[str, Any]) -> bool:
     return (
         str(secret.get("provider") or "").lower() == "apify"
@@ -61,6 +69,15 @@ def _secret_or_404(
     return secret
 
 
+def _rsshub_access_key_status(context: ApiContext) -> dict[str, object]:
+    managed_value = context.secret_values.read().get(RSSHUB_ACCESS_KEY_ENV, "")
+    if managed_value:
+        return {"configured": True, "management_source": "secret_store"}
+    if os.getenv(RSSHUB_ACCESS_KEY_ENV):
+        return {"configured": True, "management_source": "environment"}
+    return {"configured": False, "management_source": "none"}
+
+
 async def admin_secrets_list(
     user: dict[str, Any] = Depends(current_admin),
     context: ApiContext = Depends(api_context),
@@ -68,6 +85,53 @@ async def admin_secrets_list(
     context.secret_values.load_into_environ()
     secrets = context.store.list_secret_refs(workspace_id=user["workspace_id"])
     return ok({"secrets": [context.public_secret(secret) for secret in secrets]})
+
+
+async def admin_rsshub_access_key_status(
+    _user: dict[str, Any] = Depends(current_admin),
+    context: ApiContext = Depends(api_context),
+) -> dict[str, Any]:
+    context.secret_values.load_into_environ()
+    return ok(_rsshub_access_key_status(context))
+
+
+async def admin_rsshub_access_key_save(
+    payload: RsshubAccessKeyRequest,
+    _user: dict[str, Any] = Depends(current_admin),
+    context: ApiContext = Depends(api_context),
+) -> dict[str, Any]:
+    current = _rsshub_access_key_status(context)
+    if current["management_source"] == "environment":
+        raise ApiError(
+            "rsshub_access_key_environment_managed",
+            "RSSHub 访问密钥由部署环境管理，不能在页面中覆盖。",
+            status_code=409,
+            action="请先在部署环境移除该变量，再由页面接管。",
+        )
+    try:
+        context.secret_values.set(RSSHUB_ACCESS_KEY_ENV, payload.value)
+        context.secret_values.load_into_environ()
+    except SecretValueError as exc:
+        raise ApiError("invalid_secret", str(exc), status_code=400) from exc
+    return ok(_rsshub_access_key_status(context))
+
+
+async def admin_rsshub_access_key_delete(
+    _user: dict[str, Any] = Depends(current_admin),
+    context: ApiContext = Depends(api_context),
+) -> dict[str, Any]:
+    current = _rsshub_access_key_status(context)
+    if current["management_source"] == "environment":
+        raise ApiError(
+            "rsshub_access_key_environment_managed",
+            "RSSHub 访问密钥由部署环境管理，不能在页面中移除。",
+            status_code=409,
+            action="请在部署环境移除该变量。",
+        )
+    if current["management_source"] == "secret_store":
+        context.secret_values.delete(RSSHUB_ACCESS_KEY_ENV)
+        context.secret_values.load_into_environ()
+    return ok(_rsshub_access_key_status(context))
 
 
 async def admin_secrets_create(
@@ -289,6 +353,7 @@ async def admin_secrets_delete(
 
 def register_secret_list_route(app: FastAPI) -> None:
     app.add_api_route("/api/admin/secrets", admin_secrets_list, methods=["GET"])
+    app.add_api_route("/api/admin/rsshub-access-key", admin_rsshub_access_key_status, methods=["GET"])
 
 
 def register_secret_mutation_routes(app: FastAPI) -> None:
@@ -311,3 +376,5 @@ def register_secret_mutation_routes(app: FastAPI) -> None:
     app.add_api_route(
         "/api/admin/secrets/{secret_id}", admin_secrets_delete, methods=["DELETE"]
     )
+    app.add_api_route("/api/admin/rsshub-access-key", admin_rsshub_access_key_save, methods=["PUT"])
+    app.add_api_route("/api/admin/rsshub-access-key", admin_rsshub_access_key_delete, methods=["DELETE"])

@@ -755,7 +755,7 @@ export function HeroSubscriptionsPage() {
               {isAdmin && !presented.actorOpsIssue && <HeroActorOpsTraceDisclosure api={api} job={job} actorOps={isActorOpsJob(job)} fallback={{ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }} />}
               {!presented.actorOpsIssue && !['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} api={api} userId={user.id} className="m-0" />}
               {editable && job.retryable && !presented.actorOpsIssue && <Button size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
-              {presented.actorOpsHref && <Button size="sm" className="ml-auto" onPress={() => navigate(presented.actorOpsHref || '/settings/actorops?tab=pool')}>返回 ActorOps 处理</Button>}
+              {presented.actorOpsHref && <Button size="sm" className="ml-auto" onPress={() => navigate(presented.actorOpsHref || '/settings/actorops?tab=logs')}>返回 ActorOps 处理</Button>}
             </div>
           </Card>
         })}

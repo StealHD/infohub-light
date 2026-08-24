@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate } from 'react-router-dom'
 
@@ -24,6 +24,7 @@ import {
 } from '../../design-system'
 import { HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { canAdministerWorkspace, secretPresentation } from './settingsModel'
+import { SecretActions } from './SettingsSecretActions'
 import {
   apifyPoolActionError,
   emptySecretDraft,
@@ -116,121 +117,6 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
     </div>
     {hardLimitConstrained && <span className="type-meta text-warning">硬上限仅余 {formatUsd(quota.data.remaining_hard_limit_usd)}</span>}
     {failure && <span className="type-meta text-danger" role="alert">{failure}</span>}
-  </div>
-}
-
-function SecretActions({ secret, lifecycleLocked = false, lifecycleDescription = '请先安全排空，再轮换或删除。', onChanged }: {
-  secret: SecretRef
-  lifecycleLocked?: boolean
-  lifecycleDescription?: string
-  onChanged: (secretId: string, action: 'rotate' | 'delete' | 'connection') => void
-}) {
-  const { api } = useAppContext()
-  const feedback = useActionFeedback()
-  const [rotateOpen, setRotateOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [value, setValue] = useState('')
-  const [rotateError, setRotateError] = useState('')
-  const [deleteError, setDeleteError] = useState('')
-  const rotateTriggerRef = useRef<HTMLButtonElement>(null)
-  const deleteTriggerRef = useRef<HTMLButtonElement>(null)
-  const lifecycleDescriptionId = useId()
-  const rotating = feedback.isPending('secret-rotate', secret.id)
-  const removing = feedback.isPending('secret-delete', secret.id)
-
-  function closeRotate() {
-    setRotateOpen(false)
-    setRotateError('')
-    setValue('')
-    queueMicrotask(() => rotateTriggerRef.current?.focus())
-  }
-
-  function closeDelete() {
-    setDeleteOpen(false)
-    setDeleteError('')
-    queueMicrotask(() => deleteTriggerRef.current?.focus())
-  }
-
-  async function rotate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const submitted = value
-    setValue('')
-    setRotateError('')
-    if (!submitted) {
-      setRotateError('新 Key 值不能为空。')
-      return
-    }
-    feedback.begin('secret-rotate', secret.id)
-    try {
-      await api.rotateSecret(secret.id, submitted)
-      feedback.succeed('secret-rotate', secret.id, `${secret.name} 已轮换。`)
-      closeRotate()
-      actionToast.success('Key 已轮换', { description: secret.name })
-      onChanged(secret.id, 'rotate')
-    } catch (caught) {
-      const message = secretActionError(caught, '轮换失败，请稍后重试。')
-      setRotateError(message)
-      feedback.fail('secret-rotate', secret.id, message)
-    }
-  }
-
-  async function remove() {
-    setDeleteError('')
-    feedback.begin('secret-delete', secret.id)
-    try {
-      await api.deleteSecret(secret.id)
-      feedback.succeed('secret-delete', secret.id, `${secret.name} 已删除。`)
-      closeDelete()
-      actionToast.success('Key 已删除', { description: secret.name })
-      onChanged(secret.id, 'delete')
-    } catch (caught) {
-      const message = secretActionError(caught, '删除失败。')
-      setDeleteError(message)
-      feedback.fail('secret-delete', secret.id, message)
-    }
-  }
-
-  return <div className="grid gap-2">
-    {lifecycleLocked && <span id={lifecycleDescriptionId} className="sr-only">{lifecycleDescription}</span>}
-    <div className="flex flex-wrap gap-2">
-      <Modal isOpen={rotateOpen} onOpenChange={(open) => {
-        if (rotating) return
-        if (open) setRotateOpen(true)
-        else closeRotate()
-      }}>
-        <Button ref={rotateTriggerRef} size="sm" variant="ghost" isDisabled={lifecycleLocked} aria-describedby={lifecycleLocked ? lifecycleDescriptionId : undefined} aria-label={`轮换 ${secret.name}`}>轮换</Button>
-        <Modal.Backdrop isDismissable={!rotating} isKeyboardDismissDisabled={rotating}>
-          <Modal.Container><Modal.Dialog>
-            <Modal.Header><Modal.Heading>{`轮换 ${secret.name}`}</Modal.Heading></Modal.Header>
-            <Modal.Body><form id={`rotate-secret-${secret.id}`} className="grid gap-3" onSubmit={rotate}>
-              <TextField fullWidth value={value} onChange={setValue} isRequired><Label>新 Key 值</Label><Input type="password" autoComplete="new-password" placeholder="粘贴新 Key（不会回显）" /></TextField>
-              {rotateError && <StatusNotice title={rotateError} status="warning" />}
-            </form></Modal.Body>
-            <Modal.Footer>
-              <Button type="button" variant="ghost" isDisabled={rotating} onPress={closeRotate}>取消轮换</Button>
-              <Button type="submit" form={`rotate-secret-${secret.id}`} isDisabled={rotating}>{rotating ? '轮换中…' : '确认轮换'}</Button>
-            </Modal.Footer>
-          </Modal.Dialog></Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
-      <Modal isOpen={deleteOpen} onOpenChange={(open) => {
-        if (removing) return
-        if (open) setDeleteOpen(true)
-        else closeDelete()
-      }}>
-        <Button ref={deleteTriggerRef} size="sm" variant="danger" isDisabled={lifecycleLocked || secret.used_by.length > 0 || removing} aria-describedby={lifecycleLocked ? lifecycleDescriptionId : undefined} aria-label={`删除 ${secret.name}`}>删除</Button>
-        <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}>
-          <Modal.Container><Modal.Dialog>
-            <Modal.Header><Modal.Heading>{`删除 ${secret.name}？`}</Modal.Heading></Modal.Header>
-            <Modal.Body><p>删除后无法恢复；如需再次使用，必须重新添加 Key。</p>{deleteError && <div className="mt-3"><StatusNotice title={deleteError} status="warning" /></div>}</Modal.Body>
-            <Modal.Footer>
-              <Button type="button" variant="ghost" isDisabled={removing} onPress={closeDelete}>取消删除</Button>
-              <Button type="button" variant="danger" isDisabled={removing} onPress={() => void remove()}>{removing ? '删除中…' : '确认删除'}</Button>
-            </Modal.Footer>
-          </Modal.Dialog></Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
-    </div>
   </div>
 }
 
@@ -405,7 +291,7 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
       : poolQuery.isError
         ? <StatusNotice title="Apify Key 池读取失败" status="warning">为避免误操作，池状态恢复前不会提供排序或排空操作。</StatusNotice>
         : <>
-          <div className="mb-3 flex flex-wrap items-center gap-2"><StatusBadge tone={statusTone}>{status}</StatusBadge></div>
+          {pool && pool.status !== 'ready' && <div className="mb-3 flex flex-wrap items-center gap-2" data-apify-pool-status="exception"><StatusBadge tone={statusTone}>{status}</StatusBadge></div>}
           {pool && !pool.enabled && <StatusNotice title="Apify Key 池尚未启用" status="warning">当前仍处于兼容阶段；可以预先维护备用顺序，但不会自动切换。</StatusNotice>}
           {unresolvedMembers && <div className="mt-3"><StatusNotice title="部分 Key 元数据尚未加载" status="warning">已隐藏无法安全识别的池成员，请刷新页面后再操作。</StatusNotice></div>}
           <div aria-label="Apify Key 池" className="mt-3 grid gap-3" role="list">
@@ -427,36 +313,35 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                   role="listitem"
                   aria-label={secret.name}
                   variant="secondary"
-                  className="gap-0 border border-separator bg-surface-secondary p-0 shadow-sm"
+                  className="gap-0 border border-separator bg-surface-secondary p-0"
                 >
-                  <Card.Header className="flex min-w-0 flex-row items-start justify-between gap-3 px-4 pb-2 pt-4">
+                  <Card.Header className="flex min-w-0 flex-row items-start justify-between gap-3 px-4 py-3">
                     <div className="flex min-w-0 items-start gap-3">
-                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-default text-muted"><Icons.KeyRound size={17} aria-hidden="true" /></span>
+                      <span className="grid size-8 shrink-0 place-items-center rounded-[var(--inteliscope-radius-compact)] bg-default text-muted"><Icons.KeyRound size={16} aria-hidden="true" /></span>
                       <div className="min-w-0">
                         <Card.Title className="type-control truncate text-foreground">{secret.name}</Card.Title>
-                        {secret.name !== secret.env_name && <Card.Description className="type-body mt-0.5 truncate text-muted">{secret.env_name}</Card.Description>}
+                        {secret.name !== secret.env_name && <Card.Description className="type-meta mt-0.5 truncate text-muted">{secret.env_name}</Card.Description>}
                         {member && member.active_run_count > 0 && <span className="type-meta mt-0.5 block text-muted">{member.active_run_count} 个运行中任务</span>}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center justify-end gap-1.5">
-                      {member?.role === 'validation' && <StatusBadge tone="warning">专用校验</StatusBadge>}
+                      <StatusBadge tone={member?.role === 'validation' ? 'warning' : 'neutral'}>{member?.role === 'validation' ? '专用校验' : '生产抓取'}</StatusBadge>
                       <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
                       {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
                     </div>
                   </Card.Header>
-                  <Card.Content className="grid gap-2 px-4 pb-3 pt-0">
-                    <p className="type-meta text-muted">角色：{member?.role === 'validation' ? '专用校验（不参与生产）' : '生产抓取'}</p>
+                  <Card.Content className="grid gap-1.5 px-4 pb-2 pt-0">
                     <SecretQuotaDetails secret={secret} userId={userId} />
                     <ApifyMemberAlerts member={member} />
                   </Card.Content>
-                  <Card.Footer className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-separator px-4 py-3">
+                  <Card.Footer className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-separator px-4 py-2">
                     <span className="type-meta text-muted">最近检查 {formatDateTime(member?.last_checked_at ?? null)}</span>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant="ghost" isIconOnly aria-label={`上移 ${secret.name}`} isDisabled={controlsDisabled || index <= 0 || lifecycleLocked || memberLocked(previous)} onPress={() => moveMember(secret.id, -1)}><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
                       <Button size="sm" variant="ghost" isIconOnly aria-label={`下移 ${secret.name}`} isDisabled={controlsDisabled || index < 0 || index >= orderedMembers.length - 1 || lifecycleLocked || memberLocked(next)} onPress={() => moveMember(secret.id, 1)}><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
                       {member && member.role !== 'validation' && <Button ref={(node) => { if (node) validationTriggerRefs.current.set(secret.id, node); else validationTriggerRefs.current.delete(secret.id) }} size="sm" variant="ghost" isDisabled={validationMutation.isPending || member.status !== 'standby' || member.active_run_count > 0 || pool?.active_secret_id === member.secret_id} onPress={() => { validationRestoreSecretId.current = secret.id; setValidationTarget(member.secret_id) }}>设为校验 Key</Button>}
                       {member?.role === 'validation' && <Button ref={(node) => { if (node) validationTriggerRefs.current.set(secret.id, node); else validationTriggerRefs.current.delete(secret.id) }} size="sm" variant="ghost" isDisabled={validationMutation.isPending || member.active_run_count > 0} onPress={() => { validationRestoreSecretId.current = secret.id; setValidationTarget(null) }}>取消校验角色</Button>}
-                      <SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} />
+                      <SecretActions secret={secret} compact lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} />
                     </div>
                   </Card.Footer>
                 </Card>

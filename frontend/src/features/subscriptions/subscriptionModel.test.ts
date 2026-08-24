@@ -182,14 +182,15 @@ describe('subscription model', () => {
     expect(presentActorOpsJobIssue(unavailable)).toEqual({
       reason: 'ActorOps 暂不可用',
       impact: '此任务没有启动远端 Actor，也不会产生新费用。',
-      next: '完成数据库迁移或恢复服务后再试。',
+      next: '恢复服务或完成迁移后，再查看安全执行轨迹。',
+      action: { label: '查看 ActorOps 日志', target: 'logs' },
     })
     expect(presentJob(unavailable, new Map())).toMatchObject({
       title: '维护 Actor 路由',
       statusLabel: '需要处理',
       resultLabel: 'ActorOps 暂不可用',
       detail: '',
-      actorOpsHref: '/settings/actorops?tab=pool',
+      actorOpsHref: '/settings/actorops?tab=logs&job=actorops-v2-unavailable',
     })
     expect(JSON.stringify(presentJob(unavailable, new Map()))).not.toContain('RAW_JOB_ERROR_SHOULD_NOT_RENDER')
   })
