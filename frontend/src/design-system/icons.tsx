@@ -130,6 +130,7 @@ export function SplitPanel({ open = false, size = 18, ...props }: SplitPanelProp
       fill="currentColor"
       stroke="none"
       opacity={open ? '0.16' : '0'}
+      pointerEvents="none"
     />
   </svg>
 }

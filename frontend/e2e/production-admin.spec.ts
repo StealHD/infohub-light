@@ -1039,17 +1039,17 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await revokeDialog.getByRole('button', { name: '取消' }).click()
   await expect(connectionMore).toBeFocused()
   const openClawConfigurations = page.locator('pre[aria-label$="OpenClaw 配置命令"]')
-  await expect(openClawConfigurations).toHaveCount(2)
+  await expect(openClawConfigurations).toHaveCount(3)
   const configurationMetrics = await openClawConfigurations.evaluateAll((blocks) => blocks.map((block) => ({
-    top: block.getBoundingClientRect().top,
+    top: block.closest('[data-slot="card"]')?.getBoundingClientRect().top ?? 0,
     clientWidth: block.clientWidth,
     scrollWidth: block.scrollWidth,
     overflowX: getComputedStyle(block).overflowX,
   })))
   if ((page.viewportSize()?.width ?? 0) >= 900) {
-    expect(Math.abs(configurationMetrics[0].top - configurationMetrics[1].top)).toBeLessThanOrEqual(1)
+    expect(configurationMetrics.every(({ top }) => Math.abs(top - configurationMetrics[0].top) <= 1)).toBe(true)
   } else {
-    expect(configurationMetrics[1].top).toBeGreaterThan(configurationMetrics[0].top)
+    expect(configurationMetrics.slice(1).every(({ top }, index) => top > configurationMetrics[index].top)).toBe(true)
   }
   expect(configurationMetrics.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true)
   expect(configurationMetrics.every(({ overflowX }) => overflowX === 'hidden')).toBe(true)

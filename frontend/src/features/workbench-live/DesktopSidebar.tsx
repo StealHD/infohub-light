@@ -61,7 +61,7 @@ type DesktopSidebarProps = {
 }
 
 const sidebarItemBase = 'type-control mb-0.5 flex w-full items-center rounded-xl text-muted transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
-const sidebarPanelToggleClass = (open: boolean) => `sidebar-desktop-toggle inline-flex size-10 items-center justify-center rounded-[var(--inteliscope-radius-card)] transition-[inset-inline-end,color,background-color] duration-[var(--inteliscope-motion-standard)] focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none ${open ? 'bg-accent/15 text-accent hover:bg-accent/20 hover:text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`
+const sidebarPanelToggleClass = (open: boolean, desktop = true) => `${desktop ? 'sidebar-desktop-toggle ' : ''}inline-flex size-10 items-center justify-center rounded-[var(--inteliscope-radius-card)] transition-[inset-inline-end,color,background-color] duration-[var(--inteliscope-motion-standard)] focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none ${open ? 'bg-accent/15 text-accent hover:bg-accent/20 hover:text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`
 
 function SidebarNavItem({
   label,
@@ -399,7 +399,7 @@ export function DesktopSidebar({ activeQuickView, extraWideDesktop, onLogout, on
     </> : <>
       <div className="type-page-title flex h-[var(--inteliscope-size-page-header)] shrink-0 items-center justify-center px-3">
         <Popover isOpen={tabletNavOpen} onOpenChange={changeTabletNavigation}>
-          <Popover.Trigger ref={tabletNavToggleRef} data-sidebar-panel-toggle data-inteliscope-mark-trigger aria-label="展开导航" aria-expanded={tabletNavOpen} className={sidebarPanelToggleClass(tabletNavOpen)}><Icons.SplitPanel open={tabletNavOpen} size={18} aria-hidden="true" /></Popover.Trigger>
+          <Popover.Trigger ref={tabletNavToggleRef} data-sidebar-panel-toggle data-inteliscope-mark-trigger aria-label="展开导航" aria-expanded={tabletNavOpen} className={sidebarPanelToggleClass(tabletNavOpen, false)}><Icons.SplitPanel open={tabletNavOpen} size={18} aria-hidden="true" /></Popover.Trigger>
           <Popover.Content placement="right top" offset={8} className="z-50 w-[260px] p-0">
             <Popover.Dialog aria-label="分类导航" className="max-h-[calc(100dvh-24px)] overflow-hidden rounded-2xl border border-separator bg-surface p-0">
               <div className="flex h-[var(--inteliscope-size-page-header)] items-center gap-2 border-b border-separator px-4"><Icons.InteliscopeMark size={20} aria-hidden="true" /><strong className="min-w-0 flex-1 truncate">Inscope</strong></div>

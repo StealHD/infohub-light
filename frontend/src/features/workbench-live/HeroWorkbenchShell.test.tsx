@@ -156,6 +156,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
 
     const trigger = screen.getByRole('button', { name: '展开导航' })
     expect(trigger).not.toHaveClass('bg-accent/15', 'text-accent')
+    expect(trigger).not.toHaveClass('sidebar-desktop-toggle')
     expect(screen.queryByRole('dialog', { name: '分类导航' })).not.toBeInTheDocument()
 
     await browser.click(trigger)
@@ -219,6 +220,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     const expand = screen.getByRole('button', { name: '展开侧栏' })
     expect(expand).toHaveAttribute('data-sidebar-panel-toggle')
     expect(expand.querySelector('[data-split-panel-icon]')).not.toBeNull()
+    expect(expand).toHaveClass('sidebar-desktop-toggle')
     expect(expand).toHaveClass('size-10')
     expect(expand).not.toHaveClass('bg-accent/15', 'text-accent')
 
@@ -552,6 +554,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(activeToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
     expect(activeToggle.querySelector('[data-split-panel-icon]')).not.toBeNull()
     expect(activeToggle.querySelector('[data-panel-fill]')).toHaveAttribute('opacity', '0.16')
+    expect(activeToggle.querySelector('[data-panel-fill]')).toHaveAttribute('pointer-events', 'none')
     expect(activeToggle.querySelector('.lucide-panel-right-close')).toBeNull()
     expect(activeToggle.querySelector('.lucide-panel-right-open')).toBeNull()
     expect(screen.getByRole('complementary', { name: '信息概览' })).toHaveClass('quiet-surface-enter')

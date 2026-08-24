@@ -797,7 +797,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   } else {
     await expect(page.getByRole('searchbox', { name: '搜索全部内容' })).toBeVisible()
   }
-  await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('workbench-feed-scroll').getByText('全部', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '重新载入信息流数据' })).toBeVisible()
   await expect(page.getByRole('button', { name: '获取新内容' })).toBeVisible()
   const agentToggle = page.getByRole('banner').getByRole('button', { name: /^(收起|展开) Agent 面板$/ })

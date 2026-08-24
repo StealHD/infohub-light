@@ -14,30 +14,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-23",
-  "result": "Installed the global 30 ActorOps v2 single-track migration: final Route/Binding rebuild, disabled catalog seed, and offline backup/verification workflow without real database apply or network calls.",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-global30-single-track",
-  "unresolved": [
-    "Phase 7B2 still removes ACTOROPS_V2_ENABLED startup compatibility and its configuration/tests.",
-    "Phase 8 still removes remaining zero-online-import v1 runtime and empties the authorizer allowlist."
-  ],
-  "validation": [
-    "234 targeted ActorOps regression tests",
-    "impacted preflight passed (17/17), including full Python and frontend checks",
-    "code-size, product-doc, Markdown/control, JSON, and diff checks"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-23",
   "result": "Completed ActorOps Phase 8: v2 is the only online route, binding, source, Worker and browser path; global 30 is the direct gate, fresh stores seed v2 plus shared alerts, and historical v1 runtime was removed while offline migration/audit/retirement remains isolated.",
   "status": "completed",
   "task_id": "2026-08-23-actorops-v2-phase8-runtime-retirement",
@@ -407,6 +383,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "定向 API、Vitest 与 Playwright 通过（RSSHub 390/768/1440、Actor 浮层）。",
     "当前 worktree 本地 Docker 重建完成，API/Worker 均 healthy。",
     "impacted preflight passed 16/16：完整 Python、Vitest、UI 契约、lint、typecheck、build 与控制校验通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "修复 v2.5.1 发布 Gate 发现的侧栏命中区与断言漂移：768–1359px 的导航触发器不再复用桌面绝对定位，SplitPanel 装饰层不拦截指针，OpenClaw 三类配置卡与固定宽度侧栏的测试边界同步。",
+  "status": "completed",
+  "task_id": "2026-08-25-release-v2-5-1-ui-gate-remediation",
+  "unresolved": [],
+  "validation": [
+    "定向 release Playwright：7 passed、2 intentional skipped",
+    "HeroWorkbenchShell Vitest：30 passed",
+    "完整 release UI Gate：6/6 commands passed"
   ]
 }
 ```
