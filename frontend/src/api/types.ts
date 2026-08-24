@@ -229,13 +229,13 @@ export type NotificationTestResult = {
   verification?: 'http_accepted' | 'provider_accepted'
 }
 
-export type AgentDelegationAccess = 'read' | 'subscriptions_write'
+export type AgentDelegationAccess = 'read' | 'subscriptions_write' | 'system_settings_write'
 
 export type AgentDelegationDiagnosticsScope = 'self' | 'workspace'
 
 export type AgentDelegationScope =
   | 'inteliscope:read'
-  | 'inteliscope:subscriptions:write'
+  | 'inteliscope:subscriptions:write' | 'inteliscope:system-settings:write'
   | 'inteliscope:diagnostics:read'
 
 export type AgentDelegation = {
@@ -255,7 +255,7 @@ export type AgentDelegation = {
 
 export type AgentDelegationsResponse = {
   enabled: boolean
-  subscription_writes_enabled: boolean
+  subscription_writes_enabled: boolean; system_settings_writes_enabled: boolean
   mcp_url: string
   openclaw_chat: {
     enabled: boolean

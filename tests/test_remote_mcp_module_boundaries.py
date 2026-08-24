@@ -59,9 +59,12 @@ def test_remote_server_is_a_small_explicit_composition_facade() -> None:
     assert len(source.splitlines()) <= 200
     assert "@server.tool" not in source
     assert "import *" not in source
-    assert "register_read_tools(server, context)" in source
-    assert "register_subscription_tools(server, context)" in source
-    assert "register_diagnostic_tools(server, context)" in source
+    assert "register_remote_tools(server, context)" in source
+    registration = _source("remote_tool_registration.py")
+    assert "register_read_tools(server, context)" in registration
+    assert "register_subscription_tools(server, context)" in registration
+    assert "register_diagnostic_tools(server, context)" in registration
+    assert "register_system_settings_tools(server, context)" in registration
 
     assert AgentDelegationTokenVerifier.__module__ == "src.mcp.remote_auth"
     assert DelegationRateLimiter.__module__ == "src.mcp.remote_rate_limit"
@@ -71,10 +74,11 @@ def test_remote_server_is_a_small_explicit_composition_facade() -> None:
     assert create_remote_mcp.__module__ == "src.mcp.remote_server"
 
 
-def test_tool_registration_has_exactly_three_one_way_categories() -> None:
+def test_tool_registration_has_exactly_four_one_way_categories() -> None:
     read_tools = _registered_tools("remote_read_tools.py")
     subscription_tools = _registered_tools("remote_subscription_tools.py")
     diagnostic_tools = _registered_tools("remote_diagnostic_tools.py")
+    system_settings_tools = _registered_tools("remote_system_settings_tools.py")
 
     assert read_tools == {
         "get_my_feed",
@@ -99,12 +103,20 @@ def test_tool_registration_has_exactly_three_one_way_categories() -> None:
         "diagnose_job",
         "query_operation_logs",
     }
-    assert len(read_tools | subscription_tools | diagnostic_tools) == 17
+    assert system_settings_tools == {
+        "list_system_settings",
+        "prepare_update_system_settings",
+        "apply_system_settings_change",
+    }
+    assert len(
+        read_tools | subscription_tools | diagnostic_tools | system_settings_tools
+    ) == 20
 
     for name in (
         "remote_read_tools.py",
         "remote_subscription_tools.py",
         "remote_diagnostic_tools.py",
+        "remote_system_settings_tools.py",
     ):
         source = _source(name)
         assert "ServiceStore" not in source

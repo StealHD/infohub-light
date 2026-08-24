@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..storage.service_store import ServiceStore
 from .job_queue import JobQueue
 from .quota import QuotaExceeded, QuotaService
+from .system_settings import resolve_system_setting
+from .schedule_runtime import due_feed_schedule_rows
 
 
 ALLOWED_INTERVALS = (60, 180, 360, 720, 1440)
@@ -42,21 +43,16 @@ class FeedScheduleService:
     ) -> None:
         self.store = store
         self.queue = JobQueue(store)
-        self.quota = quota or QuotaService(
-            store,
-            max_fetch_jobs_per_day=int(
-                os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")
-            ),
-        )
-        self.max_attempts = int(
-            max_attempts
-            if max_attempts is not None
-            else os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")
-        )
-        self.retention_days = int(
-            retention_days
-            if retention_days is not None
-            else os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+        self.quota = quota or QuotaService(store)
+        self.max_attempts = max_attempts
+        self.retention_days = retention_days
+
+    def _job_setting(self, workspace_id: str, attribute: str, key: str) -> int:
+        explicit = getattr(self, attribute)
+        return int(
+            explicit
+            if explicit is not None
+            else resolve_system_setting(self.store, workspace_id, key)
         )
 
     @staticmethod
@@ -263,18 +259,9 @@ class FeedScheduleService:
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM user_feed_schedules
-                WHERE enabled = 1
-                  AND next_run_at IS NOT NULL
-                  AND next_run_at <= ?
-                ORDER BY next_run_at, user_id
-                LIMIT ?
-                """,
-                (now_iso, limit),
-            ).fetchall()
+            rows = due_feed_schedule_rows(
+                self.store, now_iso=now_iso, limit=limit
+            )
             migration_required = (
                 self.store.feed_v2_migration_required()
                 or self.store.content_index_v4_migration_required()
@@ -413,8 +400,12 @@ class FeedScheduleService:
                     user_id=str(schedule["user_id"]),
                     payload={"reason": SCHEDULED_REFRESH_REASON},
                     priority=-10,
-                    max_attempts=self.max_attempts,
-                    retention_days=self.retention_days,
+                    max_attempts=self._job_setting(
+                        str(schedule["workspace_id"]), "max_attempts", "jobs.max_attempts"
+                    ),
+                    retention_days=self._job_setting(
+                        str(schedule["workspace_id"]), "retention_days", "jobs.retention_days"
+                    ),
                 )
                 if not created:
                     self._record_skip(

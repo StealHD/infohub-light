@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from ..storage.service_store import ServiceStore
 from .job_eligibility import JobEligibilityService
 from .quota import QuotaExceeded, QuotaService
@@ -22,15 +20,7 @@ class UsageAttemptMeter:
         self.workspace_id = workspace_id
         self.user_id = user_id
         self.job_id = job_id
-        self.quota = QuotaService(
-            store,
-            max_workspace_fetch_attempts_per_day=int(
-                os.getenv("INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY", "100")
-            ),
-            max_provider_fetch_attempts_per_day=int(
-                os.getenv("INFOHUB_MAX_PROVIDER_FETCH_ATTEMPTS_PER_DAY", "100")
-            ),
-        )
+        self.quota = QuotaService(store)
 
     def before_fetch_attempt(self, *, provider: str, source_id: str) -> None:
         if self.job_id:

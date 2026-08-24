@@ -4,7 +4,7 @@
 
 ## 1. 固定边界
 
-- Remote MCP 默认关闭；订阅写入保持 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false`。
+- Remote MCP 默认关闭；订阅与系统参数写入分别保持 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false`、`HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false`。
 - 正常 Service 仍运行 API + Worker，scheduler 必须停止；不要为 Remote MCP 设置 `HORIZON_REQUIRE_WORKER_FOR_READINESS=false`。
 - Bearer delegation、设备 token、MCP token 和 `.env` 值不得进入命令行、聊天、Git、日志或截图。
 - Nginx 仅允许在现有 HTTPS server 中最小加入 `location = /mcp` 和现有 rate-limit 模板；不得覆盖整个 server block 或改变其他站点路由。
@@ -17,6 +17,7 @@
 HORIZON_REMOTE_MCP_ENABLED=true
 HORIZON_REMOTE_MCP_PUBLIC_URL=https://rb.jiefs.top/mcp
 HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false
 HORIZON_AUTH_SECURE_COOKIE=true
 ```
 
@@ -48,7 +49,7 @@ HORIZON_AUTH_SECURE_COOKIE=true
 
 至少观察 24 小时：API/Worker readiness、MCP 401/403 比例、脱敏 operation event、队列积压、source/AI/付费调用均应没有由 canary 引入的异常。只有经过单独授权才可扩大用户或评估写入能力。
 
-出现权限、路由或可用性异常时，将 `HORIZON_REMOTE_MCP_ENABLED=false`，保持写 flag 为 false，并使用标准回滚：
+出现权限、路由或可用性异常时，将 `HORIZON_REMOTE_MCP_ENABLED=false`，保持两个写 flag 为 false，并使用标准回滚：
 
 ```bash
 ./scripts/release_vps.sh rollback [release-id]

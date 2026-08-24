@@ -17,6 +17,7 @@ from ..storage.service_store import (
 from .remote_diagnostics import RemoteMCPDiagnostics
 from .remote_service import RemoteMCPReadService
 from .remote_subscription_service import RemoteMCPSubscriptionService
+from .remote_system_settings_service import RemoteMCPSystemSettingsService
 
 
 _Result = TypeVar("_Result")
@@ -140,6 +141,7 @@ class RemoteMCPPrincipalContext:
 class RemoteMCPToolContext:
     read_service: RemoteMCPReadService
     subscription_service: RemoteMCPSubscriptionService
+    system_settings: RemoteMCPSystemSettingsService
     diagnostics: RemoteMCPDiagnostics
     principals: RemoteMCPPrincipalContext
     calls: RemoteMCPCallPort

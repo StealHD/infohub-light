@@ -35,7 +35,6 @@ from .worker_cycle import (
     WorkerCyclePorts,
     prepare_worker_cycle,
 )
-from .worker_schedule_gate import worker_schedule_polling_enabled
 from .worker_post_commit import WorkerPostCommitPorts, run_worker_post_commit
 from .worker_preexecution import requeue_unstarted_claim
 from .worker_feed_handler import (
@@ -452,7 +451,7 @@ def main() -> None:
     parser.add_argument(
         "--retry-base-seconds",
         type=float,
-        default=float(os.getenv("HORIZON_WORKER_RETRY_BASE_SECONDS", "30")),
+        default=None,
     )
     args = parser.parse_args()
 
@@ -478,7 +477,7 @@ def main() -> None:
     try:
         while True:
             loop_started_at = time.monotonic()
-            check_schedules = worker_schedule_polling_enabled() and (
+            check_schedules = (
                 last_schedule_check is None
                 or loop_started_at - last_schedule_check >= max(args.schedule_poll_seconds, 0.5)
             )

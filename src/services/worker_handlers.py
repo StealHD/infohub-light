@@ -20,7 +20,7 @@ class WorkerHandlerPorts:
     run_user_feed_refresh: Callable[..., dict[str, Any]]
     run_source_test: Callable[..., dict[str, Any]]
     apify_coordinator: Callable[..., Any]
-    shared_acquisition_enabled: Callable[[], bool]
+    shared_acquisition_enabled: Callable[..., bool]
 
 
 def source_payload_from_catalog(
@@ -97,7 +97,9 @@ def _run_source_test_job(
             return ports.run_source_test(payload, apify_coordinator=coordinator)
         return ports.run_source_test(payload)
 
-    if ports.shared_acquisition_enabled() and job.get("source_id"):
+    if ports.shared_acquisition_enabled(
+        store, workspace_id=str(job["workspace_id"])
+    ) and job.get("source_id"):
         return SourceAcquisitionCoordinator(
             store,
             workspace_id=job["workspace_id"],

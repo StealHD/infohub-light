@@ -16,14 +16,13 @@ from ..storage.service_store import AGENT_DELEGATION_READ_SCOPE, ServiceStore
 from .remote_auth import AgentDelegationTokenVerifier
 from .remote_call_runtime import RemoteMCPCallRuntime, SafeRemoteMCP
 from .remote_config import RemoteMCPSettings
-from .remote_diagnostic_tools import register_diagnostic_tools
 from .remote_diagnostics import RemoteMCPDiagnostics
 from .remote_http import ExactMCPPathApp, RemoteMCPApplication
 from .remote_rate_limit import DelegationRateLimiter
-from .remote_read_tools import register_read_tools
 from .remote_service import RemoteMCPReadService
 from .remote_subscription_service import RemoteMCPSubscriptionService
-from .remote_subscription_tools import register_subscription_tools
+from .remote_system_settings_service import RemoteMCPSystemSettingsService
+from .remote_tool_registration import register_remote_tools
 from .remote_tool_annotations import (
     APPLY_ANNOTATIONS,
     OPEN_WORLD_READ_ANNOTATIONS,
@@ -100,6 +99,7 @@ def _create_tool_context(
     return RemoteMCPToolContext(
         read_service=RemoteMCPReadService(store),
         subscription_service=subscriptions,
+        system_settings=RemoteMCPSystemSettingsService(store, writes_enabled=settings.system_settings_writes_enabled),
         diagnostics=RemoteMCPDiagnostics(
             store,
             runtime_status=runtime_status,
@@ -132,9 +132,7 @@ def create_remote_mcp(
         operation_logs=operation_logs,
         secret_is_set=secret_is_set,
     )
-    register_read_tools(server, context)
-    register_subscription_tools(server, context)
-    register_diagnostic_tools(server, context)
+    register_remote_tools(server, context)
     finalize_tool_schemas(server)
     return RemoteMCPApplication(
         server=server,

@@ -49,6 +49,7 @@ export const queryKeys = {
   notificationSettings: (userId: string) => [...userKey(userId), 'notification-settings'] as const,
   notificationServices: (userId: string) => [...userKey(userId), 'notification-services'] as const,
   agentDelegations: (userId: string) => [...userKey(userId), 'agent-delegations'] as const,
+  systemSettings: (userId: string) => [...userKey(userId), 'system-settings'] as const,
   config: (userId: string) => [...userKey(userId), 'config'] as const,
   storageSummary: (userId: string) => [...userKey(userId), 'storage-summary'] as const,
   storageArchives: (userId: string) => [...userKey(userId), 'storage-archives'] as const,

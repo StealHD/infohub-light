@@ -23,6 +23,11 @@ TOOLS = {
     "diagnose_job",
     "query_operation_logs",
 }
+SYSTEM_SETTINGS_TOOLS = {
+    "list_system_settings",
+    "prepare_update_system_settings",
+    "apply_system_settings_change",
+}
 READ_TOOLS = {
     "get_my_feed",
     "get_item",
@@ -102,10 +107,11 @@ def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_call
         r"get_source_setup_guide|search_bilibili_users|resolve_source|list_available_sources|prepare_create_subscription|"
         r"prepare_update_subscription|prepare_delete_subscription|"
         r"apply_subscription_change|diagnose_source|diagnose_job|"
-        r"query_operation_logs)`",
+        r"query_operation_logs|list_system_settings|prepare_update_system_settings|"
+        r"apply_system_settings_change)`",
         combined,
     ))
-    assert named_tools == TOOLS
+    assert named_tools == TOOLS | SYSTEM_SETTINGS_TOOLS
     assert "user_id" not in combined
     assert "workspace_id" not in combined
     assert not re.search(r"ih_mcp_v1_[A-Za-z0-9_-]{10,}", combined)
@@ -194,7 +200,11 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     assert [
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
-    ] == [(13, READ_TOOLS), (17, TOOLS)]
+    ] == [
+        (13, READ_TOOLS),
+        (17, TOOLS),
+        (16, READ_TOOLS | SYSTEM_SETTINGS_TOOLS),
+    ]
 
 
 def test_openclaw_skill_pages_stored_article_bodies_and_fetches_the_exact_handoff_url():

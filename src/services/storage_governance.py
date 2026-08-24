@@ -17,6 +17,7 @@ from ..storage.service_store import ServiceStore
 from .content_timeline import build_search_text
 from .maintenance import MaintenanceService
 from .media_cache import PostCommitMediaCleanup
+from .system_settings import resolve_system_setting_int
 from .user_content_store import UserContentStore
 
 
@@ -570,9 +571,8 @@ class StorageGovernanceService:
         now: datetime,
     ) -> dict[str, list[str]]:
         conn = self.store.connect()
-        policy = MaintenanceService(self.store)
-        feed_cutoff = now - timedelta(days=policy.feed_retention_days)
-        source_cutoff = now - timedelta(days=policy.source_retention_days)
+        feed_cutoff = now - timedelta(days=resolve_system_setting_int(self.store, workspace_id, "retention.feed_snapshot_days", connection=conn))
+        source_cutoff = now - timedelta(days=resolve_system_setting_int(self.store, workspace_id, "retention.source_content_days", connection=conn))
         feed_rows = conn.execute(
             """
             SELECT id, user_id, generated_at
@@ -593,7 +593,7 @@ class StorageGovernanceService:
             except StorageGovernanceError:
                 generated_at = now
             if position and (
-                position >= policy.max_feed_snapshots_per_user
+                position >= resolve_system_setting_int(self.store, workspace_id, "retention.max_feed_snapshots_per_user", connection=conn)
                 or generated_at < feed_cutoff
             ):
                 feed_ids.append(str(row["id"]))
@@ -623,9 +623,9 @@ class StorageGovernanceService:
         def rowids(sql: str, params: tuple[Any, ...]) -> list[str]:
             return [str(row[0]) for row in conn.execute(sql, params).fetchall()]
 
-        analysis_cutoff = (now - timedelta(days=policy.analysis_retention_days)).isoformat()
-        usage_cutoff = (now - timedelta(days=policy.usage_retention_days)).isoformat()
-        job_cutoff = (now - timedelta(days=policy.job_retention_days)).isoformat()
+        analysis_cutoff = (now - timedelta(days=resolve_system_setting_int(self.store, workspace_id, "retention.analysis_cache_days", connection=conn))).isoformat()
+        usage_cutoff = (now - timedelta(days=resolve_system_setting_int(self.store, workspace_id, "retention.usage_days", connection=conn))).isoformat()
+        job_cutoff = (now - timedelta(days=resolve_system_setting_int(self.store, workspace_id, "jobs.retention_days", connection=conn))).isoformat()
         orphan_media = [
             str(row["id"])
             for row in conn.execute(

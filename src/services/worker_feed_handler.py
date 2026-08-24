@@ -22,7 +22,7 @@ class WorkerFeedPorts:
     cache_media: Callable[..., None]
     apify_coordinator: Callable[..., Any]
     apify_key_pool_enabled: Callable[[], bool]
-    shared_acquisition_enabled: Callable[[], bool]
+    shared_acquisition_enabled: Callable[..., bool]
 
 
 def active_catalog_source_ids(
@@ -83,7 +83,9 @@ def _configure_orchestrator(
             ),
             job_id=str(job["id"]),
         )
-    if ports.shared_acquisition_enabled() and hasattr(
+    if ports.shared_acquisition_enabled(
+        store, workspace_id=str(job["workspace_id"])
+    ) and hasattr(
         orchestrator, "set_service_acquisition_coordinator"
     ):
         from .source_acquisition import SourceAcquisitionCoordinator

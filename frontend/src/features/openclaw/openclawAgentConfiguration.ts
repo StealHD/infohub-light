@@ -26,6 +26,13 @@ export const SUBSCRIPTION_WRITE_TOOL_FILTER = [
   'apply_subscription_change',
 ] as const
 
+export const SYSTEM_SETTINGS_TOOL_FILTER = [
+  ...READ_TOOL_FILTER,
+  'list_system_settings',
+  'prepare_update_system_settings',
+  'apply_system_settings_change',
+] as const
+
 export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess = 'read'): string {
   const config = JSON.stringify({
     url: mcpUrl,
@@ -34,7 +41,7 @@ export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess
     timeout: 30,
     supportsParallelToolCalls: true,
     headers: { Authorization: `Bearer ${TOKEN_REFERENCE}` },
-    toolFilter: { include: access === 'subscriptions_write' ? SUBSCRIPTION_WRITE_TOOL_FILTER : READ_TOOL_FILTER },
+    toolFilter: { include: access === 'subscriptions_write' ? SUBSCRIPTION_WRITE_TOOL_FILTER : access === 'system_settings_write' ? SYSTEM_SETTINGS_TOOL_FILTER : READ_TOOL_FILTER },
   })
   return [`openclaw mcp set inteliscope '${config}'`, 'openclaw mcp doctor inteliscope --probe', 'openclaw mcp status --verbose', 'openclaw dashboard'].join('\n')
 }

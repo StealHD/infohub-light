@@ -21,7 +21,7 @@ class AgentDelegationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=80)
-    access: Literal["read", "subscriptions_write"] = "read"
+    access: Literal["read", "subscriptions_write", "system_settings_write"] = "read"
     diagnostics_scope: Literal["self", "workspace"] = "self"
 
     @field_validator("name")
@@ -57,6 +57,7 @@ async def agent_delegations_list(
             "enabled": settings.enabled,
             "mcp_url": settings.public_url,
             "subscription_writes_enabled": settings.subscription_writes_enabled,
+            "system_settings_writes_enabled": settings.system_settings_writes_enabled,
             "openclaw_chat": context.openclaw_chat_settings.public_config(),
             "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
             "max_active": AGENT_DELEGATION_MAX_ACTIVE,
@@ -92,6 +93,20 @@ async def agent_delegations_create(
                 "subscription writes are disabled",
                 status_code=409,
                 action="Ask an administrator to enable subscription writes.",
+            )
+    if payload.access == "system_settings_write":
+        if user.get("role") not in {"owner", "admin"}:
+            raise ApiError(
+                "forbidden",
+                "system settings connections require owner or admin role",
+                status_code=403,
+            )
+        if not settings.system_settings_writes_enabled:
+            raise ApiError(
+                "system_settings_writes_disabled",
+                "system settings writes are disabled",
+                status_code=409,
+                action="Ask an administrator to enable system settings writes.",
             )
     if (
         payload.diagnostics_scope == "workspace"

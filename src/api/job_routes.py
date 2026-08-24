@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any, Literal
 
@@ -19,6 +18,7 @@ from .system_auth import (
     visible_source_or_404,
 )
 from ..services.job_eligibility import JobEligibilityService
+from ..services.system_settings import resolve_system_setting
 
 
 _JOB_TYPE_FILTER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -132,8 +132,12 @@ def _create_job(
                 user_id=user["id"],
                 payload=refresh_payload,
                 priority=payload.priority,
-                max_attempts=int(os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")),
-                retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+                max_attempts=int(resolve_system_setting(
+                    store, user["workspace_id"], "jobs.max_attempts"
+                )),
+                retention_days=int(resolve_system_setting(
+                    store, user["workspace_id"], "jobs.retention_days"
+                )),
             )
             if created:
                 if not store.has_enabled_user_subscriptions(
@@ -181,8 +185,12 @@ def _create_job(
                 subscription_id=payload.subscription_id,
                 payload=payload.payload,
                 priority=payload.priority,
-                max_attempts=int(os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")),
-                retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+                max_attempts=int(resolve_system_setting(
+                    store, user["workspace_id"], "jobs.max_attempts"
+                )),
+                retention_days=int(resolve_system_setting(
+                    store, user["workspace_id"], "jobs.retention_days"
+                )),
             )
             if created:
                 quota.ensure_job_allowed(
@@ -213,8 +221,12 @@ def _create_job(
         job_type=job_type,
         payload=payload.payload,
         priority=payload.priority,
-        max_attempts=int(os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")),
-        retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+        max_attempts=int(resolve_system_setting(
+            store, user["workspace_id"], "jobs.max_attempts"
+        )),
+        retention_days=int(resolve_system_setting(
+            store, user["workspace_id"], "jobs.retention_days"
+        )),
     )
     quota.record_job_usage(
         workspace_id=user["workspace_id"],

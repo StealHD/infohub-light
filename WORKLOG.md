@@ -92,22 +92,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-22",
-  "result": "OpenClaw 重构 Goal 1 建立了独立 characterization tests，锁定浏览器聊天 Controller 完整字段面和本地 setup 入口兼容导出；未移动或修改生产行为。",
-  "status": "completed",
-  "task_id": "2026-08-22-openclaw-refactor-goal1-characterization",
-  "unresolved": [],
-  "validation": [
-    "新增 Vitest 与 Pytest 定向测试通过。",
-    "累计 impacted preflight 15/15 通过，覆盖控制、后端、前端、产品文档、代码尺寸和生产构建。"
-  ]
-}
-```
 
 ```json
 {
@@ -394,6 +378,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Frontend passed 83 Vitest files / 611 tests, lint, typecheck, UI and E2E contracts, and production build.",
     "Code-size, Markdown/control, JSON, syntax, product documentation, and diff checks passed.",
     "X/Instagram tests proved pending Binding creation, atomic rollback, deletion lifecycle, Web-only activation/retargeting, and zero fetch/discovery Jobs or Actor Attempts."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Implemented global 31 workspace runtime settings with 21 typed non-secret keys, Owner/Admin Web and isolated Remote MCP proposal/apply flows, hot runtime resolution, OpenClaw guidance, and migration/documentation support; no merge, push, production migration, or deployment was performed.",
+  "status": "completed",
+  "task_id": "2026-08-24-admin-mcp-system-settings",
+  "unresolved": [
+    "The merger must run the authoritative final-SHA gate before merge/release; the complete preflight was not run a third time after its second allowed fail-fast cycle."
+  ],
+  "validation": [
+    "System settings, global31 migration, REST/MCP authorization, scheduling, retention, storage governance, OpenClaw and adjacent targeted tests passed.",
+    "Frontend lint/typecheck passed; full Vitest passed 84 files and 614 tests; production build and preview artifact check passed.",
+    "Two bounded impacted-preflight runs found an observability map omission and a stale delegation error assertion; both were fixed and their failing specs passed. Full Python coverage was then completed in bounded segments, and remaining syntax, JSON, code-size, UI/E2E contract, Markdown/control and diff checks passed."
   ]
 }
 ```

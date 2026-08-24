@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time, timezone
 
 from ..storage.service_store import ServiceStore
+from .system_settings import resolve_system_setting
 
 
 class QuotaExceeded(ValueError):
@@ -24,26 +25,31 @@ class QuotaService:
         self,
         store: ServiceStore,
         *,
-        max_fetch_jobs_per_day: int = 100,
-        max_sources_per_user: int = 100,
-        max_ai_items_per_day: int = 1000,
-        max_workspace_ai_attempts_per_day: int = 1000,
-        max_workspace_fetch_attempts_per_day: int = 100,
-        max_provider_fetch_attempts_per_day: int = 100,
+        max_fetch_jobs_per_day: int | None = None,
+        max_sources_per_user: int | None = None,
+        max_ai_items_per_day: int | None = None,
+        max_workspace_ai_attempts_per_day: int | None = None,
+        max_workspace_fetch_attempts_per_day: int | None = None,
+        max_provider_fetch_attempts_per_day: int | None = None,
     ) -> None:
         self.store = store
-        self.max_fetch_jobs_per_day = int(max_fetch_jobs_per_day)
-        self.max_sources_per_user = int(max_sources_per_user)
-        self.max_ai_items_per_day = int(max_ai_items_per_day)
-        self.max_workspace_ai_attempts_per_day = int(
-            max_workspace_ai_attempts_per_day
-        )
-        self.max_workspace_fetch_attempts_per_day = int(
-            max_workspace_fetch_attempts_per_day
-        )
-        self.max_provider_fetch_attempts_per_day = int(
-            max_provider_fetch_attempts_per_day
-        )
+        self.max_fetch_jobs_per_day = max_fetch_jobs_per_day
+        self.max_sources_per_user = max_sources_per_user
+        self.max_ai_items_per_day = max_ai_items_per_day
+        self.max_workspace_ai_attempts_per_day = max_workspace_ai_attempts_per_day
+        self.max_workspace_fetch_attempts_per_day = max_workspace_fetch_attempts_per_day
+        self.max_provider_fetch_attempts_per_day = max_provider_fetch_attempts_per_day
+
+    def _limit(
+        self,
+        workspace_id: str,
+        attribute: str,
+        key: str,
+    ) -> int:
+        explicit = getattr(self, attribute)
+        if explicit is not None:
+            return int(explicit)
+        return int(resolve_system_setting(self.store, workspace_id, key))
 
     @staticmethod
     def _today_start(now: datetime | None = None) -> datetime:
@@ -67,7 +73,9 @@ class QuotaService:
             event_types=["source_test", "source_fetch", "user_feed_refresh"],
             since=self._today_start(now),
         )
-        if used >= self.max_fetch_jobs_per_day:
+        if used >= self._limit(
+            workspace_id, "max_fetch_jobs_per_day", "limits.max_fetch_jobs_per_day"
+        ):
             raise QuotaExceeded("daily fetch job quota exceeded")
 
     def ensure_source_allowed(
@@ -143,7 +151,9 @@ class QuotaService:
             (user_id, workspace_id),
         ).fetchone()
         used = int(row["total"] if row is not None else 0)
-        if used >= self.max_sources_per_user:
+        if used >= self._limit(
+            workspace_id, "max_sources_per_user", "limits.max_sources_per_user"
+        ):
             raise QuotaExceeded("enabled source quota exceeded")
 
     def admit_ai_item(
@@ -165,7 +175,9 @@ class QuotaService:
                 event_types=["ai_item"],
                 since=self._today_start(now),
             )
-            if used >= self.max_ai_items_per_day:
+            if used >= self._limit(
+                workspace_id, "max_ai_items_per_day", "limits.max_ai_items_per_day"
+            ):
                 raise QuotaExceeded("daily AI item quota exceeded")
             self.store.record_usage_event(
                 workspace_id=workspace_id,
@@ -206,7 +218,11 @@ class QuotaService:
                 """,
                 (workspace_id, since),
             ).fetchone()
-            if int(workspace_row["total"] or 0) >= self.max_workspace_fetch_attempts_per_day:
+            if int(workspace_row["total"] or 0) >= self._limit(
+                workspace_id,
+                "max_workspace_fetch_attempts_per_day",
+                "limits.max_workspace_fetch_attempts_per_day",
+            ):
                 raise QuotaExceeded("workspace fetch attempt quota exceeded")
             provider_row = conn.execute(
                 """
@@ -219,7 +235,11 @@ class QuotaService:
                 """,
                 (workspace_id, provider, since),
             ).fetchone()
-            if int(provider_row["total"] or 0) >= self.max_provider_fetch_attempts_per_day:
+            if int(provider_row["total"] or 0) >= self._limit(
+                workspace_id,
+                "max_provider_fetch_attempts_per_day",
+                "limits.max_provider_fetch_attempts_per_day",
+            ):
                 raise QuotaExceeded("provider fetch attempt quota exceeded")
             self.store.record_usage_event(
                 workspace_id=workspace_id,
@@ -260,7 +280,11 @@ class QuotaService:
                 """,
                 (workspace_id, since),
             ).fetchone()
-            if int(row["total"] or 0) >= self.max_workspace_ai_attempts_per_day:
+            if int(row["total"] or 0) >= self._limit(
+                workspace_id,
+                "max_workspace_ai_attempts_per_day",
+                "limits.max_workspace_ai_attempts_per_day",
+            ):
                 raise QuotaExceeded("workspace AI attempt quota exceeded")
             self.store.record_usage_event(
                 workspace_id=workspace_id,

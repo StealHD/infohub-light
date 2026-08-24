@@ -60,6 +60,7 @@ def register_diagnostic_tools(
             "job",
             "acquisition",
             "storage",
+            "system_settings",
         ]
         | None = None,
         outcome: Literal[

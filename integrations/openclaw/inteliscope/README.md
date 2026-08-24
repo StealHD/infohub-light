@@ -46,6 +46,18 @@ openclaw mcp doctor inteliscope --probe
 openclaw mcp status --verbose
 ```
 
+### Admin system-settings connection
+
+Only for an Owner/Admin system-settings connection created in Inteliscope Web,
+expose the thirteen read tools plus the three system-settings tools. This
+connection does not include subscription mutations:
+
+```bash
+openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","search_bilibili_users","resolve_source","list_available_sources","diagnose_source","diagnose_job","query_operation_logs","list_system_settings","prepare_update_system_settings","apply_system_settings_change"]}}'
+openclaw mcp doctor inteliscope --probe
+openclaw mcp status --verbose
+```
+
 Do not set OAuth; 不要运行 `openclaw mcp login`。Do not put a credential in chat. If one is pasted, do not use or repeat it: rotate it in Web SecretStore, create a new Web connection if needed, update the local environment file, then revoke the old connection.
 
 When Inteliscope enables browser chat, the Web page connects directly to the

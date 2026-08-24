@@ -4,10 +4,11 @@
 ## 当前能力状态
 
 - 核心：小团体账号与角色、来源订阅、共享获取、用户作用域 Feed/History、Worker 队列、React/HeroUI Service UI、受保护媒体、可观测性和本地 OpenClaw 直连。
-- 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
+- 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、迁移读路径和首库 `release_rc1.sh`；不代表默认能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
-- 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps 现役 schema v17–v24、付费 Canary、自动新鲜度站立授权、外部 Webhook/Telegram/Email 验收。global 25 的 auto-pool 实验表若已存在仅作惰性历史数据，不属于 readiness、fresh bootstrap 或运行时依赖；后续全局迁移从 26 继续。
-- ActorOps v2 单轨：Phase 0–8 已完成，v2 是 UI/API/来源/抓取/Worker 的唯一运行面，Route 仅 `active|disabled`。global 30 缺失仅 ActorOps 返回 migration-required；不部署或调用付费服务。
+- 已实现但须独立批准：Feed storage v3、通知 v14–v16、ActorOps v17–v24、付费 Canary、自动新鲜度与外部通知。global 25 仅作惰性历史数据；后续迁移从 26 继续。
+- ActorOps v2 单轨：Phase 0–8 已完成，v2 独占 UI/API/来源/抓取/Worker；Route 仅 `active|disabled`。缺 global 30 时仅 ActorOps 返回 migration-required；不调用付费服务。
+- 系统参数：global 31 提供 21 项 workspace 热调；Owner/Admin Web 与独立 MCP 共用 proposal、精确确认和 generation CAS；已有库须离线迁移；排除秘密、端点和付费 Actor。
 - OpenClaw 全来源订阅已实现；社交源仅建 pending Binding。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。

@@ -193,15 +193,7 @@ class UserAnalysisCache:
         connection.commit()
 
     def _quota(self) -> QuotaService:
-        return QuotaService(
-            self.service_store,
-            max_ai_items_per_day=int(
-                os.getenv("INFOHUB_MAX_AI_ITEMS_PER_DAY", "1000")
-            ),
-            max_workspace_ai_attempts_per_day=int(
-                os.getenv("INFOHUB_MAX_WORKSPACE_AI_ATTEMPTS_PER_DAY", "1000")
-            ),
-        )
+        return QuotaService(self.service_store)
 
     def before_ai_item(self, *, provider: str) -> None:
         """Admit one logical cache-miss item before any provider retries."""

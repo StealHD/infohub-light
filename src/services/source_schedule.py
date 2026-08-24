@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -19,6 +18,8 @@ from .actorops.repository import ActorOpsNotFound
 from .job_queue import JobQueue
 from .quota import QuotaExceeded, QuotaService
 from .source_type_registry import is_youtube_channel_config
+from .system_settings import resolve_system_setting
+from .schedule_runtime import due_source_schedule_rows
 
 
 SOURCE_ALLOWED_INTERVALS = (30, 60, 180, 360, 720, 1440)
@@ -59,21 +60,16 @@ class SourceScheduleService:
     ) -> None:
         self.store = store
         self.queue = JobQueue(store)
-        self.quota = quota or QuotaService(
-            store,
-            max_fetch_jobs_per_day=int(
-                os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")
-            ),
-        )
-        self.max_attempts = int(
-            max_attempts
-            if max_attempts is not None
-            else os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")
-        )
-        self.retention_days = int(
-            retention_days
-            if retention_days is not None
-            else os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+        self.quota = quota or QuotaService(store)
+        self.max_attempts = max_attempts
+        self.retention_days = retention_days
+
+    def _job_setting(self, workspace_id: str, attribute: str, key: str) -> int:
+        explicit = getattr(self, attribute)
+        return int(
+            explicit
+            if explicit is not None
+            else resolve_system_setting(self.store, workspace_id, key)
         )
 
     @staticmethod
@@ -341,17 +337,9 @@ class SourceScheduleService:
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
-            rows = conn.execute(
-                """
-                SELECT * FROM user_source_schedules
-                WHERE enabled = 1
-                  AND next_run_at IS NOT NULL
-                  AND next_run_at <= ?
-                ORDER BY next_run_at, subscription_id
-                LIMIT ?
-                """,
-                (now_iso, limit),
-            ).fetchall()
+            rows = due_source_schedule_rows(
+                self.store, now_iso=now_iso, limit=limit
+            )
             migration_required = (
                 self.store.feed_v2_migration_required()
                 or self.store.content_index_v4_migration_required()
@@ -539,8 +527,12 @@ class SourceScheduleService:
                         "subscription_id": schedule["subscription_id"],
                     },
                     priority=-10,
-                    max_attempts=self.max_attempts,
-                    retention_days=self.retention_days,
+                    max_attempts=self._job_setting(
+                        str(schedule["workspace_id"]), "max_attempts", "jobs.max_attempts"
+                    ),
+                    retention_days=self._job_setting(
+                        str(schedule["workspace_id"]), "retention_days", "jobs.retention_days"
+                    ),
                 )
                 if created:
                     self.quota.record_job_usage(

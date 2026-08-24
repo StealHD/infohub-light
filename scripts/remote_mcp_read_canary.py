@@ -39,6 +39,9 @@ ALL_REMOTE_TOOLS = (
     "diagnose_source",
     "diagnose_job",
     "query_operation_logs",
+    "list_system_settings",
+    "prepare_update_system_settings",
+    "apply_system_settings_change",
 )
 SAFE_READ_TOOLS = (
     "get_my_feed",

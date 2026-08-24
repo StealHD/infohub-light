@@ -21,6 +21,7 @@ from .worker_migration_gate import first_required_worker_startup_migration
 from .worker_housekeeping import WorkerCyclePorts, run_worker_housekeeping
 from .worker_job_policy import WORKER_CLAIMABLE_JOB_TYPES
 from .worker_retired_actorops_jobs import retire_queued_actorops_v1_jobs
+from .system_settings import resolve_system_setting
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,11 +184,6 @@ def prepare_worker_cycle(
         if lease_seconds is not None
         else os.getenv("HORIZON_WORKER_LEASE_SECONDS", "900")
     )
-    retry_base = float(
-        retry_base_seconds
-        if retry_base_seconds is not None
-        else os.getenv("HORIZON_WORKER_RETRY_BASE_SECONDS", "30")
-    )
     retire_queued_actorops_v1_jobs(store)
     _recover_stale_jobs(queue, emit_operation_event=ports.emit_operation_event)
     if enqueue_schedules:
@@ -255,6 +251,13 @@ def prepare_worker_cycle(
         subscription_id=job.get("subscription_id"),
         stage="claim",
         counts={"attempts": int(job.get("attempts") or 0)},
+    )
+    retry_base = float(
+        retry_base_seconds
+        if retry_base_seconds is not None
+        else resolve_system_setting(
+            store, str(job["workspace_id"]), "jobs.retry_base_seconds"
+        )
     )
     return PreparedWorkerCycle(
         queue=queue,

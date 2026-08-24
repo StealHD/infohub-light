@@ -14,6 +14,7 @@ from scripts.setup_openclaw_local import (
     LEGACY_READ_TOOL_FILTER,
     MANAGED_COMMENT,
     READ_TOOL_FILTER,
+    SYSTEM_SETTINGS_TOOL_FILTER,
     SetupError,
     compose_image_from_ps,
     default_origin,
@@ -144,10 +145,11 @@ def test_wrapper_is_executable_and_routes_to_python_entrypoint(tmp_path: Path) -
     assert "--dry-run" in result.stdout
 
 
-def test_managed_values_do_not_enable_subscription_writes() -> None:
+def test_managed_values_do_not_enable_remote_mcp_writes() -> None:
     source = (ROOT / "scripts" / "openclaw_setup_env.py").read_text(encoding="utf-8")
 
     assert '("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false")' in source
+    assert '("HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED", "false")' in source
     assert "INTELISCOPE_MCP_TOKEN" not in json.dumps(source)
 
 
@@ -187,6 +189,7 @@ def test_setup_refreshes_a_stale_installed_skill_and_restarts_gateway(
                 "HORIZON_REMOTE_MCP_ENABLED=true",
                 f"HORIZON_REMOTE_MCP_PUBLIC_URL={origin}/mcp",
                 "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false",
+                "HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false",
                 "HORIZON_OPENCLAW_CHAT_ENABLED=true",
                 f"HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL={gateway_url}",
                 "",
@@ -324,3 +327,6 @@ def test_standard_tool_filter_upgrade_preserves_custom_filter() -> None:
         None,
         False,
     )
+    assert standard_tool_filter_upgrade(
+        {"toolFilter": {"include": list(SYSTEM_SETTINGS_TOOL_FILTER)}}
+    ) == (None, False)
