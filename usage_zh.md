@@ -104,6 +104,15 @@ docker compose logs -f horizon-api horizon-worker
 
 镜像必须在本地构建并验证 `linux/amd64`，VPS 只执行 `docker load`。切换前脚本检查活跃 Job，并在发现残留历史 scheduler 容器时阻断。普通发布失败回滚到上一不可变 API/Worker release；包含数据库迁移的版本必须走独立 runbook。
 
+ActorOps Global 31 是独立停机迁移：停止 API/Worker 后，先只读检查，再显式应用；它不会调用 Actor 或真实来源。
+
+```bash
+.venv/bin/python scripts/migrate_actorops_v2_resilience.py --data-dir data
+.venv/bin/python scripts/migrate_actorops_v2_resilience.py --data-dir data --apply
+```
+
+应用会创建 `0600` 备份并验证完整性和外键。迁移完成前，只有 ActorOps 来源和管理链路提示需要迁移；普通 RSS/GitHub 不受影响。
+
 首次空数据库只使用 `scripts/release_rc1.sh`。失败时停止新 API/Worker 并保留诊断数据，不恢复旧 Web。
 
 ## 9. 本地启动与验证
