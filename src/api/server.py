@@ -63,6 +63,7 @@ from .secret_routes import (
     register_secret_mutation_routes,
 )
 from .storage_routes import register_storage_routes
+from .system_settings_routes import register_system_settings_routes
 from .subscription_routes import (
     register_source_health_route,
     register_subscription_delete_route,
@@ -111,6 +112,8 @@ from ..services.storage_governance import (
     StorageGovernanceError,
     StorageGovernanceService,
 )
+from ..services.system_settings import SystemSettingsService
+from ..services.system_settings_proposals import SystemSettingProposalService
 from ..services.source_schedule import SourceScheduleService
 from ..services.subscription_mutation import (
     SubscriptionActor,
@@ -381,6 +384,12 @@ SOURCE_META_KEYS = {
 }
 
 MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
+    ("POST", "/api/admin/system-settings/proposals"): (
+        "system_settings", "proposal_prepare",
+    ),
+    ("POST", "/api/admin/system-settings/proposals/{proposal_id}/apply"): (
+        "system_settings", "proposal_apply",
+    ),
     ("POST", "/api/auth/login"): ("auth", "login"),
     ("POST", "/api/auth/logout"): ("auth", "logout"),
     ("POST", "/api/me/password"): ("account", "password_change"),
@@ -579,6 +588,8 @@ def create_app(
     source_health = SourceHealthService(store)
     youtube_channels = YouTubeChannelResolver()
     storage_governance = StorageGovernanceService(store)
+    system_settings = SystemSettingsService(store)
+    system_setting_proposals = SystemSettingProposalService(store)
     secret_values = SecretStore(data_path)
     secret_quota = ApifySecretQuotaService()
     secret_values.load_into_environ()
@@ -639,21 +650,7 @@ def create_app(
                 ),
             )
 
-    quota = QuotaService(
-        store,
-        max_fetch_jobs_per_day=int(os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")),
-        max_sources_per_user=int(os.getenv("INFOHUB_MAX_SOURCES_PER_USER", "100")),
-        max_ai_items_per_day=int(os.getenv("INFOHUB_MAX_AI_ITEMS_PER_DAY", "1000")),
-        max_workspace_ai_attempts_per_day=int(
-            os.getenv("INFOHUB_MAX_WORKSPACE_AI_ATTEMPTS_PER_DAY", "1000")
-        ),
-        max_workspace_fetch_attempts_per_day=int(
-            os.getenv("INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY", "100")
-        ),
-        max_provider_fetch_attempts_per_day=int(
-            os.getenv("INFOHUB_MAX_PROVIDER_FETCH_ATTEMPTS_PER_DAY", "100")
-        ),
-    )
+    quota = QuotaService(store)
     feed_schedules = FeedScheduleService(store, quota=quota)
     source_schedules = SourceScheduleService(store, quota=quota)
     feed_reader = FeedReadService(store)
@@ -1090,6 +1087,8 @@ def create_app(
         quota=quota,
         runtime_status=runtime_status,
         storage_governance=storage_governance,
+        system_settings=system_settings,
+        system_setting_proposals=system_setting_proposals,
         apify_key_pool=apify_key_pool,
         apify_actor_alerts=apify_actor_alerts,
         source_setup_availability=source_setup_availability,
@@ -2249,6 +2248,7 @@ def create_app(
     register_catalog_list_route(app)
 
     register_storage_routes(app)
+    register_system_settings_routes(app)
 
     register_secret_list_route(app)
 

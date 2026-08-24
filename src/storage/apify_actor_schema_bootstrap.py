@@ -20,6 +20,9 @@ from .actorops_v2_single_track_schema import (
 from .actorops_v2_resilience_schema import (
     bootstrap_service_store_schema as bootstrap_actorops_v2_resilience_schema,
 )
+from .system_settings_v31_schema import (
+    bootstrap_service_store_schema as bootstrap_system_settings_schema,
+)
 
 
 def bootstrap_actor_schemas(
@@ -48,3 +51,4 @@ def bootstrap_actor_schemas(
     bootstrap_actorops_v2_resilience_schema(
         connection, existing_schema=existing_schema
     )
+    bootstrap_system_settings_schema(connection, existing_schema=existing_schema)

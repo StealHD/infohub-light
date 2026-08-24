@@ -34,6 +34,7 @@ const SettingsNotificationsPage = lazy(() => import('../features/settings/Settin
 const SettingsOverviewPage = lazy(() => import('../features/settings/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })))
 const SettingsSecretsPage = lazy(() => import('../features/settings/SettingsSecretsPage').then((module) => ({ default: module.SettingsSecretsPage })))
 const SettingsStoragePage = lazy(() => import('../features/settings/SettingsStoragePage').then((module) => ({ default: module.SettingsStoragePage })))
+const SettingsSystemPage = lazy(() => import('../features/settings/SettingsSystemPage').then((module) => ({ default: module.SettingsSystemPage })))
 
 type AppErrorBoundaryProps = { children: ReactNode; surface?: 'app' | 'page' }
 type AppErrorBoundaryState = { failed: boolean }
@@ -209,6 +210,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
         <Route path="/settings/secrets" element={<SettingsSecretsPage />} />
         <Route path="/settings/storage" element={<SettingsStoragePage />} />
+        <Route path="/settings/system" element={<SettingsSystemPage />} />
         <Route path="/settings/legacy" element={<SettingsLegacyRedirect user={user!} />} />
         <Route path="/users" element={<HeroUsersPage />} />
         <Route path="/manual" element={<HeroManualPage />} />

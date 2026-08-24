@@ -83,7 +83,7 @@ SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
 AGENT_DELEGATION_READ_SCOPE = "inteliscope:read"
 AGENT_DELEGATION_WRITE_SCOPE = "inteliscope:subscriptions:write"
 AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE = "inteliscope:diagnostics:read"
-AGENT_DELEGATION_SCOPE = AGENT_DELEGATION_READ_SCOPE
+AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE = "inteliscope:system-settings:write"
 AGENT_DELEGATION_TTL_DAYS = 90
 AGENT_DELEGATION_MAX_ACTIVE = 5
 AGENT_DELEGATION_USAGE_TOUCH_MINUTES = 15
@@ -782,10 +782,10 @@ def _scopes_for_access(
 ) -> list[str]:
     if access == "read":
         scopes = [AGENT_DELEGATION_READ_SCOPE]
-    elif access == "subscriptions_write":
-        scopes = [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
+    elif access in {"subscriptions_write", "system_settings_write"}:
+        scopes = [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE if access == "subscriptions_write" else AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE]
     else:
-        raise ValueError("access must be read or subscriptions_write")
+        raise ValueError("access must be read, subscriptions_write, or system_settings_write")
     if diagnostics_scope == "workspace":
         scopes.append(AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE)
     elif diagnostics_scope != "self":
@@ -841,7 +841,7 @@ def _safe_agent_delegation_scopes(scopes_json: Any) -> list[str]:
     allowed = {
         AGENT_DELEGATION_READ_SCOPE,
         AGENT_DELEGATION_WRITE_SCOPE,
-        AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE,
+        AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
     }
     if (
         AGENT_DELEGATION_READ_SCOPE not in scopes
@@ -853,16 +853,15 @@ def _safe_agent_delegation_scopes(scopes_json: Any) -> list[str]:
         for scope in (
             AGENT_DELEGATION_READ_SCOPE,
             AGENT_DELEGATION_WRITE_SCOPE,
-            AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE,
+            AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
         )
         if scope in scopes
     ]
 
 
 def _access_for_scopes(scopes: list[str]) -> str:
-    if AGENT_DELEGATION_WRITE_SCOPE in scopes:
-        return "subscriptions_write"
-    return "read"
+    return ("system_settings_write" if AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE in scopes
+            else "subscriptions_write" if AGENT_DELEGATION_WRITE_SCOPE in scopes else "read")
 
 
 def _diagnostics_scope_for_scopes(scopes: list[str]) -> str:
@@ -7312,11 +7311,11 @@ class ServiceStore:
             ):
                 raise LookupError("enabled user not found")
             if (
-                diagnostics_scope == "workspace"
+                (diagnostics_scope == "workspace" or access == "system_settings_write")
                 and user["role"] not in {"owner", "admin"}
             ):
                 raise PermissionError(
-                    "workspace diagnostics require owner or admin role"
+                    "delegation access requires owner or admin role"
                 )
             active_count = conn.execute(
                 """

@@ -18,6 +18,7 @@ from .actorops.readiness import require_actorops_v2_schema
 from .actorops.repository import ActorOpsRepository
 from .job_queue import JobQueue
 from .secret_store import SecretStore
+from .system_settings import resolve_system_setting
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +89,9 @@ def enqueue_due_actorops_v2_discoveries(
                     job_type="actorops_v2_discovery",
                     payload={"discovery_id": str(row["discovery_id"])},
                     priority=50, max_attempts=1,
-                    retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+                    retention_days=int(resolve_system_setting(
+                        store, workspace_id, "jobs.retention_days", connection=connection
+                    )),
                     commit=False,
                 )
                 enqueued += 1

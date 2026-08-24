@@ -27,6 +27,8 @@ from ..services.secret_store import SecretStore
 from ..services.source_health import SourceHealthService
 from ..services.source_schedule import SourceScheduleService
 from ..services.storage_governance import StorageGovernanceService
+from ..services.system_settings import SystemSettingsService
+from ..services.system_settings_proposals import SystemSettingProposalService
 from ..services.subscription_mutation import SubscriptionMutationService
 from ..services.user_content_store import UserContentStore
 from ..services.user_item_state import UserItemStateStore
@@ -68,6 +70,8 @@ class ApiContext:
     quota: QuotaService
     runtime_status: RuntimeStatusService
     storage_governance: StorageGovernanceService
+    system_settings: SystemSettingsService
+    system_setting_proposals: SystemSettingProposalService
     apify_key_pool: ApifyKeyPoolService
     apify_actor_alerts: ApifyActorAlertService
     source_setup_availability: SourceSetupAvailability

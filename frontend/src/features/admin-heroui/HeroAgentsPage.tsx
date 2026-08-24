@@ -38,23 +38,9 @@ import {
   type ConnectionAction,
 } from './HeroAgentDelegationViews'
 import { OpenClawBrowserSettings } from './HeroAgentsPageBrowserSettings'
+import { delegationAccessLabel, delegationDateTime, delegationStatus } from './HeroAgentDelegationPresentation'
 
 export { OpenClawBrowserSettings } from './HeroAgentsPageBrowserSettings'
-
-function dateTime(value: string) {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
-}
-
-function statusLabel(connection: AgentDelegation) {
-  if (connection.status === 'active') return { label: '有效', tone: 'success' as const, icon: <Icons.CircleCheck size={13} aria-hidden="true" /> }
-  if (connection.status === 'expired') return { label: '已过期', tone: 'warning' as const, icon: <Icons.ClockAlert size={13} aria-hidden="true" /> }
-  return { label: '已吊销', tone: 'neutral' as const, icon: <Icons.CircleSlash2 size={13} aria-hidden="true" /> }
-}
-
-function accessLabel(access: AgentDelegationAccess) {
-  return access === 'subscriptions_write' ? '可管理订阅' : '只读'
-}
 
 export function HeroAgentsPage() {
   const { api, user } = useAppContext()
@@ -83,7 +69,8 @@ export function HeroAgentsPage() {
   const [deleteError, setDeleteError] = useState('')
   const readConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'read'), [query.data?.mcp_url])
   const writeConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'subscriptions_write'), [query.data?.mcp_url])
-  const oneTimeConfiguration = oneTimeCredential?.access === 'subscriptions_write' ? writeConfiguration : readConfiguration
+  const systemConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'system_settings_write'), [query.data?.mcp_url])
+  const oneTimeConfiguration = oneTimeCredential ? agentConfiguration(query.data?.mcp_url || '<MCP_URL>', oneTimeCredential.access) : readConfiguration
   const oneTimeTokenWrite = oneTimeCredential ? oneTimeTokenWriteCommand(oneTimeCredential.token) : ''
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.agentDelegations(user.id) })
 
@@ -238,10 +225,10 @@ export function HeroAgentsPage() {
         <div className="grid gap-3">
         {!query.data.connections.length && <Card variant="transparent" className="p-6 text-center"><Card.Description>还没有助手连接。</Card.Description></Card>}
         {query.data.connections.map((connection) => {
-          const status = statusLabel(connection)
+          const status = delegationStatus(connection)
           return <Card key={connection.id} variant="secondary" className="p-4">
             <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center">
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><StatusIndicator iconOnly label={status.label} tone={status.tone} icon={status.icon} /><span className="type-meta inline-flex items-center gap-1 text-muted"><Icons.LockKeyhole size={12} aria-hidden="true" />{accessLabel(connection.access)}</span>{connection.diagnostics_scope === 'workspace' && <span className="type-meta text-muted">工作区诊断</span>}</div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
+              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><StatusIndicator iconOnly label={status.label} tone={status.tone} icon={status.icon} /><span className="type-meta inline-flex items-center gap-1 text-muted"><Icons.LockKeyhole size={12} aria-hidden="true" />{delegationAccessLabel(connection.access)}</span>{connection.diagnostics_scope === 'workspace' && <span className="type-meta text-muted">工作区诊断</span>}</div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${delegationDateTime(connection.last_used_at)}` : '从未使用'} · 到期 {delegationDateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
               <ConnectionCardActions
                 connection={connection}
                 open={openConnectionMenuId === connection.id}
@@ -252,11 +239,11 @@ export function HeroAgentsPage() {
           </Card>
         })}
         </div>
-        <p className="type-meta mt-3 text-muted">可管理订阅不包括密钥、共享来源、任务、Feed 条目状态或刷新操作。</p>
+        <p className="type-meta mt-3 text-muted">写入连接彼此隔离；订阅管理与系统管理不会互相获得权限，也都不包括密钥。</p>
       </AdminSection>
 
       <AdminSection title="OpenClaw MCP 配置" description="MCP token 保存在本机 ~/.openclaw/.env 并设置 0600 权限；它与 Gateway token 完全不同，也不要配置 OAuth。">
-        <div className="grid gap-3 min-[900px]:grid-cols-2">
+        <div className="grid gap-3 min-[900px]:grid-cols-3">
           <OpenClawConfigurationCard
             title="只读 · 13 个工具"
             description="读取并诊断信息流、订阅、公开来源、来源健康和任务。"
@@ -271,6 +258,14 @@ export function HeroAgentsPage() {
             configurationLabel="订阅管理 OpenClaw 配置命令"
             copyDisabled={!query.data.subscription_writes_enabled}
             onCopy={() => void copy(writeConfiguration, '订阅管理配置已复制。')}
+          />
+          <OpenClawConfigurationCard
+            title="系统管理 · 16 个工具"
+            description={query.data.system_settings_writes_enabled ? '仅可修改安全白名单参数，仍需预演、准确确认和应用。' : '生产系统参数写入当前关闭。'}
+            configuration={systemConfiguration}
+            configurationLabel="系统管理 OpenClaw 配置命令"
+            copyDisabled={!query.data.system_settings_writes_enabled || (user.role !== 'owner' && user.role !== 'admin')}
+            onCopy={() => void copy(systemConfiguration, '系统管理配置已复制。')}
           />
         </div>
       </AdminSection>
@@ -290,6 +285,7 @@ export function HeroAgentsPage() {
             options={[
               { id: 'read', label: '只读' },
               ...(user.role === 'viewer' ? [] : [{ id: 'subscriptions_write', label: '可管理订阅', isDisabled: !query.data.subscription_writes_enabled }]),
+              ...(user.role === 'owner' || user.role === 'admin' ? [{ id: 'system_settings_write', label: '系统管理', isDisabled: !query.data.system_settings_writes_enabled }] : []),
             ]}
           />
           {(user.role === 'owner' || user.role === 'admin') && <Switch
@@ -303,7 +299,8 @@ export function HeroAgentsPage() {
           </Switch>}
           {(user.role === 'owner' || user.role === 'admin') && <p className="type-meta text-muted">仅影响这次新建的令牌；旧令牌不会自动获得权限。工作区查询必须指定请求、任务、来源或订阅 ID，或者只查询 warning/error。</p>}
           {user.role !== 'viewer' && !query.data.subscription_writes_enabled && <p className="type-body text-muted">管理员尚未启用订阅管理连接；你仍可创建只读连接。</p>}
-          <p className="type-body text-muted">只读连接可读取并诊断信息流、订阅、来源健康和任务，也可查看来源配置指导。可管理订阅连接还可准备并确认私有来源和订阅变更，但不能管理密钥、共享来源、任务、Feed 条目状态或刷新操作。</p>
+          {(user.role === 'owner' || user.role === 'admin') && !query.data.system_settings_writes_enabled && <p className="type-body text-muted">管理员尚未启用系统管理连接。</p>}
+          <p className="type-body text-muted">只读连接用于浏览和诊断；订阅管理用于来源与订阅提案；系统管理仅用于安全白名单参数。两类写权限相互独立，均不能管理密钥。</p>
           {createError && <HeroNotice title={createError} />}
         </Form>
       </DialogFrame>

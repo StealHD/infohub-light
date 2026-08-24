@@ -138,3 +138,17 @@ Never ask for, receive, or supply a caller account identifier, workspace identif
 
 - Safe read, setup, public-account lookup, discovery, and diagnosis: `get_my_feed`, `get_item`, `list_subscriptions`, `source_health`, `list_jobs`, `get_job`, `get_source_setup_guide`, `search_bilibili_users`, `resolve_source`, `list_available_sources`, `diagnose_source`, `diagnose_job`, `query_operation_logs`.
 - Confirmed subscription management: `prepare_create_subscription`, `prepare_update_subscription`, `prepare_delete_subscription`, `apply_subscription_change`.
+- Admin system management: `list_system_settings`, `prepare_update_system_settings`, `apply_system_settings_change`.
+
+For an explicit system-parameter request, use only a dedicated system-management
+connection. Call `list_system_settings` first in the same turn. Accept only a
+canonical key or returned environment alias and a typed integer/boolean value;
+an explicit reset maps to `null`. A natural assignment such as
+`INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY=500` maps to exactly one returned
+allowlisted key/value pair—never to an environment-file edit. Combine at most
+20 requested settings in one proposal, display every before/after value,
+warning, effect timing, expiry, and the exact confirmation phrase, then wait.
+Call `apply_system_settings_change` only when the user's next reply exactly
+matches that phrase. Never manage secrets, authentication, endpoints, databases,
+paid Actor controls, deployments, or arbitrary environment variables through
+these tools.

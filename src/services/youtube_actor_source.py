@@ -12,6 +12,7 @@ from .actorops.binding_service import ActorOpsBindingService
 from .actorops.repository import ActorOpsRepository
 from .job_queue import JobQueue
 from .source_type_registry import is_youtube_channel_config
+from .system_settings import resolve_system_setting
 
 
 YOUTUBE_ROUTE_KEY = "youtube/channel/items"
@@ -134,7 +135,10 @@ def provision_youtube_actor_sources(store: ServiceStore) -> dict[str, int]:
                     payload={"discovery_id": str(discovery["discovery_id"])},
                     priority=50,
                     max_attempts=1,
-                    retention_days=14,
+                    retention_days=int(resolve_system_setting(
+                        store, workspace_id, "jobs.retention_days",
+                        connection=connection,
+                    )),
                     commit=False,
                 )
                 discoveries += 1

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   READ_TOOL_FILTER,
   SUBSCRIPTION_WRITE_TOOL_FILTER,
+  SYSTEM_SETTINGS_TOOL_FILTER,
   agentConfiguration,
 } from '../openclaw/openclawAgentConfiguration'
 
@@ -30,14 +31,23 @@ describe('Hero Agents OpenClaw configuration', () => {
       'prepare_delete_subscription',
       'apply_subscription_change',
     ])
+    expect(SYSTEM_SETTINGS_TOOL_FILTER).toEqual([
+      ...READ_TOOL_FILTER,
+      'list_system_settings',
+      'prepare_update_system_settings',
+      'apply_system_settings_change',
+    ])
   })
 
   it('renders only an environment placeholder and never an MCP token value', () => {
     const read = agentConfiguration('https://rb.jiefs.top/mcp', 'read')
     const write = agentConfiguration('https://rb.jiefs.top/mcp', 'subscriptions_write')
+    const system = agentConfiguration('https://rb.jiefs.top/mcp', 'system_settings_write')
     expect(read).toContain('${INTELISCOPE_MCP_TOKEN}')
     expect(read).not.toContain('prepare_create_subscription')
     expect(write).toContain('prepare_create_subscription')
     expect(write).toContain('apply_subscription_change')
+    expect(system).toContain('prepare_update_system_settings')
+    expect(system).not.toContain('prepare_create_subscription')
   })
 })

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-import os
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -13,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from .content_presentation import complete_content_presentation
+from .feed_snapshot_runtime import compact_feed_snapshots_enabled
 from .media_cache import MediaCacheService
 from .source_projection import (
     TargetSubscriptionProjection,
@@ -369,15 +369,6 @@ def _neutral_reuse_item(
     }
     item["presentation"] = complete_content_presentation(item)
     return item
-
-
-def compact_feed_snapshots_enabled() -> bool:
-    return os.getenv("HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED", "true").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 
 
 def _stable_public_value(value: Any) -> Any:
@@ -845,7 +836,7 @@ class UserFeedStore:
             2
             if (
                 int(schema_version) >= 2
-                and compact_feed_snapshots_enabled()
+                and compact_feed_snapshots_enabled(self.store, workspace_id=workspace_id)
                 and not self.store.feed_storage_v3_migration_required()
             )
             else 1

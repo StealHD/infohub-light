@@ -229,6 +229,12 @@ export const manualSections: ManualSection[] = [
         linkLabel: '打开设置',
       },
       {
+        title: '调节系统参数',
+        description: 'Owner/Admin 可在“设置 → 系统参数”调节 21 项安全白名单参数。每行会显示当前有效值来自数据库覆盖、环境变量或内置默认，并说明范围、风险和生效时机。先编辑一个或多个值并点击预演，完整核对前后值和警告，再输入页面给出的精确确认短语应用；并发修改、过期或确认不符都不会部分保存。点击“恢复环境/默认值”只删除数据库覆盖，不修改服务器环境文件。密钥、服务地址、数据库路径和 Actor 费用或启用不在这里管理。',
+        href: '/settings/system',
+        linkLabel: '打开系统参数',
+      },
+      {
         title: '查看 ActorOps 运行与告警',
         description: 'Owner/Admin 在“设置 → ActorOps”维护 X、Instagram 与 YouTube 的认证 Actor。新建平台来源会先保存为停用并建立待验证的 v2 Binding；修改账号或频道会清除旧目标的主选、最近成功和水位证据，重新验证后才能启用。名称、说明、获取条数、分析模式、频道和主题不会触发重新验证。X 与 Instagram 仅在 Binding ready 且 Route active 时抓取；Route 未启用时不会回退旧 ActorOps。YouTube 保留公开频道地址和稳定内容 ID，在 Binding ready 但 Actor Route 未启用时可使用受公共网络策略约束的免费 RSS fallback。已启动但状态未知的远端 Run 只会免费查询原 Run，不会重复付费。',
         href: '/settings/actorops',

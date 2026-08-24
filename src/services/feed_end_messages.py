@@ -777,12 +777,7 @@ def run_due_feed_end_messages_generation(
         workspace_id=claim["workspace_id"],
     )
     try:
-        QuotaService(
-            store,
-            max_workspace_ai_attempts_per_day=int(
-                os.getenv("INFOHUB_MAX_WORKSPACE_AI_ATTEMPTS_PER_DAY", "1000")
-            ),
-        ).admit_ai_attempt(
+        QuotaService(store).admit_ai_attempt(
             workspace_id=claim["workspace_id"],
             user_id=claim["user_id"],
             provider=ai_config.provider.value,

@@ -11,6 +11,7 @@ def test_remote_mcp_readonly_rollout_uses_standard_release_and_is_reversible():
         "release_vps.sh release",
         "HORIZON_REMOTE_MCP_ENABLED=true",
         "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false",
+        "HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false",
         "remote_mcp_read_canary.py verify",
         "remote_mcp_read_canary.py expect-unauthorized",
         "24 小时",

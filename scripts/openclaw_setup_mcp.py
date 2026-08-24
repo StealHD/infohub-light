@@ -40,6 +40,12 @@ FULL_TOOL_FILTER = (
     "apply_subscription_change",
     *READ_TOOL_FILTER[10:],
 )
+SYSTEM_SETTINGS_TOOL_FILTER = (
+    *READ_TOOL_FILTER,
+    "list_system_settings",
+    "prepare_update_system_settings",
+    "apply_system_settings_change",
+)
 
 
 def standard_tool_filter_upgrade(
@@ -78,6 +84,10 @@ def standard_tool_filter_upgrade(
         return READ_TOOL_FILTER, False
     if current == LEGACY_FULL_TOOL_FILTER:
         return FULL_TOOL_FILTER, False
-    if current in {READ_TOOL_FILTER, FULL_TOOL_FILTER}:
+    if current in {
+        READ_TOOL_FILTER,
+        FULL_TOOL_FILTER,
+        SYSTEM_SETTINGS_TOOL_FILTER,
+    }:
         return None, False
     return None, True

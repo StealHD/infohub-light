@@ -12,7 +12,7 @@ describe('settingsNavigation', () => {
     const ownerItems = settingsNavigationForRole('owner').flatMap((group) => group.items)
     const memberItems = settingsNavigationForRole('member').flatMap((group) => group.items)
 
-    expect(ownerItems.map((item) => item.label)).toEqual(['概览', '来源', '获取与主题', '已忽略内容', 'AI', '通知', '外观', '密钥', 'ActorOps', '存储与归档'])
+    expect(ownerItems.map((item) => item.label)).toEqual(['概览', '来源', '获取与主题', '已忽略内容', 'AI', '通知', '外观', '系统参数', '密钥', 'ActorOps', '存储与归档'])
     expect(memberItems.map((item) => item.label)).toEqual(['概览', '来源', '已忽略内容', 'AI', '通知', '外观'])
     expect(ownerItems.find((item) => item.id === 'sources')).toMatchObject({ href: '/subscriptions', bridge: true })
   })
@@ -26,6 +26,7 @@ describe('settingsNavigation', () => {
     expect(activeSettingsNavigationId('/settings/secrets', '')).toBe('secrets')
     expect(activeSettingsNavigationId('/settings/actorops', '')).toBe('actorops')
     expect(activeSettingsNavigationId('/settings/storage', '')).toBe('storage')
+    expect(activeSettingsNavigationId('/settings/system', '')).toBe('system')
     expect(activeSettingsNavigationId('/settings/legacy', '#settings-storage')).toBe('storage')
     expect(activeSettingsNavigationId('/settings/legacy', '#settings-ai')).toBe('overview')
     expect(activeSettingsNavigationId('/settings/legacy', '')).toBe('overview')
@@ -33,6 +34,7 @@ describe('settingsNavigation', () => {
     expect(settingsWorkspaceTitle('/settings/ignored', '')).toBe('已忽略内容')
     expect(settingsWorkspaceTitle('/settings/fetching', '')).toBe('获取与主题')
     expect(settingsWorkspaceTitle('/settings/storage', '')).toBe('存储与归档')
+    expect(settingsWorkspaceTitle('/settings/system', '')).toBe('系统参数')
   })
 
   it('keeps old hashes compatible without exposing administrator pages to members', () => {
@@ -47,6 +49,8 @@ describe('settingsNavigation', () => {
     expect(settingsDestinationFromLegacyHash('#settings-actorops', 'owner')).toBe('/settings/actorops')
     expect(settingsDestinationFromLegacyHash('#settings-storage', 'owner')).toBe('/settings/storage')
     expect(settingsDestinationFromLegacyHash('#settings-storage', 'member')).toBe('/settings')
+    expect(settingsDestinationFromLegacyHash('#settings-system', 'owner')).toBe('/settings/system')
+    expect(settingsDestinationFromLegacyHash('#settings-system', 'member')).toBe('/settings')
     expect(settingsDestinationFromLegacyHash('#settings-unknown', 'owner')).toBe('/settings')
   })
 })

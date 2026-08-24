@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol
@@ -23,6 +22,7 @@ from ..services.actorops.admin_service import (
 )
 from ..services.actorops.repository import ActorOpsConflict, ActorOpsNotFound, ActorOpsRepository
 from ..services.operation_log import safe_emit_operation_event
+from ..services.system_settings import resolve_system_setting
 
 
 class ActorOpsV2OperatorContext(Protocol):
@@ -114,7 +114,7 @@ def _register_candidate_routes(app: FastAPI, context: ActorOpsV2OperatorContext)
             route = repository.get_route(route_id)
             if route.generation != payload.expected_route_generation:
                 raise ActorOpsConflict("route changed before metadata refresh")
-            job = context.job_queue.create_job(workspace_id=workspace_id, user_id=str(user["id"]), job_type="actorops_v2_metadata_refresh", payload={"route_id": route_id}, priority=-10, max_attempts=1, retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")))
+            job = context.job_queue.create_job(workspace_id=workspace_id, user_id=str(user["id"]), job_type="actorops_v2_metadata_refresh", payload={"route_id": route_id}, priority=-10, max_attempts=1, retention_days=int(resolve_system_setting(context.store, workspace_id, "jobs.retention_days")))
         except (ActorOpsConflict, ActorOpsNotFound) as error:
             raise _conflict("actorops_v2_metadata_conflict", "路线已更新，请刷新后再更新商城信息。", error) from error
         except RuntimeError as error:

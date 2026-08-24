@@ -185,3 +185,4 @@
 | D179 | OpenClaw 订阅覆盖全部用户来源且付费平台先建立停用绑定 | 2026-08-23 | [查看](records/D176-D200.md#d179) |
 | D180 | X 账号订阅默认排除断上下文回复 | 2026-08-24 | [查看](records/D176-D200.md#d180) |
 | D181 | ActorOps 用来源级交叉验证、异步 repair 与安全执行链路维持健康 | 2026-08-24 | [查看](records/D176-D200.md#d181) |
+| D182 | 系统运行参数采用 typed workspace override 与独立 Admin MCP 授权 | 2026-08-24 | [查看](records/D176-D200.md#d182) |

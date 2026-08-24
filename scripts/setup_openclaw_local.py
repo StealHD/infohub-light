@@ -38,7 +38,7 @@ from scripts.openclaw_setup_mcp import (
     FULL_TOOL_FILTER,
     LEGACY_FULL_TOOL_FILTER,
     LEGACY_READ_TOOL_FILTER,
-    READ_TOOL_FILTER,
+    READ_TOOL_FILTER, SYSTEM_SETTINGS_TOOL_FILTER,
     standard_tool_filter_upgrade,
 )
 from scripts.openclaw_setup_process import CommandRunner, json_output as _json_output

@@ -132,11 +132,30 @@ Current cold storage is owned by `StorageGovernanceService` and lives under priv
 HORIZON_REMOTE_MCP_ENABLED=false
 HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
 HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=false
 HORIZON_OPENCLAW_CHAT_ENABLED=false
 HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 ```
 
-`/mcp` is the only MCP server. It uses delegation tokens and the same ServiceStore boundaries as REST. The repository does not ship `horizon-mcp`, a local run store, or legacy fetch/AI/config tools.
+`/mcp` is the only MCP server. It uses delegation tokens and the same ServiceStore boundaries as REST. Subscription management and Owner/Admin system management use separate connections and separate default-off write flags.
+
+## Workspace system settings
+
+Global schema 31 adds typed workspace overrides for 21 safe capacity, Job,
+retention, storage and shared-acquisition settings. Resolution is database
+override, then the documented environment variable, then the compiled default.
+Owner/Admin may use `/settings/system` or an explicitly created system-management
+MCP connection; both require preview, the exact confirmation phrase and a
+generation compare-and-swap. Secrets, endpoints, database paths, Actor cost or
+activation, and arbitrary environment names are excluded.
+
+Fresh databases create schema 31 automatically. For an existing database stop
+API and Worker, preview, then explicitly apply with a private backup:
+
+```bash
+python scripts/migrate_system_settings_v31.py --data-dir data
+python scripts/migrate_system_settings_v31.py --data-dir data --apply
+```
 
 ## Retired-data boundary
 

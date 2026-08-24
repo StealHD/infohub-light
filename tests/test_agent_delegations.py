@@ -391,7 +391,7 @@ def test_delegation_access_rejects_unknown_values(tmp_path, monkeypatch):
     store.initialize()
     user = store.get_user_by_username("owner")
 
-    with pytest.raises(ValueError, match="access must be read or subscriptions_write"):
+    with pytest.raises(ValueError, match="access must be read, subscriptions_write, or system_settings_write"):
         store.create_agent_delegation(
             workspace_id=user["workspace_id"],
             user_id=user["id"],

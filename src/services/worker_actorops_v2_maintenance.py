@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ from .actorops.repository import ActorOpsRepository
 from .apify_pool_runtime import apify_coordinator_for_workspace
 from .job_queue import JobQueue
 from .worker_actorops_v2_discovery import _catalog
+from .system_settings import resolve_system_setting
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +125,9 @@ def enqueue_due_actorops_v2_maintenance(
                         "binding_version": int(binding["binding_version"]), "slot": slot,
                     },
                     priority=-10, max_attempts=1,
-                    retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")), commit=False,
+                    retention_days=int(resolve_system_setting(
+                        store, workspace_id, "jobs.retention_days", connection=connection
+                    )), commit=False,
                 )
                 enqueued += 1
                 if enqueued >= limit:

@@ -405,3 +405,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-24",
+  "result": "Implemented global 31 workspace runtime settings with 21 typed non-secret keys, Owner/Admin Web and isolated Remote MCP proposal/apply flows, hot runtime resolution, OpenClaw guidance, and migration/documentation support; no merge, push, production migration, or deployment was performed.",
+  "status": "completed",
+  "task_id": "2026-08-24-admin-mcp-system-settings",
+  "unresolved": [
+    "The merger must run the authoritative final-SHA gate before merge/release; the complete preflight was not run a third time after its second allowed fail-fast cycle."
+  ],
+  "validation": [
+    "System settings, global31 migration, REST/MCP authorization, scheduling, retention, storage governance, OpenClaw and adjacent targeted tests passed.",
+    "Frontend lint/typecheck passed; full Vitest passed 84 files and 614 tests; production build and preview artifact check passed.",
+    "Two bounded impacted-preflight runs found an observability map omission and a stale delegation error assertion; both were fixed and their failing specs passed. Full Python coverage was then completed in bounded segments, and remaining syntax, JSON, code-size, UI/E2E contract, Markdown/control and diff checks passed."
+  ]
+}
+```

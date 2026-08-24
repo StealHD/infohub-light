@@ -23,6 +23,8 @@ from .source_projection import (
     TargetSubscriptionProjection,
     target_subscription_projection,
 )
+from .system_settings import resolve_system_setting
+from .system_settings_registry import SYSTEM_SETTING_DEFINITIONS, parse_environment_value
 
 if TYPE_CHECKING:
     from ..storage.service_store import ServiceStore
@@ -156,13 +158,18 @@ def _with_actor_publication_proof(
     return with_publication_proof(items, proof)
 
 
-def shared_acquisition_enabled() -> bool:
-    return os.getenv("HORIZON_SHARED_ACQUISITION_ENABLED", "false").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+def shared_acquisition_enabled(
+    store: ServiceStore | None = None,
+    *,
+    workspace_id: str = "default",
+) -> bool:
+    if store is None:
+        return bool(parse_environment_value(
+            SYSTEM_SETTING_DEFINITIONS["acquisition.shared_enabled"]
+        ))
+    return bool(resolve_system_setting(
+        store, workspace_id, "acquisition.shared_enabled"
+    ))
 
 
 def _utcnow() -> datetime:
@@ -179,13 +186,6 @@ def _parse_time(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-
-
-def _bounded_env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    try:
-        return max(int(os.getenv(name, str(default))), minimum)
-    except (TypeError, ValueError):
-        return max(default, minimum)
 
 
 def _normalized_network_value(value: Any) -> Any:
@@ -599,13 +599,9 @@ class SourceAcquisitionCoordinator:
             """,
             (source_id, source_id),
         ).fetchone()
-        minimum = _bounded_env_int("HORIZON_SHARED_ACQUISITION_MIN_TTL_MINUTES", 5)
-        maximum = _bounded_env_int("HORIZON_SHARED_ACQUISITION_MAX_TTL_MINUTES", 60)
-        if maximum < minimum:
-            maximum = minimum
-        fallback = _bounded_env_int(
-            "HORIZON_SHARED_ACQUISITION_FALLBACK_TTL_MINUTES", 30
-        )
+        minimum = int(resolve_system_setting(self.store, self.workspace_id, "acquisition.min_ttl_minutes"))
+        maximum = int(resolve_system_setting(self.store, self.workspace_id, "acquisition.max_ttl_minutes"))
+        fallback = int(resolve_system_setting(self.store, self.workspace_id, "acquisition.fallback_ttl_minutes"))
         scheduled = int(row["interval_minutes"]) if row and row["interval_minutes"] else fallback
         return min(max(scheduled, minimum), maximum)
 
@@ -980,9 +976,7 @@ class SourceAcquisitionCoordinator:
     ) -> None:
         conn = self.store.connect()
         now = _utcnow()
-        base_seconds = _bounded_env_int(
-            "HORIZON_SHARED_ACQUISITION_FAILURE_BACKOFF_SECONDS", 30
-        )
+        base_seconds = int(resolve_system_setting(self.store, self.workspace_id, "acquisition.failure_backoff_seconds"))
         try:
             if conn.in_transaction:
                 conn.rollback()

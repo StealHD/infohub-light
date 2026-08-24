@@ -26,6 +26,8 @@ _DENIED_OUTCOMES = {
     "write_scope_required",
     "diagnostics_scope_required",
     "diagnostics_filter_required",
+    "system_settings_scope_required",
+    "system_settings_writes_disabled",
     "rate_limited",
 }
 

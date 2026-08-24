@@ -11,3 +11,5 @@ export const codeHealthMaintenanceEntry = {
     { title: '低频界面改为按需加载', description: '登录、Settings 外壳与 OpenClaw 对话视图按需分包，首屏 JavaScript 门禁收紧到 240 KiB；OpenClaw 后台运行和重连状态仍由常驻外壳保持。TypeScript 会阻止未使用代码，Fast Refresh 也改为零警告门禁。' },
   ],
 } satisfies ChangelogEntry
+
+export { systemSettingsChangelogEntry } from './systemSettingsChangelogEntry'

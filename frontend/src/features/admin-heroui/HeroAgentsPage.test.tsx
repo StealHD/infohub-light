@@ -56,9 +56,16 @@ const writeTools = [
   'apply_subscription_change',
 ]
 
+const systemTools = [
+  ...readTools,
+  'list_system_settings', 'prepare_update_system_settings',
+  'apply_system_settings_change',
+]
+
 const listing: AgentDelegationsResponse = {
   enabled: true,
   subscription_writes_enabled: true,
+  system_settings_writes_enabled: true,
   mcp_url: 'https://example.test/mcp',
   token_ttl_days: 90,
   max_active: 5,
@@ -253,6 +260,26 @@ describe('HeroAgentsPage delegation access', () => {
     expect(includedTools(configuration)).toEqual(readTools)
   })
 
+  it('creates an owner-only system-management connection with sixteen tools', async () => {
+    const browser = userEvent.setup()
+    const { api } = renderPage(listing, owner)
+    vi.mocked(api.createAgentDelegation).mockResolvedValueOnce({
+      connection: { ...listing.connections[0], access: 'system_settings_write' },
+      token: 'ih_mcp_v1_one_time_secret',
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.type(within(dialog).getByRole('textbox', { name: '连接名称' }), 'System Mac')
+    await browser.click(within(dialog).getByRole('button', { name: /访问权限/ }))
+    await browser.click(screen.getByRole('option', { name: '系统管理' }))
+    await browser.click(within(dialog).getByRole('button', { name: '生成一次性令牌' }))
+
+    expect(api.createAgentDelegation).toHaveBeenCalledWith('System Mac', 'system_settings_write', 'self')
+    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
+    expect(includedTools(within(tokenDialog).getByLabelText('OpenClaw 配置命令').textContent || '')).toEqual(systemTools)
+  })
+
   it('lets an owner explicitly grant workspace diagnostics to only the new token', async () => {
     const browser = userEvent.setup()
     const { api } = renderPage(listing, owner)
@@ -320,6 +347,7 @@ describe('HeroAgentsPage delegation access', () => {
     const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
     await browser.click(within(dialog).getByRole('button', { name: /访问权限/ }))
     expect(screen.queryByRole('option', { name: '可管理订阅' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '系统管理' })).not.toBeInTheDocument()
     expect(
       within(dialog).queryByRole('switch', {
         name: '允许读取工作区故障诊断',
@@ -374,7 +402,7 @@ describe('HeroAgentsPage delegation access', () => {
     expect(configuration).toContain('${INTELISCOPE_MCP_TOKEN}')
     expect(configuration).not.toContain('ih_mcp_v1_one_time_secret')
     expect(screen.getByText('可管理订阅')).toBeInTheDocument()
-    expect(screen.getByText('可管理订阅不包括密钥、共享来源、任务、Feed 条目状态或刷新操作。')).toBeInTheDocument()
+    expect(screen.getByText('写入连接彼此隔离；订阅管理与系统管理不会互相获得权限，也都不包括密钥。')).toBeInTheDocument()
   })
 
   it('keeps the one-time token in a non-dismissible dialog and clears it explicitly', async () => {

@@ -95,6 +95,14 @@ export function SettingsOverviewPage() {
             state={returnState}
           />
           {admin && <SettingsCard
+            title="系统参数"
+            description="调节配额、任务、保留、存储与共享采集的安全白名单参数。"
+            icon={<Icons.SlidersHorizontal size={18} aria-hidden="true" />}
+            status={<StatusBadge tone="warning">管理员</StatusBadge>}
+            to="/settings/system"
+            state={returnState}
+          />}
+          {admin && <SettingsCard
             title="密钥"
             description="管理工作区服务密钥和 Apify 主备 Key 池。"
             icon={<Icons.KeyRound size={18} aria-hidden="true" />}

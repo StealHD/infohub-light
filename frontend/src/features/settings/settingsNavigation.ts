@@ -1,7 +1,7 @@
 import { Icons, type LucideIcon } from '../../design-system'
 
 export type SettingsRole = 'owner' | 'admin' | 'member' | 'viewer'
-export type SettingsNavigationId = 'overview' | 'sources' | 'fetching' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'secrets' | 'actorops' | 'storage'
+export type SettingsNavigationId = 'overview' | 'sources' | 'fetching' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'system' | 'secrets' | 'actorops' | 'storage'
 
 export type SettingsNavigationItem = {
   id: SettingsNavigationId
@@ -45,7 +45,10 @@ export const SETTINGS_NAVIGATION_GROUPS: readonly SettingsNavigationGroup[] = [
   {
     id: 'system',
     label: '系统',
-    items: [{ id: 'appearance', label: '外观', href: '/settings/appearance', icon: Icons.SunMoon }],
+    items: [
+      { id: 'appearance', label: '外观', href: '/settings/appearance', icon: Icons.SunMoon },
+      { id: 'system', label: '系统参数', href: '/settings/system', icon: Icons.SlidersHorizontal, adminOnly: true },
+    ],
   },
   {
     id: 'developer',
@@ -79,6 +82,7 @@ export function activeSettingsNavigationId(pathname: string, hash: string): Sett
   if (pathname === '/settings/secrets') return 'secrets'
   if (pathname === '/settings/actorops') return 'actorops'
   if (pathname === '/settings/storage') return 'storage'
+  if (pathname === '/settings/system') return 'system'
   if (pathname === '/settings/legacy' && hash.replace(/^#/, '') === 'settings-storage') return 'storage'
   return 'overview'
 }
@@ -98,5 +102,6 @@ export function settingsDestinationFromLegacyHash(hash: string, role: SettingsRo
   if (id === 'settings-secrets' && canAdministerSettings(role)) return '/settings/secrets'
   if (id === 'settings-actorops' && canAdministerSettings(role)) return '/settings/actorops'
   if (id === 'settings-storage' && canAdministerSettings(role)) return '/settings/storage'
+  if (id === 'settings-system' && canAdministerSettings(role)) return '/settings/system'
   return '/settings'
 }

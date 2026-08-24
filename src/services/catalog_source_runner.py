@@ -240,7 +240,7 @@ def run_catalog_source_fetch(
                 job_id=str(job["id"]),
             )
         if (
-            shared_acquisition_enabled()
+            shared_acquisition_enabled(store, workspace_id=str(job["workspace_id"]))
             and hasattr(orchestrator, "set_service_acquisition_coordinator")
         ):
             orchestrator.set_service_acquisition_coordinator(

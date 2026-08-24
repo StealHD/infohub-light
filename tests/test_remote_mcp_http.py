@@ -117,7 +117,7 @@ async def test_remote_mcp_uses_exact_path_static_bearer_and_transport_security(
 
 
 @pytest.mark.anyio
-async def test_real_mcp_client_lists_seventeen_tools_with_exact_annotations_and_calls_reads(
+async def test_real_mcp_client_lists_twenty_tools_with_exact_annotations_and_calls_reads(
     tmp_path, monkeypatch
 ):
     app = _app(tmp_path, monkeypatch)
@@ -209,6 +209,9 @@ async def test_real_mcp_client_lists_seventeen_tools_with_exact_annotations_and_
         "diagnose_source",
         "diagnose_job",
         "query_operation_logs",
+        "list_system_settings",
+        "prepare_update_system_settings",
+        "apply_system_settings_change",
     ]
     get_item_schema = next(
         tool.inputSchema for tool in listed.tools if tool.name == "get_item"
@@ -265,6 +268,7 @@ async def test_real_mcp_client_lists_seventeen_tools_with_exact_annotations_and_
         "diagnose_source",
         "diagnose_job",
         "query_operation_logs",
+        "list_system_settings",
     }:
         assert annotations[name].readOnlyHint is True
         assert annotations[name].destructiveHint is False

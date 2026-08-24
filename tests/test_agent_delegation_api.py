@@ -58,6 +58,7 @@ def test_agent_delegation_api_lists_when_disabled_but_rejects_creation(
             "enabled": False,
             "mcp_url": "",
             "subscription_writes_enabled": False,
+            "system_settings_writes_enabled": False,
             "openclaw_chat": {
                 "enabled": False,
                 "default_gateway_url": "ws://127.0.0.1:18789",

@@ -29,6 +29,7 @@ class RemoteMCPSettings:
     enabled: bool
     public_url: str
     subscription_writes_enabled: bool = False
+    system_settings_writes_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "RemoteMCPSettings":
@@ -36,11 +37,15 @@ class RemoteMCPSettings:
         subscription_writes_enabled = _boolean_env(
             "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED"
         )
+        system_settings_writes_enabled = _boolean_env(
+            "HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED"
+        )
         public_url = os.getenv("HORIZON_REMOTE_MCP_PUBLIC_URL", "").strip()
         settings = cls(
             enabled=enabled,
             public_url=public_url,
             subscription_writes_enabled=subscription_writes_enabled,
+            system_settings_writes_enabled=system_settings_writes_enabled,
         )
         settings.validate()
         return settings
@@ -48,6 +53,8 @@ class RemoteMCPSettings:
     def validate(self) -> None:
         if self.subscription_writes_enabled and not self.enabled:
             raise ValueError("subscription writes require Remote MCP to be enabled")
+        if self.system_settings_writes_enabled and not self.enabled:
+            raise ValueError("system settings writes require Remote MCP to be enabled")
         if not self.enabled:
             return
         if not self.public_url:
