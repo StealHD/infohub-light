@@ -11,6 +11,15 @@ const candidate = {
 }
 
 describe('ActorOpsV2ActorChip', () => {
+  it('keeps one pointer cursor on the full Popover trigger instead of switching at the Chip boundary', () => {
+    render(<ActorOpsV2ActorChip candidate={candidate} />)
+
+    const trigger = screen.getByRole('button', { name: '查看Instagram Profile Posts Scraper商城信息' })
+    expect(trigger).toHaveClass('cursor-pointer')
+    expect(trigger).toHaveClass('inline-flex')
+    expect(trigger.querySelector('[data-slot="chip"]')).not.toHaveClass('cursor-pointer')
+  })
+
   it('keeps the preview open while moving from the chip to its interactive surface, then closes after leaving both', async () => {
     const browser = userEvent.setup()
     render(<ActorOpsV2ActorChip candidate={candidate} />)
@@ -18,6 +27,8 @@ describe('ActorOpsV2ActorChip', () => {
     const trigger = screen.getByRole('button', { name: '查看Instagram Profile Posts Scraper商城信息' })
     await browser.hover(trigger)
     const dialog = await screen.findByRole('dialog', { name: 'Instagram Profile Posts Scraper 商城信息' })
+    expect(screen.queryByTestId('underlay')).not.toBeInTheDocument()
+    expect(trigger).not.toHaveAttribute('aria-hidden')
     await browser.unhover(trigger)
     await browser.hover(dialog)
     expect(screen.getByRole('link', { name: '打开 Apify' })).toBeInTheDocument()

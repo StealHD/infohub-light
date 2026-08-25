@@ -10,48 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "Completed ActorOps Phase 8: v2 is the only online route, binding, source, Worker and browser path; global 30 is the direct gate, fresh stores seed v2 plus shared alerts, and historical v1 runtime was removed while offline migration/audit/retirement remains isolated.",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-v2-phase8-runtime-retirement",
-  "unresolved": [],
-  "validation": [
-    "Full Python suite passed.",
-    "Vitest passed: 76 files and 595 tests.",
-    "Impacted preflight passed 17/17, including code size, docs, controls, frontend build and lint.",
-    "No deployment, tag, push, real Actor, AI or paid source call was performed."
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "为已合入 main 的 ActorOps v2 单轨化与 OpenClaw 模块化变更准备 v2.4.0 发布版本，保留显式数据库迁移与主分支 Gate 作为部署前置。",
-  "status": "completed",
-  "task_id": "2026-08-23-release-v2-4-0",
-  "unresolved": [
-    "等待精确最终 main SHA 的 CI；VPS 需在受控停机窗口显式执行 global 29→30。"
-  ],
-  "validation": [
-    "v2.4.0 仅更新 pyproject 产品版本；manual 与 changelog 已复核。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
     "phase"
   ],
   "recorded_on": "2026-08-23",
@@ -402,6 +360,42 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "定向 release Playwright：7 passed、2 intentional skipped",
     "HeroWorkbenchShell Vitest：30 passed",
     "完整 release UI Gate：6/6 commands passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "修复 ActorOps 公开商城 Actor 标签的指针抖动：将指针语义固定在 HeroUI Popover 的完整触发器上，去除仅内部 Chip 为手型导致的命中边界切换；本地运行时已更新。",
+  "status": "completed",
+  "task_id": "2026-08-25-actorops-marketplace-cursor-stability",
+  "unresolved": [],
+  "validation": [
+    "ActorOpsV2ActorChip Vitest 3 项通过。",
+    "UI contract、TypeScript、ESLint 与 impacted preflight 11/11 通过。",
+    "本地 API/Worker 均 healthy，runtime health 确认 revision cd37ed599b28-dirty。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "纠正 ActorOps 商城 hover 抖动根因：HeroUI 默认模态 Popover 的全屏 underlay 会让静止指针下的 Trigger 退出命中并反复开关；商城预览改为非模态，Trigger 与交互浮层可同时命中。",
+  "status": "completed",
+  "task_id": "2026-08-25-actorops-marketplace-hover-stability",
+  "unresolved": [],
+  "validation": [
+    "ActorOpsV2ActorChip Vitest 3 项、UI contract、TypeScript 与 ESLint 通过。",
+    "本地容器重建后 API/Worker healthy。",
+    "当前 ActorOps 页面同坐标连续 12 帧均为 pointer、triggerHit=true、popoverCount=1、underlayCount=0；移开后 240ms 正常关闭。"
   ]
 }
 ```

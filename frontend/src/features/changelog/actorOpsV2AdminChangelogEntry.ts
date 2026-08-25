@@ -7,7 +7,7 @@ export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
     summary: 'RSSHub 服务卡现在把连接状态、服务地址和边界说明分层呈现，访问密钥不再跳转到无法管理它的通用密钥页。',
     items: [
       { title: '状态与操作更清楚', description: '页面明确显示已配置、未配置或环境托管；页面托管时可直接配置、轮换或经确认移除 write-only 访问密钥，环境托管值只允许由运维处理。' },
-      { title: 'Actor 商城资料可安心查看', description: 'Actor 标签悬停、聚焦或触屏点击可打开公开商城资料；可移动到浮层继续访问“打开 Apify”，离开整体区域或按 Escape 后才关闭。' },
+      { title: 'Actor 商城资料可安心查看', description: 'Actor 标签悬停、聚焦或触屏点击可打开公开商城资料；浮层不会遮断标签命中或抢走指针焦点，整个标签保持稳定手型光标，可移动到浮层继续访问“打开 Apify”，离开整体区域或按 Escape 后才关闭。' },
     ],
   },
   {

@@ -5,7 +5,7 @@ import { actorOpsV2CandidateLabel, actorOpsV2PriceLabel, actorOpsV2PublicActorSl
 
 export function ActorOpsV2ActorChip({ candidate }: { candidate: ActorOpsV2CandidateView | null }) {
   const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const hoverIntent = useHoverPopoverIntent({ contentRef, open, setOpen, triggerRef })
   if (!candidate) return <span className="type-meta text-muted">未配置</span>
@@ -13,18 +13,17 @@ export function ActorOpsV2ActorChip({ candidate }: { candidate: ActorOpsV2Candid
   const name = actorOpsV2CandidateLabel(candidate)
   const actorSlug = actorOpsV2PublicActorSlug(candidate)
   return <Popover isOpen={open} onOpenChange={hoverIntent.onOpenChange}>
-    <Popover.Trigger<'button'>
-      type="button"
+    <Popover.Trigger
       ref={triggerRef}
       {...hoverIntent.triggerProps}
-      className="min-w-0 rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-focus"
+      className="inline-flex min-w-0 max-w-full cursor-pointer rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-focus"
       aria-label={`查看${name}商城信息`}
     >
-      <Chip size="sm" variant="secondary" className="max-w-full cursor-pointer">
+      <Chip size="sm" variant="secondary" className="max-w-full">
         <span className="block truncate">{name}</span>
       </Chip>
     </Popover.Trigger>
-    <Popover.Content ref={contentRef} placement="bottom start" offset={8} containerPadding={12} className="z-50 w-[min(340px,calc(100vw-24px))] p-0" {...hoverIntent.surfaceProps}>
+    <Popover.Content isNonModal ref={contentRef} placement="bottom start" offset={8} containerPadding={12} className="z-50 w-[min(340px,calc(100vw-24px))] p-0" {...hoverIntent.surfaceProps}>
       <Popover.Dialog aria-label={`${name} 商城信息`} className="grid gap-3 p-4">
         <div className="min-w-0"><Popover.Heading className="type-control truncate">{name}</Popover.Heading><p className="mt-1 break-all type-meta text-muted">{actorSlug || '商城信息待更新'}</p></div>
         <p className="type-meta text-muted">{actorOpsV2PriceLabel(candidate)}</p>
