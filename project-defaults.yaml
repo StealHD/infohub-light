@@ -146,6 +146,7 @@
       "max_fetch_attempts_per_provider_day": 100,
       "system_settings_safe_key_count": 21,
       "apify_quota_snapshot_max_age_seconds": 60,
+      "apify_source_default_fetch_limit": 3,
       "apify_drain_timeout_seconds": 30,
       "apify_max_attempts_per_key_per_logical_run": 1,
       "apify_actor_max_charge_per_run_usd": 0.20,

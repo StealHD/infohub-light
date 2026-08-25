@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-24',
-  change: 'ActorOps 现将 Route 管理和运行日志分为可分享的同页 Tab：待处理事件会给出原因、影响、下一步和安全入口；未知启动只核对既有运行，不会重复启动。侧栏只在导航真实溢出时显示滚动槽，展开状态下的账户底线保持固定。',
+  reviewedAt: '2026-08-25',
+  change: '新增无需登录的中英文项目官网并明确 /login 工作台入口；ActorOps 现将 Route 管理和运行日志分为可分享的同页 Tab：待处理事件会给出原因、影响、下一步和安全入口；未知启动只核对既有运行，不会重复启动。侧栏只在导航真实溢出时显示滚动槽，展开状态下的账户底线保持固定。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -90,11 +90,11 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '新增 X 或 Instagram 账号',
-        description: '新增来源时直接选择“X 账号”或“Instagram 账号”，只需填写公开用户名或主页链接、每次获取条数和分析模式。X 账号默认排除已被上游结构化标记为回复的内容，避免没有父帖语境的回复进入信息流；引用、转发和关系无法可靠判断的帖子保持现有行为，历史内容不会被自动重写。RSS、YouTube、GitHub、Reddit、Telegram 与 Hacker News 也会在各自的来源表单提供相应的每次获取数量设置；保存后从下一次手动或周期获取生效。页面不会要求选择 Apify、Actor、Route 或 Key，也不显示高级 JSON；平台线路由工作区管理员统一维护。若平台显示“正在准备中”或“暂不可用”，现有来源和历史内容不受影响；此时不能新建或更换账号目标，但仍可编辑既有来源的名称、说明、每次获取条数、分析模式、默认频道和主题。来源卡、筛选和编辑都使用平台名称，不再显示“社交平台”。',
+        description: '新增来源时直接选择“X 账号”或“Instagram 账号”，只需填写公开用户名或主页链接、每次获取条数和分析模式。Apify 来源创建时默认每次获取 3 条，仍可按需在 1–100 条内调整。创建并订阅后，系统会自动检查保存的目标、当前主备 Actor 的本地 Manifest 与输入兼容性；通过即启用来源，不会抓取或启动 Actor。证据不足时订阅照常保存，并在 ActorOps 显示安全的准备原因，恢复后自动继续。X 账号默认排除已被上游结构化标记为回复的内容，避免没有父帖语境的回复进入信息流；引用、转发和关系无法可靠判断的帖子保持现有行为，历史内容不会被自动重写。RSS、YouTube、GitHub、Reddit、Telegram 与 Hacker News 也会在各自的来源表单提供相应的每次获取数量设置；保存后从下一次手动或周期获取生效。页面不会要求选择 Apify、Actor、Route 或 Key，也不显示高级 JSON；平台线路由工作区管理员统一维护。若平台显示“正在准备中”或“暂不可用”，现有来源和历史内容不受影响；此时不能新建或更换账号目标，但仍可编辑既有来源的名称、说明、每次获取条数、分析模式、默认频道和主题。来源卡、筛选和编辑都使用平台名称，不再显示“社交平台”。',
       },
       {
         title: '查看 v2 ActorOps 路线',
-        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。页面只显示 v2 Route 的当前主用、备用、最近成功 Candidate、Binding 就绪数、费用上限和健康状态；展开详情后可查看脱敏的商城信息、Attempt/费用、Discovery、维护与替换计划。Binding 必须针对当前目标和版本完成 v2 证据验证后才能 ready；pending 或 disabled 不会抓取。页面不会显示或调用旧 Pool、Canary、Freshness、目标、Manifest、密钥、远端 Run/Dataset 或原始错误。',
+        description: 'X、Instagram 和 YouTube 的技术线路只由 Owner/Admin 在“设置 → ActorOps”维护，普通新增来源不需要理解 Actor。页面只显示 v2 Route 的当前主用、备用、最近成功 Candidate、Binding 就绪数、费用上限和健康状态；展开详情会说明每条来源检查了目标格式、当前主备的本地 Manifest 与输入兼容性，以及安全的准备原因。Binding 自动完成本地证据验证后才会 ready；pending 或 disabled 不会抓取。页面不会显示或调用旧 Pool、Canary、Freshness、目标、Manifest、密钥、远端 Run/Dataset 或原始错误。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
@@ -206,7 +206,7 @@ export const manualSections: ManualSection[] = [
     steps: [
       {
         title: '登录与外观',
-        description: '登录页在桌面将产品说明和账号表单并排呈现，手机自动收为单列；右上角明暗模式会继续使用既有浏览器外观偏好。用户名进入页面后自动聚焦，密码可临时显示或隐藏，提交期间不能重复操作。应用不会记住用户名、密码或显隐状态，每次提交都会清空并重新隐藏密码；浏览器自身的标准自动填充仍可使用。',
+        description: '根路径现在展示无需登录的中文项目官网，英文版位于 /en；两者的 GitHub 为主入口，“登录工作台”进入 /login，语言切换会保留当前页面区块。登录页在桌面将产品说明和账号表单并排呈现，手机自动收为单列；右上角明暗模式会继续使用既有浏览器外观偏好。用户名进入页面后自动聚焦，密码可临时显示或隐藏，提交期间不能重复操作。应用不会记住用户名、密码或显隐状态，每次提交都会清空并重新隐藏密码；浏览器自身的标准自动填充仍可使用。',
       },
       {
         title: '账户菜单',

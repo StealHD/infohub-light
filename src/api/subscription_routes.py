@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt, field_validator
 
 from .context import ApiContext
 from .actorops_source_lifecycle import (
+    ActorOpsSourceLifecycle,
     assert_actorops_subscription_enable_allowed,
 )
 from .responses import ApiError, ok
@@ -119,8 +120,16 @@ async def subscriptions_create(
                 "notifications disabled."
             ),
         )
-    visible_source_or_404(context.store, payload.source_id, user)
-    if payload.enabled:
+    source = context.store.get_source(payload.source_id)
+    managed = bool(
+        source
+        and ActorOpsSourceLifecycle.is_managed(
+            str(source.get("type")), source.get("config")
+        )
+    )
+    if not managed:
+        visible_source_or_404(context.store, payload.source_id, user)
+    if payload.enabled and not managed:
         try:
             assert_actorops_subscription_enable_allowed(
                 context.store,
@@ -150,7 +159,12 @@ async def subscriptions_create(
             "priority": payload.priority,
             **notification_values,
         },
+        allow_disabled_source=managed,
     )
+    if managed:
+        ActorOpsSourceLifecycle(
+            context.store, workspace_id=str(user["workspace_id"])
+        ).after_subscription(str(subscription["source_id"]))
     request.state.operation_source_id = str(subscription["source_id"])
     request.state.operation_subscription_id = str(subscription["id"])
     request.state.operation_changed_fields = sorted(payload.model_fields_set)
@@ -180,10 +194,20 @@ async def subscriptions_patch(
         if field in provided
     }
     current = context.store.get_subscription(subscription_id)
+    current_source = (
+        context.store.get_source(str(current["source_id"])) if current else None
+    )
+    managed = bool(
+        current_source
+        and ActorOpsSourceLifecycle.is_managed(
+            str(current_source.get("type")), current_source.get("config")
+        )
+    )
     if (
         payload.enabled is True
         and current is not None
         and current.get("user_id") == user["id"]
+        and not managed
     ):
         try:
             assert_actorops_subscription_enable_allowed(
@@ -244,6 +268,10 @@ async def subscriptions_patch(
         subscription_id=subscription_id,
         updates=updates,
     )
+    if managed and payload.enabled is True:
+        ActorOpsSourceLifecycle(
+            context.store, workspace_id=str(user["workspace_id"])
+        ).after_subscription(str(updated["source_id"]))
     request.state.operation_source_id = str(updated["source_id"])
     request.state.operation_changed_fields = sorted(provided)
     return ok(updated)

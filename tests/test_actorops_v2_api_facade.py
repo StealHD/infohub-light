@@ -322,6 +322,60 @@ def test_v2_binding_verify_returns_zero_cost_evidence_failure(
     assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
 
 
+def test_v2_binding_reconcile_reports_safe_blocker_without_confirmation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    repository, route_id = _route_with_one_assignment(store)
+    route = repository.get_route(route_id)
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Jisoo",
+        config={
+            "platform": route.route_key.platform,
+            "kind": route.route_key.target_type,
+            "target": "sooyaaa__",
+        },
+    )
+    from src.services.actorops.binding_service import ActorOpsBindingService
+
+    ActorOpsBindingService(
+        store, workspace_id=DEFAULT_WORKSPACE_ID
+    ).ensure(source_id)
+    store.create_subscription(
+        user_id=store.get_user_by_username("owner")["id"],
+        source_id=source_id,
+        enabled=True,
+    )
+
+    response = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-bindings/reconcile",
+        json={"expected_route_generation": route.generation},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()["data"]
+    assert payload["checked_count"] == 1
+    assert payload["verified_binding_count"] == 0
+    assert payload["blocked_binding_count"] == 1
+    detail = client.get(f"/api/admin/apify-routes/{route_id}")
+    assert detail.status_code == 200, detail.text
+    binding = detail.json()["data"]["bindings"][0]
+    assert binding["source_name"] == "Jisoo"
+    assert binding["enabled_subscription_count"] == 1
+    assert binding["verification"]["state"] == "blocked"
+    assert binding["verification"]["reason"] == (
+        "actorops_v2_binding_candidate_input_unsupported"
+    )
+    assert "sooyaaa__" not in detail.text
+    assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
+
+
 def test_v2_manual_controls_ignore_feature_flag_and_read_only_v2(
     tmp_path: Path, monkeypatch
 ) -> None:

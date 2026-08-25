@@ -10,86 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "新增证据约束的 v1 历史聚合费用收敛工具：仅凭 shared Run ledger 与已结算子项，在停服务、0600 evidence/backup/receipt、hash 与行级 CAS 下补齐终态 Attempt/Validation/Batch item/Batch 的派生费用终态；已有非空 Batch 总额只保留、不下调。",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-v1-historical-cost-finalizer",
-  "unresolved": [
-    "v2.4.1 发布后仍须在 VPS 停服务并按 evidence snapshot/apply/verify、retirement、global 29/30 的显式顺序完成部署。"
-  ],
-  "validation": [
-    "新增红测后，历史费用 finalizer、退役边界、legacy cost audit、global 29/30 定向测试共 32 项通过。",
-    "impacted preflight 17/17 通过：全量 Python、前端 lint/typecheck/Vitest/build、代码规模、产品文档与控制校验均通过。",
-    "对生产库仅执行只读聚合核验；未调用 Actor、AI、付费来源或写入 VPS 数据库。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "修复生产 X 订阅遗漏最新数据：ActorOps v2 从持久水位追赶抓取窗口，将仅含旧帖的 Actor Dataset 分类为 stale/suspicious 并安全切换候补；明确未启动且共享账本证明零费用的拒绝可收敛并继续候补。",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-x-freshness-recovery",
-  "unresolved": [
-    "生产当前两个 X Candidate 分别为失效 Build 与旧缓存；替换为测试环境已验证 Actor 前，仍需用户单独授权一次受 $0.10 Route cap 约束的付费生产 Probe。"
-  ],
-  "validation": [
-    "ActorOps v2 全套定向后端测试、手册与更新日志 Vitest、代码规模及控制文件校验通过。",
-    "impacted preflight 17/17 通过；诊断期间只读取既有 Dataset、Run ledger 与公开 Actor metadata，未创建新 Actor Run 或费用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "收敛 v2.4.2 发布后 SQLite 锁竞争：全库 integrity/FK/active-job 校验固定在 Worker 停止阶段，容器启动后只以共享 runtime health 验收，避免正常 Job 触发误回滚；同时移除 Test Gate 中 Phase 8 已删除测试的陈旧映射。",
-  "status": "completed",
-  "task_id": "2026-08-23-v2-4-2-release-cutover-lock-hardening",
-  "unresolved": [],
-  "validation": [
-    "生产 v2.4.2 API/Worker 双 healthy，current、镜像版本、revision、内网 live/ready 与公网 health 一致；离线数据库 integrity=ok、foreign_key_errors=0，0600 部署备份存在。",
-    "Release/runtime health 定向测试与 Test Gate 映射自检通过；修复后 impacted preflight 18/18 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "capabilities",
-    "context",
-    "decisions"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "Removed mechanical product-documentation and OpenClaw structure-locking test gates; retained behavior coverage and hardened impact-map group-test integrity.",
-  "status": "completed",
-  "task_id": "2026-08-23-test-constraint-cleanup",
-  "unresolved": [],
-  "validation": [
-    "Focused OpenClaw setup, Test Gate and workflow-contract tests passed.",
-    "OpenClaw Hook Vitest and TypeScript checks passed.",
-    "Impacted preflight passed 16/16 commands, including full Python, frontend and control checks.",
-    "Markdown and project-control validation, JSON checks and diff check passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
     "phase",
     "ui"
   ],
@@ -396,6 +316,64 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOpsV2ActorChip Vitest 3 项、UI contract、TypeScript 与 ESLint 通过。",
     "本地容器重建后 API/Worker healthy。",
     "当前 ActorOps 页面同坐标连续 12 帧均为 pointer、triggerHit=true、popoverCount=1、underlayCount=0；移开后 240ms 正常关闭。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "修复 Instagram/X/YouTube 新建来源因 pending 且停用而无法保存订阅的问题：仅 ActorOps 管理来源允许先记录订阅意图，采集仍受绑定核验与启用状态控制；Apify 新建来源默认获取量由 20 调整为 3。",
+  "status": "completed",
+  "task_id": "2026-08-25-actorops-pending-subscription-and-apify-default",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 生命周期与订阅事务回归 9 项通过。",
+    "前端 App Vitest 113 项与 TypeScript 类型检查通过。",
+    "impacted preflight 16/16 通过，覆盖完整 Python、前端、UI 契约与控制校验。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-25",
+  "result": "从当前 worktree 重建并切换本地 API/Worker 容器，使 pending 订阅修复与 Apify 默认获取量 3 在本地运行时生效。",
+  "status": "completed",
+  "task_id": "2026-08-25-local-runtime-rebuild-pending-subscription",
+  "unresolved": [],
+  "validation": [
+    "首次构建遇到 GHCR TLS 证书错配，单独拉取 uv 基础镜像后标准重建成功。",
+    "runtime health 确认 revision 742faea6a209-dirty，API/Worker 均 healthy，React 资产已提供。"
+  ]
+}
+```
+
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "平台来源 Binding 改为本地证据自动核验：创建、Web/OpenClaw 订阅、替换和 Worker housekeeping 会自动收口；证明通过且存在启用订阅时启用来源，管理页显示安全检查项和准备原因，不再要求核验短语。",
+  "status": "completed",
+  "task_id": "2026-08-25-actorops-binding-auto-reconciliation",
+  "unresolved": [],
+  "validation": [
+    "定向后端 ActorOps、来源生命周期、OpenClaw 回归 44 项通过。",
+    "前端 ActorOps 控制、订阅表单/页面 Vitest 25 项、TypeScript 与 ESLint 通过。",
+    "任务快照 impacted preflight 通过；Markdown/control、JSON 和 diff 校验通过。",
+    "本地容器重建并通过 runtime health；浏览器验收确认 Jisoo 已自动启用且运行详情显示本地检查说明。"
   ]
 }
 ```

@@ -30,7 +30,7 @@ const route: ActorOpsV2RouteView = actorOpsV2RouteView({
 function renderControls() {
   const api = {
     promoteActorOpsV2Candidate: vi.fn().mockResolvedValue({}),
-    verifyActorOpsV2Bindings: vi.fn().mockResolvedValue({}),
+    reconcileActorOpsV2Bindings: vi.fn().mockResolvedValue({}),
     setActorOpsV2PriceCap: vi.fn().mockResolvedValue({}),
     actorOpsV2Candidates: vi.fn().mockResolvedValue({ candidates: [] }),
     refreshActorOpsV2Metadata: vi.fn().mockResolvedValue({}),
@@ -49,7 +49,7 @@ function renderControls() {
 }
 
 describe('ActorOpsV2RouteControls', () => {
-  it('confirms a zero-cost primary switch and binding evidence check', async () => {
+  it('confirms a zero-cost primary switch and rechecks bindings without a phrase', async () => {
     const api = renderControls()
     const browser = userEvent.setup()
 
@@ -62,12 +62,11 @@ describe('ActorOpsV2RouteControls', () => {
     }))
 
     await browser.click(screen.getByRole('button', { name: 'Actor 路由更多操作' }))
-    await browser.click(screen.getByRole('button', { name: '核验待处理来源' }))
-    await browser.type(screen.getByRole('textbox', { name: '确认短语' }), '确认核验来源绑定')
-    await browser.click(screen.getByRole('button', { name: '确认' }))
-    await waitFor(() => expect(api.verifyActorOpsV2Bindings).toHaveBeenCalledWith('route-instagram', {
-      expected_route_generation: 4, confirmation: '确认核验来源绑定',
+    await browser.click(screen.getByRole('button', { name: '重新检查准备中的来源' }))
+    await waitFor(() => expect(api.reconcileActorOpsV2Bindings).toHaveBeenCalledWith('route-instagram', {
+      expected_route_generation: 4,
     }))
+    expect(screen.queryByText('核验待处理来源')).not.toBeInTheDocument()
   })
 
   it('requires the raise confirmation before changing the future per-run cap', async () => {

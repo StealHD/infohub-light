@@ -249,7 +249,7 @@ def test_agent_normalization_maps_public_types_to_catalog_types():
             "kind": "profile",
             "target": "openai",
             "enabled": True,
-            "fetch_limit": 20,
+            "fetch_limit": 3,
             "analysis_mode": "full",
         },
         "policy": {

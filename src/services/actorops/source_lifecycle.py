@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from ..source_type_registry import is_youtube_channel_config
 from .binding_service import ActorOpsBindingError, ActorOpsBindingService
+from .binding_reconciliation import ActorOpsBindingReconciler
 from .repository import ActorOpsNotFound, ActorOpsRepository
 
 
@@ -84,6 +85,7 @@ class ActorOpsSourceLifecycle:
         source = self._source(source_id)
         if self.is_managed(str(source["type"]), source.get("config")):
             self.bindings.ensure(source_id)
+            self._reconciler().reconcile_source(source_id)
         return self._source(source_id)
 
     def after_update(
@@ -113,10 +115,11 @@ class ActorOpsSourceLifecycle:
         elif requested_enabled is True:
             if binding.status == "disabled":
                 binding = self.bindings.reenable(source_id)
-            elif binding.status == "ready":
-                self.bindings.enable_ready(source_id)
-            else:
-                self.store.update_source(source_id, enabled=False, commit=False)
+        self._reconciler().reconcile_source(source_id)
+        return self._source(source_id)
+
+    def after_subscription(self, source_id: str) -> dict[str, Any]:
+        self._reconciler().reconcile_source(source_id)
         return self._source(source_id)
 
     def soft_delete(self, source_id: str) -> dict[str, Any]:
@@ -134,6 +137,11 @@ class ActorOpsSourceLifecycle:
         if source is None or str(source.get("workspace_id")) != self.workspace_id:
             raise ActorOpsBindingError("actorops_v2_source_not_found")
         return source
+
+    def _reconciler(self) -> ActorOpsBindingReconciler:
+        return ActorOpsBindingReconciler(
+            self.store, workspace_id=self.workspace_id
+        )
 
     def _require_transaction(self) -> None:
         if not self.store.connect().in_transaction:

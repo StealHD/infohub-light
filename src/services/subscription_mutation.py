@@ -1675,10 +1675,8 @@ class SubscriptionMutationService:
                 was_subscription_enabled=bool(
                     existing_subscription and existing_subscription.get("enabled")
                 ),
-                final_source_enabled=bool(source.get("enabled")),
-                final_subscription_enabled=bool(
-                    subscription_values.get("enabled", True)
-                ),
+                final_source_enabled=bool(source.get("enabled")) or managed_private,
+                final_subscription_enabled=bool(subscription_values.get("enabled", True)),
                 source_reenable=False,
             )
             subscription = self.store.create_subscription(
@@ -1687,6 +1685,8 @@ class SubscriptionMutationService:
                 commit=False,
                 **subscription_values,
             )
+            if managed_private:
+                source = ActorOpsSourceLifecycle(self.store, workspace_id=actor.workspace_id).after_subscription(source_id)
             schedule = self._apply_schedule(
                 actor, subscription, plan.payload.get("schedule")
             )
@@ -1879,19 +1879,19 @@ class SubscriptionMutationService:
             )
         return updated
 
-    # REST uses an explicit mutation context instead of the Agent-safe planner.
-    # This keeps administrator shared-source rights intact while sharing the
-    # transaction-sensitive lifecycle operations.
+    # REST keeps administrator rights while sharing transactional lifecycle logic.
     def rest_create_subscription(
         self,
         actor: SubscriptionActor,
         *,
         source_id: str,
         values: dict[str, Any],
+        allow_disabled_source: bool = False,
     ) -> dict[str, Any]:
         self._live_actor(actor)
         source = self.store.get_source(source_id)
-        if source is None or not self._visible(source, actor):
+        source_allowed = self._accessible if allow_disabled_source else self._visible
+        if source is None or not source_allowed(source, actor):
             raise self._error("not_found", "source not found", status_code=404)
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
@@ -1900,7 +1900,7 @@ class SubscriptionMutationService:
                 conn.execute("BEGIN IMMEDIATE")
             self._live_actor(actor)
             source = self.store.get_source(source_id)
-            if source is None or not self._visible(source, actor):
+            if source is None or not source_allowed(source, actor):
                 raise self._error(
                     "not_found",
                     "source not found",

@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from .binding_service import ActorOpsBindingError, ActorOpsBindingService
 from .domain import AssignmentRole, CandidateRecord, RouteHealth
 from .readiness import require_actorops_v2_schema
 from .repository import ActorOpsNotFound, ActorOpsRepository
@@ -40,6 +41,10 @@ class ActorOpsAdminService:
         repository = self.repository()
         result = self._route_summary(repository, route_id)
         candidates = repository.list_route_candidates(route_id)
+        binding_service = ActorOpsBindingService(
+            self.store, workspace_id=self.workspace_id
+        )
+        bindings = repository.list_route_bindings(route_id)
         metadata = repository.operator.list_metadata(route_id)
         result.update(
             {
@@ -47,7 +52,9 @@ class ActorOpsAdminService:
                     self._candidate(repository, item, metadata.get(item.candidate_id))
                     for item in candidates
                 ],
-                "bindings": [self._binding(item) for item in repository.list_route_bindings(route_id)],
+                "bindings": [
+                    self._binding(binding_service, item) for item in bindings
+                ],
                 "attempts": self._attempts(repository, route_id),
                 "discoveries": self._discoveries(repository, route_id),
                 "replacements": self._replacements(repository, route_id, metadata),
@@ -234,16 +241,43 @@ class ActorOpsAdminService:
             "generation": value.generation,
         }
 
-    @staticmethod
-    def _binding(item: Any) -> dict[str, object]:
+    def _binding(
+        self, service: ActorOpsBindingService, item: Any
+    ) -> dict[str, object]:
+        source = self.store.get_source(item.source_id) or {}
+        verification: dict[str, object]
+        if item.status == "ready":
+            verification = {"state": "ready", "proof_kind": None, "reason": None}
+        elif item.status == "disabled":
+            verification = {"state": "disabled", "proof_kind": None, "reason": None}
+        else:
+            try:
+                evidence = service.assess(item.source_id)
+                verification = {
+                    "state": "eligible" if evidence.eligible else "blocked",
+                    "proof_kind": evidence.proof_kind,
+                    "reason": evidence.reason,
+                }
+            except ActorOpsBindingError as error:
+                verification = {
+                    "state": "blocked",
+                    "proof_kind": None,
+                    "reason": error.code,
+                }
         return {
             "binding_id": item.binding_id,
             "source_id": item.source_id,
+            "source_name": source.get("display_name") or "来源已删除",
+            "source_enabled": bool(source.get("enabled")),
+            "enabled_subscription_count": self.store.source_subscription_usage(
+                item.source_id
+            )["enabled_subscriber_count"],
             "status": item.status,
             "binding_version": item.binding_version,
             "preferred_candidate_id": item.preferred_candidate_id,
             "last_known_good_candidate_id": item.last_known_good_candidate_id,
             "last_success_at": item.last_success_at,
+            "verification": verification,
         }
 
     @staticmethod

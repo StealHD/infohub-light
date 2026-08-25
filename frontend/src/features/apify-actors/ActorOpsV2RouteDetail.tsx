@@ -51,7 +51,12 @@ function RouteDetailPanel({ detail }: { detail: RouteDetail }) {
         : <Empty label="暂无可显示的 Candidate。" />}
     </DetailSection>
     <DetailSection title="来源 Binding">
-      <p className="type-meta text-muted">已就绪 {detail.bindings.filter((item) => item.status === 'ready').length} 条；待核验 {detail.bindings.filter((item) => item.status === 'pending').length} 条；停用 {detail.bindings.filter((item) => item.status === 'disabled').length} 条。</p>
+      <p className="type-meta text-muted">自动检查目标格式、当前主备的本地 Manifest 与输入兼容性；不会抓取或启动 Actor。</p>
+      {detail.bindings.length
+        ? detail.bindings.map((binding) => <p key={binding.binding_id} className="type-meta text-muted">
+          {binding.source_name} · {bindingLabel(binding)}{binding.enabled_subscription_count ? ` · 启用订阅 ${binding.enabled_subscription_count}` : ''}
+        </p>)
+        : <Empty label="暂无来源 Binding。" />}
     </DetailSection>
     <DetailSection title="近期运行与费用">
       {detail.attempts.length
@@ -87,4 +92,20 @@ function Empty({ label }: { label: string }) {
 function costLabel(value: number | null, final: boolean) {
   if (value === null) return final ? '费用已结算' : '费用待对账'
   return `$${value.toFixed(2)}${final ? ' 已结算' : ' 待对账'}`
+}
+
+function bindingLabel(binding: RouteDetail['bindings'][number]) {
+  if (binding.verification.state === 'disabled') return '已按设置停用'
+  if (binding.source_enabled) return '本地核验通过，已自动启用'
+  const labels: Record<string, string> = {
+    actorops_v2_binding_no_runnable_candidate: '等待可运行 Actor',
+    actorops_v2_binding_candidate_manifest_missing: '等待 Actor 本地证明',
+    actorops_v2_binding_candidate_manifest_invalid: 'Actor 本地证明无效',
+    actorops_v2_binding_candidate_input_unsupported: '当前 Actor 不兼容',
+    actorops_v2_route_disabled: '路线暂未启用',
+    actorops_v2_subscription_inactive: '等待启用订阅',
+  }
+  return labels[binding.verification.reason || ''] || (binding.verification.state === 'ready'
+    ? '核验通过，等待启用'
+    : '正在准备本地核验')
 }

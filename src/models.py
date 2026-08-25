@@ -375,7 +375,7 @@ class ApifySocialSubscriptionConfig(ServiceSourceConfig):
     kind: Optional[str] = None
     target: str
     token_env: Optional[str] = None
-    fetch_limit: int = Field(default=20, ge=1, le=100)
+    fetch_limit: int = Field(default=3, ge=1, le=100)
     enabled: bool = True
     tags: List[str] = Field(default_factory=list)
     channel: Optional[str] = None

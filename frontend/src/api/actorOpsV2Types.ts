@@ -77,11 +77,20 @@ export type ActorOpsV2RouteTransport = Omit<ActorOpsV2RouteSummary, 'runtime_mod
 
 export type ActorOpsV2Binding = {
   binding_id: string
+  source_id: string
+  source_name: string
+  source_enabled: boolean
+  enabled_subscription_count: number
   status: 'pending' | 'ready' | 'disabled'
   binding_version: number
   preferred_candidate_id: string | null
   last_known_good_candidate_id: string | null
   last_success_at: string | null
+  verification: {
+    state: 'ready' | 'eligible' | 'blocked' | 'disabled'
+    proof_kind: 'deterministic' | 'settled_probe' | null
+    reason: string | null
+  }
 }
 
 export type ActorOpsV2Attempt = {

@@ -15,6 +15,7 @@ from .actorops_v2_projection import actorops_v2_candidate_projection
 from .responses import ApiError, ok
 from .system_auth import current_admin
 from ..services.actorops.domain import AssignmentRole, ReplacementStatus
+from ..services.actorops.binding_reconciliation import ActorOpsBindingReconciler
 from ..services.actorops.admin_service import (
     ActorOpsAdminMigrationRequired,
     ActorOpsAdminService,
@@ -265,7 +266,8 @@ def _register_replacement_routes(app: FastAPI, context: ActorOpsV2OperatorContex
 
     @app.post("/api/admin/apify-routes/{route_id}/v2-replacements/{plan_id}/apply")
     async def apply_replacement(route_id: str, plan_id: str, payload: ApplyReplacementRequest, request: Request, response: Response, user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:
-        repository, _plan = _plan_for_mutation(context.store, str(user["workspace_id"]), route_id, plan_id)
+        workspace_id = str(user["workspace_id"])
+        repository, _plan = _plan_for_mutation(context.store, workspace_id, route_id, plan_id)
         try:
             with repository.transaction():
                 plan = repository.operator.apply_plan(plan_id, expected_generation=payload.expected_generation)
@@ -273,7 +275,10 @@ def _register_replacement_routes(app: FastAPI, context: ActorOpsV2OperatorContex
             raise _conflict("actorops_replacement_apply_conflict", "替换条件已变化或尚未完成实测。", error) from error
         _record(request, user, "actorops_v2_replacement_apply")
         response.headers["Cache-Control"] = "no-store"
-        return ok({"plan": _plan_view(repository, plan), "route": _route(context.store, str(user["workspace_id"]), route_id)})
+        reconciliation = ActorOpsBindingReconciler(
+            context.store, workspace_id=workspace_id
+        ).reconcile_route(route_id)
+        return ok({"plan": _plan_view(repository, plan), "route": _route(context.store, workspace_id, route_id), "binding_reconciliation": reconciliation.public()})
 
     @app.post("/api/admin/apify-routes/{route_id}/v2-replacements/{plan_id}/cancel")
     async def cancel_replacement(route_id: str, plan_id: str, payload: PlanGenerationRequest, request: Request, response: Response, user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:

@@ -132,7 +132,7 @@ export function createServiceApi(client: ApiClient) {
       signal,
     ),
     subscriptions: (signal?: AbortSignal) => client.get<ListResponse<Subscription, 'subscriptions'>>('/api/me/subscriptions?schedule_view=summary', signal),
-    subscribe: (sourceId: string) => client.post<{ subscription: Subscription }>(`${resource('/api/catalog/sources', sourceId)}/subscribe`),
+    subscribe: (sourceId: string) => client.post<{ subscription: Subscription; source_activation?: { state: 'enabled' | 'preparing' | 'disabled'; reason?: string | null; source_enabled?: boolean } | null }>(`${resource('/api/catalog/sources', sourceId)}/subscribe`),
     unsubscribe: (subscriptionId: string) => client.delete<{ deleted: boolean }>(resource('/api/me/subscriptions', subscriptionId)),
     updateSubscription: (subscriptionId: string, patch: SubscriptionPatch) => client.patch<Subscription>(resource('/api/me/subscriptions', subscriptionId), patch),
     createSource: (payload: Record<string, unknown>) => client.post<CatalogSource>('/api/catalog/sources', payload),

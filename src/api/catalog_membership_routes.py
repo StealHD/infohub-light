@@ -5,11 +5,8 @@ from typing import Any, Literal
 from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel, ConfigDict
 
+from .actorops_source_lifecycle import ActorOpsSourceLifecycle
 from .context import ApiContext
-from .actorops_source_lifecycle import (
-    ActorOpsSourceLifecycle,
-    assert_actorops_subscription_enable_allowed,
-)
 from .responses import ApiError, ok
 from .system_auth import (
     api_context,
@@ -19,6 +16,7 @@ from .system_auth import (
     visible_source_or_404,
 )
 from ..services.subscription_mutation import SubscriptionActor
+from ..services.actorops.binding_reconciliation import ActorOpsBindingReconciler
 from ..services.actorops.binding_service import ActorOpsBindingError
 
 
@@ -154,26 +152,31 @@ async def catalog_subscribe(
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
     require_mutating_member(user)
-    visible_source_or_404(context.store, source_id, user)
-    try:
-        assert_actorops_subscription_enable_allowed(
-            context.store,
-            workspace_id=str(user["workspace_id"]),
-            source_id=source_id,
-        )
-    except ActorOpsBindingError as exc:
-        raise ApiError(
-            exc.code,
-            "ActorOps v2 Binding must be ready before enabling this subscription.",
-            status_code=409,
-        ) from exc
+    source = _manageable_source_or_404(context, source_id, user)
     subscription = context.subscription_mutations.rest_create_subscription(
         SubscriptionActor.from_user(user),
         source_id=source_id,
         values={},
+        allow_disabled_source=ActorOpsSourceLifecycle.is_managed(
+            str(source["type"]), source.get("config")
+        ),
     )
+    activation: dict[str, object] | None = None
+    if ActorOpsSourceLifecycle.is_managed(
+        str(source["type"]), source.get("config")
+    ):
+        try:
+            activation = ActorOpsBindingReconciler(
+                context.store, workspace_id=str(user["workspace_id"])
+            ).reconcile_source(source_id).public()
+        except ActorOpsBindingError as error:
+            activation = {
+                "state": "preparing",
+                "reason": error.code,
+                "source_enabled": False,
+            }
     request.state.operation_subscription_id = str(subscription["id"])
-    return ok({"subscription": subscription})
+    return ok({"subscription": subscription, "source_activation": activation})
 
 
 async def catalog_unsubscribe(

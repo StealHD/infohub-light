@@ -39,6 +39,7 @@ def _reconcile_actorops_v2(
     if actorops_v2_startup_migration_required(store):
         return
     from .actorops.apify_ledger import ApifyRunLedger
+    from .actorops.binding_reconciliation import ActorOpsBindingReconciler
     from .actorops.reconciliation import ActorOpsReconciler
     from .actorops.repository import ActorOpsRepository
 
@@ -71,6 +72,26 @@ def _reconcile_actorops_v2(
             _rollback(store)
             logger.warning(
                 "ActorOps v2 reconciliation failed workspace_id=%s",
+                workspace_id,
+                exc_info=True,
+            )
+        try:
+            bindings = ActorOpsBindingReconciler(
+                store, workspace_id=workspace_id
+            ).reconcile_workspace()
+            if bindings.checked_count:
+                logger.info(
+                    "ActorOps v2 binding reconciliation workspace_id=%s checked=%s verified=%s enabled=%s blocked=%s",
+                    workspace_id,
+                    bindings.checked_count,
+                    bindings.verified_binding_count,
+                    bindings.enabled_source_count,
+                    bindings.blocked_binding_count,
+                )
+        except Exception:
+            _rollback(store)
+            logger.warning(
+                "ActorOps v2 binding reconciliation failed workspace_id=%s",
                 workspace_id,
                 exc_info=True,
             )

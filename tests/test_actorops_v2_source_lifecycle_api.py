@@ -38,7 +38,7 @@ def test_source_catalog_keeps_free_types_available_without_actorops_schema(
     )
 
 
-def test_youtube_channel_is_canonical_idempotent_and_ready_before_enable(
+def test_youtube_channel_is_canonical_idempotent_and_auto_enabled_on_subscribe(
     tmp_path: Path, monkeypatch
 ) -> None:
     client, _data_dir = build_client(tmp_path, monkeypatch)
@@ -79,24 +79,13 @@ def test_youtube_channel_is_canonical_idempotent_and_ready_before_enable(
     binding = ActorOpsBindingService(
         store, workspace_id=source["workspace_id"]
     ).repository.get_binding(source["id"])
-    verified = client.post(
-        f"/api/admin/apify-routes/{binding.route_id}/v2-bindings/verify",
-        json={
-            "expected_route_generation": ActorOpsBindingService(
-                store, workspace_id=source["workspace_id"]
-            ).repository.get_route(binding.route_id).generation,
-            "confirmation": "确认核验来源绑定",
-        },
-    )
-    assert verified.status_code == 200, verified.text
-    enabled = client.patch(
-        f"/api/catalog/sources/{source['id']}", json={"enabled": True}
-    )
-    assert enabled.status_code == 200, enabled.text
-    assert enabled.json()["data"]["enabled"] is True
-    assert client.post(
+    assert binding.status == "ready"
+    subscribed = client.post(
         f"/api/catalog/sources/{source['id']}/subscribe"
-    ).status_code == 200
+    )
+    assert subscribed.status_code == 200, subscribed.text
+    assert subscribed.json()["data"]["source_activation"]["state"] == "enabled"
+    assert store.get_source(source["id"])["enabled"] is True
     assert client.get("/api/jobs").json()["data"]["jobs"] == []
 
 
@@ -115,7 +104,7 @@ def test_platform_source_crud_uses_only_v2_bindings_with_v1_denied(
             ),
             (
                 "instagram_profile",
-                {"target": "openai", "fetch_limit": 4},
+                {"target": "@sooyaaa__"},
             ),
             (
                 "youtube_channel",
@@ -143,12 +132,29 @@ def test_platform_source_crud_uses_only_v2_bindings_with_v1_denied(
             source = response.json()["data"]
             source_ids.append(source["id"])
             assert source["enabled"] is False
+            if setup_type == "instagram_profile":
+                assert source["config"]["fetch_limit"] == 3
+            subscribed = client.post(
+                f"/api/catalog/sources/{source['id']}/subscribe"
+            )
+            assert subscribed.status_code == 200, subscribed.text
+            assert subscribed.json()["data"]["subscription"]["source_id"] == (
+                source["id"]
+            )
             binding = store.connect().execute(
                 """SELECT status, binding_version
                    FROM actor_source_bindings_v2 WHERE source_id=?""",
                 (source["id"],),
             ).fetchone()
-            assert dict(binding) == {"status": "pending", "binding_version": 1}
+            expected_status = "ready" if setup_type == "youtube_channel" else "pending"
+            assert dict(binding) == {
+                "status": expected_status,
+                "binding_version": 1,
+            }
+            activation = subscribed.json()["data"]["source_activation"]
+            assert activation["state"] == (
+                "enabled" if setup_type == "youtube_channel" else "preparing"
+            )
 
         x_source_id = source_ids[0]
         metadata_patch = client.patch(
@@ -181,14 +187,12 @@ def test_platform_source_crud_uses_only_v2_bindings_with_v1_denied(
             source_id=x_source_id,
             enabled=False,
         )
-        rejected = client.patch(
+        updated_subscription = client.patch(
             f"/api/me/subscriptions/{disabled_subscription['id']}",
             json={"enabled": True},
         )
-        assert rejected.status_code == 409
-        assert rejected.json()["error"]["code"] == (
-            "actorops_v2_binding_not_ready"
-        )
+        assert updated_subscription.status_code == 200, updated_subscription.text
+        assert store.get_source(x_source_id)["enabled"] is False
 
         deleted = client.delete(f"/api/catalog/sources/{x_source_id}")
         assert deleted.status_code == 200, deleted.text

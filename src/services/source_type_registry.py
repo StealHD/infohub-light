@@ -481,7 +481,7 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
                     "or channel identifier."
                 ),
             ),
-            _fetch_limit_field(help="Maximum social items requested per fetch."),
+            _fetch_limit_field(3, help="Maximum social items requested per fetch."),
             _field(
                 "analysis_mode",
                 "Analysis mode",
@@ -561,7 +561,7 @@ _PLATFORM_PROFILE_SETUP_DEFINITIONS = (
         label="X 账号",
         description="Public posts from one X account.",
         required_fields=("target",),
-        template={"target": "openai", "fetch_limit": 20},
+        template={"target": "openai", "fetch_limit": 3},
         fields=(
             _field(
                 "target",
@@ -570,7 +570,7 @@ _PLATFORM_PROFILE_SETUP_DEFINITIONS = (
                 required=True,
                 help="输入公开 X 用户名、@handle 或主页链接。",
             ),
-            _fetch_limit_field(label="每次获取条数", help="每次最多获取的公开动态数量。"),
+            _fetch_limit_field(3, label="每次获取条数", help="每次最多获取的公开动态数量。"),
             _field(
                 "analysis_mode",
                 "分析模式",
@@ -589,7 +589,7 @@ _PLATFORM_PROFILE_SETUP_DEFINITIONS = (
         label="Instagram 账号",
         description="Public posts from one Instagram account.",
         required_fields=("target",),
-        template={"target": "instagram", "fetch_limit": 20},
+        template={"target": "instagram", "fetch_limit": 3},
         fields=(
             _field(
                 "target",
@@ -598,7 +598,7 @@ _PLATFORM_PROFILE_SETUP_DEFINITIONS = (
                 required=True,
                 help="输入公开 Instagram 用户名、@handle 或主页链接。",
             ),
-            _fetch_limit_field(label="每次获取条数", help="每次最多获取的公开内容数量。"),
+            _fetch_limit_field(3, label="每次获取条数", help="每次最多获取的公开内容数量。"),
             _field(
                 "analysis_mode",
                 "分析模式",
@@ -1014,8 +1014,8 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
         "创建公开 X 账号来源，但不立即开始采集。",
         self_service=True,
         requires_web_setup=False,
-        en_web_setup_note="Creation prepares a disabled ActorOps binding; an administrator must verify and activate it before the source can collect.",
-        zh_web_setup_note="创建时只准备停用的 ActorOps 绑定；管理员核验并启用后才具备采集条件。",
+        en_web_setup_note="Creation checks local ActorOps evidence; an enabled subscription automatically activates a proven source without starting an Actor.",
+        zh_web_setup_note="创建时自动检查本地 ActorOps 证据；有启用订阅且证明通过时自动启用，不启动 Actor。",
         fields={
             "handle": _guide_field(
                 "Handle", "账号", "Public X handle or profile URL.", "公开 X 账号或主页网址。",
@@ -2363,7 +2363,7 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
             data.pop("kind", None)
         target = _text(data, "target", "target")
         data["target"] = target
-        data["fetch_limit"] = _int(data, "fetch_limit", default=20, minimum=1, maximum=100)
+        data["fetch_limit"] = _int(data, "fetch_limit", default=3, minimum=1, maximum=100)
         analysis_mode = str(data.get("analysis_mode") or "full").strip()
         if analysis_mode not in {"full", "personal_only"}:
             raise SourceConfigError("analysis_mode must be full or personal_only")

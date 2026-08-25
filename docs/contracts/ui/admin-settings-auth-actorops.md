@@ -59,6 +59,10 @@
 
 ## 8A. ActorOps control plane
 
+- Binding 不再是需要输入短语的人工 verify：创建/订阅会自动执行本地检查，路线更多菜单只在存在 pending 时提供“重新检查准备中的来源”，无确认框。检查只涵盖目标格式、当前主备的本地 Manifest 与输入兼容性，并明确说明不抓取、不启动 Actor。
+- 展开运行详情的每条 Binding 只显示安全来源名、启用订阅数与“已自动启用 / 等待可运行 Actor / 等待本地证明 / 当前 Actor 不兼容 / 等待启用订阅”等行动文案；绝不显示 target、Actor、Build、Manifest、remote Run/Dataset 或原始 reason code。
+- 新增 X、Instagram、YouTube 来源的表单不显示来源启用复选框，改为说明订阅保存后系统自动准备并在本地证据充分时启用；订阅 Toast 区分“已完成本地核验并启用”与“订阅已保存，仍在准备”。
+
 - **现役单轨合同（2026-08-24）**：Owner/Admin 的 `/settings/actorops` 只读取 schema-2 v2 Route/Binding/Candidate/Attempt/Discovery/Maintenance/Replacement、共享 alerts 与脱敏 `actorops_v2_*` operation events。`routes` 与 `logs` 使用 URL Tab 隔离查询，`?tab=logs&job=<opaque-id>` 只读取该任务的安全执行轨迹。Route 状态只有 `active|disabled`；global 30 缺失、暂时不可用或旧 URL 410 都显示独立空状态，不回退或请求 v1。
 - 页面只提供 v2 的安全 Route priority、Binding verify、费用上限、免费 Discovery/metadata 与 Replacement 操作；任何可能远端启动的动作仍受服务端 CAS、确认词、单 POST、费用和结果对账栅栏约束。页面不显示或调用 v1 Pool、Stage、Canary、Freshness、目标、Manifest、密钥、remote Run/Dataset 或历史 diagnostic event。
 - 本节余下的早期 Pool/Canary/`shadow` 交互描述是已取代的历史 UI 记录，不是现役界面或 API 合同；D176 与本节前三条优先。

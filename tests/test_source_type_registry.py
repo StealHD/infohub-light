@@ -63,6 +63,7 @@ def test_source_type_registry_lists_supported_types_and_templates():
     }.issubset(by_type)
     assert by_type["github_release"]["required_fields"] == ["owner", "repo"]
     assert by_type["apify_social"]["template"]["platform"] == "x"
+    assert by_type["apify_social"]["fields"][4]["default"] == 3
     assert set(by_type["rss"]) == {
         "type",
         "label",
@@ -140,6 +141,8 @@ def test_web_setup_types_are_platform_first_without_exposing_apify_route_fields(
             "fetch_limit",
             "analysis_mode",
         ]
+        assert definition["template"]["fetch_limit"] == 3
+        assert definition["fields"][1]["default"] == 3
         assert definition["fields"][2]["options"] == [
             {"value": "full", "label": "完整分析"},
             {"value": "personal_only", "label": "仅收集"},
@@ -184,6 +187,9 @@ def test_platform_setup_availability_and_config_projection_are_safe():
         "analysis_mode": "full",
         "enabled": True,
     }
+    assert normalize_platform_profile_setup_config(
+        INSTAGRAM_PROFILE_SETUP_TYPE, {"target": "@sooyaaa__"}
+    )["fetch_limit"] == 3
     with pytest.raises(SourceConfigError, match="unsupported fields"):
         normalize_platform_profile_setup_config(
             X_PROFILE_SETUP_TYPE,

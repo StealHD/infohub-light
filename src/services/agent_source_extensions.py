@@ -56,11 +56,11 @@ def extension_definitions() -> tuple[Any, ...]:
         self_service=True,
         requires_web_setup=False,
         en_web_setup_note=(
-            "Creation prepares a disabled ActorOps binding. An administrator "
-            "must verify and activate it before the source can collect."
+            "Creation checks local ActorOps evidence; an enabled subscription "
+            "automatically activates a proven source without starting an Actor."
         ),
         zh_web_setup_note=(
-            "创建时只准备停用的 ActorOps 绑定；管理员核验并启用后才具备采集条件。"
+            "创建时自动检查本地 ActorOps 证据；有启用订阅且证明通过时自动启用，不启动 Actor。"
         ),
         fields={
             "handle": core._guide_field(

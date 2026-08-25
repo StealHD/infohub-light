@@ -663,9 +663,9 @@ def test_rest_subscription_mutations_use_shared_service_without_exposing_network
     calls = []
     original = service.rest_create_subscription
 
-    def tracked_create(actor, *, source_id, values):
+    def tracked_create(actor, *, source_id, values, allow_disabled_source=False):
         calls.append((actor.user_id, source_id, dict(values)))
-        return original(actor, source_id=source_id, values=values)
+        return original(actor, source_id=source_id, values=values, allow_disabled_source=allow_disabled_source)
 
     monkeypatch.setattr(service, "rest_create_subscription", tracked_create)
     response = client.post(

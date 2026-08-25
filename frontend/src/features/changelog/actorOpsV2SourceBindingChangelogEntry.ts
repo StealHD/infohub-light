@@ -6,7 +6,7 @@ export const actorOpsV2SourceBindingChangelogEntries: ChangelogEntry[] = [{
   summary: '来源库里的可见来源都能直接订阅；GitHub/Reddit 用户、Hacker News、X 与 Instagram 也可由订阅管理连接新建。',
   items: [
     { title: '用户来源不再折叠', description: 'GitHub 仓库发布与用户动态、Reddit 社区与用户现在分别识别；RSS/网站、Bilibili、YouTube、Telegram 和 Hacker News 保持各自的安全输入。' },
-    { title: 'X 与 Instagram 可先完成订阅', description: '只需公开账号或官方主页即可生成预览；确认后建立订阅和 pending/disabled Binding，不立即抓取、不启动付费 Actor。管理员在 ActorOps 核验启用后，来源才具备采集条件。' },
+    { title: 'X 与 Instagram 自动准备', description: '网页和 OpenClaw 都会在创建后保存订阅，并只用本地目标、Manifest 与输入兼容性自动核验；证明通过即启用来源，不抓取、不启动付费 Actor。证据不足会保留订阅并显示准备原因；Apify 来源默认每次获取 3 条，用户仍可调整。' },
     { title: '确认和隔离保持不变', description: '每个来源仍单独 prepare、展示完整预览并等待准确确认短语；裸 @账号未说明 X 或 Instagram 时会先询问平台，现有可见来源只使用来源库返回的 ID。' },
   ],
 }, {

@@ -668,7 +668,7 @@ def apply_config_action(
             "platform": platform,
             "kind": kind,
             "target": target,
-            "fetch_limit": _number(payload, "fetch_limit", default=20, minimum=1, maximum=100, integer=True),
+            "fetch_limit": _number(payload, "fetch_limit", default=3, minimum=1, maximum=100, integer=True),
             "enabled": _bool(payload.get("enabled", True)),
             "analysis_mode": analysis_mode,
         }

@@ -5,18 +5,15 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any
 
-from ...apify_actor_identity import source_target_fingerprint
-from ..apify_actor_manifest import (
-    ActorManifestError,
-    actor_manifest_hash,
-    parse_actor_manifest,
+from .binding_evidence import (
+    BindingEvidence,
+    BindingEvidenceEvaluator,
+    BindingTarget,
 )
-from ..source_type_registry import is_youtube_channel_config
 from .domain import BindingRecord, RouteKey, RuntimeMode
-from .ports import ActorManifest, FetchWindow
-from .registry import AdapterNotRegistered, AdapterRegistry
+from .registry import AdapterRegistry
 from .repository import ActorOpsConflict, ActorOpsNotFound, ActorOpsRepository
 
 
@@ -41,14 +38,6 @@ class BindingExecutionState:
     retryable: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class _BindingTarget:
-    route_id: str
-    route_key: RouteKey
-    raw_target: str
-    target_fingerprint: str
-
-
 class ActorOpsBindingService:
     """Create and mutate Binding state without consulting ActorOps v1 facts."""
 
@@ -67,6 +56,9 @@ class ActorOpsBindingService:
             registry = build_default_registry()
         self.registry = registry
         self.repository = ActorOpsRepository(store.connect(), self.workspace_id)
+        self.evidence = BindingEvidenceEvaluator(
+            self.repository, registry, workspace_id=self.workspace_id
+        )
 
     def ensure(self, source_id: str) -> BindingRecord:
         source = self._source(source_id)
@@ -160,16 +152,14 @@ class ActorOpsBindingService:
         ):
             raise ActorOpsBindingError("actorops_v2_binding_conflict")
         source = self._source(source_id)
-        target = self._target(source)
+        target = self._target(source, existing=binding)
         if (
             target.route_id != binding.route_id
             or target.target_fingerprint != binding.target_fingerprint
         ):
             raise ActorOpsBindingError("actorops_v2_binding_conflict")
-        if not (
-            self._has_deterministic_proof(binding, source, target)
-            or self._has_settled_probe(binding)
-        ):
+        evidence = self.evidence.assess(binding, source, target)
+        if not evidence.eligible:
             raise ActorOpsBindingError("actorops_v2_binding_evidence_missing")
         try:
             with self.repository.transaction():
@@ -180,6 +170,17 @@ class ActorOpsBindingService:
                 )
         except ActorOpsConflict as exc:
             raise ActorOpsBindingError("actorops_v2_binding_conflict") from exc
+
+    def assess(self, source_id: str) -> BindingEvidence:
+        binding = self.repository.get_binding(source_id)
+        source = self._source(source_id)
+        target = self._target(source, existing=binding)
+        if (
+            target.route_id != binding.route_id
+            or target.target_fingerprint != binding.target_fingerprint
+        ):
+            raise ActorOpsBindingError("actorops_v2_binding_conflict")
+        return self.evidence.assess(binding, source, target)
 
     def disable(self, source_id: str) -> BindingRecord:
         binding = self.repository.get_binding(source_id)
@@ -314,148 +315,14 @@ class ActorOpsBindingService:
 
     def _target(
         self,
-        source: Mapping[str, Any],
+        source: dict[str, Any],
         *,
         existing: BindingRecord | None = None,
-    ) -> _BindingTarget:
-        config = source.get("config")
-        if not isinstance(config, Mapping):
-            raise ActorOpsBindingError("actorops_v2_target_invalid")
-        source_type = str(source.get("type") or "")
-        if source_type == "rss" and is_youtube_channel_config(config):
-            route_key = RouteKey("youtube", "channel", "items")
-            raw_target = str(config.get("url") or "")
-        elif source_type == "apify_social":
-            raw_target = str(config.get("target") or "")
-            profile_id = str(config.get("profile_id") or "").strip()
-            if profile_id:
-                try:
-                    route = self.repository.get_route(profile_id)
-                except ActorOpsNotFound as exc:
-                    if existing is None:
-                        raise ActorOpsBindingError(
-                            "actorops_v2_route_not_found"
-                        ) from exc
-                    route = self.repository.get_route(existing.route_id)
-                route_key = route.route_key
-            else:
-                route_key = RouteKey(
-                    str(config.get("platform") or "").casefold(),
-                    str(config.get("kind") or "").casefold(),
-                    "items",
-                )
-        else:
-            raise ActorOpsBindingError("actorops_v2_source_unsupported")
+    ) -> BindingTarget:
         try:
-            adapter = self.registry.require(route_key)
-            adapter.normalize_target({"target": raw_target})
-        except (AdapterNotRegistered, TypeError, ValueError) as exc:
-            raise ActorOpsBindingError("actorops_v2_target_invalid") from exc
-        row = self.repository.connection.execute(
-            """SELECT route_id FROM actor_routes_v2
-               WHERE workspace_id=? AND platform=? AND target_type=?
-                 AND capability=?""",
-            (
-                self.workspace_id,
-                route_key.platform,
-                route_key.target_type,
-                route_key.capability,
-            ),
-        ).fetchone()
-        if row is None:
-            raise ActorOpsBindingError("actorops_v2_route_not_found")
-        route_id = str(row["route_id"])
-        return _BindingTarget(
-            route_id,
-            route_key,
-            raw_target,
-            source_target_fingerprint(
-                self.workspace_id,
-                route_id,
-                raw_target,
-                platform=route_key.platform,
-            ),
-        )
-
-    def _has_deterministic_proof(
-        self,
-        binding: BindingRecord,
-        source: Mapping[str, Any],
-        target: _BindingTarget,
-    ) -> bool:
-        if target.route_key == RouteKey("youtube", "channel", "items"):
-            return is_youtube_channel_config(source.get("config"))
-        candidates = tuple(
-            candidate
-            for candidate in self.repository.list_route_candidates(binding.route_id)
-            if candidate.assignment_role is not None
-            and candidate.assignment_role.value in {"active", "standby"}
-            and candidate.lifecycle.value in {"probationary", "certified"}
-        )
-        if not candidates:
-            return False
-        adapter = self.registry.require(target.route_key)
-        normalized = adapter.normalize_target({"target": target.raw_target})
-        window = FetchWindow(
-            max_items=1,
-            since=datetime(2000, 1, 1, tzinfo=timezone.utc),
-            until=datetime(2000, 1, 2, tzinfo=timezone.utc),
-        )
-        for candidate in candidates:
-            if not all(
-                (
-                    candidate.build_id,
-                    candidate.build_number,
-                    candidate.manifest_json,
-                    candidate.manifest_hash,
-                )
-            ):
-                return False
-            try:
-                parsed = parse_actor_manifest(str(candidate.manifest_json))
-                if (
-                    parsed.actor_id != candidate.actor_id
-                    or parsed.build_number != candidate.build_number
-                    or actor_manifest_hash(parsed) != candidate.manifest_hash
-                ):
-                    return False
-                adapter.build_actor_input(
-                    normalized,
-                    ActorManifest(
-                        candidate.actor_id,
-                        str(candidate.build_id),
-                        str(candidate.build_number),
-                        str(candidate.manifest_json),
-                        str(candidate.manifest_hash),
-                    ),
-                    window,
-                )
-            except (ActorManifestError, TypeError, ValueError):
-                return False
-        return True
-
-    def _has_settled_probe(self, binding: BindingRecord) -> bool:
-        return self.repository.connection.execute(
-            """SELECT 1 FROM actor_attempts_v2 AS attempt
-               JOIN actor_candidates_v2 AS candidate
-                 ON candidate.workspace_id=attempt.workspace_id
-                AND candidate.candidate_id=attempt.candidate_id
-               WHERE attempt.workspace_id=? AND attempt.source_id=?
-                 AND attempt.route_id=? AND attempt.binding_version=?
-                 AND attempt.target_fingerprint=? AND attempt.kind='probe'
-                 AND attempt.status='succeeded'
-                 AND attempt.semantic_outcome='valid_nonempty'
-                 AND attempt.result_state='validated' AND attempt.cost_final=1
-                 AND candidate.assignment_role IN ('active','standby')
-               LIMIT 1""",
-            (
-                self.workspace_id,
-                binding.source_id,
-                binding.route_id,
-                binding.binding_version,
-                binding.target_fingerprint,
-            ),
-        ).fetchone() is not None
+            return self.evidence.target(source, existing=existing)
+        except ValueError as exc:
+            raise ActorOpsBindingError(str(exc)) from exc
 
 
 def _binding_id(workspace_id: str, source_id: str) -> str:

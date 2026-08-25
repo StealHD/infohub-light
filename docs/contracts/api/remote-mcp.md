@@ -1,5 +1,9 @@
 ## 5B. Remote MCP 合同
 
+### 平台 Binding 自动收口（2026-08-25）
+
+第 6 项的 X/Instagram apply 仍只创建 private source、enabled subscription 与 pending Binding，不联网也不启动 Actor；事务内和提交后的本地自动对账会在已有确定性证据时把 Binding 置 ready 并启用来源。证据不足时 subscription 保持 enabled、source/schedule 继续 disabled，Worker 在后续 housekeeping 自动收口；Remote MCP 不增加 activation 工具、scope 或额外确认。
+
 1. Remote MCP 由现有 `horizon-api` 以 Streamable HTTP 精确暴露在 `/mcp`，固定 `stateless_http=true` 且不保存会话。功能默认关闭；启用时 `HORIZON_REMOTE_MCP_PUBLIC_URL` 必须以 `/mcp` 结束，loopback 可用 HTTP，其他主机必须 HTTPS。Host/Origin 白名单从该 URL 推导；无 Origin 的原生客户端允许，其他浏览器 Origin 拒绝。MCP adapter 直接使用 Service/Store，禁止内部 HTTP 回环。
 2. 认证只接受 `Authorization: Bearer <delegation token>`。所有调用均需 `inteliscope:read`；订阅写工具另需 `inteliscope:subscriptions:write` 与订阅写开关，系统参数工具另需 `inteliscope:system-settings:write`、`HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED=true` 和实时 `owner/admin` 角色；工作区诊断另需 `inteliscope:diagnostics:read` 与实时 `owner/admin`。三种 access 相互独立，既有令牌不升级。无效、过期、吊销、用户禁用或 scope 状态不一致统一 HTTP 401；scope/角色不足或写开关关闭返回稳定拒绝；不提供 OAuth、登录、刷新或动态客户端注册。数据库仅保存完整令牌 SHA-256 和展示前缀，令牌格式为 `ih_mcp_v1_` 加 32-byte URL-safe 随机值。
 3. 工具清单精确为 20 个：13 个读工具 `get_my_feed`、`get_item`、`list_subscriptions`、`source_health`、`list_jobs`、`get_job`、`get_source_setup_guide`、`search_bilibili_users`、`resolve_source`、`list_available_sources`、`diagnose_source`、`diagnose_job`、`query_operation_logs`；四个订阅 proposal/apply 工具；三个系统参数工具 `list_system_settings`、`prepare_update_system_settings`、`apply_system_settings_change`。读工具均标记 read-only、non-destructive、idempotent；会访问固定公开端点的 `search_bilibili_users` 与 registry 驱动的 `resolve_source` 标记 open-world，其余读工具均为 closed-world。prepare 标记非只读、non-destructive、非幂等、closed-world；apply 标记非只读、destructive、非幂等、closed-world。工具结果直接返回 structured content，不包装 REST `{ok,data}`。

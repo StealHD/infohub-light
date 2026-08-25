@@ -44,6 +44,12 @@ export function actorOpsV2Api(client: ApiClient) {
     ) => client.post<Record<string, unknown>>(
       `${resource('/api/admin/apify-routes', routeId)}/v2-bindings/verify`, payload,
     ),
+    reconcileActorOpsV2Bindings: (
+      routeId: string,
+      payload: { expected_route_generation: number },
+    ) => client.post<Record<string, unknown>>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-bindings/reconcile`, payload,
+    ),
     actorOpsV2Candidates: (routeId: string, signal?: AbortSignal) => client.get<{ candidates: ActorOpsV2Candidate[] }>(
       `${resource('/api/admin/apify-routes', routeId)}/v2-candidates`, signal,
     ),
