@@ -96,6 +96,7 @@ class NormalizedBatch:
     semantic_outcome: str
     latest_published_at: str | None = None
     latest_item_id: str | None = None
+    source_avatar_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,7 @@ class ExecutionResult:
     publication_proof: PublicationProof
     latest_published_at: str | None = None
     latest_item_id: str | None = None
+    source_avatar_url: str | None = None
 
 
 class AttemptEventSink(Protocol):

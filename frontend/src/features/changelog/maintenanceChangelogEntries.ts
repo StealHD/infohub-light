@@ -12,4 +12,14 @@ export const codeHealthMaintenanceEntry = {
   ],
 } satisfies ChangelogEntry
 
+export const instagramSourceAvatarChangelogEntry = {
+  date: '2026-08-25',
+  title: 'Instagram 来源头像更稳定',
+  summary: 'Instagram 获取会在不增加额外 Actor 调用的前提下，尽力保存已验证的来源头像；没有可用头像时继续显示 IG 标识。',
+  items: [
+    { title: '过期内容也可补齐头像', description: '即使本次没有进入信息流的新帖子，只要正常获取结果包含与所订阅账号一致的有效头像，系统也会通过受保护媒体地址更新来源头像。' },
+    { title: '头像异常不影响获取', description: '上游头像字段缺失或格式异常时，内容获取和主备 Actor 切换仍可继续；界面使用 IG 标识作为稳定降级。' },
+  ],
+} satisfies ChangelogEntry
+
 export { systemSettingsChangelogEntry } from './systemSettingsChangelogEntry'

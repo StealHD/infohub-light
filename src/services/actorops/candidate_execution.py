@@ -337,6 +337,7 @@ class CandidateExecution:
             ),
             latest_published_at=batch.latest_published_at,
             latest_item_id=batch.latest_item_id,
+            source_avatar_url=batch.source_avatar_url,
         )
 
     def _invalid_output(self, attempt_id: str, candidate: Any) -> None:

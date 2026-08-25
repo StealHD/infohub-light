@@ -31,6 +31,14 @@ class InstagramProfileItemsAdapter:
             allowed_host="instagram.com",
             list_handle_input_keys=("usernames",),
             list_url_input_keys=("startUrls",),
+            avatar_pointer_keys=(
+                "profilePicUrlHD",
+                "profilePicUrl",
+                "profilePicture",
+                "profile_pic_url",
+                "authorProfilePicUrl",
+                "ownerProfilePicUrl",
+            ),
         )
 
     def build_actor_input(self, target, manifest, window):

@@ -145,6 +145,65 @@ def test_manifest_latest_item_for_nonempty_result_uses_filtered_window() -> None
     assert result.latest_published_at == "2030-01-01T08:00:00+00:00"
 
 
+def test_manifest_keeps_a_valid_avatar_from_window_excluded_content() -> None:
+    manifest = _manifest()
+    manifest["output"]["author_avatar_url"] = {
+        "pointers": ["/author/avatar"],
+        "transforms": ["normalize_url"],
+    }
+    result = map_actor_output(
+        parse_actor_manifest(manifest),
+        [{
+            "id": "old-post",
+            "url": "https://x.com/apify/status/old-post",
+            "createdAt": "2030-01-01T00:00:00Z",
+            "text": "old content",
+            "author": {
+                "handle": "apify",
+                "avatar": "https://images.example.com/apify.png?version=1",
+            },
+        }],
+        {
+            "canonical_url": "https://x.com/apify",
+            "native_id": "apify",
+            "handle": "apify",
+        },
+        {"max_items": 1, "since_iso": "2030-01-02T00:00:00Z"},
+    )
+
+    assert result.semantic_outcome == "valid_empty"
+    assert result.items == ()
+    assert result.source_avatar_url == "https://images.example.com/apify.png?version=1"
+
+
+def test_manifest_discards_invalid_optional_avatar_without_rejecting_content() -> None:
+    manifest = _manifest()
+    manifest["output"]["author_avatar_url"] = {
+        "pointers": ["/author/avatar"],
+        "transforms": ["normalize_url"],
+    }
+    result = map_actor_output(
+        parse_actor_manifest(manifest),
+        [{
+            "id": "post-1",
+            "url": "https://x.com/apify/status/post-1",
+            "createdAt": "2030-01-01T00:00:00Z",
+            "text": "content",
+            "author": {"handle": "apify", "avatar": "javascript:alert(1)"},
+        }],
+        {
+            "canonical_url": "https://x.com/apify",
+            "native_id": "apify",
+            "handle": "apify",
+        },
+        {"max_items": 1},
+    )
+
+    assert result.semantic_outcome == "valid_nonempty"
+    assert result.items[0].author_avatar_url is None
+    assert result.source_avatar_url is None
+
+
 def test_manifest_deduplicates_unsorted_rows_and_keeps_latest_limited_items() -> None:
     result = map_actor_output(
         parse_actor_manifest(_manifest()),

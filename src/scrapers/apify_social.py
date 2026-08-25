@@ -276,7 +276,7 @@ class ApifySocialScraper(BaseScraper):
                 client_factory=lambda: self._client_for_subscription(sub),
                 job_id=self.route_job_id,
                 frozen_snapshot=self.actor_ops_snapshot,
-                public_http_client=self.client,
+                public_http_client=self.client, avatar_observer=self.observe_source_avatar,
             )
 
         token_records = (

@@ -83,6 +83,7 @@ def test_instagram_discovery_uses_its_own_plural_input_and_post_fields() -> None
         input_schema={"properties": {"usernames": {"type": "array"}}},
         output_schema={"properties": {
             "postId": {}, "url": {}, "timestamp": {}, "caption": {}, "authorUsername": {},
+            "profilePicUrlHD": {},
         }},
     )
 
@@ -92,6 +93,7 @@ def test_instagram_discovery_uses_its_own_plural_input_and_post_fields() -> None
     assert value["input"] == {"usernames": [{"$ref": "target.handle"}]}
     assert value["output"]["native_id"]["pointers"] == ["/postId"]
     assert value["output"]["author_handle"]["pointers"] == ["/authorUsername"]
+    assert value["output"]["author_avatar_url"]["pointers"] == ["/profilePicUrlHD"]
 
 
 def test_adapters_do_not_depend_on_storage_secrets_jobs_or_feed() -> None:

@@ -19,6 +19,7 @@ async def fetch_actorops_source_subscription(
     job_id: str | None,
     frozen_snapshot: Any | None,
     public_http_client: Any | None = None,
+    avatar_observer: Callable[..., None] | None = None,
 ) -> list[ContentItem]:
     """Fetch latest configured items through one explicitly registered Route.
 
@@ -33,13 +34,34 @@ async def fetch_actorops_source_subscription(
             retryable=False,
             code="actorops_v2_snapshot_required",
         )
-    return await ops.fetch_subscription(
+    items = await ops.fetch_subscription(
         subscription=subscription,
         since=since,
         client_factory=client_factory,
         job_id=job_id,
         snapshot=frozen_snapshot,
         public_http_client=public_http_client,
+    )
+    _observe_instagram_source_avatar(items, subscription, avatar_observer)
+    return items
+
+
+def _observe_instagram_source_avatar(
+    items: list[ContentItem],
+    subscription: ApifySocialSubscriptionConfig,
+    avatar_observer: Callable[..., None] | None,
+) -> None:
+    if (
+        avatar_observer is None
+        or str(subscription.platform.value) != "instagram"
+        or subscription.kind != "profile"
+        or not subscription.source_id
+    ):
+        return
+    avatar_observer(
+        source_id=subscription.source_id,
+        remote_url=getattr(items, "_actorops_v2_source_avatar_url", ""),
+        origin="actorops_v2_instagram_profile",
     )
 
 

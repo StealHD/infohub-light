@@ -494,14 +494,11 @@ class ManifestMappingResult:
     """Normalized rows and their safe semantic outcome."""
 
     items: tuple[MappedActorItem, ...]
-    semantic_outcome: Literal[
-        "valid_nonempty",
-        "valid_empty",
-        "suspicious_empty",
-    ]
+    semantic_outcome: Literal["valid_nonempty", "valid_empty", "suspicious_empty"]
     excluded_rows: int = 0
     latest_published_at: str | None = None
     latest_native_id: str | None = None
+    source_avatar_url: str | None = None
 
 
 def parse_actor_manifest(value: Any) -> ActorManifestV1:
@@ -662,6 +659,7 @@ def map_actor_output(
 
     mapped: list[MappedActorItem] = []
     latest_observed_item: MappedActorItem | None = None
+    source_avatar_url: str | None = None
     excluded = 0
     metadata_only = 0
     explicit_empty = 0
@@ -703,6 +701,8 @@ def map_actor_output(
             except ActorManifestError:
                 raise
             except (TypeError, ValueError, OverflowError):
+                if name == "author_avatar_url":
+                    continue
                 raise ActorManifestError(
                     "apify_actor_contract_mismatch",
                     "Actor output could not be normalized",
@@ -730,13 +730,11 @@ def map_actor_output(
             target=target_model,
             runtime=validation_runtime,
         )
+        if source_avatar_url is None and item.author_avatar_url:
+            source_avatar_url = item.author_avatar_url
         if latest_observed_item is None or (
-            item.published_at,
-            item.native_id,
-        ) > (
-            latest_observed_item.published_at,
-            latest_observed_item.native_id,
-        ):
+            item.published_at, item.native_id
+        ) > (latest_observed_item.published_at, latest_observed_item.native_id):
             latest_observed_item = item
         if (
             runtime_model.since_iso
@@ -766,6 +764,7 @@ def map_actor_output(
             ),
             latest_published_at=mapped[0].published_at.isoformat(),
             latest_native_id=mapped[0].native_id,
+            source_avatar_url=source_avatar_url,
         )
     if explicit_empty and explicit_empty + excluded + metadata_only == len(rows):
         return ManifestMappingResult(
@@ -790,6 +789,7 @@ def map_actor_output(
                 if latest_observed_item
                 else None
             ),
+            source_avatar_url=source_avatar_url,
         )
     if excluded == len(rows):
         raise ActorManifestError(
@@ -1112,11 +1112,7 @@ def _validate_mapped_item(
 ) -> None:
     try:
         item.url = normalize_http_url(item.url)
-        for field_name in (
-            "source_url",
-            "author_avatar_url",
-            "thumbnail_url",
-        ):
+        for field_name in ("source_url", "thumbnail_url"):
             value = getattr(item, field_name)
             if value is not None:
                 setattr(item, field_name, normalize_http_url(value))
@@ -1126,6 +1122,10 @@ def _validate_mapped_item(
             "Actor output contains an invalid URL",
             retryable=True,
         ) from None
+    try:
+        item.author_avatar_url = normalize_http_url(item.author_avatar_url) if item.author_avatar_url else None
+    except ValueError:
+        item.author_avatar_url = None
     host = (urlsplit(item.url).hostname or "").lower().rstrip(".")
     if not any(
         host == allowed or host.endswith(f".{allowed}")

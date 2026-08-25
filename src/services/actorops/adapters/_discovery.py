@@ -19,6 +19,7 @@ def deterministic_manifest(
     allowed_host: str,
     list_handle_input_keys: Sequence[str] = (),
     list_url_input_keys: Sequence[str] = (),
+    avatar_pointer_keys: Sequence[str] = (),
 ) -> DiscoveryMapping:
     """Build only a schema-proven Manifest; ambiguous schemas stay pending."""
 
@@ -30,6 +31,7 @@ def deterministic_manifest(
     published = _first(outputs, ("publishedAt", "createdAt", "timestamp"))
     text = _first(outputs, ("text", "title", "description", "caption"))
     identity = _first(outputs, identity_pointer_keys)
+    avatar = _first(outputs, avatar_pointer_keys)
     if not all((input_key, native_id, url, published, text, identity)):
         return DiscoveryMapping(None, "actorops_discovery_mapping_unresolved")
     value = {
@@ -47,6 +49,11 @@ def deterministic_manifest(
             "published_at": _output(published, "parse_datetime"),
             "text": _output(text, "to_string"),
             identity_field: _output(identity, "to_string"),
+            **(
+                {"author_avatar_url": _output(avatar, "normalize_url")}
+                if avatar
+                else {}
+            ),
         },
         "semantics": {
             "identity": {

@@ -9,31 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "OpenClaw and Remote MCP now subscribe to any visible catalog source and can create all current public source types; X and Instagram create atomic pending/disabled ActorOps bindings without fetch, Job, Attempt, AI, notification, or paid Actor work.",
-  "status": "completed",
-  "task_id": "2026-08-23-openclaw-all-source-subscriptions",
-  "unresolved": [
-    "No deployment, release, tag, push, real source fetch, Actor call, AI call, notification, or paid operation was performed.",
-    "The second aggregate preflight stopped on stale source-guide expectations; after correcting them, the full Python suite and every remaining planned gate command passed independently, and the aggregate was not invoked a third time."
-  ],
-  "validation": [
-    "Full Python suite passed with ResourceWarning promoted to errors.",
-    "Frontend passed 83 Vitest files / 611 tests, lint, typecheck, UI and E2E contracts, and production build.",
-    "Code-size, Markdown/control, JSON, syntax, product documentation, and diff checks passed.",
-    "X/Instagram tests proved pending Binding creation, atomic rollback, deletion lifecycle, Web-only activation/retargeting, and zero fetch/discovery Jobs or Actor Attempts."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface"
   ],
   "recorded_on": "2026-08-24",
@@ -397,6 +372,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "snapshot impacted preflight、Markdown/control、worklog、JSON 与 diff 检查通过。",
     "从目标 worktree 部署后，池由 draining/generation 1940 恢复为 ready/generation 1941，备用 acquisition Key 已 active；历史 validation unknown-start 由空窗口证据终结为 start_rejected、$0、charge_final。",
     "部署前创建主运行库 0600 SQLite 备份。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "Instagram ActorOps v2 sources now retain a validated avatar candidate across content time-window filtering, treat malformed optional avatar URLs as non-fatal, and cache it through the existing protected source-avatar path without an extra Actor call.",
+  "status": "completed",
+  "task_id": "2026-08-25-instagram-source-avatar",
+  "unresolved": [
+    "No production source fetch, paid Actor call, AI call, notification, deployment, release, tag, or push was performed. Existing Instagram sources recover on their next scheduled or manually requested normal fetch; Actors that do not emit a valid avatar keep the IG fallback."
+  ],
+  "validation": [
+    "Targeted Actor manifest, ActorOps adapter/source execution/service, runtime, social scraper, source-avatar, and catalog runner tests passed.",
+    "Frontend SourceAvatar Vitest, TypeScript typecheck, and ESLint passed.",
+    "Backend and frontend code-size comparisons against the task baseline plus git diff --check passed."
   ]
 }
 ```

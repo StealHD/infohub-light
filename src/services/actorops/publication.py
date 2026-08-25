@@ -9,9 +9,16 @@ from .repository import ActorOpsRepository
 
 
 class ActorOpsV2RoutedList(list):
-    def __init__(self, items: list[Any], proof: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        items: list[Any],
+        proof: dict[str, Any],
+        *,
+        source_avatar_url: str | None = None,
+    ) -> None:
         super().__init__(items)
         self._actorops_v2_publication_proof = dict(proof)
+        self._actorops_v2_source_avatar_url = source_avatar_url or ""
 
 
 def v2_proof_payload(

@@ -3132,7 +3132,7 @@ describe('App routes', () => {
 
     await browser.click(await screen.findByRole('button', { name: '编辑来源：OpenAI 旧名称' }))
     const dialog = await screen.findByRole('dialog', { name: 'OpenAI 旧名称 · 来源设置' })
-    expect(within(dialog).getByText('平台连接字段暂时锁定')).toBeVisible(); expect(within(dialog).getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled(); expect(within(dialog).getByRole('checkbox', { name: '启用来源' })).toBeDisabled()
+    expect(within(dialog).getByText('平台连接字段暂时锁定')).toBeVisible(); expect(within(dialog).getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled(); expect(within(dialog).queryByRole('checkbox', { name: '启用来源' })).not.toBeInTheDocument()
     const fetchLimit = within(dialog).getByRole('spinbutton', { name: '每次获取条数' })
     expect(fetchLimit).toBeEnabled()
     await browser.clear(fetchLimit); await browser.type(fetchLimit, '3')

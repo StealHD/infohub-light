@@ -63,6 +63,7 @@ def validate_and_map(
         semantic_outcome=mapped.semantic_outcome,
         latest_published_at=mapped.latest_published_at,
         latest_item_id=mapped.latest_native_id,
+        source_avatar_url=mapped.source_avatar_url,
     )
 
 

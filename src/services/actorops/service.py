@@ -100,6 +100,7 @@ class ActorOpsV2Service:
                 latest_published_at=handle.latest_published_at,
                 latest_item_id_hash=handle.latest_item_id_hash,
             ),
+            source_avatar_url=result.source_avatar_url,
         )
 
     def assert_publishable(self, handle: V2ExecutionHandle) -> None:

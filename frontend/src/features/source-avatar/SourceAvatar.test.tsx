@@ -52,6 +52,9 @@ describe('SourceAvatar', () => {
       <SourceAvatar name="食贫道" platform="bilibili" />,
     )
     expect(screen.getByLabelText('食贫道 来源标识')).toHaveTextContent('食贫')
+
+    view.rerender(<SourceAvatar name="OpenAI" platform="instagram" />)
+    expect(screen.getByLabelText('OpenAI 来源标识')).toHaveTextContent('IG')
   })
 
   it('rejects an upstream avatar URL at the rendering boundary', () => {
