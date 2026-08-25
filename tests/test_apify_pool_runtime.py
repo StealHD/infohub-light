@@ -4,10 +4,14 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import pytest
 
-from src.services.apify_key_pool import ApifyKeyPoolService
+from src.scrapers.apify_client import ApifyCredentialFailureKind
+from src.services.apify_key_pool import ApifyKeyBusyError, ApifyKeyPoolService
 from src.services.apify_pool_runtime import reconcile_apify_pool
+from src.services.job_queue import JobQueue
 from src.services.secret_store import SecretStore
+from src.services.worker import run_worker_once
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -55,6 +59,32 @@ def _pool(tmp_path) -> tuple[ServiceStore, SecretStore, ApifyKeyPoolService, lis
         secret_store,
         ApifyKeyPoolService(store, secret_store=secret_store),
         refs,
+    )
+
+
+def _dedicated_validation_lease(
+    store: ServiceStore,
+    secret_store: SecretStore,
+    coordinator: ApifyKeyPoolService,
+):
+    ref = store.create_secret_ref(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        owner_user_id=None,
+        name="Apify validation",
+        env_name="APIFY_TOKEN_VALIDATION",
+        kind="provider",
+        provider="apify",
+    )
+    secret_store.set("APIFY_TOKEN_VALIDATION", "private-token-validation")
+    coordinator.append_secret(str(ref["id"]))
+    coordinator.set_validation_key(
+        DEFAULT_WORKSPACE_ID,
+        secret_id=str(ref["id"]),
+        expected_generation=coordinator.current_generation(DEFAULT_WORKSPACE_ID),
+    )
+    return coordinator.acquire_credential(
+        purpose="validation",
+        logical_run_id="validation-unknown-start",
     )
 
 
@@ -399,3 +429,265 @@ def test_terminal_cost_is_refreshed_after_settlement_window(tmp_path, monkeypatc
     run = coordinator.get_run(lease.reservation_id)
     assert run["charge_actual_usd"] == 0.00505
     assert run["charge_final"] == 1
+
+
+def test_validation_unknown_start_recovers_without_blocking_drain(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, secret_store, coordinator, _refs = _pool(tmp_path)
+    validation = _dedicated_validation_lease(store, secret_store, coordinator)
+    coordinator.report_start_outcome_unknown(validation)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    store.connect().execute(
+        "UPDATE apify_actor_runs SET created_at = ?, updated_at = ? WHERE id = ?",
+        (old, old, validation.reservation_id),
+    )
+    store.connect().commit()
+    active = coordinator.acquire_credential(logical_run_id="production-drain")
+    coordinator.release_reservation(active, "apify_start_rejected")
+    coordinator.begin_drain(
+        active.secret_id,
+        target_status="depleted",
+        reason="apify_credits_depleted",
+    )
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        return httpx.Response(
+            200,
+            json={"data": {"items": [], "total": 0, "count": 0}},
+        )
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(handler),
+        )
+    )
+
+    run = coordinator.get_run(validation.reservation_id)
+    assert state["status"] == "ready"
+    assert state["active_secret_id"] != active.secret_id
+    assert requests == [("GET", "/v2/actor-runs")]
+    assert run["status"] == "start_rejected"
+    assert run["charge_actual_usd"] == 0
+    assert run["charge_final"] == 1
+
+
+def test_restart_marks_dedicated_validation_reservation_unknown_and_keeps_it_locked(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, secret_store, coordinator, _refs = _pool(tmp_path)
+    validation = _dedicated_validation_lease(store, secret_store, coordinator)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    store.connect().execute(
+        "UPDATE apify_actor_runs SET created_at = ?, updated_at = ? WHERE id = ?",
+        (old, old, validation.reservation_id),
+    )
+    store.connect().commit()
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "items": [{"id": "possible-validation-run"}],
+                            "total": 1,
+                            "count": 1,
+                        }
+                    },
+                )
+            ),
+        )
+    )
+
+    assert state["status"] == "ready"
+    assert coordinator.get_run(validation.reservation_id)["status"] == (
+        "start_outcome_unknown"
+    )
+    with pytest.raises(ApifyKeyBusyError):
+        coordinator.acquire_credential(
+            purpose="validation",
+            logical_run_id="must-not-repeat-validation",
+        )
+
+
+def test_unresolved_validation_start_does_not_block_production_failover(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, secret_store, coordinator, _refs = _pool(tmp_path)
+    validation = _dedicated_validation_lease(store, secret_store, coordinator)
+    coordinator.report_start_outcome_unknown(validation)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    store.connect().execute(
+        "UPDATE apify_actor_runs SET created_at = ?, updated_at = ? WHERE id = ?",
+        (old, old, validation.reservation_id),
+    )
+    store.connect().commit()
+    active = coordinator.acquire_credential(logical_run_id="production-drain")
+    coordinator.release_reservation(active, "apify_start_rejected")
+    coordinator.begin_drain(
+        active.secret_id,
+        target_status="depleted",
+        reason="apify_credits_depleted",
+    )
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "items": [{"id": "other-run"}],
+                            "total": 1,
+                            "count": 1,
+                        }
+                    },
+                )
+            ),
+        )
+    )
+
+    assert state["status"] == "ready"
+    assert state["active_secret_id"] != active.secret_id
+    assert coordinator.get_run(validation.reservation_id)["status"] == (
+        "start_outcome_unknown"
+    )
+
+
+def test_direct_credential_failure_ignores_dedicated_validation_unknown_start(
+    tmp_path,
+) -> None:
+    store, secret_store, coordinator, _refs = _pool(tmp_path)
+    validation = _dedicated_validation_lease(store, secret_store, coordinator)
+    coordinator.report_start_outcome_unknown(validation)
+    active = coordinator.acquire_credential(logical_run_id="production-quota")
+
+    async def unexpected_abort(_lease, _remote_run_id: str) -> str:
+        raise AssertionError("the dedicated validation Run has no remote id")
+
+    asyncio.run(
+        coordinator.report_credential_failure(
+            active,
+            failure_kind=ApifyCredentialFailureKind.DEPLETED,
+            status_code=402,
+            error_type="quota-preflight-depleted",
+            abort_run=unexpected_abort,
+        )
+    )
+
+    state = coordinator.public_state(DEFAULT_WORKSPACE_ID)
+    assert state["status"] == "ready"
+    assert state["active_secret_id"] != active.secret_id
+    assert coordinator.get_run(validation.reservation_id)["status"] == (
+        "start_outcome_unknown"
+    )
+
+
+def test_validation_using_production_key_remains_in_drain_barrier(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    _store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    validation = coordinator.acquire_credential(
+        purpose="validation",
+        logical_run_id="validation-fallback",
+    )
+    coordinator.register_run(validation, "remote-validation", "dataset-validation")
+    coordinator.begin_drain(
+        validation.secret_id,
+        target_status="depleted",
+        reason="apify_credits_depleted",
+    )
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.method == "POST":
+            return httpx.Response(200, json={"data": {"status": "ABORTING"}})
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "id": "remote-validation",
+                    "status": "ABORTED",
+                    "usageTotalUsd": 0,
+                }
+            },
+        )
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert state["status"] == "ready"
+    assert coordinator.get_run(validation.reservation_id)["status"] == "aborted"
+    assert requests[:2] == [
+        ("POST", "/v2/actor-runs/remote-validation/abort"),
+        ("GET", "/v2/actor-runs/remote-validation"),
+    ]
+
+
+def test_preclaim_pool_reconciliation_failure_does_not_block_source_job(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "safe-test-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_test",
+        payload={"source_type": "rss"},
+    )
+    events: list[str] = []
+    original_claim = JobQueue.claim_next_job
+
+    def reconcile(_store, *, data_dir):
+        assert data_dir == str(tmp_path)
+        events.append("reconcile")
+        raise RuntimeError("safe test failure")
+
+    def claim(self, *args, **kwargs):
+        events.append("claim")
+        return original_claim(self, *args, **kwargs)
+
+    monkeypatch.setattr("src.services.worker_cycle.reconcile_all_apify_pools_sync", reconcile)
+    monkeypatch.setattr(JobQueue, "claim_next_job", claim)
+    monkeypatch.setattr(
+        "src.services.worker.run_source_test",
+        lambda _payload: {"ok": True, "source_type": "rss"},
+    )
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="apify-pool-preclaim-worker",
+        enqueue_schedules=False,
+    )
+
+    assert result and result["id"] == job["id"] and result["status"] == "succeeded"
+    assert events.index("reconcile") < events.index("claim")

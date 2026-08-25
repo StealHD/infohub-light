@@ -121,8 +121,14 @@ class ApifyKeyPoolUnknownStartMixin:
         unresolved = int(
             connection.execute(
                 """
-                SELECT COUNT(*) FROM apify_actor_runs
-                WHERE workspace_id = ? AND status = 'start_outcome_unknown'
+                SELECT COUNT(*)
+                FROM apify_actor_runs AS run
+                JOIN apify_key_pool_members AS member
+                  ON member.workspace_id = run.workspace_id
+                 AND member.secret_id = run.secret_id
+                WHERE run.workspace_id = ?
+                  AND member.role = 'acquisition'
+                  AND run.status = 'start_outcome_unknown'
                 """,
                 (run["workspace_id"],),
             ).fetchone()[0]

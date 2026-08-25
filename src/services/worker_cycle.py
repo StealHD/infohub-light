@@ -11,6 +11,7 @@ from typing import Any
 from ..observability_context import update_observability_context
 from ..storage.service_store import ServiceStore
 from .apify_actor_alerts import ApifyActorAlertService
+from .apify_pool_runtime import reconcile_all_apify_pools_sync
 from .feed_schedule import FeedScheduleService
 from .job_queue import JobQueue
 from .maintenance import MaintenanceService  # noqa: F401 - legacy test seam
@@ -65,6 +66,28 @@ def _recover_stale_jobs(
             error_code="lease_expired",
             counts={"attempts": int(recovered["attempts"])},
         )
+
+
+def _reconcile_apify_key_pools(
+    store: ServiceStore,
+    *,
+    data_dir: str,
+    logger: logging.Logger,
+) -> None:
+    """Reconcile paid-Key facts before claiming work without blocking free Jobs."""
+
+    update_observability_context(stage="apify_pool_reconcile")
+    try:
+        outcomes = reconcile_all_apify_pools_sync(store, data_dir=data_dir)
+    except Exception:
+        logger.warning("Apify Key pool pre-claim reconciliation failed", exc_info=True)
+        return
+    for outcome in outcomes:
+        if not outcome.get("ok"):
+            logger.warning(
+                "Apify Key pool pre-claim reconciliation failed code=%s",
+                outcome.get("code", "unknown"),
+            )
 
 
 def _emit_schedule_outcomes(
@@ -184,6 +207,7 @@ def prepare_worker_cycle(
         if lease_seconds is not None
         else os.getenv("HORIZON_WORKER_LEASE_SECONDS", "900")
     )
+    _reconcile_apify_key_pools(store, data_dir=data_dir, logger=logger)
     retire_queued_actorops_v1_jobs(store)
     _recover_stale_jobs(queue, emit_operation_event=ports.emit_operation_event)
     if enqueue_schedules:

@@ -61,19 +61,88 @@ async def reconcile_blocked_unknown_start_pool(
     return coordinator.public_state(workspace_id)
 
 
-def _unregistered_unknown_runs(coordinator: Any, workspace_id: str) -> list[dict[str, Any]]:
+async def reconcile_dedicated_validation_unknown_starts(
+    coordinator: Any,
+    *,
+    http_transport: httpx.AsyncBaseTransport | None,
+) -> dict[str, Any]:
+    """Safely settle dedicated validation unknown starts without blocking intake."""
+
+    workspace_id = coordinator.workspace_id
+    runs = _unregistered_unknown_runs(
+        coordinator,
+        workspace_id,
+        role="validation",
+    )
+    if not runs:
+        return coordinator.public_state(workspace_id)
+    timeout = httpx.Timeout(15.0, connect=5.0)
+    async with httpx.AsyncClient(
+        timeout=timeout, transport=http_transport, trust_env=False,
+    ) as http_client:
+        client = ApifyClient(
+            coordinator=coordinator,
+            http_client=http_client,
+            retry_base_delay=1.0,
+        )
+        for run in runs:
+            # A non-empty or unavailable account window stays auditable but is
+            # deliberately independent of production acquisition failover.
+            await _prove_unregistered_start_absent(client, coordinator, run)
+    return coordinator.public_state(workspace_id)
+
+
+def _unregistered_unknown_runs(
+    coordinator: Any,
+    workspace_id: str,
+    *,
+    role: str = "acquisition",
+) -> list[dict[str, Any]]:
     return [
-        run for run in coordinator.list_nonterminal_runs(workspace_id)
+        run for run in _nonterminal_runs_for_role(coordinator, workspace_id, role)
         if str(run.get("status") or "") == "start_outcome_unknown"
         and not run.get("remote_run_id")
     ]
 
 
-def _registered_nonterminal_runs(coordinator: Any, workspace_id: str) -> list[dict[str, Any]]:
+def _registered_nonterminal_runs(
+    coordinator: Any,
+    workspace_id: str,
+) -> list[dict[str, Any]]:
     return [
-        run for run in coordinator.list_nonterminal_runs(workspace_id)
+        run for run in _nonterminal_runs_for_role(
+            coordinator,
+            workspace_id,
+            "acquisition",
+        )
         if run.get("remote_run_id")
     ][:_MAX_REGISTERED_RUNS_PER_PASS]
+
+
+def _nonterminal_runs_for_role(
+    coordinator: Any,
+    workspace_id: str,
+    role: str,
+) -> list[dict[str, Any]]:
+    rows = coordinator.store.connect().execute(
+        """
+        SELECT run.*, secret.env_name
+        FROM apify_actor_runs AS run
+        JOIN apify_key_pool_members AS member
+          ON member.workspace_id = run.workspace_id
+         AND member.secret_id = run.secret_id
+        LEFT JOIN secret_refs AS secret ON secret.id = run.secret_id
+        WHERE run.workspace_id = ?
+          AND member.role = ?
+          AND run.status IN (
+              'reserved', 'starting', 'running', 'aborting',
+              'start_outcome_unknown'
+          )
+        ORDER BY run.pool_generation, run.created_at, run.id
+        """,
+        (workspace_id, role),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 async def _prove_unregistered_start_absent(
@@ -108,4 +177,7 @@ def _apify_utc_query_datetime(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-__all__ = ["reconcile_blocked_unknown_start_pool"]
+__all__ = [
+    "reconcile_blocked_unknown_start_pool",
+    "reconcile_dedicated_validation_unknown_starts",
+]

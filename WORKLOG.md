@@ -377,3 +377,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "修复 Apify 专用 validation Key 的历史 unknown-start 错误阻塞生产 Key 排空：生产 drain 仅统计 acquisition 角色 Run，专用 validation 保留独立锁定并仅以原 Key 的账户时间窗 GET 证据收口；Worker 在 claim 前有界对账且失败不阻塞普通 Job。",
+  "status": "completed",
+  "task_id": "2026-08-25-apify-validation-drain-isolation",
+  "unresolved": [
+    "本地部署启动时 Worker 领取既有任务并登记了一个新的 acquisition 远端 Run，已立即停止 Worker 防止继续调用；该 Run 的远端读取或终止需要 acquisition Key 的单独授权。"
+  ],
+  "validation": [
+    "32 项 Apify Key-pool 定向回归与 10 项 Worker 相关测试通过。",
+    "snapshot impacted preflight、Markdown/control、worklog、JSON 与 diff 检查通过。",
+    "从目标 worktree 部署后，池由 draining/generation 1940 恢复为 ready/generation 1941，备用 acquisition Key 已 active；历史 validation unknown-start 由空窗口证据终结为 start_rejected、$0、charge_final。",
+    "部署前创建主运行库 0600 SQLite 备份。"
+  ]
+}
+```

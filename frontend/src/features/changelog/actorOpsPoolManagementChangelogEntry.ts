@@ -23,6 +23,16 @@ export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
 
 export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-08-25',
+    title: 'Apify 主备切换不再被独立验证记录卡住',
+    summary: '专用验证密钥的历史未知启动会保留审计并只读核验，但不会阻塞生产采集 Key 的安全排空与备用切换。',
+    items: [
+      { title: '生产排空按密钥角色隔离', description: '生产 Key 只等待使用生产采集密钥的未终态 Run；验证临时借用生产 Key 时仍受同一排空保护，专用验证 Key 则不会阻塞自动切换。' },
+      { title: '历史验证事实只在证据充分时收口', description: '系统只用原验证密钥在原创建时间窗查询账户 Run。窗口明确为空才记录为零费用未启动；发现 Run、网络不可读或结果不明确时保留告警和审计，不猜测、不重放也不启动付费 Actor。' },
+      { title: '普通任务保持可领取', description: 'Worker 会在领取任务前做有界核验；某个工作区核验失败只留下安全状态，免费来源和其他普通任务不会因此停摆。' },
+    ],
+  },
+  {
     date: '2026-08-21',
     title: 'ActorOps 可比较 Actor，并在确认后安全替换',
     summary: 'ActorOps 路线收为紧凑列表：先看当前主备与费用上限，再按公开商城信息选择一个候选进行受控验证。',
