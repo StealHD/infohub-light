@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "新增证据约束的 v1 历史聚合费用收敛工具：仅凭 shared Run ledger 与已结算子项，在停服务、0600 evidence/backup/receipt、hash 与行级 CAS 下补齐终态 Attempt/Validation/Batch item/Batch 的派生费用终态；已有非空 Batch 总额只保留、不下调。",
-  "status": "completed",
-  "task_id": "2026-08-23-actorops-v1-historical-cost-finalizer",
-  "unresolved": [
-    "v2.4.1 发布后仍须在 VPS 停服务并按 evidence snapshot/apply/verify、retirement、global 29/30 的显式顺序完成部署。"
-  ],
-  "validation": [
-    "新增红测后，历史费用 finalizer、退役边界、legacy cost audit、global 29/30 定向测试共 32 项通过。",
-    "impacted preflight 17/17 通过：全量 Python、前端 lint/typecheck/Vitest/build、代码规模、产品文档与控制校验均通过。",
-    "对生产库仅执行只读聚合核验；未调用 Actor、AI、付费来源或写入 VPS 数据库。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-23",
@@ -396,6 +374,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOpsV2ActorChip Vitest 3 项、UI contract、TypeScript 与 ESLint 通过。",
     "本地容器重建后 API/Worker healthy。",
     "当前 ActorOps 页面同坐标连续 12 帧均为 pointer、triggerHit=true、popoverCount=1、underlayCount=0；移开后 240ms 正常关闭。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "修复 Apify 专用 validation Key 的历史 unknown-start 错误阻塞生产 Key 排空：生产 drain 仅统计 acquisition 角色 Run，专用 validation 保留独立锁定并仅以原 Key 的账户时间窗 GET 证据收口；Worker 在 claim 前有界对账且失败不阻塞普通 Job。",
+  "status": "completed",
+  "task_id": "2026-08-25-apify-validation-drain-isolation",
+  "unresolved": [
+    "本地部署启动时 Worker 领取既有任务并登记了一个新的 acquisition 远端 Run，已立即停止 Worker 防止继续调用；该 Run 的远端读取或终止需要 acquisition Key 的单独授权。"
+  ],
+  "validation": [
+    "32 项 Apify Key-pool 定向回归与 10 项 Worker 相关测试通过。",
+    "snapshot impacted preflight、Markdown/control、worklog、JSON 与 diff 检查通过。",
+    "从目标 worktree 部署后，池由 draining/generation 1940 恢复为 ready/generation 1941，备用 acquisition Key 已 active；历史 validation unknown-start 由空窗口证据终结为 start_rejected、$0、charge_final。",
+    "部署前创建主运行库 0600 SQLite 备份。"
   ]
 }
 ```

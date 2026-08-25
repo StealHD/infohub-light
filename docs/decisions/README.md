@@ -188,3 +188,4 @@
 | D182 | 系统运行参数采用 typed workspace override 与独立 Admin MCP 授权 | 2026-08-24 | [查看](records/D176-D200.md#d182) |
 | D183 | UI 默认继承以组件参数矩阵和语义令牌收口 | 2026-08-24 | [查看](records/D176-D200.md#d183) |
 | D184 | 固定 RSSHub 运行密钥使用用途专用入口 | 2026-08-24 | [查看](records/D176-D200.md#d184) |
+| D185 | Apify 生产排空按 Key 角色隔离 | 2026-08-25 | [查看](records/D176-D200.md#d185) |

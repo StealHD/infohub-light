@@ -1160,7 +1160,7 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
         lease: ApifyCredentialLease,
         error_code: str = "apify_start_outcome_unknown",
     ) -> None:
-        """Persist an unknowable POST outcome and fail the whole pool closed."""
+        """Persist an unknowable POST outcome in its credential-role boundary."""
 
         connection = self.store.connect()
         owns_transaction = not connection.in_transaction
@@ -1172,6 +1172,13 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
             run = self._run_for_lease(connection, lease)
             if run["status"] in APIFY_RUN_TERMINAL_STATUSES:
                 raise ApifyRunLeaseError()
+            member = connection.execute(
+                """
+                SELECT role FROM apify_key_pool_members
+                WHERE workspace_id = ? AND secret_id = ?
+                """,
+                (run["workspace_id"], run["secret_id"]),
+            ).fetchone()
             connection.execute(
                 """
                 UPDATE apify_actor_runs
@@ -1181,7 +1188,7 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
                 """,
                 (safe_code, now_iso, run["id"]),
             )
-            if str(run["purpose"] or "acquisition") != "validation":
+            if member is None or str(member["role"]) != "validation":
                 connection.execute(
                     """
                     UPDATE apify_key_pool_state
@@ -1202,7 +1209,11 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
         lease: ApifyCredentialLease,
         error_code: str = "apify_run_reconcile_required",
     ) -> None:
-        """Block new paid starts while preserving a known terminal Run."""
+        """Block the acquisition pool while preserving a known terminal Run.
+
+        Dedicated validation credentials retain their Run lock but cannot block
+        production acquisition failover.
+        """
 
         connection = self.store.connect()
         owns_transaction = not connection.in_transaction
@@ -1212,6 +1223,13 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
             if owns_transaction:
                 connection.execute("BEGIN IMMEDIATE")
             run = self._run_for_lease(connection, lease)
+            member = connection.execute(
+                """
+                SELECT role FROM apify_key_pool_members
+                WHERE workspace_id = ? AND secret_id = ?
+                """,
+                (run["workspace_id"], run["secret_id"]),
+            ).fetchone()
             next_status = (
                 str(run["status"])
                 if run["status"] in APIFY_RUN_TERMINAL_STATUSES
@@ -1225,14 +1243,15 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
                 """,
                 (next_status, safe_code, now_iso, run["id"]),
             )
-            connection.execute(
-                """
-                UPDATE apify_key_pool_state
-                SET status = 'blocked', blocked_reason = ?, updated_at = ?
-                WHERE workspace_id = ?
-                """,
-                (safe_code, now_iso, run["workspace_id"]),
-            )
+            if member is None or str(member["role"]) != "validation":
+                connection.execute(
+                    """
+                    UPDATE apify_key_pool_state
+                    SET status = 'blocked', blocked_reason = ?, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (safe_code, now_iso, run["workspace_id"]),
+                )
             if owns_transaction:
                 connection.commit()
         except Exception:
@@ -1264,11 +1283,15 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
             pending = connection.execute(
                 """
                 SELECT COUNT(*) AS count
-                FROM apify_actor_runs
-                WHERE workspace_id = ?
+                FROM apify_actor_runs AS run
+                JOIN apify_key_pool_members AS member
+                  ON member.workspace_id = run.workspace_id
+                 AND member.secret_id = run.secret_id
+                WHERE run.workspace_id = ?
+                  AND member.role = 'acquisition'
                   AND (
-                      status = 'start_outcome_unknown'
-                      OR last_error_code = 'apify_run_reconcile_required'
+                      run.status = 'start_outcome_unknown'
+                      OR run.last_error_code = 'apify_run_reconcile_required'
                   )
                 """,
                 (run["workspace_id"],),
@@ -1308,7 +1331,9 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
 
         This transition needs no SecretStore access. A restarted process cannot
         prove whether the old process sent the Actor POST, so every surviving
-        reservation without a remote ID becomes manual-reconciliation evidence.
+        pool reservation without a remote ID becomes reconciliation evidence.
+        Only an acquisition-key reservation blocks the production pool; a
+        dedicated validation reservation continues to lock its validation Key.
         """
 
         connection = self.store.connect()
@@ -1327,11 +1352,29 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
                 WHERE workspace_id = ?
                   AND status IN ('reserved', 'starting')
                   AND remote_run_id IS NULL
+                  AND secret_id IN (
+                      SELECT secret_id
+                      FROM apify_key_pool_members
+                      WHERE workspace_id = ?
+                  )
                 """,
-                (safe_code, now_iso, workspace_id),
+                (safe_code, now_iso, workspace_id, workspace_id),
             )
             changed = max(int(cursor.rowcount), 0)
-            if changed:
+            acquisition_unknown = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM apify_actor_runs AS run
+                JOIN apify_key_pool_members AS member
+                  ON member.workspace_id = run.workspace_id
+                 AND member.secret_id = run.secret_id
+                WHERE run.workspace_id = ?
+                  AND member.role = 'acquisition'
+                  AND run.status = 'start_outcome_unknown'
+                """,
+                (workspace_id,),
+            ).fetchone()
+            if int(acquisition_unknown["count"] or 0):
                 connection.execute(
                     """
                     UPDATE apify_key_pool_state
@@ -1681,125 +1724,11 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
         return self.public_state(workspace_id)
 
     def complete_drain_and_failover(self, workspace_id: str) -> dict[str, Any]:
-        """Promote a standby only after every old-generation run is terminal."""
+        """Promote a standby once the production drain barrier is clear."""
 
-        connection = self.store.connect()
-        owns_transaction = not connection.in_transaction
-        now_iso = self._current_time().isoformat()
-        try:
-            if owns_transaction:
-                connection.execute("BEGIN IMMEDIATE")
-            state = self._state_row(connection, workspace_id)
-            if state["status"] == "blocked":
-                raise ApifyKeyPoolBlockedError()
-            if state["status"] != "draining":
-                if owns_transaction:
-                    connection.commit()
-                return self.public_state(workspace_id)
-            drain_generation = int(state["drain_generation"] or state["generation"])
-            active_run_count = self._nonterminal_count(
-                connection,
-                workspace_id=workspace_id,
-                up_to_generation=drain_generation,
-            )
-            if active_run_count:
-                raise ApifyKeyDrainPendingError(active_run_count=active_run_count)
-            draining_secret_id = str(state["draining_secret_id"])
-            target_status = str(state["drain_target_status"] or "standby")
-            connection.execute(
-                """
-                UPDATE apify_key_pool_members
-                SET status = ?,
-                    blocked_until = CASE
-                        WHEN ? = 'depleted' THEN COALESCE(cycle_end_at, blocked_until)
-                        ELSE blocked_until
-                    END,
-                    updated_at = ?
-                WHERE workspace_id = ? AND secret_id = ?
-                """,
-                (
-                    target_status,
-                    target_status,
-                    now_iso,
-                    workspace_id,
-                    draining_secret_id,
-                ),
-            )
-            candidate = connection.execute(
-                """
-                SELECT secret_id
-                FROM apify_key_pool_members
-                WHERE workspace_id = ?
-                  AND status = 'standby'
-                  AND role = 'acquisition'
-                  AND secret_id != ?
-                ORDER BY position, secret_id
-                LIMIT 1
-                """,
-                (workspace_id, draining_secret_id),
-            ).fetchone()
-            candidate_id = str(candidate["secret_id"]) if candidate is not None else None
-            rows = self._member_rows(connection, workspace_id)
-            ordered_ids = [
-                *([candidate_id] if candidate_id else []),
-                *[
-                    str(row["secret_id"])
-                    for row in rows
-                    if row["secret_id"] not in {candidate_id, draining_secret_id}
-                    and row["status"] == "standby"
-                ],
-                *[
-                    str(row["secret_id"])
-                    for row in rows
-                    if row["secret_id"] not in {candidate_id, draining_secret_id}
-                    and row["status"] != "standby"
-                ],
-                draining_secret_id,
-            ]
-            self._compact_positions(
-                connection,
-                workspace_id=workspace_id,
-                ordered_secret_ids=ordered_ids,
-                now_iso=now_iso,
-            )
-            if candidate_id:
-                connection.execute(
-                    """
-                    UPDATE apify_key_pool_members
-                    SET status = 'active', blocked_until = NULL, updated_at = ?
-                    WHERE workspace_id = ? AND secret_id = ?
-                    """,
-                    (now_iso, workspace_id, candidate_id),
-                )
-            connection.execute(
-                """
-                UPDATE apify_key_pool_state
-                SET generation = generation + 1,
-                    status = ?,
-                    active_secret_id = ?,
-                    draining_secret_id = NULL,
-                    drain_generation = NULL,
-                    drain_target_status = NULL,
-                    drain_reason = NULL,
-                    drain_started_at = NULL,
-                    blocked_reason = NULL,
-                    updated_at = ?
-                WHERE workspace_id = ?
-                """,
-                (
-                    "ready" if candidate_id else "exhausted",
-                    candidate_id,
-                    now_iso,
-                    workspace_id,
-                ),
-            )
-            if owns_transaction:
-                connection.commit()
-        except Exception:
-            if owns_transaction and connection.in_transaction:
-                connection.rollback()
-            raise
-        return self.public_state(workspace_id)
+        from .apify_pool_drain import complete_acquisition_drain_and_failover
+
+        return complete_acquisition_drain_and_failover(self, workspace_id)
 
     def _record_credential_failure(
         self,
@@ -1888,46 +1817,18 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
         error_type: str | None,
         abort_run: Any,
     ) -> None:
-        """Abort and confirm every old-generation run before returning."""
+        """Drain a failed production credential without touching dedicated validation."""
 
-        workspace_id, draining = self._record_credential_failure(
+        from .apify_pool_drain import report_acquisition_credential_failure
+
+        await report_acquisition_credential_failure(
+            self,
             lease,
-            failure_kind,
+            failure_kind=failure_kind,
             status_code=status_code,
             error_type=error_type,
+            abort_run=abort_run,
         )
-        if not draining:
-            return
-        state = self._state_row(self.store.connect(), workspace_id)
-        drain_generation = int(state["drain_generation"] or state["generation"])
-        try:
-            async with asyncio.timeout(30):
-                for run in self.list_nonterminal_runs(
-                    workspace_id,
-                    up_to_generation=drain_generation,
-                ):
-                    remote_run_id = str(run["remote_run_id"] or "")
-                    if not remote_run_id:
-                        raise ApifyKeyDrainPendingError(active_run_count=1)
-                    run_lease = self.lease_for_run(str(run["id"]))
-                    self.mark_run_aborting(run_lease, remote_run_id)
-                    terminal_status = await abort_run(run_lease, remote_run_id)
-                    normalized = _normalize_run_status(terminal_status)
-                    if normalized not in APIFY_RUN_TERMINAL_STATUSES:
-                        raise ApifyKeyDrainPendingError(active_run_count=1)
-                    self.mark_run_terminal(
-                        run_lease,
-                        remote_run_id,
-                        normalized,
-                    )
-        except TimeoutError:
-            remaining = self._nonterminal_count(
-                self.store.connect(),
-                workspace_id=workspace_id,
-                up_to_generation=drain_generation,
-            )
-            raise ApifyKeyDrainPendingError(active_run_count=remaining) from None
-        self.complete_drain_and_failover(workspace_id)
 
     def should_retry_after_terminal(
         self,
