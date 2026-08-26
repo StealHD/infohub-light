@@ -211,6 +211,7 @@ async def test_unauthenticated_and_unknown_tools_are_not_charged_or_audited(
 ):
     sensitive_value = "unknown-tool-sensitive-value"
     app = _app(tmp_path, monkeypatch, writes_enabled=True)
+    app.state.remote_mcp._delegation_limiter.refill_per_second = 0.0
     _user, _connection, token = _delegation(app)
     caplog.set_level(logging.INFO, logger="src.mcp.remote_server")
     transport = httpx.ASGITransport(app=app)
@@ -260,10 +261,7 @@ async def test_unauthenticated_and_unknown_tools_are_not_charged_or_audited(
     assert unauthenticated.status_code == 401
     assert unknown.isError is True
     assert unknown.content[0].text == "Unknown tool: unknown_tool"
-    assert [call.content[0].text for call in registered[:10]] == [
-        "invalid_request"
-    ] * 10
-    assert registered[10].content[0].text == "rate_limited"
+    assert [call.content[0].text for call in registered] == ["invalid_request"] * 10 + ["rate_limited"]
     records = _audit_records(caplog)
     assert len(records) == 11
     assert all(" tool=prepare_create_subscription " in record for record in records)

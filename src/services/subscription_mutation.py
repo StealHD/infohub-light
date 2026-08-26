@@ -1676,9 +1676,7 @@ class SubscriptionMutationService:
                     existing_subscription and existing_subscription.get("enabled")
                 ),
                 final_source_enabled=bool(source.get("enabled")) or managed_private,
-                final_subscription_enabled=bool(
-                    subscription_values.get("enabled", True)
-                ),
+                final_subscription_enabled=bool(subscription_values.get("enabled", True)),
                 source_reenable=False,
             )
             subscription = self.store.create_subscription(
@@ -1688,9 +1686,7 @@ class SubscriptionMutationService:
                 **subscription_values,
             )
             if managed_private:
-                source = ActorOpsSourceLifecycle(
-                    self.store, workspace_id=actor.workspace_id
-                ).after_subscription(source_id)
+                source = ActorOpsSourceLifecycle(self.store, workspace_id=actor.workspace_id).after_subscription(source_id)
             schedule = self._apply_schedule(
                 actor, subscription, plan.payload.get("schedule")
             )
