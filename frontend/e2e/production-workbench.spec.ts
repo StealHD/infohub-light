@@ -1384,7 +1384,7 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await expect(sourceInsights).toHaveCount(0)
 
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.getByRole('button', { name: '展开 Agent 面板' }).click()
+  await page.getByRole('button', { name: '展开 Agent 面板' }).click({ noWaitAfter: true })
   const dockedAgent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
   await expect(dockedAgent).toBeVisible()
   await page.getByRole('button', { name: '展开信息概览' }).click()
