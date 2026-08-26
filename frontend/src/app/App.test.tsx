@@ -3070,7 +3070,7 @@ describe('App routes', () => {
       sourceTypes: vi.fn().mockResolvedValue({ schema_version: 1, generation: 19, source_types: [{
         type: 'x_profile', label: 'X 账号', availability: 'ready', unavailable_reason: null, fields: [
           { name: 'target', label: 'X 用户名或主页链接', input_type: 'text', required: true, default: '', help: '输入公开账号。' },
-          { name: 'fetch_limit', label: '每次获取条数', input_type: 'number', required: false, default: 20, min: 1, max: 100 },
+          { name: 'fetch_limit', label: '每次获取条数', input_type: 'number', required: false, default: 3, min: 1, max: 100 },
           { name: 'analysis_mode', label: '分析模式', input_type: 'select', required: false, default: 'full', options: [{ value: 'full', label: '完整分析' }, { value: 'personal_only', label: '仅收集' }] },
         ],
       }] }),
@@ -3100,7 +3100,7 @@ describe('App routes', () => {
       type: 'x_profile',
       config: {
         target: 'openai',
-        fetch_limit: 20,
+        fetch_limit: 3,
         analysis_mode: 'full',
       },
     })))

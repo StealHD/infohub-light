@@ -214,7 +214,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
     {definition.credential_mode === 'workspace_apify_pool' && <HeroNotice title="由工作区 Apify Key 池自动管理" />}
     {platformManagedSourceTypes.has(definition.type)
-      ? <HeroNotice title="系统会自动准备并启用来源" status="accent"><p>订阅保存后，系统只用本地证据核验；通过即启用，不会立即启动 Actor 或抓取。</p></HeroNotice>
+      ? <HeroNotice title="系统会自动准备并启用来源" status="info"><p>订阅保存后，系统只用本地证据核验；通过即启用，不会立即启动 Actor 或抓取。</p></HeroNotice>
       : <Checkbox name="enabled" defaultSelected={source?.enabled ?? true} isDisabled={configLocked}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>}
     {!configLocked && !platformManagedSourceTypes.has(definition.type) && <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>}
     {error && <HeroNotice title={error} />}

@@ -18,6 +18,10 @@
   --inteliscope-width-workbench-sidebar-expanded: 232px;
   --inteliscope-width-auth: 960px;
   --inteliscope-size-page-header: 52px;
+  --inteliscope-size-page-header-surface: 44px;
+  --inteliscope-inset-page-header-inline: 8px;
+  --inteliscope-inset-page-header-block: 4px;
+  --inteliscope-radius-page-header: 999px;
   --inteliscope-size-sidebar-footer: 64px;
   --inteliscope-size-sidebar-avatar-shift: 6px;
 
