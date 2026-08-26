@@ -1,5 +1,9 @@
 ### 3.6F Local Agent / Remote MCP Boundary
 
+**Binding 自动对账边界。**
+
+`BindingEvidenceEvaluator` 只读取 v2 Binding/Route/Candidate/Attempt 和 Adapter Registry，产出可公开的 proof kind 或稳定 blocker；`ActorOpsBindingReconciler` 是唯一把它组合为 pending→ready 与条件 source enable 的写模型。HTTP Web/Agent 订阅、Candidate replacement 与 Worker 都调用这个服务，Worker SQL 只挑选拥有 enabled subscription 且 source disabled 的 pending/ready Binding，并每轮上限 100。该路径不得读取 v1、远端 API、Secret、raw target/Manifest，或创建 Job/Attempt；Admin projection 只能暴露安全来源名、subscription 计数、状态与 blocker。
+
 Browser OpenClaw、Remote MCP 与本地安装入口的代码模块所有权和依赖方向以 [OpenClaw 模块所有权与依赖边界](openclaw-module-boundaries.md) 为唯一真源；本节只定义部署、授权、凭据、网络、事务和业务兼容边界，不复制内部拆分清单。
 
 OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑或其专属云端 Gateway；Service 端不新增 Agent、LLM、Worker、端口或容器，也不代理 Gateway。浏览器的 `frontend/src/features/openclaw/` 直接实现 OpenClaw Gateway WebSocket v4、设备签名、用户/Gateway 隔离凭证库和有界聊天状态；功能关闭时不得创建 WebSocket。未来从本地切换云端只替换为用户专属 `wss://` URL 和对应 Origin allowlist，不改变 Remote MCP 或 Service 部署。

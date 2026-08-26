@@ -68,7 +68,7 @@ register_diagnostic_tools(server, context)
 - `remote_service.py` 是读取兼容 façade，组合 Feed、Subscription/Health 与 Job 三个 focused read service；安全公共投影归 `remote_read_projection.py`。
 - `remote_diagnostics.py` 是只读诊断兼容 façade，组合 records、sanitization、classification、evidence 与 projection；纯诊断模块不导入 Store、JobQueue、RuntimeStatus 或网络 Client。
 - Agent 来源能力的核心兼容 façade 为 `services/source_type_registry.py`，新增公开类型、别名、确定性账号 URL 规范化与安全 preview target 归 `services/agent_source_extensions.py`。任何当前用户可见的既有 catalog source 可按 returned ID 订阅；新建类型必须经过可逆 registry 校验，未知类型失败关闭。
-- Web 与 Remote MCP 的 ActorOps 来源事务共同使用 `services/actorops/source_lifecycle.py`；`api/actorops_source_lifecycle.py` 只保留兼容导出。X/Instagram 的 Agent apply 只创建 disabled source、enabled subscription 与 pending Binding，不创建 Attempt/Job 或触发远端调用；激活继续属于 Web 管理流程。
+- Web 与 Remote MCP 的 ActorOps 来源事务共同使用 `services/actorops/source_lifecycle.py`；`api/actorops_source_lifecycle.py` 只保留兼容导出。X/Instagram 的 Agent apply 创建 disabled source、enabled subscription 与 pending Binding 后，使用同一零网络本地对账自动收口为 ready/启用或安全 preparing；不创建 Attempt/Job 或触发远端调用，且不增加 Agent activation 工具。
 
 `AgentDelegationTokenVerifier`、`DelegationRateLimiter`、`ExactMCPPathApp`、`RemoteMCPApplication`、`SafeRemoteMCP`、`create_remote_mcp`、`RemoteMCPNotFound`、`RemoteMCPReadService` 和 `RemoteMCPDiagnostics` 的历史导入路径保持兼容。任何 façade 都不得使用通配符 re-export。
 

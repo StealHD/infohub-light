@@ -1,6 +1,12 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/contracts/api/actorops-v2-planned.md -->
 # ActorOps v2 计划合同
 
+## Binding 自动对账（2026-08-25）
+
+Binding readiness 采用本地自动对账。创建、订阅启用、Route Candidate replacement apply 与 Worker housekeeping（每 workspace 每周期最多 100 条）都会检查当前 target 指纹、当前 active/standby 的已保存 Manifest 与 Adapter 输入兼容性；同一 Binding version 的 settled `valid_nonempty` Probe 也可作为替代证据。该检查不联网、不创建 Job/Attempt、不调用 Actor、AI 或通知。pending 成功转为 ready；只有存在 enabled subscription 且 Route 允许执行时，来源才自动启用。Binding 显式 disabled 永远保持 disabled。
+
+`POST /api/admin/apify-routes/{route_id}/v2-bindings/reconcile` 只接受 Route generation、无确认短语，返回有界 checked/verified/enabled/blocked 计数；详情为每条 Binding 仅返回安全来源名、来源启用状态、启用订阅数和 `ready|eligible|blocked|disabled` 加稳定 reason，不返回 target、Manifest、Actor/Build 或远端标识。旧 `v2-bindings/verify` 保持需要确认短语的兼容 alias，只处理 pending Binding，并在没有可证明项时返回既有 409。本节取代后文的“管理员手动核验后启用”描述。
+
 本模块描述 ActorOps v2 数据面和单轨控制面的已实现边界。Catalog 来源的创建、修改、禁用、调度、抓取和 Feed 发布只使用 v2 Binding/Route；现役 Route list/detail、候选、Binding、Attempt、Discovery、Maintenance、Replacement、来源新鲜度、自动修复、商城元数据和安全执行事件也只读取 v2 或脱敏 Operation Log。浏览器只请求 schema-2 Route 和向后兼容 schema-3 执行事件接口，显示 `active|disabled`，并将 migration-required、unavailable 与 v1-retired 作为独立安全状态。v1 Pool/Canary/Freshness/Discovery/X profile 管理 URL 均以已认证的稳定 410 `actorops_v1_retired` 响应，不进入 v1 service、表或 Job；保留的兼容 URL 只实现等价 v2 Discovery、Candidate 切换、Route cap 与 Binding 启用。`ACTOROPS_V2_ENABLED` 已删除；global 31 是当前 ActorOps schema 门，缺失时仅 ActorOps 局部返回 migration-required。旧 ActorOps v15 只由历史 migration、审计和离线 retirement 工具访问，不再是现役来源、Admin API、Worker 或前端的授权事实。
 
 平台来源必须有当前 v2 Binding，缺少 global 31 时只让该 ActorOps 来源返回 migration-required，普通 RSS/GitHub 不受影响。Route `active` 使用 v2 Active、Standby、LKG；`disabled` 不得回退 v1，X/Instagram 返回稳定的非重试 blocked，YouTube 仅可使用 Adapter 明确声明的免费、公共网络受控 RSS fallback，且不创建 Attempt 或远端 POST。历史 `shadow` 只在 global 30 离线迁移中归一为 `disabled`，不是 Domain、schema 或 UI 状态。v2 Admin 入口不由 feature flag 选择语义；缺少当前 marker/shape 固定返回 503 `actorops_v2_migration_required`，其他读取故障固定返回 503 `actorops_v2_unavailable`。
