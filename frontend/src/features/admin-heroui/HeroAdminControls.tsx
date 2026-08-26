@@ -145,7 +145,7 @@ export function HeroAutocomplete({
 export function HeroNotice({ title, children, status = 'danger', role = 'alert' }: {
   title: string
   children?: ReactNode
-  status?: 'default' | 'accent' | 'success' | 'warning' | 'danger'
+  status?: 'default' | 'accent' | 'info' | 'success' | 'warning' | 'danger'
   role?: 'alert' | 'status'
 }) {
   return <StatusNotice title={title} status={status} role={role}>{children}</StatusNotice>

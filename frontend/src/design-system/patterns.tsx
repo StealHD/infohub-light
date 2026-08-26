@@ -50,7 +50,7 @@ export function PageFrame({ width, children, className = '' }: {
 }
 
 export function PageHeader({ title, actions, className = '' }: { title: string; actions?: ReactNode; className?: string }) {
-  return <header data-page-header data-header-visual="quiet-studio" className={`flex h-[var(--inteliscope-size-page-header)] shrink-0 items-center gap-2 border-b border-separator bg-surface/95 px-3 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg min-[768px]:px-4 ${className}`}>
+  return <header data-page-header data-header-visual="quiet-studio" className={`flex h-[var(--inteliscope-size-page-header-surface)] shrink-0 items-center gap-2 border border-separator bg-surface/95 px-3 [margin-block:var(--inteliscope-inset-page-header-block)] [margin-inline:var(--inteliscope-inset-page-header-inline)] rounded-[var(--inteliscope-radius-page-header)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg min-[768px]:px-4 ${className}`}>
     <h1 className="type-page-title min-w-0 flex-1 truncate">{title}</h1>
     {actions}
   </header>
@@ -143,10 +143,12 @@ export function EmptyState({ title, description, actions }: { title: string; des
 export function StatusNotice({ title, children, status = 'danger', role = 'alert' }: {
   title: string
   children?: ReactNode
-  status?: 'default' | 'accent' | 'success' | 'warning' | 'danger'
+  status?: 'default' | 'accent' | 'info' | 'success' | 'warning' | 'danger'
   role?: 'alert' | 'status'
 }) {
-  return <Alert data-status-notice status={status} role={role}>
+  const alertStatus = status === 'info' ? 'accent' : status
+
+  return <Alert data-status-notice status={alertStatus} role={role}>
     <Alert.Content>
       <Alert.Title>{title}</Alert.Title>
       {children && <Alert.Description>{children}</Alert.Description>}

@@ -14,15 +14,14 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import uvicorn
 import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
@@ -64,6 +63,7 @@ from .secret_routes import (
 )
 from .storage_routes import register_storage_routes
 from .system_settings_routes import register_system_settings_routes
+from .web_routes import register_web_routes
 from .subscription_routes import (
     register_source_health_route,
     register_subscription_delete_route,
@@ -203,34 +203,9 @@ def resolve_service_static_dir(
     *,
     react_dir: Path | str = SERVICE_STATIC_DIR,
 ) -> Path:
-    """Return the sole React UI directory, whether or not it is built yet."""
+    """Return the built web directory, whether or not it exists yet."""
 
     return Path(react_dir)
-
-
-def _normalize_frontend_path(frontend_path: str) -> str | None:
-    """Decode and validate a frontend path before routing or resolving files."""
-
-    if len(frontend_path) > 8192:
-        return None
-    decoded_path = frontend_path
-    for _ in range(16):
-        next_path = unquote(decoded_path)
-        if next_path == decoded_path:
-            break
-        decoded_path = next_path
-    else:
-        if unquote(decoded_path) != decoded_path:
-            return None
-    if (
-        "\x00" in decoded_path
-        or "\\" in decoded_path
-        or decoded_path.startswith("/")
-    ):
-        return None
-    if any(part in {".", ".."} for part in decoded_path.split("/")):
-        return None
-    return decoded_path
 
 
 def _accepts_gzip(accept_encoding: str) -> bool:
@@ -2713,48 +2688,7 @@ def create_app(
             content={"error": "not_found"},
         )
 
-    if static_path.exists():
-        assets_path = static_path / "assets"
-        if assets_path.exists():
-            app.mount("/assets", StaticFiles(directory=str(assets_path)), name="service-assets")
-        index_path = static_path / "index.html"
-        if assets_path.exists() and index_path.exists():
-            static_root = static_path.resolve()
-
-            @app.api_route(
-                "/{frontend_path:path}",
-                methods=["GET", "HEAD"],
-                include_in_schema=False,
-            )
-            async def service_frontend(frontend_path: str) -> Response:
-                normalized_path = _normalize_frontend_path(frontend_path)
-                if normalized_path is None:
-                    return Response(status_code=404)
-
-                route_prefix = normalized_path.split("/", 1)[0]
-                if route_prefix in {"api", "mcp"}:
-                    return Response(status_code=404)
-
-                try:
-                    static_file = (static_root / normalized_path).resolve()
-                    static_file.relative_to(static_root)
-                except (OSError, RuntimeError, ValueError):
-                    return Response(status_code=404)
-
-                if static_file.is_file():
-                    return FileResponse(static_file)
-
-                final_segment = normalized_path.rstrip("/").rsplit("/", 1)[-1]
-                if "." in final_segment:
-                    return Response(status_code=404)
-
-                return FileResponse(
-                    index_path,
-                    media_type="text/html",
-                    headers={"Cache-Control": "no-cache"},
-                )
-        else:
-            app.mount("/", StaticFiles(directory=str(static_path), html=True), name="static")
+    register_web_routes(app, static_path)
 
     return app
 

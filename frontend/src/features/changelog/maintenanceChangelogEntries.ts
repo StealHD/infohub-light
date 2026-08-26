@@ -12,4 +12,14 @@ export const codeHealthMaintenanceEntry = {
   ],
 } satisfies ChangelogEntry
 
+export const pageHeaderChangelogEntry = {
+  date: '2026-08-26',
+  title: '顶部标题栏边界更清晰',
+  summary: '信息流与管理页面的共享标题栏改为轻微内缩的圆角表面，保持原有布局和操作入口。',
+  items: [
+    { title: '轻微留白，不挤内容', description: '标题栏仍占用原 52 px 布局轨道，但可见表面收为 44 px，并在四周保留小幅空隙、细边框和圆角；Feed、订阅、收藏、历史、成员与助手等页面保持一致。' },
+    { title: '刷新前后一致', description: '首次加载的静态界面同步使用相同边界和尺寸，认证完成后切换到应用不会出现顶部几何跳变；现有主题、标题截断和操作按钮不变。' },
+  ],
+} satisfies ChangelogEntry
+
 export { systemSettingsChangelogEntry } from './systemSettingsChangelogEntry'

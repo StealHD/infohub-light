@@ -8,353 +8,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-23",
-  "result": "OpenClaw and Remote MCP now subscribe to any visible catalog source and can create all current public source types; X and Instagram create atomic pending/disabled ActorOps bindings without fetch, Job, Attempt, AI, notification, or paid Actor work.",
-  "status": "completed",
-  "task_id": "2026-08-23-openclaw-all-source-subscriptions",
-  "unresolved": [
-    "No deployment, release, tag, push, real source fetch, Actor call, AI call, notification, or paid operation was performed.",
-    "The second aggregate preflight stopped on stale source-guide expectations; after correcting them, the full Python suite and every remaining planned gate command passed independently, and the aggregate was not invoked a third time."
-  ],
-  "validation": [
-    "Full Python suite passed with ResourceWarning promoted to errors.",
-    "Frontend passed 83 Vitest files / 611 tests, lint, typecheck, UI and E2E contracts, and production build.",
-    "Code-size, Markdown/control, JSON, syntax, product documentation, and diff checks passed.",
-    "X/Instagram tests proved pending Binding creation, atomic rollback, deletion lifecycle, Web-only activation/retargeting, and zero fetch/discovery Jobs or Actor Attempts."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "X profile ActorOps adapter now validates full datasets, removes only structurally proven reply rows, and remaps remaining posts so replies do not consume limits or advance watermarks; existing history remains untouched.",
-  "status": "completed",
-  "task_id": "2026-08-24-x-profile-reply-filter",
-  "unresolved": [],
-  "validation": [
-    "46 targeted ActorOps adapter, runtime, and maintenance tests passed.",
-    "Frontend TypeScript typecheck passed.",
-    "Backend code-size policy passed against the task baseline."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Added explicit Global 31 ActorOps resilience storage: source-scoped stale-data cross-checking, bounded asynchronous repair coordination, and owner/admin-safe execution timelines with JSONL mirrors.",
-  "status": "completed",
-  "task_id": "2026-08-24-actorops-resilience-closure",
-  "unresolved": [
-    "No production migration, source fetch, paid Actor call, AI call, notification, deployment, release, tag, or push was performed."
-  ],
-  "validation": [
-    "Targeted ActorOps resilience, runtime, maintenance, worker and API tests passed (65 tests).",
-    "Frontend TypeScript typecheck, observability contract, code-size policy, migration backup/restore tests and control validation passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "ActorOps 替换抽屉现展示公开名称、商城地址、评分、收藏、用户数、开发者、维护方、价格和核验状态；缺少公开身份的候选不会被选择，已按用户数降序排列。",
-  "status": "completed",
-  "task_id": "2026-08-24-actorops-candidate-display",
-  "unresolved": [],
-  "validation": [
-    "Vitest：4 个定向文件、9 项测试通过。",
-    "前端 typecheck 与 lint 通过；本地 Docker API/Worker healthy。",
-    "impacted preflight 11/11 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Implemented global 31 workspace runtime settings with 21 typed non-secret keys, Owner/Admin Web and isolated Remote MCP proposal/apply flows, hot runtime resolution, OpenClaw guidance, and migration/documentation support; no merge, push, production migration, or deployment was performed.",
-  "status": "completed",
-  "task_id": "2026-08-24-admin-mcp-system-settings",
-  "unresolved": [
-    "The merger must run the authoritative final-SHA gate before merge/release; the complete preflight was not run a third time after its second allowed fail-fast cycle."
-  ],
-  "validation": [
-    "System settings, global31 migration, REST/MCP authorization, scheduling, retention, storage governance, OpenClaw and adjacent targeted tests passed.",
-    "Frontend lint/typecheck passed; full Vitest passed 84 files and 614 tests; production build and preview artifact check passed.",
-    "Two bounded impacted-preflight runs found an observability map omission and a stale delegation error assertion; both were fixed and their failing specs passed. Full Python coverage was then completed in bounded segments, and remaining syntax, JSON, code-size, UI/E2E contract, Markdown/control and diff checks passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Merged Admin MCP system settings into local main, resolved Global 31 migration-version collision by moving workspace settings to Global 32 with an explicit ActorOps Global 31 prerequisite, and routed ActorOps repair job retention through the typed workspace resolver.",
-  "status": "completed",
-  "task_id": "2026-08-24-admin-mcp-system-settings-merge-fix",
-  "unresolved": [
-    "No push, production migration, VPS deployment, source fetch, Actor call, AI call, or notification was performed."
-  ],
-  "validation": [
-    "The previously failing historical-schema initialization test and 30 focused system-settings, migration, REST/MCP and ActorOps resilience tests passed.",
-    "A final impacted preflight for the merged main SHA is pending."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "instructions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "固化全站组件参数矩阵与默认 UI 继承规则；HeroUI Pro 仅作层级参考，生产继续使用 HeroUI v3 OSS 和本地设计系统。",
-  "status": "completed",
-  "task_id": "2026-08-24-ui-component-parameter-contract",
-  "unresolved": [],
-  "validation": [
-    "UI contract、TypeScript、ESLint、完整前端 Vitest、生产构建和 impacted preflight 通过。",
-    "Subscriptions 与 Login 的暗色/亮色、桌面/平板/手机既有 Playwright 快照全部通过，未更新基线。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Addressed the annotated UI consistency issues: fixed the desktop sidebar account footer track, standardized the notification-service form dialog, compacted Apify Key cards and status placement, and rebuilt ActorOps routes as independent cards.",
-  "status": "completed",
-  "task_id": "2026-08-24-ui-annotation-remediation",
-  "unresolved": [],
-  "validation": [
-    "Targeted Vitest passed (83 tests across notification, ActorOps, workbench, UI contract and Apify scenarios).",
-    "UI contract, TypeScript, ESLint and production build passed.",
-    "Targeted Playwright passed for ActorOps three-viewport visual baseline, notification/key surfaces and desktop workbench shell."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Refined the refresh Bootstrap sidebar skeleton to mirror the loaded 52px brand header, grouped navigation and fixed 64px account footer; collapsed refresh now uses light icon silhouettes and expanded refresh adds text silhouettes without adding product colors.",
-  "status": "completed",
-  "task_id": "2026-08-24-bootstrap-sidebar-skeleton",
-  "unresolved": [],
-  "validation": [
-    "Dedicated desktop refresh-sidebar visual regression passed with fixed light theme and Reduced Motion.",
-    "Existing hard-refresh handoff regression, UI contract, TypeScript, ESLint and production build passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "统一通知新增与编辑表单的渠道、服务商及 Webhook 类型选择为共享 HeroSelect，并用 UI 合约拒绝业务代码原生 select。",
-  "status": "completed",
-  "task_id": "2026-08-24-notification-select-contract",
-  "unresolved": [],
-  "validation": [
-    "HeroNotificationTargets 与 uiContract Vitest 50 项通过",
-    "通知服务 390/580/768/1440 Playwright 通过",
-    "check:ui、typecheck、lint、build 通过"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Refined the desktop sidebar gutter and rebuilt ActorOps as URL-driven Route/Log tabs with compact route cards, actionable incident guidance, and safe operation records.",
-  "status": "completed",
-  "task_id": "2026-08-24-actorops-sidebar-log-tabs",
-  "unresolved": [
-    "Local Docker rebuild could not pull ghcr.io/astral-sh/uv because the external registry TLS certificate did not validate; the existing runtime was not replaced."
-  ],
-  "validation": [
-    "Targeted Vitest passed (95 tests).",
-    "ActorOps Playwright passed across desktop, tablet and mobile, including direct 390/768/1440 Tab checks.",
-    "UI contract, TypeScript, ESLint, production build and frontend code-size policy passed."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "Rebuilt the wide-desktop sidebar as fixed 72px/232px canvas layers with opacity handoff, one persistent toggle, a stable 48px account trigger, and real-overflow-only navigation scrolling; intermediate-width label reflow and footer jumping are removed.",
-  "status": "completed",
-  "task_id": "2026-08-24-desktop-sidebar-fixed-canvas-motion",
-  "unresolved": [],
-  "validation": [
-    "Sidebar Vitest and UI-contract tests passed (77 assertions).",
-    "Dedicated desktop Playwright sampled the full expand/collapse motion, rapid reversal, Reduced Motion, 1359px fallback, and low-height overflow.",
-    "Local Docker rebuild completed with healthy API/Worker; final impacted preflight passed 16/16."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-24",
-  "result": "新增 RSSHub 固定访问密钥专用接口和设置页写入、轮换、安全移除流程，环境托管保持只读；Actor 商城信息浮层支持跨标签/浮层悬停、键盘与触控交互。",
-  "status": "completed",
-  "task_id": "2026-08-24-rsshub-access-key-and-actor-popover",
-  "unresolved": [],
-  "validation": [
-    "定向 API、Vitest 与 Playwright 通过（RSSHub 390/768/1440、Actor 浮层）。",
-    "当前 worktree 本地 Docker 重建完成，API/Worker 均 healthy。",
-    "impacted preflight passed 16/16：完整 Python、Vitest、UI 契约、lint、typecheck、build 与控制校验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
   "recorded_on": "2026-08-25",
-  "result": "修复 v2.5.1 发布 Gate 发现的侧栏命中区与断言漂移：768–1359px 的导航触发器不再复用桌面绝对定位，SplitPanel 装饰层不拦截指针，OpenClaw 三类配置卡与固定宽度侧栏的测试边界同步。",
+  "result": "新增公开双语 Inteliscope 官网：根路径中文、/en 英文，提供无认证请求的营销路由、响应式脱敏产品场景、路径式语言切换、路由元数据与启动壳、自托管说明，并保持登录及受保护深链兼容。",
   "status": "completed",
-  "task_id": "2026-08-25-release-v2-5-1-ui-gate-remediation",
-  "unresolved": [],
-  "validation": [
-    "定向 release Playwright：7 passed、2 intentional skipped",
-    "HeroWorkbenchShell Vitest：30 passed",
-    "完整 release UI Gate：6/6 commands passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
+  "task_id": "2026-08-25-public-bilingual-landing",
+  "unresolved": [
+    "完整 Playwright 执行中官网 6 项全部通过；工作区既有 ActorOps、HeroUI 预览与信息概览用例仍有 10 项失败（135 passed、62 skipped），未更新这些无关视觉基线。"
   ],
-  "recorded_on": "2026-08-25",
-  "result": "修复 ActorOps 公开商城 Actor 标签的指针抖动：将指针语义固定在 HeroUI Popover 的完整触发器上，去除仅内部 Chip 为手型导致的命中边界切换；本地运行时已更新。",
-  "status": "completed",
-  "task_id": "2026-08-25-actorops-marketplace-cursor-stability",
-  "unresolved": [],
   "validation": [
-    "ActorOpsV2ActorChip Vitest 3 项通过。",
-    "UI contract、TypeScript、ESLint 与 impacted preflight 11/11 通过。",
-    "本地 API/Worker 均 healthy，runtime health 确认 revision cd37ed599b28-dirty。"
+    "官网 Playwright 6/6 通过，覆盖桌面、平板、手机、双语、主题、Reduced Motion、键盘焦点、零 API 请求、无横向溢出与 Axe serious/critical 为零。",
+    "完整 Python 测试、完整 Vitest（93 files、663 tests）、前端 lint、类型检查、UI 合同、生产构建、E2E 合同与代码尺寸检查通过。",
+    "impacted preflight 已执行；其阻断项修复后分别复验通过，完整 UI E2E 的剩余失败记录为既有非官网工作区改动。"
   ]
 }
 ```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "纠正 ActorOps 商城 hover 抖动根因：HeroUI 默认模态 Popover 的全屏 underlay 会让静止指针下的 Trigger 退出命中并反复开关；商城预览改为非模态，Trigger 与交互浮层可同时命中。",
-  "status": "completed",
-  "task_id": "2026-08-25-actorops-marketplace-hover-stability",
-  "unresolved": [],
-  "validation": [
-    "ActorOpsV2ActorChip Vitest 3 项、UI contract、TypeScript 与 ESLint 通过。",
-    "本地容器重建后 API/Worker healthy。",
-    "当前 ActorOps 页面同坐标连续 12 帧均为 pointer、triggerHit=true、popoverCount=1、underlayCount=0；移开后 240ms 正常关闭。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "修复 Instagram/X/YouTube 新建来源因 pending 且停用而无法保存订阅的问题：仅 ActorOps 管理来源允许先记录订阅意图，采集仍受绑定核验与启用状态控制；Apify 新建来源默认获取量由 20 调整为 3。",
-  "status": "completed",
-  "task_id": "2026-08-25-actorops-pending-subscription-and-apify-default",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 生命周期与订阅事务回归 9 项通过。",
-    "前端 App Vitest 113 项与 TypeScript 类型检查通过。",
-    "impacted preflight 16/16 通过，覆盖完整 Python、前端、UI 契约与控制校验。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-25",
-  "result": "从当前 worktree 重建并切换本地 API/Worker 容器，使 pending 订阅修复与 Apify 默认获取量 3 在本地运行时生效。",
-  "status": "completed",
-  "task_id": "2026-08-25-local-runtime-rebuild-pending-subscription",
-  "unresolved": [],
-  "validation": [
-    "首次构建遇到 GHCR TLS 证书错配，单独拉取 uv 基础镜像后标准重建成功。",
-    "runtime health 确认 revision 742faea6a209-dirty，API/Worker 均 healthy，React 资产已提供。"
-  ]
-}
-```
-
 
 ```json
 {
@@ -374,6 +44,349 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 ActorOps 控制、订阅表单/页面 Vitest 25 项、TypeScript 与 ESLint 通过。",
     "任务快照 impacted preflight 通过；Markdown/control、JSON 和 diff 校验通过。",
     "本地容器重建并通过 runtime health；浏览器验收确认 Jisoo 已自动启用且运行详情显示本地检查说明。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "按 DeepSeek Harness 的连续滚动叙事框架重做 Inteliscope 双语官网：改为紧凑悬浮页头、沉浸首屏、居中来源/上下文宣言、三段交替真实产品场景、线性自托管架构、启动区与极简收尾，移除原卡片墙、信号路径与锚点导航式布局。",
+  "status": "completed",
+  "task_id": "2026-08-25-public-landing-scroll-redesign",
+  "unresolved": [
+    "完整 UI E2E 的既有 ActorOps、HeroUI 预览与 Workbench 失败未在本次官网重做中改动或更新视觉基线。"
+  ],
+  "validation": [
+    "官网 Playwright 6/6 通过，覆盖桌面、平板、手机、双语、深浅模式、Reduced Motion、键盘焦点、零 API 请求、无横向溢出与 Axe serious/critical 为零。",
+    "定向 Vitest 5/5、完整前端 lint、TypeScript、UI 合同、E2E 合同、生产构建和前端代码尺寸检查通过。",
+    "浏览器逐屏检查深色首屏、浅色手机宣言与产品叙事段；桌面/手机视觉基线已重建并稳定复验。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "将公开根路径和 /en 收口为现代化单首屏项目介绍：以 Inteliscope 双弧粒子场、蓝色空间网格与深浅主题呈现项目定位，仅保留双语、外观和工作台入口，不展示功能、截图或命令安装模块，也不请求 Service API。",
+  "status": "completed",
+  "task_id": "2026-08-25-public-intro-particle-hero",
+  "unresolved": [
+    "impacted preflight 在本任务前已有的 src/services/subscription_mutation.py 冻结文件净增 4 行处提前失败；该无关改动未覆盖，完整 TypeScript 门禁也仍受既有 HeroSubscriptionDialogs info 状态类型错误阻断。",
+    "未部署、未发布。"
+  ],
+  "validation": [
+    "官网 Playwright 在桌面、平板、手机共 8 项通过、4 项按视口跳过，覆盖零 API、双语、键盘焦点、无横向溢出、Axe serious/critical 为零及深色桌面/浅色手机视觉基线。",
+    "定向 Vitest 3 文件 9 项、完整 ESLint、UI 合同、E2E 合同、Vite 生产构建、前端代码尺寸和控制文件校验通过。",
+    "impacted preflight 已按规定执行一次并保留无关冻结文件失败证据。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "Added an info-status compatibility mapping for Hero notices and rebuilt the local API/Worker image so the new public particle landing page is served by the local runtime.",
+  "status": "completed",
+  "task_id": "2026-08-25-landing-runtime-rebuild",
+  "unresolved": [
+    "Impacted preflight remains blocked by pre-existing growth in frozen src/services/subscription_mutation.py."
+  ],
+  "validation": [
+    "Targeted design-system Vitest passed (2 tests).",
+    "Frontend lint and Docker production build passed; local API and Worker report healthy.",
+    "Browser DOM and screenshot confirmed the new particle landing page is served by the local runtime."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "公开介绍页已从业务启动链解耦，只以原生超链接进入项目；右侧改为双弧粒子眼，品牌图标粒子眼仁、眼弧和背景光带按分层惯性响应指针，并支持触屏漂移与 Reduced Motion 静止。",
+  "status": "completed",
+  "task_id": "2026-08-25-public-inteliscope-eye",
+  "unresolved": [
+    "完整 impacted preflight 被任务开始前已有的冻结后端文件 src/services/subscription_mutation.py 增长 4 行阻断；本次 frontend code-size scope 独立通过。"
+  ],
+  "validation": [
+    "前端 ESLint、TypeScript、UI contract、生产构建与预览产物扫描通过；3 个定向 Vitest 文件共 12 项通过。",
+    "Landing Playwright 在 1440/1024/390 px 共 9 项通过、6 项按设备条件跳过，覆盖零 API/业务包、Axe、无横向溢出、双语、视觉基线和眼仁左右追踪/回中质心。",
+    "./scripts/up-latest.sh 重建成功，revision da7ff4a76bbd-dirty 的 API 与 Worker 均 healthy，8080 已提供新首页。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "将公开介绍页剥离为可独立启动的原生 HTML/CSS/Canvas 静态站点，并把右侧视觉重构为上强下柔的非对称凤眼、品牌粒子瞳孔、椭圆信息场与汇聚数据尘；通过静态背景分层、批量粒子绘制和自适应像素倍率消除 Retina 卡顿。",
+  "status": "completed",
+  "task_id": "2026-08-25-static-phoenix-eye-performance",
+  "unresolved": [
+    "影响域 preflight 仍被任务开始前已有的 src/services/subscription_mutation.py 冻结文件增加 4 行阻断；本任务相关的 src/api/server.py 增长已通过拆分路由模块消除。",
+    "按用户要求未继续 Docker 构建或容器验收；静态页当前仅通过独立本地服务器提供。"
+  ],
+  "validation": [
+    "静态几何 5 项测试、前端 TypeScript、ESLint、生产构建与静态产物合同通过。",
+    "Playwright 1440/1024/390px 的静态资源隔离、零 API、Axe、双语、交互回中和视觉基线通过；最终像素倍率断言三档通过。",
+    "1440x900 性能采样从平均 124ms/帧改善为 16.6ms/帧，DPR 2 环境同样约 16.6ms/帧且采样中没有超过 20ms 的帧。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "提升凤眼、信息场、品牌符号、汇聚尘与星尘密度；用分支分层采样使上下眼弧均匀闭合，并让下半弧保持连续可辨而在两端轻微消散。",
+  "status": "completed",
+  "task_id": "2026-08-25-static-phoenix-eye-density-repair",
+  "unresolved": [
+    "本地静态服务器继续运行在 127.0.0.1:4175，未启动 Docker 或项目容器。"
+  ],
+  "validation": [
+    "静态几何 5 项测试、完整 landing Playwright 规格 9 项、Reduced Motion 与手机视觉基线、生产构建和静态产物合同通过。",
+    "DPR 2 的 1440x900 动画采样平均 16.6ms、最慢 17.5ms，未出现超过 20ms 的帧。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "将信息之眼从均匀点描轮廓调整为有高密核心、扩散粒子带与游离数据尘的流场；增加眼弧和信息场粒子，并修正窄屏抽样只保留上弧导致下弧消失的问题。",
+  "status": "completed",
+  "task_id": "2026-08-25-particle-field-release",
+  "unresolved": [],
+  "validation": [
+    "静态几何测试 5 项通过；前端生产构建与静态产物检查通过。",
+    "Landing Playwright 共 9 项通过、6 项按视口条件跳过，包含桌面/手机视觉基线、零 API、可访问性及粒子眼仁的鼠标追踪/回中。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "按 Harness 顶部栏参考将静态首页页头改为统一悬浮玻璃胶囊，移除品牌图标及 favicon 的方形底；语言与工作台入口采用固定占位，切换中英文时不再发生水平抖动，并撤回误加的背景光带。",
+  "status": "completed",
+  "task_id": "2026-08-25-static-header-polish",
+  "unresolved": [],
+  "validation": [
+    "静态几何测试 5 项通过。",
+    "Landing Playwright 9 项通过、6 项按视口条件跳过，覆盖固定语言控件位置、视觉基线、零 API、可访问性及鼠标粒子交互。",
+    "前端生产构建与静态产物检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "公开静态页的页头改为滚动驱动状态：顶部保持无底导航，向下滚动后整条收拢为悬浮玻璃胶囊，回到顶部还原；同时保留无框品牌符号、透明 favicon 与稳定的双语控件占位。",
+  "status": "completed",
+  "task_id": "2026-08-25-static-scroll-header",
+  "unresolved": [],
+  "validation": [
+    "静态几何测试 5 项通过。",
+    "滚动页头 Playwright 专项、桌面深色与手机浅色视觉基线通过。",
+    "前端生产构建、静态产物检查和 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "按 DeepSeek Harness 实测参数重新校准滚动玻璃导航：收拢态高度 42px、最大宽度 980px、桌面两侧 40px 安全边距，采用 25% 中性白玻璃、12px 背景模糊和无阴影呈现，并同步压缩内部品牌与操作控件。",
+  "status": "completed",
+  "task_id": "2026-08-25-scroll-header-harness-calibration",
+  "unresolved": [],
+  "validation": [
+    "浏览器实测本地滚动态为 663×42px，颜色 rgba(255,255,255,.25)、backdrop blur(12px)。",
+    "滚动页头 Playwright 专项与静态几何 5 项通过。",
+    "前端生产构建、静态产物检查和 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-25",
+  "result": "为信息之眼中央品牌符号增加独立粒子运动：粒子在保持图标轮廓的前提下进行轻微径向聚散、切向漂移与明暗呼吸，单粒子位移限制在 4px 内；Reduced Motion 下保持完全静止。",
+  "status": "completed",
+  "task_id": "2026-08-25-logo-particle-motion",
+  "unresolved": [],
+  "validation": [
+    "静态几何测试 6 项通过，覆盖粒子位移上限、时序变化及 Reduced Motion 静止。",
+    "粒子眼仁鼠标跟随与回中 Playwright 专项通过。",
+    "本地浏览器刷新目视验收通过；前端生产构建、静态产物检查和 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "将信息之眼中央品牌图标粒子的切向游走、径向聚散和亮度呼吸整体提速约 40%，保持原有 4px 位移限制与 Reduced Motion 静止行为。",
+  "status": "completed",
+  "task_id": "2026-08-26-logo-particle-motion-speed",
+  "unresolved": [],
+  "validation": [
+    "静态几何测试 6 项通过。",
+    "本地静态预览刷新并目视检查通过。",
+    "git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "校准公开静态页的滚动玻璃导航为低反差深海军蓝并减轻导航字重；加快眼弧、信息轨道和品牌眼仁粒子；背景网格、星尘与雾光改为分层漂移，并新增随精细指针产生、约 900ms 柔性复原的局部空间透镜扭曲，粗指针和 Reduced Motion 不启用透镜。",
+  "status": "completed",
+  "task_id": "2026-08-26-landing-space-warp-polish",
+  "unresolved": [],
+  "validation": [
+    "对照 DeepSeek Harness 实际页面的近快远慢交互层次，并在本地浏览器完成鼠标扭曲与滚动玻璃导航目视验收。",
+    "静态几何测试 7 项通过；Landing Playwright 三视口 12 项通过、6 项按条件跳过。",
+    "前端生产构建和静态产物检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "公开静态页的信息之眼新增低幅呼吸、周期自然眨眼和同步眼仁淡出，外层轮廓尘减速且眼仁底光改为无边界渐隐；背景星尘改为非均匀聚簇与多级大小/亮度，指针速度驱动空间透镜半径，暗色网格单元与线条共同弯曲。页面固定为深色并移除主题切换，右上登录入口替换为项目 GitHub Releases。",
+  "status": "completed",
+  "task_id": "2026-08-26-breathing-eye-adaptive-lens",
+  "unresolved": [],
+  "validation": [
+    "对照 DeepSeek Harness 的分层光场响应，并在本地浏览器检查睁眼、眨眼、快速指针光圈和深色移动端布局。",
+    "静态几何测试 9 项通过；Landing Playwright 三视口 12 项通过、6 项按条件跳过，并更新深色桌面/手机视觉基线。",
+    "前端生产构建与静态产物检查通过；旧浅色手机视觉基线已删除。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "将信息之眼眨眼重构为直接作用于粒子眼睑边界的 900ms 状态机：70/30 几何闭合、羽化吞没虹膜与眼仁、4–9 秒随机间隔、15% 双眨、指针靠近后 500–900ms 注意触发及冷却；Reduced Motion 下禁用眨眼。",
+  "status": "completed",
+  "task_id": "2026-08-26-natural-geometric-blink",
+  "unresolved": [],
+  "validation": [
+    "静态几何测试 12 项通过，覆盖完整眨眼阶段、随机区间、双眨分布、眼睑收拢与粒子羽化。",
+    "桌面 Playwright 专项通过：注意触发眨眼、频繁移动冷却，以及眼仁跟随和回中。",
+    "本地浏览器验证 prepare/closed 阶段时序；前端生产构建、静态产物检查和 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "公开静态页新增分层加载渐入：背景先显现，导航与文案错峰进入，信息之眼沿现有粒子眼睑几何约 1.5 秒从眼缝缓慢睁开；Reduced Motion 跳过入场。滚动玻璃导航降至 56% 深海军蓝，STATIC PREVIEW 调整为 10px/400。",
+  "status": "completed",
+  "task_id": "2026-08-26-landing-load-reveal-eye-open",
+  "unresolved": [
+    "非本任务的 src/services/subscription_mutation.py 相对仓库基线从 2238 增至 2242 行，导致 impacted preflight 的 code_size_policy 失败；本任务未修改该文件。"
+  ],
+  "validation": [
+    "静态几何测试 13 项通过，覆盖几何睁眼阶段和 Reduced Motion 稳定态。",
+    "桌面 Playwright 滚动玻璃导航专项通过；前端生产构建与静态产物检查通过。",
+    "任务影响域 preflight 的 Markdown 控制检查通过，但代码尺寸门禁被任务前已有的 src/services/subscription_mutation.py 冻结文件增长 4 行阻断。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "按用户要求将粒子介绍页迁至独立工作目录，改为独立的本地静态调试站；主项目已移除其 Docker、Vite、构建、服务路由、文档和专属测试挂接。页面默认主入口改为项目 GitHub 链接，不再指向 /login。",
+  "status": "completed",
+  "task_id": "2026-08-26-detach-static-introduction",
+  "unresolved": [],
+  "validation": [
+    "独立站几何测试 13 项通过，根路径与英文路径均返回独立静态页。",
+    "主项目前端生产构建、静态产物检查和 React 服务路由测试通过。",
+    "主项目中不再检出 landing-site、/_landing、landing.html、静态介绍路由或构建挂接引用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-26",
+  "result": "完成 v2.5.2 正式发布前准备：整合本地页面标题栏、静态路由模块化与来源订阅兼容修复，并通过定向质量检查。",
+  "status": "completed",
+  "task_id": "2026-08-26-v2-5-2-release-preparation",
+  "unresolved": [
+    "待将已授权的提交整合并推送至 main，由精确 main CI、tag smoke 和 VPS 健康检查完成正式发布。"
+  ],
+  "validation": [
+    "后端 tests/test_api_service.py 93 项通过。",
+    "前端 AppBootstrap 与 design-system 定向 Vitest 5 项、TypeScript 与 ESLint 通过。",
+    "git diff --check 与 worklog schema 校验通过。"
   ]
 }
 ```

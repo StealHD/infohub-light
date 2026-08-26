@@ -7,6 +7,11 @@
   --inteliscope-bootstrap-right-rail-width: 400px;
   --inteliscope-bootstrap-loading-duration: 1400ms;
   --inteliscope-bootstrap-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
+  --inteliscope-bootstrap-page-header-size: 52px;
+  --inteliscope-bootstrap-page-header-surface-size: 44px;
+  --inteliscope-bootstrap-page-header-inline-inset: 8px;
+  --inteliscope-bootstrap-page-header-block-inset: 4px;
+  --inteliscope-bootstrap-page-header-radius: 999px;
   --inteliscope-bootstrap-sidebar-header-size: 52px;
   --inteliscope-bootstrap-sidebar-footer-size: 64px;
   --inteliscope-bootstrap-sidebar-row-size: 40px;
@@ -53,7 +58,7 @@ html[data-theme="light"] body {
   width: 100%;
   height: 100dvh;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 52px minmax(0, 1fr) 64px;
+  grid-template-rows: var(--inteliscope-bootstrap-page-header-size) minmax(0, 1fr) 64px;
 }
 
 .bootstrap-shell-navigation,
@@ -66,8 +71,11 @@ html[data-theme="light"] body {
   display: flex;
   align-items: center;
   gap: 12px;
+  height: var(--inteliscope-bootstrap-page-header-surface-size);
+  margin: var(--inteliscope-bootstrap-page-header-block-inset) var(--inteliscope-bootstrap-page-header-inline-inset);
   padding: 0 12px;
-  border-bottom: 1px solid var(--inteliscope-bootstrap-separator);
+  border: 1px solid var(--inteliscope-bootstrap-separator);
+  border-radius: var(--inteliscope-bootstrap-page-header-radius);
   background: var(--inteliscope-bootstrap-surface);
 }
 
@@ -203,6 +211,10 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-toolbar {
   display: none;
 }
 
+html[data-bootstrap-layout="public"] .bootstrap-shell-grid {
+  display: none;
+}
+
 html[data-bootstrap-layout="auth"] .bootstrap-shell-grid { display: block; }
 html[data-bootstrap-layout="auth"] .bootstrap-shell-main {
   position: relative;
@@ -255,7 +267,7 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
 
   .bootstrap-shell-grid {
     grid-template-columns: 72px minmax(0, 1fr);
-    grid-template-rows: 52px minmax(0, 1fr);
+    grid-template-rows: var(--inteliscope-bootstrap-page-header-size) minmax(0, 1fr);
   }
 
   .bootstrap-shell-navigation {
