@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "将公开根路径和 /en 收口为现代化单首屏项目介绍：以 Inteliscope 双弧粒子场、蓝色空间网格与深浅主题呈现项目定位，仅保留双语、外观和工作台入口，不展示功能、截图或命令安装模块，也不请求 Service API。",
-  "status": "completed",
-  "task_id": "2026-08-25-public-intro-particle-hero",
-  "unresolved": [
-    "impacted preflight 在本任务前已有的 src/services/subscription_mutation.py 冻结文件净增 4 行处提前失败；该无关改动未覆盖，完整 TypeScript 门禁也仍受既有 HeroSubscriptionDialogs info 状态类型错误阻断。",
-    "未部署、未发布。"
-  ],
-  "validation": [
-    "官网 Playwright 在桌面、平板、手机共 8 项通过、4 项按视口跳过，覆盖零 API、双语、键盘焦点、无横向溢出、Axe serious/critical 为零及深色桌面/浅色手机视觉基线。",
-    "定向 Vitest 3 文件 9 项、完整 ESLint、UI 合同、E2E 合同、Vite 生产构建、前端代码尺寸和控制文件校验通过。",
-    "impacted preflight 已按规定执行一次并保留无关冻结文件失败证据。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-25",
@@ -385,6 +363,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Linux Playwright release E2E：121 通过、62 按项目规则跳过、0 失败（含三端 ActorOps 视觉/交互和 Workbench Insights）。",
     "staged impacted preflight：前端 lint、类型、Vitest、生产构建、代码尺寸与 E2E 合约全部通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-26",
+  "result": "修复 ActorOps v2 repair 已注册处理器却遗漏 Worker 可领取类型的策略缺口，防止 repair 永久 queued、取消后重入队并阻塞正式发布；发布版本顺延至 v2.5.3。",
+  "status": "completed",
+  "task_id": "2026-08-26-actorops-repair-claim-policy",
+  "unresolved": [],
+  "validation": [
+    "Worker policy、ActorOps v1 隔离与 v2 housekeeping 定向回归 10 项通过。",
+    "snapshot impacted preflight 16/16 通过，覆盖完整后端/前端、代码尺寸、控制合同与 diff 检查。"
   ]
 }
 ```

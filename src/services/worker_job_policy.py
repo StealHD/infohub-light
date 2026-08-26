@@ -15,6 +15,7 @@ ACTOROPS_V2_JOB_TYPES = frozenset(
         "actorops_v2_discovery",
         "actorops_v2_maintenance",
         "actorops_v2_replacement",
+        "actorops_v2_repair",
         "actorops_v2_metadata_refresh",
     }
 )
