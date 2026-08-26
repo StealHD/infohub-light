@@ -10,24 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "ui"
   ],
-  "recorded_on": "2026-08-25",
-  "result": "为信息之眼中央品牌符号增加独立粒子运动：粒子在保持图标轮廓的前提下进行轻微径向聚散、切向漂移与明暗呼吸，单粒子位移限制在 4px 内；Reduced Motion 下保持完全静止。",
-  "status": "completed",
-  "task_id": "2026-08-25-logo-particle-motion",
-  "unresolved": [],
-  "validation": [
-    "静态几何测试 6 项通过，覆盖粒子位移上限、时序变化及 Reduced Motion 静止。",
-    "粒子眼仁鼠标跟随与回中 Playwright 专项通过。",
-    "本地浏览器刷新目视验收通过；前端生产构建、静态产物检查和 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
   "recorded_on": "2026-08-26",
   "result": "将信息之眼中央品牌图标粒子的切向游走、径向聚散和亮度呼吸整体提速约 40%，保持原有 4px 位移限制与 Reduced Motion 静止行为。",
   "status": "completed",
@@ -367,6 +349,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Vitest: 2 files / 15 tests passed",
     "Playwright subscription semantic visual baselines: 3 passed",
     "TypeScript and browser geometry checks passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-27",
+  "result": "Replaced the Linux PageHeader scroll-through visual baselines with the verified CI actual images after a platform font-rendering mismatch; no layout or runtime behavior changed.",
+  "status": "completed",
+  "task_id": "2026-08-27-page-header-linux-visual-baselines",
+  "unresolved": [],
+  "validation": [
+    "CI artifact visual review for desktop, tablet, and mobile",
+    "Playwright page-header-geometry: 6 passed"
   ]
 }
 ```
