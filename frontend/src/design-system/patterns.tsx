@@ -49,8 +49,9 @@ export function PageFrame({ width, children, className = '' }: {
   return <div data-page-frame={width} className={`mx-auto w-full ${pageWidths[width]} ${className}`}>{children}</div>
 }
 
-export function PageHeader({ title, actions, className = '' }: { title: string; actions?: ReactNode; className?: string }) {
-  return <header data-page-header data-header-visual="quiet-studio" className={`flex h-[var(--inteliscope-size-page-header-surface)] shrink-0 items-center gap-2 border border-separator bg-surface/95 px-3 [margin-block:var(--inteliscope-inset-page-header-block)] [margin-inline:var(--inteliscope-inset-page-header-inline)] rounded-[var(--inteliscope-radius-page-header)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg min-[768px]:px-4 ${className}`}>
+export function PageHeader({ title, leading, actions, className = '' }: { title: string; leading?: ReactNode; actions?: ReactNode; className?: string }) {
+  return <header data-page-header data-header-visual="quiet-studio" data-page-header-appearance="inset" className={`flex h-[var(--inteliscope-size-page-header-surface)] shrink-0 items-center gap-2 border border-foreground/10 bg-surface/75 px-3 [margin-block:var(--inteliscope-inset-page-header-block)] [margin-inline:var(--inteliscope-inset-page-header-inline)] rounded-[var(--inteliscope-radius-page-header)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-xl min-[768px]:px-4 ${className}`}>
+    {leading}
     <h1 className="type-page-title min-w-0 flex-1 truncate">{title}</h1>
     {actions}
   </header>
@@ -68,19 +69,25 @@ export function ViewBar({ children, className = '' }: { children: ReactNode; cla
 }
 
 export type ScrollAdaptiveViewBarState = 'expanded' | 'floating'
+export type ScrollAdaptiveViewBarAppearance = 'quiet' | 'command'
 
-export function ScrollAdaptiveViewBar({ children, state, className = '' }: {
+export function ScrollAdaptiveViewBar({ children, state, appearance = 'quiet', className = '' }: {
   children: ReactNode
   state: ScrollAdaptiveViewBarState
+  appearance?: ScrollAdaptiveViewBarAppearance
   className?: string
 }) {
   const floating = state === 'floating'
+  const surface = appearance === 'command'
+    ? `${floating ? 'w-[calc(100%-16px)] max-w-[var(--inteliscope-width-reading)] bg-surface/90 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg' : 'w-full max-w-full bg-surface-secondary/85'} min-h-12 rounded-2xl border border-border/90 px-1.5 py-1 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] min-[640px]:rounded-[var(--inteliscope-radius-pill)]`
+    : floating
+      ? 'min-h-10 w-[calc(100%-16px)] max-w-[var(--inteliscope-width-reading)] rounded-full border border-separator/80 bg-surface-secondary/80 px-3 shadow-[inset_0_1px_0_var(--surface)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg'
+      : 'min-h-10 w-full max-w-full rounded-2xl border border-separator/70 bg-surface-secondary/55 px-3 shadow-[inset_0_1px_0_var(--surface)]'
   return <div
     data-scroll-adaptive-view-bar
     data-view-bar-state={state}
-    className={`mx-auto flex min-h-10 items-center gap-1 transition-[width,max-width,border-radius,border-color,background-color,box-shadow] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${floating
-      ? 'w-[calc(100%-16px)] max-w-[var(--inteliscope-width-reading)] rounded-full border border-separator/80 bg-surface-secondary/80 px-3 shadow-[inset_0_1px_0_var(--surface)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg'
-      : 'w-full max-w-full rounded-2xl border border-separator/70 bg-surface-secondary/55 px-3 shadow-[inset_0_1px_0_var(--surface)]'} ${className}`}
+    data-view-bar-appearance={appearance}
+    className={`mx-auto flex items-center gap-1 transition-[width,max-width,border-radius,border-color,background-color,box-shadow] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${surface} ${className}`}
   >{children}</div>
 }
 

@@ -22,6 +22,7 @@
   --inteliscope-inset-page-header-inline: 8px;
   --inteliscope-inset-page-header-block: 4px;
   --inteliscope-radius-page-header: 999px;
+  --inteliscope-radius-pill: 999px;
   --inteliscope-size-sidebar-footer: 64px;
   --inteliscope-size-sidebar-avatar-shift: 6px;
 
@@ -218,6 +219,44 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   font-weight: 400;
   line-height: var(--inteliscope-type-prose-line);
   letter-spacing: 0.003em;
+}
+
+/* The inset belongs to the scrollable content, not the shell canvas. At the
+ * top it keeps content clear of PageHeader; after scrolling it moves away so
+ * real page content can pass behind the translucent header surface. */
+.inteliscope-design-system [data-page-scroll-region] {
+  padding-block-start: var(--inteliscope-size-page-header);
+  scroll-padding-block-start: var(--inteliscope-size-page-header);
+  background-color: transparent;
+}
+
+/* Command bars use one calm outer capsule with nested control groups. This
+ * preserves the reading surface while making navigation and actions feel like
+ * one continuous instrument panel. */
+.inteliscope-design-system [data-command-bar-tabs],
+.inteliscope-design-system [data-command-bar-search] {
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: var(--inteliscope-radius-pill);
+  background: color-mix(in oklab, var(--background) 32%, transparent);
+}
+
+.inteliscope-design-system [data-command-bar-tabs] {
+  padding: 3px;
+}
+
+.inteliscope-design-system [data-command-bar-tab] {
+  min-height: 32px;
+  border-radius: var(--inteliscope-radius-pill);
+  padding-inline: 12px;
+}
+
+.inteliscope-design-system [data-command-bar-search] {
+  min-height: 34px;
+  padding-inline: 6px;
+}
+
+.inteliscope-design-system [data-command-bar-primary] {
+  border-radius: var(--inteliscope-radius-pill);
 }
 
 /* Quiet Studio scroll regions keep the track visually continuous with the

@@ -37,7 +37,7 @@ export function SettingsActorOpsPage() {
   }, [searchParams, setSearchParams, tab])
   if (!canAdminister) return <Navigate to="/settings" state={returnState} replace />
 
-  return <div data-settings-page="actorops" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="actorops" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-5 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <PageIntro description="为 X、Instagram 和 YouTube 管理 v2 Actor 路由。未就绪或停用的路线不会回退到旧 ActorOps。" />
       <Tabs selectedKey={tab} onSelectionChange={(key) => setSearchParams(actorOpsCanonicalSearchParams(searchParams, String(key) === 'logs' ? 'logs' : 'routes'), { replace: true })}>

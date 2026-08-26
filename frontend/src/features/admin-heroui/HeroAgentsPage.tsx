@@ -197,8 +197,8 @@ export function HeroAgentsPage() {
     }
   }
 
-  if (query.isLoading) return <PageFrame width="admin" className="p-5"><LoadingState label="正在读取助手连接" rows={1} /></PageFrame>
-  if (query.isError || !query.data) return <PageFrame width="admin" className="p-5"><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></PageFrame>
+  if (query.isLoading) return <div data-page-scroll-region className="h-full overflow-y-auto"><PageFrame width="admin" className="p-5"><LoadingState label="正在读取助手连接" rows={1} /></PageFrame></div>
+  if (query.isError || !query.data) return <div data-page-scroll-region className="h-full overflow-y-auto"><PageFrame width="admin" className="p-5"><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></PageFrame></div>
 
   const activeCount = query.data.connections.filter((connection) => connection.status === 'active').length
   const limitReached = activeCount >= query.data.max_active
@@ -210,7 +210,7 @@ export function HeroAgentsPage() {
     target_version: '2026.7.1',
   }
 
-  return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
       <AdminPageHeader description="管理 OpenClaw 对当前账户的数据权限，以及浏览器到本地 Gateway 的对话连接。" actions={<>
         <Button size="sm" variant="ghost" isIconOnly aria-label="刷新最近使用时间" onPress={() => void query.refetch()}><Icons.RefreshCw size={16} /></Button>

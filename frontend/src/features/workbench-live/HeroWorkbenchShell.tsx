@@ -917,7 +917,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
         <PageHeader
           title={pageTitle}
-          className="col-start-1 row-start-1 min-[768px]:col-start-2"
+          className="relative z-20 col-start-1 row-start-1 min-[768px]:col-start-2"
           actions={<div className="flex items-center gap-1">
             <ThemeModeToggle />
             {feedRoute && <Button
@@ -954,10 +954,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         />
 
         <main
-          ref={mainRef}
+          ref={mainRef} data-page-canvas
           data-feed-reading-layout={feedRoute ? 'true' : undefined}
           data-feed-layout-motion={resizingRail ? 'immediate' : 'deliberate'}
-          className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-[calc(64px+env(safe-area-inset-bottom))] min-[768px]:col-start-2 min-[768px]:pb-0"
+          className="relative col-start-1 row-start-1 row-span-2 min-h-0 min-w-0 overflow-hidden bg-background pb-[calc(64px+env(safe-area-inset-bottom))] min-[768px]:col-start-2 min-[768px]:pb-0"
           style={feedRoute ? {
             '--inteliscope-feed-reading-shift': `${feedInsightsLayout?.readingShift ?? 0}px`,
           } as CSSProperties : undefined}

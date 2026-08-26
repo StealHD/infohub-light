@@ -34,7 +34,7 @@ export function SettingsIgnoredPage() {
     onError: (caught) => actionToast.danger('恢复失败', { description: errorMessage(caught, '请稍后重试。') }),
   })
 
-  return <div data-settings-page="ignored" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="ignored" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <SettingsSection title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
         {ignored.isPending

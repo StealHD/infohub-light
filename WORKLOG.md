@@ -11,160 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-25",
-  "result": "Added an info-status compatibility mapping for Hero notices and rebuilt the local API/Worker image so the new public particle landing page is served by the local runtime.",
-  "status": "completed",
-  "task_id": "2026-08-25-landing-runtime-rebuild",
-  "unresolved": [
-    "Impacted preflight remains blocked by pre-existing growth in frozen src/services/subscription_mutation.py."
-  ],
-  "validation": [
-    "Targeted design-system Vitest passed (2 tests).",
-    "Frontend lint and Docker production build passed; local API and Worker report healthy.",
-    "Browser DOM and screenshot confirmed the new particle landing page is served by the local runtime."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "公开介绍页已从业务启动链解耦，只以原生超链接进入项目；右侧改为双弧粒子眼，品牌图标粒子眼仁、眼弧和背景光带按分层惯性响应指针，并支持触屏漂移与 Reduced Motion 静止。",
-  "status": "completed",
-  "task_id": "2026-08-25-public-inteliscope-eye",
-  "unresolved": [
-    "完整 impacted preflight 被任务开始前已有的冻结后端文件 src/services/subscription_mutation.py 增长 4 行阻断；本次 frontend code-size scope 独立通过。"
-  ],
-  "validation": [
-    "前端 ESLint、TypeScript、UI contract、生产构建与预览产物扫描通过；3 个定向 Vitest 文件共 12 项通过。",
-    "Landing Playwright 在 1440/1024/390 px 共 9 项通过、6 项按设备条件跳过，覆盖零 API/业务包、Axe、无横向溢出、双语、视觉基线和眼仁左右追踪/回中质心。",
-    "./scripts/up-latest.sh 重建成功，revision da7ff4a76bbd-dirty 的 API 与 Worker 均 healthy，8080 已提供新首页。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "将公开介绍页剥离为可独立启动的原生 HTML/CSS/Canvas 静态站点，并把右侧视觉重构为上强下柔的非对称凤眼、品牌粒子瞳孔、椭圆信息场与汇聚数据尘；通过静态背景分层、批量粒子绘制和自适应像素倍率消除 Retina 卡顿。",
-  "status": "completed",
-  "task_id": "2026-08-25-static-phoenix-eye-performance",
-  "unresolved": [
-    "影响域 preflight 仍被任务开始前已有的 src/services/subscription_mutation.py 冻结文件增加 4 行阻断；本任务相关的 src/api/server.py 增长已通过拆分路由模块消除。",
-    "按用户要求未继续 Docker 构建或容器验收；静态页当前仅通过独立本地服务器提供。"
-  ],
-  "validation": [
-    "静态几何 5 项测试、前端 TypeScript、ESLint、生产构建与静态产物合同通过。",
-    "Playwright 1440/1024/390px 的静态资源隔离、零 API、Axe、双语、交互回中和视觉基线通过；最终像素倍率断言三档通过。",
-    "1440x900 性能采样从平均 124ms/帧改善为 16.6ms/帧，DPR 2 环境同样约 16.6ms/帧且采样中没有超过 20ms 的帧。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "提升凤眼、信息场、品牌符号、汇聚尘与星尘密度；用分支分层采样使上下眼弧均匀闭合，并让下半弧保持连续可辨而在两端轻微消散。",
-  "status": "completed",
-  "task_id": "2026-08-25-static-phoenix-eye-density-repair",
-  "unresolved": [
-    "本地静态服务器继续运行在 127.0.0.1:4175，未启动 Docker 或项目容器。"
-  ],
-  "validation": [
-    "静态几何 5 项测试、完整 landing Playwright 规格 9 项、Reduced Motion 与手机视觉基线、生产构建和静态产物合同通过。",
-    "DPR 2 的 1440x900 动画采样平均 16.6ms、最慢 17.5ms，未出现超过 20ms 的帧。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "将信息之眼从均匀点描轮廓调整为有高密核心、扩散粒子带与游离数据尘的流场；增加眼弧和信息场粒子，并修正窄屏抽样只保留上弧导致下弧消失的问题。",
-  "status": "completed",
-  "task_id": "2026-08-25-particle-field-release",
-  "unresolved": [],
-  "validation": [
-    "静态几何测试 5 项通过；前端生产构建与静态产物检查通过。",
-    "Landing Playwright 共 9 项通过、6 项按视口条件跳过，包含桌面/手机视觉基线、零 API、可访问性及粒子眼仁的鼠标追踪/回中。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "按 Harness 顶部栏参考将静态首页页头改为统一悬浮玻璃胶囊，移除品牌图标及 favicon 的方形底；语言与工作台入口采用固定占位，切换中英文时不再发生水平抖动，并撤回误加的背景光带。",
-  "status": "completed",
-  "task_id": "2026-08-25-static-header-polish",
-  "unresolved": [],
-  "validation": [
-    "静态几何测试 5 项通过。",
-    "Landing Playwright 9 项通过、6 项按视口条件跳过，覆盖固定语言控件位置、视觉基线、零 API、可访问性及鼠标粒子交互。",
-    "前端生产构建与静态产物检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "公开静态页的页头改为滚动驱动状态：顶部保持无底导航，向下滚动后整条收拢为悬浮玻璃胶囊，回到顶部还原；同时保留无框品牌符号、透明 favicon 与稳定的双语控件占位。",
-  "status": "completed",
-  "task_id": "2026-08-25-static-scroll-header",
-  "unresolved": [],
-  "validation": [
-    "静态几何测试 5 项通过。",
-    "滚动页头 Playwright 专项、桌面深色与手机浅色视觉基线通过。",
-    "前端生产构建、静态产物检查和 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
-  "result": "按 DeepSeek Harness 实测参数重新校准滚动玻璃导航：收拢态高度 42px、最大宽度 980px、桌面两侧 40px 安全边距，采用 25% 中性白玻璃、12px 背景模糊和无阴影呈现，并同步压缩内部品牌与操作控件。",
-  "status": "completed",
-  "task_id": "2026-08-25-scroll-header-harness-calibration",
-  "unresolved": [],
-  "validation": [
-    "浏览器实测本地滚动态为 663×42px，颜色 rgba(255,255,255,.25)、backdrop blur(12px)。",
-    "滚动页头 Playwright 专项与静态几何 5 项通过。",
-    "前端生产构建、静态产物检查和 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-25",
   "result": "为信息之眼中央品牌符号增加独立粒子运动：粒子在保持图标轮廓的前提下进行轻微径向聚散、切向漂移与明暗呼吸，单粒子位移限制在 4px 内；Reduced Motion 下保持完全静止。",
   "status": "completed",
   "task_id": "2026-08-25-logo-particle-motion",
@@ -378,6 +224,149 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Worker policy、ActorOps v1 隔离与 v2 housekeeping 定向回归 10 项通过。",
     "snapshot impacted preflight 16/16 通过，覆盖完整后端/前端、代码尺寸、控制合同与 diff 检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "将订阅页顶部导航、搜索、筛选和新增来源重构为参考 DeepSeek Harness 的一体式胶囊 command bar，保留滚动收拢、权限语义和移动端两行布局，并同步明暗主题视觉基线与用户文档。",
+  "status": "completed",
+  "task_id": "2026-08-26-subscription-command-bar",
+  "unresolved": [],
+  "validation": [
+    "Vitest 直接相关 116 项、TypeScript、ESLint、UI contract 和 frontend code-size 均通过。",
+    "订阅 Playwright 交互规格在桌面/平板/手机共 4 项通过、2 项按设备条件跳过；明暗主题三视口视觉基线在 macOS 与 Linux 均通过并更新。",
+    "impacted preflight 12/12 通过；浏览器验证 320 px 无横向溢出，开发服务器运行在 127.0.0.1:5173。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "将订阅 command bar 的搜索框改为紧邻页签组左侧起排，并移除页签滚动容器无必要的稳定滚动条槽；桌面实测间隔由 19 px 收为 8 px，手机两行布局保持不变。",
+  "status": "completed",
+  "task_id": "2026-08-26-subscription-search-left",
+  "unresolved": [],
+  "validation": [
+    "订阅路由定向 Vitest 通过。",
+    "浏览器 1280 px 实测页签与搜索同排且间隔 8 px。",
+    "impacted preflight 11/11 通过，frontend code-size 与 git diff check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "将订阅页标题栏从内缩圆角面改为铺满 52 px 顶部轨道的 flush 外观，去除四周黑色画布，仅保留底部分隔线；Bootstrap 静态壳同步相同几何。",
+  "status": "completed",
+  "task_id": "2026-08-26-subscription-header-flush",
+  "unresolved": [],
+  "validation": [
+    "浏览器实测标题栏 x/y 为 0、宽 320 px、高 52 px、margin/radius 为 0，仅底边 1 px。",
+    "TypeScript、ESLint、UI contract、定向 Vitest 和 page-header 三视口 Playwright 6 项通过。",
+    "impacted preflight 12/12 通过，frontend code-size 与 git diff check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "将全部已登录页面的共享标题栏统一为半透明圆角玻璃胶囊；设置工作区复用同一 PageHeader，外侧 4/8px 留白由语义表面承接，不再露出黑色条带，刷新前 Bootstrap 几何同步。",
+  "status": "completed",
+  "task_id": "2026-08-26-global-transparent-rounded-header",
+  "unresolved": [],
+  "validation": [
+    "共享模式、Bootstrap、Settings 与 Workbench 定向 Vitest 共 37 项通过；TypeScript、ESLint 与 UI contract 通过。",
+    "PageHeader Playwright 桌面、平板、手机 6 项通过，覆盖 Feed、History、Subscriptions、Agents、Settings 与 Bootstrap takeover。",
+    "本地浏览器实测 Settings 与 History 均为 44px、999px 圆角、75% 语义表面、24px blur、无横向溢出；impacted preflight 12/12 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "按用户确认删除透明圆角 PageHeader 外侧整条横向轨道背景与扩散外圈，仅保留半透明胶囊、细边框和圆角；Bootstrap 同步移除外圈绘制。",
+  "status": "completed",
+  "task_id": "2026-08-26-remove-page-header-outer-track",
+  "unresolved": [],
+  "validation": [
+    "宽屏本地订阅页截图复查通过，计算样式 box-shadow 为 none，胶囊仍为 75% 语义表面与 999px 圆角。",
+    "定向 Vitest 5 项、PageHeader 三视口 Playwright 6 项、impacted preflight 12/12 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-26",
+  "result": "修正全站透明圆角标题的真实层级：Workbench、Settings 与刷新前 Bootstrap 的页面画布均从 y=0 延伸到标题背后，52px 只作为正文避让空间，不再由独立黑色顶栏轨道占位；同时修复设置页网格自动排版导致标题落到底部的问题。",
+  "status": "completed",
+  "task_id": "2026-08-26-page-header-canvas-overlay",
+  "unresolved": [],
+  "validation": [
+    "浏览器逐页实测订阅、历史、设置：画布 top=0、正文 padding-top=52px、标题 top=4/height=44/radius=999px/box-shadow=none。",
+    "相关 Vitest 38 项通过；TypeScript、ESLint、UI contract 与 git diff check 通过。",
+    "PageHeader Playwright 桌面、平板、手机 6 项通过；一次移动端接管时序波动在单场景重跑和完整重跑中均通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-27",
+  "result": "Implemented a shared y=0 scroll region with scrollable 52px top clearance across authenticated pages, corrected sticky offsets to avoid double spacing, and added deterministic real-content glass-header overlap coverage for desktop, tablet, and mobile.",
+  "status": "completed",
+  "task_id": "2026-08-27-page-header-real-scroll-through",
+  "unresolved": [],
+  "validation": [
+    "Vitest: 5 files / 41 tests passed",
+    "Playwright page-header-geometry: 6 passed",
+    "TypeScript, ESLint, UI contract, code-size policy, and git diff checks passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-27",
+  "result": "Reduced the subscriptions page initial header-to-toolbar gap from 28px to 20px while preserving the y=52 sticky position and real scroll-through behavior; refreshed responsive light/dark snapshots.",
+  "status": "completed",
+  "task_id": "2026-08-27-subscriptions-header-spacing",
+  "unresolved": [],
+  "validation": [
+    "Vitest: 2 files / 15 tests passed",
+    "Playwright subscription semantic visual baselines: 3 passed",
+    "TypeScript and browser geometry checks passed"
   ]
 }
 ```

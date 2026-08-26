@@ -28,7 +28,7 @@ function ThemePreview({ mode }: { mode: ThemeColorMode }) {
 export function SettingsAppearancePage() {
   const { colorMode, setColorMode } = useThemePreference()
 
-  return <div data-settings-page="appearance" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="appearance" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <SettingsSection title="显示模式" description="偏好保存在当前浏览器中，并与页面右上角的模式切换保持同步。">
         <SettingsGroup ariaLabel="显示模式">

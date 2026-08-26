@@ -35,7 +35,7 @@ export function SettingsOverviewPage() {
   }
 
   const admin = canAdministerSettings(user.role)
-  return <div data-settings-page="overview" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="overview" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <SettingsSection title="账户" description="当前登录身份与工作区权限。">
         <SettingsGroup ariaLabel="账户信息">

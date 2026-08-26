@@ -29,7 +29,10 @@ describe('SettingsLayout', () => {
     const browser = userEvent.setup()
     render(<LayoutFixture state={{ settingsReturnTo: '/saved?filter=unread#recent' }} />)
 
-    expect(screen.getByRole('heading', { name: '外观', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '外观', level: 1 }).closest('header')).toHaveAttribute('data-page-header-appearance', 'inset')
+    expect(screen.getByRole('heading', { name: '外观', level: 1 }).closest('header')).toHaveClass('col-start-1', 'row-start-1', 'min-[768px]:col-start-2')
+    expect(document.querySelector('[data-page-canvas]')).toHaveClass('col-start-1', 'row-start-1', 'row-span-2', 'min-[768px]:col-start-2')
+    expect(document.querySelector('[data-page-canvas]')).not.toHaveClass('pt-[var(--inteliscope-size-page-header)]')
     await browser.click(screen.getAllByRole('button', { name: '返回应用' })[0])
     expect(screen.getByTestId('location-probe')).toHaveTextContent('/saved?filter=unread#recent')
   })

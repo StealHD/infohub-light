@@ -46,6 +46,7 @@ export type { SortDescriptor } from '@heroui/react'
 export { DesignSystemProvider } from './DesignSystemProvider'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
 export { actionToast } from './actionToast'
+export { PAGE_HEADER_SIZE_PX } from './layoutMetrics'
 export { ThemeModeToggle } from './ThemeModeToggle'
 export { useThemePreference } from './themePreferenceContext'
 export { interactivePopoverCloseDelayMs, useHoverPopoverIntent } from './useHoverPopoverIntent'
@@ -88,7 +89,7 @@ export {
   StatusNotice,
   ViewBar,
 } from './patterns'
-export type { CompactSelectOption, LoadingRevealProps, PageFrameWidth, ScrollAdaptiveViewBarState, ViewBarAction } from './patterns'
+export type { CompactSelectOption, LoadingRevealProps, PageFrameWidth, ScrollAdaptiveViewBarAppearance, ScrollAdaptiveViewBarState, ViewBarAction } from './patterns'
 export {
   CountBadge,
   MetaTag,

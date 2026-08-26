@@ -36,7 +36,7 @@ describe('Quiet Studio shared page patterns', () => {
     expect(css).toContain('animation: quiet-surface-exit var(--inteliscope-motion-deliberate)')
   })
 
-  it('keeps the shared page header as a lightly inset capsule inside its stable track', () => {
+  it('keeps the shared page header transparent and rounded without painting its outer track', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
     const patterns = readFileSync(resolve(process.cwd(), 'src/design-system/patterns.tsx'), 'utf8')
 
@@ -46,9 +46,14 @@ describe('Quiet Studio shared page patterns', () => {
     expect(css).toContain('--inteliscope-inset-page-header-block: 4px')
     expect(css).toContain('--inteliscope-radius-page-header: 999px')
     expect(patterns).toContain('h-[var(--inteliscope-size-page-header-surface)]')
-    expect(patterns).toContain('[margin-inline:var(--inteliscope-inset-page-header-inline)]')
-    expect(patterns).toContain('[margin-block:var(--inteliscope-inset-page-header-block)]')
+    expect(patterns).toContain('bg-surface/75')
+    expect(patterns).toContain('backdrop-blur-xl')
     expect(patterns).toContain('rounded-[var(--inteliscope-radius-page-header)]')
-    expect(patterns).toContain('border border-separator')
+    expect(patterns).toContain('data-page-header-appearance="inset"')
+    expect(patterns).not.toContain('quiet-page-header-track-fill')
+    expect(designSystem.PAGE_HEADER_SIZE_PX).toBe(52)
+    expect(css).toContain('[data-page-scroll-region]')
+    expect(css).toContain('padding-block-start: var(--inteliscope-size-page-header)')
+    expect(css).toContain('scroll-padding-block-start: var(--inteliscope-size-page-header)')
   })
 })

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import type { User } from '../../api/types'
 import { SettingsSidebar } from '../../components/settings'
-import { Button, Drawer, Icons, ThemeModeToggle } from '../../design-system'
+import { Button, Drawer, Icons, PageHeader, ThemeModeToggle } from '../../design-system'
 import { settingsWorkspaceTitle } from './settingsNavigation'
 import { settingsReturnToFromState } from './settingsReturnState'
 
@@ -26,29 +26,32 @@ export function SettingsLayout({ user, children }: { user: User; children: React
       <SettingsSidebar role={user.role} returnTo={returnTo} onBack={goBack} />
     </aside>
 
-    <header className="flex h-[var(--inteliscope-size-page-header)] min-w-0 items-center gap-1 border-b border-separator bg-surface px-2.5 min-[768px]:gap-2 min-[768px]:px-4">
-      <Button
-        size="sm"
-        variant="ghost"
-        isIconOnly
-        aria-label="返回应用"
-        className="min-[768px]:hidden"
-        onPress={goBack}
-      ><Icons.ArrowLeft size={18} aria-hidden="true" /></Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        isIconOnly
-        aria-label="打开设置导航"
-        aria-expanded={mobileSidebarOpen}
-        className="min-[768px]:hidden"
-        onPress={() => setMobileSidebarOpen(true)}
-      ><Icons.Menu size={18} aria-hidden="true" /></Button>
-      <h1 className="type-page-title min-w-0 flex-1 truncate">{title}</h1>
-      <ThemeModeToggle />
-    </header>
+    <PageHeader
+      title={title}
+      className="relative z-20 col-start-1 row-start-1 min-w-0 gap-1 min-[768px]:col-start-2 min-[768px]:gap-2"
+      leading={<>
+        <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          aria-label="返回应用"
+          className="min-[768px]:hidden"
+          onPress={goBack}
+        ><Icons.ArrowLeft size={18} aria-hidden="true" /></Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          aria-label="打开设置导航"
+          aria-expanded={mobileSidebarOpen}
+          className="min-[768px]:hidden"
+          onPress={() => setMobileSidebarOpen(true)}
+        ><Icons.Menu size={18} aria-hidden="true" /></Button>
+      </>}
+      actions={<ThemeModeToggle />}
+    />
 
-    <main className="min-h-0 min-w-0 overflow-hidden">{children}</main>
+    <main data-page-canvas className="col-start-1 row-start-1 row-span-2 min-h-0 min-w-0 overflow-hidden bg-background min-[768px]:col-start-2">{children}</main>
 
     <Drawer isOpen={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
       <Drawer.Trigger aria-hidden="true" className="hidden">打开设置导航</Drawer.Trigger>

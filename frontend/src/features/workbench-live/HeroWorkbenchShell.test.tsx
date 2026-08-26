@@ -126,6 +126,14 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     useViewport(1440)
   })
 
+  it('places the continuous page canvas behind the floating header surface', () => {
+    render(<Shell user={{ id: 'header-canvas', username: 'canvas', role: 'member', enabled: true }} />)
+
+    expect(document.querySelector('[data-page-canvas]')).toHaveClass('row-start-1', 'row-span-2')
+    expect(document.querySelector('[data-page-canvas]')).not.toHaveClass('pt-[var(--inteliscope-size-page-header)]')
+    expect(screen.getByRole('heading', { name: '信息流', level: 1 }).closest('header')).toHaveClass('relative', 'z-20', 'row-start-1')
+  })
+
   it('defaults to collapsed and persists independent expanded state per account', async () => {
     const browser = userEvent.setup()
     const first = { id: 'sidebar-a', username: 'alpha', role: 'member' as const, enabled: true }
@@ -418,6 +426,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     const browser = userEvent.setup()
     render(<Shell path="/subscriptions" user={{ id: 'subscription-agent', username: 'sub', role: 'member', enabled: true }} />)
 
+    expect(screen.getByRole('heading', { name: '订阅与来源' }).closest('header')).toHaveAttribute('data-page-header-appearance', 'inset')
     expect(screen.queryByRole('button', { name: '展开信息概览' })).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()

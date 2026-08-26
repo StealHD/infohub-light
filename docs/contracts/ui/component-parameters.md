@@ -19,14 +19,14 @@
 
 | Parameter | Value | Owner and use |
 | --- | ---: | --- |
-| Page header | 52 px track / 44 px surface | `--inteliscope-size-page-header` keeps Shell layout stable; shared `PageHeader` uses the 44 px inset surface while Workbench, Settings and docked panel headers retain their owned 52 px tracks |
+| Page header | 52 px scrollable content inset / 44 px glass surface | `--inteliscope-size-page-header` is padding owned by each route scroll root: it clears the overlay at scroll top, then scrolls away so real content can pass behind the glass surface; the shell canvas itself has no top inset or separate outer track |
 | Desktop sidebar footer | 64 px | `--inteliscope-size-sidebar-footer`; account and document controls stay on this fixed bottom track while the rail changes width |
 | Compact control | 32 px | icon actions, compact select, view-mode tabs |
 | Standard control/row | 40 px | ViewBar, navigation rows and ordinary toolbar targets |
 | Coarse-pointer target | at least 44 px | touch versions of interactive controls |
 | Page padding | 16 / 24 px | mobile / ≥768 px route content |
 | Reading / Settings / Admin / Auth width | 820 / 920 / 1180 / 960 px | `PageFrame` only |
-| Panel / Card / Feed card / Table / Control / Compact / status marker radius | 16 / 14 / 18 / 22 / 10 / 8 / 5 px | theme radius tokens only; table and status marker retain their existing geometry |
+| Panel / Card / Feed card / Table / Control / Compact / status marker / pill radius | 16 / 14 / 18 / 22 / 10 / 8 / 5 / 999 px | theme radius tokens only; table, status marker and pill retain their existing geometry |
 | Fast / Standard / Disclosure / Deliberate motion | 120 / 160 / 200 / 220 ms | local response / ordinary transition / shared disclosure / surface-layout change |
 
 Ordinary composition uses 4 px for tightly related icon internals, 8 px for controls, 12 px for a component group, 16 px for card padding, 20 px for roomy card sections and 24 px for desktop page padding. A feature may use other layout measurements only for behavior such as virtualization, media aspect ratios or a resizable rail—not to restyle a shared component.
@@ -36,9 +36,9 @@ Ordinary composition uses 4 px for tightly related icon internals, 8 px for cont
 | Role | Primitive/pattern | Required parameters |
 | --- | --- | --- |
 | Route frame | `PageFrame` | Select exactly `reading`, `settings`, `admin` or `auth`; page content uses 16 px mobile and 24 px desktop padding. |
-| Page header | `PageHeader` or owned Shell header | Shared `PageHeader` occupies a 52 px Shell track with a 44 px surface inset 8 px inline and 4 px block, full thin separator and pill radius; it keeps `type-page-title`, 12 px mobile/16 px desktop content padding, and one aligned action group. Owned Shell headers retain their existing contract unless explicitly changed. |
+| Page header | `PageHeader` or owned Shell header | Every authenticated route uses one `inset` glass appearance: a 44 px overlay surface, 8 px inline/4 px block inset, pill radius, subtle foreground border, 75% semantic surface and backdrop blur. The shell canvas and route scroll viewport both start at y=0; a 52 px inset belongs inside scrollable content, initially clears the header, and scrolls away so cards can visibly pass behind it. No separate header row paints a background, shadow or strip. It keeps `type-page-title`, 12 px mobile/16 px desktop content padding, optional leading mobile navigation, and one aligned action group. Bootstrap takeover and the dedicated Settings Workspace preserve the same geometry and layering. |
 | Page section | `PageSection` / `SettingsSection` | Section heading uses `type-section-title`; card-local section heading uses `type-page-title`; description uses `type-body`; outer gap 12 px. |
-| View toolbar | `ViewBar` / `ScrollAdaptiveViewBar` | At least 40 px high, 4 px internal gap, `type-control`, control radius; the floating form may use the approved pill variant only. |
+| View toolbar | `ViewBar` / `ScrollAdaptiveViewBar` | At least 40 px high, 4 px internal gap, `type-control`, control radius; the floating form may use the approved pill variant only. The `command` appearance is 48 px high, uses one bordered outer surface, and owns nested pill geometry for navigation, search and the primary action; below 640 px its outer surface uses the panel radius for a two-row layout. |
 | Primary action | `Button` default variant | One primary action per action group; `type-control`; 15 px control icon. Do not restyle its height, radius, font or shadow per page. |
 | Secondary/destructive action | `Button variant="secondary|ghost|danger"` | Secondary for visible alternatives, ghost for low-emphasis/toolbar actions, danger only for destructive confirmation; `size="sm"` is limited to inline or row actions. |
 | Icon-only action | `TooltipTriggerButton` or HeroUI icon-only `Button` | 32 px compact target, 15 px icon, complete accessible name and Tooltip; coarse pointer target reaches at least 44 px. Header toggles may use the existing 34×32 geometry. |

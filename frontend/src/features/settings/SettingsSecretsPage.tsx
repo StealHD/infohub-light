@@ -456,7 +456,7 @@ export function SettingsSecretsPage() {
   const aiSecrets = (secrets.data?.secrets ?? []).filter((secret) => !isApifySecret(secret))
   const creating = feedback.isPending('secret-create', 'new')
 
-  return <div data-settings-page="secrets" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="secrets" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <SettingsSection title="密钥" description="真实 Key 仅写入 SecretStore，保存、轮换和使用时都不会回显真实值。">
         <SettingsGroup ariaLabel="密钥管理">

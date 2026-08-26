@@ -68,6 +68,9 @@ html[data-theme="light"] body {
 }
 
 .bootstrap-shell-header {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -76,7 +79,9 @@ html[data-theme="light"] body {
   padding: 0 12px;
   border: 1px solid var(--inteliscope-bootstrap-separator);
   border-radius: var(--inteliscope-bootstrap-page-header-radius);
-  background: var(--inteliscope-bootstrap-surface);
+  background: color-mix(in oklab, var(--inteliscope-bootstrap-surface) 75%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }
 
 .bootstrap-shell-title,
@@ -97,9 +102,12 @@ html[data-theme="light"] body {
 .bootstrap-shell-mark { width: 26px; height: 26px; border-radius: 10px; }
 
 .bootstrap-shell-main {
+  grid-column: 1;
+  grid-row: 1 / span 2;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  box-sizing: border-box;
   background: var(--inteliscope-bootstrap-background);
 }
 
@@ -108,7 +116,7 @@ html[data-theme="light"] body {
   align-items: center;
   width: min(calc(100% - 24px), 820px);
   height: 40px;
-  margin: 8px auto 0;
+  margin: calc(var(--inteliscope-bootstrap-page-header-size) + 8px) auto 0;
   gap: 8px;
   padding: 0 10px;
   border: 1px solid var(--inteliscope-bootstrap-separator);
@@ -405,7 +413,7 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
   html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy::before { top: 2px; width: 66px; height: 11px; }
   html[data-bootstrap-sidebar="expanded"] .bootstrap-shell-account-copy::after { bottom: 1px; width: 42px; height: 9px; }
   .bootstrap-shell-header { grid-column: 2; grid-row: 1; padding-inline: 16px; }
-  .bootstrap-shell-main { grid-column: 2; grid-row: 2; }
+  .bootstrap-shell-main { grid-column: 2; grid-row: 1 / span 2; }
   .bootstrap-shell-mobile-navigation { display: none; }
 }
 

@@ -85,7 +85,7 @@ export function HeroChangelogPage() {
     >{month.label}</button>
   })
 
-  return <div ref={scrollRef} className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto" onScroll={syncMonthFromScroll}>
+  return <div ref={scrollRef} data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto" onScroll={syncMonthFromScroll}>
     <PageFrame width="admin" className="p-4 min-[768px]:p-6">
       <div className="mb-8 flex items-start gap-3 border-b border-separator pb-6">
         <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent"><Icons.ScrollText size={18} aria-hidden="true" /></span>

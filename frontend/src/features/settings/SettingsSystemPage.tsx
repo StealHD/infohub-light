@@ -178,7 +178,7 @@ export function SettingsSystemPage() {
   if (query.isLoading) return <PageFrame width="settings" className="p-6"><LoadingState label="正在读取系统参数" rows={5} /></PageFrame>
   if (query.isError || !query.data) return <PageFrame width="settings" className="p-6"><HeroNotice title={errorMessage(query.error)}><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></PageFrame>
 
-  return <div data-settings-page="system" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="system" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <SettingsSection title="系统参数" description={`工作区安全白名单参数 · 当前代次 ${query.data.generation}`} actions={<Button isDisabled={!changes.length || invalidKeys.size > 0 || prepare.isPending} onPress={() => prepare.mutate()}>{prepare.isPending ? '生成预演中…' : `预演 ${changes.length || ''} 项变更`}</Button>}>
         <HeroNotice title="数据库覆盖值优先于环境变量和内置默认值" status="accent" role="status">所有修改都要先预演并输入精确确认短语；页面不提供密钥、地址、数据库路径或付费 Actor 参数。</HeroNotice>

@@ -15,7 +15,7 @@ export function SettingsStoragePage() {
     return <Navigate to="/settings" state={returnState} replace />
   }
 
-  return <div data-settings-page="storage" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="storage" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       <StorageArchiveSettings queryEnabled />
     </PageFrame>

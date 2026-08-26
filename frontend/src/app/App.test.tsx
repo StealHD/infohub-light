@@ -879,11 +879,11 @@ describe('App routes', () => {
     expect(within(scheduleCard).getByRole('button', { name: /更新周期/ })).toBeInTheDocument()
     expect(within(scheduleCard).queryByRole('button', { name: '管理自动更新' })).not.toBeInTheDocument()
     const subscriptionToolbar = document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement
-    expect(subscriptionToolbar).toHaveClass('sticky', 'top-0', 'z-20', 'px-2')
+    expect(subscriptionToolbar).toHaveClass('sticky', 'top-0', 'z-20', 'py-2')
     const adaptiveViewBar = subscriptionToolbar.querySelector('[data-scroll-adaptive-view-bar]') as HTMLElement
     expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'expanded')
-    expect(adaptiveViewBar).toHaveClass('w-full', 'rounded-2xl', 'bg-surface-secondary/55', 'px-3', 'motion-reduce:transition-none')
-    const sourceSearch = within(subscriptionToolbar).getByRole('searchbox', { name: '搜索来源' })
+    expect(adaptiveViewBar).toHaveAttribute('data-view-bar-appearance', 'command'); expect(adaptiveViewBar).toHaveClass('w-full', 'bg-surface-secondary/85', 'px-1.5', 'motion-reduce:transition-none')
+    const sourceSearch = within(subscriptionToolbar).getByRole('searchbox', { name: '搜索来源' }); expect(sourceSearch.closest('[data-command-bar-search]')).toHaveClass('justify-self-start')
     expect(within(subscriptionToolbar).getByRole('button', { name: '筛选来源，已启用 0 项' })).toBeInTheDocument()
     const createSource = within(subscriptionToolbar).getByRole('button', { name: '新增来源' })
     expect(createSource).toHaveClass('w-auto', 'shrink-0', 'whitespace-nowrap', 'px-3')
@@ -892,7 +892,7 @@ describe('App routes', () => {
     Object.defineProperty(subscriptionsScroller, 'scrollTop', { configurable: true, value: 21, writable: true })
     fireEvent.scroll(subscriptionsScroller)
     await waitFor(() => expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'floating'))
-    expect(adaptiveViewBar).toHaveClass('w-[calc(100%-16px)]', 'rounded-full', 'px-3', 'supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg')
+    expect(adaptiveViewBar).toHaveClass('w-[calc(100%-16px)]', 'bg-surface/90', 'px-1.5', 'supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg')
     subscriptionsScroller.scrollTop = 0
     fireEvent.scroll(subscriptionsScroller)
     await waitFor(() => expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'expanded'))

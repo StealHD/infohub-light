@@ -49,7 +49,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   render() {
     if (this.state.failed) {
       const RecoverySurface = this.props.surface === 'page' ? 'section' : 'main'
-      return <RecoverySurface className="app-loading app-error" role="alert">
+      return <RecoverySurface data-page-scroll-region={this.props.surface === 'page' ? 'true' : undefined} className="app-loading app-error" role="alert">
         <h1>页面加载失败</h1>
         <p>当前内容无法显示，请返回信息流后重试。</p>
         <a href="/feed">返回信息流</a>
@@ -87,9 +87,9 @@ function SettingsLegacyRedirect({ user }: { user: User }) {
 }
 
 function RouteLoadingState() {
-  return <main className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto p-4 min-[768px]:p-6" role="status">
+  return <div data-page-scroll-region className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto p-4 min-[768px]:p-6" role="status">
     <LoadingState label="正在加载页面" rows={3} />
-  </main>
+  </div>
 }
 
 function LoginLoadingState() {

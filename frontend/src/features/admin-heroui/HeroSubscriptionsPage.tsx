@@ -636,22 +636,22 @@ export function HeroSubscriptionsPage() {
     includeHealth: tab === 'subscriptions',
   }
 
-  return <div ref={pageScrollerRef} className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
+  return <div ref={pageScrollerRef} data-page-scroll-region className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 px-4 pb-4 pt-2 min-[768px]:px-6 min-[768px]:pb-6">
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
     <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key))}>
-      <div data-subscription-tabs-toolbar className="sticky top-0 z-20 px-2 py-2">
-          <ScrollAdaptiveViewBar state={toolbarState} className={`min-w-0 ${tab === 'jobs' ? 'justify-start' : 'grid gap-2 min-[640px]:grid-cols-[auto_minmax(0,1fr)_auto_auto] min-[640px]:items-center'}`}>
-            <div className="quiet-scroll-region min-w-0 max-w-full overflow-x-auto">
-              <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
-                <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
-                <Tabs.Tab id="library" aria-label="来源库" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">来源库<Tabs.Indicator /></Tabs.Tab>
-                <Tabs.Tab id="jobs" aria-label="运行记录" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">运行记录<Tabs.Indicator /></Tabs.Tab>
+      <div data-subscription-tabs-toolbar className="sticky top-0 z-20 py-2">
+          <ScrollAdaptiveViewBar state={toolbarState} appearance="command" className={`min-w-0 ${tab === 'jobs' ? 'justify-start' : 'grid gap-2 min-[640px]:grid-cols-[auto_minmax(0,1fr)_auto_auto] min-[640px]:items-center'}`}>
+            <div className="min-w-0 max-w-full overflow-x-auto">
+              <Tabs.List data-command-bar-tabs aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1">
+                <Tabs.Tab data-command-bar-tab id="subscriptions" aria-label="我的订阅" className="w-auto shrink-0 justify-center gap-2">我的订阅<Tabs.Indicator /></Tabs.Tab>
+                <Tabs.Tab data-command-bar-tab id="library" aria-label="来源库" className="w-auto shrink-0 justify-center gap-2">来源库<Tabs.Indicator /></Tabs.Tab>
+                <Tabs.Tab data-command-bar-tab id="jobs" aria-label="运行记录" className="w-auto shrink-0 justify-center gap-2">运行记录<Tabs.Indicator /></Tabs.Tab>
               </Tabs.List>
             </div>
             {tab !== 'jobs' && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 min-[640px]:contents">
-              <SourceSearchField value={search} onChange={setSearch} />
+              <div data-command-bar-search className="min-w-0 w-full max-w-sm justify-self-start"><SourceSearchField value={search} onChange={setSearch} /></div>
               <SourceFilterMenu filters={sourceFilters} />
-              {editable && <Button size="sm" aria-label="新增来源" className="w-auto shrink-0 whitespace-nowrap px-3" onPress={() => setCreateOpen(true)}>
+              {editable && <Button data-command-bar-primary size="sm" aria-label="新增来源" className="w-auto shrink-0 whitespace-nowrap px-3" onPress={() => setCreateOpen(true)}>
                 <Icons.Plus size={15} />
                 <span>新增来源</span>
               </Button>}

@@ -409,7 +409,7 @@ export function HeroUsersPage() {
     }
   }
 
-  return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+  return <div data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username}`} />
     <AccountPasswordSection />
     {admin && <AdminSection title="成员管理" description="创建成员，并管理用户名、角色与账户可用状态。">

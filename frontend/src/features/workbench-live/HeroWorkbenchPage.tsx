@@ -12,7 +12,7 @@ import {
   Icons,
   ListBox,
   LoadingReveal,
-  PageFrame,
+  PageFrame, PAGE_HEADER_SIZE_PX,
   Popover,
   RemovableTag,
   SearchField,
@@ -699,7 +699,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     && !selectedInSource
     && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404)
   const hasFeedNotice = deepLinkNotice || detailErrorNotice
-  const feedContentInset = hasFeedNotice ? 0 : feedToolbarInset
+  const feedContentInset = hasFeedNotice ? 0 : PAGE_HEADER_SIZE_PX + feedToolbarInset
 
   useLayoutEffect(() => {
     const toolbar = feedToolbarRef.current
@@ -726,7 +726,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [])
 
   return <section aria-label="信息流工作区" data-feed-blank-region className="relative flex h-full min-h-0 flex-col">
-    <div ref={feedToolbarRef} data-testid="workbench-feed-toolbar" className="quiet-scroll-region absolute inset-x-0 top-0 z-10 overflow-y-scroll px-3 py-2 sm:px-5">
+    <div ref={feedToolbarRef} data-testid="workbench-feed-toolbar" className="quiet-scroll-region absolute inset-x-0 top-[var(--inteliscope-size-page-header)] z-10 overflow-y-scroll px-3 py-2 sm:px-5">
       <PageFrame width="reading">
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'} className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
         <ViewBar>
@@ -886,7 +886,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       </PageFrame>
     </div>
 
-    {hasFeedNotice && <div className="flex flex-col" style={{ marginTop: feedToolbarInset }}>
+    {hasFeedNotice && <div className="flex flex-col" style={{ marginTop: PAGE_HEADER_SIZE_PX + feedToolbarInset }}>
       {deepLinkNotice && <div role="status" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
       {detailErrorNotice && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
     </div>}

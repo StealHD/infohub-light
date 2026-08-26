@@ -73,7 +73,7 @@ export function HeroManualPage() {
     >{section.label}</button>
   })
 
-  return <div ref={scrollRef} className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto" onScroll={syncSectionFromScroll}>
+  return <div ref={scrollRef} data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto" onScroll={syncSectionFromScroll}>
     <PageFrame width="admin" className="p-4 min-[768px]:p-6">
       <div className="mb-8 flex flex-col gap-4 border-b border-separator pb-6 min-[680px]:flex-row min-[680px]:items-start min-[680px]:justify-between">
         <div className="flex items-start gap-3">

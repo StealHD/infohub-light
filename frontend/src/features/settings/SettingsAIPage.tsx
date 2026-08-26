@@ -310,7 +310,7 @@ export function SettingsAIPage() {
     saveSections(['feed_end_messages'])
   }
 
-  return <div data-settings-page="ai" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+  return <div data-settings-page="ai" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
       {dirtySections.size > 0 && <StatusNotice title="有尚未保存的更改" status="warning" role="status">
         <div className="flex flex-wrap items-center gap-3">
