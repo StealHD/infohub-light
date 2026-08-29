@@ -1399,7 +1399,7 @@ test('account and documentation menus open upward and expose manual, changelog, 
 
   if (testInfo.project.name === 'desktop') {
     await page.goto('/subscriptions')
-    await page.getByRole('button', { name: '展开侧栏' }).click()
+    await page.getByRole('button', { name: '展开侧栏' }).click(); await expect.poll(async () => Math.round((await page.getByRole('complementary', { name: '桌面导航' }).boundingBox())?.width ?? 0)).toBe(232)
     const documentationTrigger = page.getByRole('button', { name: '打开文档与发布菜单' })
     await documentationTrigger.click()
     const documentationMenu = page.getByRole('dialog', { name: '文档与发布菜单' })

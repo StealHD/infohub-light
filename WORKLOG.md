@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "phase",
     "ui"
   ],
-  "recorded_on": "2026-08-27",
-  "result": "完成 ActorOps 稳定控制环：统一候选故障与来源冷却、Binding 级健康、可恢复 Repair/Discovery/结算、默认安全维护、主备人工替换和 exact-Build 头像映射；补齐 global 33、构建源码摘要与发布护栏，并完成本地 32→33 迁移及新容器切换。",
-  "status": "completed",
-  "task_id": "2026-08-27-actorops-stability-control-loop",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 后端全域回归及迁移时序专项通过；前端定向 Vitest、TypeScript、ESLint 与生产构建通过。",
-    "snapshot impacted preflight 17/17 通过，覆盖完整后端、前端、控制面、代码尺寸和隔离 Playwright E2E。",
-    "本地 global 32/33 显式迁移均完成 0600 备份、integrity ok、foreign keys 0；API、Worker、前端及镜像 revision/source digest 健康验证通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
   "recorded_on": "2026-08-28",
   "result": "完成 ActorOps 本地稳定性闭环：exact Build 免费预检、validation 凭据隔离、四行溢出校验、故障主备人工替换、默认安全维护和历史 Dataset 无新增 Run 的头像补写；修复 Worker 异步上下文媒体落盘并切换最终本地容器。",
   "status": "completed",
@@ -428,6 +407,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "GitHub main Gate 的 backend-full 与 frontend-full 通过，UI E2E 仅三张 ActorOps Linux 旧快照失败。",
     "人工核对 macOS 与 Linux actual 均为当前统一管理 Route 卡；失败视觉测试本地 3/3 通过。",
     "完整 ActorOps Playwright spec 本地 13 passed、2 skipped。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-30",
+  "result": "消除生产管理 E2E 在桌面侧栏展开动画期间强制滚动并误点击文档菜单的竞态；验收等待侧栏达到最终 232px 几何后再验证菜单。",
+  "status": "completed",
+  "task_id": "2026-08-30-release-sidebar-menu-gate-stability",
+  "unresolved": [],
+  "validation": [
+    "GitHub main Gate trace 确认点击时侧栏仍由 72px 向 232px 过渡且 footer 被水平滚动。",
+    "桌面账户与文档菜单 Playwright 场景并发重复 20 次，20/20 通过。"
   ]
 }
 ```
