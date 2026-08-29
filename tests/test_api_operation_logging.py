@@ -179,6 +179,42 @@ def test_api_transaction_leak_rolls_back_and_never_logs_success(
         _close_managed_handlers()
 
 
+def test_recovery_probe_validation_failure_is_operation_logged(
+    tmp_path,
+    monkeypatch,
+):
+    app, log_dir = _app(tmp_path, monkeypatch)
+    try:
+        with TestClient(app) as client:
+            login = client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "secret-password"},
+            )
+            assert login.status_code == 200
+            denied = client.post(
+                "/api/admin/apify-routes/missing-route/v2-candidates/"
+                "missing-candidate/recovery-probe",
+                json={},
+            )
+
+        assert denied.status_code == 400
+        events = [
+            event for event in _events(log_dir)
+            if event["action"] == "actorops_v2_candidate_recovery_probe"
+        ]
+        assert len(events) == 1
+        assert events[0]["outcome"] == "denied"
+        assert events[0]["route"] == (
+            "/api/admin/apify-routes/{route_id}/v2-candidates/"
+            "{candidate_id}/recovery-probe"
+        )
+        assert events[0]["status_code"] == 400
+        assert "missing-route" not in json.dumps(events)
+        assert "missing-candidate" not in json.dumps(events)
+    finally:
+        _close_managed_handlers()
+
+
 def test_readiness_reports_logging_degradation_without_hiding_api_health(
     tmp_path,
     monkeypatch,

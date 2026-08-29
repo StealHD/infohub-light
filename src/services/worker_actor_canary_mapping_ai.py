@@ -54,8 +54,8 @@ def open_canary_output_mapping_ai(
 ) -> CanaryOutputMappingAI | None:
     """Return no repairer when the independently configured AI is unavailable."""
 
-    from ..ai.client import create_ai_client
     from .apify_discovery_ai import resolve_global_discovery_ai
+    from .actorops.mapping_ai_client import create_actor_mapping_ai_client
 
     settings = ops.get_discovery_settings()
     if not bool(settings.get("enabled")):
@@ -76,7 +76,10 @@ def open_canary_output_mapping_ai(
         update={"enabled": True, "temperature": 0.0, "max_tokens": 640}
     )
     return CanaryOutputMappingAI(
-        client=create_ai_client(config, single_attempt=True, timeout_seconds=90),
+        client=create_actor_mapping_ai_client(
+            config,
+            timeout_seconds=90,
+        ),
         store=store,
         workspace_id=str(job["workspace_id"]),
         user_id=str(job["user_id"]),

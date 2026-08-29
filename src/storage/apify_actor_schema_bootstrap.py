@@ -23,6 +23,15 @@ from .actorops_v2_resilience_schema import (
 from .system_settings_v32_schema import (
     bootstrap_service_store_schema as bootstrap_system_settings_schema,
 )
+from .actorops_v2_stability_schema import (
+    bootstrap_service_store_schema as bootstrap_actorops_v2_stability_schema,
+)
+from .actorops_v2_revalidation_schema import (
+    bootstrap_service_store_schema as bootstrap_actorops_v2_revalidation_schema,
+)
+from .actorops_v2_sampling_schema import (
+    bootstrap_service_store_schema as bootstrap_actorops_v2_sampling_schema,
+)
 
 
 def bootstrap_actor_schemas(
@@ -52,3 +61,12 @@ def bootstrap_actor_schemas(
         connection, existing_schema=existing_schema
     )
     bootstrap_system_settings_schema(connection, existing_schema=existing_schema)
+    bootstrap_actorops_v2_stability_schema(
+        connection, existing_schema=existing_schema
+    )
+    bootstrap_actorops_v2_revalidation_schema(
+        connection, existing_schema=existing_schema
+    )
+    bootstrap_actorops_v2_sampling_schema(
+        connection, existing_schema=existing_schema
+    )

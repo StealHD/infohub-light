@@ -7,11 +7,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
+from .candidate_failure_settlement import record_settled_candidate_failure
 from .domain import AttemptStatus, FailureClass, TERMINAL_ATTEMPT_STATUSES
 from .ports import (
     ReconciliationRunLink,
     ReconciliationRunObservation,
     RemoteRunLedger,
+)
+from .reconciliation_lifecycle import settle_unstarted_after_terminal_job
+from .recovery_probe import (
+    RECOVERY_ATTEMPT_GROUP_PREFIX,
+    apply_settled_recovery_success,
+    settled_recovery_candidate_ids,
 )
 from .repository import ActorOpsConflict, ActorOpsRepository
 
@@ -79,29 +86,61 @@ class ActorOpsReconciler:
                 errors=summary.errors + result.errors,
             )
             reads_remaining = max(reads_remaining - result.remote_reads, 0)
-        return summary
+        recovery_errors = self._project_settled_recoveries()
+        return self._replace(summary, errors=summary.errors + recovery_errors)
 
     async def _reconcile_row(
         self, row: Mapping[str, object], reads_remaining: int
     ) -> ReconciliationSummary:
+        current = AttemptStatus(str(row["status"]))
         resolution = await self.ledger.resolve(row)
         if resolution.ambiguous:
             self._mark_error(row, "actorops_reconcile_ambiguous_run")
             return ReconciliationSummary(ambiguous=1)
         link = resolution.link
         if link is None:
+            if current is AttemptStatus.CREATED and resolution.reservation_absent:
+                if settle_unstarted_after_terminal_job(self.repository, row):
+                    self._wake_repairs_after_cost_settlement(row)
+                    return ReconciliationSummary(settled=1)
+                self._mark_error(row, "actorops_reconcile_run_missing")
+                return ReconciliationSummary(pending=1)
             self._mark_error(row, "actorops_reconcile_run_missing")
             return ReconciliationSummary(pending=1)
         if (
             not link.remote_run_id
             and str(link.status).casefold() == "start_rejected"
-            and AttemptStatus(str(row["status"])) in TERMINAL_ATTEMPT_STATUSES
         ):
+            if current not in {
+                AttemptStatus.CREATED,
+                AttemptStatus.STARTING,
+                AttemptStatus.START_UNKNOWN,
+                *TERMINAL_ATTEMPT_STATUSES,
+            }:
+                self._mark_error(row, "actorops_reconcile_run_missing")
+                return ReconciliationSummary(pending=1)
+            try:
+                await self.ledger.settle_proven_no_start(link)
+            except Exception:
+                self._mark_error(row, "actorops_reconcile_settlement_failed")
+                return ReconciliationSummary(errors=1)
+            terminal = current in TERMINAL_ATTEMPT_STATUSES
             self._mutate(
                 row,
-                target=None,
+                target=(
+                    None
+                    if terminal
+                    else AttemptStatus.CANCELLED
+                    if current is AttemptStatus.CREATED
+                    else AttemptStatus.FAILED
+                ),
+                semantic_outcome=(None if terminal else "actorops_proven_no_start"),
                 actual_cost_usd=0.0,
                 cost_final=True,
+                failure_class=(
+                    None if terminal else FailureClass.REMOTE_UNKNOWN.value
+                ),
+                error_code=(None if terminal else "actorops_proven_no_start"),
             )
             return ReconciliationSummary(settled=1)
         if link.remote_run_id:
@@ -113,8 +152,18 @@ class ActorOpsReconciler:
             except Exception:
                 self._mark_error(row, "actorops_reconcile_read_failed")
                 return ReconciliationSummary(remote_reads=1, errors=1)
-            return self._settle_known(row, link, observation)
-        if AttemptStatus(str(row["status"])) is not AttemptStatus.START_UNKNOWN:
+            try:
+                return self._settle_known(row, link, observation)
+            except ActorOpsConflict:
+                return ReconciliationSummary(remote_reads=1, errors=1)
+            except Exception:
+                self._mark_error(row, "actorops_reconcile_settlement_failed")
+                return ReconciliationSummary(remote_reads=1, errors=1)
+        if current not in {
+            AttemptStatus.CREATED,
+            AttemptStatus.STARTING,
+            AttemptStatus.START_UNKNOWN,
+        }:
             self._mark_error(row, "actorops_reconcile_run_missing")
             return ReconciliationSummary(pending=1)
         if reads_remaining <= 0:
@@ -133,15 +182,22 @@ class ActorOpsReconciler:
         except Exception:
             self._mark_error(row, "actorops_reconcile_settlement_failed")
             return ReconciliationSummary(remote_reads=1, errors=1)
-        self._mutate(
-            row,
-            target=AttemptStatus.FAILED,
-            semantic_outcome="actorops_proven_no_start",
-            actual_cost_usd=0.0,
-            cost_final=True,
-            failure_class=FailureClass.REMOTE_UNKNOWN.value,
-            error_code="actorops_proven_no_start",
-        )
+        try:
+            self._mutate(
+                row,
+                target=(
+                    AttemptStatus.CANCELLED
+                    if current is AttemptStatus.CREATED
+                    else AttemptStatus.FAILED
+                ),
+                semantic_outcome="actorops_proven_no_start",
+                actual_cost_usd=0.0,
+                cost_final=True,
+                failure_class=FailureClass.REMOTE_UNKNOWN.value,
+                error_code="actorops_proven_no_start",
+            )
+        except ActorOpsConflict:
+            return ReconciliationSummary(remote_reads=1, errors=1)
         return ReconciliationSummary(remote_reads=1, settled=1)
 
     def _settle_known(
@@ -151,7 +207,7 @@ class ActorOpsReconciler:
         observation: ReconciliationRunObservation,
     ) -> ReconciliationSummary:
         current = AttemptStatus(str(row["status"]))
-        if current is AttemptStatus.START_UNKNOWN:
+        if current in {AttemptStatus.STARTING, AttemptStatus.START_UNKNOWN}:
             self._mutate(
                 row,
                 target=AttemptStatus.REGISTERED,
@@ -179,6 +235,7 @@ class ActorOpsReconciler:
                     dataset_id=observation.dataset_id or link.dataset_id,
                     actual_cost_usd=observation.actual_cost_usd,
                     cost_final=observation.cost_final,
+                    candidate_failure_outcome="paid_candidate_failure",
                 )
             elif not self._unpublished_success_is_stale(row):
                 # The Runtime can still be validating rows or entering its
@@ -204,6 +261,7 @@ class ActorOpsReconciler:
                     dataset_id=observation.dataset_id or link.dataset_id,
                     actual_cost_usd=observation.actual_cost_usd,
                     cost_final=observation.cost_final,
+                    candidate_failure_outcome="paid_candidate_failure",
                 )
             else:
                 code = f"actorops_reconciled_remote_{normalized}"
@@ -217,6 +275,7 @@ class ActorOpsReconciler:
                     cost_final=observation.cost_final,
                     failure_class=FailureClass.REMOTE_UNKNOWN.value,
                     error_code=code,
+                    candidate_failure_outcome="paid_candidate_failure",
                 )
             return ReconciliationSummary(remote_reads=1, settled=1)
         self._mark_error(row, "actorops_reconcile_status_unknown")
@@ -234,7 +293,9 @@ class ActorOpsReconciler:
         cost_final: bool = False,
         failure_class: str | None = None,
         error_code: str | None = None,
+        candidate_failure_outcome: str | None = None,
     ) -> None:
+        became_cost_final = bool(cost_final) and not bool(row["cost_final"])
         with self.repository.transaction():
             self.repository.reconcile_attempt(
                 str(row["attempt_id"]),
@@ -249,6 +310,56 @@ class ActorOpsReconciler:
                 failure_class=failure_class,
                 error_code=error_code,
             )
+            if candidate_failure_outcome:
+                record_settled_candidate_failure(
+                    self.repository,
+                    attempt_id=str(row["attempt_id"]),
+                    outcome=candidate_failure_outcome,
+                )
+            if (
+                became_cost_final
+                and str(row["kind"]) == "probe"
+                and str(row["attempt_group_id"]).startswith(
+                    RECOVERY_ATTEMPT_GROUP_PREFIX
+                )
+            ):
+                apply_settled_recovery_success(
+                    self.repository, str(row["candidate_id"])
+                )
+        if became_cost_final:
+            self._wake_repairs_after_cost_settlement(row)
+
+    def _project_settled_recoveries(self) -> int:
+        errors = 0
+        for candidate_id in settled_recovery_candidate_ids(
+            self.repository, limit=self.scan_limit
+        ):
+            try:
+                apply_settled_recovery_success(self.repository, candidate_id)
+            except Exception:
+                errors += 1
+        return errors
+
+    def _wake_repairs_after_cost_settlement(
+        self, row: Mapping[str, object]
+    ) -> None:
+        route_id = str(row["route_id"] or "")
+        source_id = str(row["source_id"] or "")
+        if not route_id or not source_id:
+            return
+        wake = getattr(
+            self.repository.resilience,
+            "wake_repairs_after_cost_settlement",
+            None,
+        )
+        if not callable(wake):
+            return
+        try:
+            wake(route_id=route_id, source_id=source_id)
+        except Exception:
+            # Cost settlement is the primary monotonic fact.  A best-effort
+            # scheduler wake must never turn it back into reconciliation work.
+            return
 
     def _mark_error(self, row: Mapping[str, object], code: str) -> None:
         try:
@@ -257,6 +368,7 @@ class ActorOpsReconciler:
                     str(row["attempt_id"]),
                     expected_status=AttemptStatus(str(row["status"])),
                     expected_generation=int(row["generation"]),
+                    failure_class=str(row["failure_class"] or "remote_unknown"),
                     error_code=code,
                 )
         except ActorOpsConflict:

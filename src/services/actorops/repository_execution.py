@@ -18,7 +18,10 @@ def _now() -> str:
 def list_route_candidates(repository: Any, route_id: str):
     rows = repository.connection.execute(
         """SELECT candidate_id FROM actor_candidates_v2
-           WHERE workspace_id = ? AND route_id = ? ORDER BY candidate_id""",
+           WHERE workspace_id = ? AND route_id = ?
+             AND NOT (lifecycle='rejected'
+               AND last_error_code='actorops_discovery_mapping_superseded')
+           ORDER BY candidate_id""",
         (repository.workspace_id, route_id),
     ).fetchall()
     return tuple(repository.get_candidate(str(row["candidate_id"])) for row in rows)
@@ -84,11 +87,7 @@ def assert_publishable(repository: Any, proof: PublicationProof) -> None:
     if proof.candidate_id is None:
         return
     candidate = repository.get_candidate(proof.candidate_id)
-    if candidate.route_id != proof.route_id or not candidate_is_runnable(
-        candidate.lifecycle,
-        build_id=candidate.build_id,
-        manifest_hash=candidate.manifest_hash,
-    ):
+    if candidate.route_id != proof.route_id or not candidate_is_runnable(candidate):
         raise ActorOpsConflict("candidate is no longer publishable")
 
 
@@ -147,3 +146,54 @@ def record_candidate_outcome(
     if changed != 1:
         raise ActorOpsConflict("candidate changed before outcome summary")
     return repository.get_candidate(candidate_id)
+
+
+def record_runtime_candidate_outcome(
+    repository: Any,
+    candidate_id: str,
+    *,
+    succeeded: bool,
+    error_class: str | None,
+    error_code: str | None,
+):
+    """Persist runtime health without replaying a frozen assignment snapshot.
+
+    Runtime execution can overlap an operator assignment or lifecycle change.  The
+    outcome is still a real observation, so update only the health summary fields
+    against the current row instead of discarding it on a stale generation CAS.
+    """
+
+    repository._require_transaction()
+    stamp = _now()
+    changed = repository.connection.execute(
+        """UPDATE actor_candidates_v2
+           SET last_success_at=CASE WHEN ? THEN ? ELSE last_success_at END,
+               last_failure_at=CASE WHEN ? THEN last_failure_at ELSE ? END,
+               last_error_class=CASE WHEN ? THEN NULL ELSE ? END,
+               last_error_code=CASE WHEN ? THEN NULL ELSE ? END,
+               generation=generation+1, updated_at=?
+           WHERE workspace_id=? AND candidate_id=?""",
+        (
+            int(succeeded), stamp, int(succeeded), stamp, int(succeeded),
+            error_class, int(succeeded), error_code, stamp,
+            repository.workspace_id, candidate_id,
+        ),
+    ).rowcount
+    if changed != 1:
+        raise ActorOpsConflict("candidate disappeared before runtime outcome summary")
+    return repository.get_candidate(candidate_id)
+
+
+def has_unsettled_fetch_cost(
+    repository: Any, *, route_id: str, source_id: str
+) -> bool:
+    """Check the paid-source admission barrier inside the caller's write txn."""
+
+    repository._require_transaction()
+    return repository.connection.execute(
+        """SELECT 1 FROM actor_attempts_v2
+            WHERE workspace_id=? AND route_id=? AND source_id=? AND kind='fetch'
+              AND (status NOT IN ('succeeded','failed','cancelled') OR cost_final=0)
+            LIMIT 1""",
+        (repository.workspace_id, route_id, source_id),
+    ).fetchone() is not None

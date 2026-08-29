@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
+from src.services.apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from src.services.actorops.domain import (
     AssignmentRole,
     AttemptStatus,
@@ -15,6 +17,73 @@ from src.services.actorops.domain import (
 )
 from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepository
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+
+
+def _manifest(actor_id: str) -> str:
+    return json.dumps({
+        "version": 1,
+        "actor_id": actor_id,
+        "build_number": "1.0.0",
+        "input": {"target": {"$ref": "target.handle"}},
+        "output": {
+            "native_id": {"pointers": ["/id"], "transforms": ["to_string"]},
+            "url": {"pointers": ["/url"], "transforms": ["normalize_url"]},
+            "published_at": {
+                "pointers": ["/createdAt"],
+                "transforms": ["parse_datetime"],
+            },
+            "text": {"pointers": ["/text"], "transforms": ["to_string"]},
+            "author_handle": {
+                "pointers": ["/author"],
+                "transforms": ["to_string"],
+            },
+        },
+        "semantics": {
+            "identity": {
+                "output_field": "author_handle",
+                "target_ref": "target.handle",
+                "match": "handle",
+            },
+            "url_host_allowlist": ["example.com"],
+        },
+    })
+
+
+def test_transaction_retries_only_begin_lock_acquisition(monkeypatch) -> None:
+    class FlakyConnection:
+        in_transaction = False
+
+        def __init__(self) -> None:
+            self.begin_attempts = 0
+            self.commits = 0
+
+        def execute(self, sql: str):
+            assert sql == "BEGIN IMMEDIATE"
+            self.begin_attempts += 1
+            if self.begin_attempts < 3:
+                raise sqlite3.OperationalError("database is locked")
+            self.in_transaction = True
+
+        def commit(self) -> None:
+            self.commits += 1
+            self.in_transaction = False
+
+        def rollback(self) -> None:
+            self.in_transaction = False
+
+    connection = FlakyConnection()
+    sleeps: list[float] = []
+    monkeypatch.setattr("src.services.actorops.repository.time.sleep", sleeps.append)
+    repository = ActorOpsRepository(  # type: ignore[arg-type]
+        connection, DEFAULT_WORKSPACE_ID
+    )
+
+    with repository.transaction():
+        pass
+
+    assert connection.begin_attempts == 3
+    assert connection.commits == 1
+    assert sleeps == [0.05, 0.1]
 
 
 def _repository(tmp_path: Path) -> tuple[ServiceStore, ActorOpsRepository, str]:
@@ -32,6 +101,7 @@ def test_repository_assigns_exact_candidate_and_derives_health(tmp_path: Path) -
     store, repository, route_id = _repository(tmp_path)
     assert repository.route_health(route_id) is RouteHealth.UNAVAILABLE
     with repository.transaction():
+        manifest = _manifest("publisher/actor-a")
         repository.create_candidate(
             candidate_id="candidate-v2-a",
             route_id=route_id,
@@ -39,8 +109,8 @@ def test_repository_assigns_exact_candidate_and_derives_health(tmp_path: Path) -
             publisher="publisher",
             build_id="build-a",
             build_number="1.0.0",
-            manifest_json='{"version":1}',
-            manifest_hash="a" * 64,
+            manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
             input_schema_hash="b" * 64,
             output_schema_hash="c" * 64,
             lifecycle=CandidateLifecycle.PROBATIONARY,
@@ -63,12 +133,43 @@ def test_repository_assigns_exact_candidate_and_derives_health(tmp_path: Path) -
     store.close()
 
 
+def test_route_health_rejects_legacy_assignment_with_incomplete_exact_contract(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    with repository.transaction():
+        manifest = _manifest("publisher/incomplete")
+        repository.create_candidate(
+            candidate_id="candidate-v2-incomplete",
+            route_id=route_id,
+            actor_id="publisher/incomplete",
+            publisher="publisher",
+            build_id="build-incomplete",
+            build_number="1.0.0",
+            manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
+            input_schema_hash=None,
+            output_schema_hash="c" * 64,
+            lifecycle=CandidateLifecycle.PROBATIONARY,
+        )
+        repository.connection.execute(
+            """UPDATE actor_candidates_v2
+                  SET assignment_role='active', priority=0, generation=generation+1
+                WHERE workspace_id=? AND candidate_id='candidate-v2-incomplete'""",
+            (DEFAULT_WORKSPACE_ID,),
+        )
+
+    assert repository.route_health(route_id) is RouteHealth.UNAVAILABLE
+    store.close()
+
+
 def test_repository_promotes_existing_standby_without_changing_exact_candidates(
     tmp_path: Path,
 ) -> None:
     store, repository, route_id = _repository(tmp_path)
     with repository.transaction():
         for candidate_id in ("candidate-v2-primary", "candidate-v2-backup"):
+            manifest = _manifest(f"publisher/{candidate_id}")
             repository.create_candidate(
                 candidate_id=candidate_id,
                 route_id=route_id,
@@ -76,8 +177,8 @@ def test_repository_promotes_existing_standby_without_changing_exact_candidates(
                 publisher="publisher",
                 build_id=f"build-{candidate_id}",
                 build_number="1.0.0",
-                manifest_json='{"version":1}',
-                manifest_hash=("a" if candidate_id.endswith("primary") else "b") * 64,
+                manifest_json=manifest,
+                manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
                 input_schema_hash="c" * 64,
                 output_schema_hash="d" * 64,
                 lifecycle=CandidateLifecycle.PROBATIONARY,

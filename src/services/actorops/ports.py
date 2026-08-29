@@ -24,6 +24,20 @@ class DiscoverySpec:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryActorMatch:
+    """Safe Store-search facts used to rank Actors before Build reads."""
+
+    actor_id: str
+    total_users: int = 0
+    rating: float = 0.0
+    review_count: int = 0
+    bookmark_count: int = 0
+    query_hits: int = 1
+    display_name: str = ""
+    short_description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class DiscoveryRevision:
     """Public, exact Actor Build facts needed for Discovery only."""
 
@@ -34,6 +48,7 @@ class DiscoveryRevision:
     price_per_run_usd: float | None
     input_schema: Mapping[str, object]
     output_schema: Mapping[str, object]
+    mapping_feedback: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +76,9 @@ class DiscoveryAiResult:
 class DiscoveryCatalog(Protocol):
     """Read only public Store/Build metadata; it never starts an Actor Run."""
 
-    async def search(self, query: str) -> Sequence[str]: ...
+    async def search(
+        self, query: str
+    ) -> Sequence[str | DiscoveryActorMatch]: ...
 
     async def get_revision(self, actor_id: str) -> DiscoveryRevision: ...
 
@@ -91,12 +108,22 @@ class FetchWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class PresentationEvidence:
+    """Target-bound avatar evidence kept only for the current validation."""
+
+    rows: tuple[Mapping[str, object], ...] = ()
+    avatar_url: str | None = None
+    content_row_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedBatch:
     items: tuple[object, ...]
     semantic_outcome: str
     latest_published_at: str | None = None
     latest_item_id: str | None = None
     source_avatar_url: str | None = None
+    presentation_evidence: PresentationEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +244,7 @@ class ReconciliationRunResolution:
 
     link: ReconciliationRunLink | None
     ambiguous: bool = False
+    reservation_absent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +283,10 @@ class ActorRouteAdapter(Protocol):
     def map_discovery_manifest(
         self, revision: DiscoveryRevision
     ) -> DiscoveryMapping: ...
+
+    def map_discovery_input_plan(
+        self, revision: DiscoveryRevision
+    ) -> tuple[str | None, str | None]: ...
 
     def build_actor_input(
         self, target: TargetSpec, manifest: ActorManifest, window: FetchWindow

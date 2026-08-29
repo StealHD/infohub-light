@@ -6,7 +6,7 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
 import { Button, LoadingState, StatusNotice } from '../../design-system'
-import { actorOpsV2CandidateLabel, actorOpsV2PriceLabel, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
+import { actorOpsV2CandidateLabel, actorOpsV2MappingIssueLabel, actorOpsV2PriceLabel, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 export function ActorOpsV2RouteDetailTrigger({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return <Button size="sm" variant="ghost" onPress={() => onOpenChange(!open)} aria-expanded={open}>
@@ -46,7 +46,7 @@ function RouteDetailPanel({ detail }: { detail: RouteDetail }) {
     <DetailSection title="候选与商城信息">
       {detail.candidates.length
         ? detail.candidates.map((candidate) => <p key={candidate.candidate_id} className="type-meta text-muted">
-          {actorOpsV2CandidateLabel(candidate)} · {candidate.assignment === 'active' ? '主用' : candidate.assignment === 'standby' ? '备用' : '未分配'} · {actorOpsV2PriceLabel(candidate)}
+          {actorOpsV2CandidateLabel(candidate)} · {candidate.assignment === 'active' ? '主用' : candidate.assignment === 'standby' ? '备用' : '未分配'} · {actorOpsV2PriceLabel(candidate)}{actorOpsV2MappingIssueLabel(candidate) ? ` · ${actorOpsV2MappingIssueLabel(candidate)}` : ''}
         </p>)
         : <Empty label="暂无可显示的 Candidate。" />}
     </DetailSection>
@@ -73,9 +73,19 @@ function RouteDetailPanel({ detail }: { detail: RouteDetail }) {
       {!detail.discoveries.length && !detail.replacements.length && <Empty label="尚无 Discovery 或替换计划。" />}
     </DetailSection>
     <DetailSection title="维护预算">
-      <p className="type-meta text-muted">{detail.maintenance_policy.authorized ? '维护已授权' : '维护默认停用'} · 已结算 ${detail.maintenance_policy.budget.spent_usd.toFixed(2)} · 预留 ${detail.maintenance_policy.budget.reserved_usd.toFixed(2)}</p>
+      <p className="type-meta text-muted">{maintenanceLabel(detail.maintenance_policy)} · 已结算 ${detail.maintenance_policy.budget.spent_usd.toFixed(2)} · 预留 ${detail.maintenance_policy.budget.reserved_usd.toFixed(2)}</p>
     </DetailSection>
   </>
+}
+
+function maintenanceLabel(policy: RouteDetail['maintenance_policy']) {
+  if (policy.authorized) {
+    const automatic = policy.workspace.authorization_origin === 'system_default'
+      && policy.route.authorization_origin === 'system_default'
+    return automatic ? '维护已按安全预算默认开启' : '维护已由管理员开启'
+  }
+  if (policy.workspace.enabled && policy.route.enabled) return '维护等待可用负责人授权'
+  return '维护已关闭'
 }
 
 function DetailSection({ title, children }: { title: string; children: ReactNode }) {

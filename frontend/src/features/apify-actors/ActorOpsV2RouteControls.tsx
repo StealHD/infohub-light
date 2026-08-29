@@ -5,16 +5,25 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
 import { actionToast, Button, Icons, Input, Label, Modal, Popover, TextField } from '../../design-system'
-import { actorOpsV2CandidateLabel, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
-import { ActorOpsV2ReplacementDrawer } from './ActorOpsV2ReplacementDrawer'
+import { actorOpsV2CandidateLabel, orderedActorOpsV2StandbyCandidates, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
+import { ActorOpsV2ReplacementDrawer, type ActorOpsV2ReplacementTarget } from './ActorOpsV2ReplacementDrawer'
+import { actorOpsV2WorkflowActionLabel } from './actorOpsV2WorkflowModel'
 
 export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const [candidate, setCandidate] = useState<ActorOpsV2CandidateView | null>(null)
-  const [replaceOpen, setReplaceOpen] = useState(false)
+  const [replacementTarget, setReplacementTarget] = useState<ActorOpsV2ReplacementTarget | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
-  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Routes(user.id) })
+  const targets = replacementTargets(route)
+  const openPlan = route.workflow?.replacement && ['previewed', 'authorized', 'running', 'ready'].includes(route.workflow.replacement.status)
+  const directTargets = openPlan ? [] : targets.filter((item) => item.candidate === null || item.candidate.operational_status === 'confirmed_failure')
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Routes(user.id) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Route(user.id, route.route_id) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Candidates(user.id, route.route_id) }),
+  ])
   const promote = useMutation({
     mutationFn: (target: ActorOpsV2CandidateView) => api.promoteActorOpsV2Candidate(route.route_id, target.candidate_id, { expected_route_generation: route.generation, expected_candidate_generation: target.generation, confirmation: '确认设为主用 Actor' }),
     onSuccess: () => { void refresh(); setCandidate(null); actionToast.success('已切换当前主用', { description: '没有启动 Actor，也没有产生费用。' }) },
@@ -27,31 +36,50 @@ export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView 
   })
   const metadata = useMutation({
     mutationFn: () => api.refreshActorOpsV2Metadata(route.route_id, { expected_route_generation: route.generation }),
-    onSuccess: () => actionToast.success('已排队更新商城信息', { description: '仅读取 Apify 公开信息，不启动 Actor。' }),
+    onSuccess: () => { void refresh(); actionToast.success('已排队更新商城信息', { description: '仅读取 Apify 公开信息，不启动 Actor。' }) },
     onError: (error) => actionToast.danger(actionError(error, '未能更新商城信息。')),
   })
-  const discovery = useMutation({
-    mutationFn: () => api.discoverActorOpsV2Candidates(route.route_id, { expected_route_generation: route.generation }),
-    onSuccess: () => actionToast.success('已开始免费搜索候选', { description: '搜索不会启动 Actor 或产生费用。' }),
-    onError: (error) => actionToast.danger(actionError(error, '未能开始免费搜索候选。')),
-  })
-  return <div className="flex items-center gap-1.5">
+  return <div className="flex flex-wrap items-center gap-1.5">
+    <Button size="sm" variant="secondary" onPress={() => { setReplacementTarget(null); setDrawerOpen(true) }}>{actorOpsV2WorkflowActionLabel(route.workflow)}</Button>
+    {directTargets.map((target) => <Button key={replacementTargetKey(target)} size="sm" variant="secondary" onPress={() => { setReplacementTarget(target); setDrawerOpen(true) }}>{replacementActionLabel(target)}</Button>)}
     <PriceCapControl route={route} onSaved={refresh} />
     <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
       <Popover.Trigger<'button'> type="button" className="inline-flex size-8 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus" aria-label="Actor 路由更多操作"><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
       <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-44 p-0">
         <Popover.Dialog aria-label="Actor 路由更多操作" className="grid gap-0.5 p-2">
           {route.standby_candidates.map((item) => <Button key={item.candidate_id} size="sm" variant="ghost" className="justify-start" onPress={() => { setMoreOpen(false); setCandidate(item) }}>设为主用</Button>)}
-          {route.active_candidate && <Button size="sm" variant="ghost" className="justify-start" onPress={() => { setMoreOpen(false); setReplaceOpen(true) }}>替换主用 Actor</Button>}
           <Button size="sm" variant="ghost" className="justify-start" isDisabled={metadata.isPending} onPress={() => { setMoreOpen(false); metadata.mutate() }}>更新商城信息</Button>
-          <Button size="sm" variant="ghost" className="justify-start" isDisabled={discovery.isPending} onPress={() => { setMoreOpen(false); discovery.mutate() }}>免费更新候选</Button>
           {route.binding_summary.pending_count > 0 && <Button size="sm" variant="ghost" className="justify-start" isDisabled={reconcile.isPending} onPress={() => { setMoreOpen(false); reconcile.mutate() }}>重新检查准备中的来源</Button>}
         </Popover.Dialog>
       </Popover.Content>
     </Popover>
     <ConfirmDialog target={candidate} pending={promote.isPending} onClose={() => setCandidate(null)} onConfirm={() => candidate && promote.mutate(candidate)} />
-    <ActorOpsV2ReplacementDrawer route={route} open={replaceOpen} onOpenChange={setReplaceOpen} onUpdated={refresh} />
+    <ActorOpsV2ReplacementDrawer route={route} target={replacementTarget} targets={targets} open={drawerOpen} onOpenChange={(open) => { setDrawerOpen(open); if (!open) setReplacementTarget(null) }} onUpdated={refresh} />
   </div>
+}
+
+function replacementTargets(route: ActorOpsV2RouteView): ActorOpsV2ReplacementTarget[] {
+  const active = route.active_candidate ? [{ candidate: route.active_candidate, assignment: 'active' as const, priority: 0, slotLabel: '主用' }] : []
+  const byPriority = new Map(orderedActorOpsV2StandbyCandidates(route.standby_candidates).map((candidate, index) => {
+    const priority = candidate.priority ?? index + 1
+    return [priority, candidate] as const
+  }))
+  const standby = ([1, 2] as const).map((priority) => ({
+    candidate: byPriority.get(priority) || null,
+    assignment: 'standby' as const,
+    priority,
+    slotLabel: `备用 ${priority}`,
+  }))
+  return [...active, ...standby]
+}
+
+function replacementActionLabel(target: ActorOpsV2ReplacementTarget) {
+  if (target.candidate === null) return `补充${target.slotLabel}`
+  return target.assignment === 'active' ? '替换主用' : `替换${target.slotLabel}`
+}
+
+function replacementTargetKey(target: ActorOpsV2ReplacementTarget) {
+  return `${target.assignment}-${target.priority}-${target.candidate?.candidate_id || 'empty'}`
 }
 
 function PriceCapControl({ route, onSaved }: { route: ActorOpsV2RouteView; onSaved: () => Promise<unknown> }) {

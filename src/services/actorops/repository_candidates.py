@@ -8,6 +8,7 @@ from typing import Any
 from .domain import AssignmentRole, CandidateLifecycle, ensure_candidate_transition
 from .policy import candidate_is_runnable, derive_route_health
 from .repository_errors import ActorOpsConflict
+from .runtime_candidate_health import candidate_operational_states
 
 
 def _now() -> str:
@@ -16,15 +17,17 @@ def _now() -> str:
 
 def route_health(repository: Any, route_id: str):
     repository.get_route(route_id)
-    count = int(
-        repository.connection.execute(
-            """SELECT COUNT(*) FROM actor_candidates_v2
-               WHERE workspace_id=? AND route_id=?
-                 AND assignment_role IN ('active','standby')
-                 AND lifecycle IN ('probationary','certified')
-                 AND build_id IS NOT NULL AND manifest_hash IS NOT NULL""",
-            (repository.workspace_id, route_id),
-        ).fetchone()[0]
+    candidates = tuple(repository.list_route_candidates(route_id))
+    states = candidate_operational_states(repository, candidates)
+    count = sum(
+        1
+        for candidate in candidates
+        if candidate.assignment_role in {
+            AssignmentRole.ACTIVE,
+            AssignmentRole.STANDBY,
+        }
+        and candidate_is_runnable(candidate)
+        and not states[candidate.candidate_id].confirmed_failure
     )
     return derive_route_health(count)
 
@@ -85,11 +88,7 @@ def assign(
 ) -> None:
     repository._require_transaction()
     candidate = repository.get_candidate(candidate_id)
-    if candidate.route_id != route_id or not candidate_is_runnable(
-        candidate.lifecycle,
-        build_id=candidate.build_id,
-        manifest_hash=candidate.manifest_hash,
-    ):
+    if candidate.route_id != route_id or not candidate_is_runnable(candidate):
         raise ActorOpsConflict("candidate is not runnable for this route")
     priority = values["priority"]
     if role is AssignmentRole.ACTIVE and priority != 0:

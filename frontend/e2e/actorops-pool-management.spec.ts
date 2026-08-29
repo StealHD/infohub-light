@@ -1,16 +1,23 @@
 import { expect, test, type Page } from '@playwright/test'
 
-function candidate(candidateId: string, assignment: 'active' | 'standby', priority: number) {
+function candidate(candidateId: string, assignment: 'active' | 'standby' | 'inactive', priority: number | null) {
+  const failed = assignment !== 'inactive'
   return {
     candidate_id: candidateId,
     build_number: '2026.08.22',
     lifecycle: 'certified',
     assignment,
     priority,
-    generation: priority + 2,
+    generation: (priority ?? 0) + 2,
+    operational_status: failed ? 'confirmed_failure' : 'normal',
+    issue_code: candidateId === 'active' ? 'build_unavailable' : failed ? 'repeated_start_rejection' : null,
+    last_success_at: null,
+    last_failure_at: failed ? '2026-08-27T05:00:00Z' : null,
+    retry_at: failed ? '2026-08-27T11:00:00Z' : null,
+    avatar_mapping_status: candidateId === 'active' ? 'missing' : 'ready',
     store_metadata: {
       actor_slug: `publisher/${candidateId}`,
-      display_name: candidateId === 'active' ? 'Publisher A Primary' : 'Publisher B Standby',
+      display_name: candidateId === 'active' ? 'Publisher A Primary' : candidateId === 'standby' ? 'Publisher B Standby' : 'Publisher C Replacement',
       short_description: '公开商城信息',
       developer_name: 'Publisher',
       maintained_by_apify: false,
@@ -40,18 +47,25 @@ function routeDetail() {
     runtime_mode: 'active',
     generation: 12,
     per_run_cap_usd: 0.02,
-    health: 'healthy',
+    health: 'unavailable',
+    health_reason: 'source_unavailable',
+    stable_candidate_count: 0,
+    cooling_candidate_count: 2,
+    at_risk_source_count: 1,
+    unavailable_source_count: 1,
+    fallback_source_count: 0,
+    next_repair_at: '2026-08-27T11:00:00Z',
     active_candidate: active,
     standby_candidates: [standby],
     last_known_good: active,
     binding_summary: { ready_count: 1, pending_count: 1, disabled_count: 0 },
     maintenance_policy: {
       authorized: false,
-      workspace: { enabled: false, monthly_budget_usd: 0, generation: 1 },
-      route: { enabled: false, max_probe_usd: 0.01, max_probes_per_utc_day: 1, auto_add_standby: false, auto_replace_non_last: false, generation: 1 },
+      workspace: { enabled: false, monthly_budget_usd: 0, generation: 1, authorization_origin: 'none' },
+      route: { enabled: false, max_probe_usd: 0.01, max_probes_per_utc_day: 1, auto_add_standby: false, auto_replace_non_last: false, generation: 1, authorization_origin: 'none' },
       budget: { spent_usd: 0, reserved_usd: 0, probe_count: 0 },
     },
-    degraded_reason: null,
+    degraded_reason: 'actorops_v2_no_runnable_candidate',
     updated_at: '2026-08-22T08:00:00Z',
   }
   return {
@@ -89,6 +103,7 @@ async function mockActorOpsV2(page: Page) {
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'owner-1', username: 'owner', role: 'owner', enabled: true } }
     else if (url.pathname === '/api/admin/apify-routes') { routeListRequests += 1; data = { schema_version: 2, routes: [{ ...detail, candidates: undefined, bindings: undefined, attempts: undefined, discoveries: undefined, replacements: undefined }] } }
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile' && request.method() === 'GET') data = detail
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/v2-candidates' && request.method() === 'GET') data = { route_id: detail.route_id, candidates: [candidate('replacement', 'inactive', null)] }
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile/v2-candidates/standby/promote' && request.method() === 'POST') {
       promotePayload = request.postDataJSON() as Record<string, unknown>
       data = { route_id: detail.route_id }
@@ -116,6 +131,12 @@ test('ActorOps v2 route cards keep a safe desktop flow', async ({ page }) => {
   await expect(page.locator('[data-actorops-route-card]')).toHaveCount(1)
   await expect(page.getByText('X 动态', { exact: true })).toBeVisible()
   await expect(page.getByText('Publisher A Primary', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('已确认故障').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: '替换主用' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '替换备用 1' })).toBeVisible()
+  await page.getByRole('button', { name: '替换备用 1' }).click()
+  await expect(page.getByRole('heading', { name: '替换备用 1 Actor' })).toBeVisible()
+  await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '查看运行详情' }).click()
   await expect(page.getByText('候选与商城信息', { exact: true })).toBeVisible()
   await expect(page.getByText('近期运行与费用', { exact: true })).toBeVisible()
@@ -152,6 +173,13 @@ test('ActorOps v2 route controls remain single-column at 390px', async ({ page }
   await expect(page.getByText('X 动态', { exact: true })).toBeVisible()
   expect(state.retiredRequests()).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const [cardBounds, moreBounds] = await Promise.all([
+    page.locator('[data-actorops-route-card="x"]').boundingBox(),
+    page.getByRole('button', { name: 'Actor 路由更多操作' }).boundingBox(),
+  ])
+  expect(cardBounds).not.toBeNull()
+  expect(moreBounds).not.toBeNull()
+  expect(moreBounds!.x + moreBounds!.width).toBeLessThanOrEqual(cardBounds!.x + cardBounds!.width)
 })
 
 test('ActorOps separates routes from logs and keeps incident recovery safe at supported widths', async ({ page }, testInfo) => {

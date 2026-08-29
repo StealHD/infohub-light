@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from src.services.apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from src.services.actorops.domain import (
     AssignmentRole,
     AttemptStatus,
@@ -55,6 +57,37 @@ def test_route_health_is_derived_from_runnable_assignments(
 
 def test_candidate_order_is_active_then_standby_then_distinct_lkg() -> None:
     def candidate(candidate_id, role, priority):
+        actor_id = f"publisher/{candidate_id}"
+        manifest_json = json.dumps({
+            "version": 1, "actor_id": actor_id, "build_number": "1.0.0",
+            "input": {"target": {"$ref": "target.handle"}},
+            "output": {
+                "native_id": {
+                    "pointers": ["/id"], "transforms": ["to_string"]
+                },
+                "url": {
+                    "pointers": ["/url"], "transforms": ["normalize_url"]
+                },
+                "published_at": {
+                    "pointers": ["/createdAt"],
+                    "transforms": ["parse_datetime"],
+                },
+                "text": {
+                    "pointers": ["/text"], "transforms": ["to_string"]
+                },
+                "author_handle": {
+                    "pointers": ["/author"], "transforms": ["to_string"]
+                },
+            },
+            "semantics": {
+                "identity": {
+                    "output_field": "author_handle",
+                    "target_ref": "target.handle",
+                    "match": "handle",
+                },
+                "url_host_allowlist": ["example.com"],
+            },
+        })
         return CandidateRecord(
             candidate_id=candidate_id,
             route_id="route",
@@ -62,8 +95,14 @@ def test_candidate_order_is_active_then_standby_then_distinct_lkg() -> None:
             assignment_role=role,
             priority=priority,
             generation=1,
+            actor_id=actor_id,
+            publisher="publisher",
             build_id="build",
-            manifest_hash="a" * 64,
+            build_number="1.0.0",
+            manifest_json=manifest_json,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest_json)),
+            input_schema_hash="b" * 64,
+            output_schema_hash="c" * 64,
         )
 
     candidates = (

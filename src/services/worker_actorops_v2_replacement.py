@@ -14,6 +14,7 @@ from .actorops.adapters import build_default_registry
 from .actorops.apify_remote import ApifyV2RemoteClient
 from .actorops.readiness import require_actorops_v2_schema
 from .actorops.replacement import ActorOpsReplacementRunner
+from .actorops.discovery_ai import open_actorops_discovery_ai_mapper
 from .actorops.repository import ActorOpsRepository
 from .apify_pool_runtime import apify_coordinator_for_workspace
 from .job_queue import JobQueue
@@ -39,7 +40,13 @@ def run_actorops_v2_replacement(
     result = asyncio.run(runner(job, data_dir, store))
     if not isinstance(result, dict):
         raise RuntimeError("ActorOps v2 replacement result is invalid")
-    return {"ok": result.get("status") not in {"failed", "recovery_required"}, "job_type": "actorops_v2_replacement", **result}
+    ok = result.get("status") not in {"failed", "recovery_required"}
+    return {
+        "ok": ok,
+        "_job_status": "succeeded" if ok else "failed",
+        "job_type": "actorops_v2_replacement",
+        **result,
+    }
 
 
 async def _run_plan(job: dict[str, Any], data_dir: str, store: ServiceStore) -> dict[str, object]:
@@ -56,13 +63,32 @@ async def _run_plan(job: dict[str, Any], data_dir: str, store: ServiceStore) -> 
         sources[source_id] = config
     # Replacement is an explicit Candidate validation, not a production
     # acquisition purpose.  The shared pool accepts only those two purposes.
-    coordinator = apify_coordinator_for_workspace(store, workspace_id=workspace_id, data_dir=data_dir, purpose="validation")
+    coordinator = apify_coordinator_for_workspace(
+        store,
+        workspace_id=workspace_id,
+        data_dir=data_dir,
+        purpose="validation",
+        require_validation_key=False,
+    )
     if coordinator is None:
         return {"status": "failed", "plan_id": plan_id, "error_code": "actorops_replacement_credential_unavailable"}
-    catalog = _catalog(store, workspace_id, data_dir)
+    catalog = _catalog(
+        store, workspace_id, data_dir, purpose="validation"
+    )
+    ai_mapper = open_actorops_discovery_ai_mapper(
+        store=store, data_dir=data_dir, workspace_id=workspace_id,
+        user_id=str(job["user_id"]),
+    )
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), trust_env=False) as client:
         remote = ApifyV2RemoteClient(ApifyClient(coordinator=coordinator, http_client=client))
-        return await ActorOpsReplacementRunner(repository, build_default_registry(), remote, catalog).run(plan_id, sources)
+        try:
+            return await ActorOpsReplacementRunner(
+                repository, build_default_registry(), remote, catalog,
+                ai_mapper=ai_mapper,
+            ).run(plan_id, sources)
+        finally:
+            if ai_mapper is not None:
+                await ai_mapper.aclose()
 
 
 def enqueue_due_actorops_v2_replacements(store: ServiceStore, queue: JobQueue, *, limit: int = 5) -> dict[str, int]:
@@ -76,6 +102,7 @@ def enqueue_due_actorops_v2_replacements(store: ServiceStore, queue: JobQueue, *
         for workspace in connection.execute("SELECT id FROM workspaces ORDER BY id"):
             workspace_id = str(workspace["id"])
             repository = ActorOpsRepository(connection, workspace_id)
+            repository.operator.expire_stale_plans()
             actor = _operator(connection, workspace_id)
             if actor is None:
                 deferred += len(repository.operator.list_due_plans(limit=limit))
@@ -113,7 +140,7 @@ def _active_job(connection: Any, workspace_id: str, plan_id: str) -> bool:
 def _operator(connection: Any, workspace_id: str) -> str | None:
     row = connection.execute(
         """SELECT id FROM users WHERE workspace_id=? AND enabled=1 AND role IN ('owner','admin')
-           ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, created_at, id LIMIT 1""",
+           ORDER BY created_at, id LIMIT 1""",
         (workspace_id,),
     ).fetchone()
     return str(row["id"]) if row else None

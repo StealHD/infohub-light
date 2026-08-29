@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from src.apify_actor_identity import source_target_fingerprint
+from src.services.apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from src.services.actorops.binding_service import (
     ActorOpsBindingError,
     ActorOpsBindingService,
@@ -28,6 +30,34 @@ def _store(tmp_path: Path) -> ServiceStore:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     return store
+
+
+def _exact_manifest(actor_id: str) -> str:
+    return json.dumps({
+        "version": 1, "actor_id": actor_id, "build_number": "1.0.0",
+        # Keep the Candidate structurally exact/runnable while making local
+        # deterministic input evidence unavailable for a handle-only target;
+        # this test then isolates settled Probe evidence.
+        "input": {"target": {"$ref": "target.native_id"}},
+        "output": {
+            "native_id": {"pointers": ["/id"], "transforms": ["to_string"]},
+            "url": {"pointers": ["/url"], "transforms": ["normalize_url"]},
+            "published_at": {
+                "pointers": ["/createdAt"], "transforms": ["parse_datetime"]
+            },
+            "text": {"pointers": ["/text"], "transforms": ["to_string"]},
+            "author_handle": {
+                "pointers": ["/author"], "transforms": ["to_string"]
+            },
+        },
+        "semantics": {
+            "identity": {
+                "output_field": "author_handle", "target_ref": "target.handle",
+                "match": "handle",
+            },
+            "url_host_allowlist": ["example.com"],
+        },
+    })
 
 
 def _source(
@@ -296,6 +326,7 @@ def test_verify_accepts_only_settled_current_v2_probe(tmp_path: Path) -> None:
     service = ActorOpsBindingService(store, workspace_id=DEFAULT_WORKSPACE_ID)
     binding = service.ensure(source_id)
     repository = service.repository
+    manifest = _exact_manifest("publisher/binding-probe")
     with repository.transaction():
         repository.create_candidate(
             candidate_id="binding-probe-candidate",
@@ -304,8 +335,8 @@ def test_verify_accepts_only_settled_current_v2_probe(tmp_path: Path) -> None:
             publisher="publisher",
             build_id="binding-probe-build",
             build_number="1.0.0",
-            manifest_json="{}",
-            manifest_hash="a" * 64,
+            manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
             input_schema_hash="b" * 64,
             output_schema_hash="c" * 64,
             lifecycle=CandidateLifecycle.CERTIFIED,

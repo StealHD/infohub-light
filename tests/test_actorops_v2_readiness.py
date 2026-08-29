@@ -8,6 +8,9 @@ from src.services.actorops.readiness import (
 )
 from src.storage.actorops_v2_operator_schema import OPERATOR_TABLES
 from src.storage.actorops_v2_single_track_schema import MIGRATION_VERSION
+from src.storage.actorops_v2_stability_schema import (
+    MIGRATION_VERSION as STABILITY_MIGRATION_VERSION,
+)
 from src.storage.service_store import ServiceStore
 
 
@@ -36,6 +39,23 @@ def test_global_30_requires_its_full_schema_shape(tmp_path) -> None:
     connection.commit()
     connection.execute("PRAGMA foreign_keys = ON")
 
+    assert actorops_v2_startup_migration_required(store) is True
+    with pytest.raises(RuntimeError, match="actorops_v2 migration_required"):
+        require_actorops_v2_schema(store)
+    store.close()
+
+
+def test_missing_global_33_blocks_actorops_without_blocking_store_startup(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path / "data")
+    store.initialize()
+    connection = store.connect()
+    connection.execute(
+        "DELETE FROM schema_migrations WHERE version=?",
+        (STABILITY_MIGRATION_VERSION,),
+    )
+    connection.commit()
     assert actorops_v2_startup_migration_required(store) is True
     with pytest.raises(RuntimeError, match="actorops_v2 migration_required"):
         require_actorops_v2_schema(store)

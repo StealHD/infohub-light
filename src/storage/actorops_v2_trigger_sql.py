@@ -37,7 +37,19 @@ WHEN NEW.lifecycle != OLD.lifecycle AND NOT (
     (OLD.lifecycle = 'mapping_pending' AND NEW.lifecycle IN ('static_valid','rejected')) OR
     (OLD.lifecycle = 'static_valid' AND NEW.lifecycle IN ('probationary','rejected','disabled')) OR
     (OLD.lifecycle = 'probationary' AND NEW.lifecycle IN ('certified','quarantined','disabled','superseded')) OR
-    (OLD.lifecycle = 'certified' AND NEW.lifecycle IN ('quarantined','disabled','superseded'))
+    (OLD.lifecycle = 'certified' AND NEW.lifecycle IN ('quarantined','disabled','superseded')) OR
+    (OLD.lifecycle = 'rejected' AND NEW.lifecycle = 'probationary'
+      AND OLD.assignment_role = 'inactive' AND NEW.assignment_role = 'inactive'
+      AND OLD.last_error_code IN (
+        'actorops_replacement_contract_mismatch',
+        'actorops_replacement_published_at_invalid',
+        'actorops_replacement_target_identity_mismatch',
+        'actorops_replacement_output_url_invalid',
+        'actorops_replacement_output_outside_window'
+      )
+      AND NEW.last_error_class IS NULL AND NEW.last_error_code IS NULL
+      AND NEW.last_success_at IS NOT NULL
+      AND (OLD.last_failure_at IS NULL OR NEW.last_success_at > OLD.last_failure_at))
 )
 BEGIN SELECT RAISE(ABORT, 'actorops_v2_candidate_transition'); END;
 

@@ -8,7 +8,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from .....models import SourceType
 from ...domain import RouteKey
 from ...ports import ActorManifest, DiscoveryMapping, DiscoveryRevision, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
-from .._discovery import deterministic_manifest
+from ...discovery_virtual_fields import YOUTUBE_TARGET_URL_POINTER
+from .._discovery import deterministic_input_plan, deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_channel_target
 
@@ -26,19 +27,72 @@ class YouTubeChannelItemsAdapter:
         self.native_fetcher = native_fetcher
 
     def normalize_target(self, source_config: Mapping[str, object]) -> TargetSpec:
-        return normalize_channel_target(source_config.get("target"))
+        return normalize_channel_target(
+            source_config.get("target") or source_config.get("url")
+        )
 
     def discovery_spec(self) -> DiscoverySpec:
-        return DiscoverySpec(queries=("YouTube channel videos actor",))
+        return DiscoverySpec(queries=(
+            "youtube channel videos scraper",
+            "youtube channel shorts scraper",
+            "youtube channel uploads actor",
+            "youtube videos playlists scraper",
+        ))
 
     def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
         return deterministic_manifest(
             revision,
-            input_keys=("channelUrl", "channel", "url"),
+            input_keys=(
+                "channelId", "channelIds", "channelUrls", "channel_urls",
+                "channelUrl", "channel_url", "channelInputs", "channels",
+                "channelUsername", "channelHandle", "startUrls", "channel",
+                "url",
+            ),
             identity_field="source_native_id",
-            identity_pointer_keys=("channelId", "sourceId", "channel_id"),
+            identity_pointer_keys=(),
             identity_ref="target.native_id",
             allowed_host="youtube.com",
+            list_url_input_keys=(
+                "channelUrls", "channel_urls", "channelInputs", "channels",
+                "startUrls",
+            ),
+            handle_input_keys=("channelUsername", "channelHandle"),
+            url_input_keys=("channelUrl", "channel_url"),
+            max_items_input_keys=(
+                "maxResults", "maxItems", "maxItemsPerUrl", "limit",
+                "maxVideosPerChannel", "maxPage", "max_shorts",
+            ),
+            thumbnail_pointer_keys=(
+                "thumbnailUrl", "thumbnail", "Thumbnail URL",
+            ),
+            identity_virtual_pointer=YOUTUBE_TARGET_URL_POINTER,
+            virtual_identity_field="source_url",
+            virtual_identity_ref="target.canonical_url",
+            native_id_url_fallback=True,
+        )
+
+    def map_discovery_input_plan(
+        self, revision: DiscoveryRevision
+    ) -> tuple[str | None, str | None]:
+        return deterministic_input_plan(
+            revision,
+            input_keys=(
+                "channelId", "channelIds", "channelUrls", "channel_urls",
+                "channelUrl", "channel_url", "channelInputs", "channels",
+                "channelUsername", "channelHandle", "startUrls", "channel",
+                "url",
+            ),
+            identity_ref="target.native_id",
+            list_url_input_keys=(
+                "channelUrls", "channel_urls", "channelInputs", "channels",
+                "startUrls",
+            ),
+            handle_input_keys=("channelUsername", "channelHandle"),
+            url_input_keys=("channelUrl", "channel_url"),
+            max_items_input_keys=(
+                "maxResults", "maxItems", "maxItemsPerUrl", "limit",
+                "maxVideosPerChannel", "maxPage", "max_shorts",
+            ),
         )
 
     def build_actor_input(self, target, manifest, window):
@@ -49,7 +103,7 @@ class YouTubeChannelItemsAdapter:
         manifest: ActorManifest, window: FetchWindow,
     ) -> NormalizedBatch:
         batch = validate_and_map(
-            rows, target, manifest, window,
+            self.prepare_output_rows(rows, target), target, manifest, window,
             platform="youtube", source_type=SourceType.RSS,
         )
         feed_url = target.native_url or target.canonical_url
@@ -64,6 +118,17 @@ class YouTubeChannelItemsAdapter:
                 {"catalog_type": "rss", "acquisition_origin": "apify_actor"}
             )
         return batch
+
+    def prepare_output_rows(
+        self,
+        rows: Sequence[Mapping[str, object]],
+        target: TargetSpec,
+        manifest: ActorManifest | None = None,
+    ) -> tuple[Mapping[str, object], ...]:
+        """Inject only the already-normalized channel identity for validation."""
+
+        field = YOUTUBE_TARGET_URL_POINTER.removeprefix("/")
+        return tuple({**dict(row), field: target.canonical_url} for row in rows)
 
     async def fetch_native_fallback(self, target, window):
         if self.native_fetcher is None:

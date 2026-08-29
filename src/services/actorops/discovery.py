@@ -10,16 +10,33 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
-from .discovery_manifest import schema_proven_manifest
+from .input_plan import input_plan_hash
+from .candidate_identity import candidate_id
+from .compatibility_projection import candidate_compatibility
+from .discovery_manifest import validate_schema_proven_manifest
+from .discovery_mapping_repair import repair_mapping_proposal
+from .discovery_route_type import store_match_is_wrong_type
+from .discovery_ai_individual import resolve_ranked_candidates
+from .discovery_search import (
+    candidate_quality_key,
+    cursor_match,
+    match_cursor,
+    ranked_catalog_matches,
+)
 from .domain import CandidateLifecycle, DiscoveryStage, DiscoveryStatus, FailureClass
 from .ports import DiscoveryAiMapper, DiscoveryCatalog, DiscoveryMapping, DiscoveryRevision
+from .presentation_mapping import (
+    CandidatePresentationMappings,
+    avatar_pointer_from_schema,
+)
 from .registry import AdapterRegistry
 from .repository import ActorOpsRepository
 from .repository_errors import ActorOpsNotFound
 
 
-_MAX_ACTORS = 12
-_MAX_AI_MAPPINGS = 1
+_MAX_ROUTE_CANDIDATES = 5
+_MAX_REVISION_CHECKS = 20
+_MAX_AI_MAPPINGS = 20
 _MAX_CURSOR_BYTES = 16 * 1024
 _TERMINAL = frozenset({"completed", "failed", "cancelled"})
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{1,95}$")
@@ -104,29 +121,65 @@ class ActorOpsDiscovery:
                 return DiscoveryResult(discovery_id, "failed", str(row["stage"]))
 
     async def _store_search(self, row: Any, adapter: Any) -> None:
-        actor_ids: list[str] = []
-        for query in adapter.discovery_spec().queries:
-            for actor_id in await self.catalog.search(query):
-                normalized = str(actor_id).strip()
-                if normalized and normalized not in actor_ids:
-                    actor_ids.append(normalized)
-                if len(actor_ids) >= _MAX_ACTORS:
-                    break
-            if len(actor_ids) >= _MAX_ACTORS:
-                break
-        cursor = self._cursor("metadata", actor_ids=actor_ids)
+        spec = adapter.discovery_spec()
+        groups = [await self.catalog.search(query) for query in spec.queries]
+        all_matches = ranked_catalog_matches(groups, limit=80)
+        eligible = tuple(
+            match for match in all_matches
+            if not store_match_is_wrong_type(adapter.route_key.platform, match)
+        )
+        matches = eligible[:_MAX_REVISION_CHECKS]
+        cursor = self._cursor(
+            "metadata",
+            matches=[
+                match_cursor(match, rank=rank)
+                for rank, match in enumerate(matches)
+            ],
+            metrics={
+                "marketplace_hits": len(all_matches),
+                "revision_checks": len(matches),
+                "wrong_actor_type": len(all_matches) - len(eligible),
+            },
+        )
         self._checkpoint(
             row, status=DiscoveryStatus.RUNNING, stage=DiscoveryStage.METADATA,
-            cursor=cursor, query_count=len(adapter.discovery_spec().queries),
+            cursor=cursor, query_count=len(spec.queries),
         )
 
     async def _metadata(self, row: Any) -> None:
         state = self._read_cursor(row, "metadata")
-        revisions = [await self.catalog.get_revision(actor_id) for actor_id in state["actor_ids"]]
-        refs = [self._revision_ref(item) for item in revisions]
+        raw_matches = state.get("matches")
+        if not isinstance(raw_matches, list):
+            raw_matches = [
+                {"actor_id": actor_id, "catalog_rank": rank}
+                for rank, actor_id in enumerate(state.get("actor_ids", []))
+            ]
+        refs = []
+        for rank, raw_match in enumerate(raw_matches):
+            match = cursor_match(raw_match)
+            if match is None:
+                continue
+            revision = await self.catalog.get_revision(match.actor_id)
+            stored_rank = (
+                raw_match.get("catalog_rank", rank)
+                if isinstance(raw_match, dict)
+                else rank
+            )
+            refs.append({
+                **self._revision_ref(revision),
+                "total_users": match.total_users,
+                "rating": match.rating,
+                "review_count": match.review_count,
+                "bookmark_count": match.bookmark_count,
+                "query_hits": match.query_hits,
+                "catalog_rank": int(stored_rank),
+            })
         self._checkpoint(
             row, status=DiscoveryStatus.RUNNING, stage=DiscoveryStage.VALIDATION,
-            cursor=self._cursor("validation", refs=refs, rejections=[]),
+            cursor=self._cursor(
+                "validation", refs=refs, rejections=[],
+                metrics=dict(state.get("metrics") or {}),
+            ),
         )
 
     async def _validation(self, row: Any, cap: float) -> None:
@@ -138,7 +191,7 @@ class ActorOpsDiscovery:
             # ID, while comparing the public revision without that scope.
             ref = {**raw_ref, "route_id": str(row["route_id"])}
             revision = await self.catalog.get_revision(str(ref["actor_id"]))
-            if self._revision_ref(revision) != self._unscoped_ref(ref):
+            if self._revision_ref(revision) != self._revision_identity(ref):
                 rejected.append(self._rejection(ref, "actorops_discovery_revision_changed"))
             elif not self._valid_revision(revision, cap):
                 rejected.append(self._rejection(ref, "actorops_discovery_validation_rejected"))
@@ -146,7 +199,13 @@ class ActorOpsDiscovery:
                 valid.append(ref)
         self._checkpoint(
             row, status=DiscoveryStatus.RUNNING, stage=DiscoveryStage.MAPPING,
-            cursor=self._cursor("mapping", refs=valid, rejections=rejected),
+            cursor=self._cursor(
+                "mapping", refs=valid, rejections=rejected,
+                metrics={
+                    **dict(state.get("metrics") or {}),
+                    "preflight_blocked": len(rejected),
+                },
+            ),
             rejection_count=len(rejected),
         )
 
@@ -156,51 +215,124 @@ class ActorOpsDiscovery:
         for raw_ref in state["refs"]:
             ref = {**raw_ref, "route_id": str(row["route_id"])}
             revision = await self.catalog.get_revision(str(ref["actor_id"]))
-            if self._revision_ref(revision) != self._unscoped_ref(ref):
+            if self._revision_ref(revision) != self._revision_identity(ref):
                 descriptors.append(self._rejection(ref, "actorops_discovery_revision_changed"))
                 continue
+            if not _usable_output_schema(revision.output_schema):
+                mapper = getattr(adapter, "map_discovery_input_plan", None)
+                if not callable(mapper):
+                    descriptors.append(self._pending(
+                        ref, "actorops_discovery_input_plan_invalid"
+                    ))
+                    continue
+                plan_json, error_code = mapper(revision)
+                if plan_json:
+                    descriptors.append(self._sample_required(ref, plan_json))
+                else:
+                    descriptors.append(self._pending(
+                        ref, error_code or "actorops_discovery_input_plan_invalid"
+                    ))
+                continue
+            cached = self.repository.discovery.cached_manifest(
+                route_id=str(row["route_id"]),
+                actor_id=revision.actor_id,
+                build_id=revision.build_id,
+                build_number=revision.build_number,
+                input_schema_hash=str(ref["input_schema_hash"]),
+                output_schema_hash=str(ref["output_schema_hash"]),
+            )
+            if cached is not None:
+                cached_item = self._mapped(
+                    ref, DiscoveryMapping(cached), revision,
+                    route_key=route_key,
+                )
+                if cached_item["status"] == "accepted":
+                    descriptors.append(cached_item)
+                    continue
+                with self.repository.transaction():
+                    self.repository.discovery.reject_invalid_static_mapping(
+                        route_id=str(row["route_id"]),
+                        actor_id=revision.actor_id,
+                        build_id=revision.build_id,
+                        build_number=revision.build_number,
+                        input_schema_hash=str(ref["input_schema_hash"]),
+                        output_schema_hash=str(ref["output_schema_hash"]),
+                        error_code=str(cached_item["rejection_code"]),
+                    )
             mapping = adapter.map_discovery_manifest(revision)
             if mapping.manifest_json is None:
-                unresolved.append(revision)
+                unresolved.append((revision, ref))
             else:
-                descriptors.append(self._mapped(ref, mapping, revision))
-        metrics: dict[str, object] = {}
-        ai_revisions = unresolved[:_MAX_AI_MAPPINGS]
-        if ai_revisions and self.ai_mapper is not None:
-            try:
-                ai_result = await self.ai_mapper.map(route_key, tuple(ai_revisions))
-                metrics = {
-                    "config_id": ai_result.config_id,
-                    "input_tokens": ai_result.input_tokens,
-                    "completion_tokens": ai_result.completion_tokens,
-                    "reasoning_tokens": ai_result.reasoning_tokens,
-                    "finish_reason": ai_result.finish_reason,
-                    "latency_ms": ai_result.latency_ms,
-                    "response_bytes": ai_result.response_bytes,
-                }
-                for revision in ai_revisions:
-                    ref = {**self._revision_ref(revision), "route_id": str(row["route_id"])}
-                    mapping = ai_result.mappings.get(revision.actor_id)
-                    descriptors.append(self._mapped(ref, mapping, revision) if mapping else self._pending(ref))
-            except Exception:
-                descriptors.extend(self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])}) for item in ai_revisions)
-        else:
-            descriptors.extend(self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])}) for item in ai_revisions)
-        descriptors.extend(
-            self._pending({**self._revision_ref(item), "route_id": str(row["route_id"])})
-            for item in unresolved[_MAX_AI_MAPPINGS:]
+                deterministic = self._mapped(
+                    ref, mapping, revision, route_key=route_key
+                )
+                if deterministic["status"] == "accepted":
+                    descriptors.append(deterministic)
+                else:
+                    # A heuristic mapping is only a proposal.  When strict
+                    # schema/semantic proof rejects it, let the bounded AI
+                    # mapper inspect the exact Build instead of stranding a
+                    # potentially compatible Actor as mapping_pending.
+                    unresolved.append((revision, ref))
+        descriptors, metrics = await resolve_ranked_candidates(
+            self.ai_mapper,
+            route_key,
+            unresolved,
+            descriptors,
+            map_mapping=lambda ref, mapping, revision: self._mapped(
+                ref, mapping, revision, route_key=route_key
+            ),
+            pending=self._pending,
+            max_mappings=_MAX_AI_MAPPINGS,
+            max_route_candidates=_MAX_ROUTE_CANDIDATES,
         )
         descriptors.extend(
             {**dict(value), "route_id": str(row["route_id"])}
             for value in state.get("rejections", [])
         )
-        descriptors = self._unique(descriptors)
+        descriptors = self._ranked(self._unique(descriptors))
+        discovery_metrics = {
+            **dict(state.get("metrics") or {}),
+            "wrong_actor_type": int(
+                dict(state.get("metrics") or {}).get("wrong_actor_type") or 0
+            ) + sum(
+                item.get("rejection_code") == "actorops_discovery_ai_wrong_actor_type"
+                for item in descriptors
+            ),
+            "route_relevant": sum(_route_candidate(item) for item in descriptors),
+            "static_ready": sum(item.get("status") == "accepted" for item in descriptors),
+            "sample_required": sum(
+                item.get("rejection_code")
+                == "actorops_discovery_output_sample_required"
+                for item in descriptors
+            ),
+            "system_usable": 0,
+        }
         with self.repository.transaction():
             for item in descriptors:
                 self._ensure_candidate(str(row["route_id"]), item)
+            usable_ids = {
+                str(item["candidate_id"])
+                for item in descriptors
+                if _route_candidate(item)
+                and bool(candidate_compatibility(
+                    self.repository,
+                    self.repository.get_candidate(str(item["candidate_id"])),
+                )["system_usable"])
+            }
+            discovery_metrics["system_usable"] = len(usable_ids)
+            discovery_metrics["static_ready"] = sum(
+                item.get("status") == "accepted"
+                and str(item["candidate_id"]) not in usable_ids
+                for item in descriptors
+            )
             self._checkpoint(
                 row, status=DiscoveryStatus.RUNNING, stage=DiscoveryStage.RANKING,
-                cursor=self._cursor("ranking", candidates=descriptors),
+                cursor=self._cursor(
+                    "ranking",
+                    candidates=[self._cursor_candidate(item) for item in descriptors],
+                    metrics=discovery_metrics,
+                ),
                 candidate_count=len(descriptors),
                 rejection_count=sum(item["status"] == "rejected" for item in descriptors),
                 ai_metrics=metrics,
@@ -209,24 +341,12 @@ class ActorOpsDiscovery:
     def _ranking(self, row: Any) -> None:
         state = self._read_cursor(row, "ranking")
         candidates = [dict(item) for item in state["candidates"]]
-        accepted = sorted(
-            (item for item in candidates if item["status"] == "accepted"),
-            key=lambda item: (item["publisher"], item["candidate_id"]),
-        )
-        pending = sorted(
-            (item for item in candidates if item["status"] == "pending"),
-            key=lambda item: (item["publisher"], item["candidate_id"]),
-        )
-        rejected = sorted(
-            (item for item in candidates if item["status"] == "rejected"),
-            key=lambda item: (item["publisher"], item["candidate_id"]),
-        )
-        ranked = self._publisher_first(accepted) + pending + rejected
-        for rank, item in enumerate(ranked):
-            item["rank"] = rank
         self._checkpoint(
             row, status=DiscoveryStatus.RUNNING, stage=DiscoveryStage.PERSIST,
-            cursor=self._cursor("persist", candidates=ranked),
+            cursor=self._cursor(
+                "persist", candidates=candidates,
+                metrics=dict(state.get("metrics") or {}),
+            ),
         )
 
     def _persist(self, row: Any) -> None:
@@ -240,7 +360,10 @@ class ActorOpsDiscovery:
                 )
             self._checkpoint(
                 row, status=DiscoveryStatus.COMPLETED, stage=DiscoveryStage.PERSIST,
-                cursor=self._cursor("persist", candidates=state["candidates"]),
+                cursor=self._cursor(
+                    "persist", candidates=state["candidates"],
+                    metrics=dict(state.get("metrics") or {}),
+                ),
                 candidate_count=len(state["candidates"]),
                 rejection_count=sum(item["status"] == "rejected" for item in state["candidates"]),
             )
@@ -263,20 +386,68 @@ class ActorOpsDiscovery:
                 "pending": CandidateLifecycle.MAPPING_PENDING,
                 "rejected": CandidateLifecycle.REJECTED,
             }[str(item["status"])]
-            self.repository.transition_candidate(
+            stored = self.repository.transition_candidate(
                 created.candidate_id, CandidateLifecycle.DISCOVERED, target,
                 expected_generation=created.generation,
                 error_class=(FailureClass.CANDIDATE.value if target is CandidateLifecycle.REJECTED else None),
                 error_code=item.get("rejection_code"),
             )
+            self._supersede_pending_mapping(route_id, stored, item)
+            self._persist_sampling_plan(stored, item)
+            self._refresh_presentation(stored, item)
             return
         if existing.route_id != route_id or existing.actor_id != item["actor_id"]:
             raise ValueError("actorops discovery candidate identity collision")
+        if (
+            item.get("status") == "pending"
+            and isinstance(item.get("rejection_code"), str)
+        ):
+            self.repository.discovery.refresh_pending_mapping_issue(
+                existing.candidate_id, str(item["rejection_code"])
+            )
 
-    def _mapped(self, ref: dict[str, object], mapping: DiscoveryMapping | None, revision: DiscoveryRevision) -> dict[str, object]:
-        manifest_json = schema_proven_manifest(revision, mapping)
+        self._supersede_pending_mapping(route_id, existing, item)
+        self._persist_sampling_plan(existing, item)
+        self._refresh_presentation(existing, item)
+
+    def _persist_sampling_plan(
+        self, candidate: object, item: dict[str, object]
+    ) -> None:
+        value = item.get("input_plan_json")
+        if isinstance(value, str):
+            self.repository.sampling.upsert_ready(candidate, value)
+
+    def _supersede_pending_mapping(
+        self, route_id: str, candidate: object, item: dict[str, object]
+    ) -> None:
+        if item.get("status") != "accepted":
+            return
+        self.repository.discovery.supersede_pending_mapping(
+            route_id=route_id,
+            actor_id=str(item["actor_id"]),
+            build_id=str(item["build_id"]),
+            build_number=str(item["build_number"]),
+            input_schema_hash=str(item["input_schema_hash"]),
+            output_schema_hash=str(item["output_schema_hash"]),
+            keep_candidate_id=str(getattr(candidate, "candidate_id")),
+        )
+
+    def _mapped(
+        self,
+        ref: dict[str, object],
+        mapping: DiscoveryMapping | None,
+        revision: DiscoveryRevision,
+        *,
+        route_key: object,
+    ) -> dict[str, object]:
+        mapping = repair_mapping_proposal(route_key, revision, mapping)
+        manifest_json, error_code = validate_schema_proven_manifest(
+            revision, mapping
+        )
         if not manifest_json:
-            return self._pending(ref)
+            return self._pending(
+                ref, error_code or "actorops_discovery_mapping_pending"
+            )
         # Candidate persistence and execution must agree on the exact canonical
         # Manifest identity; hashing the pre-parse JSON here would make a
         # schema-proven Candidate fail before its first paid Probe.
@@ -286,15 +457,57 @@ class ActorOpsDiscovery:
             "candidate_id": self._candidate_id(ref, manifest_hash),
             "manifest_json": manifest_json,
             "manifest_hash": manifest_hash,
+            "avatar_json_pointer": avatar_pointer_from_schema(
+                revision.output_schema, str(getattr(route_key, "platform", ""))
+            ),
             "status": "accepted",
             "rejection_code": None,
         }
 
-    def _pending(self, ref: dict[str, object]) -> dict[str, object]:
+    def _refresh_presentation(
+        self, candidate: object, item: dict[str, object]
+    ) -> None:
+        if item.get("status") != "accepted":
+            return
+        try:
+            mappings = CandidatePresentationMappings(self.repository)
+            manifest_mapping = mappings.import_manifest(candidate)
+            if manifest_mapping.status == "ready":
+                return
+            mappings.refresh_pointer(
+                candidate,
+                item.get("avatar_json_pointer"),
+                evidence_kind="schema",
+            )
+        except Exception:
+            # The sidecar is presentation-only; deterministic core discovery
+            # remains valid when this optional evidence cannot be refreshed.
+            return
+
+    def _pending(
+        self,
+        ref: dict[str, object],
+        code: str = "actorops_discovery_mapping_pending",
+    ) -> dict[str, object]:
         return {
             **ref, "candidate_id": self._candidate_id(ref, "mapping_pending"),
             "manifest_json": None, "manifest_hash": None, "status": "pending",
-            "rejection_code": "actorops_discovery_mapping_pending",
+            "rejection_code": code,
+        }
+
+    def _sample_required(
+        self, ref: dict[str, object], input_plan_json: str
+    ) -> dict[str, object]:
+        digest = input_plan_hash(input_plan_json)
+        return {
+            **ref,
+            "candidate_id": self._candidate_id(ref, f"input_plan:{digest}"),
+            "manifest_json": None,
+            "manifest_hash": None,
+            "input_plan_json": input_plan_json,
+            "input_plan_hash": digest,
+            "status": "pending",
+            "rejection_code": "actorops_discovery_output_sample_required",
         }
 
     def _rejection(self, ref: dict[str, object], code: str) -> dict[str, object]:
@@ -320,9 +533,23 @@ class ActorOpsDiscovery:
         }
         if self.repository.connection.in_transaction:
             self.repository.discovery.checkpoint(str(row["discovery_id"]), **values)
+            self._wake_terminal_repair(row, status)
             return
         with self.repository.transaction():
             self.repository.discovery.checkpoint(str(row["discovery_id"]), **values)
+            self._wake_terminal_repair(row, status)
+
+    def _wake_terminal_repair(
+        self, row: Any, status: DiscoveryStatus
+    ) -> None:
+        if status in {
+            DiscoveryStatus.COMPLETED,
+            DiscoveryStatus.FAILED,
+            DiscoveryStatus.CANCELLED,
+        }:
+            self.repository.resilience.wake_repairs_after_discovery(
+                str(row["discovery_id"])
+            )
 
     def _retry(self, row: Any, code: str) -> None:
         retry_after = self.now().astimezone(timezone.utc) + timedelta(seconds=self.retry_delay_seconds)
@@ -349,15 +576,19 @@ class ActorOpsDiscovery:
     def _valid_revision(revision: DiscoveryRevision, cap: float) -> bool:
         return bool(
             revision.actor_id and revision.publisher and revision.build_id
-            and revision.build_number and revision.input_schema and revision.output_schema
+            and revision.build_number and revision.input_schema
             and isinstance(revision.price_per_run_usd, (int, float))
             and 0 <= float(revision.price_per_run_usd) <= cap
         )
 
     @staticmethod
     def _candidate_id(ref: dict[str, object], manifest: str) -> str:
-        value = "\x1f".join(str(ref[key]) for key in ("route_id", "actor_id", "build_id", "build_number"))
-        return "candidate_" + hashlib.sha256(f"{value}\x1f{manifest}".encode()).hexdigest()[:24]
+        return candidate_id(
+            route_id=str(ref["route_id"]), actor_id=str(ref["actor_id"]),
+            build_id=str(ref["build_id"]),
+            build_number=str(ref["build_number"]),
+            manifest_identity=manifest,
+        )
 
     @staticmethod
     def _hash(value: str) -> str:
@@ -368,8 +599,15 @@ class ActorOpsDiscovery:
         return ActorOpsDiscovery._hash(json.dumps(value, sort_keys=True, separators=(",", ":")))
 
     @staticmethod
-    def _unscoped_ref(value: dict[str, object]) -> dict[str, object]:
-        return {key: item for key, item in value.items() if key != "route_id"}
+    def _revision_identity(value: dict[str, object]) -> dict[str, object]:
+        return {
+            key: item for key, item in value.items()
+            if key not in {
+                "route_id", "catalog_rank", "total_users", "rating",
+                "review_count", "bookmark_count", "query_hits",
+                "display_name", "short_description",
+            }
+        }
 
     @staticmethod
     def _cursor(phase: str, **values: object) -> str:
@@ -399,15 +637,41 @@ class ActorOpsDiscovery:
         return list({str(item["candidate_id"]): item for item in items}.values())
 
     @staticmethod
-    def _publisher_first(items: list[dict[str, object]]) -> list[dict[str, object]]:
-        selected, deferred, publishers = [], [], set()
-        for item in items:
-            if item["publisher"] in publishers:
-                deferred.append(item)
-            else:
-                publishers.add(item["publisher"])
-                selected.append(item)
-        return selected + deferred
+    def _ranked(items: list[dict[str, object]]) -> list[dict[str, object]]:
+        ranked = sorted(items, key=candidate_quality_key)
+        retained: list[dict[str, object]] = []
+        selected = 0
+        for item in ranked:
+            if _route_candidate(item):
+                if selected >= _MAX_ROUTE_CANDIDATES:
+                    continue
+                selected += 1
+            item["rank"] = len(retained)
+            retained.append(item)
+        return retained
 
+    @staticmethod
+    def _cursor_candidate(item: dict[str, object]) -> dict[str, object]:
+        return {
+            key: value for key, value in item.items()
+            if key not in {
+                "manifest_json", "input_plan_json", "avatar_json_pointer",
+            }
+        }
+
+
+def _route_candidate(item: dict[str, object]) -> bool:
+    return bool(
+        item.get("status") == "accepted"
+        or item.get("rejection_code")
+        == "actorops_discovery_output_sample_required"
+    )
+
+
+def _usable_output_schema(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    properties = value.get("properties")
+    return isinstance(properties, dict) and bool(properties)
 
 __all__ = ["ActorOpsDiscovery", "DiscoveryCatalogError", "DiscoveryResult"]

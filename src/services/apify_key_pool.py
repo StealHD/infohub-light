@@ -15,6 +15,10 @@ from typing import Any, Callable
 
 from ..scrapers.apify_client import ApifyCredentialLease
 from ..storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from .actorops_start_fence import (
+    assert_actorops_acquisition_startable,
+    assert_apify_lease_startable,
+)
 from .apify_key_pool_unknown_start import ApifyKeyPoolUnknownStartMixin
 from .secret_store import SecretStore
 
@@ -754,6 +758,11 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
                 raise ApifyKeyPoolConflictError(
                     "Apify Key pool changed after the task was frozen"
                 )
+            if normalized_purpose == "acquisition":
+                assert_actorops_acquisition_startable(
+                    connection, workspace_id, logical_run_id, now_iso,
+                    ApifyKeyDrainPendingError,
+                )
             if normalized_purpose == "validation":
                 validation_member = connection.execute(
                     """
@@ -996,38 +1005,7 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
     def assert_lease_startable(self, lease: ApifyCredentialLease) -> None:
         """Fail immediately if a drain barrier appeared before the Actor POST."""
 
-        connection = self.store.connect()
-        run = self._run_for_lease(connection, lease)
-        if str(run["purpose"] or "acquisition") == "validation":
-            member = connection.execute(
-                """
-                SELECT role, status FROM apify_key_pool_members
-                WHERE workspace_id = ? AND secret_id = ?
-                """,
-                (str(run["workspace_id"]), str(run["secret_id"])),
-            ).fetchone()
-            if member is None:
-                raise ApifyKeyDrainPendingError()
-            if str(member["role"]) == "validation":
-                usable = str(member["status"]) == "standby"
-            else:
-                state = self._state_row(connection, str(run["workspace_id"]))
-                usable = (
-                    str(member["role"]) == "acquisition"
-                    and str(member["status"]) == "active"
-                    and state["status"] == "ready"
-                    and state["active_secret_id"] == run["secret_id"]
-                )
-            if run["status"] != "reserved" or not usable:
-                raise ApifyKeyDrainPendingError()
-            return
-        state = self._state_row(connection, str(run["workspace_id"]))
-        if (
-            run["status"] != "reserved"
-            or state["status"] != "ready"
-            or state["active_secret_id"] != run["secret_id"]
-        ):
-            raise ApifyKeyDrainPendingError()
+        assert_apify_lease_startable(self, lease, ApifyKeyDrainPendingError)
 
     def register_run(
         self,
@@ -1774,8 +1752,8 @@ class ApifyKeyPoolService(ApifyKeyPoolUnknownStartMixin):
                     connection.execute(
                         """
                         UPDATE apify_actor_runs
-                        SET status = 'start_rejected', last_error_code = ?,
-                            terminal_at = ?, updated_at = ?
+                        SET status = 'start_rejected', last_error_code = ?, charge_reserved_usd = 0,
+                            charge_actual_usd = 0, charge_final = 1, terminal_at = ?, updated_at = ?
                         WHERE id = ?
                         """,
                         (reason, now_iso, now_iso, run["id"]),

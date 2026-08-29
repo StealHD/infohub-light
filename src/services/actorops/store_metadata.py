@@ -162,10 +162,18 @@ def _current_pricing_rows(value: object) -> tuple[Mapping[str, Any], ...]:
 
 
 def _row_run_price(row: Mapping[str, Any]) -> float | None:
-    for key in ("minimumChargeUsd", "minChargeUsd", "pricePerRunUsd", "pricePerUnitUsd"):
-        number = _number(row.get(key))
-        if number is not None:
-            return number
+    flat_prices = tuple(
+        number
+        for key in (
+            "minimumChargeUsd",
+            "minChargeUsd",
+            "pricePerRunUsd",
+            "pricePerUnitUsd",
+        )
+        if (number := _number(row.get(key))) is not None
+    )
+    if flat_prices:
+        return max(flat_prices)
     return _event_run_price(row)
 
 

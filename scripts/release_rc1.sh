@@ -17,6 +17,15 @@ require_clean_tree() {
   fi
 }
 
+require_frozen_release_source() {
+  local expected_revision="$1"
+  [[ "$(git -C "$ROOT_DIR" rev-parse HEAD)" == "$expected_revision" ]] || {
+    echo "Release source revision changed while the image was being built." >&2
+    exit 1
+  }
+  require_clean_tree
+}
+
 project_version() {
   ./.venv/bin/python -c \
     'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
@@ -111,10 +120,11 @@ prepare_release() {
   require_clean_tree
   validate_database_artifact "$database"
 
-  local revision revision_short version built_at release_id image platform expected_arch actual_arch image_revision
+  local revision revision_short source_digest version built_at release_id image platform expected_arch actual_arch image_revision image_source_digest
   local archive image_archive remote_archive remote_image_archive remote_database
   revision="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   revision_short="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
+  source_digest="git:$revision"
   version="$(./.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
   built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   release_id="rc1-$(date -u +%Y%m%dT%H%M%SZ)-${revision_short}"
@@ -128,18 +138,25 @@ prepare_release() {
   remote_database="/tmp/${release_id}-service.db"
   trap 'rm -f "$archive" "$image_archive"' RETURN
 
+  require_frozen_release_source "$revision"
   docker buildx build \
     --platform "$platform" \
     --load \
     --build-arg "INTELISCOPE_VERSION=$version" \
     --build-arg "INTELISCOPE_BUILD_REVISION=$revision" \
+    --build-arg "INTELISCOPE_SOURCE_DIGEST=$source_digest" \
     --build-arg "INTELISCOPE_BUILT_AT=$built_at" \
     --tag "$image" \
     "$ROOT_DIR"
+  require_frozen_release_source "$revision"
   actual_arch="$(docker image inspect "$image" --format '{{.Architecture}}')"
   image_revision="$(
     docker image inspect "$image" \
       --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+  )"
+  image_source_digest="$(
+    docker image inspect "$image" \
+      --format '{{index .Config.Labels "io.inteliscope.source.digest"}}'
   )"
   [[ "$actual_arch" == "$expected_arch" ]] || {
     echo "local release image architecture mismatch: expected=$expected_arch actual=$actual_arch" >&2
@@ -147,6 +164,10 @@ prepare_release() {
   }
   [[ "$image_revision" == "$revision" ]] || {
     echo "local release image revision mismatch: expected=$revision actual=$image_revision" >&2
+    exit 1
+  }
+  [[ "$image_source_digest" == "$source_digest" ]] || {
+    echo "local release image source mismatch: expected=$source_digest actual=$image_source_digest" >&2
     exit 1
   }
   docker run --rm --network none \
@@ -162,7 +183,7 @@ prepare_release() {
   scp "$database" "$REMOTE_HOST:$remote_database"
 
   ssh "$REMOTE_HOST" bash -s -- \
-    "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" \
+    "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" "$source_digest" \
     "$remote_archive" "$remote_database" "$remote_image_archive" <<'REMOTE'
 set -euo pipefail
 base="$1"
@@ -171,9 +192,10 @@ image="$3"
 version="$4"
 revision="$5"
 built_at="$6"
-archive="$7"
-database="$8"
-image_archive="$9"
+source_digest="$7"
+archive="$8"
+database="$9"
+image_archive="${10}"
 release_dir="$base/releases/$release_id"
 
 if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then
@@ -203,12 +225,20 @@ loaded_revision="$(
   docker image inspect "$image" \
     --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
 )"
+loaded_source_digest="$(
+  docker image inspect "$image" \
+    --format '{{index .Config.Labels "io.inteliscope.source.digest"}}'
+)"
 [[ "$loaded_arch" == amd64 ]] || {
   echo "loaded release image architecture mismatch: $loaded_arch" >&2
   exit 1
 }
 [[ "$loaded_revision" == "$revision" ]] || {
   echo "loaded release image revision mismatch: $loaded_revision" >&2
+  exit 1
+}
+[[ "$loaded_source_digest" == "$source_digest" ]] || {
+  echo "loaded release image source mismatch: $loaded_source_digest" >&2
   exit 1
 }
 
@@ -233,6 +263,7 @@ set_env() {
 set_env INTELISCOPE_IMAGE "$image"
 set_env INTELISCOPE_VERSION "$version"
 set_env INTELISCOPE_BUILD_REVISION "$revision"
+set_env INTELISCOPE_SOURCE_DIGEST "$source_digest"
 set_env INTELISCOPE_BUILT_AT "$built_at"
 set_env HORIZON_WEB_BIND 127.0.0.1
 set_env HORIZON_WEB_PORT 18080

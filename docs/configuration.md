@@ -20,6 +20,21 @@ Docker Compose contains only `horizon-api` and `horizon-worker`. Feed and per-so
 
 React is the only UI. When `src/ui/service_static/index.html` is absent, the API and `/mcp` still start and non-API pages return 404.
 
+### Fast local development preview
+
+For backend/frontend iteration without rebuilding Docker, stop both canonical containers before pointing host processes at the canonical `data/service.db`; two code revisions must not write the same SQLite database concurrently. Start the current Worktree API on an alternate loopback port with `HORIZON_REQUIRE_WORKER_FOR_READINESS=false` and do not start the Worker or scheduler. The Vite development server accepts `VITE_API_PROXY_TARGET` and defaults to the canonical `http://127.0.0.1:8080` when it is absent:
+
+```bash
+# API example: 127.0.0.1:18080, using the current Worktree source and root .env
+python -m src.api.server --host 127.0.0.1 --port 18080 \
+  --data-dir /absolute/runtime/data --log-dir /absolute/preview/logs
+
+# React example: 127.0.0.1:15173 -> preview API
+VITE_API_PROXY_TARGET=http://127.0.0.1:18080 npm run dev -- --port 15173
+```
+
+Use an SQLite backup copy instead when the canonical containers must remain available. A preview never starts the Worker, notifications, scheduled acquisition, maintenance Probe, or paid Actor operation. Rebuild the canonical `8080` API/Worker containers once, after source tests and preview API acceptance pass.
+
 ## Bootstrap authentication
 
 A fresh database needs an initial Owner:
@@ -157,6 +172,88 @@ preview, and explicitly apply with a private backup:
 python scripts/migrate_system_settings_v32.py --data-dir data
 python scripts/migrate_system_settings_v32.py --data-dir data --apply
 ```
+
+## ActorOps stability and maintenance
+
+Global schema 33 (`actorops_v2_stability`) is the current ActorOps online gate
+and requires a valid global 32. Existing databases must stop API and Worker,
+preview the migration, then explicitly apply it with a private backup:
+
+```bash
+python scripts/migrate_actorops_v2_stability.py --data-dir data
+python scripts/migrate_actorops_v2_stability.py --data-dir data --backup-dir data/backups --apply
+```
+
+The apply step installs source-circuit state, maintenance authorization origin,
+and the exact-Candidate presentation sidecar in one transaction. It validates
+the marker, schema shape, integrity, and foreign keys; a partial schema or an
+occupied version 33 fails closed, and a failed apply restores the `0600`
+backup. It performs no network request, Actor/AI call, or cost mutation.
+
+Fresh policies and existing untouched `generation=1` workspace/Route policies
+are enabled with `authorization_origin=system_default`. A policy previously
+changed by an operator keeps its explicit enabled/disabled state. Effective
+maintenance still requires both policies, an enabled Owner/Admin principal,
+the existing daily/monthly limits, one unsettled Probe limit, and finalized
+cost evidence. Maintenance Probes use the `validation` credential and Run-ledger
+purpose, preferring a dedicated validation key and retaining the existing safe
+Key Pool fallback when one is not configured. Route `auto_replace_non_last` is disabled; maintenance may add a
+safe Standby or set a source preference, but Primary/Standby replacement stays
+an explicit, confirmed administrator action. Authorization, cost settlement,
+and Discovery completion wake blocked Repair records without erasing their
+attempt or cost facts.
+
+An Owner/Admin may explicitly queue a Recovery Probe for an assigned
+`confirmed_failure` probationary or certified Candidate through
+`POST /api/admin/apify-routes/{route_id}/v2-candidates/{candidate_id}/recovery-probe`.
+The request uses the fixed confirmation `确认实测恢复 Actor`, a safe idempotency
+key, and frozen Route/Candidate/Binding generations plus `last_failure_at`.
+The Probe keeps the same `$0.05`, one-start, one-item, daily/monthly, and
+single-unsettled-Probe limits. Only a later settled `valid_nonempty` observation
+atomically restores Candidate and source-circuit health; it never changes the
+assignment or publishes Feed content.
+
+Avatar presentation mapping is optional and keyed by exact Candidate, Build,
+and output-Schema hash. The sidecar stores only a validated JSON pointer,
+evidence kind, status, generation, and timestamps. It never stores or projects
+the observed URL or raw Actor output. Manifest and Schema pointers are
+revalidated against successful target-bound rows and may be atomically degraded
+or replaced. Traversal is bounded to mapping objects that pass the core identity
+and content contract, and prioritizes the selected identity scope so metadata,
+third-party objects, and large scalar-heavy rows cannot pollute discovery.
+Instagram coauthor rows may be normalized only when the bounded coauthor list
+exactly identifies the requested profile; the in-memory copy removes all
+normalized avatar aliases from third-party `user`/`owner` containers. A direct
+target avatar wins, while an exact matched coauthor avatar is the only allowed
+collaboration-only fallback. The raw Dataset is never rewritten. A normal
+acquisition may retain its proof-bound URL only inside the private snapshot
+diagnostics for that freshness window, allowing a cache hit to retry a failed
+media download; item JSON, Feed, public Job diagnostics, Admin APIs, and logs do
+not receive it. Missing presentation data cannot turn a valid paid content
+result into a failure.
+
+## Container build identity and local migration flow
+
+Run `./scripts/up-latest.sh` from the Worktree being verified. It resolves
+`.env`, `data`, and `logs` from the primary checkout through Git's common
+directory, then hashes HEAD, tracked changes, and untracked files. Dirty local
+revisions include that digest, the image carries the same source-digest label,
+and the script rejects source changes during the build. Readiness requires the
+expected API revision/version, API and Worker container health, both image
+source digests, and a served React asset.
+
+When the target revision reports migration-required, `up-latest.sh` confirms
+the response belongs to that revision, stops API and Worker, prints the exact
+offline migration command, and exits. It never applies a migration implicitly.
+After preview/apply, rerun the same Worktree command. Do not substitute a
+temporary Compose override, runtime symlink, or image built from a different
+checkout.
+
+Formal VPS releases require a clean `main` equal to `origin/main`, build the
+pinned-base `linux/amd64` image locally, verify revision and source digest, and
+transfer an archive for `docker load`; the VPS never builds this repository.
+Remote packaging blocks when disk usage is above 85% or free space is below
+8 GiB and prints a read-only cleanup inventory without deleting operator data.
 
 ## Retired-data boundary
 

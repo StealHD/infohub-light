@@ -19,6 +19,7 @@ from .services.feed_run import (
     SourceOutcome,
 )
 from .services.response_schema import extract_response_schema
+from .services.actorops.publication import merge_private_source_avatar_hints
 from .services.canonical_content import canonical_url_key
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
@@ -459,10 +460,9 @@ class HorizonOrchestrator:
                 or label.split(":", 1)[0].strip().lower()
             )
             upstream_schema = getattr(scraper, "upstream_response_schema", None)
-            avatar_hints = tuple(
-                hint
-                for hint in getattr(scraper, "source_avatar_hints", ())
-                if hint.source_id == source_id
+            avatar_hints = merge_private_source_avatar_hints(
+                (hint for hint in getattr(scraper, "source_avatar_hints", ())
+                 if hint.source_id == source_id), result, source,
             )
             origin_for = getattr(self._service_acquisition_coordinator, "origin_for", None)
             acquisition_origin = origin_for(source_id) if callable(origin_for) else None

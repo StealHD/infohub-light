@@ -12,6 +12,7 @@ from .domain import (
     StoreMetadataRecord, TERMINAL_REPLACEMENT_STATUSES,
 )
 from .repository_errors import ActorOpsConflict, ActorOpsNotFound
+from .replacement_lifecycle import expire_stale_plans
 from .store_metadata import StoreMetadata, pricing_json
 
 
@@ -112,10 +113,16 @@ class OperatorRepository:
         ).fetchone()
         if existing is not None:
             return _plan(existing)
+        self.expire_stale_plans(route_id=route_id)
         route = self.repository.get_route(route_id)
         candidate = self.repository.get_candidate(proposed_candidate_id)
         metadata = self.metadata(proposed_candidate_id)
         assigned = next((item for item in self.repository.list_route_candidates(route_id) if item.assignment_role is target_assignment and item.priority == target_priority), None)
+        fills_empty_standby = (
+            assigned is None
+            and target_assignment is AssignmentRole.STANDBY
+            and target_priority in {1, 2}
+        )
         bindings = self.binding_set(route_id)
         per_probe = round(float(per_probe_cap_usd), 6)
         total = round(float(total_cap_usd), 6)
@@ -125,8 +132,9 @@ class OperatorRepository:
             or metadata is None
         ):
             raise ActorOpsConflict("actorops_replacement_candidate_invalid")
-        if assigned is None or not bindings:
+        if (assigned is None and not fills_empty_standby) or not bindings:
             raise ActorOpsConflict("actorops_replacement_route_not_ready")
+        current = assigned or candidate
         if not 0 < per_probe <= min(route.per_run_cap_usd, 0.20) or not 0 < total <= 0.60 or per_probe * len(bindings) > total:
             raise ActorOpsConflict("actorops_replacement_budget_invalid")
         stamp = _stamp()
@@ -140,7 +148,7 @@ class OperatorRepository:
                    generation, created_at, updated_at
                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (plan_id, self.repository.workspace_id, route_id, target_assignment.value, target_priority,
-             assigned.candidate_id, assigned.generation, candidate.candidate_id, candidate.generation,
+             current.candidate_id, current.generation, candidate.candidate_id, candidate.generation,
              _pricing_hash(metadata.pricing_json), route.generation, digest, len(bindings), per_probe, total,
              ReplacementStatus.PREVIEWED.value,
              idempotency_key, created_by_user_id, 1, stamp, stamp),
@@ -158,11 +166,18 @@ class OperatorRepository:
 
     def list_due_plans(self, *, limit: int = 5) -> tuple[ReplacementPlanRecord, ...]:
         rows = self.repository.connection.execute(
-            """SELECT * FROM actor_replacement_plans_v2 WHERE workspace_id=? AND status IN ('authorized','running')
+            """SELECT * FROM actor_replacement_plans_v2 WHERE workspace_id=?
+               AND status IN ('authorized','running')
                ORDER BY updated_at, plan_id LIMIT ?""",
             (self.repository.workspace_id, min(max(int(limit), 1), 20)),
         ).fetchall()
         return tuple(_plan(row) for row in rows)
+
+    def expire_stale_plans(
+        self, *, route_id: str | None = None, now: datetime | None = None,
+    ) -> tuple[str, ...]:
+        """Cancel abandoned plans without erasing any Attempt or cost fact."""
+        return expire_stale_plans(self, route_id=route_id, now=now)
 
     def proofs_complete(self, plan: ReplacementPlanRecord) -> bool:
         bindings = self.binding_set(plan.route_id)
@@ -248,10 +263,16 @@ class OperatorRepository:
         route = self.repository.get_route(plan.route_id)
         current = self.repository.get_candidate(plan.current_candidate_id)
         proposed = self.repository.get_candidate(plan.proposed_candidate_id)
+        fills_empty_standby = plan.current_candidate_id == plan.proposed_candidate_id
+        current_generation_matches = (
+            current.generation == plan.proposed_candidate_generation
+            if fills_empty_standby
+            else current.generation == plan.current_candidate_generation
+        )
         metadata = self.metadata(plan.proposed_candidate_id)
         bindings = self.binding_set(plan.route_id)
         if (
-            route.generation != plan.route_generation or current.generation != plan.current_candidate_generation
+            route.generation != plan.route_generation or not current_generation_matches
             or proposed.generation != plan.proposed_candidate_generation or _bindings_hash(bindings) != plan.binding_set_hash
             or len(bindings) != plan.binding_count
             or metadata is None
@@ -270,12 +291,15 @@ class OperatorRepository:
         if proposed.lifecycle not in {CandidateLifecycle.PROBATIONARY, CandidateLifecycle.CERTIFIED}:
             raise ActorOpsConflict("actorops_replacement_candidate_not_runnable")
         stamp = _stamp()
-        old_changed = self.repository.connection.execute(
-            """UPDATE actor_candidates_v2 SET assignment_role='inactive', priority=NULL,
-                   generation=generation+1, updated_at=? WHERE workspace_id=? AND candidate_id=?
-                   AND generation=?""",
-            (stamp, self.repository.workspace_id, plan.current_candidate_id, plan.current_candidate_generation),
-        ).rowcount
+        fills_empty_standby = plan.current_candidate_id == plan.proposed_candidate_id
+        old_changed = 1
+        if not fills_empty_standby:
+            old_changed = self.repository.connection.execute(
+                """UPDATE actor_candidates_v2 SET assignment_role='inactive', priority=NULL,
+                       generation=generation+1, updated_at=? WHERE workspace_id=? AND candidate_id=?
+                       AND generation=?""",
+                (stamp, self.repository.workspace_id, plan.current_candidate_id, plan.current_candidate_generation),
+            ).rowcount
         new_changed = self.repository.connection.execute(
             """UPDATE actor_candidates_v2 SET assignment_role=?, priority=?, generation=generation+1, updated_at=?
                WHERE workspace_id=? AND candidate_id=? AND assignment_role='inactive' AND generation=?""",

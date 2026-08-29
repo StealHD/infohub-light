@@ -51,6 +51,23 @@ def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
         'cd "$previous_release"'
     )
     assert 'docker image rm "$LOCAL_RELEASE_IMAGE"' in script
+    assert "remote_capacity_preflight" in script
+    assert "used_percent > 85" in script
+    assert "available_kib < 8388608" in script
+    assert "Read-only cleanup inventory (nothing was deleted)" in script
+    assert "docker system df" in script
+    assert "-name 'inteliscope-release-*'" in script
+    assert 'REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"' in script
+    assert '[[ "$stage" =~ ^/tmp/inteliscope-release-[A-Za-z0-9._-]+$ ]]' in script
+    assert 'rm -rf -- "$stage"' in script
+    package = script.split("build_package_and_upload() {", 1)[1].split("deploy_remote_release() {", 1)[0]
+    assert package.count('require_frozen_release_source "$revision_full"') == 2
+    assert package.index('require_frozen_release_source "$revision_full"') < package.index("docker buildx build")
+    assert package.index("docker buildx build") < package.rindex('require_frozen_release_source "$revision_full"')
+    rollback = script.split("rollback_release() {", 1)[1].split("show_status() {", 1)[0]
+    assert 'set_env INTELISCOPE_SOURCE_DIGEST "$source_digest"' in rollback
+    assert "sed -i '/^INTELISCOPE_SOURCE_DIGEST=/d'" in rollback
+    assert 'source_args=(--expected-source-digest "$source_digest")' in rollback
 
 
 def test_normal_vps_release_does_not_run_full_database_scan_after_worker_start():
@@ -66,3 +83,16 @@ def test_normal_vps_release_does_not_run_full_database_scan_after_worker_start()
     assert cutover.index("horizon-api horizon-worker") < cutover.index(
         'wait_runtime "$release_dir"'
     )
+
+
+def test_rc1_release_freezes_and_propagates_the_build_source_identity():
+    script = (ROOT / "scripts" / "release_rc1.sh").read_text(encoding="utf-8")
+    prepare = script.split("prepare_release() {", 1)[1].split("promote_release() {", 1)[0]
+
+    assert prepare.count('require_frozen_release_source "$revision"') == 2
+    assert prepare.index('require_frozen_release_source "$revision"') < prepare.index("docker buildx build")
+    assert prepare.index("docker buildx build") < prepare.rindex('require_frozen_release_source "$revision"')
+    assert '--build-arg "INTELISCOPE_SOURCE_DIGEST=$source_digest"' in prepare
+    assert 'loaded_source_digest="$(' in prepare
+    assert '[[ "$loaded_source_digest" == "$source_digest" ]]' in prepare
+    assert 'set_env INTELISCOPE_SOURCE_DIGEST "$source_digest"' in prepare

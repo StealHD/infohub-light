@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import hashlib
 import os
@@ -14,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 from ..models import ContentItem
+from .async_bridge import run_coroutine_sync
 from .network_policy import fetch_public_http
 if TYPE_CHECKING:
     from ..storage.service_store import ServiceStore
@@ -637,7 +637,7 @@ class MediaCacheService:
         *,
         max_bytes: int = MAX_IMAGE_BYTES,
     ) -> tuple[bytes, str]:
-        response = asyncio.run(
+        response = run_coroutine_sync(
             fetch_public_http(
                 url,
                 headers={"Accept": "image/*"},

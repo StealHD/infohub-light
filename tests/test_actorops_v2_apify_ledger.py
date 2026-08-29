@@ -50,17 +50,26 @@ def _attempt(tmp_path: Path) -> tuple[ServiceStore, ActorOpsRepository, object]:
     return store, repository, repository.get_attempt("attempt-ledger")
 
 
-def _reservation(store: ServiceStore, reservation_id: str, *, remote_run_id: str | None = None) -> None:
+def _reservation(
+    store: ServiceStore,
+    reservation_id: str,
+    *,
+    remote_run_id: str | None = None,
+    logical_run_id: str = "attempt-ledger",
+    purpose: str = "acquisition",
+) -> None:
     stamp = "2026-08-20T00:00:00+00:00"
     store.connect().execute(
         """INSERT INTO apify_actor_runs (
                id, workspace_id, logical_run_id, purpose, secret_id, secret_version,
                pool_generation, remote_run_id, dataset_id, status, created_at, updated_at
-           ) VALUES (?, ?, 'attempt-ledger', 'acquisition', 'secret-ledger', 1,
+           ) VALUES (?, ?, ?, ?, 'secret-ledger', 1,
                      1, ?, ?, ?, ?, ?)""",
         (
             reservation_id,
             DEFAULT_WORKSPACE_ID,
+            logical_run_id,
+            purpose,
             remote_run_id,
             "dataset-ledger" if remote_run_id else None,
             "running" if remote_run_id else "reserved",
@@ -73,8 +82,12 @@ def _reservation(store: ServiceStore, reservation_id: str, *, remote_run_id: str
 
 def test_apify_ledger_links_one_exact_reservation_and_fails_closed_on_duplicates(tmp_path: Path) -> None:
     store, _repository, attempt = _attempt(tmp_path)
-    _reservation(store, "reservation-a")
     ledger = ApifyRunLedger(store, workspace_id=DEFAULT_WORKSPACE_ID)
+    missing = asyncio.run(ledger.resolve(attempt))
+    assert missing.link is None
+    assert missing.ambiguous is False
+    assert missing.reservation_absent is True
+    _reservation(store, "reservation-a")
 
     result = asyncio.run(ledger.resolve(attempt))
 
@@ -150,7 +163,7 @@ def test_apify_ledger_reads_existing_run_and_settles_only_its_reservation(tmp_pa
     store.close()
 
 
-def test_apify_ledger_links_only_evidence_bound_settled_start_rejection(
+def test_apify_ledger_links_and_settles_evidence_bound_start_rejection(
     tmp_path: Path,
 ) -> None:
     store, repository, attempt = _attempt(tmp_path)
@@ -174,10 +187,83 @@ def test_apify_ledger_links_only_evidence_bound_settled_start_rejection(
         "UPDATE apify_actor_runs SET charge_final=0 WHERE id='reservation-rejected'"
     )
     connection.commit()
-    unresolved = asyncio.run(
-        ApifyRunLedger(store, workspace_id=DEFAULT_WORKSPACE_ID).resolve(
-            repository.get_attempt("attempt-ledger")
-        )
+    ledger = ApifyRunLedger(store, workspace_id=DEFAULT_WORKSPACE_ID)
+    unsettled = asyncio.run(
+        ledger.resolve(repository.get_attempt("attempt-ledger"))
     )
-    assert unresolved.link is None
+    assert unsettled.link is not None
+    asyncio.run(ledger.settle_proven_no_start(unsettled.link))
+    repaired = connection.execute(
+        """SELECT status, charge_reserved_usd, charge_actual_usd, charge_final
+             FROM apify_actor_runs WHERE id='reservation-rejected'"""
+    ).fetchone()
+    assert tuple(repaired) == ("start_rejected", 0.0, 0.0, 1)
+    store.close()
+
+
+def test_apify_ledger_isolates_probe_to_validation_run_purpose(
+    tmp_path: Path,
+) -> None:
+    store, repository, _attempt_row = _attempt(tmp_path)
+    with repository.transaction():
+        repository.create_attempt(
+            attempt_id="attempt-probe-ledger",
+            idempotency_key="probe-ledger-key",
+            route_id=str(repository.get_candidate("candidate-ledger").route_id),
+            candidate_id="candidate-ledger",
+            kind="probe",
+            attempt_group_id="maintenance:test-slot",
+            attempt_index=0,
+            route_generation=1,
+            binding_version=None,
+            target_fingerprint="2" * 64,
+            reserved_usd=0.05,
+        )
+        repository.transition_attempt(
+            "attempt-probe-ledger", AttemptStatus.CREATED, AttemptStatus.STARTING
+        )
+        repository.transition_attempt(
+            "attempt-probe-ledger",
+            AttemptStatus.STARTING,
+            AttemptStatus.START_UNKNOWN,
+        )
+    _reservation(
+        store,
+        "reservation-probe-acquisition",
+        logical_run_id="attempt-probe-ledger",
+        purpose="acquisition",
+    )
+    _reservation(
+        store,
+        "reservation-probe-validation",
+        logical_run_id="attempt-probe-ledger",
+        purpose="validation",
+    )
+    connection = store.connect()
+    connection.execute(
+        """UPDATE apify_actor_runs
+              SET status='start_rejected', charge_reserved_usd=0,
+                  charge_actual_usd=0, charge_final=0
+            WHERE id='reservation-probe-validation'"""
+    )
+    connection.commit()
+    ledger = ApifyRunLedger(store, workspace_id=DEFAULT_WORKSPACE_ID)
+
+    resolution = asyncio.run(
+        ledger.resolve(repository.get_attempt("attempt-probe-ledger"))
+    )
+
+    assert resolution.link is not None
+    assert resolution.link.reservation_id == "reservation-probe-validation"
+    asyncio.run(ledger.settle_proven_no_start(resolution.link))
+    validation = connection.execute(
+        """SELECT status, charge_reserved_usd, charge_actual_usd, charge_final
+             FROM apify_actor_runs WHERE id='reservation-probe-validation'"""
+    ).fetchone()
+    acquisition = connection.execute(
+        """SELECT status, charge_final FROM apify_actor_runs
+             WHERE id='reservation-probe-acquisition'"""
+    ).fetchone()
+    assert tuple(validation) == ("start_rejected", 0.0, 0.0, 1)
+    assert tuple(acquisition) == ("reserved", 0)
     store.close()

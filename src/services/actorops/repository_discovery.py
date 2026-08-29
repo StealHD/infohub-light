@@ -190,6 +190,127 @@ class DiscoveryRepository:
         ).fetchall()
         return tuple(str(row["candidate_id"]) for row in rows)
 
+    def list_metadata_candidate_ids(self, discovery_id: str) -> tuple[str, ...]:
+        """All discovered candidates that should remain visible to operators."""
+
+        rows = self.repository.connection.execute(
+            """SELECT candidate_id FROM actor_discovery_job_candidates_v2
+               WHERE workspace_id=? AND discovery_id=?
+               ORDER BY rank, candidate_id""",
+            (self.repository.workspace_id, discovery_id),
+        ).fetchall()
+        return tuple(str(row["candidate_id"]) for row in rows)
+
+    def cached_manifest(
+        self,
+        *,
+        route_id: str,
+        actor_id: str,
+        build_id: str,
+        build_number: str,
+        input_schema_hash: str,
+        output_schema_hash: str,
+    ) -> str | None:
+        """Return a previously proved exact-revision mapping without an AI call."""
+
+        row = self.repository.connection.execute(
+            """SELECT manifest_json FROM actor_candidates_v2
+               WHERE workspace_id=? AND route_id=? AND actor_id=?
+                 AND build_id=? AND build_number=?
+                 AND input_schema_hash=? AND output_schema_hash=?
+                 AND manifest_json IS NOT NULL AND lifecycle IN (
+                   'static_valid','probationary','certified'
+                 )
+               ORDER BY CASE lifecycle
+                   WHEN 'certified' THEN 0 WHEN 'probationary' THEN 1 ELSE 2 END,
+                   updated_at DESC, candidate_id
+               LIMIT 1""",
+            (
+                self.repository.workspace_id, route_id, actor_id, build_id,
+                build_number, input_schema_hash, output_schema_hash,
+            ),
+        ).fetchone()
+        return str(row["manifest_json"]) if row is not None else None
+
+    def reject_invalid_static_mapping(
+        self,
+        *,
+        route_id: str,
+        actor_id: str,
+        build_id: str,
+        build_number: str,
+        input_schema_hash: str,
+        output_schema_hash: str,
+        error_code: str,
+    ) -> int:
+        """Remove an unprobed mapping cache that fails the current proof rules."""
+
+        self.repository._require_transaction()
+        stamp = _now()
+        return int(self.repository.connection.execute(
+            """UPDATE actor_candidates_v2
+               SET lifecycle='rejected', assignment_role='inactive', priority=NULL,
+                   last_error_class='candidate', last_error_code=?,
+                   generation=generation+1, updated_at=?
+               WHERE workspace_id=? AND route_id=? AND actor_id=?
+                 AND build_id=? AND build_number=?
+                 AND input_schema_hash=? AND output_schema_hash=?
+                 AND lifecycle='static_valid'""",
+            (
+                error_code, stamp, self.repository.workspace_id, route_id,
+                actor_id, build_id, build_number, input_schema_hash,
+                output_schema_hash,
+            ),
+        ).rowcount)
+
+    def refresh_pending_mapping_issue(
+        self, candidate_id: str, error_code: str
+    ) -> None:
+        """Keep a reused mapping-pending Candidate's safe diagnosis current."""
+
+        self.repository._require_transaction()
+        self.repository.connection.execute(
+            """UPDATE actor_candidates_v2
+               SET last_error_code=?, generation=generation+1, updated_at=?
+               WHERE workspace_id=? AND candidate_id=?
+                 AND lifecycle='mapping_pending'
+                 AND COALESCE(last_error_code, '') != ?""",
+            (
+                error_code, _now(), self.repository.workspace_id,
+                candidate_id, error_code,
+            ),
+        )
+
+    def supersede_pending_mapping(
+        self,
+        *,
+        route_id: str,
+        actor_id: str,
+        build_id: str,
+        build_number: str,
+        input_schema_hash: str,
+        output_schema_hash: str,
+        keep_candidate_id: str,
+    ) -> int:
+        """Retire stale placeholder rows after the exact revision is mapped."""
+
+        self.repository._require_transaction()
+        return int(self.repository.connection.execute(
+            """UPDATE actor_candidates_v2
+               SET lifecycle='rejected', last_error_class='candidate',
+                   last_error_code='actorops_discovery_mapping_superseded',
+                   generation=generation+1, updated_at=?
+               WHERE workspace_id=? AND route_id=? AND actor_id=?
+                 AND build_id=? AND build_number=?
+                 AND input_schema_hash=? AND output_schema_hash=?
+                 AND candidate_id!=? AND lifecycle='mapping_pending'""",
+            (
+                _now(), self.repository.workspace_id, route_id, actor_id,
+                build_id, build_number, input_schema_hash, output_schema_hash,
+                keep_candidate_id,
+            ),
+        ).rowcount)
+
 
 def create(repository: Any, **values: Any) -> None:
     DiscoveryRepository(repository).create(**values)

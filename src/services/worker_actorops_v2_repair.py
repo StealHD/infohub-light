@@ -29,8 +29,10 @@ def run_actorops_v2_repair(
         phase="route_repair", outcome=str(repair["status"]),
         reason_code=repair.get("error_code"),
     )
+    ok = str(repair["status"]) not in {"blocked", "failed", "cancelled"}
     return {
-        "ok": str(repair["status"]) not in {"failed", "cancelled"},
+        "ok": ok,
+        "_job_status": "succeeded" if ok else "failed",
         "job_type": "actorops_v2_repair", "repair_id": repair_id,
         "status": str(repair["status"]), "error_code": repair.get("error_code"),
     }
@@ -92,8 +94,7 @@ def _active_job(connection: Any, workspace_id: str, repair_id: str) -> bool:
 def _operator(connection: Any, workspace_id: str) -> str | None:
     row = connection.execute(
         """SELECT id FROM users WHERE workspace_id=? AND enabled=1
-           AND role IN ('owner','admin')
-           ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, created_at, id LIMIT 1""",
+           AND role IN ('owner','admin') ORDER BY created_at, id LIMIT 1""",
         (workspace_id,),
     ).fetchone()
     return str(row["id"]) if row else None

@@ -1,4 +1,4 @@
-"""Low-priority, default-off Worker boundary for v2 standing maintenance."""
+"""Low-priority Worker boundary for bounded v2 standing maintenance."""
 
 from __future__ import annotations
 
@@ -16,8 +16,13 @@ from .actorops.adapters import build_default_registry
 from .actorops.apify_remote import ApifyV2RemoteClient
 from .actorops.maintenance import ActorOpsProber, ProbeResult
 from .actorops.ports import ProbePreflightResult
+from .actorops.recovery_probe import (
+    RECOVERY_INTENT,
+    valid_recovery_job_payload,
+)
 from .actorops.readiness import require_actorops_v2_schema
 from .actorops.repository import ActorOpsRepository
+from .actorops.runtime_candidate_health import operational_route_summary
 from .apify_pool_runtime import apify_coordinator_for_workspace
 from .job_queue import JobQueue
 from .worker_actorops_v2_discovery import _catalog
@@ -36,11 +41,19 @@ def run_actorops_v2_maintenance(
     require_actorops_v2_schema(store)
     payload = job.get("payload_json") if isinstance(job.get("payload_json"), dict) else {}
     required = {"route_id", "candidate_id", "source_id", "binding_version", "slot"}
-    if set(payload) != required or not all(str(payload.get(key) or "").strip() for key in required):
+    standing = set(payload) == required and all(
+        str(payload.get(key) or "").strip() for key in required
+    )
+    if not standing and not valid_recovery_job_payload(payload):
         raise ValueError("ActorOps v2 maintenance job metadata is invalid")
     result = asyncio.run((ports or WorkerActorOpsV2MaintenancePorts(_run_probe)).run_probe(job, data_dir, store))
+    recovery = payload.get("intent") == RECOVERY_INTENT
+    succeeded = result.status == "recovered" if recovery else result.status not in {
+        "failed", "recovery_required",
+    }
     return {
-        "ok": result.status not in {"failed", "recovery_required"},
+        "ok": succeeded,
+        "_job_status": "succeeded" if succeeded else "failed",
         "job_type": "actorops_v2_maintenance", "route_id": str(payload["route_id"]),
         "candidate_id": result.candidate_id, "attempt_id": result.attempt_id,
         "status": result.status, "error_code": result.error_code,
@@ -57,11 +70,15 @@ async def _run_probe(job: dict[str, Any], data_dir: str, store: ServiceStore) ->
     if not isinstance(config, dict):
         return ProbeResult(None, str(payload["candidate_id"]), "skipped", "actorops_maintenance_source_invalid")
     coordinator = apify_coordinator_for_workspace(
-        store, workspace_id=workspace_id, data_dir=data_dir, purpose="maintenance"
+        store,
+        workspace_id=workspace_id,
+        data_dir=data_dir,
+        purpose="validation",
+        require_validation_key=False,
     )
     if coordinator is None:
         return ProbeResult(None, str(payload["candidate_id"]), "skipped", "actorops_maintenance_credential_unavailable")
-    catalog = _catalog(store, workspace_id, data_dir)
+    catalog = _catalog(store, workspace_id, data_dir, purpose="validation")
     timeout = httpx.Timeout(30.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         remote = ApifyV2RemoteClient(ApifyClient(coordinator=coordinator, http_client=client))
@@ -73,6 +90,19 @@ async def _run_probe(job: dict[str, Any], data_dir: str, store: ServiceStore) ->
             source_id=str(payload["source_id"]), source_config=config,
             maintenance_slot=str(payload["slot"]),
             expected_binding_version=int(payload["binding_version"]),
+            intent=str(payload.get("intent") or "standing"),
+            expected_route_generation=(
+                int(payload["expected_route_generation"])
+                if payload.get("intent") == RECOVERY_INTENT else None
+            ),
+            expected_candidate_generation=(
+                int(payload["expected_candidate_generation"])
+                if payload.get("intent") == RECOVERY_INTENT else None
+            ),
+            expected_last_failure_at=(
+                str(payload["expected_last_failure_at"])
+                if payload.get("intent") == RECOVERY_INTENT else None
+            ),
         )
     return result
 
@@ -104,17 +134,20 @@ def enqueue_due_actorops_v2_maintenance(
         for workspace in workspaces:
             workspace_id = str(workspace["id"])
             repository = ActorOpsRepository(connection, workspace_id)
-            for route_id in repository.maintenance.due_routes(limit=20):
-                candidate_id = repository.maintenance.eligible_candidate(route_id)
-                binding = repository.maintenance.probe_binding(route_id, candidate_id) if candidate_id else None
-                if candidate_id is None or binding is None:
+            routes = repository.maintenance.due_routes(limit=20)
+            user_id = _operator(connection, workspace_id)
+            if user_id is None:
+                deferred += len(routes)
+                continue
+            for route_id in routes:
+                repository.maintenance.reconcile_settled_candidates(route_id)
+                _ensure_degraded_source_repairs(repository, route_id, slot)
+                target = repository.maintenance.probe_target(route_id)
+                if target is None:
                     deferred += 1
                     continue
+                candidate_id, binding = target
                 if _active_or_finished_slot(connection, workspace_id, route_id, candidate_id, slot):
-                    continue
-                user_id = _operator(connection, workspace_id)
-                if user_id is None:
-                    deferred += 1
                     continue
                 queue.create_job(
                     workspace_id=workspace_id, user_id=user_id,
@@ -156,11 +189,42 @@ def _active_or_finished_slot(connection: Any, workspace_id: str, route_id: str, 
     ).fetchone() is not None
 
 
+def _ensure_degraded_source_repairs(
+    repository: ActorOpsRepository, route_id: str, slot: str
+) -> None:
+    candidates = tuple(repository.list_route_candidates(route_id))
+    bindings = repository.connection.execute(
+        """SELECT source_id FROM actor_source_bindings_v2
+             WHERE workspace_id=? AND route_id=? AND status='ready'
+             ORDER BY source_id""",
+        (repository.workspace_id, route_id),
+    ).fetchall()
+    for binding in bindings:
+        source_id = str(binding["source_id"])
+        summary = operational_route_summary(
+            repository,
+            candidates,
+            route_id=route_id,
+            source_id=source_id,
+        )
+        if summary.health.value == "healthy":
+            continue
+        repository.resilience.ensure_repair(
+            route_id=route_id,
+            source_id=source_id,
+            origin_job_id=f"maintenance:{slot}",
+            trigger_code=(
+                "actorops_source_unavailable"
+                if summary.health.value == "unavailable"
+                else "actorops_insufficient_stable_paths"
+            ),
+        )
+
+
 def _operator(connection: Any, workspace_id: str) -> str | None:
     row = connection.execute(
         """SELECT id FROM users WHERE workspace_id=? AND enabled=1
-           AND role IN ('owner','admin') ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END,
-           created_at, id LIMIT 1""",
+           AND role IN ('owner','admin') ORDER BY created_at, id LIMIT 1""",
         (workspace_id,),
     ).fetchone()
     return str(row["id"]) if row else None

@@ -9,8 +9,20 @@ from typing import Any
 
 from .binding_service import ActorOpsBindingError, ActorOpsBindingService
 from .domain import AssignmentRole, CandidateRecord, RouteHealth
+from .discovery_mapping_issues import candidate_mapping_issue
+from .compatibility_projection import candidate_compatibility
+from .presentation_mapping import CandidatePresentationMappings
 from .readiness import require_actorops_v2_schema
 from .repository import ActorOpsNotFound, ActorOpsRepository
+from .runtime_candidate_health import (
+    CandidateOperationalState,
+    candidate_operational_states,
+    operational_route_summary,
+)
+from .workflow_projection import (
+    replacement_workflow_additions,
+    route_workflow_summary,
+)
 
 
 class ActorOpsAdminMigrationRequired(RuntimeError):
@@ -46,10 +58,16 @@ class ActorOpsAdminService:
         )
         bindings = repository.list_route_bindings(route_id)
         metadata = repository.operator.list_metadata(route_id)
+        states = candidate_operational_states(repository, candidates)
         result.update(
             {
                 "candidates": [
-                    self._candidate(repository, item, metadata.get(item.candidate_id))
+                    self._candidate(
+                        repository,
+                        item,
+                        metadata.get(item.candidate_id),
+                        states.get(item.candidate_id),
+                    )
                     for item in candidates
                 ],
                 "bindings": [
@@ -111,12 +129,20 @@ class ActorOpsAdminService:
             if item.last_known_good_candidate_id
         }
         lkg = next((item for item in candidates if item.candidate_id in lkg_ids), None)
-        health = repository.route_health(route_id)
+        states = candidate_operational_states(repository, candidates)
+        operational = operational_route_summary(
+            repository, candidates, route_id=route_id
+        )
+        health = operational.health
         row = repository.connection.execute(
             """SELECT updated_at FROM actor_routes_v2
                WHERE workspace_id=? AND route_id=?""",
             (self.workspace_id, route_id),
         ).fetchone()
+        workflow = route_workflow_summary(
+            self._discoveries(repository, route_id),
+            self._replacements(repository, route_id, metadata),
+        )
         return {
             "route_id": route.route_id,
             "route_key": str(route.route_key),
@@ -126,19 +152,31 @@ class ActorOpsAdminService:
             "runtime_mode": route.runtime_mode.value,
             "generation": route.generation,
             "per_run_cap_usd": route.per_run_cap_usd,
-            "health": health.value,
+            **operational.public(),
             "active_candidate": self._candidate(
-                repository, active, metadata.get(active.candidate_id) if active else None
+                repository,
+                active,
+                metadata.get(active.candidate_id) if active else None,
+                states.get(active.candidate_id) if active else None,
             ),
             "standby_candidates": [
-                self._candidate(repository, item, metadata.get(item.candidate_id))
+                self._candidate(
+                    repository,
+                    item,
+                    metadata.get(item.candidate_id),
+                    states.get(item.candidate_id),
+                )
                 for item in standby
             ],
             "last_known_good": self._candidate(
-                repository, lkg, metadata.get(lkg.candidate_id) if lkg else None
+                repository,
+                lkg,
+                metadata.get(lkg.candidate_id) if lkg else None,
+                states.get(lkg.candidate_id) if lkg else None,
             ),
             "binding_summary": self._binding_summary(bindings),
             "maintenance_policy": self._route_policy(repository, route_id),
+            "workflow": workflow,
             "degraded_reason": self._degraded_reason(
                 route.runtime_mode.value, health, bindings
             ),
@@ -150,6 +188,7 @@ class ActorOpsAdminService:
         return {
             "enabled": bool(policy.enabled),
             "monthly_budget_usd": policy.monthly_budget_usd,
+            "authorization_origin": self._authorization_origin(policy),
             "generation": policy.generation,
         }
 
@@ -167,6 +206,9 @@ class ActorOpsAdminService:
                 "max_probes_per_utc_day": effective.route.max_probes_per_utc_day,
                 "auto_add_standby": effective.route.auto_add_standby,
                 "auto_replace_non_last": effective.route.auto_replace_non_last,
+                "authorization_origin": self._authorization_origin(
+                    effective.route
+                ),
                 "generation": effective.route.generation,
             },
             "budget": {
@@ -177,10 +219,17 @@ class ActorOpsAdminService:
         }
 
     def _candidate(
-        self, repository: ActorOpsRepository, candidate: CandidateRecord | None, metadata: Any | None
+        self,
+        repository: ActorOpsRepository,
+        candidate: CandidateRecord | None,
+        metadata: Any | None,
+        state: CandidateOperationalState | None = None,
     ) -> dict[str, object] | None:
         if candidate is None:
             return None
+        state = state or candidate_operational_states(repository, (candidate,))[
+            candidate.candidate_id
+        ]
         proofs = int(
             repository.connection.execute(
                 """SELECT COUNT(DISTINCT target_fingerprint) FROM actor_attempts_v2
@@ -198,23 +247,18 @@ class ActorOpsAdminService:
             "assignment": candidate.assignment_role.value,
             "priority": candidate.priority,
             "generation": candidate.generation,
-            "last_success_at": self._candidate_stamp(repository, candidate.candidate_id, "last_success_at"),
-            "last_failure_at": self._candidate_stamp(repository, candidate.candidate_id, "last_failure_at"),
-            "last_error_code": self._candidate_stamp(repository, candidate.candidate_id, "last_error_code"),
+            "mapping_issue_code": candidate_mapping_issue(candidate),
+            **candidate_compatibility(repository, candidate),
+            **state.public(),
+            "avatar_mapping_status": CandidatePresentationMappings(
+                repository
+            ).status(candidate),
             "store_metadata": self._metadata(metadata),
             "evidence_progress": {
                 "verified_bindings": min(proofs, required),
                 "required_bindings": required,
             },
         }
-
-    def _candidate_stamp(
-        self, repository: ActorOpsRepository, candidate_id: str, field: str
-    ) -> object:
-        return repository.connection.execute(
-            f"SELECT {field} FROM actor_candidates_v2 WHERE workspace_id=? AND candidate_id=?",
-            (self.workspace_id, candidate_id),
-        ).fetchone()[0]
 
     @staticmethod
     def _metadata(value: Any | None) -> dict[str, object] | None:
@@ -240,6 +284,11 @@ class ActorOpsAdminService:
             "observed_at": value.observed_at,
             "generation": value.generation,
         }
+
+    @staticmethod
+    def _authorization_origin(policy: Any) -> str:
+        value = str(getattr(policy, "authorization_origin", "none"))
+        return value if value in {"system_default", "operator", "none"} else "none"
 
     def _binding(
         self, service: ActorOpsBindingService, item: Any
@@ -345,20 +394,45 @@ class ActorOpsAdminService:
         rows = repository.connection.execute(
             """SELECT discovery_id, trigger_reason, status, stage, stage_attempt,
                       query_count, candidate_count, rejection_count, failure_class,
-                      error_code, generation, created_at, terminal_at, updated_at
+                      error_code, generation, search_cursor, created_at,
+                      terminal_at, updated_at
                FROM actor_discovery_jobs_v2 WHERE workspace_id=? AND route_id=?
                ORDER BY updated_at DESC, discovery_id DESC LIMIT 20""",
             (self.workspace_id, route_id),
         ).fetchall()
-        return [
-            {
-                key: (str(row[key]) if key in {"discovery_id", "trigger_reason", "status", "stage", "created_at", "updated_at"} else row[key])
+        result: list[dict[str, object]] = []
+        for row in rows:
+            cursor = row["search_cursor"]
+            try:
+                state = json.loads(str(cursor or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                state = {}
+            raw_metrics = state.get("metrics") if isinstance(state, dict) else {}
+            raw_metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+            result.append({
+                key: (
+                    str(row[key])
+                    if key in {
+                        "discovery_id", "trigger_reason", "status", "stage",
+                        "created_at", "updated_at",
+                    }
+                    else row[key]
+                )
                 for key in row.keys()
-                if key not in {"failure_class"}
-            }
-            | {"failure_class": row["failure_class"], "terminal_at": row["terminal_at"]}
-            for row in rows
-        ]
+                if key not in {"failure_class", "search_cursor"}
+            } | {
+                "failure_class": row["failure_class"],
+                "terminal_at": row["terminal_at"],
+                "metrics": {
+                    key: max(0, int(raw_metrics.get(key, 0)))
+                    for key in {
+                        "marketplace_hits", "revision_checks", "wrong_actor_type",
+                        "preflight_blocked", "route_relevant", "static_ready",
+                        "sample_required", "system_usable",
+                    }
+                },
+            })
+        return result
 
     def _replacements(
         self, repository: ActorOpsRepository, route_id: str, metadata: dict[str, Any]
@@ -382,6 +456,12 @@ class ActorOpsAdminService:
                     "total_cap_usd": float(row["total_cap_usd"]),
                     "binding_count": int(row["binding_count"]),
                     "error_code": row["error_code"],
+                    **replacement_workflow_additions(
+                        repository,
+                        str(row["plan_id"]),
+                        binding_count=int(row["binding_count"]),
+                        status=str(row["status"]),
+                    ),
                     "candidate": self._candidate(
                         repository, candidate, metadata.get(candidate.candidate_id)
                     ),

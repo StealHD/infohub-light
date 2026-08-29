@@ -14,6 +14,7 @@ from ...apify_actor_manifest import (
     render_actor_input,
 )
 from ..ports import ActorManifest, FetchWindow, NormalizedBatch, TargetSpec
+from ..presentation_evidence import validated_presentation_evidence
 
 
 def build_input(
@@ -49,6 +50,9 @@ def validate_and_map(
         ),
         _runtime(window),
     )
+    presentation = validated_presentation_evidence(
+        rows, target, manifest, platform
+    )
     items = tuple(
         _content_item(
             item,
@@ -63,7 +67,8 @@ def validate_and_map(
         semantic_outcome=mapped.semantic_outcome,
         latest_published_at=mapped.latest_published_at,
         latest_item_id=mapped.latest_native_id,
-        source_avatar_url=mapped.source_avatar_url,
+        source_avatar_url=presentation.avatar_url,
+        presentation_evidence=presentation,
     )
 
 
@@ -109,7 +114,6 @@ def _content_item(
             "platform": platform,
             "native_id": item.native_id,
             **({"engagement": engagement} if engagement else {}),
-            **({"author_avatar_url": item.author_avatar_url} if item.author_avatar_url else {}),
             **({"image_url": item.thumbnail_url} if item.thumbnail_url else {}),
         },
     )

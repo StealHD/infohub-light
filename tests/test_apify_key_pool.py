@@ -459,6 +459,14 @@ def test_quota_freshness_depletion_exhaustion_and_verified_recovery_tail(
             abort_run=unexpected_abort,
         )
     )
+    rejected = service.get_run(first.reservation_id)
+    assert rejected is not None
+    assert (
+        rejected["status"],
+        rejected["charge_reserved_usd"],
+        rejected["charge_actual_usd"],
+        rejected["charge_final"],
+    ) == ("start_rejected", 0.0, 0.0, 1)
 
     after_switch = service.public_state(DEFAULT_WORKSPACE_ID)
     second_id = after_switch["active_secret_id"]

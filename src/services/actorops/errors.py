@@ -12,14 +12,19 @@ class ActorOpsRuntimeError(RuntimeError):
         *,
         failure_class: FailureClass,
         proven_no_start: bool = False,
+        retryable: bool | None = None,
     ) -> None:
         self.code = code
         self.failure_class = failure_class
         self.proven_no_start = bool(proven_no_start)
-        self.retryable = failure_class not in {
-            FailureClass.CONFIGURATION,
-            FailureClass.TARGET,
-        }
+        self.retryable = (
+            failure_class not in {
+                FailureClass.CONFIGURATION,
+                FailureClass.TARGET,
+            }
+            if retryable is None
+            else bool(retryable)
+        )
         super().__init__(code.replace("_", " "))
 
 

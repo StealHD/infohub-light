@@ -11,6 +11,7 @@ import { ActorOpsV2ControlPlane } from '../apify-actors/ActorOpsV2ControlPlane'
 import { ActorOpsV2Logs } from '../apify-actors/ActorOpsV2Logs'
 import { ActorOpsV2RouteControls } from '../apify-actors/ActorOpsV2RouteControls'
 import { actorOpsV2RouteView } from '../apify-actors/actorOpsV2RouteModel'
+import { actorOpsV2WorkflowActive } from '../apify-actors/actorOpsV2WorkflowModel'
 import { actorOpsCanonicalSearchParams, actorOpsTabFromSearchParams, safeActorOpsEventJobId, safeActorOpsRouteKey } from './actorOpsTabModel'
 import { canAdministerWorkspace } from './settingsModel'
 import { preserveSettingsReturnState } from './settingsReturnState'
@@ -30,6 +31,7 @@ export function SettingsActorOpsPage() {
     enabled: canAdminister && tab === 'routes',
     staleTime: queryStaleTime.settings,
     retry: false,
+    refetchInterval: (query) => query.state.data?.routes.some((route) => actorOpsV2WorkflowActive(route.workflow)) ? 3_000 : false,
   })
   useEffect(() => {
     const canonical = actorOpsCanonicalSearchParams(searchParams, tab)

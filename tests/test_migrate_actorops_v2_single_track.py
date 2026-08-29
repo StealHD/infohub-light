@@ -143,7 +143,7 @@ def test_global_30_rebuilds_v2_tables_and_normalizes_shadow_routes(tmp_path: Pat
     assert again["status"] == "already_migrated"
 
 
-def test_fresh_store_seeds_only_v2_registry_routes_and_disabled_policies(
+def test_fresh_store_seeds_v2_routes_with_safe_default_maintenance(
     tmp_path: Path,
 ) -> None:
     store = ServiceStore(tmp_path / "fresh")
@@ -164,12 +164,20 @@ def test_fresh_store_seeds_only_v2_registry_routes_and_disabled_policies(
             ("youtube", "channel", "items", "disabled", 0.02),
         ]
         policies = connection.execute(
-            """SELECT route_id, enabled FROM actor_maintenance_policies_v2
+            """SELECT route_id, enabled, authorization_origin,
+                      auto_replace_non_last
+                 FROM actor_maintenance_policies_v2
                WHERE workspace_id=? ORDER BY route_id""",
             (DEFAULT_WORKSPACE_ID,),
         ).fetchall()
         assert len(policies) == 4
-        assert all(int(row[1]) == 0 for row in policies)
+        assert all(int(row["enabled"]) == 1 for row in policies)
+        assert all(
+            row["authorization_origin"] == "system_default" for row in policies
+        )
+        assert all(
+            row["auto_replace_non_last"] in {None, 0} for row in policies
+        )
         installed_tables = {
             str(row[0])
             for row in connection.execute(

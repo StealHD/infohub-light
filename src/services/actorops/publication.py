@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
+from ..apify_actor_manifest import normalize_http_url
+from ..feed_run import SourceAvatarHint
 from .ports import PublicationProof
 from .repository import ActorOpsRepository
 
@@ -18,7 +21,7 @@ class ActorOpsV2RoutedList(list):
     ) -> None:
         super().__init__(items)
         self._actorops_v2_publication_proof = dict(proof)
-        self._actorops_v2_source_avatar_url = source_avatar_url or ""
+        self._actorops_v2_source_avatar_url = _source_avatar_url(source_avatar_url) or ""
 
 
 def v2_proof_payload(
@@ -48,11 +51,57 @@ def proof_from_items(items: Any) -> dict[str, Any] | None:
     return None
 
 
-def with_publication_proof(items: list[Any], proof: dict[str, Any] | None) -> list[Any]:
+def source_avatar_url_from_items(items: Any) -> str | None:
+    """Read one bounded private avatar sidecar from an ActorOps result."""
+
+    return _source_avatar_url(
+        getattr(items, "_actorops_v2_source_avatar_url", None)
+    )
+
+
+def merge_private_source_avatar_hints(
+    existing: Iterable[SourceAvatarHint], items: Any, source: Any
+) -> tuple[SourceAvatarHint, ...]:
+    """Replay an Instagram avatar sidecar without adding it to item metadata."""
+
+    hints = tuple(existing)
+    proof = proof_from_items(items)
+    avatar_url = source_avatar_url_from_items(items)
+    source_id = str(_source_value(source, "source_id") or "")
+    platform = _source_value(source, "platform")
+    platform = getattr(platform, "value", platform)
+    if (
+        proof is None
+        or str(proof.get("source_id") or "") != source_id
+        or str(platform or "").casefold() != "instagram"
+        or str(_source_value(source, "kind") or "").casefold() != "profile"
+        or avatar_url is None
+    ):
+        return hints
+    hint = SourceAvatarHint(
+        source_id=source_id,
+        remote_url=avatar_url,
+        origin="actorops_v2_instagram_profile",
+    )
+    return hints if hint in hints else (*hints, hint)
+
+
+def with_publication_proof(
+    items: list[Any],
+    proof: dict[str, Any] | None,
+    *,
+    source_avatar_url: str | None = None,
+) -> list[Any]:
     if proof is None:
         return items
     if proof.get("version") == 2 and _valid_v2(proof):
-        return ActorOpsV2RoutedList(items, proof)
+        return ActorOpsV2RoutedList(
+            items,
+            proof,
+            source_avatar_url=(
+                source_avatar_url or source_avatar_url_from_items(items)
+            ),
+        )
     return items
 
 
@@ -119,13 +168,28 @@ def _valid_v2(value: dict[str, Any]) -> bool:
     )
 
 
+def _source_avatar_url(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return normalize_http_url(value)
+    except ValueError:
+        return None
+
+
+def _source_value(source: Any, name: str) -> Any:
+    return source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+
+
 __all__ = [
     "ActorOpsV2RoutedList",
     "assert_cached_v2_proof",
     "capture_result",
+    "merge_private_source_avatar_hints",
     "proof_from_items",
     "publication_proof",
     "publish_pending_watermarks",
+    "source_avatar_url_from_items",
     "v2_proof_payload",
     "with_publication_proof",
 ]

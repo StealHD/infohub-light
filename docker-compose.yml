@@ -6,6 +6,7 @@ services:
       args:
         INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.8.1}
         INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-unknown}
+        INTELISCOPE_SOURCE_DIGEST: ${INTELISCOPE_SOURCE_DIGEST:-unknown}
         INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-unknown}
     pull_policy: build
     container_name: horizon-api
@@ -48,6 +49,7 @@ services:
       args:
         INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.8.1}
         INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-unknown}
+        INTELISCOPE_SOURCE_DIGEST: ${INTELISCOPE_SOURCE_DIGEST:-unknown}
         INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-unknown}
     pull_policy: build
     container_name: horizon-worker

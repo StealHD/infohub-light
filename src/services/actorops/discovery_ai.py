@@ -4,17 +4,28 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .discovery_ai_prompt import mapping_prompt, mapping_system_prompt
 from .ports import DiscoveryAiResult, DiscoveryMapping, DiscoveryRevision
 
 
 _MAX_MAPPINGS = 1
-_MAX_SCHEMA_FIELDS = 80
 _MAX_MANIFEST_BYTES = 16 * 1024
+_SAFE_AI_ERRORS = frozenset({
+    "missing_target_input", "missing_required_input_value", "missing_native_id",
+    "missing_url", "missing_published_at", "missing_text", "missing_identity",
+    "missing_post_author_handle", "output_not_content_items", "ambiguous_output",
+    "wrong_actor_type", "nested_content_items", "named_dataset_required",
+    "output_schema_incomplete", "target_identity_derivable",
+    "relative_published_at", "nested_extraction_failed",
+    "mixed_rows_unclassified", "dataset_run_unbound",
+    "dataset_expansion_overflow", "observed_mapping_failed",
+})
 
 
 @dataclass(slots=True)
@@ -48,23 +59,20 @@ class ActorOpsDiscoveryAiMapper:
         raw = ""
         try:
             raw = await self.client.complete(
-                "Return one strict JSON object only. For each supplied exact Actor "
-                "Build, create a Manifest v1 using only listed schema field names. "
-                "Use the symbolic target reference supplied by the contract; never "
-                "invent fields, URLs, targets, credentials, code, or explanations.",
+                mapping_system_prompt(),
                 json.dumps(_prompt(route_key, selected), ensure_ascii=False, separators=(",", ":")),
                 temperature=0.0,
-                max_tokens=8_192,
+                max_tokens=12_288,
             )
             parsed = _object(raw)
         except Exception:
             parsed = {}
         metrics = getattr(self.client, "last_completion_metrics", None)
-        mappings = {
-            revision.actor_id: DiscoveryMapping(_manifest_json(parsed.get(revision.actor_id)))
-            for revision in selected
-            if _manifest_json(parsed.get(revision.actor_id)) is not None
-        }
+        mappings: dict[str, DiscoveryMapping] = {}
+        for revision in selected:
+            mapping = _mapping(parsed.get(revision.actor_id))
+            if mapping is not None:
+                mappings[revision.actor_id] = mapping
         return DiscoveryAiResult(
             mappings=mappings, config_id=self.config_id,
             input_tokens=getattr(metrics, "input_tokens", None),
@@ -88,8 +96,9 @@ def open_actorops_discovery_ai_mapper(
 ) -> ActorOpsDiscoveryAiMapper | None:
     """Resolve the approved global AI configuration without storing a secret."""
 
-    from ...ai.client import create_ai_client
     from ..apify_discovery_ai import resolve_global_discovery_ai
+    from ..secret_store import SecretStore
+    from .mapping_ai_client import create_actor_mapping_ai_client
 
     selection = resolve_global_discovery_ai(
         store, data_dir=data_dir, workspace_id=workspace_id,
@@ -97,10 +106,20 @@ def open_actorops_discovery_ai_mapper(
     if not selection.ready or selection.config is None:
         return None
     config = selection.config.model_copy(
-        update={"enabled": True, "temperature": 0.0, "max_tokens": 8_192}
+        update={"enabled": True, "temperature": 0.0, "max_tokens": 12_288}
     )
+    api_key = (
+        SecretStore(data_dir).read().get(config.api_key_env)
+        or os.getenv(config.api_key_env)
+    )
+    if not str(api_key or "").strip():
+        return None
     try:
-        client = create_ai_client(config, single_attempt=True, timeout_seconds=90)
+        client = create_actor_mapping_ai_client(
+            config,
+            api_key=str(api_key),
+            timeout_seconds=90,
+        )
     except Exception:
         return None
     return ActorOpsDiscoveryAiMapper(
@@ -110,36 +129,7 @@ def open_actorops_discovery_ai_mapper(
 
 
 def _prompt(route_key: object, revisions: Sequence[DiscoveryRevision]) -> dict[str, object]:
-    return {
-        "route_key": str(route_key),
-        "manifest_contract": {
-            "version": 1,
-            "target_reference": "target.handle",
-            "required_output": ["native_id", "url", "published_at", "text", "author_handle"],
-            "return_shape": {"mappings": {"actor_id": "manifest object"}},
-        },
-        "candidates": [
-            {
-                "actor_id": revision.actor_id, "build_number": revision.build_number,
-                "input_fields": _fields(revision.input_schema),
-                "output_fields": _fields(revision.output_schema),
-            }
-            for revision in revisions
-        ],
-    }
-
-
-def _fields(schema: Mapping[str, object]) -> list[dict[str, str]]:
-    properties = schema.get("properties")
-    if not isinstance(properties, Mapping):
-        return []
-    values: list[dict[str, str]] = []
-    for name, definition in sorted(properties.items(), key=lambda item: str(item[0]))[:_MAX_SCHEMA_FIELDS]:
-        if not isinstance(name, str) or not name:
-            continue
-        field_type = definition.get("type") if isinstance(definition, Mapping) else None
-        values.append({"name": name[:128], "type": str(field_type or "unknown")[:32]})
-    return values
+    return mapping_prompt(route_key, revisions)
 
 
 def _object(value: object) -> Mapping[str, object]:
@@ -168,6 +158,14 @@ def _object(value: object) -> Mapping[str, object]:
             for item in mappings
             if isinstance(item, Mapping) and str(item.get("actor_id") or item.get("actorId") or "").strip()
         }
+    results = parsed.get("results")
+    if isinstance(results, Sequence) and not isinstance(results, (str, bytes)):
+        return {
+            str(item.get("actor_id") or item.get("actorId")): item
+            for item in results
+            if isinstance(item, Mapping)
+            and str(item.get("actor_id") or item.get("actorId") or "").strip()
+        }
     # Some compliant models omit the optional outer wrapper and return the
     # Actor-ID map directly.  Retain it only when every key resembles a public
     # Actor slug and every value is a prospective manifest object/string.
@@ -189,6 +187,22 @@ def _manifest_json(value: object) -> str | None:
         return None
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return encoded if len(encoded.encode("utf-8")) <= _MAX_MANIFEST_BYTES else None
+
+
+def _mapping(value: object) -> DiscoveryMapping | None:
+    if not isinstance(value, Mapping):
+        return None
+    status = str(value.get("status") or "").strip().casefold()
+    if status == "unmappable":
+        code = str(value.get("error_code") or "").strip().casefold()
+        return (
+            DiscoveryMapping(None, f"actorops_discovery_ai_{code}")
+            if code in _SAFE_AI_ERRORS
+            else None
+        )
+    manifest = value.get("manifest") if status == "mapped" else value
+    manifest_json = _manifest_json(manifest)
+    return DiscoveryMapping(manifest_json) if manifest_json is not None else None
 
 
 __all__ = ["ActorOpsDiscoveryAiMapper", "open_actorops_discovery_ai_mapper"]

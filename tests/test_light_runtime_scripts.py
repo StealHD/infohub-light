@@ -109,13 +109,14 @@ def _install_fake_runtime_commands(tmp_path: Path) -> tuple[Path, Path]:
     docker.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
-printf 'docker %s | runtime=%s version=%s revision=%s built_at=%s image=%s\\n' \
+printf 'docker %s | runtime=%s version=%s revision=%s built_at=%s image=%s source_digest=%s\\n' \
   "$*" \
   "${INTELISCOPE_RUNTIME_ROOT-}" \
   "${INTELISCOPE_VERSION-}" \
   "${INTELISCOPE_BUILD_REVISION-}" \
   "${INTELISCOPE_BUILT_AT-}" \
-  "${INTELISCOPE_IMAGE-}" >> "$FAKE_EVENT_LOG"
+  "${INTELISCOPE_IMAGE-}" \
+  "${INTELISCOPE_SOURCE_DIGEST-}" >> "$FAKE_EVENT_LOG"
 if [[ "$*" == *" stop "* && "${FAKE_STOP_FAIL-}" == "true" ]]; then
   exit 1
 fi
@@ -123,7 +124,9 @@ if [[ "$*" == "image ls "* ]]; then
   printf '%b' "${FAKE_LOCAL_IMAGES-}"
 fi
 if [[ "${1-}" == "inspect" ]]; then
-  if [[ "$*" == *".State.Running"* ]]; then
+  if [[ "$*" == *"io.inteliscope.source.digest"* ]]; then
+    printf '%s\\n' "${INTELISCOPE_SOURCE_DIGEST-unknown}"
+  elif [[ "$*" == *".State.Running"* ]]; then
     if [[
       "${FAKE_RUNNING_MODE-}" == "api"
       && "$*" == *"horizon-light-api"*
@@ -185,6 +188,7 @@ case "$url" in
       exit 0
     fi
     case "${FAKE_READY_MODE-}" in
+      migration-actorops-v33) printf '{"ok":false,"error":{"code":"migration_required","message":"actorops_v2 migration_required"}}' ;;
       migration-notification-v16)
         printf '{"ok":false,"error":{"code":"migration_required","message":"notification targets v16 migration must be applied"}}'
         ;;
@@ -282,6 +286,8 @@ def test_up_latest_prefers_light_compose_and_does_not_start_scheduler_by_default
     assert 'docker-compose.yml"' not in script
     assert "--project-name infohub-light" in script
     assert "INTELISCOPE_BUILD_REVISION" in script
+    assert 'revision="${revision}-dirty-${source_digest:0:12}"' in script
+    assert "source changed during the image build" in script
     assert "/api/health/live" in script
     assert "/api/health/ready" in script
     health_position = script.index("/api/health/ready")
@@ -318,7 +324,6 @@ def test_up_latest_resolves_primary_runtime_from_a_linked_worktree(tmp_path: Pat
         capture_output=True,
         text=True,
     )
-
     assert f"source root: {linked}" in linked_result.stdout
     assert f"runtime root: {primary}" in linked_result.stdout
     assert f"version: {LINKED_FIXTURE_VERSION}" in linked_result.stdout
@@ -328,7 +333,6 @@ def test_up_latest_resolves_primary_runtime_from_a_linked_worktree(tmp_path: Pat
     assert "Docker was not called" in linked_result.stdout
     assert "stale-runtime" not in linked_result.stdout
     assert "must-never-be-printed" not in linked_result.stdout
-
     assert f"source root: {primary}" in primary_result.stdout
     assert f"runtime root: {primary}" in primary_result.stdout
     assert f"version: {PROJECT_VERSION}" in primary_result.stdout
@@ -490,6 +494,7 @@ def test_up_latest_prunes_only_stale_local_project_images_after_final_verificati
 def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path):
     primary, linked, _, revision = _create_linked_worktree_fixture(tmp_path)
     migration_cases = {
+        "migration-actorops-v33": "scripts/migrate_actorops_v2_stability.py",
         "migration-notification-v16": "scripts/migrate_notification_targets_v16.py",
         "migration-notification-v15": "scripts/migrate_notification_channels_v15.py",
         "migration-v14": "scripts/migrate_webhook_providers_v14.py",
@@ -526,10 +531,7 @@ def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path)
         events = event_log.read_text(encoding="utf-8")
 
         assert result.returncode != 0
-        assert (
-            "Database migration is required; API and Worker are confirmed stopped."
-            in result.stderr
-        )
+        assert "Database migration is required; API and Worker are confirmed stopped." in result.stderr
         assert f"--data-dir {primary}/data" in result.stderr or expected_script is None
         assert "stop horizon-api horizon-worker" in events
         assert "docker inspect --format {{.State.Running}} horizon-light-api" in events
@@ -941,10 +943,16 @@ def test_production_image_excludes_runtime_data_and_uses_release_identity():
 
     assert "COPY data ./data" not in dockerfile
     assert "INTELISCOPE_BUILD_REVISION" in dockerfile
+    assert "INTELISCOPE_SOURCE_DIGEST" in dockerfile
     assert "INTELISCOPE_BUILT_AT" in dockerfile
     assert 'ENTRYPOINT ["/app/.venv/bin/horizon-api"]' in dockerfile
     assert 'CMD ["--host", "0.0.0.0", "--port", "8080"]' in dockerfile
     assert 'ENTRYPOINT ["uv", "run"' not in dockerfile
+    assert "--mount=type=cache,target=/root/.npm" in dockerfile
+    assert "NPM_CONFIG_CACHE=/root/.npm" in dockerfile
+    assert "--prefer-offline --no-audit --no-fund" in dockerfile
+    assert ":latest" not in dockerfile
+    assert dockerfile.count("@sha256:") == 3
     assert "\ndata/\n" in dockerignore
     for forbidden in (
         "data/service.db",
@@ -965,6 +973,7 @@ def test_api_and_worker_share_one_versioned_service_image():
             block = services[service_name]
             assert "INTELISCOPE_IMAGE" in block
             assert "INTELISCOPE_BUILD_REVISION" in block
+            assert "INTELISCOPE_SOURCE_DIGEST" in block
             assert "INTELISCOPE_BUILT_AT" in block
 
 

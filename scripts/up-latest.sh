@@ -20,6 +20,27 @@ fail() {
   exit 1
 }
 
+sha256_stream() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    fail "sha256sum or shasum is required to identify the build source"
+  fi
+}
+
+workspace_content_digest() {
+  {
+    git -C "$SOURCE_ROOT" rev-parse HEAD
+    git -C "$SOURCE_ROOT" diff --binary --full-index --no-ext-diff HEAD --
+    while IFS= read -r -d '' relative_file; do
+      printf 'untracked\0%s\0' "$relative_file"
+      git -C "$SOURCE_ROOT" hash-object --no-filters -- "$relative_file"
+    done < <(git -C "$SOURCE_ROOT" ls-files --others --exclude-standard -z)
+  } | sha256_stream
+}
+
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --runtime-root)
@@ -108,8 +129,9 @@ PRUNE_PROJECT="infohub-light"
 DEFAULT_WEB_PORT="8080"
 
 revision="$(git -C "$SOURCE_ROOT" rev-parse --short=12 HEAD 2>/dev/null || printf unknown)"
+source_digest="$(workspace_content_digest)"
 if [[ -n "$(git -C "$SOURCE_ROOT" status --porcelain 2>/dev/null || true)" ]]; then
-  revision="${revision}-dirty"
+  revision="${revision}-dirty-${source_digest:0:12}"
 fi
 source_version="$(
   awk -F'"' '/^version[[:space:]]*=[[:space:]]*"/ {print $2; exit}' \
@@ -120,10 +142,11 @@ source_version="$(
 export INTELISCOPE_RUNTIME_ROOT="$RUNTIME_ROOT"
 export INTELISCOPE_VERSION="$source_version"
 export INTELISCOPE_BUILD_REVISION="$revision"
+export INTELISCOPE_SOURCE_DIGEST="sha256:$source_digest"
 export INTELISCOPE_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export INTELISCOPE_IMAGE="inteliscope-service:local-${revision}"
 
-if [[ "$(read_setting HORIZON_BUILD_NO_CACHE true)" == "true" ]]; then
+if [[ "$(read_setting HORIZON_BUILD_NO_CACHE false)" == "true" ]]; then
   BUILD_FLAGS+=("--no-cache")
 fi
 
@@ -137,6 +160,7 @@ echo "    source root: $SOURCE_ROOT"
 echo "    runtime root: $RUNTIME_ROOT"
 echo "    version: $INTELISCOPE_VERSION"
 echo "    revision: $INTELISCOPE_BUILD_REVISION"
+echo "    source digest: $INTELISCOPE_SOURCE_DIGEST"
 echo "    image: $INTELISCOPE_IMAGE"
 echo "    web port: $web_port"
 echo "    services: ${SERVICES[*]}"
@@ -195,6 +219,9 @@ docker compose version >/dev/null 2>&1 || fail "docker compose is unavailable"
 echo "==> Building current workspace into Docker images"
 echo "    ${COMPOSE[*]} build ${BUILD_FLAGS[*]} ${SERVICES[*]}"
 "${COMPOSE[@]}" build "${BUILD_FLAGS[@]}" "${SERVICES[@]}"
+post_build_digest="$(workspace_content_digest)"
+[[ "$post_build_digest" == "$source_digest" ]] \
+  || fail "source changed during the image build; refusing to start an ambiguous image"
 
 echo "==> Recreating running services from freshly built images"
 "${COMPOSE[@]}" up -d --no-build --force-recreate --remove-orphans "${SERVICES[@]}"
@@ -213,6 +240,7 @@ health_output="$(
     --base-url "$base_url" \
     --expected-version "$INTELISCOPE_VERSION" \
     --expected-revision "$INTELISCOPE_BUILD_REVISION" \
+    --expected-source-digest "$INTELISCOPE_SOURCE_DIGEST" \
     --api-container "$API_CONTAINER" \
     --worker-container "$WORKER_CONTAINER" \
     --timeout "${INTELISCOPE_HEALTH_TIMEOUT_SECONDS:-180}" \
@@ -234,6 +262,7 @@ if [[ "$health_status" -eq 3 ]]; then
     || fail "database migration is required, but stopped-container verification failed"
   migration_script=""
   case "$ready_payload" in
+    *"actorops_v2 migration_required"*|*"ActorOps v2 数据库迁移"*) migration_script="scripts/migrate_actorops_v2_stability.py" ;;
     *"Apify Actor pool management v22"*) migration_script="scripts/migrate_apify_actor_pool_management_v22.py" ;;
     *"Apify Actor Canary batch"*) migration_script="scripts/migrate_apify_actor_canary_batches_v17.py" ;;
     *"Apify Discovery limits v16"*) migration_script="scripts/migrate_apify_discovery_limits_v16.py" ;;

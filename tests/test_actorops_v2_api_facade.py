@@ -6,12 +6,19 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from src.apify_actor_identity import source_target_fingerprint
+from src.services.apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
+from src.api.actorops_v2_maintenance_routes import (
+    MUTATION_OPERATION_ROUTES as MAINTENANCE_MUTATION_ROUTES,
+)
 from src.api.actorops_v2_projection import actorops_v2_route_additions
-from src.api.server import create_app
+from src.api.server import MUTATION_OPERATION_ROUTES, create_app
 from src.services.actorops.domain import (
     AssignmentRole, CandidateLifecycle, DiscoveryStage, DiscoveryStatus,
 )
 from src.services.actorops.repository import ActorOpsRepository
+from src.services.actorops.replacement_preview import ReplacementPreviewCheck
+from src.services.actorops.runtime_candidate_health import candidate_operational_states
 from src.services.actorops.admin_service import ActorOpsAdminUnavailable
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 from tests.test_actorops_v1_retirement_boundary import (
@@ -25,6 +32,36 @@ def _store(tmp_path: Path) -> ServiceStore:
     return store
 
 
+def _manifest(actor_id: str, build_number: str) -> str:
+    return json.dumps({
+        "version": 1,
+        "actor_id": actor_id,
+        "build_number": build_number,
+        "input": {"target": {"$ref": "target.handle"}},
+        "output": {
+            "native_id": {"pointers": ["/id"], "transforms": ["to_string"]},
+            "url": {"pointers": ["/url"], "transforms": ["normalize_url"]},
+            "published_at": {
+                "pointers": ["/createdAt"],
+                "transforms": ["parse_datetime"],
+            },
+            "text": {"pointers": ["/text"], "transforms": ["to_string"]},
+            "author_handle": {
+                "pointers": ["/author"],
+                "transforms": ["to_string"],
+            },
+        },
+        "semantics": {
+            "identity": {
+                "output_field": "author_handle",
+                "target_ref": "target.handle",
+                "match": "handle",
+            },
+            "url_host_allowlist": ["example.com"],
+        },
+    })
+
+
 def _route_with_one_assignment(store: ServiceStore) -> tuple[ActorOpsRepository, str]:
     connection = store.connect()
     route_id = str(connection.execute(
@@ -32,11 +69,13 @@ def _route_with_one_assignment(store: ServiceStore) -> tuple[ActorOpsRepository,
     ).fetchone()[0])
     repository = ActorOpsRepository(connection, DEFAULT_WORKSPACE_ID)
     with repository.transaction():
+        manifest = _manifest("publisher/facade", "1.0.0")
         repository.create_candidate(
             candidate_id="facade-candidate", route_id=route_id,
             actor_id="publisher/facade", publisher="publisher",
-            build_id="build-facade", build_number="1.0.0", manifest_json="{}",
-            manifest_hash="a" * 64, input_schema_hash="b" * 64,
+            build_id="build-facade", build_number="1.0.0", manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
+            input_schema_hash="b" * 64,
             output_schema_hash="c" * 64, lifecycle=CandidateLifecycle.CERTIFIED,
         )
         repository.assign_candidate(
@@ -49,11 +88,13 @@ def _route_with_one_assignment(store: ServiceStore) -> tuple[ActorOpsRepository,
 def _route_with_two_assignments(store: ServiceStore) -> tuple[ActorOpsRepository, str]:
     repository, route_id = _route_with_one_assignment(store)
     with repository.transaction():
+        manifest = _manifest("publisher/backup", "2.0.0")
         repository.create_candidate(
             candidate_id="facade-backup", route_id=route_id,
             actor_id="publisher/backup", publisher="backup publisher",
-            build_id="build-backup", build_number="2.0.0", manifest_json="{}",
-            manifest_hash="d" * 64, input_schema_hash="e" * 64,
+            build_id="build-backup", build_number="2.0.0", manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
+            input_schema_hash="e" * 64,
             output_schema_hash="f" * 64, lifecycle=CandidateLifecycle.CERTIFIED,
         )
         repository.assign_candidate(
@@ -111,6 +152,7 @@ def test_admin_route_list_is_v2_only(tmp_path: Path, monkeypatch) -> None:
     assert {route["route_key"] for route in payload["routes"]} == {
         "x/profile/items", "instagram/profile/items", "youtube/channel/items",
     }
+    assert all(set(route["workflow"]) == {"discovery", "replacement"} for route in payload["routes"])
 
 
 def test_facade_projects_health_assignment_lkg_and_disabled_policy(
@@ -126,14 +168,81 @@ def test_facade_projects_health_assignment_lkg_and_disabled_policy(
     assert projection["route_generation"] == 2
     assert projection["active_candidate"]["candidate_id"] == "facade-candidate"
     assert projection["active_candidate"]["generation"] == 2
+    assert projection["active_candidate"]["avatar_mapping_status"] == "missing"
     assert projection["standby_candidates"] == []
     assert projection["binding_summary"] == {"ready_count": 0, "pending_count": 0}
     assert projection["degraded_reason"] == "actorops_v2_route_disabled"
     policy = projection["maintenance_policy"]
     assert policy["authorized"] is False
-    assert policy["workspace"]["enabled"] is False
-    assert policy["route"]["enabled"] is False
+    assert policy["workspace"]["enabled"] is True
+    assert policy["route"]["enabled"] is True
     assert "manifest_json" not in json.dumps(projection, sort_keys=True)
+    store.close()
+
+
+def test_facade_projects_confirmed_failure_and_route_health_then_recovers(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    repository, route_id = _route_with_two_assignments(store)
+    active = repository.get_candidate("facade-candidate")
+    with repository.transaction():
+        repository.record_candidate_outcome(
+            active.candidate_id,
+            expected_generation=active.generation,
+            succeeded=False,
+            error_class="candidate",
+            error_code="apify_actor_build_unavailable",
+        )
+
+    failed = actorops_v2_route_additions(store, DEFAULT_WORKSPACE_ID, route_id)
+
+    assert failed is not None
+    assert failed["health"] == "degraded"
+    assert failed["active_candidate"]["operational_status"] == "confirmed_failure"
+    assert failed["active_candidate"]["issue_code"] == "build_unavailable"
+    assert "apify_actor_build_unavailable" not in json.dumps(failed)
+
+    active = repository.get_candidate("facade-candidate")
+    with repository.transaction():
+        repository.record_candidate_outcome(
+            active.candidate_id,
+            expected_generation=active.generation,
+            succeeded=True,
+            error_class=None,
+            error_code=None,
+        )
+    recovered = actorops_v2_route_additions(store, DEFAULT_WORKSPACE_ID, route_id)
+
+    assert recovered is not None
+    assert recovered["health"] == "healthy"
+    assert recovered["active_candidate"]["operational_status"] == "normal"
+    assert recovered["active_candidate"]["issue_code"] is None
+    store.close()
+
+
+def test_facade_keeps_single_source_stale_regression_as_recent_failure(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    repository, route_id = _route_with_two_assignments(store)
+    active = repository.get_candidate("facade-candidate")
+    with repository.transaction():
+        repository.record_candidate_outcome(
+            active.candidate_id,
+            expected_generation=active.generation,
+            succeeded=False,
+            error_class="candidate",
+            error_code="actorops_stale_regression",
+        )
+
+    projection = actorops_v2_route_additions(store, DEFAULT_WORKSPACE_ID, route_id)
+
+    assert projection is not None
+    assert projection["health"] == "degraded"
+    assert projection["health_reason"] == "insufficient_stable_paths"
+    assert projection["active_candidate"]["operational_status"] == "recent_failure"
+    assert projection["active_candidate"]["issue_code"] == "stale_regression"
     store.close()
 
 
@@ -178,7 +287,9 @@ def test_v2_price_cap_is_cas_and_a_raise_requires_explicit_confirmation(
 ) -> None:
     client = _client(tmp_path, monkeypatch)
     _login(client)
-    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    repository, route_id = _route_with_one_assignment(
+        client.app.state.service_store
+    )
     route = repository.get_route(route_id)
 
     raise_without_confirmation = client.patch(
@@ -290,7 +401,10 @@ def test_v2_binding_verify_returns_zero_cost_evidence_failure(
     client = _client(tmp_path, monkeypatch)
     _login(client)
     store = client.app.state.service_store
-    repository, route_id = _route_with_one_assignment(store)
+    repository = ActorOpsRepository(store.connect(), DEFAULT_WORKSPACE_ID)
+    route_id = str(store.connect().execute(
+        "SELECT route_id FROM actor_routes_v2 ORDER BY route_id LIMIT 1"
+    ).fetchone()[0])
     route = repository.get_route(route_id)
     source_id = store.create_source(
         workspace_id=DEFAULT_WORKSPACE_ID,
@@ -328,7 +442,10 @@ def test_v2_binding_reconcile_reports_safe_blocker_without_confirmation(
     client = _client(tmp_path, monkeypatch)
     _login(client)
     store = client.app.state.service_store
-    repository, route_id = _route_with_one_assignment(store)
+    repository = ActorOpsRepository(store.connect(), DEFAULT_WORKSPACE_ID)
+    route_id = str(store.connect().execute(
+        "SELECT route_id FROM actor_routes_v2 ORDER BY route_id LIMIT 1"
+    ).fetchone()[0])
     route = repository.get_route(route_id)
     source_id = store.create_source(
         workspace_id=DEFAULT_WORKSPACE_ID,
@@ -370,7 +487,7 @@ def test_v2_binding_reconcile_reports_safe_blocker_without_confirmation(
     assert binding["enabled_subscription_count"] == 1
     assert binding["verification"]["state"] == "blocked"
     assert binding["verification"]["reason"] == (
-        "actorops_v2_binding_candidate_input_unsupported"
+        "actorops_v2_binding_no_runnable_candidate"
     )
     assert "sooyaaa__" not in detail.text
     assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 0
@@ -381,7 +498,12 @@ def test_v2_manual_controls_ignore_feature_flag_and_read_only_v2(
 ) -> None:
     client = _client(tmp_path, monkeypatch)
     _login(client)
-    repository, route_id = _route_with_one_assignment(client.app.state.service_store)
+    repository = ActorOpsRepository(
+        client.app.state.service_store.connect(), DEFAULT_WORKSPACE_ID
+    )
+    route_id = str(client.app.state.service_store.connect().execute(
+        "SELECT route_id FROM actor_routes_v2 ORDER BY route_id LIMIT 1"
+    ).fetchone()[0])
     source_id = client.app.state.service_store.create_source(
         workspace_id=DEFAULT_WORKSPACE_ID,
         scope="workspace", owner_user_id=None, source_type="apify_social",
@@ -426,6 +548,53 @@ def test_v2_operator_controls_ignore_feature_flag_and_read_only_v2(
     }
 
 
+def test_replacement_plan_runs_free_preview_check_before_persisting(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    repository, route_id = _route_with_one_assignment(store)
+    candidate = repository.get_candidate("facade-candidate")
+    import src.api.actorops_v2_operator_routes as operator_routes
+
+    async def rejected(*_args, **_kwargs):
+        return ReplacementPreviewCheck(
+            False, "actorops_replacement_contract_invalid"
+        )
+
+    monkeypatch.setattr(
+        operator_routes, "check_replacement_preview", rejected
+    )
+    response = client.post(
+        f"/api/admin/apify-routes/{route_id}/v2-replacements",
+        json={
+            "target_assignment": "active",
+            "target_priority": 0,
+            "candidate_id": candidate.candidate_id,
+            "expected_route_generation": repository.get_route(route_id).generation,
+            "expected_candidate_generation": candidate.generation,
+            "idempotency_key": "free-preview-before-plan",
+            "per_probe_cap_usd": 0.05,
+            "total_cap_usd": 0.05,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == (
+        "actorops_replacement_contract_invalid"
+    )
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM actor_replacement_plans_v2"
+    ).fetchone()[0] == 0
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM actor_attempts_v2"
+    ).fetchone()[0] == 0
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_runs"
+    ).fetchone()[0] == 0
+
+
 def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -435,10 +604,18 @@ def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
     workspace = client.get("/api/admin/apify-maintenance-policy")
     assert workspace.status_code == 200, workspace.text
     workspace_policy = workspace.json()["data"]
-    assert workspace_policy["enabled"] is False
+    assert workspace_policy["enabled"] is True
+    disabled_workspace = client.patch(
+        "/api/admin/apify-maintenance-policy",
+        json={"enabled": False, "expected_generation": workspace_policy["generation"]},
+    )
+    assert disabled_workspace.status_code == 200, disabled_workspace.text
     enabled_workspace = client.patch(
         "/api/admin/apify-maintenance-policy",
-        json={"enabled": True, "expected_generation": workspace_policy["generation"]},
+        json={
+            "enabled": True,
+            "expected_generation": disabled_workspace.json()["data"]["generation"],
+        },
     )
     assert enabled_workspace.status_code == 200, enabled_workspace.text
 
@@ -450,9 +627,21 @@ def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
     route_id = str(routes[0]["route_id"])
     route_policy = client.get(f"/api/admin/apify-routes/{route_id}/maintenance-policy")
     assert route_policy.status_code == 200, route_policy.text
+    assert route_policy.json()["data"]["route"]["enabled"] is True
+    disabled_route = client.patch(
+        f"/api/admin/apify-routes/{route_id}/maintenance-policy",
+        json={
+            "enabled": False,
+            "expected_generation": route_policy.json()["data"]["route"]["generation"],
+        },
+    )
+    assert disabled_route.status_code == 200, disabled_route.text
     enabled_route = client.patch(
         f"/api/admin/apify-routes/{route_id}/maintenance-policy",
-        json={"enabled": True, "expected_generation": route_policy.json()["data"]["route"]["generation"]},
+        json={
+            "enabled": True,
+            "expected_generation": disabled_route.json()["data"]["route"]["generation"],
+        },
     )
     assert enabled_route.status_code == 200, enabled_route.text
     conflict = client.patch(
@@ -463,6 +652,119 @@ def test_v2_maintenance_policy_routes_are_admin_cas_and_do_not_start_probe(
     assert client.app.state.service_store.connect().execute(
         "SELECT COUNT(*) FROM actor_attempts_v2"
     ).fetchone()[0] == 0
+
+
+def test_assigned_confirmed_recovery_probe_is_admin_confirmed_cas_and_idempotent(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = client.app.state.service_store
+    repository, route_id = _route_with_one_assignment(store)
+    route = repository.get_route(route_id)
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Recovery source",
+        config={"target": "openai"},
+    )
+    fingerprint = source_target_fingerprint(
+        DEFAULT_WORKSPACE_ID, route_id, "openai", platform=route.route_key.platform,
+    )
+    with repository.transaction():
+        repository.connection.execute(
+            """INSERT INTO actor_source_bindings_v2 (
+                   binding_id, workspace_id, source_id, route_id,
+                   target_fingerprint, status, binding_version, created_at, updated_at
+               ) VALUES ('facade-recovery-binding',?,?,?,?, 'ready',1,?,?)""",
+            (
+                DEFAULT_WORKSPACE_ID, source_id, route_id, fingerprint,
+                "2026-08-27T00:00:00+00:00", "2026-08-27T00:00:00+00:00",
+            ),
+        )
+        candidate = repository.get_candidate("facade-candidate")
+        candidate = repository.record_candidate_outcome(
+            candidate.candidate_id,
+            expected_generation=candidate.generation,
+            succeeded=False,
+            error_class="candidate",
+            error_code="apify_actor_build_unavailable",
+        )
+    route = repository.get_route(route_id)
+    failure_at = candidate_operational_states(repository, (candidate,))[
+        candidate.candidate_id
+    ].last_failure_at
+    request_payload = {
+        "source_id": source_id,
+        "expected_route_generation": route.generation,
+        "expected_candidate_generation": candidate.generation,
+        "expected_binding_version": 1,
+        "expected_last_failure_at": failure_at,
+        "idempotency_key": "recovery-probe-idempotency-one",
+        "confirmation": "确认实测恢复 Actor",
+    }
+    endpoint = (
+        f"/api/admin/apify-routes/{route_id}/v2-candidates/"
+        "facade-candidate/recovery-probe"
+    )
+    route_template = (
+        "/api/admin/apify-routes/{route_id}/v2-candidates/"
+        "{candidate_id}/recovery-probe"
+    )
+
+    wrong_confirmation = client.post(
+        endpoint, json={**request_payload, "confirmation": "确认恢复 Actor"},
+    )
+    first = client.post(endpoint, json=request_payload)
+    second = client.post(endpoint, json=request_payload)
+    conflicting_replay = client.post(
+        endpoint,
+        json={**request_payload, "expected_candidate_generation": candidate.generation + 1},
+    )
+
+    assert wrong_confirmation.status_code == 400
+    assert ("POST", route_template) in MAINTENANCE_MUTATION_ROUTES
+    assert MUTATION_OPERATION_ROUTES[("POST", route_template)] == (
+        "source", "actorops_v2_candidate_recovery_probe",
+    )
+    assert route_template in client.get("/openapi.json").json()["paths"]
+    assert first.status_code == 200, first.text
+    assert first.json()["data"]["deduplicated"] is False
+    assert second.status_code == 200
+    assert second.json()["data"]["job_id"] == first.json()["data"]["job_id"]
+    assert second.json()["data"]["deduplicated"] is True
+    assert conflicting_replay.status_code == 409
+    row = store.connect().execute(
+        """SELECT max_attempts, payload_json FROM fetch_jobs
+             WHERE id=?""",
+        (first.json()["data"]["job_id"],),
+    ).fetchone()
+    assert int(row["max_attempts"]) == 1
+    queued_payload = json.loads(str(row["payload_json"]))
+    assert queued_payload["intent"] == "operator_recovery"
+    assert queued_payload["expected_last_failure_at"] == failure_at
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM fetch_jobs WHERE job_type='actorops_v2_maintenance'"
+    ).fetchone()[0] == 1
+
+    store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="recovery-member",
+        password="safe-member-password",
+        role="member",
+    )
+    client.post("/api/auth/logout")
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "recovery-member", "password": "safe-member-password"},
+    ).status_code == 200
+    denied = client.post(
+        endpoint,
+        json={**request_payload, "idempotency_key": "recovery-member-denied-one"},
+    )
+    assert denied.status_code == 403
 
 
 def test_v2_policy_endpoint_ignores_feature_flag_without_global_26_reads(

@@ -29,6 +29,7 @@ class RuntimeExpectation:
     api_container: str
     worker_container: str
     public_url: str | None = None
+    expected_source_digest: str | None = None
 
 
 def _fetch(url: str) -> bytes:
@@ -65,6 +66,22 @@ def _container_health(name: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else "missing"
 
 
+def _container_source_digest(name: str) -> str:
+    result = subprocess.run(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            '{{index .Config.Labels "io.inteliscope.source.digest"}}',
+            name,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "missing"
+
+
 def _frontend_asset(base_url: str, fetch: Callable[[str], bytes]) -> str:
     html = fetch(f"{base_url.rstrip('/')}/").decode("utf-8", errors="replace")
     match = re.search(r'/assets/[^"\s]+\.js', html)
@@ -81,6 +98,7 @@ def check_once(
     fetch_json: Callable[[str], dict[str, Any]] = _json,
     fetch_bytes: Callable[[str], bytes] = _fetch,
     container_health: Callable[[str], str] = _container_health,
+    container_source_digest: Callable[[str], str] = _container_source_digest,
 ) -> tuple[bool, str]:
     base = expectation.base_url.rstrip("/")
     live = _data(fetch_json(f"{base}/api/health/live"))
@@ -107,6 +125,14 @@ def check_once(
         )
     if api_health != "healthy" or worker_health != "healthy":
         return False, f"waiting for container health: api={api_health} worker={worker_health}"
+    if expectation.expected_source_digest:
+        api_digest = container_source_digest(expectation.api_container)
+        worker_digest = container_source_digest(expectation.worker_container)
+        if (
+            api_digest != expectation.expected_source_digest
+            or worker_digest != expectation.expected_source_digest
+        ):
+            return False, "waiting for exact source digest"
     asset = _frontend_asset(base, fetch_bytes)
     if expectation.public_url:
         public_live = _data(fetch_json(f"{expectation.public_url.rstrip('/')}/api/health/live"))
@@ -145,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--expected-revision", required=True)
     parser.add_argument("--expected-version")
+    parser.add_argument("--expected-source-digest")
     parser.add_argument("--api-container", required=True)
     parser.add_argument("--worker-container", required=True)
     parser.add_argument("--public-url")
@@ -158,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         api_container=args.api_container,
         worker_container=args.worker_container,
         public_url=args.public_url,
+        expected_source_digest=args.expected_source_digest,
     )
     try:
         detail = wait_for_runtime(expectation, timeout=args.timeout, interval=args.interval)

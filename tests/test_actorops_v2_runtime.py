@@ -3,15 +3,18 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from src.api.actorops_v2_projection import actorops_v2_candidate_projection
 from src.models import ContentItem, SourceType
 from src.apify_actor_identity import source_target_fingerprint
 from src.services.apify_actor_manifest import actor_manifest_hash
-from src.services.actorops.domain import CandidateLifecycle, FailureClass, RouteHealth
+from src.services.actorops.domain import (
+    AttemptStatus, CandidateLifecycle, FailureClass, RouteHealth,
+)
 from src.services.actorops.ports import (
     FetchWindow,
     NativeFallbackResult,
@@ -21,7 +24,12 @@ from src.services.actorops.ports import (
 )
 from src.services.actorops.registry import AdapterRegistry
 from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepository
+from src.services.actorops.repository_freshness import SourceFreshnessRepository
 from src.services.actorops.runtime import ActorOpsRuntime, ActorOpsRuntimeError
+from src.services.actorops.runtime_candidate_health import (
+    candidate_operational_states,
+    operational_route_summary,
+)
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -136,6 +144,24 @@ class _NonFinalRemote(_Remote):
             actual_cost_usd=result.actual_cost_usd,
             cost_final=False,
         )
+
+
+class _GenerationDriftRemote(_Remote):
+    def __init__(self, repository: ActorOpsRepository) -> None:
+        super().__init__(["valid_nonempty"])
+        self.repository = repository
+
+    async def execute(self, request, events):
+        result = await super().execute(request, events)
+        with self.repository.transaction():
+            self.repository.connection.execute(
+                """UPDATE actor_candidates_v2
+                      SET assignment_role='inactive', priority=NULL,
+                          generation=generation+1
+                    WHERE workspace_id=? AND candidate_id=?""",
+                (self.repository.workspace_id, request.candidate_id),
+            )
+        return result
 
 
 def _manifest(actor_id: str) -> str:
@@ -328,7 +354,7 @@ def test_watermark_no_advance_stops_but_stale_regression_tries_standby(tmp_path)
 def test_window_filtered_stale_rows_try_standby_instead_of_stopping_empty(
     tmp_path,
 ) -> None:
-    store, _repository, runtime, remote, route_id, source_id, candidates = _runtime(
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
         tmp_path, ["stale_window", "valid_nonempty"]
     )
     connection = store.connect()
@@ -368,7 +394,7 @@ def test_proven_start_rejection_settles_zero_and_tries_standby(tmp_path) -> None
         failure_class=FailureClass.CANDIDATE,
         proven_no_start=True,
     )
-    store, _repository, runtime, remote, route_id, source_id, candidates = _runtime(
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
         tmp_path, [rejected, "valid_nonempty"]
     )
 
@@ -393,13 +419,399 @@ def test_proven_start_rejection_settles_zero_and_tries_standby(tmp_path) -> None
     store.close()
 
 
+def test_repeated_settled_start_rejection_is_skipped_on_later_jobs(tmp_path) -> None:
+    rejected = ActorOpsRuntimeError(
+        "apify_actor_start_rejected",
+        failure_class=FailureClass.CANDIDATE,
+        proven_no_start=True,
+    )
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path,
+        [rejected, "valid_nonempty", rejected, "valid_nonempty", "valid_nonempty"],
+    )
+    kwargs = {
+        "route_id": route_id,
+        "source_id": source_id,
+        "source_config": {"target": "openai"},
+        "window": FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+    }
+
+    asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-rejected-1"))
+    recent = actorops_v2_candidate_projection(
+        repository, repository.get_candidate(candidates[0])
+    )
+    assert recent["operational_status"] == "recent_failure"
+    assert recent["issue_code"] == "candidate_failure"
+
+    asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-rejected-2"))
+    confirmed = actorops_v2_candidate_projection(
+        repository, repository.get_candidate(candidates[0])
+    )
+    assert confirmed["operational_status"] == "confirmed_failure"
+    assert confirmed["issue_code"] == "repeated_start_rejection"
+    result = asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-rejected-3"))
+
+    assert result.candidate_id == candidates[1]
+    assert [request.candidate_id for request in remote.requests] == [
+        candidates[0], candidates[1], candidates[0], candidates[1], candidates[1]
+    ]
+    store.close()
+
+
+def test_success_resets_start_rejection_evidence_before_a_later_failure(
+    tmp_path,
+) -> None:
+    rejected = ActorOpsRuntimeError(
+        "apify_actor_start_rejected",
+        failure_class=FailureClass.CANDIDATE,
+        proven_no_start=True,
+    )
+    store, repository, runtime, _remote, route_id, source_id, candidates = _runtime(
+        tmp_path,
+        [rejected, "valid_nonempty", "valid_nonempty", rejected, "valid_nonempty"],
+    )
+    kwargs = {
+        "route_id": route_id,
+        "source_id": source_id,
+        "source_config": {"target": "openai"},
+        "window": FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+    }
+
+    asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-reset-1"))
+    asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-reset-success"))
+    asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-reset-2"))
+
+    projection = actorops_v2_candidate_projection(
+        repository, repository.get_candidate(candidates[0])
+    )
+    assert projection["operational_status"] == "recent_failure"
+    assert projection["issue_code"] == "candidate_failure"
+    store.close()
+
+
+def test_paid_failures_on_two_bindings_confirm_candidate_globally(tmp_path) -> None:
+    store, repository, runtime, _remote, route_id, source_id, candidates = _runtime(
+        tmp_path,
+        ["suspicious_empty", "valid_nonempty", "suspicious_empty", "valid_nonempty"],
+    )
+    second_source = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Second runtime source",
+        config={"platform": "test", "kind": "profile", "target": "second"},
+    )
+    second_fingerprint = source_target_fingerprint(
+        DEFAULT_WORKSPACE_ID, route_id, "second", platform="test"
+    )
+    with repository.transaction():
+        repository.connection.execute(
+            """INSERT INTO actor_source_bindings_v2 (
+                   binding_id, workspace_id, source_id, route_id,
+                   target_fingerprint, status, binding_version, created_at, updated_at
+               ) VALUES ('binding-runtime-second', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
+            (
+                DEFAULT_WORKSPACE_ID, second_source, route_id, second_fingerprint,
+                "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00",
+            ),
+        )
+    window = FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None)
+
+    asyncio.run(runtime.fetch(
+        route_id=route_id, source_id=source_id,
+        source_config={"target": "openai"}, window=window,
+        logical_job_id="job-paid-binding-1",
+    ))
+    asyncio.run(runtime.fetch(
+        route_id=route_id, source_id=second_source,
+        source_config={"target": "second"}, window=window,
+        logical_job_id="job-paid-binding-2",
+    ))
+
+    state = actorops_v2_candidate_projection(
+        repository, repository.get_candidate(candidates[0])
+    )
+    assert state["operational_status"] == "confirmed_failure"
+    assert state["issue_code"] == "candidate_failure"
+    summary = operational_route_summary(
+        repository, repository.list_route_candidates(route_id)
+    )
+    assert summary.health is RouteHealth.DEGRADED
+    assert summary.stable_candidate_count == 1
+    store.close()
+
+
+def test_cross_binding_paid_failures_must_both_be_within_twenty_four_hours(
+    tmp_path,
+) -> None:
+    store, repository, _runtime_service, _remote, route_id, source_id, candidates = _runtime(
+        tmp_path, [], candidate_count=2
+    )
+    second_source = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Second boundary source",
+        config={"platform": "test", "kind": "profile", "target": "second"},
+    )
+    second_fingerprint = source_target_fingerprint(
+        DEFAULT_WORKSPACE_ID, route_id, "second", platform="test"
+    )
+    with repository.transaction():
+        repository.connection.execute(
+            """INSERT INTO actor_source_bindings_v2 (
+                   binding_id, workspace_id, source_id, route_id,
+                   target_fingerprint, status, binding_version, created_at, updated_at
+               ) VALUES ('binding-boundary-second', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
+            (
+                DEFAULT_WORKSPACE_ID, second_source, route_id, second_fingerprint,
+                "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00",
+            ),
+        )
+    now = datetime.now(timezone.utc)
+    for index, (current_source, fingerprint, stamp) in enumerate((
+        (source_id, repository.get_binding(source_id).target_fingerprint, now - timedelta(hours=25)),
+        (second_source, second_fingerprint, now - timedelta(hours=1)),
+    )):
+        attempt_id = f"attempt-cross-binding-boundary-{index}"
+        with repository.transaction():
+            repository.create_attempt(
+                attempt_id=attempt_id,
+                idempotency_key=f"key-cross-binding-boundary-{index}",
+                route_id=route_id,
+                source_id=current_source,
+                candidate_id=candidates[0],
+                kind="fetch",
+                attempt_group_id="group-cross-binding-boundary",
+                attempt_index=index,
+                route_generation=repository.get_route(route_id).generation,
+                binding_version=1,
+                target_fingerprint=fingerprint,
+                reserved_usd=0.1,
+                logical_job_id=f"job-cross-binding-boundary-{index}",
+            )
+            repository.transition_attempt(
+                attempt_id, AttemptStatus.CREATED, AttemptStatus.STARTING
+            )
+            repository.complete_attempt(
+                attempt_id,
+                status=AttemptStatus.FAILED,
+                semantic_outcome="actorops_suspicious_empty",
+                actual_cost_usd=0.01,
+                cost_final=True,
+                failure_class=FailureClass.CANDIDATE.value,
+                error_code="actorops_suspicious_empty",
+            )
+            repository.connection.execute(
+                "UPDATE actor_attempts_v2 SET updated_at=? WHERE attempt_id=?",
+                (stamp.isoformat(), attempt_id),
+            )
+    with repository.transaction():
+        repository.connection.execute(
+            """UPDATE actor_candidates_v2
+                  SET last_failure_at=?, last_error_class='candidate',
+                      last_error_code='actorops_suspicious_empty'
+                WHERE candidate_id=?""",
+            ((now - timedelta(hours=1)).isoformat(), candidates[0]),
+        )
+
+    state = candidate_operational_states(
+        repository, (repository.get_candidate(candidates[0]),), now=now
+    )[candidates[0]]
+    assert state.status == "recent_failure"
+    assert state.issue_code == "candidate_failure"
+    store.close()
+
+
+def test_route_health_is_calculated_per_binding_with_inactive_lkg(tmp_path) -> None:
+    store, repository, _runtime_service, _remote, route_id, source_id, candidates = _runtime(
+        tmp_path, [], candidate_count=2
+    )
+    second_source = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Second health source",
+        config={"platform": "test", "kind": "profile", "target": "second"},
+    )
+    second_fingerprint = source_target_fingerprint(
+        DEFAULT_WORKSPACE_ID, route_id, "second", platform="test"
+    )
+    with repository.transaction():
+        repository.connection.execute(
+            """UPDATE actor_candidates_v2
+                  SET assignment_role='inactive', priority=NULL
+                WHERE candidate_id=?""",
+            (candidates[1],),
+        )
+        repository.connection.execute(
+            """UPDATE actor_source_bindings_v2
+                  SET last_known_good_candidate_id=? WHERE source_id=?""",
+            (candidates[1], source_id),
+        )
+        repository.connection.execute(
+            """INSERT INTO actor_source_bindings_v2 (
+                   binding_id, workspace_id, source_id, route_id,
+                   target_fingerprint, status, binding_version, created_at, updated_at
+               ) VALUES ('binding-health-second', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
+            (
+                DEFAULT_WORKSPACE_ID, second_source, route_id, second_fingerprint,
+                "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00",
+            ),
+        )
+    route_candidates = repository.list_route_candidates(route_id)
+
+    lkg_binding = operational_route_summary(
+        repository,
+        route_candidates,
+        route_id=route_id,
+        source_id=source_id,
+    )
+    single_path_binding = operational_route_summary(
+        repository,
+        route_candidates,
+        route_id=route_id,
+        source_id=second_source,
+    )
+    whole_route = operational_route_summary(
+        repository, route_candidates, route_id=route_id
+    )
+
+    assert lkg_binding.health is RouteHealth.HEALTHY
+    assert lkg_binding.stable_candidate_count == 2
+    assert single_path_binding.health is RouteHealth.DEGRADED
+    assert single_path_binding.stable_candidate_count == 1
+    assert whole_route.health is RouteHealth.DEGRADED
+    assert whole_route.at_risk_source_count == 1
+    store.close()
+
+
+def test_zero_candidate_route_uses_explicit_route_fallback_evidence(tmp_path) -> None:
+    store, repository, _runtime_service, _remote, route_id, source_id, _ = _runtime(
+        tmp_path, [], candidate_count=0
+    )
+    before = operational_route_summary(
+        repository, (), route_id=route_id, source_id=source_id
+    )
+    repository.resilience.emit(
+        root_job_id="job-zero-candidate-fallback",
+        route_id=route_id,
+        source_id=source_id,
+        phase="native_fallback",
+        outcome="fallback",
+    )
+    after = operational_route_summary(
+        repository, (), route_id=route_id, source_id=source_id
+    )
+
+    assert before.health is RouteHealth.UNAVAILABLE
+    assert after.health is RouteHealth.DEGRADED
+    assert after.health_reason == "source_fallback_only"
+    assert after.fallback_source_count == 1
+    store.close()
+
+
+def test_native_fallback_still_creates_repair_and_exhaustion_is_not_retryable(
+    tmp_path,
+) -> None:
+    store, repository, runtime, _remote, route_id, source_id, _ = _runtime(
+        tmp_path, ["suspicious_empty", "suspicious_empty"], native=True
+    )
+    result = asyncio.run(runtime.fetch(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-native-repair",
+    ))
+
+    assert result.execution_mode == "native_fallback"
+    repair = repository.connection.execute(
+        """SELECT trigger_code, status FROM actor_route_repairs_v2
+           WHERE source_id=?""",
+        (source_id,),
+    ).fetchone()
+    assert repair["trigger_code"] == "actorops_route_exhausted"
+    assert repair["status"] in {"queued", "blocked"}
+
+    repository.connection.execute(
+        """UPDATE actor_source_candidate_freshness_v2
+              SET cooldown_until=? WHERE source_id=?""",
+        ((datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), source_id),
+    )
+    repository.connection.commit()
+    runtime.registry = AdapterRegistry()
+    runtime.registry.register(_Adapter(native=False))
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(
+            route_id=route_id,
+            source_id=source_id,
+            source_config={"target": "openai"},
+            window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+            logical_job_id="job-exhausted-nonretryable",
+        ))
+    assert caught.value.code == "actorops_v2_route_unavailable"
+    assert caught.value.retryable is False
+    store.close()
+
+
+def test_stale_regression_cools_source_candidate_before_next_paid_job(
+    tmp_path,
+) -> None:
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path, ["stale_window", "stale_window", "valid_nonempty"]
+    )
+    repository.connection.execute(
+        """UPDATE actor_source_bindings_v2
+           SET watermark_latest_published_at=?, watermark_item_id_hash=?
+           WHERE source_id=?""",
+        (
+            "2026-08-20T00:00:00+00:00",
+            hashlib.sha256(b"watermark-item").hexdigest(),
+            source_id,
+        ),
+    )
+    repository.connection.commit()
+    kwargs = {
+        "route_id": route_id,
+        "source_id": source_id,
+        "source_config": {"target": "openai"},
+        "window": FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+    }
+
+    with pytest.raises(ActorOpsRuntimeError) as first:
+        asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-stale-cooldown-1"))
+    with pytest.raises(ActorOpsRuntimeError) as second:
+        asyncio.run(runtime.fetch(**kwargs, logical_job_id="job-stale-cooldown-2"))
+
+    assert first.value.code == "actorops_v2_route_unavailable"
+    assert second.value.code == "actorops_v2_route_unavailable"
+    assert [request.candidate_id for request in remote.requests] == candidates
+    rows = repository.connection.execute(
+        """SELECT candidate_id, state, cooldown_until, last_outcome
+           FROM actor_source_candidate_freshness_v2
+           WHERE source_id=? ORDER BY candidate_id""",
+        (source_id,),
+    ).fetchall()
+    assert [tuple(row)[:2] for row in rows] == [
+        (candidates[0], "source_stale"),
+        (candidates[1], "source_stale"),
+    ]
+    assert all(row["cooldown_until"] for row in rows)
+    assert {row["last_outcome"] for row in rows} == {"stale_regression"}
+    store.close()
+
+
 def test_unproven_start_rejection_keeps_cost_unknown_and_blocks_standby(
     tmp_path,
 ) -> None:
     rejected = ActorOpsRuntimeError(
         "apify_actor_start_rejected", failure_class=FailureClass.CANDIDATE
     )
-    store, _repository, runtime, remote, route_id, source_id, _ = _runtime(
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
         tmp_path, [rejected, "valid_nonempty"]
     )
 
@@ -418,6 +830,11 @@ def test_unproven_start_rejection_keeps_cost_unknown_and_blocks_standby(
     ).fetchone()
     assert tuple(attempt) == (None, 0)
     assert len(remote.requests) == 1
+    candidate = actorops_v2_candidate_projection(
+        repository, repository.get_candidate(candidates[0])
+    )
+    assert candidate["operational_status"] == "recent_failure"
+    assert candidate["issue_code"] == "candidate_failure"
     store.close()
 
 
@@ -637,6 +1054,87 @@ def test_non_final_candidate_cost_blocks_paid_standby(tmp_path) -> None:
 
     assert caught.value.code == "actorops_cost_settlement_required"
     assert len(remote.requests) == 1
+    store.close()
+
+
+def test_attempt_creation_rechecks_unsettled_cost_after_planning(
+    tmp_path, monkeypatch
+) -> None:
+    store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
+        tmp_path, ["valid_nonempty"], candidate_count=1
+    )
+    original = SourceFreshnessRepository.plan_candidates
+    injected = False
+
+    def inject_concurrent_attempt(self, **values):
+        nonlocal injected
+        plan = original(self, **values)
+        if injected:
+            return plan
+        injected = True
+        binding = values["binding"]
+        with repository.transaction():
+            repository.create_attempt(
+                attempt_id="attempt-concurrent-cost",
+                idempotency_key="key-concurrent-cost",
+                route_id=route_id,
+                source_id=source_id,
+                candidate_id=candidates[0],
+                kind="fetch",
+                attempt_group_id="group-concurrent-cost",
+                attempt_index=0,
+                route_generation=repository.get_route(route_id).generation,
+                binding_version=binding.binding_version,
+                target_fingerprint=binding.target_fingerprint,
+                reserved_usd=0.1,
+                logical_job_id="other-source-job",
+            )
+        return plan
+
+    monkeypatch.setattr(
+        SourceFreshnessRepository, "plan_candidates", inject_concurrent_attempt
+    )
+    with pytest.raises(ActorOpsRuntimeError) as caught:
+        asyncio.run(runtime.fetch(
+            route_id=route_id,
+            source_id=source_id,
+            source_config={"target": "openai"},
+            window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+            logical_job_id="racing-source-job",
+        ))
+
+    assert caught.value.code == "actorops_cost_settlement_required"
+    assert remote.requests == []
+    assert repository.connection.execute(
+        "SELECT COUNT(*) FROM actor_attempts_v2"
+    ).fetchone()[0] == 1
+    store.close()
+
+
+def test_runtime_outcome_survives_assignment_generation_drift(tmp_path) -> None:
+    store, repository, runtime, _remote, route_id, source_id, candidates = _runtime(
+        tmp_path, [], candidate_count=1
+    )
+    remote = _GenerationDriftRemote(repository)
+    runtime.remote = remote
+
+    result = asyncio.run(runtime.fetch(
+        route_id=route_id,
+        source_id=source_id,
+        source_config={"target": "openai"},
+        window=FetchWindow(3, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
+        logical_job_id="job-generation-drift",
+    ))
+
+    row = repository.connection.execute(
+        """SELECT assignment_role, priority, last_success_at, last_error_code
+             FROM actor_candidates_v2 WHERE candidate_id=?""",
+        (candidates[0],),
+    ).fetchone()
+    assert result.candidate_id == candidates[0]
+    assert tuple(row[:2]) == ("inactive", None)
+    assert row["last_success_at"]
+    assert row["last_error_code"] is None
     store.close()
 
 

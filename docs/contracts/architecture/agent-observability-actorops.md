@@ -130,6 +130,22 @@ class ActorRouteAdapter(Protocol):
 
 新生产文件遵守 `tests/code_size_policy.json`；通用模块目标不超过 400 行，Adapter 目标不超过约 300 行。现有冻结的 `apify_actor_ops.py`、`apify_actor_route.py`、`service_store.py` 和 ActorOps React 巨型组件只能通过兼容 facade 缩小，不得承载 v2 新行为。
 
+### 3.6K.1 ActorOps v2 Discovery 字段映射边界
+
+现役 v2 `actorops/discovery.py` 不继承历史 compatibility Discovery 的 batch proposal 合同：它先由平台 Adapter 生成可证明 Manifest，再把最多六个剩余 high-quality exact Build 分别交给 AI，每次只包含一个无值 input/output Schema path 集。模型不得创造 Actor、Build、field、literal、reference、模板或 URL 值；proposal 必须由 `discovery_manifest.py`、`discovery_input_semantics.py` 与 `discovery_mapping_semantics.py` 重新证明路径、类型和字段用途。AI 产品合同按 Route 独立定义：X 只接受目标账号帖子或作者绑定搜索，Instagram 只接受目标账号帖子/Reels/媒体，YouTube 只接受频道视频/Shorts/上传；评论、字幕、关系或纯资料 Actor 归为其他 Route，不标成 Actor 故障。共同最小发布合同只要求稳定 ID、原文 URL、发布时间、目标身份和 `title|text` 至少一个，图片与作者展示字段为可选增强，详情继续由原文 URL 承担。`discovery_virtual_fields.py` 只注册平台 Adapter 可重建且会再次核验的派生值：X 可从 exact author handle 与数字 post ID 派生同 host 状态 URL；YouTube 视频行未重复返回频道 ID 时可注入已规范化的 `target.native_id`，Actor 的同名保留字段会被覆盖。X 高级搜索的 `from:<handle>` 只由 `adapters/x/profile_mapping.py` 在 exact enum/input pattern 下代码生成，Manifest 和模型都不能执行任意插值。嵌套内容、命名 Dataset、相对时间和可由目标派生的身份使用独立安全缺口并保持待处理，不等同于永久不兼容。`mapping_ai_client.py` 的 DeepSeek thinking/output policy 只服务 Actor 字段映射，不能改变通用 AI 客户端。通过的 Manifest 只按 exact Schema identity 持久复用，一个调用失败只影响一个 Candidate。
+
+YouTube 身份派生的最终规则以 `target.canonical_url` 为准：Adapter 覆盖注入规范化频道 URL 并按 URL exact 核验，取代仅适用于已有 channel ID 的 `target.native_id` 方案，同时覆盖 `/channel/UC…` 与 `@handle` 绑定。
+
+### 3.6K.2 ActorOps v2 Dataset 观察适配边界
+
+候选适配按三个模块边界组合。`discovery.py` 只负责合并搜索、公开质量排序、错 Route 类型过滤和最多五个 exact Revision；`discovery_manifest.py` 将 exact Input/Output Schema、平台 Prompt 与可选 `row_extraction` 证明为静态计划；`dataset_adaptation.py` 只在既有付费 Attempt 已结算且拥有当前 Run 注册的 Dataset ID 后观察真实结构。静态计划不能越过真实 Dataset 证明成为正式可用候选。
+
+`apify_actor_row_extraction.py` 是所有运行路径唯一的行展开器。它输出 `item|parent|root` 只读 envelope，并强制 Pointer、深度、通配层、筛选数量、顶层读取和发布子项总数上限；`adapter_rows.py` 将其接入 Runtime、Maintenance、Replacement 与重验后，再由平台 Adapter 执行目标身份、URL、时间、正文和可选图片验证。平台字段知识继续只存在于 Adapter 和平台 Prompt，通用展开器不得按 X、Instagram 或 YouTube 分支。
+
+`observed_dataset_schema.py` 只生成路径、类型、数组长度区间、URL/时间格式类别与安全短枚举，不保留正文、账号、目标、URL 值、Secret 或个人标签。`dataset_adaptation.py` 最多调用两轮 Actor 专用 mapping AI，每次 proposal 仍由静态证明和真实 Adapter 验证双重约束。成功修正通过 `repository_adaptation.py` 创建 immutable successor、写零费用 Dataset evidence 并在同一事务中 retarget 原 Replacement plan；不得修改原 Attempt、Run、费用或 Dataset，也不得再次调用 Actor。失败只标记计划 `adaptation_pending`，不把系统映射缺口升级为 Actor 故障。
+
+公开 Output Schema 缺失时，平台 Adapter 只能生成 input-only `InputPlan v1`；`input_plan.py` 负责受限引用、结构、危险字段、exact Actor/Build 和 Input Schema 证明，`repository_sampling.py` 只读写 global 35 私有 sidecar。InputPlan 不能包含输出映射、不能伪装 Manifest，也不得出现在 Admin API、日志或浏览器。Replacement preview 和 Runner 可用它渲染一次已授权 Probe 输入；取得当前 Run-bound Dataset 后立即进入上述 observed adaptation，原 mapping-pending Candidate 成功时由 immutable successor 取代，失败保持精确适配缺口而非 Actor 故障。
+
 ### 3.6L ActorOps v2 Admin 读取边界
 
 `ActorOpsAdminService` 是现役管理读模型的唯一组合服务：它只经 v2 Repository 查询 Route、Candidate、Binding、Attempt、Discovery、Maintenance、Replacement 与安全 Store metadata，既不构造或读取任何 v1 Route、Pool、Canary、Freshness 或 diagnostic 表。`actorops_admin_routes.py` 只负责 Owner/Admin 鉴权、HTTP envelope 与 503 映射；list/detail 固定为 `schema_version=2`，并对 target fingerprint、水位、Manifest、remote Run/Dataset、idempotency 与 Secret 相关字段脱敏。ActorOps 事件只由脱敏的 `OperationLogQueryService` 提供，且只暴露 `actorops_v2_*` action。缺少 global 30 时 API 返回 `actorops_v2_migration_required`，其他存储不可用为 `actorops_v2_unavailable`；不存在 feature flag、shadow 或旧 HTTP 适配器回退。

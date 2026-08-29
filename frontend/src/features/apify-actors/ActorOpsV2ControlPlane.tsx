@@ -3,7 +3,8 @@ import { useState, type ReactNode } from 'react'
 import { Card, StatusIndicator } from '../../design-system'
 import { ActorOpsV2ActorChip } from './ActorOpsV2ActorChip'
 import { ActorOpsV2RouteDetailPanel, ActorOpsV2RouteDetailTrigger } from './ActorOpsV2RouteDetail'
-import { type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
+import { ActorOpsV2RouteWorkflowSummary } from './ActorOpsV2WorkflowProgress'
+import { orderedActorOpsV2StandbyCandidates, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 export type { ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
@@ -42,6 +43,7 @@ function RouteCard({ route, children, isFocused, open, onOpenChange }: {
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const routeReason = visibleRouteReason(route)
   return <Card data-actorops-route-card={route.platform} data-actorops-route-key={route.route_key} data-actorops-route-focused={isFocused || undefined} variant="secondary" className={`gap-0 border border-separator bg-surface-secondary p-0 ${isFocused ? 'ring-2 ring-focus' : ''}`}>
     <Card.Header className="flex min-w-0 flex-row items-start justify-between gap-3 px-4 py-2.5">
       <div className="min-w-0"><Card.Title className="type-control">{routeTitle(route.platform)}</Card.Title><Card.Description className="type-meta mt-0.5 text-muted">{modeLabel(route.runtime_mode)}</Card.Description></div>
@@ -50,19 +52,40 @@ function RouteCard({ route, children, isFocused, open, onOpenChange }: {
     <Card.Content className="grid gap-1.5 px-4 pb-2.5 pt-0">
       <div className="grid min-w-0 gap-1.5 min-[768px]:grid-cols-2 min-[768px]:gap-x-6">
         <CandidateSlot label="主用" candidate={route.active_candidate} />
-        {route.standby_candidates.map((candidate, index) => <CandidateSlot key={candidate.candidate_id} label={`备用 ${index + 1}`} candidate={candidate} />)}
+        {[1, 2].map((priority) => <CandidateSlot key={`standby-${priority}`} label={`备用 ${priority}`} candidate={standbyCandidate(route, priority)} />)}
       </div>
-      {route.degraded_reason && <p className="type-meta text-muted">{reasonLabel(route.degraded_reason, route.binding_summary.pending_count)}</p>}
+      {routeReason && <p className="type-meta text-muted">{reasonLabel(routeReason, route.binding_summary.pending_count)}</p>}
+      <ActorOpsV2RouteWorkflowSummary workflow={route.workflow} />
     </Card.Content>
     <Card.Footer className="flex min-w-0 flex-row flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-separator px-4 py-2">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 type-meta text-muted">
         <RecentSuccess candidate={route.last_known_good} />
+        <span>稳定路径 {route.stable_candidate_count}</span>
+        {route.cooling_candidate_count > 0 && <span>冷却 {route.cooling_candidate_count}</span>}
+        {route.at_risk_source_count > 0 && <span>风险来源 {route.at_risk_source_count}</span>}
+        {route.fallback_source_count > 0 && <span>原生降级 {route.fallback_source_count}</span>}
         <span>已核验 {route.binding_summary.ready_count} 条</span><span>上限 ${route.per_run_cap_usd.toFixed(2)}</span>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1"><ActorOpsV2RouteDetailTrigger open={open} onOpenChange={onOpenChange} />{children}</div>
+      <div className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-1 min-[640px]:basis-auto"><ActorOpsV2RouteDetailTrigger open={open} onOpenChange={onOpenChange} />{children}</div>
     </Card.Footer>
     {open && <div className="px-4 pb-3"><ActorOpsV2RouteDetailPanel route={route} open={open} /></div>}
   </Card>
+}
+
+function standbyCandidate(route: ActorOpsV2RouteView, priority: number) {
+  return orderedActorOpsV2StandbyCandidates(route.standby_candidates).find(
+    (candidate, index) => (candidate.priority ?? index + 1) === priority,
+  ) || null
+}
+
+function visibleRouteReason(route: ActorOpsV2RouteView) {
+  const controlReasons = new Set([
+    'actorops_v2_route_disabled',
+    'actorops_v2_route_migration_required',
+    'actorops_v2_binding_not_ready',
+  ])
+  if (route.degraded_reason && controlReasons.has(route.degraded_reason)) return route.degraded_reason
+  return route.health_reason || route.degraded_reason
 }
 
 function CandidateSlot({ label, candidate }: { label: string; candidate: CandidateView | null }) {
@@ -91,6 +114,10 @@ function reasonLabel(reason: string, pendingBindings: number) {
     actorops_v2_route_migration_required: '当前路线需要完成单轨迁移后才能启用。',
     actorops_v2_no_runnable_candidate: '没有可运行的已验证 Actor。',
     actorops_v2_single_runnable_candidate: '当前只有 1 个可运行 Actor，仍可获取。',
+    all_sources_redundant: '全部就绪来源都有至少两条稳定 Actor 路径。',
+    insufficient_stable_paths: '仍可获取，但至少一个来源缺少稳定冗余，维护任务会继续补池。',
+    source_fallback_only: '至少一个来源当前只能使用免费原生降级，Actor 路径正在修复。',
+    source_unavailable: '至少一个来源既没有可运行 Actor，也没有可信免费降级。',
   }
   return reason === 'actorops_v2_binding_not_ready' ? `有 ${pendingBindings} 条来源尚未完成 v2 核验。` : labels[reason] || '当前路线需要处理后才能继续。'
 }

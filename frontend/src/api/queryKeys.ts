@@ -63,6 +63,12 @@ export const queryKeys = {
   actorOpsV2Route: (userId: string, routeId: string) => [
     ...userKey(userId), 'actorops-v2-routes', routeId,
   ] as const,
+  actorOpsV2Candidates: (userId: string, routeId: string) => [
+    ...userKey(userId), 'actorops-v2-candidates', routeId,
+  ] as const,
+  actorOpsV2Replacement: (userId: string, routeId: string, planId: string) => [
+    ...userKey(userId), 'actorops-v2-replacement', routeId, planId,
+  ] as const,
   actorOpsV2Events: (userId: string, sourceId = '') => [
     ...userKey(userId), 'actorops-v2-events', sourceId,
   ] as const,

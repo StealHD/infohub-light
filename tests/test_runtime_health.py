@@ -69,6 +69,25 @@ def test_both_healthy_are_required() -> None:
     assert "worker=starting" in detail
 
 
+def test_exact_source_digest_is_part_of_success() -> None:
+    expectation = RuntimeExpectation(
+        **{**EXPECTATION.__dict__, "expected_source_digest": "sha256:expected"}
+    )
+
+    ready, detail = check_once(
+        expectation,
+        fetch_json=_json,
+        fetch_bytes=_bytes,
+        container_health=lambda _name: "healthy",
+        container_source_digest=lambda name: (
+            "sha256:expected" if name == "api" else "sha256:stale"
+        ),
+    )
+
+    assert ready is False
+    assert detail == "waiting for exact source digest"
+
+
 def test_unhealthy_fails_immediately() -> None:
     with pytest.raises(RuntimeUnhealthy, match="api=unhealthy"):
         check_once(

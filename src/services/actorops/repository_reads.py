@@ -49,6 +49,7 @@ def get_candidate(repository: Any, candidate_id: str) -> CandidateRecord:
         publisher=str(row["publisher"]), build_number=row["build_number"],
         manifest_json=row["manifest_json"], input_schema_hash=row["input_schema_hash"],
         output_schema_hash=row["output_schema_hash"],
+        last_error_code=row["last_error_code"],
     )
 
 

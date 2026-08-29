@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ..apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
+from .adapter_rows import validate_and_enrich_adapter_rows
 from .attempt_events import RepositoryAttemptEvents
 from .attempt_recovery import attempt_identity, frozen_window, request_fingerprint
+from .candidate_failure_settlement import record_settled_candidate_failure
 from .domain import AttemptStatus, FailureClass, RouteHealth
 from .errors import ActorOpsRuntimeError
 from .policy import classify_batch_freshness
@@ -19,7 +21,7 @@ from .ports import (
     RemoteRunRequest,
     RemoteRunResult,
 )
-from .repository import ActorOpsConflict, ActorOpsRepository
+from .repository import ActorOpsRepository
 
 
 _TERMINAL = {
@@ -141,25 +143,36 @@ class CandidateExecution:
             window=window,
         )
         with self.repository.transaction():
-            self.repository.create_attempt(
-                attempt_id=attempt_id,
-                idempotency_key=key,
-                route_id=snapshot.route.route_id,
-                source_id=source_id,
-                candidate_id=candidate.candidate_id,
-                kind="fetch",
-                attempt_group_id=group_id,
-                attempt_index=index,
-                route_generation=snapshot.route.generation,
-                binding_version=snapshot.binding.binding_version,
-                target_fingerprint=snapshot.target_fingerprint,
-                reserved_usd=snapshot.route.per_run_cap_usd,
-                logical_job_id=logical_job_id,
-                request_fingerprint=fingerprint,
-                window_since=window.since.isoformat(),
-                window_until=window.until.isoformat() if window.until else None,
-                max_items=window.max_items,
-            )
+            # The planner's read is advisory.  Recheck under BEGIN IMMEDIATE so
+            # two source jobs cannot both pass the cost barrier and create a new
+            # paid Attempt before either reservation becomes visible.
+            existing = self.repository.get_attempt_by_idempotency(key)
+            if existing is None:
+                if self.repository.has_unsettled_fetch_cost(
+                    route_id=snapshot.route.route_id, source_id=source_id
+                ):
+                    raise _cost_settlement_required()
+                self.repository.create_attempt(
+                    attempt_id=attempt_id,
+                    idempotency_key=key,
+                    route_id=snapshot.route.route_id,
+                    source_id=source_id,
+                    candidate_id=candidate.candidate_id,
+                    kind="fetch",
+                    attempt_group_id=group_id,
+                    attempt_index=index,
+                    route_generation=snapshot.route.generation,
+                    binding_version=snapshot.binding.binding_version,
+                    target_fingerprint=snapshot.target_fingerprint,
+                    reserved_usd=snapshot.route.per_run_cap_usd,
+                    logical_job_id=logical_job_id,
+                    request_fingerprint=fingerprint,
+                    window_since=window.since.isoformat(),
+                    window_until=window.until.isoformat() if window.until else None,
+                    max_items=window.max_items,
+                )
+        if existing is not None:
+            return await self._resume(existing, candidate)
         return _PreparedAttempt(
             attempt_id=attempt_id,
             window=window,
@@ -242,11 +255,11 @@ class CandidateExecution:
         except ActorOpsRuntimeError as error:
             self._record_failure(prepared.attempt_id, error)
             if error.failure_class is FailureClass.CANDIDATE:
+                self._candidate_outcome(
+                    candidate, succeeded=False, error_code=error.code
+                )
                 row = self.repository.get_attempt(prepared.attempt_id)
                 if bool(row["cost_final"]):
-                    self._candidate_outcome(
-                        candidate, succeeded=False, error_code=error.code
-                    )
                     raise _SettledCandidateFailure() from None
                 raise _cost_settlement_required() from None
             raise
@@ -279,8 +292,9 @@ class CandidateExecution:
         health: RouteHealth,
     ) -> ExecutionResult | None:
         try:
-            batch = adapter.validate_output(
-                run.rows, target, manifest, prepared.window
+            batch = validate_and_enrich_adapter_rows(
+                self.repository, adapter, run.rows, target, manifest,
+                prepared.window, candidate, snapshot.route.route_key.platform,
             )
             try:
                 batch = classify_batch_freshness(batch, snapshot.binding)
@@ -291,12 +305,22 @@ class CandidateExecution:
                 ) from None
         except ActorOpsRuntimeError as error:
             self._record_failure(prepared.attempt_id, error)
+            if error.failure_class is FailureClass.CANDIDATE:
+                self._candidate_outcome(
+                    candidate, succeeded=False, error_code=error.code
+                )
+                if not bool(self.repository.get_attempt(prepared.attempt_id)["cost_final"]):
+                    raise _cost_settlement_required() from None
             raise
         except Exception:
             return self._invalid_output(prepared.attempt_id, candidate)
         if batch.semantic_outcome in {"suspicious_empty", "stale_regression"}:
             return self._suspicious_output(
-                prepared.attempt_id, candidate, batch.semantic_outcome, run
+                prepared.attempt_id,
+                candidate,
+                batch.semantic_outcome,
+                run,
+                binding=snapshot.binding,
             )
         current = AttemptStatus(
             str(self.repository.get_attempt(prepared.attempt_id)["status"])
@@ -364,12 +388,14 @@ class CandidateExecution:
         candidate: Any,
         outcome: str,
         run: RemoteRunResult,
+        *,
+        binding: Any,
     ) -> None:
         current = AttemptStatus(str(self.repository.get_attempt(attempt_id)["status"]))
         if current is AttemptStatus.SUCCEEDED:
             raise _replay_outcome_conflict()
-        if current not in _TERMINAL:
-            with self.repository.transaction():
+        with self.repository.transaction():
+            if current not in _TERMINAL:
                 self.repository.complete_attempt(
                     attempt_id,
                     status=AttemptStatus.FAILED,
@@ -379,9 +405,26 @@ class CandidateExecution:
                     failure_class=FailureClass.CANDIDATE.value,
                     error_code=f"actorops_{outcome}",
                 )
+            record_settled_candidate_failure(
+                self.repository,
+                attempt_id=attempt_id,
+                outcome=(
+                    "stale_regression"
+                    if outcome == "stale_regression"
+                    else "paid_candidate_failure"
+                ),
+            )
         self._candidate_outcome(
             candidate, succeeded=False, error_code=f"actorops_{outcome}"
         )
+        if outcome == "stale_regression":
+            self.repository.resilience.record_stale_regression(
+                binding=binding,
+                candidate_id=candidate.candidate_id,
+                logical_job_id=str(
+                    self.repository.get_attempt(attempt_id)["logical_job_id"]
+                ),
+            )
         self.repository.resilience.emit(
             root_job_id=str(self.repository.get_attempt(attempt_id)["logical_job_id"]),
             route_id=candidate.route_id, source_id=str(self.repository.get_attempt(attempt_id)["source_id"] or "") or None,
@@ -446,6 +489,12 @@ class CandidateExecution:
                 failure_class=error.failure_class.value,
                 error_code=error.code,
             )
+            if error.failure_class is FailureClass.CANDIDATE:
+                record_settled_candidate_failure(
+                    self.repository,
+                    attempt_id=attempt_id,
+                    outcome="paid_candidate_failure",
+                )
 
     def _candidate_outcome(
         self,
@@ -454,19 +503,15 @@ class CandidateExecution:
         succeeded: bool,
         error_code: str | None = None,
     ) -> None:
-        try:
-            with self.repository.transaction():
-                self.repository.record_candidate_outcome(
-                    candidate.candidate_id,
-                    expected_generation=candidate.generation,
-                    succeeded=succeeded,
-                    error_class=(
-                        None if succeeded else FailureClass.CANDIDATE.value
-                    ),
-                    error_code=error_code,
-                )
-        except ActorOpsConflict:
-            return
+        with self.repository.transaction():
+            self.repository.record_runtime_candidate_outcome(
+                candidate.candidate_id,
+                succeeded=succeeded,
+                error_class=(
+                    None if succeeded else FailureClass.CANDIDATE.value
+                ),
+                error_code=error_code,
+            )
 
 
 class _SettledCandidateFailure(ActorOpsRuntimeError):
@@ -480,6 +525,7 @@ def _cost_settlement_required() -> ActorOpsRuntimeError:
     return ActorOpsRuntimeError(
         "actorops_cost_settlement_required",
         failure_class=FailureClass.REMOTE_UNKNOWN,
+        retryable=False,
     )
 
 

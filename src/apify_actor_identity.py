@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+def source_config_target(
+    config: Mapping[str, object], *, platform: str | None = None
+) -> str:
+    """Return the raw acquisition target across social and native source shapes."""
+
+    value = config.get("target")
+    if not str(value or "").strip() and str(platform or "").casefold() == "youtube":
+        value = config.get("url")
+    return str(value or "").strip()
 
 
 def source_target_fingerprint(
@@ -75,4 +87,8 @@ def canonical_source_target_identity(
     )
 
 
-__all__ = ["canonical_source_target_identity", "source_target_fingerprint"]
+__all__ = [
+    "canonical_source_target_identity",
+    "source_config_target",
+    "source_target_fingerprint",
+]

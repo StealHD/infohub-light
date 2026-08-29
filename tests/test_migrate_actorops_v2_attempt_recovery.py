@@ -22,6 +22,12 @@ from src.storage.service_store import ServiceStore
 
 def _downgrade_to_v28(store: ServiceStore) -> None:
     connection = store.connect()
+    # Latest initialization includes the later revalidation transition trigger,
+    # which references the v29 logical_job_id column.  A real v28 database did
+    # not have that trigger, so remove it before dropping v29 columns.
+    connection.execute(
+        "DROP TRIGGER IF EXISTS trg_actor_candidates_v2_transition"
+    )
     for trigger in REQUIRED_TRIGGERS:
         connection.execute(f"DROP TRIGGER {trigger}")
     for index in REQUIRED_INDEXES:

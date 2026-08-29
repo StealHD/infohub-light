@@ -1,4 +1,4 @@
-"""Policy, budget, and assignment SQL for default-off v2 maintenance."""
+"""Policy, budget, and assignment SQL for bounded v2 maintenance."""
 
 from __future__ import annotations
 
@@ -7,8 +7,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .domain import AssignmentRole, CandidateLifecycle, MaintenanceBudget, MaintenancePolicyRecord
+from .maintenance_selection import select_probe_target
 from .policy import candidate_is_runnable
+from .recovery_probe import (
+    apply_settled_recovery_success,
+    recovery_target_is_current,
+)
 from .repository_errors import ActorOpsConflict, ActorOpsNotFound
+from .runtime_candidate_health import candidate_operational_states
 
 
 MAX_MONTHLY_USD, MAX_PROBE_USD, MAX_PROBES_PER_DAY = 3.0, 0.05, 5
@@ -17,13 +23,15 @@ MAX_MONTHLY_USD, MAX_PROBE_USD, MAX_PROBES_PER_DAY = 3.0, 0.05, 5
 class EffectiveMaintenancePolicy:
     workspace: MaintenancePolicyRecord
     route: MaintenancePolicyRecord
+    principal_user_id: str | None
 
     @property
     def authorized(self) -> bool:
         return bool(
             self.workspace.enabled and self.route.enabled
-            and self.workspace.authorized_by_user_id and self.workspace.authorized_at
-            and self.route.authorized_by_user_id and self.route.authorized_at
+            and self.workspace.authorization_origin != "none"
+            and self.route.authorization_origin != "none"
+            and self.principal_user_id
         )
 
     @property
@@ -46,7 +54,15 @@ class MaintenanceRepository:
         return _policy(row)
 
     def effective_policy(self, route_id: str) -> EffectiveMaintenancePolicy:
-        return EffectiveMaintenancePolicy(self.get_policy(None), self.get_policy(route_id))
+        principal = self.repository.connection.execute(
+            """SELECT id FROM users WHERE workspace_id=? AND enabled=1
+               AND role IN ('owner','admin') ORDER BY created_at, id LIMIT 1""",
+            (self.repository.workspace_id,),
+        ).fetchone()
+        return EffectiveMaintenancePolicy(
+            self.get_policy(None), self.get_policy(route_id),
+            str(principal["id"]) if principal is not None else None,
+        )
 
     def set_enabled(
         self,
@@ -70,16 +86,33 @@ class MaintenanceRepository:
         changed = self.repository.connection.execute(
             """UPDATE actor_maintenance_policies_v2
                SET enabled=?, authorized_by_user_id=?, authorized_at=?,
+                   authorization_origin=?,
                    generation=generation+1, updated_at=?
                WHERE workspace_id=? AND route_id IS ? AND generation=?""",
             (
                 int(enabled), str(authorized_by_user_id) if enabled else None,
-                stamp if enabled else None, stamp, self.repository.workspace_id,
+                stamp if enabled else None, "operator" if enabled else "none",
+                stamp, self.repository.workspace_id,
                 route_id, expected_generation,
             ),
         ).rowcount
         if changed != 1:
             raise ActorOpsConflict("maintenance policy changed before authorization")
+        if enabled:
+            if route_id is None:
+                self.repository.connection.execute(
+                    """UPDATE actor_route_repairs_v2
+                          SET next_attempt_at=?, updated_at=?
+                        WHERE workspace_id=? AND status='blocked'""",
+                    (stamp, stamp, self.repository.workspace_id),
+                )
+            else:
+                self.repository.connection.execute(
+                    """UPDATE actor_route_repairs_v2
+                          SET next_attempt_at=?, updated_at=?
+                        WHERE workspace_id=? AND route_id=? AND status='blocked'""",
+                    (stamp, stamp, self.repository.workspace_id, route_id),
+                )
         return self.get_policy(route_id)
 
     def probe_budget(self, route_id: str, now: datetime) -> MaintenanceBudget:
@@ -124,11 +157,26 @@ class MaintenanceRepository:
             raise ActorOpsConflict("actorops_maintenance_probe_cap_exceeded")
         candidate = self.repository.get_candidate(str(values["candidate_id"]))
         binding = self.repository.get_binding(str(values["source_id"]))
+        operator_recovery = bool(values.get("operator_recovery"))
+        standard_candidate = (
+            not operator_recovery
+            and candidate.lifecycle
+            in (CandidateLifecycle.STATIC_VALID, CandidateLifecycle.PROBATIONARY)
+        )
+        recovery_candidate = (
+            operator_recovery
+            and recovery_target_is_current(
+                self.repository,
+                candidate,
+                expected_last_failure_at=str(values.get("expected_last_failure_at") or ""),
+                now=now,
+            )
+        )
         if (
             route.generation != int(values["expected_route_generation"])
             or candidate.generation != int(values["expected_candidate_generation"])
             or candidate.route_id != route_id
-            or candidate.lifecycle not in (CandidateLifecycle.STATIC_VALID, CandidateLifecycle.PROBATIONARY)
+            or not (standard_candidate or recovery_candidate)
             or binding.route_id != route_id
             or binding.status != "ready"
             or binding.binding_version != int(values["binding_version"])
@@ -170,11 +218,87 @@ class MaintenanceRepository:
 
     def successful_probe_targets(self, candidate_id: str) -> int:
         return int(self.repository.connection.execute(
-            """SELECT COUNT(DISTINCT target_fingerprint) FROM actor_attempts_v2
-               WHERE workspace_id=? AND candidate_id=? AND kind='probe'
-                 AND status='succeeded' AND semantic_outcome='valid_nonempty'""",
+            """SELECT COUNT(*) FROM actor_source_bindings_v2 AS binding
+               JOIN actor_candidates_v2 AS candidate
+                 ON candidate.workspace_id=binding.workspace_id
+                AND candidate.route_id=binding.route_id
+              WHERE binding.workspace_id=? AND candidate.candidate_id=?
+                AND binding.status='ready' AND EXISTS (
+                    SELECT 1 FROM actor_attempts_v2 AS attempt
+                     WHERE attempt.workspace_id=binding.workspace_id
+                       AND attempt.candidate_id=candidate.candidate_id
+                       AND attempt.source_id=binding.source_id
+                       AND attempt.binding_version=binding.binding_version
+                       AND attempt.target_fingerprint=binding.target_fingerprint
+                       AND attempt.kind='probe' AND attempt.status='succeeded'
+                       AND attempt.semantic_outcome='valid_nonempty'
+                       AND attempt.cost_final=1
+                )""",
             (self.repository.workspace_id, candidate_id),
         ).fetchone()[0])
+
+    def reconcile_settled_candidates(self, route_id: str) -> int:
+        """Apply already-settled Probe evidence without another remote call."""
+
+        policy = self.effective_policy(route_id)
+        if not policy.authorized:
+            return 0
+        changed = 0
+        for candidate in self.repository.list_route_candidates(route_id):
+            try:
+                current = apply_settled_recovery_success(
+                    self.repository, candidate.candidate_id
+                )
+            except ActorOpsConflict:
+                current = None
+            if current is not None:
+                changed += 1
+                candidate = current
+            proofs = self.successful_probe_targets(candidate.candidate_id)
+            target: CandidateLifecycle | None = None
+            if candidate.lifecycle is CandidateLifecycle.STATIC_VALID and proofs >= 1:
+                target = CandidateLifecycle.PROBATIONARY
+            elif candidate.lifecycle is CandidateLifecycle.PROBATIONARY and proofs >= 2:
+                target = CandidateLifecycle.CERTIFIED
+            if target is None:
+                continue
+            try:
+                with self.repository.transaction():
+                    current = self.repository.get_candidate(candidate.candidate_id)
+                    if current.lifecycle is not candidate.lifecycle:
+                        continue
+                    if current.lifecycle is CandidateLifecycle.STATIC_VALID:
+                        current = self.repository.record_candidate_outcome(
+                            current.candidate_id,
+                            expected_generation=current.generation,
+                            succeeded=True,
+                        )
+                    current = self.repository.transition_candidate(
+                        current.candidate_id,
+                        current.lifecycle,
+                        target,
+                        expected_generation=current.generation,
+                    )
+                changed += 1
+            except ActorOpsConflict:
+                continue
+            if (
+                current.assignment_role is AssignmentRole.INACTIVE
+                and policy.route.auto_add_standby
+            ):
+                try:
+                    with self.repository.transaction():
+                        route = self.repository.get_route(route_id)
+                        current = self.repository.get_candidate(current.candidate_id)
+                        self.add_standby(
+                            route_id,
+                            current.candidate_id,
+                            expected_route_generation=route.generation,
+                            expected_candidate_generation=current.generation,
+                        )
+                except ActorOpsConflict:
+                    continue
+        return changed
 
     def due_routes(self, *, limit: int = 20) -> tuple[str, ...]:
         rows = self.repository.connection.execute(
@@ -187,88 +311,54 @@ class MaintenanceRepository:
                 AND route_policy.route_id=route.route_id
                WHERE route.workspace_id=? AND workspace_policy.enabled=1
                  AND route_policy.enabled=1
-                 AND workspace_policy.authorized_by_user_id IS NOT NULL
-                 AND route_policy.authorized_by_user_id IS NOT NULL
+                 AND workspace_policy.authorization_origin!='none'
+                 AND route_policy.authorization_origin!='none'
                ORDER BY route.route_id LIMIT ?""",
             (self.repository.workspace_id, min(max(int(limit), 1), 100)),
         ).fetchall()
         return tuple(str(row[0]) for row in rows)
 
-    def probe_binding(self, route_id: str, candidate_id: str):
-        candidate = self.repository.get_candidate(candidate_id)
-        unproven = candidate.lifecycle is CandidateLifecycle.PROBATIONARY
-        return self.repository.connection.execute(
-            """SELECT source_id, binding_version FROM actor_source_bindings_v2
-               WHERE workspace_id=? AND route_id=? AND status='ready'
-                 AND (?=0 OR NOT EXISTS (
-                    SELECT 1 FROM actor_attempts_v2 WHERE workspace_id=?
-                      AND candidate_id=? AND kind='probe' AND status='succeeded'
-                      AND semantic_outcome='valid_nonempty'
-                      AND target_fingerprint=actor_source_bindings_v2.target_fingerprint
-                 ))
-               ORDER BY CASE WHEN last_success_at IS NULL THEN 1 ELSE 0 END,
-                        last_success_at DESC, source_id LIMIT 1""",
-            (self.repository.workspace_id, route_id, int(unproven),
-             self.repository.workspace_id, candidate_id),
-        ).fetchone()
+    def probe_target(self, route_id: str):
+        """Choose one Candidate and one still-unproved Binding atomically.
 
-    def eligible_candidate(self, route_id: str) -> str | None:
-        assigned = self.repository.list_route_candidates(route_id)
-        runnable = [item for item in assigned if item.assignment_role is not AssignmentRole.INACTIVE]
-        active = next((item for item in runnable if item.assignment_role is AssignmentRole.ACTIVE), None)
-        unhealthy = self.unhealthy_assigned(route_id)
-        if active is None:
-            return None
-        if len(runnable) >= 2 and not unhealthy:
-            probationary = [
-                item for item in assigned
-                if item.lifecycle is CandidateLifecycle.PROBATIONARY
-                and self.successful_probe_targets(item.candidate_id) < 2
-            ]
-            if not probationary:
-                return None
-            return min(
-                probationary,
-                key=lambda item: (item.assignment_role is AssignmentRole.INACTIVE, item.priority or 0, item.candidate_id),
-            ).candidate_id
-        row = self.repository.connection.execute(
-            """SELECT candidate_id FROM actor_candidates_v2
-               WHERE workspace_id=? AND route_id=? AND assignment_role='inactive'
-                 AND lifecycle IN ('static_valid','probationary')
-                 AND build_id IS NOT NULL AND manifest_hash IS NOT NULL
-               ORDER BY CASE lifecycle WHEN 'probationary' THEN 0 ELSE 1 END,
-                        updated_at, candidate_id LIMIT 1""",
-            (self.repository.workspace_id, route_id),
-        ).fetchone()
-        return str(row[0]) if row else None
+        Candidate-first selection can permanently starve later Candidates on a
+        single-Binding Route: after the first proof the chosen Candidate has no
+        Binding left, but remains the first candidate forever.  Selecting the
+        pair together guarantees every returned target can make progress.
+        """
+
+        return select_probe_target(
+            self.repository, route_id,
+            successful_probe_targets=self.successful_probe_targets,
+        )
 
     def unhealthy_assigned(self, route_id: str) -> tuple[str, ...]:
-        rows = self.repository.connection.execute(
-            """SELECT candidate_id FROM actor_candidates_v2 AS candidate
-               WHERE workspace_id=? AND route_id=? AND assignment_role IN ('active','standby')
-                 AND lifecycle IN ('probationary','certified')
-                 AND last_failure_at IS NOT NULL
-                 AND (last_success_at IS NULL OR last_failure_at > last_success_at)
-                 AND last_error_class='candidate'
-                 AND (
-                    candidate.last_error_code IN (
-                        'apify_actor_deleted','apify_actor_build_unavailable',
-                        'actorops_v2_candidate_contract_invalid'
-                    )
-                    OR 2 <= (SELECT COUNT(*) FROM actor_attempts_v2 AS attempt
-                             WHERE attempt.workspace_id=candidate.workspace_id
-                               AND attempt.candidate_id=candidate.candidate_id
-                               AND attempt.status='failed' AND attempt.failure_class='candidate'
-                               AND attempt.updated_at>=datetime('now', '-1 day'))
-                 )
-               ORDER BY assignment_role DESC, priority, candidate_id""",
-            (self.repository.workspace_id, route_id),
-        ).fetchall()
-        return tuple(str(row[0]) for row in rows)
+        assigned = tuple(
+            item
+            for item in self.repository.list_route_candidates(route_id)
+            if item.assignment_role in {AssignmentRole.ACTIVE, AssignmentRole.STANDBY}
+        )
+        states = candidate_operational_states(self.repository, assigned)
+        ordered = sorted(
+            assigned,
+            key=lambda item: (
+                item.assignment_role is AssignmentRole.STANDBY,
+                item.priority or 0,
+                item.candidate_id,
+            ),
+        )
+        return tuple(
+            item.candidate_id
+            for item in ordered
+            if states[item.candidate_id].confirmed_failure
+        )
 
     def protect_last_unhealthy(self, route_id: str) -> str | None:
-        assigned = [item for item in self.repository.list_route_candidates(route_id)
-                    if item.assignment_role is not AssignmentRole.INACTIVE and candidate_is_runnable(item.lifecycle, build_id=item.build_id, manifest_hash=item.manifest_hash)]
+        assigned = [
+            item for item in self.repository.list_route_candidates(route_id)
+            if item.assignment_role is not AssignmentRole.INACTIVE
+            and candidate_is_runnable(item)
+        ]
         if len(assigned) != 1 or not self.unhealthy_assigned(route_id):
             return None
         candidate = assigned[0]
@@ -319,17 +409,13 @@ class MaintenanceRepository:
             or replacement.generation != expected_candidate_generation
             or replacement.route_id != route_id
             or replacement.assignment_role is not AssignmentRole.INACTIVE
-            or not candidate_is_runnable(
-                replacement.lifecycle, build_id=replacement.build_id,
-                manifest_hash=replacement.manifest_hash,
-            )
+            or not candidate_is_runnable(replacement)
         ):
             raise ActorOpsConflict("actorops_maintenance_replacement_changed")
         assigned = [
             item for item in self.repository.list_route_candidates(route_id)
-            if item.assignment_role is not AssignmentRole.INACTIVE and candidate_is_runnable(
-                item.lifecycle, build_id=item.build_id, manifest_hash=item.manifest_hash,
-            )
+            if item.assignment_role is not AssignmentRole.INACTIVE
+            and candidate_is_runnable(item)
         ]
         unhealthy = self.unhealthy_assigned(route_id)
         victims = [item for item in assigned if item.candidate_id in unhealthy]
@@ -406,6 +492,7 @@ def _policy(row: Any) -> MaintenancePolicyRecord:
         auto_replace_non_last=bool(row["auto_replace_non_last"]) if row["auto_replace_non_last"] is not None else None,
         generation=int(row["generation"]), authorized_by_user_id=row["authorized_by_user_id"],
         authorized_at=row["authorized_at"],
+        authorization_origin=str(row["authorization_origin"]),
     )
 
 

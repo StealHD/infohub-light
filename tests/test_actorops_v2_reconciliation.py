@@ -15,6 +15,7 @@ from src.services.actorops.ports import (
 )
 from src.services.actorops.reconciliation import ActorOpsReconciler
 from src.services.actorops.repository import ActorOpsRepository
+from src.services.actorops.repository_resilience import ResilienceRepository
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -77,6 +78,32 @@ def _repository(tmp_path: Path) -> tuple[ServiceStore, ActorOpsRepository, str]:
             lifecycle=CandidateLifecycle.PROBATIONARY,
         )
     return store, repository, route_id
+
+
+def _job(store: ServiceStore, job_id: str, *, status: str) -> None:
+    user = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username=f"owner-{job_id}",
+        password="safe-test-password",
+        role="owner",
+    )
+    stamp = "2026-08-20T00:00:00+00:00"
+    store.connect().execute(
+        """INSERT INTO fetch_jobs (
+               id, workspace_id, user_id, job_type, status, payload_json,
+               finished_at, created_at, updated_at
+           ) VALUES (?, ?, ?, 'source_fetch', ?, '{}', ?, ?, ?)""",
+        (
+            job_id,
+            DEFAULT_WORKSPACE_ID,
+            str(user["id"]),
+            status,
+            stamp if status not in {"queued", "running"} else None,
+            stamp,
+            stamp,
+        ),
+    )
+    store.connect().commit()
 
 
 def _attempt(repository: ActorOpsRepository, route_id: str, attempt_id: str, status: AttemptStatus) -> None:
@@ -223,6 +250,7 @@ def test_reconciler_repairs_terminal_attempt_from_settled_start_rejection(
             request_fingerprint="2" * 64,
             window_since="2026-08-20T00:00:00+00:00",
             max_items=1,
+            request_schema_version=1,
         )
         repository.transition_attempt(
             "attempt-rejected", AttemptStatus.CREATED, AttemptStatus.STARTING
@@ -234,6 +262,17 @@ def test_reconciler_repairs_terminal_attempt_from_settled_start_rejection(
             actual_cost_usd=None,
             cost_final=False,
         )
+    stamp = "2026-08-20T00:00:01+00:00"
+    store.connect().execute(
+        """INSERT INTO apify_actor_runs (
+               id, workspace_id, logical_run_id, purpose, secret_id,
+               secret_version, pool_generation, status, charge_reserved_usd,
+               charge_actual_usd, charge_final, created_at, terminal_at, updated_at
+           ) VALUES ('reservation-rejected', ?, 'attempt-rejected', 'acquisition',
+                     'secret-rejected', 1, 1, 'start_rejected', 0, 0, 1, ?, ?, ?)""",
+        (DEFAULT_WORKSPACE_ID, stamp, stamp, stamp),
+    )
+    store.connect().commit()
     ledger = _Ledger(
         {
             "attempt-rejected": ReconciliationRunResolution(
@@ -258,6 +297,139 @@ def test_reconciler_repairs_terminal_attempt_from_settled_start_rejection(
     assert row["actual_cost_usd"] == 0
     assert row["cost_final"] == 1
     assert ledger.reads == []
+    assert ledger.settled == ["reservation-rejected"]
+    store.close()
+
+
+def test_reconciler_settles_created_only_after_terminal_job_and_no_reservation(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    _job(store, "job-ended", status="failed")
+    _job(store, "job-active", status="queued")
+    _job(store, "job-unresolved", status="failed")
+    with repository.transaction():
+        for attempt_id, job_id in (
+            ("attempt-created-ended", "job-ended"),
+            ("attempt-created-active", "job-active"),
+            ("attempt-created-unresolved", "job-unresolved"),
+        ):
+            repository.create_attempt(
+                attempt_id=attempt_id,
+                idempotency_key=f"key-{attempt_id}",
+                route_id=route_id,
+                candidate_id="candidate-reconcile",
+                kind="fetch",
+                attempt_group_id="group-created",
+                attempt_index=0,
+                route_generation=1,
+                binding_version=None,
+                target_fingerprint="1" * 64,
+                reserved_usd=0.05,
+                logical_job_id=job_id,
+            )
+    stamp = "2026-08-20T00:00:01+00:00"
+    store.connect().execute(
+        """INSERT INTO apify_actor_runs (
+               id, workspace_id, logical_run_id, purpose, secret_id,
+               secret_version, pool_generation, status,
+               created_at, terminal_at, updated_at
+           ) VALUES ('reservation-unresolved', ?, 'attempt-created-unresolved',
+                     'acquisition', 'secret-unresolved', 1, 1, 'failed', ?, ?, ?)""",
+        (DEFAULT_WORKSPACE_ID, stamp, stamp, stamp),
+    )
+    store.connect().commit()
+    ledger = _Ledger(
+        {
+            "attempt-created-ended": ReconciliationRunResolution(
+                None, reservation_absent=True
+            ),
+            "attempt-created-unresolved": ReconciliationRunResolution(None),
+        }
+    )
+
+    summary = asyncio.run(ActorOpsReconciler(repository, ledger).reconcile())
+
+    ended = repository.get_attempt("attempt-created-ended")
+    active = repository.get_attempt("attempt-created-active")
+    unresolved = repository.get_attempt("attempt-created-unresolved")
+    assert summary.scanned == 2
+    assert summary.settled == 1
+    assert summary.pending == 1
+    assert (ended["status"], ended["actual_cost_usd"], ended["cost_final"]) == (
+        "cancelled",
+        0.0,
+        1,
+    )
+    assert active["status"] == "created"
+    assert active["cost_final"] == 0
+    assert unresolved["status"] == "created"
+    assert unresolved["cost_final"] == 0
+    assert unresolved["error_code"] == "actorops_reconcile_run_missing"
+    store.close()
+
+
+def test_reconciler_settles_exact_rejected_start_but_not_missing_start(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    _job(store, "job-rejected-start", status="failed")
+    _job(store, "job-missing-start", status="failed")
+    with repository.transaction():
+        for attempt_id, job_id in (
+            ("attempt-rejected-start", "job-rejected-start"),
+            ("attempt-missing-start", "job-missing-start"),
+        ):
+            repository.create_attempt(
+                attempt_id=attempt_id,
+                idempotency_key=f"key-{attempt_id}",
+                route_id=route_id,
+                candidate_id="candidate-reconcile",
+                kind="fetch",
+                attempt_group_id="group-starting",
+                attempt_index=0,
+                route_generation=1,
+                binding_version=None,
+                target_fingerprint="1" * 64,
+                reserved_usd=0.05,
+                logical_job_id=job_id,
+            )
+            repository.transition_attempt(
+                attempt_id, AttemptStatus.CREATED, AttemptStatus.STARTING
+            )
+    ledger = _Ledger(
+        {
+            "attempt-rejected-start": ReconciliationRunResolution(
+                ReconciliationRunLink(
+                    reservation_id="reservation-rejected-start",
+                    remote_run_id=None,
+                    dataset_id=None,
+                    status="start_rejected",
+                    created_at="2026-08-20T00:00:00+00:00",
+                    updated_at="2026-08-20T00:00:01+00:00",
+                )
+            ),
+            "attempt-missing-start": ReconciliationRunResolution(None),
+        }
+    )
+
+    summary = asyncio.run(ActorOpsReconciler(repository, ledger).reconcile())
+
+    rejected = repository.get_attempt("attempt-rejected-start")
+    missing = repository.get_attempt("attempt-missing-start")
+    assert summary.scanned == 2
+    assert summary.settled == 1
+    assert summary.pending == 1
+    assert (rejected["status"], rejected["actual_cost_usd"], rejected["cost_final"]) == (
+        "failed",
+        0.0,
+        1,
+    )
+    assert ledger.settled == ["reservation-rejected-start"]
+    assert missing["status"] == "starting"
+    assert missing["actual_cost_usd"] is None
+    assert missing["cost_final"] == 0
+    assert missing["error_code"] == "actorops_reconcile_run_missing"
     store.close()
 
 
@@ -348,4 +520,110 @@ def test_reconciler_counts_failed_remote_reads_against_the_bound(tmp_path: Path)
     assert summary.errors == 5
     assert len(ledger.reads) == 5
     assert repository.get_attempt("attempt-read-failure-6")["error_code"] == "actorops_reconcile_deferred"
+    store.close()
+
+
+def test_reconciler_cools_only_candidate_failure_and_wakes_settled_repairs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store, repository, route_id = _repository(tmp_path)
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Reconciliation source",
+        config={"platform": "youtube", "kind": "channel", "target": "safe"},
+    )
+    fingerprint = "f" * 64
+    with repository.transaction():
+        repository.connection.execute(
+            """INSERT INTO actor_source_bindings_v2 (
+                   binding_id, workspace_id, source_id, route_id,
+                   target_fingerprint, status, binding_version, created_at, updated_at
+               ) VALUES ('binding-reconcile-cost', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
+            (
+                DEFAULT_WORKSPACE_ID, source_id, route_id, fingerprint,
+                "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00",
+            ),
+        )
+
+    def failed_attempt(attempt_id: str, logical_job_id: str, failure_class: str) -> None:
+        with repository.transaction():
+            repository.create_attempt(
+                attempt_id=attempt_id,
+                idempotency_key=f"key-{attempt_id}",
+                route_id=route_id,
+                source_id=source_id,
+                candidate_id="candidate-reconcile",
+                kind="fetch",
+                attempt_group_id="group-reconcile-cost",
+                attempt_index=0,
+                route_generation=repository.get_route(route_id).generation,
+                binding_version=1,
+                target_fingerprint=fingerprint,
+                reserved_usd=0.05,
+                logical_job_id=logical_job_id,
+            )
+            repository.transition_attempt(
+                attempt_id, AttemptStatus.CREATED, AttemptStatus.STARTING
+            )
+            repository.complete_attempt(
+                attempt_id,
+                status=AttemptStatus.FAILED,
+                semantic_outcome="actorops_stale_regression",
+                actual_cost_usd=None,
+                cost_final=False,
+                failure_class=failure_class,
+                error_code="actorops_stale_regression",
+            )
+
+    failed_attempt("attempt-candidate-cost", "job-candidate-cost", "candidate")
+    failed_attempt("attempt-remote-cost", "job-remote-cost", "remote_unknown")
+    repository.resilience.record_stale_regression(
+        binding=repository.get_binding(source_id),
+        candidate_id="candidate-reconcile",
+        logical_job_id="job-candidate-cost",
+    )
+    wakes: list[tuple[str, str]] = []
+
+    def wake(_self, *, route_id: str, source_id: str) -> None:
+        wakes.append((route_id, source_id))
+
+    monkeypatch.setattr(
+        ResilienceRepository,
+        "wake_repairs_after_cost_settlement",
+        wake,
+        raising=False,
+    )
+    ledger = _Ledger(
+        {
+            "attempt-candidate-cost": ReconciliationRunResolution(
+                _link("reservation-candidate-cost", remote="remote-candidate-cost")
+            ),
+            "attempt-remote-cost": ReconciliationRunResolution(
+                _link("reservation-remote-cost", remote="remote-remote-cost")
+            ),
+        },
+        {
+            "reservation-candidate-cost": ReconciliationRunObservation(
+                "failed", 0.01, True, "dataset-candidate"
+            ),
+            "reservation-remote-cost": ReconciliationRunObservation(
+                "failed", 0.01, True, "dataset-remote"
+            ),
+        },
+    )
+
+    summary = asyncio.run(ActorOpsReconciler(repository, ledger).reconcile())
+
+    circuit = repository.connection.execute(
+        """SELECT failure_streak, last_outcome
+             FROM actor_source_candidate_freshness_v2
+            WHERE source_id=? AND candidate_id='candidate-reconcile'""",
+        (source_id,),
+    ).fetchone()
+    assert summary.settled == 2
+    assert tuple(circuit) == (1, "stale_regression")
+    assert wakes == [(route_id, source_id), (route_id, source_id)]
     store.close()

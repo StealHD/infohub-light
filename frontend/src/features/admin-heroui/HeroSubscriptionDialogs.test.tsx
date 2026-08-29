@@ -165,8 +165,9 @@ function renderYouTubeSourceForm(
   </MemoryRouter>)
 }
 
-function renderLockedXSourceForm(
+function renderXSourceForm(
   onSubmit: (payload: Record<string, unknown>) => Promise<void>,
+  configLocked = false,
 ) {
   render(<MemoryRouter>
     <DesignSystemProvider>
@@ -179,7 +180,7 @@ function renderLockedXSourceForm(
           scopes={['private']}
           taxonomy={{ channels: [], topics: [] }}
           submitLabel="保存来源"
-          configLocked
+          configLocked={configLocked}
           onSubmit={onSubmit}
         />
       </ActionFeedbackProvider>
@@ -253,10 +254,22 @@ describe('YouTube SourceForm', () => {
 })
 
 describe('locked platform SourceForm', () => {
+  it('does not disable a managed source when its hidden enable control is absent', async () => {
+    const browser = userEvent.setup()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderXSourceForm(onSubmit)
+
+    expect(screen.queryByRole('checkbox', { name: '启用来源' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '保存来源' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty('enabled')
+  })
+
   it('keeps the platform target locked while saving a new fetch limit', async () => {
     const browser = userEvent.setup()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
-    renderLockedXSourceForm(onSubmit)
+    renderXSourceForm(onSubmit, true)
 
     expect(screen.getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled()
     const fetchLimit = screen.getByRole('spinbutton', { name: '每次获取条数' })

@@ -162,7 +162,9 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
         default_channel: channel || null,
         default_topics: topics,
         secret_env: secretEnv || null,
-        enabled: configLocked ? undefined : form.has('enabled'),
+        enabled: configLocked || platformManagedSourceTypes.has(definition.type)
+          ? undefined
+          : form.has('enabled'),
       } }))
       feedback.succeed('source-save', entity)
     } catch (caught) {

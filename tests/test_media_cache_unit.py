@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -49,6 +50,30 @@ def test_media_cache_download_uses_narrow_known_media_synthetic_dns_suffixes() -
         "githubusercontent.com",
         "googleusercontent.com",
     )
+
+
+def test_media_cache_download_is_safe_inside_a_running_event_loop() -> None:
+    response = httpx.Response(
+        200,
+        content=b"\x89PNG\r\n\x1a\navatar",
+        headers={"content-type": "image/png"},
+        request=httpx.Request("GET", "https://cdninstagram.com/avatar.png"),
+    )
+    fetch_public = AsyncMock(return_value=response)
+
+    async def download() -> tuple[bytes, str]:
+        with TemporaryDirectory() as directory, patch.object(
+            media_cache, "fetch_public_http", fetch_public
+        ):
+            return media_cache.MediaCacheService(
+                ServiceStore(Path(directory)), data_dir=directory
+            )._download("https://cdninstagram.com/avatar.png")
+
+    data, mime_type = asyncio.run(download())
+
+    assert data == response.content
+    assert mime_type == "image/png"
+    fetch_public.assert_awaited_once()
 
 
 def test_media_cache_allows_youtube_avatar_cdn_synthetic_dns(monkeypatch) -> None:

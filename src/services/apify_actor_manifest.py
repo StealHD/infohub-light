@@ -20,7 +20,6 @@ from html.parser import HTMLParser
 from typing import Any, Literal, Mapping, Sequence
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from dateutil.parser import isoparse
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -35,6 +34,8 @@ from .apify_actor_row_classification import (
     is_placeholder_or_control,
 )
 from .apify_actor_output_canonicalization import canonicalize_actor_output
+from .apify_actor_datetime import parse_actor_datetime as _parse_datetime
+from .apify_actor_row_extraction import RowExtractionPlan
 
 
 MANIFEST_VERSION = 1
@@ -83,11 +84,10 @@ _BUILD_NUMBER_RE = re.compile(
 )
 _POINTER_ESCAPE_RE = re.compile(r"~(?![01])")
 _TEMPLATE_MARKERS = ("${", "{{", "}}", "<%", "%>", "javascript:")
-_FORBIDDEN_INPUT_KEY_PARTS = frozenset(
+_FORBIDDEN_INPUT_KEY_TOKENS = frozenset(
     {
         "authorization",
         "auth",
-        "code",
         "credential",
         "cookie",
         "header",
@@ -95,14 +95,9 @@ _FORBIDDEN_INPUT_KEY_PARTS = frozenset(
         "proxy",
         "secret",
         "token",
-        "apikey",
         "api_key",
         "webhook",
-        "requestoptions",
-        "request_options",
         "request",
-        "customrequest",
-        "custom_request",
         "javascript",
         "python",
         "eval",
@@ -113,6 +108,11 @@ _FORBIDDEN_INPUT_KEY_PARTS = frozenset(
         "network",
     }
 )
+_FORBIDDEN_INPUT_KEY_FRAGMENTS = frozenset({
+    "apikey", "apitoken", "authorization", "credential", "cookie",
+    "customrequest", "javascript", "password", "proxy", "requestoptions",
+    "secret", "webhook",
+})
 _CODE_TEXT_RE = re.compile(
     r"(?:\beval\s*\(|\bexec\s*\(|\bfunction\s*\(|=>|"
     r"\bimport\s+[A-Za-z_]|\brequire\s*\(|\bos\.system\s*\()",
@@ -348,6 +348,7 @@ class ActorManifestV1(BaseModel):
     actor_id: str
     build_number: str
     input_template: dict[str, Any] = Field(alias="input")
+    row_extraction: RowExtractionPlan | None = None
     output: ManifestOutputMapping
     semantics: SemanticValidation
 
@@ -703,6 +704,12 @@ def map_actor_output(
             except (TypeError, ValueError, OverflowError):
                 if name == "author_avatar_url":
                     continue
+                if name == "published_at":
+                    raise ActorManifestError(
+                        "apify_actor_published_at_invalid",
+                        "Actor published_at could not be normalized",
+                        retryable=True,
+                    ) from None
                 raise ActorManifestError(
                     "apify_actor_contract_mismatch",
                     "Actor output could not be normalized",
@@ -1051,14 +1058,37 @@ def _validate_input_template(value: Any) -> None:
             if not isinstance(raw_key, str) or not raw_key or len(raw_key) > 128:
                 raise ValueError("manifest input key is invalid")
             normalized = re.sub(r"[^a-z0-9_]", "", raw_key.casefold())
-            if any(part in normalized for part in _FORBIDDEN_INPUT_KEY_PARTS):
+            if _forbidden_input_key(raw_key):
                 raise ValueError("manifest input contains a forbidden field")
-            url_key = under_url_key or "url" in normalized or "uri" in normalized
+            url_key = under_url_key or _url_shaped_input_key(normalized)
             visit(child, depth=depth + 1, under_url_key=url_key)
 
     if not isinstance(value, dict):
         raise ValueError("manifest input must be a JSON object")
     visit(value, depth=0)
+
+
+def _url_shaped_input_key(normalized: str) -> bool:
+    """Separate URL targets from per-URL numeric controls."""
+
+    if any(token in normalized for token in ("max", "limit", "count")):
+        return False
+    return "url" in normalized or "uri" in normalized
+
+
+def _forbidden_input_key(raw_key: str) -> bool:
+    separated = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", raw_key)
+    tokens = {
+        token.casefold()
+        for token in re.split(r"[^A-Za-z0-9]+", separated)
+        if token
+    }
+    compact = re.sub(r"[^a-z0-9]", "", raw_key.casefold())
+    return bool(
+        tokens & _FORBIDDEN_INPUT_KEY_TOKENS
+        or compact in {"code", "requests"}
+        or any(fragment in compact for fragment in _FORBIDDEN_INPUT_KEY_FRAGMENTS)
+    )
 
 
 def _apply_output_mapping(
@@ -1332,40 +1362,6 @@ def _to_boolean(value: Any) -> bool:
     if normalized in {"false", "no"}:
         return False
     raise ValueError("value cannot be converted to boolean")
-
-
-def _parse_datetime(value: Any) -> datetime:
-    if isinstance(value, bool):
-        raise TypeError("datetime must not be a boolean")
-    if isinstance(value, (int, float)):
-        return _parse_epoch_datetime(value)
-    if not isinstance(value, str) or not value.strip():
-        raise TypeError("datetime must be a nonempty string or epoch number")
-    normalized = value.strip()
-    if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", normalized):
-        return _parse_epoch_datetime(float(normalized))
-    parsed = isoparse(normalized)
-    if parsed.tzinfo is None:
-        raise ValueError("datetime must include a timezone")
-    return parsed.astimezone(timezone.utc)
-
-
-def _parse_epoch_datetime(value: int | float) -> datetime:
-    number = float(value)
-    if not math.isfinite(number) or number < 0:
-        raise ValueError("epoch datetime must be finite and nonnegative")
-    # Actor schemas commonly expose Unix seconds or milliseconds.  Values
-    # beyond the supported UTC window are treated as milliseconds exactly
-    # once; accepting arbitrary magnitudes would hide contract drift.
-    max_epoch_seconds = 4_102_444_800  # 2100-01-01T00:00:00Z
-    if number > max_epoch_seconds:
-        number /= 1_000
-    if number < 946_684_800 or number > max_epoch_seconds:
-        raise ValueError("epoch datetime is outside the supported range")
-    try:
-        return datetime.fromtimestamp(number, tz=timezone.utc)
-    except (OverflowError, OSError, ValueError):
-        raise ValueError("epoch datetime is invalid") from None
 
 
 class _TextExtractor(HTMLParser):

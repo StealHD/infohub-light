@@ -9,6 +9,7 @@ PLATFORM="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"
 CI_TIMEOUT_SECONDS="${INTELISCOPE_RELEASE_CI_TIMEOUT_SECONDS:-1800}"
 PYTHON_BIN="${INTELISCOPE_RELEASE_PYTHON:-$ROOT_DIR/.venv/bin/python}"
 RELEASE_TMP_DIR=""
+REMOTE_RELEASE_STAGE=""
 LOCAL_RELEASE_IMAGE=""
 TAG_CREATED=false
 TAG_PUSHED=false
@@ -22,9 +23,26 @@ fail() {
   exit 1
 }
 
+require_frozen_release_source() {
+  local expected_revision="$1"
+  [[ "$(git -C "$ROOT_DIR" rev-parse HEAD)" == "$expected_revision" ]] \
+    || fail "release source revision changed while artifacts were being prepared"
+  [[ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ]] \
+    || fail "release source became dirty while artifacts were being prepared"
+}
+
 cleanup() {
+  [[ "${BASH_SUBSHELL:-0}" -eq 0 ]] || return
   if [[ -n "$RELEASE_TMP_DIR" && -d "$RELEASE_TMP_DIR" ]]; then
     rm -rf "$RELEASE_TMP_DIR"
+  fi
+  if [[ "$REMOTE_RELEASE_STAGE" =~ ^/tmp/inteliscope-release-[A-Za-z0-9._-]+$ ]]; then
+    ssh -o ConnectTimeout=10 "$REMOTE_HOST" bash -s -- "$REMOTE_RELEASE_STAGE" <<'REMOTE' >/dev/null 2>&1 || true
+set -euo pipefail
+stage="$1"
+[[ "$stage" =~ ^/tmp/inteliscope-release-[A-Za-z0-9._-]+$ ]]
+rm -rf -- "$stage"
+REMOTE
   fi
   if [[ -n "$LOCAL_RELEASE_IMAGE" ]]; then
     docker image rm "$LOCAL_RELEASE_IMAGE" >/dev/null 2>&1 || true
@@ -88,12 +106,41 @@ reject_implicit_migrations() {
     "release contains a database migration; use the explicit migration workflow before normal cutover"
 }
 
+remote_capacity_preflight() {
+  ssh "$REMOTE_HOST" bash -s -- "$REMOTE_BASE" <<'REMOTE'
+set -euo pipefail
+base="$1"
+probe="$base"
+[[ -d "$probe" ]] || probe="$(dirname "$base")"
+read -r available_kib used_percent < <(
+  df -Pk "$probe" | awk 'NR == 2 {gsub(/%/, "", $5); print $4, $5}'
+)
+[[ "$available_kib" =~ ^[0-9]+$ && "$used_percent" =~ ^[0-9]+$ ]] || {
+  echo "could not determine VPS disk capacity" >&2
+  exit 1
+}
+if (( used_percent > 85 || available_kib < 8388608 )); then
+  echo "VPS capacity preflight failed: used=${used_percent}% available_kib=${available_kib}" >&2
+  echo "Read-only cleanup inventory (nothing was deleted):" >&2
+  df -h "$probe" >&2 || true
+  docker system df >&2 || true
+  du -x -h -d 1 "$base/releases" "$base/backups" "$base/logs" 2>/dev/null \
+    | sort -h >&2 || true
+  find /tmp -maxdepth 1 -type d -name 'inteliscope-release-*' \
+    -exec du -sh -- {} + 2>/dev/null | sort -h >&2 || true
+  exit 1
+fi
+echo "VPS capacity ready: used=${used_percent}% available_kib=${available_kib}"
+REMOTE
+}
+
 run_quick_preflight() {
   local base_ref
   require_commands
   require_release_identity
   base_ref="$(release_base_ref)"
   reject_implicit_migrations "$base_ref"
+  remote_capacity_preflight
   cd "$ROOT_DIR"
   "$PYTHON_BIN" scripts/test_gate.py preflight \
     --base "$base_ref" --head HEAD
@@ -146,11 +193,12 @@ else:
 
 build_package_and_upload() {
   local revision_short="$1" revision_full="$2" version="$3" built_at="$4" release_id="$5"
-  local image="$6" archive image_archive expected_arch actual_arch image_revision
+  local image="$6" archive image_archive expected_arch actual_arch image_revision image_source_digest source_digest
   local source_sha image_sha remote_stage source_pid image_pid source_status image_status
   archive="$RELEASE_TMP_DIR/source.tar.gz"
   image_archive="$RELEASE_TMP_DIR/image.tar.gz"
   expected_arch="${PLATFORM#linux/}"
+  source_digest="git:$revision_full"
   remote_stage="/tmp/inteliscope-release-$release_id"
 
   transfer_with_retry() {
@@ -164,23 +212,32 @@ build_package_and_upload() {
     done
   }
 
+  require_frozen_release_source "$revision_full"
   docker buildx build \
     --platform "$PLATFORM" \
     --load \
     --build-arg "INTELISCOPE_VERSION=$version" \
     --build-arg "INTELISCOPE_BUILD_REVISION=$revision_short" \
+    --build-arg "INTELISCOPE_SOURCE_DIGEST=$source_digest" \
     --build-arg "INTELISCOPE_BUILT_AT=$built_at" \
     --tag "$image" \
     "$ROOT_DIR"
+  require_frozen_release_source "$revision_full"
   actual_arch="$(docker image inspect "$image" --format '{{.Architecture}}')"
   image_revision="$(
     docker image inspect "$image" \
       --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
   )"
+  image_source_digest="$(
+    docker image inspect "$image" \
+      --format '{{index .Config.Labels "io.inteliscope.source.digest"}}'
+  )"
   [[ "$actual_arch" == "$expected_arch" ]] \
     || fail "image architecture mismatch: expected=$expected_arch actual=$actual_arch"
   [[ "$image_revision" == "$revision_short" ]] \
     || fail "image revision mismatch: expected=$revision_short actual=$image_revision"
+  [[ "$image_source_digest" == "$source_digest" ]] \
+    || fail "image source mismatch: expected=$source_digest actual=$image_source_digest"
   docker run --rm --network none \
     --entrypoint /app/.venv/bin/horizon-api "$image" --help >/dev/null
   docker run --rm --network none \
@@ -215,10 +272,10 @@ REMOTE
 }
 
 deploy_remote_release() {
-  local release_id="$1" image="$2" version="$3" revision="$4" built_at="$5"
+  local release_id="$1" image="$2" version="$3" revision="$4" built_at="$5" source_digest="$6"
   local remote_stage="/tmp/inteliscope-release-$release_id"
   ssh "$REMOTE_HOST" bash -s -- \
-    "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" \
+    "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" "$source_digest" \
     "$remote_stage" "$PUBLIC_URL" <<'REMOTE'
 set -euo pipefail
 base="$1"
@@ -227,8 +284,9 @@ image="$3"
 version="$4"
 revision="$5"
 built_at="$6"
-remote_stage="$7"
-public_url="$8"
+source_digest="$7"
+remote_stage="$8"
+public_url="$9"
 release_dir="$base/releases/$release_id"
 backup_dir="$base/backups/$release_id"
 previous_release=""
@@ -278,17 +336,22 @@ set_env() {
 
 wait_runtime() {
   local target_release="$1" target_public_url="$2"
-  local target_version target_revision public_args=()
+  local target_version target_revision target_source_digest public_args=() source_args=()
   target_version="$(grep '^INTELISCOPE_VERSION=' "$target_release/release-metadata.env" | cut -d= -f2-)"
   target_revision="$(grep '^INTELISCOPE_BUILD_REVISION=' "$target_release/release-metadata.env" | cut -d= -f2-)"
+  target_source_digest="$(grep '^INTELISCOPE_SOURCE_DIGEST=' "$target_release/release-metadata.env" | cut -d= -f2- || true)"
   [[ -n "$target_version" && -n "$target_revision" ]]
   if [[ -n "$target_public_url" ]]; then
     public_args=(--public-url "$target_public_url")
+  fi
+  if [[ -n "$target_source_digest" ]]; then
+    source_args=(--expected-source-digest "$target_source_digest")
   fi
   python3 "$release_dir/scripts/runtime_health.py" \
     --base-url http://127.0.0.1:8080 \
     --expected-version "$target_version" \
     --expected-revision "$target_revision" \
+    "${source_args[@]}" \
     --api-container horizon-light-api \
     --worker-container horizon-light-worker \
     "${public_args[@]}" \
@@ -347,6 +410,9 @@ if [[ ! -f "$previous_release/release-metadata.env" ]]; then
     }
     printf '%s=%s\n' "$metadata_key" "$metadata_value" >>"$previous_metadata_tmp"
   done
+  previous_source_digest="$(grep '^INTELISCOPE_SOURCE_DIGEST=' "$backup_dir/env.before" | tail -n 1 | cut -d= -f2- || true)"
+  [[ -z "$previous_source_digest" ]] \
+    || printf 'INTELISCOPE_SOURCE_DIGEST=%s\n' "$previous_source_digest" >>"$previous_metadata_tmp"
   install -m 600 "$previous_metadata_tmp" "$previous_release/release-metadata.env"
 fi
 python3 - "$base/data/service.db" "$backup_dir/service.db" <<'PY'
@@ -373,8 +439,8 @@ ln -s "$base/data" "$release_dir/data"
 ln -s "$base/logs" "$release_dir/logs"
 ln -s "$base/.env" "$release_dir/.env"
 printf '%s\n' "$previous_release" >"$release_dir/previous_release"
-printf 'INTELISCOPE_IMAGE=%s\nINTELISCOPE_VERSION=%s\nINTELISCOPE_BUILD_REVISION=%s\nINTELISCOPE_BUILT_AT=%s\n' \
-  "$image" "$version" "$revision" "$built_at" >"$release_dir/release-metadata.env"
+printf 'INTELISCOPE_IMAGE=%s\nINTELISCOPE_VERSION=%s\nINTELISCOPE_BUILD_REVISION=%s\nINTELISCOPE_SOURCE_DIGEST=%s\nINTELISCOPE_BUILT_AT=%s\n' \
+  "$image" "$version" "$revision" "$source_digest" "$built_at" >"$release_dir/release-metadata.env"
 chmod 600 "$release_dir/release-metadata.env"
 
 docker load -i "$remote_stage/image.tar.gz"
@@ -383,8 +449,13 @@ loaded_revision="$(
   docker image inspect "$image" \
     --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
 )"
+loaded_source_digest="$(
+  docker image inspect "$image" \
+    --format '{{index .Config.Labels "io.inteliscope.source.digest"}}'
+)"
 [[ "$loaded_arch" == amd64 ]]
 [[ "$loaded_revision" == "$revision" ]]
+[[ "$loaded_source_digest" == "$source_digest" ]]
 
 trap rollback_cutover ERR INT TERM
 docker stop --time 20 horizon-light-worker >/dev/null
@@ -392,6 +463,7 @@ validate_database
 set_env INTELISCOPE_IMAGE "$image"
 set_env INTELISCOPE_VERSION "$version"
 set_env INTELISCOPE_BUILD_REVISION "$revision"
+set_env INTELISCOPE_SOURCE_DIGEST "$source_digest"
 set_env INTELISCOPE_BUILT_AT "$built_at"
 chmod 600 "$base/.env"
 cd "$release_dir"
@@ -419,6 +491,7 @@ release() {
   image="inteliscope-service:$release_id"
   LOCAL_RELEASE_IMAGE="$image"
   RELEASE_TMP_DIR="$(mktemp -d -t inteliscope-release.XXXXXX)"
+  REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"
 
   wait_for_workflow_success test-gate.yml "$revision_full" main &
   ci_pid=$!
@@ -431,13 +504,15 @@ release() {
   set -e
   [[ "$ci_status" -eq 0 && "$package_status" -eq 0 ]] \
     || fail "main CI or release artifact preparation failed"
+  require_frozen_release_source "$revision_full"
 
   git -C "$ROOT_DIR" tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
   TAG_CREATED=true
   git -C "$ROOT_DIR" push origin "refs/tags/$RELEASE_TAG"
   TAG_PUSHED=true
   wait_for_workflow_success release-tag.yml "$revision_full" "$RELEASE_TAG"
-  deploy_remote_release "$release_id" "$image" "$version" "$revision_short" "$built_at"
+  deploy_remote_release "$release_id" "$image" "$version" "$revision_short" "$built_at" "git:$revision_full"
+  REMOTE_RELEASE_STAGE=""
   echo "Release complete: $RELEASE_TAG ($release_id)"
 }
 
@@ -470,6 +545,12 @@ for key in INTELISCOPE_IMAGE INTELISCOPE_VERSION INTELISCOPE_BUILD_REVISION INTE
   [[ -n "$value" ]]
   set_env "$key" "$value"
 done
+source_digest="$(grep '^INTELISCOPE_SOURCE_DIGEST=' "$target/release-metadata.env" | cut -d= -f2- || true)"
+if [[ -n "$source_digest" ]]; then
+  set_env INTELISCOPE_SOURCE_DIGEST "$source_digest"
+else
+  sed -i '/^INTELISCOPE_SOURCE_DIGEST=/d' "$base/.env"
+fi
 migration_backup="$(
   grep '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$base/.env" \
     | tail -n 1 | cut -d= -f2- || true
@@ -501,11 +582,14 @@ health_script="$current_release/scripts/runtime_health.py"
 revision="$(grep '^INTELISCOPE_BUILD_REVISION=' "$target/release-metadata.env" | cut -d= -f2-)"
 version="$(grep '^INTELISCOPE_VERSION=' "$target/release-metadata.env" | cut -d= -f2-)"
 public_args=()
+source_args=()
 [[ -n "$public_url" ]] && public_args=(--public-url "$public_url")
+[[ -n "$source_digest" ]] && source_args=(--expected-source-digest "$source_digest")
 python3 "$health_script" \
   --base-url http://127.0.0.1:8080 \
   --expected-version "$version" \
   --expected-revision "$revision" \
+  "${source_args[@]}" \
   --api-container horizon-light-api \
   --worker-container horizon-light-worker \
   "${public_args[@]}" \

@@ -252,6 +252,7 @@ class CandidateRecord:
     manifest_json: str | None = None
     input_schema_hash: str | None = None
     output_schema_hash: str | None = None
+    last_error_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +284,7 @@ class MaintenancePolicyRecord:
     generation: int
     authorized_by_user_id: str | None
     authorized_at: str | None
+    authorization_origin: str = "none"
 
 
 @dataclass(frozen=True, slots=True)

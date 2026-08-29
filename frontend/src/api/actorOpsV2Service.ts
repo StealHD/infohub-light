@@ -2,6 +2,7 @@ import type { ApiClient } from './client'
 import type {
   ActorOpsV2OperationEvents,
   ActorOpsV2Candidate,
+  ActorOpsV2DiscoveryStart,
   ActorOpsV2ReplacementPlan,
   ActorOpsV2RouteDetail,
   ActorOpsV2RoutesResponse,
@@ -56,7 +57,7 @@ export function actorOpsV2Api(client: ApiClient) {
     refreshActorOpsV2Metadata: (routeId: string, payload: { expected_route_generation: number }) => client.post<Record<string, unknown>>(
       `${resource('/api/admin/apify-routes', routeId)}/v2-metadata/refresh`, payload,
     ),
-    discoverActorOpsV2Candidates: (routeId: string, payload: { expected_route_generation: number }) => client.post<Record<string, unknown>>(
+    discoverActorOpsV2Candidates: (routeId: string, payload: { expected_route_generation: number }) => client.post<ActorOpsV2DiscoveryStart>(
       `${resource('/api/admin/apify-routes', routeId)}/v2-discoveries`, payload,
     ),
     setActorOpsV2PriceCap: (routeId: string, payload: { expected_route_generation: number; cap_usd: number; confirmation?: '确认提高 Actor 费用上限' }) => client.patch<Record<string, unknown>>(
@@ -78,6 +79,9 @@ export function actorOpsV2Api(client: ApiClient) {
     ),
     cancelActorOpsV2Replacement: (routeId: string, planId: string, payload: { expected_generation: number }) => client.post<ActorOpsV2ReplacementPlan>(
       `${resource('/api/admin/apify-routes', routeId)}/v2-replacements/${encodeURIComponent(planId)}/cancel`, payload,
+    ),
+    revalidateActorOpsV2Replacement: (routeId: string, planId: string, payload: { expected_generation: number; idempotency_key: string }) => client.post<{ plan: ActorOpsV2ReplacementPlan; revalidated_attempt_count: number; new_actor_run_count: 0; new_actor_cost_usd: 0 }>(
+      `${resource('/api/admin/apify-routes', routeId)}/v2-replacements/${encodeURIComponent(planId)}/revalidate`, payload,
     ),
   }
 }

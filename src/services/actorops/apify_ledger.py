@@ -45,20 +45,25 @@ class ApifyRunLedger:
         self, attempt: Mapping[str, object]
     ) -> ReconciliationRunResolution:
         attempt_id = str(attempt["attempt_id"])
+        purpose = "validation" if str(attempt["kind"]) == "probe" else "acquisition"
         remote_run_id = str(attempt["remote_run_id"] or "") or None
         rows = self.store.connect().execute(
             """SELECT id, logical_run_id, remote_run_id, dataset_id, status,
-                      charge_actual_usd, charge_final,
+                      charge_reserved_usd, charge_actual_usd, charge_final,
                       created_at, updated_at
                FROM apify_actor_runs
-               WHERE workspace_id=? AND purpose='acquisition' AND logical_run_id=?
+               WHERE workspace_id=? AND purpose=? AND logical_run_id=?
                ORDER BY created_at, id""",
-            (self.workspace_id, attempt_id),
+            (self.workspace_id, purpose, attempt_id),
         ).fetchall()
         if remote_run_id is not None:
             matches = [row for row in rows if str(row["remote_run_id"] or "") == remote_run_id]
             if len(matches) != 1:
-                return ReconciliationRunResolution(None, ambiguous=bool(rows))
+                return ReconciliationRunResolution(
+                    None,
+                    ambiguous=bool(rows),
+                    reservation_absent=not rows,
+                )
             return ReconciliationRunResolution(self._link(matches[0]))
         known = [row for row in rows if row["remote_run_id"]]
         if len(known) == 1:
@@ -68,19 +73,29 @@ class ApifyRunLedger:
         pending = [row for row in rows if str(row["status"] or "") in _PENDING_STATUSES]
         if len(pending) == 1:
             return ReconciliationRunResolution(self._link(pending[0]))
-        settled_no_start = [
+        rejected_no_start = [
             row
             for row in rows
             if str(row["status"] or "") == "start_rejected"
             and not row["remote_run_id"]
             and not row["dataset_id"]
-            and bool(row["charge_final"])
-            and self._cost(row["charge_actual_usd"]) == 0.0
+            and (
+                (
+                    bool(row["charge_final"])
+                    and self._cost(row["charge_actual_usd"]) == 0.0
+                )
+                or (
+                    not bool(row["charge_final"])
+                    and self._cost(row["charge_actual_usd"]) in {None, 0.0}
+                )
+            )
         ]
-        if len(settled_no_start) == 1 and not pending:
-            return ReconciliationRunResolution(self._link(settled_no_start[0]))
+        if len(rejected_no_start) == 1 and not pending:
+            return ReconciliationRunResolution(self._link(rejected_no_start[0]))
         return ReconciliationRunResolution(
-            None, ambiguous=bool(pending or settled_no_start)
+            None,
+            ambiguous=bool(pending or rejected_no_start),
+            reservation_absent=not rows,
         )
 
     async def read_known(
@@ -126,18 +141,54 @@ class ApifyRunLedger:
         try:
             if owns_transaction:
                 connection.execute("BEGIN IMMEDIATE")
-            changed = connection.execute(
-                """UPDATE apify_actor_runs
-                   SET status='start_rejected', last_error_code='actorops_v2_proven_no_start',
-                       charge_reserved_usd=0, charge_actual_usd=0, charge_final=1,
-                       terminal_at=?, updated_at=?
-                   WHERE id=? AND workspace_id=? AND purpose='acquisition'
-                     AND remote_run_id IS NULL
-                     AND status IN ('reserved', 'starting', 'start_outcome_unknown')""",
-                (stamp, stamp, link.reservation_id, self.workspace_id),
-            ).rowcount
-            if changed != 1:
+            durable = connection.execute(
+                """SELECT status, remote_run_id, dataset_id, charge_reserved_usd,
+                          charge_actual_usd, charge_final
+                     FROM apify_actor_runs
+                    WHERE id=? AND workspace_id=?
+                      AND purpose IN ('acquisition','validation')""",
+                (link.reservation_id, self.workspace_id),
+            ).fetchone()
+            if durable is None or durable["remote_run_id"] or durable["dataset_id"]:
                 raise RuntimeError("Apify reservation changed before no-start settlement")
+            status = str(durable["status"] or "")
+            actual = self._cost(durable["charge_actual_usd"])
+            if status == "start_rejected" and bool(durable["charge_final"]):
+                if actual != 0.0 or self._cost(durable["charge_reserved_usd"]) != 0.0:
+                    raise RuntimeError("Apify rejected reservation has invalid final cost")
+            else:
+                if status == "start_rejected":
+                    if actual not in {None, 0.0}:
+                        raise RuntimeError("Apify rejected reservation has nonzero cost")
+                    changed = connection.execute(
+                        """UPDATE apify_actor_runs
+                           SET charge_reserved_usd=0, charge_actual_usd=0,
+                               charge_final=1, terminal_at=COALESCE(terminal_at, ?),
+                               updated_at=?
+                           WHERE id=? AND workspace_id=?
+                             AND purpose IN ('acquisition','validation')
+                             AND status='start_rejected' AND remote_run_id IS NULL
+                             AND dataset_id IS NULL AND charge_final=0
+                             AND (charge_actual_usd IS NULL OR charge_actual_usd=0)""",
+                        (stamp, stamp, link.reservation_id, self.workspace_id),
+                    ).rowcount
+                else:
+                    changed = connection.execute(
+                        """UPDATE apify_actor_runs
+                           SET status='start_rejected',
+                               last_error_code='actorops_v2_proven_no_start',
+                               charge_reserved_usd=0, charge_actual_usd=0,
+                               charge_final=1, terminal_at=?, updated_at=?
+                           WHERE id=? AND workspace_id=?
+                             AND purpose IN ('acquisition','validation')
+                             AND remote_run_id IS NULL
+                             AND status IN ('reserved', 'starting', 'start_outcome_unknown')""",
+                        (stamp, stamp, link.reservation_id, self.workspace_id),
+                    ).rowcount
+                if changed != 1:
+                    raise RuntimeError(
+                        "Apify reservation changed before no-start settlement"
+                    )
             if owns_transaction:
                 connection.commit()
         except Exception:

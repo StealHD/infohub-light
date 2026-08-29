@@ -257,9 +257,14 @@ def test_manifest_deduplicates_unsorted_rows_and_keeps_latest_limited_items() ->
 
 @pytest.mark.parametrize(
     "timestamp",
-    [1893456000, 1893456000000, "1893456000"],
+    [
+        1893456000,
+        1893456000000,
+        "1893456000",
+        "Tue Jan 01 00:00:00 +0000 2030",
+    ],
 )
-def test_manifest_parse_datetime_accepts_bounded_unix_epochs(timestamp) -> None:
+def test_manifest_parse_datetime_accepts_supported_timestamp_formats(timestamp) -> None:
     result = map_actor_output(
         parse_actor_manifest(_manifest()),
         [
@@ -352,7 +357,7 @@ def test_manifest_rejects_unsafe_epoch_values(timestamp) -> None:
             {"max_items": 1},
         )
 
-    assert caught.value.code == "apify_actor_contract_mismatch"
+    assert caught.value.code == "apify_actor_published_at_invalid"
 
 
 def test_manifest_does_not_skip_partially_mapped_content_rows() -> None:
@@ -369,6 +374,20 @@ def test_manifest_does_not_skip_partially_mapped_content_rows() -> None:
         )
 
     assert caught.value.code == "apify_actor_contract_mismatch"
+
+
+def test_manifest_allows_author_and_country_code_input_fields() -> None:
+    manifest = _manifest()
+    manifest["input"] = {
+        "author": {"$ref": "target.handle"},
+        "countryCode": "US",
+        "maxItems": {"$ref": "runtime.max_items"},
+    }
+
+    parsed = parse_actor_manifest(manifest)
+
+    assert parsed.input_template["author"] == {"$ref": "target.handle"}
+    assert parsed.input_template["countryCode"] == "US"
 
 
 @pytest.mark.parametrize(
@@ -425,6 +444,24 @@ def test_manifest_rejects_credentials_code_unknown_refs_and_jsonpath(
     with pytest.raises(ActorManifestError) as caught:
         parse_actor_manifest(manifest)
     assert caught.value.code == code
+
+
+def test_manifest_allows_numeric_per_url_limit_reference() -> None:
+    manifest = _manifest()
+    manifest["input"]["maxItemsPerUrl"] = {"$ref": "runtime.max_items"}
+
+    parsed = parse_actor_manifest(manifest)
+    rendered = render_actor_input(
+        parsed,
+        {
+            "canonical_url": "https://x.com/apify",
+            "native_id": "apify-id",
+            "handle": "apify",
+        },
+        {"max_items": 7},
+    )
+
+    assert rendered["maxItemsPerUrl"] == 7
 
 
 def test_manifest_rejects_identity_host_and_time_contract_drift() -> None:

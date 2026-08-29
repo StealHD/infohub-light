@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from ...storage.actorops_v2_resilience_schema import (
-    migration_marker_exists as resilience_migration_marker_exists,
-    schema_shapes_valid as resilience_schema_shapes_valid,
+from ...storage.actorops_v2_stability_schema import (
+    migration_marker_exists as stability_migration_marker_exists,
+    schema_shapes_valid as stability_schema_shapes_valid,
+)
+from ...storage.actorops_v2_revalidation_schema import (
+    migration_marker_exists as revalidation_migration_marker_exists,
+    schema_shapes_valid as revalidation_schema_shapes_valid,
+)
+from ...storage.actorops_v2_sampling_schema import (
+    migration_marker_exists as sampling_migration_marker_exists,
+    schema_shapes_valid as sampling_schema_shapes_valid,
 )
 from ...storage.service_store import ServiceStore
 
@@ -14,8 +22,12 @@ def require_actorops_v2_schema(store: ServiceStore) -> None:
 
     connection = store.connect()
     if (
-        not resilience_migration_marker_exists(connection)
-        or not resilience_schema_shapes_valid(connection)
+        not stability_migration_marker_exists(connection)
+        or not stability_schema_shapes_valid(connection)
+        or not revalidation_migration_marker_exists(connection)
+        or not revalidation_schema_shapes_valid(connection)
+        or not sampling_migration_marker_exists(connection)
+        or not sampling_schema_shapes_valid(connection)
     ):
         raise RuntimeError("actorops_v2 migration_required")
 
@@ -23,6 +35,10 @@ def require_actorops_v2_schema(store: ServiceStore) -> None:
 def actorops_v2_startup_migration_required(store: ServiceStore) -> bool:
     connection = store.connect()
     return not (
-        resilience_migration_marker_exists(connection)
-        and resilience_schema_shapes_valid(connection)
+        stability_migration_marker_exists(connection)
+        and stability_schema_shapes_valid(connection)
+        and revalidation_migration_marker_exists(connection)
+        and revalidation_schema_shapes_valid(connection)
+        and sampling_migration_marker_exists(connection)
+        and sampling_schema_shapes_valid(connection)
     )

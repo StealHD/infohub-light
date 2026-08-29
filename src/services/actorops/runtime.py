@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping
 
-from ...apify_actor_identity import source_target_fingerprint
+from ...apify_actor_identity import source_config_target, source_target_fingerprint
 from .attempt_recovery import attempt_group_identity, attempt_identity
 from .candidate_execution import CandidateExecution
 from .domain import FailureClass, RuntimeMode
@@ -13,10 +13,13 @@ from .errors import ActorOpsRuntimeError
 from .ports import ExecutionResult, FetchWindow, RemoteActorClient
 from .registry import AdapterNotRegistered, AdapterRegistry
 from .repository import ActorOpsRepository
-from .runtime_resilience import (
-    queue_repair_and_trace, record_fetch_result, trace_candidate_plan,
-    trace_native_fallback,
+from .runtime_candidate_health import operational_route_summary
+from .runtime_control_flow import (
+    execute_candidate_plan,
+    fallback_or_fail,
+    fetch_disabled_route,
 )
+from .runtime_resilience import trace_candidate_plan
 
 
 class ActorOpsRuntime:
@@ -60,33 +63,24 @@ class ActorOpsRuntime:
         fingerprint = source_target_fingerprint(
             self.repository.workspace_id,
             route_id,
-            str(source_config.get("target") or ""),
+            source_config_target(
+                source_config, platform=route.route_key.platform
+            ),
             platform=route.route_key.platform,
         )
         snapshot = self.repository.freeze_execution(
             route_id, source_id, fingerprint
         )
-        health = self.repository.route_health(route_id)
+        health = operational_route_summary(
+            self.repository,
+            snapshot.candidates,
+            route_id=route_id,
+            source_id=source_id,
+        ).health
         if route.runtime_mode is not RuntimeMode.ACTIVE:
-            fallback = await adapter.fetch_native_fallback(target, window)
-            if fallback.supported:
-                return ExecutionResult(
-                    items=fallback.items,
-                    execution_mode="native_fallback",
-                    health=health.value,
-                    degraded_reason=(
-                        fallback.degraded_reason
-                        or "actorops_v2_route_disabled_native_fallback"
-                    ),
-                    candidate_id=None,
-                    semantic_outcome="native_fallback",
-                    publication_proof=self.repository.publication_proof(
-                        snapshot, None
-                    ),
-                )
-            raise ActorOpsRuntimeError(
-                "actorops_v2_route_disabled",
-                failure_class=FailureClass.CONFIGURATION,
+            return await fetch_disabled_route(
+                self.repository, adapter=adapter, target=target, window=window,
+                snapshot=snapshot, health=health,
             )
         group_id = attempt_group_identity(
             self.repository.workspace_id,
@@ -111,72 +105,26 @@ class ActorOpsRuntime:
             binding=snapshot.binding,
             candidates=candidates,
             natural_schedule=natural_schedule,
+            logical_job_id=logical_job_id,
         )
         candidates = plan.candidates
         trace_candidate_plan(
             self.repository, logical_job_id=logical_job_id, route_id=route_id,
             source_id=source_id, candidates=candidates, cross_check=plan.cross_check,
         )
-        for index, candidate in enumerate(candidates):
-            try:
-                result = await executor.fetch(
-                    adapter=adapter,
-                    target=target,
-                    snapshot=snapshot,
-                    candidate=candidate,
-                    index=index,
-                    group_id=group_id,
-                    source_id=source_id,
-                    logical_job_id=logical_job_id,
-                    window=window,
-                    health=health,
-                )
-            except ActorOpsRuntimeError as error:
-                if error.failure_class is FailureClass.CANDIDATE:
-                    self.repository.resilience.emit(
-                        root_job_id=logical_job_id, route_id=route_id, source_id=source_id,
-                        candidate_id=candidate.candidate_id, phase="candidate_execution",
-                        outcome="failed", reason_code=error.code,
-                    )
-                    continue
-                queue_repair_and_trace(
-                    self.repository, logical_job_id=logical_job_id, route_id=route_id,
-                    source_id=source_id, error_code=error.code,
-                    blocked_code=(error.code if error.failure_class is FailureClass.REMOTE_UNKNOWN else None),
-                )
-                raise
-            if result is not None:
-                record_fetch_result(
-                    self.repository, binding=snapshot.binding, plan=plan, result=result,
-                    candidate=candidate, index=index, logical_job_id=logical_job_id,
-                    route_id=route_id, source_id=source_id,
-                    natural_schedule=natural_schedule,
-                )
-                return result
-        fallback = await adapter.fetch_native_fallback(target, window)
-        if fallback.supported:
-            trace_native_fallback(
-                self.repository, logical_job_id=logical_job_id, route_id=route_id,
-                source_id=source_id,
-            )
-            return ExecutionResult(
-                items=fallback.items,
-                execution_mode="native_fallback",
-                health=health.value,
-                degraded_reason=fallback.degraded_reason or "native_fallback",
-                candidate_id=None,
-                semantic_outcome="native_fallback",
-                publication_proof=self.repository.publication_proof(
-                    snapshot, None
-                ),
-            )
-        queue_repair_and_trace(
-            self.repository, logical_job_id=logical_job_id, route_id=route_id,
-            source_id=source_id,
+        result = await execute_candidate_plan(
+            self.repository, executor, adapter=adapter, target=target,
+            snapshot=snapshot, plan=plan, group_id=group_id,
+            source_id=source_id, logical_job_id=logical_job_id,
+            route_id=route_id, window=window, health=health,
+            natural_schedule=natural_schedule,
         )
-        raise ActorOpsRuntimeError(
-            "actorops_v2_route_unavailable",
-            failure_class=FailureClass.CANDIDATE,
+        if result is not None:
+            return result
+        return await fallback_or_fail(
+            self.repository, adapter=adapter, target=target, window=window,
+            snapshot=snapshot, plan=plan, health=health, route_id=route_id,
+            source_id=source_id, logical_job_id=logical_job_id,
         )
 
 

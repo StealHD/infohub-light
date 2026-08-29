@@ -461,10 +461,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-routes/{route_id}/active-pool/promote",
     ): ("source", "actorops_v2_candidate_promote"),
-    ("PATCH", "/api/admin/apify-routes/{route_id}/price-cap"): (
-        "source",
-        "actorops_v2_price_cap",
-    ),
+    ("POST", "/api/admin/apify-routes/{route_id}/v2-candidates/{candidate_id}/recovery-probe"):
+        ("source", "actorops_v2_candidate_recovery_probe"),
+    ("PATCH", "/api/admin/apify-routes/{route_id}/price-cap"):
+        ("source", "actorops_v2_price_cap"),
     (
         "POST",
         "/api/admin/sources/{source_id}/apify-binding/activate",

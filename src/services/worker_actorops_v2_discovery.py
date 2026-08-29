@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,12 +11,12 @@ from typing import Any
 from ..storage.service_store import ServiceStore
 from .actorops.adapters import build_default_registry
 from .actorops.apify_catalog import ApifyDiscoveryCatalog, ApifyStoreRestClient
+from .actorops.apify_catalog_credentials import resolve_apify_catalog_credential
 from .actorops.discovery import ActorOpsDiscovery, DiscoveryCatalogError
 from .actorops.discovery_ai import open_actorops_discovery_ai_mapper
 from .actorops.readiness import require_actorops_v2_schema
 from .actorops.repository import ActorOpsRepository
 from .job_queue import JobQueue
-from .secret_store import SecretStore
 from .system_settings import resolve_system_setting
 
 
@@ -51,6 +50,7 @@ def run_actorops_v2_discovery(
         asyncio.run(_refresh_discovered_store_metadata(repository, catalog, discovery_id))
     return {
         "ok": result.status != "failed",
+        "_job_status": "failed" if result.status == "failed" else "succeeded",
         "job_type": "actorops_v2_discovery",
         "discovery_id": result.discovery_id,
         "stage": result.stage,
@@ -106,19 +106,22 @@ def enqueue_due_actorops_v2_discoveries(
     return {"enqueued": enqueued, "deferred": deferred}
 
 
-def _catalog(store: ServiceStore, workspace_id: str, data_dir: str) -> object:
-    row = store.connect().execute(
-        """SELECT secret.env_name FROM apify_key_pool_state AS state
-           JOIN secret_refs AS secret ON secret.id=state.active_secret_id
-           WHERE state.workspace_id=?""",
-        (workspace_id,),
-    ).fetchone()
-    env_name = str(row["env_name"]) if row else ""
-    environment = os.getenv(env_name) if env_name else ""
-    token = str(SecretStore(data_dir).read().get(env_name) or environment or "").strip()
-    if not token:
+def _catalog(
+    store: ServiceStore,
+    workspace_id: str,
+    data_dir: str,
+    *,
+    purpose: str = "acquisition",
+) -> object:
+    credential = resolve_apify_catalog_credential(
+        store,
+        workspace_id=workspace_id,
+        data_dir=data_dir,
+        purpose=purpose,
+    )
+    if credential is None:
         return _UnavailableCatalog()
-    return ApifyDiscoveryCatalog(ApifyStoreRestClient(token))
+    return ApifyDiscoveryCatalog(ApifyStoreRestClient(credential.token))
 
 
 async def _refresh_discovered_store_metadata(
@@ -134,7 +137,7 @@ async def _refresh_discovered_store_metadata(
     refresh = getattr(catalog, "store_metadata", None)
     if not callable(refresh):
         return
-    for candidate_id in repository.discovery.list_accepted_candidate_ids(discovery_id):
+    for candidate_id in repository.discovery.list_metadata_candidate_ids(discovery_id):
         try:
             metadata = await refresh(repository.get_candidate(candidate_id))
             with repository.transaction():
@@ -179,8 +182,7 @@ def _active_job(connection: Any, workspace_id: str, discovery_id: str) -> bool:
 def _operator(connection: Any, workspace_id: str) -> str | None:
     row = connection.execute(
         """SELECT id FROM users WHERE workspace_id=? AND enabled=1
-           AND role IN ('owner','admin') ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END,
-           created_at, id LIMIT 1""",
+           AND role IN ('owner','admin') ORDER BY created_at, id LIMIT 1""",
         (workspace_id,),
     ).fetchone()
     return str(row["id"]) if row else None

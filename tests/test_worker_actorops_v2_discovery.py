@@ -90,6 +90,46 @@ def test_v2_discovery_handler_runs_with_injected_catalog(tmp_path) -> None:
     store.close()
 
 
+def test_v2_discovery_keeps_store_identity_for_mapping_pending_candidate(
+    tmp_path,
+) -> None:
+    class _PendingCatalog(_Catalog):
+        async def get_revision(self, actor_id):
+            revision = await super().get_revision(actor_id)
+            return DiscoveryRevision(
+                actor_id=revision.actor_id,
+                publisher=revision.publisher,
+                build_id=revision.build_id,
+                build_number=revision.build_number,
+                price_per_run_usd=revision.price_per_run_usd,
+                input_schema=revision.input_schema,
+                output_schema={"properties": {"results": {"type": "string"}}},
+            )
+
+    store = ServiceStore(tmp_path / "data")
+    store.initialize()
+    job, _route_id = _job(store)
+    catalog = _PendingCatalog()
+
+    result = run_actorops_v2_discovery(
+        job, data_dir=str(store.data_dir), store=store,
+        ports=WorkerActorOpsV2DiscoveryPorts(lambda *_args: catalog),
+    )
+    row = store.connect().execute(
+        """SELECT candidate.lifecycle, metadata.display_name
+             FROM actor_candidates_v2 AS candidate
+             JOIN actor_candidate_store_metadata_v2 AS metadata
+               ON metadata.candidate_id=candidate.candidate_id"""
+    ).fetchone()
+
+    assert result["status"] == "completed"
+    assert dict(row) == {
+        "lifecycle": "mapping_pending",
+        "display_name": "Public Actor",
+    }
+    store.close()
+
+
 def test_discovery_queue_requires_global_30(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()

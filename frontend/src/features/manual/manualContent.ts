@@ -106,13 +106,13 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '比较并替换 Actor',
-        description: 'Owner/Admin 打开“设置 → ActorOps”后，每条 v2 Route 显示平台、当前主用/备用、已核验来源数和“单次最多允许费用”。Actor 标签可悬停、键盘聚焦或触屏点击，查看公开商城名称、Build、价格、评分、收藏、总用户、月活、开发者和 Apify 维护状态；商城价格只用于比较，不会自动启动 Actor。若价格或质量不合适，可先免费更新 Candidate，再从“替换 Actor”中明确选择一个候选。系统会冻结当前 Binding 和费用上限，按来源逐个串行测试；每次最多一个远端运行，全部返回有效非空内容并完成费用结算后，页面才显示“确认替换”。已有完整同版本证据的候选无需再次收费。更换只调整后续主备顺序，不发布测试内容、不改变信息流水位；失败、未知启动或费用待结算会停止后续收费，也不会自动换下一个 Candidate。',
+        description: 'Owner/Admin 打开“设置 → ActorOps”后，每条 v2 Route 显示平台、当前主用/备用、已核验来源数、“单次最多允许费用”和正在进行的搜索/实测进度。“管理 Actor”把搜索、选择槽位、候选比较、免费预检、实测适配和最终应用放在同一个 Drawer；关闭或刷新后仍会恢复。Actor 标签可悬停、键盘聚焦或触屏点击，查看公开商城名称、Build、价格、评分、收藏、总用户、月活、开发者和 Apify 维护状态；商城价格只用于比较，不会自动启动 Actor。系统按公开质量和已有证据自动推荐候选，也允许手动改选；候选分为“系统可用”“可实测”“需要真实样本”和阻断项，静态分析完成不代表已经可应用。字段已经适配但当前来源证明未齐时会显示“还需验证 N 个来源”，真实合同或运行故障显示“已阻断”。缺少公开输出 Schema 时，系统先证明精确 Build 和目标输入，一次实测授权只启动一个 Actor，随后复用同一 Dataset 最多两轮自动字段映射，不会重复启动。点击“免费检查并准备实测”先执行零费用预检；通过后“开始实测”按钮明确显示最高费用，不需要输入确认短语。系统会冻结当前 Binding 和费用上限，按来源逐个串行测试；全部当前来源返回有效非空内容并完成费用结算后，页面才显示“应用到主用/备用”。已有完整同版本证据的候选无需再次收费；商城名称或 slug 变化不会切断同一稳定 Actor、Build 和 Schema 的历史证明。更换只调整后续主备顺序，不发布测试内容、不改变信息流水位；失败、未知启动或费用待结算会停止后续收费，也不会自动换下一个 Candidate。',
         href: '/settings/actorops',
         linkLabel: '管理 Actor 替换',
       },
       {
         title: '发现与核验 Candidate',
-        description: 'v2 Discovery 分别按 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed 搜索 Candidate，并保存公开商城元数据、固定 Build、输入/输出合同和安全拒绝原因。免费搜索与 metadata 更新不会启动 Actor；有费用的 Replacement Probe 必须先冻结当前 Binding、Candidate 与费用上限并由管理员确认。固定 Build 已经因合同、身份或输出失败时不会自动重新付费；目标、Build、Manifest 或已保存证据改变后才可重新评估。',
+        description: 'v2 Discovery 分别按 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed 搜索 Candidate，并保存公开商城元数据、固定 Build、输入/输出合同和安全拒绝原因。字段映射按 exact Build 先确定性匹配、再逐 Actor 使用 AI，并在严格校验后缓存；X 高级搜索可由系统安全生成 from:<账号>，也可从已验证用户名与数字帖子 ID 生成标准帖子 URL。缺少帖子作者、目标输入或核心帖子字段会具体显示；缺头像或作者显示名不影响正文。免费搜索与 metadata 更新不会启动 Actor；有费用的 Replacement Probe 必须先冻结当前 Binding、Candidate 与费用上限并由管理员确认。固定 Build 已经因合同、身份或输出失败时不会自动重新付费；目标、Build、Manifest 或已保存证据改变后才可重新评估。',
       },
       {
         title: '理解验证失败',

@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from ..models import ContentItem
 from .apify_key_pool import apify_key_pool_enabled, apify_pool_generation
 from .actorops.binding_service import ActorOpsBindingError
+from .actorops import publication as _actor_publication
 from .source_type_registry import is_youtube_channel_config
 from .source_projection import (
     TargetSubscriptionProjection,
@@ -138,24 +139,9 @@ def _actor_acquisition_origin(
         metadata = item.metadata if isinstance(item.metadata, dict) else {}
         if metadata.get("acquisition_origin") in {"apify_actor", "apify_fallback"}:
             return str(metadata["acquisition_origin"])
-    if _actor_publication_proof(items) is not None:
+    if _actor_publication.proof_from_items(items) is not None:
         return "apify_actor"
     return None
-
-
-def _actor_publication_proof(items: Any) -> dict[str, Any] | None:
-    from .actorops.publication import proof_from_items
-
-    return proof_from_items(items)
-
-
-def _with_actor_publication_proof(
-    items: list[ContentItem],
-    proof: dict[str, Any] | None,
-) -> list[ContentItem]:
-    from .actorops.publication import with_publication_proof
-
-    return with_publication_proof(items, proof)
 
 
 def shared_acquisition_enabled(
@@ -292,7 +278,7 @@ class SourceAcquisitionCoordinator:
                     provider=provider,
                 )
                 if actor_acquisition_origin is not None:
-                    proof = _actor_publication_proof(cached)
+                    proof = _actor_publication.proof_from_items(cached)
                     self._publication_contexts[context.acquisition_key] = replace(
                         context,
                         actor_publication_proof=(
@@ -318,7 +304,11 @@ class SourceAcquisitionCoordinator:
             self.metrics.upstream_attempts += 1
             try:
                 fetched = await fetch()
-                actor_publication_proof = _actor_publication_proof(fetched)
+                actor_publication_proof = _actor_publication.proof_from_items(fetched)
+                actor_source_avatar_url = (
+                    _actor_publication.source_avatar_url_from_items(fetched)
+                    if actor_publication_proof else None
+                )
                 actor_acquisition_origin = _actor_acquisition_origin(
                     fetched,
                     provider=provider,
@@ -359,6 +349,7 @@ class SourceAcquisitionCoordinator:
                     provider=provider,
                     items=neutral,
                     actor_publication_proof=actor_publication_proof,
+                    actor_source_avatar_url=actor_source_avatar_url,
                 )
             except BaseException as exc:
                 self._record_failure(context, claim_token=claim_token, exc=exc)
@@ -368,9 +359,10 @@ class SourceAcquisitionCoordinator:
                 self._publication_contexts[
                     publication_context.acquisition_key
                 ] = publication_context
-            return _with_actor_publication_proof(
+            return _actor_publication.with_publication_proof(
                 self._project_items(neutral, source),
                 actor_publication_proof,
+                source_avatar_url=actor_source_avatar_url,
             )
 
     def run_probe(
@@ -649,9 +641,12 @@ class SourceAcquisitionCoordinator:
             and isinstance(diagnostics.get("actor_publication"), dict)
             else None
         )
-        return _with_actor_publication_proof(
+        private = diagnostics.get("actor_private", {}) if isinstance(diagnostics, dict) else {}
+        private = private if isinstance(private, dict) else {}
+        return _actor_publication.with_publication_proof(
             self._project_items(neutral, source),
             proof,
+            source_avatar_url=private.get("source_avatar_url"),
         )
 
     def _try_claim(self, context: _AcquisitionContext, claim_token: str) -> str:
@@ -788,6 +783,7 @@ class SourceAcquisitionCoordinator:
         provider: str,
         items: list[ContentItem],
         actor_publication_proof: dict[str, Any] | None = None,
+        actor_source_avatar_url: str | None = None,
     ) -> None:
         conn = self.store.connect()
         now = _utcnow()
@@ -871,6 +867,10 @@ class SourceAcquisitionCoordinator:
                                 }
                                 if actor_publication_proof is not None
                                 else {}
+                            ),
+                            **(
+                                {"actor_private": {"source_avatar_url": actor_source_avatar_url}}
+                                if actor_source_avatar_url is not None else {}
                             ),
                         }
                     ),

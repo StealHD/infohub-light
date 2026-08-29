@@ -7,8 +7,16 @@ import json
 from typing import Any
 
 from ..services.actorops.domain import AssignmentRole, CandidateRecord, RouteHealth
+from ..services.actorops.presentation_mapping import CandidatePresentationMappings
+from ..services.actorops.discovery_mapping_issues import candidate_mapping_issue
+from ..services.actorops.compatibility_projection import candidate_compatibility
 from ..services.actorops.readiness import require_actorops_v2_schema
 from ..services.actorops.repository import ActorOpsRepository
+from ..services.actorops.runtime_candidate_health import (
+    CandidateOperationalState,
+    candidate_operational_states,
+    operational_route_summary,
+)
 
 
 def actorops_v2_route_additions(
@@ -34,18 +42,40 @@ def actorops_v2_route_additions(
         for item in bindings if item.last_known_good_candidate_id
     }
     lkg = next((item for item in candidates if item.candidate_id in lkg_ids), None)
-    health = repository.route_health(route_id)
+    states = candidate_operational_states(repository, candidates)
+    operational = operational_route_summary(
+        repository, candidates, route_id=route_id
+    )
+    health = operational.health
     effective = repository.maintenance.effective_policy(route_id)
     budget = repository.maintenance.probe_budget(route_id, datetime.now(timezone.utc))
     return {
         "actorops_version": 2,
         "route_generation": route.generation,
-        "health": health.value,
+        **operational.public(),
         "runtime_mode": route.runtime_mode.value,
         "per_run_cap_usd": route.per_run_cap_usd,
-        "active_candidate": _candidate(active, metadata.get(active.candidate_id) if active else None, repository),
-        "standby_candidates": [_candidate(item, metadata.get(item.candidate_id), repository) for item in standby],
-        "last_known_good": _candidate(lkg, metadata.get(lkg.candidate_id) if lkg else None, repository),
+        "active_candidate": _candidate(
+            active,
+            metadata.get(active.candidate_id) if active else None,
+            repository,
+            states.get(active.candidate_id) if active else None,
+        ),
+        "standby_candidates": [
+            _candidate(
+                item,
+                metadata.get(item.candidate_id),
+                repository,
+                states.get(item.candidate_id),
+            )
+            for item in standby
+        ],
+        "last_known_good": _candidate(
+            lkg,
+            metadata.get(lkg.candidate_id) if lkg else None,
+            repository,
+            states.get(lkg.candidate_id) if lkg else None,
+        ),
         "last_success_at": max(
             (str(item.last_success_at) for item in bindings if item.last_success_at),
             default=None,
@@ -97,6 +127,7 @@ def public_maintenance_policy(
     workspace_view = {
         "enabled": bool(workspace.enabled),
         "monthly_budget_usd": workspace.monthly_budget_usd,
+        "authorization_origin": _authorization_origin(workspace),
         "generation": int(workspace.generation),
     }
     if route is None:
@@ -111,6 +142,7 @@ def public_maintenance_policy(
             "max_probes_per_utc_day": route.max_probes_per_utc_day,
             "auto_add_standby": route.auto_add_standby,
             "auto_replace_non_last": route.auto_replace_non_last,
+            "authorization_origin": _authorization_origin(route),
             "generation": int(route.generation),
         },
         "budget": {
@@ -125,6 +157,11 @@ def _require_enabled(store: Any) -> None:
     require_actorops_v2_schema(store)
 
 
+def _authorization_origin(policy: Any) -> str:
+    value = str(getattr(policy, "authorization_origin", "none"))
+    return value if value in {"system_default", "operator", "none"} else "none"
+
+
 def actorops_v2_candidate_projection(
     repository: ActorOpsRepository, candidate: CandidateRecord
 ) -> dict[str, object]:
@@ -132,10 +169,16 @@ def actorops_v2_candidate_projection(
 
 
 def _candidate(
-    candidate: CandidateRecord | None, metadata: Any | None, repository: ActorOpsRepository
+    candidate: CandidateRecord | None,
+    metadata: Any | None,
+    repository: ActorOpsRepository,
+    state: CandidateOperationalState | None = None,
 ) -> dict[str, object] | None:
     if candidate is None:
         return None
+    state = state or candidate_operational_states(repository, (candidate,))[
+        candidate.candidate_id
+    ]
     return {
         "candidate_id": candidate.candidate_id,
         "build_number": candidate.build_number,
@@ -143,6 +186,12 @@ def _candidate(
         "assignment": candidate.assignment_role.value,
         "priority": candidate.priority,
         "generation": candidate.generation,
+        "mapping_issue_code": candidate_mapping_issue(candidate),
+        **candidate_compatibility(repository, candidate),
+        **state.public(),
+        "avatar_mapping_status": CandidatePresentationMappings(repository).status(
+            candidate
+        ),
         "store_metadata": _metadata(metadata),
         "evidence_progress": _evidence(repository, candidate),
     }

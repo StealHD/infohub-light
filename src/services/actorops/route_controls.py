@@ -34,9 +34,7 @@ def promote_standby_candidate(
         or target.assignment_role not in {AssignmentRole.STANDBY, AssignmentRole.INACTIVE}
         or target.generation != int(expected_candidate_generation)
         or (target.assignment_role is AssignmentRole.STANDBY and target.priority is None)
-        or not candidate_is_runnable(
-            target.lifecycle, build_id=target.build_id, manifest_hash=target.manifest_hash
-        )
+        or not candidate_is_runnable(target)
     ):
         raise ActorOpsConflict("Candidate is not an eligible standby")
     active = next(
@@ -46,9 +44,7 @@ def promote_standby_candidate(
         ),
         None,
     )
-    if active is None or not candidate_is_runnable(
-        active.lifecycle, build_id=active.build_id, manifest_hash=active.manifest_hash
-    ):
+    if active is None or not candidate_is_runnable(active):
         raise ActorOpsConflict("route has no runnable active Candidate")
 
     stamp = datetime.now(timezone.utc).isoformat()

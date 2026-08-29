@@ -7,6 +7,7 @@ import { ActorOpsV2CandidateCard } from './ActorOpsV2CandidateCard'
 
 const readableCandidate: ActorOpsV2CandidateView = {
   candidate_id: 'candidate-1', build_number: '1.2.3', lifecycle: 'static_valid', assignment: 'inactive', priority: null, generation: 2,
+  operational_status: 'normal', issue_code: null, last_success_at: null, last_failure_at: null, retry_at: null, avatar_mapping_status: 'ready',
   store_metadata: {
     actor_slug: 'apidojo/tweet-scraper', display_name: 'Tweet Scraper V2', short_description: null, developer_name: 'apidojo', maintained_by_apify: true,
     rating: 3.9, review_count: 181, bookmark_count: 1415, total_users: 74413, monthly_active_users: null, pricing: [{ minimumChargeUsd: 0.02 }], last_modified_at: null, observed_at: '2026-08-24T00:00:00+00:00', generation: 1,
@@ -41,5 +42,17 @@ describe('ActorOpsV2CandidateCard', () => {
 
     expect(screen.getByText('商城信息待更新')).toBeInTheDocument()
     expect(screen.queryByText('4wL6Wm4CWnpgaDALa')).not.toBeInTheDocument()
+  })
+
+  it('states the remaining binding proof gap instead of a generic sample label', () => {
+    const candidate: ActorOpsV2CandidateView = {
+      ...readableCandidate,
+      compatibility_stage: 'sample_required',
+      compatibility_issue_code: 'binding_proof_incomplete',
+    }
+
+    render(<ActorOpsV2CandidateCard candidate={candidate} selected={false} onSelect={vi.fn()} />)
+
+    expect(screen.getByText(/还需验证 1 个来源/)).toBeInTheDocument()
   })
 })

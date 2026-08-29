@@ -7,8 +7,10 @@
 - 兼容：旧设置 URL、Service DB snapshot 双读、ActorOps 兼容 API、迁移读路径和首库 `release_rc1.sh`；不代表默认能力。
 - 默认关闭：Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
 - 已实现但须独立批准：Feed storage v3、通知 v14–v16、ActorOps v17–v24、付费 Canary、自动新鲜度与外部通知。global 25 仅作惰性历史数据；后续迁移从 26 继续。
-- ActorOps v2 单轨：Phase 0–8 已完成，v2 独占 UI/API/来源/抓取/Worker；Route 仅 `active|disabled`。缺 global 30 时仅 ActorOps 返回 migration-required；不调用付费服务。
+- ActorOps v2 单轨：Phase 0–8 已完成，v2 独占 UI/API/来源/抓取/Worker；Route 仅 `active|disabled`。global 35 是当前 ActorOps 在线门，缺失时仅 ActorOps 返回 migration-required；不调用付费服务。
 - 系统参数：global 32 提供 21 项 workspace 热调；Owner/Admin Web/MCP 共用 proposal、确认、CAS；已有库须先完成 global 31；排除秘密、端点和付费 Actor。
+- ActorOps 稳定控制环：global 33 按每条 ready Binding 的实际可用路径投影健康度，统一 Candidate 故障/冷却、Repair/Discovery/结算唤醒与头像展示映射。未被管理员改动的 workspace/Route 维护策略默认开启，但预算、Owner/Admin principal、单 Probe 和费用对账门不变，`auto_replace_non_last=false`；替换及空备用补充继续只允许人工确认。
+- ActorOps 高适配闭环：候选获取、系统可用性判断和稳定投入使用分为三阶段；Manifest v1 可选有界 Dataset 展开，Runtime/Maintenance/Replacement/Revalidation 共享验证入口。已结算映射失败在同一 Replacement plan 内最多两轮复用原 Dataset 自动修正，新增 Actor Run 为零；真实证明完成前不得标记 `system_usable`，最终应用仍需人工确认。
 - OpenClaw 全来源订阅已实现；社交源仅建 pending Binding。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
@@ -21,8 +23,11 @@
 | notification v14–v16 | 上一 schema 已完成 | 同上，不调用 Transport | 表/约束/历史映射、API 与 Worker ready |
 | ActorOps v17–v24 | 无 Discovery/Canary/新鲜度 Job | 同上，不联网、不调用 AI/Actor | 精确 migration checksum、完整表形状、integrity/foreign keys 与 readiness；global 25 不作为前置 |
 | ActorOps v2 global 26（已实现、未启用） | 停 API/Worker，全部非终态 ActorOps 与未结费用先收敛 | 显式 dry-run、`0600` backup、apply、v24 只读摘要 backfill | fresh/existing/repeat apply、integrity/foreign keys、global 25 完全不读写；不复制 inflight，缺 marker 不改变 v1 readiness |
+| ActorOps v2 global 33（本地已迁移验证、未部署 VPS） | 有效 global 32；停 API/Worker | `scripts/migrate_actorops_v2_stability.py` 先 preview、再显式 `--apply`；创建 `0600` backup | fresh/existing/repeat/partial/rollback、marker/shape、integrity/foreign keys；显式关闭策略保持关闭，旧费用/Attempt/Replacement 不丢失 |
+| ActorOps v2 global 34（本地实现、未部署 VPS） | 有效 global 33；停 API/Worker | `scripts/migrate_actorops_v2_revalidation.py` 先 preview、再显式 `--apply`；创建 `0600` backup | 只替换 Candidate 生命周期触发器；有效内容恢复 probationary，无可发布内容只恢复 static_valid 且不计替换证明；原 Attempt/费用不改写 |
+| ActorOps v2 global 35（本地实现、未部署 VPS） | 有效 global 34；停 API/Worker | `scripts/migrate_actorops_v2_sampling.py` 先 preview、再显式 `--apply`；创建 `0600` backup | 私有 InputPlan sidecar shape、integrity/foreign keys 与 exact marker；不联网、不调用 Actor/AI、不改写既有 Attempt/费用 |
 | 付费 Actor/AI | operator 明确授权 | 单次有上限 canary | 费用、远端 Run、来源结果与回滚证据 |
-| 正式 VPS 升级 | 干净且等同 `origin/main` 的 main | `./scripts/release_vps.sh release vX.Y.Z` | 精确 SHA main Gate、Tag smoke、API/Worker/前端 revision |
+| 正式 VPS 升级 | 干净且等同 `origin/main` 的 main | `./scripts/release_vps.sh release vX.Y.Z` | 精确 SHA main Gate、Tag smoke、镜像 revision/source digest、API/Worker/前端与容器健康 |
 
 ## 推进顺序
 
@@ -44,27 +49,17 @@
 8. **Phase 7B1 — 已完成**：global30 重建 v2 Route/Binding 表，只接受 `active|disabled`，将历史 `shadow` 归一为 disabled，并删除 `source_v1_generation`。fresh store 由 Adapter Registry 种入 disabled Route/Policy；已有库只可离线备份、apply、校验，不联网、不 DROP v1 历史表。
 9. **Phase 7B2–8 — 已完成**：移除 feature flag 与 v1 online Runtime/API/Worker/UI；fresh DB 直接建立 v2 和 shared alerts，历史表仅用于 offline migration/audit/retirement，authorizer online allowlist 为空。
 
-## ActorOps v2 历史建设阶段
+## ActorOps v2 建设沿革
 
-1. **Phase 0 — 已完成条件**：从 `ce12561896642684ae310ba111f2ce4efb749cf1` 建立 `codex/actorops-v2`，保存 task snapshot，完成代码/表/状态/API/UI/测试盘点、D160 与 planned 合同；不修改产品代码或运行数据。
-2. **Phase 1 — 已完成：Domain 与 global 26**：七张核心表、单调状态模型、Adapter Port/Registry、Repository、显式离线迁移和 v24 只读摘要 backfill 已建立；global 25 永久惰性。迁移前必须排空 inflight/未结费用，v2 Attempt/Discovery 从空表开始。
-3. **Phase 2 — 已完成：稳定获取数据面**：Active、Standby、Last Known Good、免费原生降级、Attempt 账本和局部 Publication fence 已实现；feature flag 与 Route 默认关闭，未切真实流量。
-4. **Phase 3 — 已完成：统一对账与 Worker 隔离**：单一 Reconciler 只读取和结算既有远端 Run；unknown start 只冻结对应 Attempt/费用预留，Actor 控制任务不再成为普通 Fetch claim 的同步前置。
-5. **Phase 4 — 已完成：可恢复 Discovery**：Store、Metadata、Build/Pricing/Schema、Mapping、Ranking、Persist 每步保存安全 checkpoint；AI 只增强无法确定的映射，AI 不可用不能阻止确定性候选完成；不启动 Actor、Probe 或切流。
-6. **Phase 5 — 已完成：站立授权**：默认关闭，Owner/Admin 双策略授权后才按每 Probe `$0.05`、每 Route 每 UTC 日 5 次、Workspace 每 UTC 月 `$3.00` 的上限执行单 Candidate Probe；免费 exact-revision 预检、原子预算 reservation、自动补 Standby 与非最后一路替换均已实现，最后一个可运行 Actor 永不自动移除。无 HTTP API/UI，未执行真实调用。
-7. **历史 Phase 6 — 已完成离线护栏**：离线 Route CAS、历史费用审计和备份/receipt 机制已实现；其 shadow→v1 语义已被单轨退役计划取代，不再是现役来源路径。
-   - D173 的受控前置：为使已证实的 v1 Actor 输出合同以其实际费用完成 promotion，global 27 仅将 v1 Canary ledger 的单 Candidate 批准上限升至 `$0.20`、批次总额升至 `$0.60`。它必须显式离线安装；默认 `$0.02` 不变，未迁移数据库不得发起更高 cap 请求，也不改变 v2 schema、Route mode 或 Phase 6 切流条件。
-   - 精确 Revision 失败不复活：一次 final `contract_mismatch` 后，同一 Actor/Build/Manifest 不得在后续 Discovery 中重新计入新 Candidate 或再被批准；只有 Build 或 Manifest 改变才能形成新的验证合同。
-8. **历史 Phase 7.1 — 已完成控制面基础**：global 28、商城快照、费用上限、Replacement Plan 和 v2 UI 基础已经建立；全面 Admin/UI 单轨化由当前退役计划继续完成。
-9. **历史 Phase 8 — 已由单轨退役计划取代**：发布、VPS 与 Tag 仍是本地验收之后的独立决定。
-
-每个 Phase 独立提交；行为测试先在该 Phase 内观察失败，再随实现转绿，禁止提交已知失败。Phase 6 的三个平台各自独立提交和回退边界。
+- global 26 建立核心账本和 Adapter，global 28 建立商城/Replacement 控制，global 30 完成单轨，global 31 建立 resilience，global 32 提供 typed workspace settings，global 33 收口稳定控制环，global 34 支持历史 Dataset 的证据化重验恢复，global 35 保存缺 Output Schema Candidate 的私有 InputPlan；global 25 永久惰性。
+- 现役运行保持单一 Reconciler、费用单调、unknown-start 只读对账、Publication fence、可恢复 Discovery 和 exact Revision 合同；历史 shadow/v1 切流语义已由 D176 取代，详细理由保留在 D160–D181。
+- 真实 Actor 与付费 Probe 仍须逐次独立授权并保留费用证据；本地已在本次授权范围内用单 Run 上限验证真实数据面，生产迁移与 VPS 发布均未执行，仍须各自的显式迁移/发布门。
 
 ## 范围与非目标
 
 本阶段覆盖来源、订阅、Feed、稳定历史、任务、受控 AI/Apify、通知服务、React UI、Remote MCP、浏览器 OpenClaw、存储治理和可观测性。
 
-ActorOps v2 Phase 5 已提供默认停用的站立维护：Owner/Admin 双策略授权、免费 exact-revision 预检、单 Candidate Probe、独立 Probe 账本、UTC 日/月预算与安全补位/替换均不改变 Route runtime mode、Feed、LKG 或水位。Phase 6 的通用 guardrail 只提供安全的离线切换准备；收到逐平台费用授权后才按平台独立 shadow/观察/切流。新增平台继续通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
+ActorOps v2 global 33 为未被管理员改动的 workspace/Route 策略提供 `system_default` 站立维护：免费 exact-revision 预检、单 Candidate Probe、独立 Probe 账本、UTC 日/月预算和可用 Owner/Admin principal 仍是硬门；无负责人时保持待授权，显式关闭不被迁移覆盖。Repair 可自动发现和验证补位候选，但不自动替换主用或备用，人工 Replacement 继续保留全部 Attempt 与费用事实。新增平台继续通过独立 Adapter 注册，不把平台分支加入通用 Runtime、Discovery、Repository 或 Reconciler。
 
 不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway 或未授权的真实外部调用。旧 CLI、静态站、scheduler、本地 MCP、archive/Graph/feedback API 不再是兼容面。
 
@@ -73,7 +68,7 @@ ActorOps v2 Phase 5 已提供默认停用的站立维护：Owner/Admin 双策略
 1. 每个任务按 `snapshot → 定向测试 → 主动审查 diff → 一次 impacted preflight` 推进；冻结单体相对 snapshot `base_sha` 不得净增长，缩小不修改策略文件。
 2. `preflight` 接受 snapshot、staged 或 base/head 范围；未知可执行改动 fail closed 到无 Docker/Playwright 的全量代码检查。新文件/函数遵守 `tests/code_size_policy.json` 的唯一硬上限；目标行数、复杂度和嵌套只报告。
 3. PR 的 UI 门禁按 ActorOps、Workbench、视觉归属选择 Playwright spec；应用外壳、设计系统、全局路由与未知 UI 才跑全套。最终 main SHA 运行一次权威完整 Gate；完整失败后先复验失败 spec，修复后最多再完整运行一次。
-4. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。VPS 只 `docker load`，不得构建本仓库。共享健康检查等待 API/Worker、双容器 healthy、前端与公网 revision；`starting` 不触发回滚。
+4. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。基础镜像按 digest 固定，本地构建 `linux/amd64` 后 VPS 只 `docker load`，不得构建本仓库。共享健康检查同时核对 API/Worker、双容器 healthy、前端资源、revision 与镜像 source digest；`starting` 不触发回滚。
 5. 控制面变更必须运行 Markdown 控制检查、schema-v3 validator、worklog validator、JSON 校验和 `git diff --check`。
 6. ActorOps v2 的通用生产模块目标不超过 400 行、硬上限遵守 `tests/code_size_policy.json`；每个订阅类型拥有独立 Adapter 和参数化合同测试。新增平台通常只能新增 Adapter、注册项与平台测试，若必须修改通用流程则先更新架构合同和决策。
 

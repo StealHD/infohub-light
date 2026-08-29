@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -31,6 +32,9 @@ from . import repository_bindings as _bindings
 from . import route_controls as _route_controls
 from . import repository_operator as _operator
 from . import repository_resilience as _resilience
+from . import repository_revalidation as _revalidation
+from . import repository_adaptation as _adaptation
+from . import repository_sampling as _sampling
 from .repository_errors import (
     ActorOpsConflict,
     ActorOpsNotFound,
@@ -52,7 +56,10 @@ class ActorOpsRepository:
         nested = self.connection.in_transaction
         self._savepoint += 1
         name = f"actorops_v2_{self._savepoint}"
-        self.connection.execute(f"SAVEPOINT {name}" if nested else "BEGIN IMMEDIATE")
+        if nested:
+            self.connection.execute(f"SAVEPOINT {name}")
+        else:
+            self._begin_immediate()
         try:
             yield
         except Exception:
@@ -67,6 +74,19 @@ class ActorOpsRepository:
                 self.connection.execute(f"RELEASE {name}")
             else:
                 self.connection.commit()
+
+    def _begin_immediate(self) -> None:
+        """Retry local lock acquisition before any transaction body has run."""
+
+        for attempt in range(3):
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                return
+            except sqlite3.OperationalError as exc:
+                locked = "locked" in str(exc).casefold() or "busy" in str(exc).casefold()
+                if not locked or attempt == 2:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
     def get_route(self, route_id: str) -> RouteRecord:
         return _reads.get_route(self, route_id)
@@ -128,6 +148,27 @@ class ActorOpsRepository:
             succeeded=succeeded,
             error_class=error_class,
             error_code=error_code,
+        )
+
+    def record_runtime_candidate_outcome(
+        self,
+        candidate_id: str,
+        *,
+        succeeded: bool,
+        error_class: str | None = None,
+        error_code: str | None = None,
+    ) -> CandidateRecord:
+        return _execution.record_runtime_candidate_outcome(
+            self,
+            candidate_id,
+            succeeded=succeeded,
+            error_class=error_class,
+            error_code=error_code,
+        )
+
+    def has_unsettled_fetch_cost(self, *, route_id: str, source_id: str) -> bool:
+        return _execution.has_unsettled_fetch_cost(
+            self, route_id=route_id, source_id=source_id
         )
 
     def route_health(self, route_id: str) -> RouteHealth:
@@ -458,6 +499,24 @@ class ActorOpsRepository:
         """Durable freshness, automatic-repair and safe trace facts."""
 
         return _resilience.ResilienceRepository(self)
+
+    @property
+    def revalidation(self) -> _revalidation.ReplacementRevalidationRepository:
+        """Persist zero-start proofs without rewriting paid Attempt facts."""
+
+        return _revalidation.ReplacementRevalidationRepository(self)
+
+    @property
+    def adaptation(self) -> _adaptation.DatasetAdaptationRepository:
+        """Persist immutable observed mappings without changing paid facts."""
+
+        return _adaptation.DatasetAdaptationRepository(self)
+
+    @property
+    def sampling(self) -> _sampling.SamplingPlanRepository:
+        """Private exact-Build input plans for one controlled sample Run."""
+
+        return _sampling.SamplingPlanRepository(self)
 
     def create_discovery_job(
         self,

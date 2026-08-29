@@ -225,13 +225,49 @@ def list_reconcilable(repository: Any, *, limit: int):
            WHERE workspace_id=?
              AND (
                  (
+                     status IN ('created', 'starting')
+                     AND kind='fetch'
+                     AND cost_final=0
+                     AND request_schema_version=2
+                     AND EXISTS (
+                         SELECT 1 FROM fetch_jobs AS job
+                          WHERE job.id=actor_attempts_v2.logical_job_id
+                            AND job.workspace_id=actor_attempts_v2.workspace_id
+                            AND job.status IN ('succeeded','failed','partial','cancelled')
+                     )
+                 )
+                 OR
+                 (
                      status IN ('start_unknown', 'registered', 'running')
                      AND (result_state='pending' OR cost_final=0)
                  )
                  OR (
                      status IN ('succeeded', 'failed', 'cancelled')
                      AND cost_final=0
-                     AND (remote_run_id IS NOT NULL OR request_schema_version=2)
+                     AND (
+                         remote_run_id IS NOT NULL
+                         OR request_schema_version=2
+                         OR (
+                             request_schema_version=1 AND kind='fetch'
+                             AND 1=(
+                                 SELECT COUNT(*) FROM apify_actor_runs AS run
+                                  WHERE run.workspace_id=actor_attempts_v2.workspace_id
+                                    AND run.purpose='acquisition'
+                                    AND run.logical_run_id=actor_attempts_v2.attempt_id
+                             )
+                             AND EXISTS (
+                                 SELECT 1 FROM apify_actor_runs AS run
+                                  WHERE run.workspace_id=actor_attempts_v2.workspace_id
+                                    AND run.purpose='acquisition'
+                                    AND run.logical_run_id=actor_attempts_v2.attempt_id
+                                    AND run.status='start_rejected'
+                                    AND run.remote_run_id IS NULL
+                                    AND run.dataset_id IS NULL
+                                    AND run.charge_final=1
+                                    AND run.charge_actual_usd=0
+                             )
+                         )
+                     )
                  )
              )
            ORDER BY updated_at, attempt_id
@@ -314,7 +350,7 @@ def mark_reconciliation_error(repository: Any, attempt_id: str, **values: Any) -
         semantic_outcome=None,
         actual_cost_usd=None,
         cost_final=False,
-        failure_class="remote_unknown",
+        failure_class=values.get("failure_class") or "remote_unknown",
         error_code=values["error_code"],
     )
 

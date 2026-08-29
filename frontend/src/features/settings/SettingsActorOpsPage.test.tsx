@@ -29,9 +29,11 @@ describe('SettingsActorOpsPage', () => {
       routes: [{
         route_id: 'route-x', route_key: 'x/profile/items', platform: 'x', target_type: 'profile', capability: 'items',
         runtime_mode: 'disabled', generation: 3, per_run_cap_usd: 0.05, health: 'unavailable',
+        health_reason: 'source_unavailable', stable_candidate_count: 0, cooling_candidate_count: 0,
+        at_risk_source_count: 0, unavailable_source_count: 1, fallback_source_count: 0, next_repair_at: null,
         active_candidate: null, standby_candidates: [], last_known_good: null,
         binding_summary: { ready_count: 0, pending_count: 1, disabled_count: 0 },
-        maintenance_policy: { authorized: false, workspace: { enabled: false, monthly_budget_usd: 3, generation: 1 }, route: { enabled: false, max_probe_usd: 0.05, max_probes_per_utc_day: 5, auto_add_standby: false, auto_replace_non_last: false, generation: 1 }, budget: { spent_usd: 0, reserved_usd: 0, probe_count: 0 } },
+        maintenance_policy: { authorized: false, workspace: { enabled: false, monthly_budget_usd: 3, generation: 1, authorization_origin: 'none' }, route: { enabled: false, max_probe_usd: 0.05, max_probes_per_utc_day: 5, auto_add_standby: false, auto_replace_non_last: false, generation: 1, authorization_origin: 'none' }, budget: { spent_usd: 0, reserved_usd: 0, probe_count: 0 } },
         degraded_reason: 'actorops_v2_route_disabled', updated_at: null,
       }],
     })

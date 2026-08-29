@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
+from ..apify_actor_manifest import (
+    ActorManifestError,
+    actor_manifest_hash,
+    parse_actor_manifest,
+)
 from .domain import (
     AssignmentRole,
     CandidateLifecycle,
@@ -15,6 +21,9 @@ from .domain import (
     RUNNABLE_LIFECYCLES,
 )
 from .ports import TargetSpec
+
+
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def derive_route_health(runnable_assignments: int) -> RouteHealth:
@@ -27,16 +36,43 @@ def derive_route_health(runnable_assignments: int) -> RouteHealth:
     return RouteHealth.HEALTHY
 
 
-def candidate_is_runnable(
-    lifecycle: CandidateLifecycle,
-    *,
-    build_id: str | None,
-    manifest_hash: str | None,
-) -> bool:
+def candidate_has_exact_execution_contract(candidate: CandidateRecord) -> bool:
+    """Validate the immutable fields required by every paid execution path."""
+
+    actor_id = str(candidate.actor_id or "").strip()
+    build_id = str(candidate.build_id or "").strip()
+    build_number = str(candidate.build_number or "").strip()
+    manifest_json = str(candidate.manifest_json or "").strip()
+    manifest_hash = str(candidate.manifest_hash or "").strip()
+    input_hash = str(candidate.input_schema_hash or "").strip()
+    output_hash = str(candidate.output_schema_hash or "").strip()
+    if not (
+        actor_id
+        and build_id
+        and build_number
+        and manifest_json
+        and _SHA256.fullmatch(manifest_hash)
+        and _SHA256.fullmatch(input_hash)
+        and _SHA256.fullmatch(output_hash)
+    ):
+        return False
+    try:
+        manifest = parse_actor_manifest(manifest_json)
+    except ActorManifestError:
+        return False
     return bool(
-        lifecycle in RUNNABLE_LIFECYCLES
-        and str(build_id or "").strip()
-        and str(manifest_hash or "").strip()
+        manifest.actor_id == actor_id
+        and manifest.build_number == build_number
+        and actor_manifest_hash(manifest) == manifest_hash
+    )
+
+
+def candidate_is_runnable(candidate: CandidateRecord) -> bool:
+    """Fail closed unless an assigned Candidate can execute exactly."""
+
+    return bool(
+        candidate.lifecycle in RUNNABLE_LIFECYCLES
+        and candidate_has_exact_execution_contract(candidate)
     )
 
 
@@ -56,11 +92,7 @@ def ordered_candidates(
     runnable = {
         item.candidate_id: item
         for item in candidates
-        if candidate_is_runnable(
-            item.lifecycle,
-            build_id=item.build_id,
-            manifest_hash=item.manifest_hash,
-        )
+        if candidate_is_runnable(item)
     }
     assigned = sorted(
         (

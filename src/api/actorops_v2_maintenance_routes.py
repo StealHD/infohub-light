@@ -1,8 +1,8 @@
-"""Owner/Admin maintenance-policy endpoints for the default-off v2 facade."""
+"""Owner/Admin controls for bounded, default-on v2 maintenance."""
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
@@ -14,12 +14,23 @@ from ..services.actorops.admin_service import (
     ActorOpsAdminService,
     ActorOpsAdminUnavailable,
 )
-from ..services.actorops.repository import ActorOpsConflict, ActorOpsRepository
+from ..services.actorops.recovery_probe import (
+    RECOVERY_INTENT,
+    recovery_job_payload,
+    recovery_target_is_current,
+)
+from ..services.actorops.repository import (
+    ActorOpsConflict,
+    ActorOpsNotFound,
+    ActorOpsRepository,
+)
 from ..services.operation_log import safe_emit_operation_event
+from ..services.system_settings import resolve_system_setting
 
 
 class ActorOpsV2MaintenanceContext(Protocol):
     store: Any
+    job_queue: Any
 
 
 MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
@@ -29,6 +40,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("PATCH", "/api/admin/apify-routes/{route_id}/maintenance-policy"): (
         "source", "actorops_v2_route_maintenance_policy_update",
     ),
+    (
+        "POST",
+        "/api/admin/apify-routes/{route_id}/v2-candidates/{candidate_id}/recovery-probe",
+    ): ("source", "actorops_v2_candidate_recovery_probe"),
 }
 
 
@@ -37,6 +52,20 @@ class MaintenancePolicyPatch(BaseModel):
 
     enabled: StrictBool
     expected_generation: StrictInt = Field(ge=1)
+
+
+class CandidateRecoveryProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1, max_length=128)
+    expected_route_generation: StrictInt = Field(ge=1)
+    expected_candidate_generation: StrictInt = Field(ge=1)
+    expected_binding_version: StrictInt = Field(ge=1)
+    expected_last_failure_at: str = Field(min_length=1, max_length=64)
+    idempotency_key: str = Field(
+        min_length=16, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
+    confirmation: Literal["确认实测恢复 Actor"]
 
 
 def register_actorops_v2_maintenance_policy_routes(
@@ -96,6 +125,128 @@ def register_actorops_v2_maintenance_policy_routes(
         response.headers["Cache-Control"] = "no-store"
         return ok(result)
 
+    @app.post(
+        "/api/admin/apify-routes/{route_id}/v2-candidates/{candidate_id}/recovery-probe"
+    )
+    async def create_candidate_recovery_probe(
+        route_id: str,
+        candidate_id: str,
+        payload: CandidateRecoveryProbeRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        try:
+            job, created = _queue_recovery_probe(
+                context,
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                route_id=route_id,
+                candidate_id=candidate_id,
+                payload=payload,
+            )
+        except (ActorOpsConflict, ActorOpsNotFound) as error:
+            raise ApiError(
+                "actorops_v2_recovery_probe_conflict",
+                "候选、来源、故障状态或维护预算已变化，请刷新后重试。",
+                status_code=409,
+            ) from error
+        except RuntimeError as error:
+            raise _unavailable(error) from error
+        _record_recovery_probe(request, user, job=job, created=created)
+        response.headers["Cache-Control"] = "no-store"
+        return ok({
+            "route_id": route_id,
+            "candidate_id": candidate_id,
+            "source_id": payload.source_id,
+            "job_id": str(job["id"]),
+            "status": str(job["status"]),
+            "queued": str(job["status"]) == "queued",
+            "deduplicated": not created,
+        })
+
+
+def _queue_recovery_probe(
+    context: ActorOpsV2MaintenanceContext,
+    *,
+    workspace_id: str,
+    user_id: str,
+    route_id: str,
+    candidate_id: str,
+    payload: CandidateRecoveryProbeRequest,
+) -> tuple[dict[str, Any], bool]:
+    _workspace_policy(context.store, workspace_id)
+    repository = ActorOpsRepository(context.store.connect(), workspace_id)
+    job_payload = recovery_job_payload(
+        route_id=route_id,
+        candidate_id=candidate_id,
+        source_id=payload.source_id,
+        binding_version=payload.expected_binding_version,
+        expected_route_generation=payload.expected_route_generation,
+        expected_candidate_generation=payload.expected_candidate_generation,
+        expected_last_failure_at=payload.expected_last_failure_at,
+        idempotency_key=payload.idempotency_key,
+    )
+    with repository.transaction():
+        existing = _existing_recovery_job(
+            context, workspace_id, payload.idempotency_key
+        )
+        if existing is not None:
+            if existing.get("payload_json") != job_payload:
+                raise ActorOpsConflict("recovery Probe idempotency key changed")
+            return existing, False
+        route = repository.get_route(route_id)
+        candidate = repository.get_candidate(candidate_id)
+        binding = repository.get_binding(payload.source_id)
+        policy = repository.maintenance.effective_policy(route_id)
+        if (
+            route.generation != payload.expected_route_generation
+            or candidate.generation != payload.expected_candidate_generation
+            or candidate.route_id != route_id
+            or binding.route_id != route_id
+            or binding.status != "ready"
+            or binding.binding_version != payload.expected_binding_version
+            or not policy.authorized
+            or policy.max_charge_usd <= 0
+            or not recovery_target_is_current(
+                repository,
+                candidate,
+                expected_last_failure_at=payload.expected_last_failure_at,
+            )
+        ):
+            raise ActorOpsConflict("recovery Probe target changed")
+        job = context.job_queue.create_job(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            source_id=payload.source_id,
+            job_type="actorops_v2_maintenance",
+            payload=job_payload,
+            priority=-10,
+            max_attempts=1,
+            retention_days=int(resolve_system_setting(
+                context.store, workspace_id, "jobs.retention_days",
+                connection=repository.connection,
+            )),
+            commit=False,
+        )
+    return job, True
+
+
+def _existing_recovery_job(
+    context: ActorOpsV2MaintenanceContext,
+    workspace_id: str,
+    idempotency_key: str,
+) -> dict[str, Any] | None:
+    row = context.store.connect().execute(
+        """SELECT id FROM fetch_jobs WHERE workspace_id=?
+             AND job_type='actorops_v2_maintenance'
+             AND json_extract(payload_json, '$.intent')=?
+             AND json_extract(payload_json, '$.idempotency_key')=?
+             ORDER BY created_at, id LIMIT 1""",
+        (workspace_id, RECOVERY_INTENT, idempotency_key),
+    ).fetchone()
+    return context.job_queue.get_job(str(row["id"])) if row is not None else None
+
 
 def _set_policy(
     store: Any, workspace_id: str, route_id: str | None, enabled: bool,
@@ -131,6 +282,34 @@ def _record_policy_mutation(
         changed_fields=list(request.state.operation_changed_fields),
         route=route,
         method="PATCH",
+        status_code=200,
+    )
+    request.state.operation_logged = True
+
+
+def _record_recovery_probe(
+    request: Request,
+    user: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    created: bool,
+) -> None:
+    request.state.operation_job_id = str(job["id"])
+    request.state.operation_source_id = str(job.get("source_id") or "") or None
+    safe_emit_operation_event(
+        category="source",
+        action="actorops_v2_candidate_recovery_probe",
+        outcome="queued" if created else "skipped",
+        workspace_id=str(user["workspace_id"]),
+        actor_user_id=str(user["id"]),
+        job_id=str(job["id"]),
+        source_id=request.state.operation_source_id,
+        counts={"deduplicated": int(not created)},
+        route=(
+            "/api/admin/apify-routes/{route_id}/v2-candidates/"
+            "{candidate_id}/recovery-probe"
+        ),
+        method="POST",
         status_code=200,
     )
     request.state.operation_logged = True
