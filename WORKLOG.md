@@ -10,26 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "decisions",
     "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-27",
-  "result": "Closed the ActorOps validation gap by clearing stale maintenance assumptions and restoring the final full gate environment.",
-  "status": "completed",
-  "task_id": "2026-08-27-actorops-gate-closure",
-  "unresolved": [],
-  "validation": [
-    "All ActorOps v2 backend tests passed 180 of 180",
-    "Final full preflight passed 16 of 16",
-    "Local API and Worker remain healthy"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
     "phase",
     "ui"
   ],
@@ -432,6 +412,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 ESLint、TypeScript、UI/E2E 合同、95 文件 688 项 Vitest、生产构建和前后端代码尺寸门通过",
     "完整 preflight 前 6 道通过后由新增测试连接警告停止；按规则未第三次整门重跑，修复后原失败域及剩余检查均分别通过",
     "Docker/Worker 保持关闭；本地 API 18080 与 Vite 15173 healthy，ActorOps schema 2 返回 3 条 Route 且均含 workflow 投影"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-30",
+  "result": "校准 ActorOps 最终 Route 卡在 macOS 与 Linux 的三视口视觉基线，覆盖不可用状态、故障 Candidate、双备用槽与统一管理操作，解除 v2.6.0 main Gate 的旧快照阻断；未改产品运行逻辑。",
+  "status": "completed",
+  "task_id": "2026-08-30-actorops-route-card-release-baselines",
+  "unresolved": [],
+  "validation": [
+    "GitHub main Gate 的 backend-full 与 frontend-full 通过，UI E2E 仅三张 ActorOps Linux 旧快照失败。",
+    "人工核对 macOS 与 Linux actual 均为当前统一管理 Route 卡；失败视觉测试本地 3/3 通过。",
+    "完整 ActorOps Playwright spec 本地 13 passed、2 skipped。"
   ]
 }
 ```
