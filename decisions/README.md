@@ -1,7 +1,7 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/decisions/ -->
 # Inteliscope InfoHub Light 决策索引
 
-本目录是决策理由与兼容性取舍的唯一真源。普通任务只在需要追溯理由、状态或替代方案时读取对应记录；新增决策追加到当前 `D176–D200` 分桶，满桶后创建下一个连续分桶。
+本目录是决策理由的唯一真源。普通任务只读相关记录；新决策追加到 `D176–D200`，满后创建连续分桶。
 
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
@@ -191,3 +191,14 @@
 | D185 | 付费平台订阅意图与来源就绪解耦并收紧默认获取量 | 2026-08-25 | [查看](records/D176-D200.md#d185) |
 | D186 | 平台 Binding 以本地证据自动收口并条件启用 | 2026-08-25 | [查看](records/D176-D200.md#d186) |
 | D187 | Apify 生产排空按 Key 角色隔离 | 2026-08-25 | [查看](records/D176-D200.md#d187) |
+| D188 | ActorOps 统一候选故障分类并显式提供人工替换 | 2026-08-27 | [查看](records/D176-D200.md#d188) |
+| D189 | ActorOps 以 global 33 收口 Binding 健康、默认维护与可恢复 Repair | 2026-08-27 | [查看](records/D176-D200.md#d189) |
+| D190 | 容器源码摘要与显式发布 | 2026-08-27 | [查看](records/D176-D200.md#d190) |
+| D191 | Build 免费预检 | 2026-08-28 | [查看](records/D176-D200.md#d191) |
+| D192 | Actor Probe 校验有界溢出行且头像媒体安全跨越异步边界 | 2026-08-28 | [查看](records/D176-D200.md#d192) |
+| D193 | 替换前免费预检 | 2026-08-28 | [查看](records/D176-D200.md#d193) |
+| D194 | 合同阻断细分 | 2026-08-28 | [查看](records/D176-D200.md#d194) |
+| D195 | Schema 字段映射 | 2026-08-28 | [查看](records/D176-D200.md#d195) |
+| D196 | Dataset 零费重验 | 2026-08-28 | [查看](records/D176-D200.md#d196) |
+| D197 | 备用补充 | 2026-08-28 | [查看](records/D176-D200.md#d197) |
+| D198 | ActorOps Dataset 真实适配 | 2026-08-29 | [查看](records/D176-D200.md#d198) |
