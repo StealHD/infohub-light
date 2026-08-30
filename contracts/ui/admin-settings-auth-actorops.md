@@ -69,7 +69,7 @@
 - Route 卡始终显示“管理 Actor”，任务中改为对应的继续操作。搜索、槽位、候选、免费预检、实测和应用共用一个可恢复 Drawer；候选按质量与证据自动推荐且可改选，并分为“系统可用/可实测/需要样本/已阻断”。`static_ready` 不得显示为可应用。
 - 卡片保留备用快捷入口，并同步显示阶段、进度和费用。自动适配 0 新 Run；失败保留审计并释放路线。实测和应用均以按钮确认，无需输入短语；服务端费用门不变。
 - Route 顶部健康状态必须来自每条 ready Binding 的当前可用路径，不得直接按主备槽位个数推断。卡片 Footer 显示稳定路径、冷却 Candidate、风险来源、原生降级和已核验来源；存在 ready Binding 时，任一来源无 Actor 路径显示“不可用”，仅剩一条稳定路径或仍在降级显示“降级可用”，全部来源均至少两条稳定路径才显示“健康”。尚无 ready Binding 时显示当前 assigned 路径和“等待来源准备”，不得伪装成来源健康。详情可显示下一次 Repair；再次成功、结算完成或 Discovery 完成后的服务端投影刷新为准，浏览器不自行计时或推断恢复。
-- 未经管理员改动的 workspace 与 Route 维护策略在 global 33 后显示“维护已按安全预算默认开启”；管理员显式开关后显示“维护已由管理员开启”或“维护已关闭”，迁移不得覆盖既有显式关闭。两层策略已开但没有 enabled Owner/Admin principal 时显示“维护等待可用负责人授权”，不得显示为已授权。默认维护只允许受预算的 Discovery、Probe、补充备用和触发来源软首选，`auto_replace_non_last` 永远关闭；主用/备用替换仍由管理员完成 Drawer 双确认。
+- Global 36 后，untouched workspace/Route 显示“维护已按安全预算默认开启”；管理员显式开关显示对应状态且迁移不得覆盖。缺 enabled Owner/Admin 时显示“维护等待可用负责人授权”。默认维护仅在当前 Binding 有最终业务有效证明时替换已确认故障的非最后一路；YouTube 还须证明 Shorts-inclusive 与最新排序。最后一路、证据或能力不足时不自动替换，Drawer 人工替换保留。
 - Actor 商城 Popover 的“头像映射”只显示“已就绪 / 待发现 / 待刷新”。映射来自 exact Candidate/Build/output-Schema 的 Manifest、Schema 或成功输出观察；页面不得接收、缓存或直接加载观察到的头像 URL。Actor 成功结果可把经 HTTP(S) 校验的头像临时带入来源展示，缺少映射不影响内容成功，Build/Schema 变化必须显示待刷新。
 - 本节余下的早期 Pool/Canary/`shadow` 交互描述是已取代的历史 UI 记录，不是现役界面或 API 合同；D176、D188、D189 与以上现役条目优先。
 

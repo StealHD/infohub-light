@@ -1,7 +1,7 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/decisions/ -->
-# Inteliscope InfoHub Light 决策索引
+# 决策索引
 
-本目录是决策理由的唯一真源。普通任务只读相关记录；新决策追加到 `D176–D200`，满后创建连续分桶。
+决策理由真源。新决策追加到 `D176–D200`，满后续桶。
 
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
@@ -202,3 +202,4 @@
 | D196 | Dataset 零费重验 | 2026-08-28 | [查看](records/D176-D200.md#d196) |
 | D197 | 备用补充 | 2026-08-28 | [查看](records/D176-D200.md#d197) |
 | D198 | ActorOps Dataset 真实适配 | 2026-08-29 | [查看](records/D176-D200.md#d198) |
+| D199 | ActorOps 已验证候选自动替换 | 2026-08-30 | [查看](records/D176-D200.md#d199) |
