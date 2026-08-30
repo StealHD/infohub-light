@@ -9,51 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "将 Actor Replacement 的本地合同、目标指纹与 validation exact-Build 免费预检前移到计划创建前；confirmed 候选禁选，免费失败立即显示中文 Toast/Notice 与零费用说明，并建立宿主机新端口前后端快速验证流程。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-replacement-free-preview-feedback",
-  "unresolved": [
-    "按用户要求未重建 canonical 8080 容器；当前容器保持停止，宿主机 18080 API 与 15173 Vite preview 正在运行。"
-  ],
-  "validation": [
-    "ActorOps operator/API/Catalog/maintenance 定向 Pytest 70 项通过；替换回归证明失败前计划、Attempt、Run 与费用事实均为 0。",
-    "ActorOps Drawer/Candidate/Route Vitest 12 项、TypeScript、ESLint、前后端代码尺寸及控制文件检查通过。",
-    "真实数据库新端口 smoke 返回 confirmed_failure/build_unavailable 与 409 actorops_maintenance_revision_changed；计划 9、Attempt 334、Run 1564 前后不变，前端代理和后端 health 均为 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "修复 Replacement 免费预检漏捕 ActorManifestError 导致的 503，并把合同阻断细分为缺少原生目标 ID、handle、URL、Manifest 无效或输入模板不可渲染；真实 X 候选现返回可操作的零费用原因。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-replacement-contract-detail",
-  "unresolved": [
-    "免费 Discovery 未找到新的可接受 X 候选；真正付费 Probe 仍需单独费用授权。",
-    "按用户要求未重建 Docker 容器；当前使用宿主机 18080 API 与 15173 Vite 验证。"
-  ],
-  "validation": [
-    "ActorOps operator/API 定向 Pytest 36 项及 Replacement Drawer Vitest 5 项通过；TypeScript、ESLint、全域代码尺寸与 Markdown 控制通过。",
-    "真实 X Candidate 返回 409 actorops_replacement_target_native_id_missing，明确当前来源只有 handle/URL；计划 9、Attempt 334、Run 1564 前后不变。",
-    "单次免费 Discovery 禁用 AI 与 Worker 后完成，accepted 0，Attempt/Run 保持不变。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
     "interface"
   ],
   "recorded_on": "2026-08-28",
@@ -368,6 +323,37 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 ESLint、TypeScript、UI/E2E 合同、95 文件 688 项 Vitest、生产构建和前后端代码尺寸门通过",
     "完整 preflight 前 6 道通过后由新增测试连接警告停止；按规则未第三次整门重跑，修复后原失败域及剩余检查均分别通过",
     "Docker/Worker 保持关闭；本地 API 18080 与 Vite 15173 healthy，ActorOps schema 2 返回 3 条 Route 且均含 workflow 投影"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-30",
+  "result": "校准 ActorOps 最终 Route 卡在 macOS 与 Linux 的三视口视觉基线，覆盖不可用状态、故障 Candidate、双备用槽与统一管理操作，解除 v2.6.0 main Gate 的旧快照阻断；未改产品运行逻辑。",
+  "status": "completed",
+  "task_id": "2026-08-30-actorops-route-card-release-baselines",
+  "unresolved": [],
+  "validation": [
+    "GitHub main Gate 的 backend-full 与 frontend-full 通过，UI E2E 仅三张 ActorOps Linux 旧快照失败。",
+    "人工核对 macOS 与 Linux actual 均为当前统一管理 Route 卡；失败视觉测试本地 3/3 通过。",
+    "完整 ActorOps Playwright spec 本地 13 passed、2 skipped。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-30",
+  "result": "消除生产管理 E2E 在桌面侧栏展开动画期间强制滚动并误点击文档菜单的竞态；验收等待侧栏达到最终 232px 几何后再验证菜单。",
+  "status": "completed",
+  "task_id": "2026-08-30-release-sidebar-menu-gate-stability",
+  "unresolved": [],
+  "validation": [
+    "GitHub main Gate trace 确认点击时侧栏仍由 72px 向 232px 过渡且 footer 被水平滚动。",
+    "桌面账户与文档菜单 Playwright 场景并发重复 20 次，20/20 通过。"
   ]
 }
 ```
