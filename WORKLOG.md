@@ -9,29 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "ActorOps Route 固定显示备用 1/2，并为未占用槽位新增人工补充入口；后端复用 Replacement 计划、Probe 和费用证据链，应用时只新增 Standby，不下线现有 Candidate。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-empty-standby-manual-supplement",
-  "unresolved": [
-    "真实付费备用 Probe 与最终应用留给用户在本地页面手动验收。",
-    "未部署 VPS；VPS 发布后仍需用户手动验收。"
-  ],
-  "validation": [
-    "OperatorRepository 回归 18 项通过，覆盖空备用计划、Probe、费用门和应用。",
-    "ActorOps 前端 Vitest 16 项、TypeScript、ESLint、backend/frontend code-size 通过。",
-    "15173 已重启并确认提供补充入口新模块，18080 当前 Worktree API readiness 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
     "interface"
   ],
   "recorded_on": "2026-08-29",
@@ -404,6 +381,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "授权最小复现确认旧 Build 0.0.980 返回 403 build-not-found 且未创建远端 Run；现行 Build 0.0.982 可启动并返回有效 X 数据。",
     "Apify 错误分类、远端 no-start 证据与硬故障修复定向 Pytest 通过；完整影响 preflight 16/16 通过。",
     "本地 8080 API readiness 返回 database/worker/logging 全部 ready，5173 前端可用；ActorOps 页面显示 Instagram 健康、X 降级可用、YouTube 原生降级。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "将本地 main 的 Apify 已删除 Build 精确错误分类整理为 v2.6.2 发布版本，并同步修正项目锁文件中的版本身份。",
+  "status": "completed",
+  "task_id": "2026-08-30-release-v2-6-2",
+  "unresolved": [],
+  "validation": [
+    "Apify Client、ActorOps Maintenance 与 Repair 定向 Pytest 41 项通过。",
+    "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端/前端全域检查、控制校验与构建均成功。"
   ]
 }
 ```
