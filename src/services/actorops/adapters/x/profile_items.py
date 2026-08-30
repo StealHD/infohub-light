@@ -61,6 +61,7 @@ class XProfileItemsAdapter:
             ),
             identity_container_keys=("author",),
             avatar_pointer_keys=(
+                "user_profile_image_url_https", "user_profile_image_url",
                 "profilePictureFull", "profilePicture", "avatarUrl",
             ),
             thumbnail_pointer_keys=(

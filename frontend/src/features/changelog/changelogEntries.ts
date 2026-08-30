@@ -1,5 +1,5 @@
 import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry'
-import { codeHealthMaintenanceEntry, instagramSourceAvatarChangelogEntry, pageHeaderChangelogEntry, subscriptionCommandBarChangelogEntry, systemSettingsChangelogEntry } from './maintenanceChangelogEntries'
+import { codeHealthMaintenanceEntry, instagramSourceAvatarChangelogEntry, pageHeaderChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, subscriptionCommandBarChangelogEntry, systemSettingsChangelogEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntries } from './actorOpsV2SourceBindingChangelogEntry'
 import type { ChangelogMonth } from './changelogTypes' // v2.4.2 review: includes ActorOps freshness recovery; store/release locking has no user-visible workflow.
@@ -7,7 +7,7 @@ export const changelogMonths: ChangelogMonth[] = [
   {
     id: 'month-2026-08',
     label: '2026 年 8 月',
-    entries: [instagramSourceAvatarChangelogEntry, systemSettingsChangelogEntry,
+    entries: [sourceAvatarAutoRefreshChangelogEntry, instagramSourceAvatarChangelogEntry, systemSettingsChangelogEntry,
       ...actorOpsV2AdminChangelogEntries,
       ...actorOpsV2SourceBindingChangelogEntries,
       codeHealthMaintenanceEntry, pageHeaderChangelogEntry, subscriptionCommandBarChangelogEntry,

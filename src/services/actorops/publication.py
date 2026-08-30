@@ -62,28 +62,39 @@ def source_avatar_url_from_items(items: Any) -> str | None:
 def merge_private_source_avatar_hints(
     existing: Iterable[SourceAvatarHint], items: Any, source: Any
 ) -> tuple[SourceAvatarHint, ...]:
-    """Replay an Instagram avatar sidecar without adding it to item metadata."""
+    """Replay one identity-bound avatar sidecar without public metadata."""
 
     hints = tuple(existing)
+    hint = source_avatar_hint_from_items(items, source)
+    if hint is None:
+        return hints
+    return hints if hint in hints else (*hints, hint)
+
+
+def source_avatar_hint_from_items(
+    items: Any, source: Any
+) -> SourceAvatarHint | None:
+    """Validate one private ActorOps avatar against its publication source."""
+
     proof = proof_from_items(items)
     avatar_url = source_avatar_url_from_items(items)
     source_id = str(_source_value(source, "source_id") or "")
     platform = _source_value(source, "platform")
-    platform = getattr(platform, "value", platform)
+    platform = str(getattr(platform, "value", platform) or "").strip().casefold()
+    kind = str(_source_value(source, "kind") or "").strip().casefold()
     if (
         proof is None
         or str(proof.get("source_id") or "") != source_id
-        or str(platform or "").casefold() != "instagram"
-        or str(_source_value(source, "kind") or "").casefold() != "profile"
+        or not platform
+        or not kind
         or avatar_url is None
     ):
-        return hints
-    hint = SourceAvatarHint(
+        return None
+    return SourceAvatarHint(
         source_id=source_id,
         remote_url=avatar_url,
-        origin="actorops_v2_instagram_profile",
+        origin=f"actorops_v2_{platform}_{kind}"[:64],
     )
-    return hints if hint in hints else (*hints, hint)
 
 
 def with_publication_proof(
@@ -189,6 +200,7 @@ __all__ = [
     "proof_from_items",
     "publication_proof",
     "publish_pending_watermarks",
+    "source_avatar_hint_from_items",
     "source_avatar_url_from_items",
     "v2_proof_payload",
     "with_publication_proof",

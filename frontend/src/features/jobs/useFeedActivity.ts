@@ -103,14 +103,14 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
       if (observedActiveJobs.current.has(job.id)) settled.push(job)
     }
     if (settled.length === 0) return
+    const reloadable = settled.filter(reloadableTerminal)
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.historyRoot(user.id) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }),
+      reloadable.length ? queryClient.invalidateQueries({ queryKey: queryKeys.sources(user.id) }) : Promise.resolve(),
     ])
-    const newestFullRefresh = settled
-      .filter((job) => job.job_type === 'user_feed_refresh')
+    const newestFullRefresh = settled.filter((job) => job.job_type === 'user_feed_refresh')
       .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
-    const reloadable = settled.filter(reloadableTerminal)
     if (newestFullRefresh && !reloadableTerminal(newestFullRefresh)) {
       const notice = feedJobNotice(newestFullRefresh)
       const noticeUserId = user.id

@@ -114,6 +114,11 @@ def _repository(
             "/author/profileImageUrlHttps",
         ),
         (
+            "x",
+            {"properties": {"user_profile_image_url": {"type": "string"}}},
+            "/user_profile_image_url",
+        ),
+        (
             "instagram",
             {
                 "properties": {

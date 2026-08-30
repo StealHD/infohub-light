@@ -40,6 +40,34 @@ describe('SourceAvatar', () => {
     }
   })
 
+  it('uses a new immutable media URL when the current asset changes', async () => {
+    vi.stubGlobal('Image', LoadedImage)
+    try {
+      const view = renderAvatar({
+        name: 'X · @openai',
+        avatarUrl: '/api/media/med_avatar_old',
+        platform: 'x',
+      })
+      expect(await screen.findByRole('img', { name: 'X · @openai' })).toHaveAttribute(
+        'src',
+        '/api/media/med_avatar_old',
+      )
+
+      view.rerender(<SourceAvatar
+        name="X · @openai"
+        avatarUrl="/api/media/med_avatar_new"
+        platform="x"
+      />)
+
+      expect(await screen.findByRole('img', { name: 'X · @openai' })).toHaveAttribute(
+        'src',
+        '/api/media/med_avatar_new',
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('keeps a platform or source-name fallback available without an image', () => {
     const view = renderAvatar({
       name: 'OpenAI Releases',

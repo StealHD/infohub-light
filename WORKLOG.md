@@ -12,70 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "ui"
   ],
-  "recorded_on": "2026-08-27",
-  "result": "Closed the ActorOps validation gap by clearing stale maintenance assumptions and restoring the final full gate environment.",
-  "status": "completed",
-  "task_id": "2026-08-27-actorops-gate-closure",
-  "unresolved": [],
-  "validation": [
-    "All ActorOps v2 backend tests passed 180 of 180",
-    "Final full preflight passed 16 of 16",
-    "Local API and Worker remain healthy"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-27",
-  "result": "完成 ActorOps 稳定控制环：统一候选故障与来源冷却、Binding 级健康、可恢复 Repair/Discovery/结算、默认安全维护、主备人工替换和 exact-Build 头像映射；补齐 global 33、构建源码摘要与发布护栏，并完成本地 32→33 迁移及新容器切换。",
-  "status": "completed",
-  "task_id": "2026-08-27-actorops-stability-control-loop",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 后端全域回归及迁移时序专项通过；前端定向 Vitest、TypeScript、ESLint 与生产构建通过。",
-    "snapshot impacted preflight 17/17 通过，覆盖完整后端、前端、控制面、代码尺寸和隔离 Playwright E2E。",
-    "本地 global 32/33 显式迁移均完成 0600 备份、integrity ok、foreign keys 0；API、Worker、前端及镜像 revision/source digest 健康验证通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "完成 ActorOps 本地稳定性闭环：exact Build 免费预检、validation 凭据隔离、四行溢出校验、故障主备人工替换、默认安全维护和历史 Dataset 无新增 Run 的头像补写；修复 Worker 异步上下文媒体落盘并切换最终本地容器。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-real-data-stability-avatar",
-  "unresolved": [
-    "按项目完整 gate 最多重跑一次规则，修复两项旧测试假设后未执行第三次完整 preflight；定向受影响测试与静态门禁已全部通过。"
-  ],
-  "validation": [
-    "ActorOps、媒体与来源头像定向 Pytest 196 项通过；前端 TypeScript、ESLint、前后端代码尺寸、控制文件与 diff 校验通过。",
-    "本地真实验证 6 个 Apify Run 全部最终结算，替换费用 $0.0385112、正常抓取费用 $0.0209060；历史头像重放 Run 总数保持 1557 不变。",
-    "Catalog 只投影登录保护的 /api/media 头像，认证访问 200、未认证 401、原始 URL 不泄露；最终 revision 0b0088690d60-dirty-5389507110d0 的 API 和 Worker healthy。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
   "recorded_on": "2026-08-28",
   "result": "将 Actor Replacement 的本地合同、目标指纹与 validation exact-Build 免费预检前移到计划创建前；confirmed 候选禁选，免费失败立即显示中文 Toast/Notice 与零费用说明，并建立宿主机新端口前后端快速验证流程。",
   "status": "completed",
@@ -432,6 +368,63 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 ESLint、TypeScript、UI/E2E 合同、95 文件 688 项 Vitest、生产构建和前后端代码尺寸门通过",
     "完整 preflight 前 6 道通过后由新增测试连接警告停止；按规则未第三次整门重跑，修复后原失败域及剩余检查均分别通过",
     "Docker/Worker 保持关闭；本地 API 18080 与 Vite 15173 healthy，ActorOps schema 2 返回 3 条 Route 且均含 workflow 投影"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "将 ActorOps 头像证据从 Instagram 专用路径收敛为 proof 与 source 绑定的通用 sidecar，X 与其他可信来源可在正常获取及 acquisition cache 命中时静默更新当前头像；成功任务会刷新 Catalog 头像而不新增外部调用。",
+  "status": "completed",
+  "task_id": "2026-08-30-source-avatar-auto-refresh",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 直接传递与 acquisition cache 回放定向 Pytest 8 项通过；头像 checksum、24 小时复核、失败保旧与事务清理相关 Pytest 19 项通过。",
+    "任务终态、头像 immutable URL 与 changelog 定向 Vitest 26 项通过，TypeScript 类型检查通过。",
+    "snapshot impacted preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与隔离 E2E，SQLite 连接警告为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "补齐 X Actor 实际 user_profile_image_url 头像别名，复用已成功且 proof/source/身份校验通过的 Dataset 零启动回放并替换 immutable 头像资产；同时移除 15173 指向临时库的旧本地运行时，统一到修复分支与正式本地数据。",
+  "status": "completed",
+  "task_id": "2026-08-30-x-avatar-runtime-alias-repair",
+  "unresolved": [],
+  "validation": [
+    "ActorOps、头像 publication 与 acquisition 定向 Pytest 72 项通过；头像刷新、Catalog 失效与 ActorOps 页面定向 Vitest 35 项通过",
+    "已验证头像映射 /user_profile_image_url、asset ID 与 checksum 均变化，新文件落盘且只保留一个 ready 资产",
+    "snapshot impacted preflight 16/16 通过；15173 代理 18081，API 与原生 Worker ready，15174/18080 关闭且未启动容器"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "修复 tibo/thsottiaux 回退头像未更新的本地验证链路：用最新成功 Attempt 的冻结 proof 与账号身份零启动回放当前 Dataset，生成新 immutable 头像资产；补充 A→B→A 回退缓存用例，并将 15173/18080/Worker 原生运行时切到头像修复工作树。",
+  "status": "completed",
+  "task_id": "2026-08-30-x-avatar-reversion-runtime-fix",
+  "unresolved": [],
+  "validation": [
+    "最新头像从 med_55f8ede…/b5d8… 更新为 med_5bdf262…/35e3…，文件落盘且 Feed 8 个 thsottiaux 条目均请求新 asset ID",
+    "X 实际字段、publication 与 A→B→A 回退相关 Pytest 44 项通过；冻结文件增长问题已移至新聚焦测试文件",
+    "精确基线 snapshot impacted preflight 16/16 通过；15173/18080 与受限原生 Worker 运行修复分支，无容器和新增 Actor Run"
   ]
 }
 ```

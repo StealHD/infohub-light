@@ -197,6 +197,7 @@ describe('useFeedActivity', () => {
       created_at: '2026-07-14T06:00:00Z',
     }
     const hook = setup('ready', [sourceJob])
+    const invalidate = vi.spyOn(hook.client, 'invalidateQueries')
     await waitFor(() => expect(hook.client.getQueryData(queryKeys.feedJobs(user.id))).toBeDefined())
 
     act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
@@ -206,6 +207,9 @@ describe('useFeedActivity', () => {
     }] }))
 
     await waitFor(() => expect(hook.latestFeed).toHaveBeenCalledOnce())
+    await waitFor(() => expect(invalidate.mock.calls.filter(([filters]) => (
+      JSON.stringify(filters?.queryKey) === JSON.stringify(queryKeys.sources(user.id))
+    ))).toHaveLength(1))
     expect(hook.result.current.notice).toBeUndefined()
   })
 
@@ -254,6 +258,7 @@ describe('useFeedActivity', () => {
     }] }))
 
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.historyRoot(user.id) }))
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: queryKeys.sources(user.id) })
     expect(hook.latestFeed).not.toHaveBeenCalled()
     expect(hook.result.current.notice).toBeUndefined()
   })

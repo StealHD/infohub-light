@@ -44,6 +44,7 @@ describe('HeroChangelogPage', () => {
     renderChangelog('/changelog#month-2026-07')
 
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 8 月' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: '订阅源头像会自动跟随来源更新' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '内部结构更易维护，用户流程保持不变' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: 'YouTube Actor 不再因映射错误全军覆没' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 7 月' })).toBeInTheDocument()
