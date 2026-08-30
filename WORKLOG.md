@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "执行真实 X Replacement Probe 并逐字段审计：Actor 正确返回目标账号帖子，但 X/Twitter API v1 时间格式被系统误判为合同不兼容；解析器现支持该精确带时区格式，同一已结算 Dataset 零费用重放通过，并生成脱敏详细报告。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-x-replacement-probe-timestamp-format",
-  "unresolved": [
-    "旧代码已将 Candidate/Plan 写入不可逆 rejected/failed 终态；需要新增不篡改历史费用事实的规则升级后 Dataset 重验与候选恢复流程，才能应用替换。",
-    "Replacement Runner 仍把输出转换异常收敛为笼统 contract_mismatch，管理界面尚未直接显示具体字段和格式。"
-  ],
-  "validation": [
-    "真实 Probe 仅启动 1 次 Actor Run，实际费用 $0.0999 已终结；第二个 Binding 未启动、未自动尝试其他候选、未应用替换。",
-    "修复后只读重放同一 Dataset 得到 valid_nonempty，目标身份、帖子 ID、正文、时间和派生 URL 均通过。",
-    "Manifest 与 X Adapter 定向 Pytest 30 项、backend code-size 和 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface"
   ],
@@ -407,6 +386,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "数据库定向查询确认 @thsottiaux 最近四次抓取成功，本次没有创建 source_fetch Job，阻断原因是 Worker 心跳过期。",
     "App 定向 Vitest、更新日志 5 项测试与 TypeScript 通过。",
     "本地订阅页通过 Vite/API 正常加载，显示 Worker 不可用且 @thsottiaux 来源健康，浏览器无控制台错误。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "将本地最新 main 的 ActorOps 稳定性、来源头像、Feed 社交名称修复整理为 v2.6.1 发布版本；版本身份与既有 v2.6.0 标签分离，global 36 保持显式停机迁移。",
+  "status": "completed",
+  "task_id": "2026-08-30-release-v2-6-1",
+  "unresolved": [],
+  "validation": [
+    "ActorOps、迁移、头像、运行脚本定向 Pytest 164 项通过。",
+    "Workbench、ActorOps、Settings、变更日志与 App 定向 Vitest 172 项通过。"
   ]
 }
 ```

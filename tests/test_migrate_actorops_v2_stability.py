@@ -263,19 +263,24 @@ def test_global_33_is_explicit_atomic_idempotent_and_preserves_opt_out(
     assert migrate(data_dir, apply=True)["status"] == "already_migrated"
 
 
-def test_fresh_store_defaults_maintenance_on_without_auto_replacement(
+def test_fresh_store_defaults_maintenance_on_with_proof_gated_replacement(
     tmp_path: Path,
 ) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     rows = store.connect().execute(
-        """SELECT enabled, authorization_origin, auto_replace_non_last
+        """SELECT route_id, enabled, authorization_origin,
+                  auto_replace_non_last
              FROM actor_maintenance_policies_v2 ORDER BY route_id"""
     ).fetchall()
     assert rows
     assert all(bool(row["enabled"]) for row in rows)
     assert all(row["authorization_origin"] == "system_default" for row in rows)
-    assert all(row["auto_replace_non_last"] in {None, 0} for row in rows)
+    workspace_policy = next(row for row in rows if row["route_id"] is None)
+    route_policies = [row for row in rows if row["route_id"] is not None]
+    assert workspace_policy["auto_replace_non_last"] is None
+    assert route_policies
+    assert all(row["auto_replace_non_last"] == 1 for row in route_policies)
     store.close()
 
 

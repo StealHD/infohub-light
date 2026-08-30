@@ -175,8 +175,16 @@ def test_fresh_store_seeds_v2_routes_with_safe_default_maintenance(
         assert all(
             row["authorization_origin"] == "system_default" for row in policies
         )
+        workspace_policy = next(
+            row for row in policies if row["route_id"] is None
+        )
+        route_policies = [
+            row for row in policies if row["route_id"] is not None
+        ]
+        assert workspace_policy["auto_replace_non_last"] is None
+        assert route_policies
         assert all(
-            row["auto_replace_non_last"] in {None, 0} for row in policies
+            row["auto_replace_non_last"] == 1 for row in route_policies
         )
         installed_tables = {
             str(row[0])
