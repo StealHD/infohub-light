@@ -11,6 +11,7 @@ from ..apify_actor_row_extraction import (
     projected_output_schema,
 )
 from .discovery_input_semantics import input_reference_error
+from .discovery_input_bounds import normalize_runtime_limit_refs
 from .discovery_mapping_semantics import (
     output_semantic_error,
     target_input_semantic_error,
@@ -51,6 +52,17 @@ def validate_schema_proven_manifest(
         return None, "actorops_discovery_ai_mapping_missing"
     try:
         value = json.loads(mapping.manifest_json)
+        if not isinstance(value, Mapping):
+            raise TypeError("manifest must be an object")
+        raw_input = value.get("input")
+        if not isinstance(raw_input, Mapping):
+            raise TypeError("manifest input must be an object")
+        normalized_input, bounds_error = normalize_runtime_limit_refs(
+            raw_input, revision.input_schema
+        )
+        if bounds_error:
+            return None, bounds_error
+        value = {**value, "input": normalized_input}
         manifest = parse_actor_manifest(value)
     except (ActorManifestError, TypeError, ValueError, json.JSONDecodeError):
         return None, "actorops_discovery_ai_manifest_invalid"
@@ -270,6 +282,17 @@ def _literal_allowed(value: object, schema: Mapping[str, object]) -> bool:
         return value in enum
     if "default" in schema:
         return value == schema.get("default")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        if not isinstance(minimum, (int, float)) or isinstance(minimum, bool):
+            return False
+        if float(value) < float(minimum):
+            return False
+        if isinstance(maximum, (int, float)) and not isinstance(maximum, bool):
+            if float(value) > float(maximum):
+                return False
+        return 1 <= float(value) <= 100
     return False
 
 

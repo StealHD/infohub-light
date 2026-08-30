@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 
 from .....models import SourceType
 from ...domain import RouteKey
 from ...ports import ActorManifest, DiscoveryMapping, DiscoveryRevision, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
 from ...discovery_virtual_fields import YOUTUBE_TARGET_URL_POINTER
+from ...input_plan import create_input_plan
+from ...youtube_capabilities import apply_youtube_input_capabilities
 from .._discovery import deterministic_input_plan, deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_channel_target
@@ -40,7 +43,7 @@ class YouTubeChannelItemsAdapter:
         ))
 
     def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
-        return deterministic_manifest(
+        mapping = deterministic_manifest(
             revision,
             input_keys=(
                 "channelId", "channelIds", "channelUrls", "channel_urls",
@@ -70,11 +73,18 @@ class YouTubeChannelItemsAdapter:
             virtual_identity_ref="target.canonical_url",
             native_id_url_fallback=True,
         )
+        if not mapping.manifest_json:
+            return mapping
+        value = json.loads(mapping.manifest_json)
+        value["input"] = apply_youtube_input_capabilities(
+            value["input"], revision.input_schema
+        )
+        return DiscoveryMapping(json.dumps(value, ensure_ascii=False, sort_keys=True))
 
     def map_discovery_input_plan(
         self, revision: DiscoveryRevision
     ) -> tuple[str | None, str | None]:
-        return deterministic_input_plan(
+        plan_json, error_code = deterministic_input_plan(
             revision,
             input_keys=(
                 "channelId", "channelIds", "channelUrls", "channel_urls",
@@ -94,6 +104,13 @@ class YouTubeChannelItemsAdapter:
                 "maxVideosPerChannel", "maxPage", "max_shorts",
             ),
         )
+        if not plan_json:
+            return plan_json, error_code
+        value = json.loads(plan_json)
+        value["input"] = apply_youtube_input_capabilities(
+            value["input"], revision.input_schema
+        )
+        return create_input_plan(revision, value["input"])
 
     def build_actor_input(self, target, manifest, window):
         return build_input(target, manifest, window)

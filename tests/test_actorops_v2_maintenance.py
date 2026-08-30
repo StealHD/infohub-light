@@ -375,6 +375,38 @@ def test_empty_probe_is_no_evidence_and_remote_unknown_never_reposts(tmp_path: P
     store.close()
 
 
+def test_proven_probe_start_rejection_settles_and_rejects_candidate(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id, source_id = _repository(tmp_path)
+    _authorize(repository, route_id)
+    error = ActorOpsRuntimeError(
+        "apify_actor_start_rejected",
+        failure_class=FailureClass.CANDIDATE,
+        proven_no_start=True,
+    )
+
+    result = asyncio.run(_prober(repository, _Remote(error), _Preflight()).probe(
+        route_id=route_id,
+        candidate_id="candidate",
+        source_id=source_id,
+        source_config={"target": "openai"},
+        maintenance_slot="2026-08-20:start-rejected",
+    ))
+
+    attempt = repository.get_attempt(str(result.attempt_id))
+    candidate = repository.get_candidate("candidate")
+    assert result.status == "failed"
+    assert tuple(attempt[key] for key in (
+        "status", "actual_cost_usd", "cost_final", "failure_class", "error_code"
+    )) == (
+        "failed", 0.0, 1, "candidate", "apify_actor_start_rejected"
+    )
+    assert candidate.lifecycle is CandidateLifecycle.REJECTED
+    assert candidate.last_error_code == "apify_actor_start_rejected"
+    store.close()
+
+
 @pytest.mark.parametrize(
     ("preflight_code", "persisted_code", "issue_code"),
     (
@@ -536,7 +568,7 @@ def test_last_candidate_is_never_removed_by_auto_repair(tmp_path: Path) -> None:
     store.close()
 
 
-def test_successful_probe_never_auto_replaces_an_assigned_candidate(tmp_path: Path) -> None:
+def test_successful_probe_auto_replaces_only_a_confirmed_non_last_failure(tmp_path: Path) -> None:
     store, repository, route_id, source_id = _repository(tmp_path)
     _authorize(repository, route_id)
     with repository.transaction():
@@ -574,11 +606,82 @@ def test_successful_probe_never_auto_replaces_an_assigned_candidate(tmp_path: Pa
     ))
 
     assert result.status == "promoted"
+    assert repository.get_candidate("active").lifecycle is CandidateLifecycle.QUARANTINED
+    assert repository.get_candidate("active").assignment_role is AssignmentRole.INACTIVE
+    assert repository.get_candidate("standby").assignment_role is AssignmentRole.ACTIVE
+    assert repository.get_candidate("candidate").assignment_role is AssignmentRole.STANDBY
+    assert repository.maintenance.get_policy(route_id).auto_replace_non_last is True
+    store.close()
+
+
+def test_auto_replacement_waits_for_each_required_binding_proof(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id, source_id = _repository(tmp_path)
+    _authorize(repository, route_id)
+    other_source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Other proof source",
+        config={"target": "other"},
+    )
+    other_fingerprint = source_target_fingerprint(
+        DEFAULT_WORKSPACE_ID, route_id, "other", platform="test"
+    )
+    with repository.transaction():
+        repository.connection.execute(
+            """INSERT INTO actor_source_bindings_v2 (
+                binding_id, workspace_id, source_id, route_id, target_fingerprint,
+                status, binding_version, created_at, updated_at
+            ) VALUES ('binding-other-proof', ?, ?, ?, ?, 'ready', 1, ?, ?)""",
+            (
+                DEFAULT_WORKSPACE_ID, other_source_id, route_id,
+                other_fingerprint, "2026-08-20T00:00:00+00:00",
+                "2026-08-20T00:00:00+00:00",
+            ),
+        )
+        manifest = _manifest("publisher/standby")
+        repository.create_candidate(
+            candidate_id="standby", route_id=route_id,
+            actor_id="publisher/standby", publisher="publisher",
+            build_id="build-standby", build_number="1.0.0",
+            manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
+            input_schema_hash="a" * 64, output_schema_hash="b" * 64,
+            lifecycle=CandidateLifecycle.PROBATIONARY,
+        )
+        route = repository.get_route(route_id)
+        standby = repository.get_candidate("standby")
+        repository.assign_candidate(
+            route_id, standby.candidate_id, AssignmentRole.STANDBY, priority=1,
+            expected_route_generation=route.generation,
+            expected_candidate_generation=standby.generation,
+        )
+        active = repository.get_candidate("active")
+        repository.record_candidate_outcome(
+            active.candidate_id, expected_generation=active.generation,
+            succeeded=False, error_class="candidate",
+            error_code="apify_actor_build_unavailable",
+        )
+    binding = repository.get_binding(source_id)
+    repository.resilience.record_paid_candidate_failure(
+        binding=binding,
+        candidate_id="active",
+        logical_job_id="proof-gate-failure",
+    )
+
+    result = asyncio.run(_prober(repository, _Remote(), _Preflight()).probe(
+        route_id=route_id, candidate_id="candidate", source_id=source_id,
+        source_config={"target": "openai"},
+        maintenance_slot="2026-08-20:one-of-two-proofs",
+    ))
+
+    assert result.status == "promoted"
+    assert repository.maintenance.successful_probe_targets("candidate") == 1
     assert repository.get_candidate("active").lifecycle is CandidateLifecycle.CERTIFIED
     assert repository.get_candidate("active").assignment_role is AssignmentRole.ACTIVE
-    assert repository.get_candidate("standby").assignment_role is AssignmentRole.STANDBY
-    assert repository.get_candidate("candidate").assignment_role is AssignmentRole.INACTIVE
-    assert repository.maintenance.get_policy(route_id).auto_replace_non_last is False
     store.close()
 
 

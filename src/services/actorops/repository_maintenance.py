@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -15,6 +16,7 @@ from .recovery_probe import (
 )
 from .repository_errors import ActorOpsConflict, ActorOpsNotFound
 from .runtime_candidate_health import candidate_operational_states
+from .youtube_capabilities import proves_combined_latest_items
 
 
 MAX_MONTHLY_USD, MAX_PROBE_USD, MAX_PROBES_PER_DAY = 3.0, 0.05, 5
@@ -403,6 +405,12 @@ class MaintenanceRepository:
         policy = self.effective_policy(route_id)
         route = self.repository.get_route(route_id)
         replacement = self.repository.get_candidate(candidate_id)
+        binding_count = int(self.repository.connection.execute(
+            """SELECT COUNT(*) FROM actor_source_bindings_v2
+               WHERE workspace_id=? AND route_id=? AND status='ready'""",
+            (self.repository.workspace_id, route_id),
+        ).fetchone()[0])
+        required_proofs = min(2, binding_count)
         if (
             not policy.authorized or not policy.route.auto_replace_non_last
             or route.generation != expected_route_generation
@@ -412,6 +420,12 @@ class MaintenanceRepository:
             or not candidate_is_runnable(replacement)
         ):
             raise ActorOpsConflict("actorops_maintenance_replacement_changed")
+        if (
+            required_proofs == 0
+            or self.successful_probe_targets(candidate_id) < required_proofs
+            or not _route_capabilities_proven(route, replacement)
+        ):
+            return False
         assigned = [
             item for item in self.repository.list_route_candidates(route_id)
             if item.assignment_role is not AssignmentRole.INACTIVE
@@ -493,6 +507,19 @@ def _policy(row: Any) -> MaintenancePolicyRecord:
         generation=int(row["generation"]), authorized_by_user_id=row["authorized_by_user_id"],
         authorized_at=row["authorized_at"],
         authorization_origin=str(row["authorization_origin"]),
+    )
+
+
+def _route_capabilities_proven(route: Any, candidate: Any) -> bool:
+    if route.route_key.platform != "youtube":
+        return True
+    try:
+        value = json.loads(str(candidate.manifest_json or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    inputs = value.get("input") if isinstance(value, dict) else None
+    return bool(
+        isinstance(inputs, dict) and proves_combined_latest_items(inputs)
     )
 
 

@@ -42,6 +42,8 @@ describe('SettingsActorOpsPage', () => {
 
     await waitFor(() => expect(actorOpsV2Routes).toHaveBeenCalled())
     expect(await screen.findByTestId('actorops-v2-control-plane')).toBeInTheDocument()
+    expect(screen.queryByText(/为 X、Instagram 和 YouTube 管理/)).not.toBeInTheDocument()
+    expect(screen.getByRole('tablist', { name: 'ActorOps 页面' }).closest('[data-scroll-adaptive-view-bar]')).toHaveAttribute('data-view-bar-appearance', 'command')
     expect(screen.getByText('ActorOps 已停用')).toBeInTheDocument()
     expect(screen.queryByText('旁路核验')).not.toBeInTheDocument()
   })

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 
@@ -6,7 +6,7 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import { useAppContext } from '../../app/AppContext'
-import { Button, LoadingState, PageFrame, PageIntro, ScrollAdaptiveViewBar, StatusNotice, Tabs } from '../../design-system'
+import { Button, LoadingState, PageFrame, ScrollAdaptiveViewBar, StatusNotice, Tabs } from '../../design-system'
 import { ActorOpsV2ControlPlane } from '../apify-actors/ActorOpsV2ControlPlane'
 import { ActorOpsV2Logs } from '../apify-actors/ActorOpsV2Logs'
 import { ActorOpsV2RouteControls } from '../apify-actors/ActorOpsV2RouteControls'
@@ -25,6 +25,8 @@ export function SettingsActorOpsPage() {
   const tab = actorOpsTabFromSearchParams(searchParams)
   const jobId = tab === 'logs' ? safeActorOpsEventJobId(searchParams.get('job')) : undefined
   const focusedRouteKey = tab === 'routes' ? safeActorOpsRouteKey(searchParams.get('route')) : undefined
+  const [toolbarState, setToolbarState] = useState<'expanded' | 'floating'>('expanded')
+  const pageScrollerRef = useRef<HTMLDivElement>(null)
   const routes = useQuery({
     queryKey: queryKeys.actorOpsV2Routes(user.id),
     queryFn: ({ signal }) => api.actorOpsV2Routes(signal),
@@ -37,13 +39,30 @@ export function SettingsActorOpsPage() {
     const canonical = actorOpsCanonicalSearchParams(searchParams, tab)
     if (canonical.toString() !== searchParams.toString()) setSearchParams(canonical, { replace: true })
   }, [searchParams, setSearchParams, tab])
+  useEffect(() => {
+    const scroller = pageScrollerRef.current
+    if (!scroller) return
+    let frame: number | undefined
+    const syncToolbarState = () => {
+      frame = undefined
+      setToolbarState(scroller.scrollTop > 20 ? 'floating' : 'expanded')
+    }
+    const onScroll = () => {
+      if (frame === undefined) frame = window.requestAnimationFrame(syncToolbarState)
+    }
+    syncToolbarState()
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+    }
+  }, [])
   if (!canAdminister) return <Navigate to="/settings" state={returnState} replace />
 
-  return <div data-settings-page="actorops" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
-    <PageFrame width="settings" className="grid gap-5 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
-      <PageIntro description="为 X、Instagram 和 YouTube 管理 v2 Actor 路由。未就绪或停用的路线不会回退到旧 ActorOps。" />
+  return <div ref={pageScrollerRef} data-settings-page="actorops" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
+    <PageFrame width="settings" className="grid gap-5 px-4 pb-10 pt-2 min-[768px]:px-6 min-[768px]:pb-12">
       <Tabs selectedKey={tab} onSelectionChange={(key) => setSearchParams(actorOpsCanonicalSearchParams(searchParams, String(key) === 'logs' ? 'logs' : 'routes'), { replace: true })}>
-        <div data-actorops-tabs-toolbar className="sticky top-0 z-20 px-2 py-2"><ScrollAdaptiveViewBar state="expanded" className="min-w-0"><div className="quiet-scroll-region min-w-0 max-w-full overflow-x-auto"><Tabs.List aria-label="ActorOps 页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0"><Tabs.Tab id="routes" aria-label="路由管理" className="min-h-9 w-auto shrink-0 justify-center rounded-lg px-3">路由管理<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="logs" aria-label="运行日志" className="min-h-9 w-auto shrink-0 justify-center rounded-lg px-3">运行日志<Tabs.Indicator /></Tabs.Tab></Tabs.List></div></ScrollAdaptiveViewBar></div>
+        <div data-actorops-tabs-toolbar className="sticky top-0 z-20 py-2"><ScrollAdaptiveViewBar state={toolbarState} appearance="command" className="min-w-0 justify-start"><div className="min-w-0 max-w-full overflow-x-auto"><Tabs.List data-command-bar-tabs aria-label="ActorOps 页面" className="flex w-max min-w-0 gap-1"><Tabs.Tab data-command-bar-tab id="routes" aria-label="路由管理" className="w-auto shrink-0 justify-center gap-2">路由管理<Tabs.Indicator /></Tabs.Tab><Tabs.Tab data-command-bar-tab id="logs" aria-label="运行日志" className="w-auto shrink-0 justify-center gap-2">运行日志<Tabs.Indicator /></Tabs.Tab></Tabs.List></div></ScrollAdaptiveViewBar></div>
         <Tabs.Panel id="routes" className="grid gap-5 pt-5">
           {routes.isPending ? <LoadingState label="正在读取 ActorOps v2 路由" rows={3} />
             : routes.isError ? <ActorOpsRouteError error={routes.error} onRetry={() => void routes.refetch()} />

@@ -24,6 +24,7 @@ from .ports import (
     RemoteActorClient,
     RemoteRunRequest,
 )
+from .probe_failure_accounting import record_settled_probe_candidate_failure
 from .probe_limits import PROBE_DATASET_VALIDATION_LIMIT
 from .recovery_probe import (
     RECOVERY_INTENT,
@@ -403,6 +404,15 @@ class ActorOpsProber:
                 candidate = self.repository.get_candidate(candidate_id)
                 if candidate.assignment_role is not AssignmentRole.INACTIVE:
                     return
+                if policy.route.auto_replace_non_last:
+                    replaced = self.repository.maintenance.replace_unhealthy_non_last(
+                        route_id,
+                        candidate_id,
+                        expected_route_generation=route.generation,
+                        expected_candidate_generation=candidate.generation,
+                    )
+                    if replaced:
+                        return
                 self.repository.maintenance.add_standby(
                     route_id,
                     candidate_id,
@@ -463,9 +473,14 @@ class ActorOpsProber:
             with self.repository.transaction():
                 self.repository.complete_attempt(
                     attempt_id, status=AttemptStatus.FAILED, semantic_outcome=error.code,
-                    actual_cost_usd=None, cost_final=False,
+                    actual_cost_usd=0.0 if error.proven_no_start else None,
+                    cost_final=error.proven_no_start,
                     failure_class=error.failure_class.value, error_code=error.code,
                 )
+                if error.failure_class is FailureClass.CANDIDATE:
+                    record_settled_probe_candidate_failure(
+                        self.repository, attempt_id=attempt_id
+                    )
 
 
 def _manifest(candidate: Any) -> ActorManifest:

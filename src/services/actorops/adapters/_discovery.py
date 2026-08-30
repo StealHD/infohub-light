@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 
+from ..discovery_input_bounds import runtime_limit_template
 from ..input_plan import create_input_plan
 from ..ports import DiscoveryMapping, DiscoveryRevision
 
@@ -30,6 +31,9 @@ def deterministic_input_plan(
     if input_key is None:
         return None, "actorops_discovery_missing_target_input"
     max_items_key = _first_number(inputs, max_items_input_keys)
+    max_items_value, max_items_error = _max_items_value(inputs, max_items_key)
+    if max_items_error:
+        return None, max_items_error
     template = {
         input_key: _input_value(
             input_key,
@@ -40,7 +44,7 @@ def deterministic_input_plan(
             url_input_keys=url_input_keys,
         ),
         **(
-            {max_items_key: {"$ref": "runtime.max_items"}}
+            {max_items_key: max_items_value}
             if max_items_key and max_items_key != input_key
             else {}
         ),
@@ -77,6 +81,7 @@ def deterministic_manifest(
     list_inputs = (*list_handle_input_keys, *list_url_input_keys)
     input_key = _first_input(inputs, input_keys, list_inputs)
     max_items_key = _first_number(inputs, max_items_input_keys)
+    max_items_value, max_items_error = _max_items_value(inputs, max_items_key)
     native_id = _first_scalar(outputs, (
         "id", "ID", "nativeId", "videoId", "Video ID", "tweetId",
         "postId", "shortCode", "shortcode", "native_id", "video_id",
@@ -114,6 +119,8 @@ def deterministic_manifest(
         selected_identity_ref = virtual_identity_ref or identity_ref
     avatar = _first_scalar(outputs, avatar_pointer_keys)
     thumbnail = _first_scalar(outputs, thumbnail_pointer_keys)
+    if max_items_error:
+        return DiscoveryMapping(None, max_items_error)
     if not all((input_key, native_id, url, published, text, identity_pointer)):
         return DiscoveryMapping(None, "actorops_discovery_mapping_unresolved")
     value = {
@@ -130,7 +137,7 @@ def deterministic_manifest(
                 url_input_keys=url_input_keys,
             ),
             **(
-                {max_items_key: {"$ref": "runtime.max_items"}}
+                {max_items_key: max_items_value}
                 if max_items_key and max_items_key != input_key
                 else {}
             ),
@@ -195,6 +202,14 @@ def _first_number(
         if not types or types & {"integer", "number"}:
             return key
     return None
+
+
+def _max_items_value(
+    inputs: Mapping[str, object], key: str | None,
+) -> tuple[object | None, str | None]:
+    if key is None:
+        return None, None
+    return runtime_limit_template(inputs.get(key))
 
 
 def _first_input(

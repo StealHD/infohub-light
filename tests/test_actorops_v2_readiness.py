@@ -11,6 +11,9 @@ from src.storage.actorops_v2_single_track_schema import MIGRATION_VERSION
 from src.storage.actorops_v2_stability_schema import (
     MIGRATION_VERSION as STABILITY_MIGRATION_VERSION,
 )
+from src.storage.actorops_v2_verified_replacement_schema import (
+    MIGRATION_VERSION as REPLACEMENT_MIGRATION_VERSION,
+)
 from src.storage.service_store import ServiceStore
 
 
@@ -56,6 +59,22 @@ def test_missing_global_33_blocks_actorops_without_blocking_store_startup(
         (STABILITY_MIGRATION_VERSION,),
     )
     connection.commit()
+    assert actorops_v2_startup_migration_required(store) is True
+    with pytest.raises(RuntimeError, match="actorops_v2 migration_required"):
+        require_actorops_v2_schema(store)
+    store.close()
+
+
+def test_missing_global_36_blocks_only_actorops_runtime(tmp_path) -> None:
+    store = ServiceStore(tmp_path / "data")
+    store.initialize()
+    connection = store.connect()
+    connection.execute(
+        "DELETE FROM schema_migrations WHERE version=?",
+        (REPLACEMENT_MIGRATION_VERSION,),
+    )
+    connection.commit()
+
     assert actorops_v2_startup_migration_required(store) is True
     with pytest.raises(RuntimeError, match="actorops_v2 migration_required"):
         require_actorops_v2_schema(store)

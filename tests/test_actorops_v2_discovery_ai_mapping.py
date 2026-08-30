@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -95,6 +96,29 @@ def _manifest() -> dict[str, object]:
             "url_host_allowlist": ["x.com"],
         },
     }
+
+
+def test_schema_proof_raises_runtime_limit_to_public_minimum() -> None:
+    revision = _revision()
+    revision = replace(
+        revision,
+        input_schema={
+            **revision.input_schema,
+            "properties": {
+                **revision.input_schema["properties"],
+                "maxItems": {
+                    "type": "integer", "minimum": 5, "maximum": 100,
+                },
+            },
+        },
+    )
+
+    manifest_json, error = validate_schema_proven_manifest(
+        revision, DiscoveryMapping(json.dumps(_manifest()))
+    )
+
+    assert error is None and manifest_json is not None
+    assert json.loads(manifest_json)["input"]["maxItems"] == 5
 
 
 def test_deepseek_thinking_override_is_actor_mapping_only(monkeypatch) -> None:

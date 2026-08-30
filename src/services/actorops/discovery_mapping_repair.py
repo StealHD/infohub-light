@@ -7,6 +7,7 @@ from collections.abc import Mapping
 
 from .discovery_input_semantics import compatible_input_references
 from .ports import DiscoveryMapping, DiscoveryRevision
+from .youtube_capabilities import apply_youtube_input_capabilities
 
 
 def repair_mapping_proposal(
@@ -35,6 +36,10 @@ def repair_mapping_proposal(
             key: _repair_input(value, properties.get(key), key)
             for key, value in inputs.items()
         }
+        if str(route_key) == "youtube/channel/items":
+            value["input"] = apply_youtube_input_capabilities(
+                value["input"], revision.input_schema
+            )
     if str(route_key) == "x/profile/items":
         _repair_x_url_identity(value)
     return DiscoveryMapping(

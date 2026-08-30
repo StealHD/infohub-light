@@ -7,6 +7,7 @@ import {
   mergeDeepLinkedItem,
   selectWorkbenchSourceItems,
   toWorkbenchCardModel,
+  workbenchSourceLabels,
 } from './workbenchModel'
 
 const item = (id: string, publishedAt?: string, summary = `摘要 ${id}`): FeedItem => ({
@@ -100,6 +101,48 @@ describe('live workbench model', () => {
       summary: undefined,
       hasDistinctDetail: true,
     })
+  })
+
+  it('omits a URL-shaped social author while preserving the readable source account', () => {
+    const social = socialItemWithMedia()
+    if (!social.presentation) throw new Error('presentation fixture missing')
+    social.presentation.source.name = 'X · @朋友动态'
+    social.presentation.source.platform = 'x'
+    social.presentation.author.name = 'https://x.com/thsottiaux/status/2093573991965557198'
+    social.presentation.links.canonical_url = 'https://x.com/thsottiaux/status/2093573991965557198'
+    social.presentation.links.source_url = 'https://x.com/thsottiaux'
+
+    const card = toWorkbenchCardModel(social)
+
+    expect(card).toMatchObject({
+      source: 'X · @朋友动态',
+      platformLabel: 'X',
+      sourceLabel: '@朋友动态',
+      authorLabel: undefined,
+    })
+    expect(workbenchSourceLabels(card)).toEqual(['X', '@朋友动态'])
+  })
+
+  it('derives an X handle when both source fields contain only the post URL', () => {
+    const social = socialItemWithMedia()
+    if (!social.presentation) throw new Error('presentation fixture missing')
+    const postUrl = 'https://x.com/thsottiaux/status/2093573991965557198'
+    social.source = postUrl
+    social.presentation.source.name = postUrl
+    social.presentation.source.platform = 'x'
+    social.presentation.author.name = 'Tibo'
+    social.presentation.links.canonical_url = postUrl
+    social.presentation.links.source_url = 'https://x.com/thsottiaux'
+
+    const card = toWorkbenchCardModel(social)
+
+    expect(card).toMatchObject({
+      source: 'X · @thsottiaux',
+      platformLabel: 'X',
+      sourceLabel: '@thsottiaux',
+      authorLabel: 'Tibo',
+    })
+    expect(workbenchSourceLabels(card)).toEqual(['X', 'Tibo', '@thsottiaux'])
   })
 
   it('maps explicit gallery metadata and keeps only local cached images', () => {

@@ -73,13 +73,21 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
   const detailBody = displayKind === 'social'
     ? presentation?.content?.body_text || presentation?.content?.excerpt || primaryText
     : body
-  const source = presentation?.source?.name || item.source || item.source_type || '未知来源'
+  const rawSource = presentation?.source?.name || item.source || item.source_type || '未知来源'
   const platformLabel = resolvePlatformLabel(
     presentation?.source?.platform || presentation?.source?.catalog_type || item.source_type || '',
-    source,
+    rawSource,
   )
-  const sourceLabel = stripPlatformPrefix(source, platformLabel)
-  const candidateAuthor = presentation?.author?.name?.trim()
+  const sourceLabel = displayKind === 'social'
+    ? resolveSocialSourceLabel(item, rawSource, platformLabel)
+    : stripPlatformPrefix(rawSource, platformLabel)
+  const source = displayKind === 'social'
+    ? resolveSocialSourceName(item, rawSource, platformLabel, sourceLabel)
+    : rawSource
+  const rawAuthor = presentation?.author?.name?.trim()
+  const candidateAuthor = rawAuthor && !isUrlDisplayLabel(rawAuthor, platformLabel)
+    ? rawAuthor
+    : undefined
   const authorLabel = candidateAuthor
     && normalizeDisplayText(candidateAuthor) !== normalizeDisplayText(sourceLabel)
     && normalizeDisplayText(candidateAuthor) !== normalizeDisplayText(source)
@@ -194,13 +202,55 @@ export function workbenchSourceLabels(card: WorkbenchCardModel, includeArticleDe
   const seen = new Set<string>()
   return values.flatMap((value) => {
     const label = value?.trim()
-    if (!label) return []
+    if (!label || isUrlDisplayLabel(label, card.platformLabel)) return []
     const key = normalizeDisplayText(label)
     if (!key || seen.has(key)) return []
     seen.add(key)
     return [label]
   })
 }
+
+function resolveSocialSourceLabel(item: FeedItem, rawSource: string, platformLabel: string): string {
+  const namedLabel = [rawSource, item.source]
+    .map((value) => stripPlatformPrefix(value?.trim() || '', platformLabel))
+    .find((value) => value && !isUrlDisplayLabel(value, platformLabel))
+  return namedLabel || socialAccountLabel(item, platformLabel) || platformLabel
+}
+
+function resolveSocialSourceName(item: FeedItem, rawSource: string, platformLabel: string, sourceLabel: string): string {
+  const namedSource = [rawSource, item.source]
+    .map((value) => value?.trim())
+    .find((value) => value && !isUrlDisplayLabel(value, platformLabel))
+  if (namedSource) return namedSource
+  return normalizeDisplayText(sourceLabel) === normalizeDisplayText(platformLabel)
+    ? platformLabel
+    : `${platformLabel} · ${sourceLabel}`
+}
+
+function isUrlDisplayLabel(value: string, platformLabel = ''): boolean {
+  const candidate = stripPlatformPrefix(value.trim(), platformLabel)
+  return /^(?:https?:\/\/|www\.)\S+$/iu.test(candidate)
+}
+
+function socialAccountLabel(item: FeedItem, platformLabel: string): string | undefined {
+  const candidates = [item.presentation?.links?.source_url, item.presentation?.links?.canonical_url, item.url]
+  for (const value of candidates) {
+    try {
+      const url = new URL(value || '')
+      const segment = decodeURIComponent(url.pathname.split('/').filter(Boolean)[0] || '')
+      if (!segment || SOCIAL_CONTENT_PATHS.has(segment.toLocaleLowerCase())) continue
+      if (platformLabel === 'X' || platformLabel === 'Telegram') return `@${segment.replace(/^@/, '')}`
+      if (platformLabel === 'Instagram' || platformLabel === 'Facebook') return segment.replace(/^@/, '')
+    } catch {
+      // Malformed legacy URLs fall through to the next safe display candidate.
+    }
+  }
+  return undefined
+}
+
+const SOCIAL_CONTENT_PATHS = new Set([
+  'explore', 'home', 'i', 'p', 'reel', 'reels', 'search', 'shorts', 'status', 'stories', 'tv', 'watch',
+])
 
 function normalizeDisplayText(value: string): string {
   return value

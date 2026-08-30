@@ -14,6 +14,10 @@ from ...storage.actorops_v2_sampling_schema import (
     migration_marker_exists as sampling_migration_marker_exists,
     schema_shapes_valid as sampling_schema_shapes_valid,
 )
+from ...storage.actorops_v2_verified_replacement_schema import (
+    migration_marker_exists as replacement_migration_marker_exists,
+    schema_shapes_valid as replacement_schema_shapes_valid,
+)
 from ...storage.service_store import ServiceStore
 
 
@@ -28,6 +32,8 @@ def require_actorops_v2_schema(store: ServiceStore) -> None:
         or not revalidation_schema_shapes_valid(connection)
         or not sampling_migration_marker_exists(connection)
         or not sampling_schema_shapes_valid(connection)
+        or not replacement_migration_marker_exists(connection)
+        or not replacement_schema_shapes_valid(connection)
     ):
         raise RuntimeError("actorops_v2 migration_required")
 
@@ -41,4 +47,6 @@ def actorops_v2_startup_migration_required(store: ServiceStore) -> bool:
         and revalidation_schema_shapes_valid(connection)
         and sampling_migration_marker_exists(connection)
         and sampling_schema_shapes_valid(connection)
+        and replacement_migration_marker_exists(connection)
+        and replacement_schema_shapes_valid(connection)
     )

@@ -43,6 +43,8 @@ describe('ActorOpsV2ControlPlane', () => {
     expect(screen.getByTestId('actorops-v2-control-plane').querySelectorAll('[data-actorops-route-card]')).toHaveLength(1)
     expect(screen.getByText('降级可用')).toBeInTheDocument()
     expect(screen.getByText('YouTube 视频更新')).toBeInTheDocument()
+    expect(screen.getByText('YouTube 视频更新').closest('[data-actorops-route-heading]')).toHaveTextContent('YouTube 视频更新ActorOps 已停用')
+    expect(screen.getByRole('button', { name: '查看运行详情' }).closest('[data-actorops-route-actions]')).toBeInTheDocument()
     expect(screen.getByText('主用')).toBeInTheDocument()
     expect(screen.getByText('稳定路径 1')).toBeInTheDocument()
     expect(screen.getByText('风险来源 1')).toBeInTheDocument()

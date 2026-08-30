@@ -1,5 +1,14 @@
 import type { ChangelogEntry } from './changelogTypes'
 
+export const sourceFetchPreflightChangelogEntry = {
+  date: '2026-08-30',
+  title: '来源获取不再把未启动误报为失败',
+  summary: '后台 Worker 未就绪时会明确说明任务没有创建，而不是把来源标成获取失败。',
+  items: [
+    { title: '未开始与真实失败分开', description: 'Worker 心跳过期或状态无法确认时使用“获取未开始”警告，并说明没有创建任务或产生抓取费用；只有已经进入获取链路的失败才继续显示“获取失败”。' },
+  ],
+} satisfies ChangelogEntry
+
 export const codeHealthMaintenanceEntry = {
   date: '2026-08-13',
   title: '内部结构更易维护，用户流程保持不变',
@@ -40,6 +49,16 @@ export const instagramSourceAvatarChangelogEntry = {
   items: [
     { title: '过期内容也可补齐头像', description: '即使本次没有进入信息流的新帖子，只要正常获取结果包含与所订阅账号一致的有效头像，系统也会通过受保护媒体地址更新来源头像。' },
     { title: '头像异常不影响获取', description: '上游头像字段缺失或格式异常时，内容获取和主备 Actor 切换仍可继续；界面使用 IG 标识作为稳定降级。' },
+  ],
+} satisfies ChangelogEntry
+
+export const feedSourceLabelChangelogEntry = {
+  date: '2026-08-30',
+  title: '社交来源名称不再显示成网址',
+  summary: '信息流与 Agent 上下文会忽略误写入名称字段的帖子网址，并继续显示可读的平台与账号名称。',
+  items: [
+    { title: '帖子链接不再占用名称位置', description: '当社交内容的来源名或作者名意外是完整网址时，卡片头部和 Agent 上下文不会渲染该网址；已有可读账号名保持不变。' },
+    { title: '缺少名称时使用账号兜底', description: '如果名称字段都只有网址，界面会从经过验证的来源或原文地址提取账号 handle；无法安全识别时只显示平台名称。' },
   ],
 } satisfies ChangelogEntry
 

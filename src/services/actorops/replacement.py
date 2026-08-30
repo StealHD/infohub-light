@@ -18,6 +18,7 @@ from .attempt_events import RepositoryAttemptEvents
 from .attempt_recovery import request_fingerprint
 from .domain import AttemptStatus, CandidateLifecycle, FailureClass, ReplacementStatus
 from .ports import ActorManifest, FetchWindow, RemoteActorClient, RemoteRunRequest
+from .probe_failure_accounting import record_settled_probe_candidate_failure
 from .probe_limits import PROBE_DATASET_VALIDATION_LIMIT
 from .registry import AdapterNotRegistered, AdapterRegistry
 from .replacement_contract_reason import output_contract_error_code
@@ -379,18 +380,37 @@ class ActorOpsReplacementRunner:
     def _remote_failure(self, plan: Any, attempt_id: str, error: ActorOpsRuntimeError) -> dict[str, object]:
         row = self.repository.get_attempt(attempt_id)
         current = AttemptStatus(str(row["status"]))
+        candidate = None
         with self.repository.transaction():
             if error.failure_class is FailureClass.REMOTE_UNKNOWN:
                 if current is AttemptStatus.STARTING:
                     self.repository.transition_attempt(attempt_id, current, AttemptStatus.START_UNKNOWN, error_class=error.failure_class.value, error_code=error.code, expected_generation=int(row["generation"]))
             elif current in {AttemptStatus.STARTING, AttemptStatus.REGISTERED, AttemptStatus.RUNNING}:
-                self.repository.complete_attempt(attempt_id, status=AttemptStatus.FAILED, semantic_outcome=error.code, actual_cost_usd=None, cost_final=False, failure_class=error.failure_class.value, error_code=error.code)
+                self.repository.complete_attempt(
+                    attempt_id, status=AttemptStatus.FAILED,
+                    semantic_outcome=error.code,
+                    actual_cost_usd=0.0 if error.proven_no_start else None,
+                    cost_final=error.proven_no_start,
+                    failure_class=error.failure_class.value, error_code=error.code,
+                )
+                if error.failure_class is FailureClass.CANDIDATE:
+                    candidate = record_settled_probe_candidate_failure(
+                        self.repository, attempt_id=attempt_id
+                    )
         try:
             with self.repository.transaction():
                 if error.failure_class is FailureClass.REMOTE_UNKNOWN:
                     self.repository.operator.note_plan(plan.plan_id, status=ReplacementStatus.RUNNING, expected_generation=plan.generation, error_code=error.code)
                 else:
-                    self.repository.operator.transition_plan(plan.plan_id, current=ReplacementStatus.RUNNING, target=ReplacementStatus.FAILED, expected_generation=plan.generation, error_code=error.code)
+                    self.repository.operator.transition_plan(
+                        plan.plan_id, current=ReplacementStatus.RUNNING,
+                        target=ReplacementStatus.FAILED,
+                        expected_generation=plan.generation,
+                        error_code=error.code,
+                        proposed_candidate_generation=(
+                            candidate.generation if candidate is not None else None
+                        ),
+                    )
         except ActorOpsConflict:
             pass
         if error.failure_class is FailureClass.REMOTE_UNKNOWN:

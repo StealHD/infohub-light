@@ -12,7 +12,7 @@ from .ports import DiscoveryRevision
 
 _MAX_SCHEMA_PATHS = 140
 _MAX_ENUM_VALUES = 12
-DISCOVERY_MAPPING_STRATEGY = "deepseek-schema-manifest-v12-input-reference-hints"
+DISCOVERY_MAPPING_STRATEGY = "deepseek-schema-manifest-v13-input-lower-bounds"
 
 
 def mapping_system_prompt() -> str:
@@ -46,7 +46,7 @@ def mapping_prompt(
             "Build nested input objects/arrays exactly as the input path structure declares.",
             "For every symbolic input value, compatible_references on that exact input path is exhaustive. Never use a different reference. If it is empty, only a supplied enum/const/default literal can fill the field.",
             "A field whose declared type is array must always receive a JSON array, even when its item schema is absent.",
-            "For an optional max/limit/count field, prefer runtime.max_items over its default.",
+            "For an optional max/limit/count field, prefer runtime.max_items over its default. The system deterministically raises that reference to a supplied numeric Schema minimum when the minimum is greater than one and no greater than 100.",
             "Use symbolic references for target, date window, and item limit values.",
             "Encode every reference as the exact JSON object {\"$ref\":\"target.handle\"}; never encode {$ref: ...} or the reference as a string.",
             "For an array reference use [{\"$ref\":\"target.canonical_url\"}], preserving both the array and object wrappers.",

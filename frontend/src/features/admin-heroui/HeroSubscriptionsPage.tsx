@@ -51,6 +51,7 @@ import {
 import { HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 import { HeroActorOpsTraceDisclosure } from './HeroSoftDisclosure'
+import { requireSourceFetchWorker, sourceFetchFailureCopy } from './sourceFetchFeedback'
 import {
   SourceLibraryListView,
   SourceFilterMenu,
@@ -98,7 +99,6 @@ function unavailableSourceCopy(definition: SourceTypeDefinition) {
     settingsHref: '/settings/actorops',
   }
 }
-
 
 function FeedScheduleControls({ schedule, globalSubscriptionCount, customSubscriptionCount, editable, pending, loading, error, onRetry, onUpdate }: {
   schedule?: FeedSchedule
@@ -404,7 +404,7 @@ export function HeroSubscriptionsPage() {
   const fetchMutation = useMutation({
     mutationFn: async ({ source, subscription }: { source: CatalogSource; subscription: Subscription }) => {
       const schedule = await scheduleQuery.refetch()
-      if (schedule.data?.worker_status !== 'ready') throw new Error('后台获取服务当前不可用，请稍后再试。')
+      requireSourceFetchWorker(schedule.data?.worker_status)
       return api.createSourceFetch(source.id, subscription.id)
     },
     onMutate: ({ source }) => {
@@ -420,7 +420,7 @@ export function HeroSubscriptionsPage() {
     onError: (caught, { source }, context) => {
       if (!context || !isActionCurrent(context.token)) return
       feedback.clear('source-fetch', source.id)
-      actionToast.danger(`${source.display_name} 获取失败`, { description: mutationError(caught) })
+      const copy = sourceFetchFailureCopy(source.display_name, caught); actionToast[copy.tone](copy.title, { description: copy.description })
     },
   })
 
@@ -576,7 +576,7 @@ export function HeroSubscriptionsPage() {
     else {
       const token = beginAction()
       const schedule = await scheduleQuery.refetch()
-      if (schedule.data?.worker_status !== 'ready') throw new Error('后台获取服务当前不可用，请稍后再试。')
+      requireSourceFetchWorker(schedule.data?.worker_status)
       const job = await api.createSourceFetch(sourceId, subscriptionId)
       if (!isActionCurrent(token)) return
       const source = sourceMap.get(sourceId)

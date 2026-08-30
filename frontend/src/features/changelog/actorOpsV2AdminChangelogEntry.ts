@@ -2,6 +2,26 @@ import type { ChangelogEntry } from './changelogTypes'
 
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-08-30',
+    title: 'Actor 自动替换只使用业务验证成功的候选',
+    summary: 'Instagram 实测输入与失败结算已修正，YouTube 会核验 Shorts 覆盖和最新排序；后台不再反复选择已拒绝启动的 Actor。',
+    items: [
+      { title: 'Instagram 输入遵守 Actor 下限', description: '公开 Schema 要求的最小条数会在实测前写入冻结输入；无法安全满足的候选会在免费阶段阻断，不再用过小输入反复启动失败。' },
+      { title: '启动拒绝立即完成记账', description: 'Apify 明确证明没有启动时，Probe 以 0 美元、费用已结算和 Candidate 故障终结；候选会被拒绝或隔离，不再进入下一轮自动选择。' },
+      { title: 'YouTube 能力必须可证明', description: '频道模式只采用 exact Schema 声明的输入枚举；自动替换要求候选明确包含 Shorts 在内的全部内容并按最新发布排序，Shorts-only 或长短二选一候选不会自动接管。' },
+      { title: '最后一路始终保留', description: '候选还必须在当前来源取得最多两个最终非空 Probe 证明；系统只替换已确认故障的非最后一路，证据不足时继续补充备用或交由管理员处理。' },
+    ],
+  },
+  {
+    date: '2026-08-29',
+    title: 'ActorOps 路由页更紧凑易扫读',
+    summary: '路由与日志切换复用订阅页工具栏，卡片状态与操作重新对齐，减少无关说明和纵向占用。',
+    items: [
+      { title: '切换入口保持一致', description: '路由管理与运行日志使用和订阅页相同的紧凑 command bar；滚动后收窄为浮动工具栏，手机和桌面均不产生横向溢出。' },
+      { title: '路线状态一行读完', description: '平台名称、当前运行模式和健康状态集中在卡片首行；最近成功与核验事实留在左侧，查看详情和管理操作固定在右侧。' },
+    ],
+  },
+  {
     date: '2026-08-29',
     title: 'ActorOps 用真实 Dataset 完成字段适配',
     summary: '高质量候选会先完成静态分析，再用一次已授权实测的真实输出证明系统可用；嵌套内容和父级身份不再被简单判为不兼容。',

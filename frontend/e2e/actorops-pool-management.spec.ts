@@ -126,10 +126,25 @@ test('ActorOps v2 route cards keep a safe desktop flow', async ({ page }) => {
   await page.goto('/settings/actorops')
 
   await expect(page.getByTestId('actorops-v2-control-plane')).toBeVisible()
+  await expect(page.locator('[data-page-intro]')).toHaveCount(0)
+  await expect(page.locator('[data-actorops-tabs-toolbar] [data-scroll-adaptive-view-bar]')).toHaveAttribute('data-view-bar-appearance', 'command')
   const routeCard = page.locator('[data-actorops-route-card="x"]')
   await expect(routeCard).toBeVisible()
   await expect(page.locator('[data-actorops-route-card]')).toHaveCount(1)
   await expect(page.getByText('X 动态', { exact: true })).toBeVisible()
+  const [titleBounds, modeBounds, factsBounds, actionBounds] = await Promise.all([
+    routeCard.getByText('X 动态', { exact: true }).boundingBox(),
+    routeCard.getByText('v2 获取中', { exact: true }).boundingBox(),
+    routeCard.getByText(/最近成功：/).boundingBox(),
+    routeCard.locator('[data-actorops-route-actions]').boundingBox(),
+  ])
+  expect(titleBounds).not.toBeNull()
+  expect(modeBounds).not.toBeNull()
+  expect(factsBounds).not.toBeNull()
+  expect(actionBounds).not.toBeNull()
+  expect(Math.abs(titleBounds!.y - modeBounds!.y)).toBeLessThanOrEqual(2)
+  if ((page.viewportSize()?.width ?? 0) >= 768) expect(actionBounds!.x).toBeGreaterThan(factsBounds!.x)
+  else expect(actionBounds!.y).toBeGreaterThan(factsBounds!.y)
   await expect(page.getByText('Publisher A Primary', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('已确认故障').first()).toBeVisible()
   await expect(page.getByRole('button', { name: '替换主用' })).toBeVisible()

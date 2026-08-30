@@ -72,7 +72,7 @@ const socialRouteItem = {
   id: 'social:x:1',
   title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
   url: 'https://x.com/thsottiaux/status/1',
-  source: 'X · @thsottiaux',
+  source: 'X · @朋友动态',
   source_type: 'apify_social',
   summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
   published_at: '2026-07-18T08:00:00Z',
@@ -81,8 +81,8 @@ const socialRouteItem = {
   user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
   presentation: {
     version: 2,
-    source: { id: 'x-source', catalog_type: 'apify_social', platform: 'x', name: 'X · @thsottiaux' },
-    author: { name: 'Tibo', kind: 'person' },
+    source: { id: 'x-source', catalog_type: 'apify_social', platform: 'x', name: 'X · @朋友动态' },
+    author: { name: 'https://x.com/thsottiaux/status/1', kind: 'person' },
     timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
     links: { canonical_url: 'https://x.com/thsottiaux/status/1', source_url: 'https://x.com/thsottiaux' },
     content: {
@@ -1448,8 +1448,8 @@ test('social cards and Agent context show source information once without exposi
   const source = card.getByLabel('来源信息')
 
   await expect(card).toBeVisible()
-  await expect(source.getByText('Tibo', { exact: true })).toBeVisible()
-  await expect(source.getByText('@thsottiaux', { exact: true })).toBeVisible()
+  await expect(source.getByText('@朋友动态', { exact: true })).toBeVisible()
+  await expect(source.getByText(socialRouteItem.url, { exact: true })).toHaveCount(0)
   await expect(page.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toHaveCount(1)
   await expect(page.getByText(socialRouteItem.title, { exact: true })).toHaveCount(0)
   await expect(card.getByText('图集', { exact: true })).toBeVisible()
@@ -1553,8 +1553,8 @@ test('social cards and Agent context show source information once without exposi
     ? page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
   await expect(agent).toBeVisible()
-  await expect(agent.getByText('Tibo', { exact: true })).toBeVisible()
-  await expect(agent.getByText('@thsottiaux', { exact: true })).toBeVisible()
+  await expect(agent.getByText('@朋友动态', { exact: true })).toBeVisible()
+  await expect(agent.getByText(socialRouteItem.url, { exact: true })).toHaveCount(0)
   await expect(agent.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toBeVisible()
   await expect(page.getByText(socialRouteItem.id, { exact: true })).toHaveCount(0)
 })

@@ -15,6 +15,7 @@ from src.services.actorops.adapter_rows import prepare_adapter_rows
 from src.services.apify_actor_manifest import ActorManifestError
 from src.services.actorops.domain import RouteKey
 from src.services.actorops.ports import ActorManifest, DiscoveryRevision, FetchWindow
+from src.services.actorops.youtube_capabilities import proves_combined_latest_items
 from src.services.actorops.presentation_mapping import avatar_pointer_from_rows
 from src.services.actorops.presentation_row_paths import (
     PRESENTATION_AVATAR_FALLBACK_POINTER,
@@ -198,6 +199,39 @@ def test_instagram_discovery_uses_its_own_plural_input_and_post_fields() -> None
     assert value["output"]["author_avatar_url"]["pointers"] == ["/profilePicUrlHD"]
 
 
+def test_instagram_discovery_honors_schema_item_limit_minimum() -> None:
+    adapter = build_default_registry().require(
+        RouteKey("instagram", "profile", "items")
+    )
+    revision = DiscoveryRevision(
+        actor_id="publisher/instagram-posts",
+        publisher="publisher",
+        build_id="build",
+        build_number="1.0.0",
+        price_per_run_usd=0.01,
+        input_schema={"properties": {
+            "instagramUsernames": {"type": "array"},
+            "postsPerProfile": {
+                "type": "integer", "minimum": 5, "maximum": 100,
+            },
+        }},
+        output_schema={"properties": {
+            "post_url": {"type": "string"},
+            "date": {"type": "string"},
+            "caption": {"type": "string"},
+            "authorUsername": {"type": "string"},
+        }},
+    )
+
+    mapped = adapter.map_discovery_manifest(revision)
+
+    assert mapped.manifest_json is not None
+    assert json.loads(mapped.manifest_json)["input"] == {
+        "instagramUsernames": [{"$ref": "target.handle"}],
+        "postsPerProfile": 5,
+    }
+
+
 def test_youtube_discovery_maps_channel_id_date_and_result_limit_aliases() -> None:
     adapter = build_default_registry().require(
         RouteKey("youtube", "channel", "items")
@@ -236,6 +270,91 @@ def test_youtube_discovery_maps_channel_id_date_and_result_limit_aliases() -> No
         "/__actorops_target_url"
     ]
     assert value["output"]["thumbnail_url"]["pointers"] == ["/thumbnailUrl"]
+
+
+def test_youtube_discovery_proves_combined_shorts_and_latest_sort() -> None:
+    adapter = build_default_registry().require(
+        RouteKey("youtube", "channel", "items")
+    )
+    revision = DiscoveryRevision(
+        actor_id="actor",
+        publisher="publisher",
+        build_id="build",
+        build_number="1.0.0",
+        price_per_run_usd=0.01,
+        input_schema={"properties": {
+            "channels": {"type": "array", "items": {"type": "string"}},
+            "maxVideosPerChannel": {"type": "integer", "minimum": 0},
+            "contentType": {
+                "type": "string",
+                "enum": ["all", "videos", "shorts", "livestreams"],
+                "default": "all",
+            },
+            "sortBy": {
+                "type": "string",
+                "enum": ["newest", "oldest", "mostViewed"],
+                "default": "newest",
+            },
+        }},
+        output_schema={"properties": {
+            "videoId": {"type": "string"},
+            "videoUrl": {"type": "string"},
+            "publishedDate": {"type": "string"},
+            "title": {"type": "string"},
+        }},
+    )
+
+    mapped = adapter.map_discovery_manifest(revision)
+
+    assert mapped.manifest_json is not None
+    assert json.loads(mapped.manifest_json)["input"] == {
+        "channels": [{"$ref": "target.canonical_url"}],
+        "contentType": "all",
+        "maxVideosPerChannel": {"$ref": "runtime.max_items"},
+        "sortBy": "newest",
+    }
+    assert proves_combined_latest_items(
+        json.loads(mapped.manifest_json)["input"]
+    ) is True
+
+
+def test_youtube_shorts_actor_uses_channel_mode_for_channel_input() -> None:
+    adapter = build_default_registry().require(
+        RouteKey("youtube", "channel", "items")
+    )
+    revision = DiscoveryRevision(
+        actor_id="actor",
+        publisher="publisher",
+        build_id="build",
+        build_number="1.0.0",
+        price_per_run_usd=0.01,
+        input_schema={"properties": {
+            "channel_urls": {"type": "array", "items": {"type": "string"}},
+            "max_shorts": {"type": "integer", "default": 100},
+            "scrape_type": {
+                "type": "string",
+                "enum": ["search", "channels", "hashtags", "video_urls"],
+                "default": "video_urls",
+            },
+        }},
+        output_schema={"properties": {
+            "url": {"type": "string"},
+            "upload_date": {"type": "string"},
+            "title": {"type": "string"},
+        }},
+    )
+
+    mapped = adapter.map_discovery_manifest(revision)
+
+    assert mapped.manifest_json is not None
+    assert json.loads(mapped.manifest_json)["input"] == {
+        "channel_urls": [{"$ref": "target.canonical_url"}],
+        "max_shorts": {"$ref": "runtime.max_items"},
+        "scrape_type": "channels",
+    }
+    assert proves_combined_latest_items(
+        json.loads(mapped.manifest_json)["input"]
+    ) is False
 
 
 def test_youtube_discovery_derives_known_channel_identity_when_rows_omit_it() -> None:

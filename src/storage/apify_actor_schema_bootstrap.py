@@ -32,6 +32,9 @@ from .actorops_v2_revalidation_schema import (
 from .actorops_v2_sampling_schema import (
     bootstrap_service_store_schema as bootstrap_actorops_v2_sampling_schema,
 )
+from .actorops_v2_verified_replacement_schema import (
+    bootstrap_service_store_schema as bootstrap_verified_replacement_schema,
+)
 
 
 def bootstrap_actor_schemas(
@@ -68,5 +71,8 @@ def bootstrap_actor_schemas(
         connection, existing_schema=existing_schema
     )
     bootstrap_actorops_v2_sampling_schema(
+        connection, existing_schema=existing_schema
+    )
+    bootstrap_verified_replacement_schema(
         connection, existing_schema=existing_schema
     )

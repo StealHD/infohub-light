@@ -17,7 +17,14 @@ from src.services.apify_actor_manifest import (
     actor_manifest_hash,
     parse_actor_manifest,
 )
-from src.services.actorops.domain import AssignmentRole, AttemptStatus, CandidateLifecycle, ReplacementStatus, RouteKey
+from src.services.actorops.domain import (
+    AssignmentRole,
+    AttemptStatus,
+    CandidateLifecycle,
+    FailureClass,
+    ReplacementStatus,
+    RouteKey,
+)
 from src.services.actorops.dataset_adaptation import DatasetAdaptationService
 from src.services.actorops.ports import (
     DiscoveryAiResult, DiscoveryMapping, DiscoveryRevision, NormalizedBatch,
@@ -35,6 +42,7 @@ from src.services.actorops.replacement_preview import (
     settle_replacement_preview_failure,
 )
 from src.services.actorops.repository import ActorOpsConflict, ActorOpsRepository
+from src.services.actorops.runtime import ActorOpsRuntimeError
 from src.services.actorops.runtime_candidate_health import candidate_operational_states
 from src.services.actorops.store_metadata import normalize_store_metadata
 from src.services import worker_actorops_v2_metadata as metadata_worker
@@ -75,6 +83,17 @@ class _Remote:
         events.registered(remote_run_id="replacement-run", dataset_id="dataset")
         events.running()
         return RemoteRunResult(({"id": "one"},), "replacement-run", "dataset", 0.01, True)
+
+
+class _RejectingRemote(_Remote):
+    async def execute(self, request, events):
+        self.requests.append(request)
+        events.starting(secret_ref_id="ref", secret_version=1, pool_generation=1)
+        raise ActorOpsRuntimeError(
+            "apify_actor_start_rejected",
+            failure_class=FailureClass.CANDIDATE,
+            proven_no_start=True,
+        )
 
 
 class _IncompatibleAdapter(_Adapter):
@@ -870,6 +889,52 @@ def test_explicit_replacement_runs_one_probe_then_applies_without_feed_updates(t
     assert repository.get_candidate("replacement").assignment_role is AssignmentRole.ACTIVE
     assert repository.get_candidate("active").assignment_role is AssignmentRole.INACTIVE
     assert store.connect().execute("SELECT COUNT(*) FROM actor_attempts_v2 WHERE kind='probe'").fetchone()[0] == 1
+    store.close()
+
+
+def test_replacement_start_rejection_settles_and_rejects_candidate(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id, source_id = _setup(tmp_path)
+    with repository.transaction():
+        plan = repository.operator.create_plan(
+            plan_id="replacement-rejected-plan",
+            route_id=route_id,
+            target_assignment=AssignmentRole.ACTIVE,
+            target_priority=0,
+            proposed_candidate_id="replacement",
+            idempotency_key="replacement-rejected-key",
+            created_by_user_id="owner",
+            per_probe_cap_usd=0.05,
+            total_cap_usd=0.05,
+        )
+        plan = repository.operator.transition_plan(
+            plan.plan_id,
+            current=plan.status,
+            target=ReplacementStatus.AUTHORIZED,
+            expected_generation=plan.generation,
+        )
+    registry = AdapterRegistry()
+    registry.register(_Adapter())
+
+    result = asyncio.run(ActorOpsReplacementRunner(
+        repository, registry, _RejectingRemote(), _Catalog()
+    ).run(plan.plan_id, {source_id: {"target": "openai"}}))
+
+    attempt = repository.connection.execute(
+        "SELECT * FROM actor_attempts_v2 WHERE attempt_group_id=?",
+        (plan.plan_id,),
+    ).fetchone()
+    assert result["status"] == "failed"
+    assert tuple(attempt[key] for key in (
+        "status", "actual_cost_usd", "cost_final", "error_code"
+    )) == ("failed", 0.0, 1, "apify_actor_start_rejected")
+    assert repository.get_candidate(
+        "replacement"
+    ).lifecycle is CandidateLifecycle.REJECTED
+    assert repository.operator.get_plan(
+        plan.plan_id
+    ).status is ReplacementStatus.FAILED
     store.close()
 
 

@@ -12,92 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "ui"
   ],
-  "recorded_on": "2026-08-27",
-  "result": "Closed the ActorOps validation gap by clearing stale maintenance assumptions and restoring the final full gate environment.",
-  "status": "completed",
-  "task_id": "2026-08-27-actorops-gate-closure",
-  "unresolved": [],
-  "validation": [
-    "All ActorOps v2 backend tests passed 180 of 180",
-    "Final full preflight passed 16 of 16",
-    "Local API and Worker remain healthy"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-27",
-  "result": "完成 ActorOps 稳定控制环：统一候选故障与来源冷却、Binding 级健康、可恢复 Repair/Discovery/结算、默认安全维护、主备人工替换和 exact-Build 头像映射；补齐 global 33、构建源码摘要与发布护栏，并完成本地 32→33 迁移及新容器切换。",
-  "status": "completed",
-  "task_id": "2026-08-27-actorops-stability-control-loop",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 后端全域回归及迁移时序专项通过；前端定向 Vitest、TypeScript、ESLint 与生产构建通过。",
-    "snapshot impacted preflight 17/17 通过，覆盖完整后端、前端、控制面、代码尺寸和隔离 Playwright E2E。",
-    "本地 global 32/33 显式迁移均完成 0600 备份、integrity ok、foreign keys 0；API、Worker、前端及镜像 revision/source digest 健康验证通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "完成 ActorOps 本地稳定性闭环：exact Build 免费预检、validation 凭据隔离、四行溢出校验、故障主备人工替换、默认安全维护和历史 Dataset 无新增 Run 的头像补写；修复 Worker 异步上下文媒体落盘并切换最终本地容器。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-real-data-stability-avatar",
-  "unresolved": [
-    "按项目完整 gate 最多重跑一次规则，修复两项旧测试假设后未执行第三次完整 preflight；定向受影响测试与静态门禁已全部通过。"
-  ],
-  "validation": [
-    "ActorOps、媒体与来源头像定向 Pytest 196 项通过；前端 TypeScript、ESLint、前后端代码尺寸、控制文件与 diff 校验通过。",
-    "本地真实验证 6 个 Apify Run 全部最终结算，替换费用 $0.0385112、正常抓取费用 $0.0209060；历史头像重放 Run 总数保持 1557 不变。",
-    "Catalog 只投影登录保护的 /api/media 头像，认证访问 200、未认证 401、原始 URL 不泄露；最终 revision 0b0088690d60-dirty-5389507110d0 的 API 和 Worker healthy。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "将 Actor Replacement 的本地合同、目标指纹与 validation exact-Build 免费预检前移到计划创建前；confirmed 候选禁选，免费失败立即显示中文 Toast/Notice 与零费用说明，并建立宿主机新端口前后端快速验证流程。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-replacement-free-preview-feedback",
-  "unresolved": [
-    "按用户要求未重建 canonical 8080 容器；当前容器保持停止，宿主机 18080 API 与 15173 Vite preview 正在运行。"
-  ],
-  "validation": [
-    "ActorOps operator/API/Catalog/maintenance 定向 Pytest 70 项通过；替换回归证明失败前计划、Attempt、Run 与费用事实均为 0。",
-    "ActorOps Drawer/Candidate/Route Vitest 12 项、TypeScript、ESLint、前后端代码尺寸及控制文件检查通过。",
-    "真实数据库新端口 smoke 返回 confirmed_failure/build_unavailable 与 409 actorops_maintenance_revision_changed；计划 9、Attempt 334、Run 1564 前后不变，前端代理和后端 health 均为 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
   "recorded_on": "2026-08-28",
   "result": "修复 Replacement 免费预检漏捕 ActorManifestError 导致的 503，并把合同阻断细分为缺少原生目标 ID、handle、URL、Manifest 无效或输入模板不可渲染；真实 X 候选现返回可操作的零费用原因。",
   "status": "completed",
@@ -432,6 +346,86 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 ESLint、TypeScript、UI/E2E 合同、95 文件 688 项 Vitest、生产构建和前后端代码尺寸门通过",
     "完整 preflight 前 6 道通过后由新增测试连接警告停止；按规则未第三次整门重跑，修复后原失败域及剩余检查均分别通过",
     "Docker/Worker 保持关闭；本地 API 18080 与 Vite 15173 healthy，ActorOps schema 2 返回 3 条 Route 且均含 workflow 投影"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-29",
+  "result": "按订阅页 command bar 统一 ActorOps 路由/日志切换，移除顶部说明，将路线模式并入标题行，并把底部事实与操作按左右/移动端上下布局重新对齐。",
+  "status": "completed",
+  "task_id": "2026-08-29-actorops-subscription-ui-alignment",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 与页面定向 Vitest 14 项、TypeScript 和 ESLint 通过。",
+    "ActorOps Playwright 三视口规格 13 项通过、2 项按范围跳过，并更新三端视觉基线。",
+    "snapshot impacted preflight 12/12 命令通过；本地浏览器确认无横向溢出。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "修复生产 Feed 社交卡名称字段误显示完整帖子 URL：卡片与 Agent 上下文过滤 URL 形态的来源/作者名，保留可读账号名，并在名称均无效时从可信社交链接提取账号 handle 兜底。",
+  "status": "completed",
+  "task_id": "2026-08-30-feed-social-source-url-label",
+  "unresolved": [
+    "尚未发布到生产 VPS；本任务仅完成本地代码修复与验证。"
+  ],
+  "validation": [
+    "Workbench 定向 Vitest 58 项、TypeScript、ESLint 与 UI 合约检查通过。",
+    "Playwright 本地 Vite 桌面回归通过，证明 Feed 卡片和 Agent 上下文均不显示帖子 URL，并继续显示 X 与可读账号名。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "修复 Instagram Probe 条数下限与已证明无启动失败记账；按 exact Schema 核验 YouTube Shorts/排序，并以 global 36 仅为业务验证成功候选开启非最后一路自动替换。",
+  "status": "completed",
+  "task_id": "2026-08-30-actorops-verified-auto-replacement",
+  "unresolved": [
+    "未启动 Worker、未发起新的付费 Probe、未部署 VPS；生产自动替换仍须走现有发布与有界付费授权门。"
+  ],
+  "validation": [
+    "ActorOps Adapter/Discovery/Maintenance/Replacement/Readiness/global36 定向 Pytest 通过；前端变更日志 5 项测试与 TypeScript 通过。",
+    "免费 Catalog GET 核验 YouTube exact Build，未启动 Actor；确认 Shorts-only、长短二选一与 all+newest 三类能力差异。",
+    "本地 global36 显式迁移创建 0600 backup，integrity/FK 通过，3 条 system_default Route 开启 proof gate；18080 API 与 15173 前端代理健康。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "来源抓取在 Worker 心跳过期或状态未知时改为提示“获取未开始”，明确任务未创建且未产生费用，不再误报来源获取失败。",
+  "status": "completed",
+  "task_id": "2026-08-30-source-fetch-not-started-copy",
+  "unresolved": [
+    "本地预览按合同未启动 Worker；需要真实手动抓取时仍须显式进入可能产生 Apify 费用的 Worker 执行边界。"
+  ],
+  "validation": [
+    "数据库定向查询确认 @thsottiaux 最近四次抓取成功，本次没有创建 source_fetch Job，阻断原因是 Worker 心跳过期。",
+    "App 定向 Vitest、更新日志 5 项测试与 TypeScript 通过。",
+    "本地订阅页通过 Vite/API 正常加载，显示 Worker 不可用且 @thsottiaux 来源健康，浏览器无控制台错误。"
   ]
 }
 ```
