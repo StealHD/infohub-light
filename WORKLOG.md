@@ -10,28 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "为 X、Instagram、YouTube 分别建立面向新发布内容的 Actor 字段映射 Prompt 与别名合同；最小发布合同改为 ID、原文 URL、发布时间、目标身份及 title/text 任一，图片为可选增强；YouTube 支持目标频道 URL 安全派生、handle 绑定和 maxItemsPerUrl，映射缺口改为可操作安全枚举。",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-route-specific-mapping-prompts",
-  "unresolved": [
-    "嵌套发布数组、命名 Dataset 与相对发布时间仍保留为待适配状态，未在本任务中自动展开或运行收费 Probe。"
-  ],
-  "validation": [
-    "ActorOps 字段映射相关后端定向测试 108 项通过，随后解析器/Adapter/Prompt 回归 71 项通过；前端状态模型 5 项、TypeScript 与 ESLint 通过。",
-    "旧 v28 migration 测试夹具降级顺序已修复，定向 2 项通过；冻结单体由 1538 行缩至 1497 行，代码体积门通过。",
-    "最终 impacted preflight 16/16 通过；相同 7 个公开 YouTube Build Schema 的免费严格静态配对由 1/7 提升到 2/7，未运行 Actor、DeepSeek 或产生费用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
     "interface",
     "ui"
   ],
@@ -394,6 +372,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "noResults/no_results、身份不匹配、placeholder 与合同错误分类定向回归通过。",
     "Actor Manifest、候选 Runtime、X 回复过滤与输出错误分类受影响测试全部通过。",
     "impacted preflight 14/14 通过，后端、Worker、前端、控制校验和代码尺寸检查均成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "将本地 main 的 Actor no-results 合法空结果与可恢复语义故障修复整理为 v2.6.3 发布版本，并同步项目版本和锁文件身份。",
+  "status": "completed",
+  "task_id": "2026-08-30-release-v2-6-3",
+  "unresolved": [],
+  "validation": [
+    "运行与健康脚本定向 Pytest 38 项通过，uv lock 校验成功。",
+    "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端、前端、控制校验与构建均成功。"
   ]
 }
 ```
