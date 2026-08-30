@@ -42,6 +42,17 @@ export const subscriptionCommandBarChangelogEntry = {
   ],
 } satisfies ChangelogEntry
 
+export const sourceAvatarAutoRefreshChangelogEntry = {
+  date: '2026-08-30',
+  title: '订阅源头像会自动跟随来源更新',
+  summary: '正常获取发现可信的新头像后会静默验证并替换，X、Instagram 等付费来源不会因此增加一次 Actor 调用。',
+  items: [
+    { title: '全部可信来源使用同一更新流程', description: 'X、Instagram、RSS、GitHub、Reddit、YouTube 等来源只要在正常获取中提供与订阅身份一致的头像证据，就会更新登录保护的本地头像；没有新内容也不影响头像识别。' },
+    { title: '失败时继续使用旧头像', description: '新候选超时、格式异常或校验失败不会影响内容获取、来源健康、信息流、AI 或通知，页面继续显示上一个可用头像或平台标识。' },
+    { title: '完成获取后页面自动换图', description: '来源或信息流获取完成后会重新读取当前头像；内容变化使用新的媒体地址，不需要刷新浏览器或清理缓存。' },
+  ],
+} satisfies ChangelogEntry
+
 export const instagramSourceAvatarChangelogEntry = {
   date: '2026-08-25',
   title: 'Instagram 来源头像更稳定',

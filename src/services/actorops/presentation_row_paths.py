@@ -17,6 +17,7 @@ _PRIORITY_CONTAINERS = frozenset(
 )
 _ALIASES = {
     "x": (
+        "userprofileimageurlhttps", "userprofileimageurl",
         "profileimageurlhttps", "profileimageurl", "profilepictureurl",
         "authoravatarurl", "avatarurl", "profilepicture", "avatar",
     ),

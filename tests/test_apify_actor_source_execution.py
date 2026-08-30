@@ -32,6 +32,32 @@ def _instagram_subscription() -> ApifySocialSubscriptionConfig:
     )
 
 
+def _x_subscription() -> ApifySocialSubscriptionConfig:
+    return ApifySocialSubscriptionConfig(
+        platform="x",
+        kind="profile",
+        target="openai",
+        profile_id="route-x",
+        source_id="source-x",
+        fetch_limit=3,
+    )
+
+
+def _publication_proof(source_id: str, route_id: str) -> dict[str, object]:
+    return {
+        "version": 2,
+        "workspace_id": "workspace",
+        "route_id": route_id,
+        "source_id": source_id,
+        "target_fingerprint": "a" * 64,
+        "binding_version": 1,
+        "candidate_id": None,
+        "candidate_generation": None,
+        "latest_published_at": None,
+        "latest_item_id_hash": None,
+    }
+
+
 def test_registered_actorops_source_forwards_only_v2_execution_snapshot():
     captured = {}
 
@@ -89,7 +115,26 @@ def test_legacy_actorops_snapshot_is_rejected_before_client_creation():
     assert created_client is False
 
 
-def test_actorops_instagram_avatar_sidecar_becomes_source_hint_without_another_run():
+@pytest.mark.parametrize(
+    ("subscription", "avatar_url", "origin"),
+    (
+        (
+            _x_subscription(),
+            "https://pbs.twimg.com/profile_images/openai/avatar.jpg",
+            "actorops_v2_x_profile",
+        ),
+        (
+            _instagram_subscription(),
+            "https://cdninstagram.com/openai-avatar.jpg",
+            "actorops_v2_instagram_profile",
+        ),
+    ),
+)
+def test_actorops_avatar_sidecar_becomes_source_hint_without_another_run(
+    subscription: ApifySocialSubscriptionConfig,
+    avatar_url: str,
+    origin: str,
+) -> None:
     calls = []
     observed = []
 
@@ -98,13 +143,15 @@ def test_actorops_instagram_avatar_sidecar_becomes_source_hint_without_another_r
             calls.append("fetch")
             return ActorOpsV2RoutedList(
                 [],
-                {},
-                source_avatar_url="https://cdninstagram.com/openai-avatar.jpg",
+                _publication_proof(
+                    str(subscription.source_id), str(subscription.profile_id)
+                ),
+                source_avatar_url=avatar_url,
             )
 
     result = asyncio.run(
         fetch_actorops_source_subscription(
-            subscription=_instagram_subscription(),
+            subscription=subscription,
             since=datetime.now(timezone.utc),
             ops=Ops(),
             client_factory=object,
@@ -117,7 +164,34 @@ def test_actorops_instagram_avatar_sidecar_becomes_source_hint_without_another_r
     assert result == []
     assert calls == ["fetch"]
     assert observed == [{
-        "source_id": "source-instagram",
-        "remote_url": "https://cdninstagram.com/openai-avatar.jpg",
-        "origin": "actorops_v2_instagram_profile",
+        "source_id": subscription.source_id,
+        "remote_url": avatar_url,
+        "origin": origin,
+        "kind": "image",
     }]
+
+
+def test_actorops_avatar_sidecar_rejects_a_different_publication_source() -> None:
+    observed = []
+
+    class Ops:
+        async def fetch_subscription(self, **_kwargs):
+            return ActorOpsV2RoutedList(
+                [],
+                _publication_proof("source-other", "route-x"),
+                source_avatar_url="https://pbs.twimg.com/profile_images/other.jpg",
+            )
+
+    asyncio.run(
+        fetch_actorops_source_subscription(
+            subscription=_x_subscription(),
+            since=datetime.now(timezone.utc),
+            ops=Ops(),
+            client_factory=object,
+            job_id="job",
+            frozen_snapshot=SimpleNamespace(actorops_version=2),
+            avatar_observer=lambda **values: observed.append(values),
+        )
+    )
+
+    assert observed == []

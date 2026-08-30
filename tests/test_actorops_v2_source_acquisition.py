@@ -5,6 +5,8 @@ import hashlib
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from src.services.actorops.publication import (
     ActorOpsV2RoutedList,
     merge_private_source_avatar_hints,
@@ -132,24 +134,27 @@ def test_v2_route_generation_accepts_exact_publication_proof(
     )
 
 
-def test_cache_hit_replays_private_instagram_avatar_after_first_cache_failure(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("platform", ("x", "instagram"))
+def test_cache_hit_replays_private_actorops_avatar_after_first_cache_failure(
+    tmp_path, monkeypatch, platform
 ) -> None:
     monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
     store, workspace, owner = _store(tmp_path, monkeypatch)
+    label = "X" if platform == "x" else "Instagram"
+    source_key = f"apify:{platform}:profile:openai-avatar-retry"
     source_id = store.create_source(
         workspace_id=workspace["id"],
         scope="public",
         owner_user_id=owner["id"],
         source_type="apify_social",
-        display_name="Shared Instagram",
+        display_name=f"Shared {label}",
         config={
-            "platform": "instagram",
+            "platform": platform,
             "kind": "profile",
             "target": "openai",
             "fetch_limit": 1,
         },
-        source_key="apify:instagram:profile:openai-avatar-retry",
+        source_key=source_key,
     )
     subscription = store.create_subscription(
         user_id=owner["id"], source_id=source_id
@@ -160,8 +165,8 @@ def test_cache_hit_replays_private_instagram_avatar_after_first_cache_failure(
     projection = SimpleNamespace(
         source_id=source_id,
         subscription_id=subscription["id"],
-        source_key="apify:instagram:profile:openai-avatar-retry",
-        source_display_name="Shared Instagram",
+        source_key=source_key,
+        source_display_name=f"Shared {label}",
         catalog_source_type="apify_social",
         source_priority=0,
         analysis_mode="full",
@@ -170,7 +175,7 @@ def test_cache_hit_replays_private_instagram_avatar_after_first_cache_failure(
         topics=[],
         tags=[],
         personal_tags=[],
-        platform="instagram",
+        platform=platform,
         kind="profile",
     )
     proof = {
@@ -185,14 +190,18 @@ def test_cache_hit_replays_private_instagram_avatar_after_first_cache_failure(
         "latest_published_at": "2026-08-27T00:00:00+00:00",
         "latest_item_id_hash": hashlib.sha256(b"avatar-item").hexdigest(),
     }
-    avatar_url = "https://cdninstagram.com/openai-avatar.jpg?private=sidecar"
+    avatar_url = (
+        "https://pbs.twimg.com/profile_images/openai-avatar.jpg?private=sidecar"
+        if platform == "x"
+        else "https://cdninstagram.com/openai-avatar.jpg?private=sidecar"
+    )
     upstream_calls = 0
 
     async def fetch():
         nonlocal upstream_calls
         upstream_calls += 1
         return ActorOpsV2RoutedList(
-            [_content_item(suffix="instagram-avatar")],
+            [_content_item(suffix=f"{platform}-avatar")],
             proof,
             source_avatar_url=avatar_url,
         )

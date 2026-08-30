@@ -8,6 +8,7 @@ from typing import Any
 
 from ..models import ApifySocialSubscriptionConfig, ContentItem
 from ..scrapers.base import SourceFetchError
+from .actorops.publication import source_avatar_hint_from_items
 
 
 async def fetch_actorops_source_subscription(
@@ -42,26 +43,25 @@ async def fetch_actorops_source_subscription(
         snapshot=frozen_snapshot,
         public_http_client=public_http_client,
     )
-    _observe_instagram_source_avatar(items, subscription, avatar_observer)
+    _observe_source_avatar(items, subscription, avatar_observer)
     return items
 
 
-def _observe_instagram_source_avatar(
+def _observe_source_avatar(
     items: list[ContentItem],
     subscription: ApifySocialSubscriptionConfig,
     avatar_observer: Callable[..., None] | None,
 ) -> None:
-    if (
-        avatar_observer is None
-        or str(subscription.platform.value) != "instagram"
-        or subscription.kind != "profile"
-        or not subscription.source_id
-    ):
+    if avatar_observer is None:
+        return
+    hint = source_avatar_hint_from_items(items, subscription)
+    if hint is None:
         return
     avatar_observer(
-        source_id=subscription.source_id,
-        remote_url=getattr(items, "_actorops_v2_source_avatar_url", ""),
-        origin="actorops_v2_instagram_profile",
+        source_id=hint.source_id,
+        remote_url=hint.remote_url,
+        origin=hint.origin,
+        kind=hint.kind,
     )
 
 

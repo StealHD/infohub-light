@@ -8,113 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "修复 Replacement 免费预检漏捕 ActorManifestError 导致的 503，并把合同阻断细分为缺少原生目标 ID、handle、URL、Manifest 无效或输入模板不可渲染；真实 X 候选现返回可操作的零费用原因。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-replacement-contract-detail",
-  "unresolved": [
-    "免费 Discovery 未找到新的可接受 X 候选；真正付费 Probe 仍需单独费用授权。",
-    "按用户要求未重建 Docker 容器；当前使用宿主机 18080 API 与 15173 Vite 验证。"
-  ],
-  "validation": [
-    "ActorOps operator/API 定向 Pytest 36 项及 Replacement Drawer Vitest 5 项通过；TypeScript、ESLint、全域代码尺寸与 Markdown 控制通过。",
-    "真实 X Candidate 返回 409 actorops_replacement_target_native_id_missing，明确当前来源只有 handle/URL；计划 9、Attempt 334、Run 1564 前后不变。",
-    "单次免费 Discovery 禁用 AI 与 Worker 后完成，accepted 0，Attempt/Run 保持不变。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "扩展 X Discovery 的 exact-Build Schema 确定性映射，支持已声明的 handle/主页 URL、核心输出别名、头像字段与运行条数上限；真实免费 Discovery 生成两个 static_valid 候选，并成功创建零费用 Replacement preview。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-x-schema-proven-mapping",
-  "unresolved": [
-    "替换计划保持 previewed；未获得本次付费 Probe 授权，因此未启动 Apify Run、未应用替换。"
-  ],
-  "validation": [
-    "ActorOps Adapter、Operator controls 与 Discovery 定向 Pytest 共 54 项通过，backend code-size 通过。",
-    "真实 X 免费 Discovery 将两个精确 Build 映射为 static_valid；低价候选 preview 返回 200。",
-    "preview 前后 Attempt 保持 334、Apify Run 保持 1564；本地 API ready、Vite 与代理接口均返回 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "用真实 X Replacement Probe 定位并修复确定性映射只按字段名、误把 author 对象当作 handle 的缺陷；多格式输出缺少可证明嵌套身份字段时现保持 mapping_pending，并为剩余结构明确候选创建新的零费用预览。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-x-output-type-guard",
-  "unresolved": [
-    "新计划 replacement-5bbcf29a5ccc4b2badf8737bc4029ee4 保持 previewed；旧计划授权不继承，尚未授权新的付费 Probe。"
-  ],
-  "validation": [
-    "ActorOps Adapter、Operator controls 与 Discovery 定向 Pytest 56 项通过，backend code-size 与 Markdown 控制检查通过。",
-    "真实失败 Dataset 只读检查确认 /author 为对象，精确错误为 apify_actor_contract_mismatch；远端实测费用最终结算为 $0.0005。",
-    "修复后免费 Discovery 将该多格式 Actor 保持 mapping_pending，另一个 exact Build 保持 static_valid；免费预览后 Attempt 与远端 Run 均未增加。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "修复 ActorOps X 候选抓取流程：合并多个能力查询后按 Actor 去重，以公开用户量、评分、评价数和收藏数选取前 12 个 exact Build；最终 rank 保持质量顺序，accepted、mapping_pending 和 rejected 均保留商城身份。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-x-quality-discovery",
-  "unresolved": [
-    "本次只完成候选获取与可见性；高质量 mapping_pending Actor 的嵌套字段、查询模板和 Dataset 行结构将在下一步逐个比对，不启动付费 Probe。"
-  ],
-  "validation": [
-    "ActorOps Catalog、Discovery、Worker、Adapter 与 API 定向 Pytest 全部通过。",
-    "impacted preflight 14/14 命令通过，覆盖后端、前端 TypeScript/ESLint、控制文件、代码尺寸与 diff 检查。",
-    "真实免费 X Discovery 完成并保存 12/12 商城资料；抓到 7.5 万用户 Tweet Scraper、3.25 万用户 Scraper Lite、Xquik、Advanced Search 等候选，新增 Apify Run 为 0。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "ActorOps 逐 exact Build 的 AI 字段映射新增必填输入语义校验、X 高级搜索 from:<handle> 编译、用户名与数字帖子 ID 派生标准 URL、DB exact-Schema 缓存及旧 pending 去重；真实 X Discovery 从 5 个可映射候选提升到 6 个。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-exact-schema-ai-derived-x-mapping",
-  "unresolved": [
-    "新 static_valid 候选尚未执行有费用的 Replacement Probe；本次只证明公开 Schema 映射并写入缓存。"
-  ],
-  "validation": [
-    "真实 X Discovery 完成：6 accepted、5 pending、1 rejected；新增 Apify Actor Run 为 0，误报缺作者的 scrape.badger 候选已以 /username 映射为 static_valid。",
-    "ActorOps 受影响 Pytest 53 项通过，修正测试断言后失败 spec 单独重跑 1 项通过；前端 Vitest 10 项、TypeScript 与 ESLint 通过。",
-    "backend/frontend code-size 与 git diff --check 通过；此前 impacted preflight 的唯一 code-size 失败已按项目规则修复并定向闭环。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-28",
@@ -346,6 +239,94 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 ESLint、TypeScript、UI/E2E 合同、95 文件 688 项 Vitest、生产构建和前后端代码尺寸门通过",
     "完整 preflight 前 6 道通过后由新增测试连接警告停止；按规则未第三次整门重跑，修复后原失败域及剩余检查均分别通过",
     "Docker/Worker 保持关闭；本地 API 18080 与 Vite 15173 healthy，ActorOps schema 2 返回 3 条 Route 且均含 workflow 投影"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-30",
+  "result": "校准 ActorOps 最终 Route 卡在 macOS 与 Linux 的三视口视觉基线，覆盖不可用状态、故障 Candidate、双备用槽与统一管理操作，解除 v2.6.0 main Gate 的旧快照阻断；未改产品运行逻辑。",
+  "status": "completed",
+  "task_id": "2026-08-30-actorops-route-card-release-baselines",
+  "unresolved": [],
+  "validation": [
+    "GitHub main Gate 的 backend-full 与 frontend-full 通过，UI E2E 仅三张 ActorOps Linux 旧快照失败。",
+    "人工核对 macOS 与 Linux actual 均为当前统一管理 Route 卡；失败视觉测试本地 3/3 通过。",
+    "完整 ActorOps Playwright spec 本地 13 passed、2 skipped。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-30",
+  "result": "消除生产管理 E2E 在桌面侧栏展开动画期间强制滚动并误点击文档菜单的竞态；验收等待侧栏达到最终 232px 几何后再验证菜单。",
+  "status": "completed",
+  "task_id": "2026-08-30-release-sidebar-menu-gate-stability",
+  "unresolved": [],
+  "validation": [
+    "GitHub main Gate trace 确认点击时侧栏仍由 72px 向 232px 过渡且 footer 被水平滚动。",
+    "桌面账户与文档菜单 Playwright 场景并发重复 20 次，20/20 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "将 ActorOps 头像证据从 Instagram 专用路径收敛为 proof 与 source 绑定的通用 sidecar，X 与其他可信来源可在正常获取及 acquisition cache 命中时静默更新当前头像；成功任务会刷新 Catalog 头像而不新增外部调用。",
+  "status": "completed",
+  "task_id": "2026-08-30-source-avatar-auto-refresh",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 直接传递与 acquisition cache 回放定向 Pytest 8 项通过；头像 checksum、24 小时复核、失败保旧与事务清理相关 Pytest 19 项通过。",
+    "任务终态、头像 immutable URL 与 changelog 定向 Vitest 26 项通过，TypeScript 类型检查通过。",
+    "snapshot impacted preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与隔离 E2E，SQLite 连接警告为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "补齐 X Actor 实际 user_profile_image_url 头像别名，复用已成功且 proof/source/身份校验通过的 Dataset 零启动回放并替换 immutable 头像资产；同时移除 15173 指向临时库的旧本地运行时，统一到修复分支与正式本地数据。",
+  "status": "completed",
+  "task_id": "2026-08-30-x-avatar-runtime-alias-repair",
+  "unresolved": [],
+  "validation": [
+    "ActorOps、头像 publication 与 acquisition 定向 Pytest 72 项通过；头像刷新、Catalog 失效与 ActorOps 页面定向 Vitest 35 项通过",
+    "已验证头像映射 /user_profile_image_url、asset ID 与 checksum 均变化，新文件落盘且只保留一个 ready 资产",
+    "snapshot impacted preflight 16/16 通过；15173 代理 18081，API 与原生 Worker ready，15174/18080 关闭且未启动容器"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "修复 tibo/thsottiaux 回退头像未更新的本地验证链路：用最新成功 Attempt 的冻结 proof 与账号身份零启动回放当前 Dataset，生成新 immutable 头像资产；补充 A→B→A 回退缓存用例，并将 15173/18080/Worker 原生运行时切到头像修复工作树。",
+  "status": "completed",
+  "task_id": "2026-08-30-x-avatar-reversion-runtime-fix",
+  "unresolved": [],
+  "validation": [
+    "最新头像从 med_55f8ede…/b5d8… 更新为 med_5bdf262…/35e3…，文件落盘且 Feed 8 个 thsottiaux 条目均请求新 asset ID",
+    "X 实际字段、publication 与 A→B→A 回退相关 Pytest 44 项通过；冻结文件增长问题已移至新聚焦测试文件",
+    "精确基线 snapshot impacted preflight 16/16 通过；15173/18080 与受限原生 Worker 运行修复分支，无容器和新增 Actor Run"
   ]
 }
 ```

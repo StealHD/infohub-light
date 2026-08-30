@@ -523,6 +523,91 @@ def test_x_discovery_uses_schema_proven_nested_author_handle() -> None:
     ]
 
 
+def test_x_actor_user_profile_image_is_target_bound_avatar_evidence() -> None:
+    adapter = build_default_registry().require(RouteKey("x", "profile", "items"))
+    target = adapter.normalize_target({"target": "openai"})
+    manifest = ActorManifest(
+        actor_id="publisher/x-profile",
+        build_id="build",
+        build_number="1.0.0",
+        manifest_json=json.dumps({
+            "version": 1,
+            "actor_id": "publisher/x-profile",
+            "build_number": "1.0.0",
+            "input": {"query": {"$ref": "target.handle"}},
+            "output": {
+                "native_id": {"pointers": ["/id"], "transforms": ["to_string"]},
+                "url": {
+                    "pointers": ["/__actorops_x_post_url"],
+                    "transforms": ["normalize_url"],
+                },
+                "published_at": {
+                    "pointers": ["/created_at"],
+                    "transforms": ["parse_datetime"],
+                },
+                "text": {"pointers": ["/full_text"], "transforms": ["to_string"]},
+                "author_handle": {
+                    "pointers": ["/username"],
+                    "transforms": ["to_string"],
+                },
+            },
+            "semantics": {
+                "identity": {
+                    "output_field": "author_handle",
+                    "target_ref": "target.handle",
+                    "match": "handle",
+                },
+                "url_host_allowlist": ["x.com"],
+            },
+        }),
+        manifest_hash="f" * 64,
+    )
+
+    batch = adapter.validate_output(
+        ({
+            "id": "123",
+            "created_at": "2026-08-29T01:00:00Z",
+            "full_text": "target post",
+            "username": "openai",
+            "user_profile_image_url": "https://cdn.example/openai.jpg",
+        },),
+        target,
+        manifest,
+        FetchWindow(1, datetime(2026, 8, 28, tzinfo=timezone.utc), None),
+    )
+
+    assert batch.source_avatar_url == "https://cdn.example/openai.jpg"
+    assert batch.presentation_evidence is not None
+    assert avatar_pointer_from_rows(batch.presentation_evidence.rows, "x") == (
+        "/user_profile_image_url"
+    )
+    assert "author_avatar_url" not in batch.items[0].metadata
+
+
+def test_x_discovery_maps_user_profile_image_url() -> None:
+    adapter = build_default_registry().require(RouteKey("x", "profile", "items"))
+    revision = DiscoveryRevision(
+        actor_id="actor",
+        publisher="publisher",
+        build_id="build",
+        build_number="1.0.0",
+        price_per_run_usd=0.01,
+        input_schema={"properties": {"handles": {"type": "array"}}},
+        output_schema={"properties": {
+            "id": {}, "url": {}, "created_at": {}, "full_text": {},
+            "username": {}, "user_profile_image_url": {},
+        }},
+    )
+
+    mapped = adapter.map_discovery_manifest(revision)
+
+    assert mapped.manifest_json is not None
+    assert json.loads(mapped.manifest_json)["output"]["author_avatar_url"] == {
+        "pointers": ["/user_profile_image_url"],
+        "transforms": ["normalize_url"],
+    }
+
+
 def test_adapters_do_not_depend_on_storage_secrets_jobs_or_feed() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "services" / "actorops" / "adapters"
     forbidden = ("sqlite3", "ServiceStore", "SecretStore", "fetch_jobs", "FeedProduction")
