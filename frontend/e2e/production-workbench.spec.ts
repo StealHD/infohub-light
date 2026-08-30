@@ -442,7 +442,7 @@ for (const viewport of [
     test.skip(testInfo.project.name !== 'desktop', 'One browser project exercises the three explicit acceptance widths.')
     await page.setViewportSize(viewport)
     await page.goto('/feed?social=1')
-    const card = page.getByRole('article', { name: /@thsottiaux: Oops/ })
+    const card = page.getByRole('article', { name: /@朋友动态: Oops/ })
     await expect(card).toBeVisible()
 
     const theme = page.getByRole('button', { name: '切换到白天模式' })
