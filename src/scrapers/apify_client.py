@@ -200,8 +200,6 @@ _INVALID_TOKEN_ERROR_TYPES = frozenset(
         "token-not-provided",
     }
 )
-
-
 class ApifyClientError(RuntimeError):
     """Safe, machine-readable Apify client failure."""
 
@@ -906,6 +904,8 @@ class ApifyClient:
             ) from None
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
+            error_type = self._response_error_type(exc.response)
+            missing_build = error_type in {"actor-build-not-found", "build-not-found"}
             if status_code >= 500:
                 await self._report_start_outcome_unknown(
                     lease,
@@ -917,14 +917,11 @@ class ApifyClient:
                     retryable=False,
                     status_code=status_code,
                 ) from None
-            await self._release_reservation(
-                lease,
-                f"apify_start_http_{status_code}",
-            )
-            if status_code in {404, 410}:
+            await self._release_reservation(lease, f"apify_start_http_{status_code}")
+            if status_code in {404, 410} or error_type == "actor-not-found":
                 code = "apify_actor_deleted"
                 message = "The selected Actor is unavailable"
-            elif status_code in {409, 422}:
+            elif status_code in {409, 422} or missing_build:
                 code = "apify_actor_build_unavailable"
                 message = "The selected Actor build is unavailable"
             else:

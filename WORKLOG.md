@@ -9,27 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-28",
-  "result": "ActorOps 新增已结算 Dataset 的零 Actor 费用重验：字段规则修复后保留原失败与费用，valid_nonempty 恢复 probationary 并计证明，合同兼容但无可发布内容只恢复 static_valid；真实 X 两来源复验后完成主用替换。",
-  "status": "completed",
-  "task_id": "2026-08-28-actorops-dataset-revalidation-x-replacement",
-  "unresolved": [
-    "未部署 VPS；本次按授权仅迁移共享本地数据库并完成本地真实 X 替换。"
-  ],
-  "validation": [
-    "global 34 显式迁移创建 0600 备份并通过 marker/trigger、integrity 与 foreign keys；历史 X Dataset 零费用重验新增 1 条 remote_run_id=NULL 的 no_evidence 事实，原 $0.0999 失败 Attempt 不变。",
-    "真实 X 新计划对两个 Binding 各启动 1 次 Run，均 valid_nonempty 且各结算 $0.0999；纯本地收口新增 Run 0，计划 applied，新 Candidate certified active，旧 Candidate certified inactive。",
-    "ActorOps 定向 Pytest 70 项、前端 Vitest 12 项、TypeScript、ESLint、backend/frontend code-size、Markdown/项目/worklog 控制校验与 git diff --check 通过；本地前端和代理 API readiness 均为 HTTP 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
     "interface",
     "ui"
   ],
@@ -403,6 +382,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps、迁移、头像、运行脚本定向 Pytest 164 项通过。",
     "Workbench、ActorOps、Settings、变更日志与 App 定向 Vitest 172 项通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "修复 Apify 以 403 build-not-found 拒绝已删除固定 Build 时的错误分类：第一次失败即确认为 Build 不可用并触发候选发现、有界实测与自动替换；完成本地 ActorOps 根因复现、候选换版验证和 Worker 热加载。",
+  "status": "completed",
+  "task_id": "2026-08-30-apify-build-not-found-auto-upgrade",
+  "unresolved": [
+    "X 当前主 Actor 可正常获取，但两个旧备用 Build 已删除；同 Actor 新 Build 在第二来源返回 noResults/demo，已被正确隔离，后续候选探测因当日 5 次安全上限延至下一 UTC 日。",
+    "YouTube 仍通过免费原生 RSS 降级稳定获取；现有 Actor 候选为 stale_regression 或输出合同不兼容，自动修复将在探测额度恢复后继续。"
+  ],
+  "validation": [
+    "授权最小复现确认旧 Build 0.0.980 返回 403 build-not-found 且未创建远端 Run；现行 Build 0.0.982 可启动并返回有效 X 数据。",
+    "Apify 错误分类、远端 no-start 证据与硬故障修复定向 Pytest 通过；完整影响 preflight 16/16 通过。",
+    "本地 8080 API readiness 返回 database/worker/logging 全部 ready，5173 前端可用；ActorOps 页面显示 Instagram 健康、X 降级可用、YouTube 原生降级。"
   ]
 }
 ```
