@@ -522,15 +522,19 @@ def test_manifest_distinguishes_valid_and_suspicious_empty_and_redacts_values() 
     assert "secret body" not in serialized
 
 
-def test_explicit_empty_requires_matching_target_identity() -> None:
+def test_no_results_may_omit_identity_but_rejects_a_mismatch() -> None:
     parsed = parse_actor_manifest(_manifest())
     target = {
         "canonical_url": "https://x.com/apify",
         "native_id": "apify",
         "handle": "apify",
     }
+    for row in ({"noResults": True}, {"no_results": True}):
+        result = map_actor_output(parsed, [row], target, {"max_items": 1})
+        assert result.semantic_outcome == "valid_empty"
+
     for row in (
-        {"noResults": True},
+        {"noResults": True, "author": {"handle": "someone-else"}},
         {"type": "empty", "author": {"handle": "someone-else"}},
     ):
         with pytest.raises(ActorManifestError) as caught:

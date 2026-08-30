@@ -8,30 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "ActorOps Discovery 在确定性 Manifest 未通过严格证明时继续进入逐 Candidate AI fallback；YouTube channel/items 补齐 RSS url 到 Actor target 的目标桥和 channelId/channelUrls/channelUrl、maxResults、date 等常见字段映射。定向发现的 4528 用户 Candidate 已通过免费 Preview 与一次真实 Probe，替换主用计划进入 ready。",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-youtube-mapping-and-replacement",
-  "unresolved": [
-    "YouTube 主用替换计划等待用户在本地 Drawer 完成最终应用确认。",
-    "本地 API-only 预览仍不运行完整 Worker；另有 X 备用 2 与 Instagram 备用 1 授权计划尚未处理。",
-    "未部署 VPS，VPS 仍需用户手动验收。"
-  ],
-  "validation": [
-    "ActorOps Discovery、Adapter、Operator、Runtime、Maintenance 定向 Pytest 124 项通过。",
-    "backend code-size、Markdown controls、TypeScript、ESLint 与 git diff check 通过。",
-    "YouTube Candidate candidate_7490eadb60a13947ac64519c 免费 Preview 通过；真实 Probe valid_nonempty，1 次 Run 最终费用 $0.00105；计划 replacement-b3dfa0ea9bd845a8b7aaaaea1acdf45e 为 ready。",
-    "15173 到当前 Worktree 18080 API readiness 返回 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface"
@@ -398,6 +374,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Apify Client、ActorOps Maintenance 与 Repair 定向 Pytest 41 项通过。",
     "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端/前端全域检查、控制校验与构建均成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-30",
+  "result": "修复 Actor 明确 no-results 被误判为账号身份不匹配的问题；无内容控制行现在安全完成为空结果，demo/占位和其他普通语义异常保留具体错误并按证据阈值恢复，不再统一升级为一次即确认的合同故障。",
+  "status": "completed",
+  "task_id": "2026-08-30-actor-no-results-health-recovery",
+  "unresolved": [
+    "本轮按用户要求只完成本地修复；VPS 仍运行 v2.6.2，需后续发布新版本并对既有 X 故障证据执行受控恢复。"
+  ],
+  "validation": [
+    "noResults/no_results、身份不匹配、placeholder 与合同错误分类定向回归通过。",
+    "Actor Manifest、候选 Runtime、X 回复过滤与输出错误分类受影响测试全部通过。",
+    "impacted preflight 14/14 通过，后端、Worker、前端、控制校验和代码尺寸检查均成功。"
   ]
 }
 ```

@@ -12,6 +12,7 @@ from .attempt_recovery import attempt_identity, frozen_window, request_fingerpri
 from .candidate_failure_settlement import record_settled_candidate_failure
 from .domain import AttemptStatus, FailureClass, RouteHealth
 from .errors import ActorOpsRuntimeError
+from .output_failure import candidate_output_error_code
 from .policy import classify_batch_freshness
 from .ports import (
     ActorManifest,
@@ -312,8 +313,12 @@ class CandidateExecution:
                 if not bool(self.repository.get_attempt(prepared.attempt_id)["cost_final"]):
                     raise _cost_settlement_required() from None
             raise
-        except Exception:
-            return self._invalid_output(prepared.attempt_id, candidate)
+        except Exception as error:
+            return self._invalid_output(
+                prepared.attempt_id,
+                candidate,
+                error_code=candidate_output_error_code(error),
+            )
         if batch.semantic_outcome in {"suspicious_empty", "stale_regression"}:
             return self._suspicious_output(
                 prepared.attempt_id,
@@ -364,14 +369,16 @@ class CandidateExecution:
             source_avatar_url=batch.source_avatar_url,
         )
 
-    def _invalid_output(self, attempt_id: str, candidate: Any) -> None:
+    def _invalid_output(
+        self, attempt_id: str, candidate: Any, *, error_code: str
+    ) -> None:
         current = AttemptStatus(
             str(self.repository.get_attempt(attempt_id)["status"])
         )
         if current is AttemptStatus.SUCCEEDED:
             raise _replay_outcome_conflict()
         error = ActorOpsRuntimeError(
-            "actorops_v2_candidate_contract_invalid",
+            error_code,
             failure_class=FailureClass.CANDIDATE,
         )
         self._record_failure(attempt_id, error)

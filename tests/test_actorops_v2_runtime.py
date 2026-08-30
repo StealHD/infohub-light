@@ -11,7 +11,7 @@ import pytest
 from src.api.actorops_v2_projection import actorops_v2_candidate_projection
 from src.models import ContentItem, SourceType
 from src.apify_actor_identity import source_target_fingerprint
-from src.services.apify_actor_manifest import actor_manifest_hash
+from src.services.apify_actor_manifest import ActorManifestError, actor_manifest_hash
 from src.services.actorops.domain import (
     AttemptStatus, CandidateLifecycle, FailureClass, RouteHealth,
 )
@@ -55,10 +55,11 @@ class _Adapter:
         semantic = str(rows[0].get("semantic") if rows else "suspicious_empty")
         if semantic == "contract_invalid":
             raise ValueError("output contract mismatch")
+        if semantic == "placeholder":
+            raise ActorManifestError("apify_actor_placeholder", "placeholder")
         if semantic == "stale_window":
             return NormalizedBatch(
-                items=(),
-                semantic_outcome="valid_empty",
+                (), "valid_empty",
                 latest_published_at="2026-08-18T00:00:00+00:00",
                 latest_item_id="stale-item",
             )
@@ -268,7 +269,7 @@ def _runtime(
 
 def test_runtime_fails_over_candidate_errors_and_keeps_one_ready_degraded(tmp_path) -> None:
     store, repository, runtime, remote, route_id, source_id, candidates = _runtime(
-        tmp_path, ["suspicious_empty", "valid_nonempty"]
+        tmp_path, ["placeholder", "valid_nonempty"]
     )
     result = asyncio.run(runtime.fetch(
         route_id=route_id,
@@ -278,15 +279,14 @@ def test_runtime_fails_over_candidate_errors_and_keeps_one_ready_degraded(tmp_pa
         logical_job_id="job-1",
     ))
     assert [request.candidate_id for request in remote.requests] == candidates
-    assert result.candidate_id == candidates[1]
-    assert len(result.items) == 1
+    assert result.candidate_id == candidates[1] and len(result.items) == 1
     connection = store.connect()
     assert connection.execute("SELECT COUNT(*) FROM actor_attempts_v2").fetchone()[0] == 2
     failed = connection.execute(
         "SELECT last_error_class, last_error_code FROM actor_candidates_v2 WHERE candidate_id=?",
         (candidates[0],),
     ).fetchone()
-    assert tuple(failed) == ("candidate", "actorops_suspicious_empty")
+    assert tuple(failed) == ("candidate", "apify_actor_placeholder")
     connection.execute(
         "UPDATE actor_candidates_v2 SET lifecycle='disabled', assignment_role='inactive', priority=NULL WHERE candidate_id=?",
         (candidates[1],),

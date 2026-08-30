@@ -1240,10 +1240,9 @@ def _validate_empty_identity(
         "target.native_id": target.native_id,
         "target.handle": target.handle,
     }[rule.target_ref]
-    if actual is None or expected is None or not _identity_matches(
-        actual,
-        expected,
-        mode=rule.match,
+    explicit_no_results = row.get("noResults") is True or row.get("no_results") is True
+    if expected is None or (actual is None and not explicit_no_results) or (
+        actual is not None and not _identity_matches(actual, expected, mode=rule.match)
     ):
         raise ActorManifestError(
             "apify_actor_target_identity_mismatch",

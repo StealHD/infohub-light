@@ -11,6 +11,7 @@ export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
       { title: '已删除 Build 第一次就隔离', description: 'Apify 以 403 返回 build-not-found 时会识别为固定版本已失效，而不是普通启动拒绝；当前任务立即切换其他候选并安排修复，错误正文仍不会进入日志或页面。' },
       { title: 'YouTube 能力必须可证明', description: '频道模式只采用 exact Schema 声明的输入枚举；自动替换要求候选明确包含 Shorts 在内的全部内容并按最新发布排序，Shorts-only 或长短二选一候选不会自动接管。' },
       { title: '最后一路始终保留', description: '候选还必须在当前来源取得最多两个最终非空 Probe 证明；系统只替换已确认故障的非最后一路，证据不足时继续补充备用或交由管理员处理。' },
+      { title: '明确无结果不会误熔断', description: 'Actor 返回明确 no-results 且没有帖子时按合法空结果完成；demo 或占位输出仍会拒绝，但普通语义异常不再被误报为一次即确认的合同故障。' },
     ],
   },
   {
