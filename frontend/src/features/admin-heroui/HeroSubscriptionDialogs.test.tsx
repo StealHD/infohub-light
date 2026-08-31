@@ -168,13 +168,14 @@ function renderYouTubeSourceForm(
 function renderXSourceForm(
   onSubmit: (payload: Record<string, unknown>) => Promise<void>,
   configLocked = false,
+  sourceEnabled = true,
 ) {
   render(<MemoryRouter>
     <DesignSystemProvider>
       <ActionFeedbackProvider userId="user-1">
         <SourceForm
           definition={xProfileDefinition}
-          source={{ ...source, type: 'apify_social', config: { target: 'openai', fetch_limit: 6, analysis_mode: 'full' } }}
+          source={{ ...source, enabled: sourceEnabled, type: 'apify_social', config: { target: 'openai', fetch_limit: 6, analysis_mode: 'full' } }}
           secrets={[]}
           allowSecret={false}
           scopes={['private']}
@@ -254,16 +255,30 @@ describe('YouTube SourceForm', () => {
 })
 
 describe('locked platform SourceForm', () => {
-  it('does not disable a managed source when its hidden enable control is absent', async () => {
+  it('submits the current enabled state for an editable managed source', async () => {
     const browser = userEvent.setup()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     renderXSourceForm(onSubmit)
 
-    expect(screen.queryByRole('checkbox', { name: '启用来源' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '启用来源' })).toBeChecked()
     await browser.click(screen.getByRole('button', { name: '保存来源' }))
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
-    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty('enabled')
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ enabled: true }))
+  })
+
+  it('can explicitly restore a disabled managed source', async () => {
+    const browser = userEvent.setup()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderXSourceForm(onSubmit, false, false)
+
+    const enabled = screen.getByRole('checkbox', { name: '启用来源' })
+    expect(enabled).not.toBeChecked()
+    await browser.click(enabled)
+    await browser.click(screen.getByRole('button', { name: '保存来源' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ enabled: true }))
   })
 
   it('keeps the platform target locked while saving a new fetch limit', async () => {
@@ -271,6 +286,7 @@ describe('locked platform SourceForm', () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     renderXSourceForm(onSubmit, true)
 
+    expect(screen.queryByRole('checkbox', { name: '启用来源' })).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'X 用户名或主页链接' })).toBeDisabled()
     const fetchLimit = screen.getByRole('spinbutton', { name: '每次获取条数' })
     expect(fetchLimit).toBeEnabled()

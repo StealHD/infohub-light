@@ -128,6 +128,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   const [advanced, setAdvanced] = useState(JSON.stringify(source?.config ?? {}, null, 2))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [registryValues, setRegistryValues] = useState<Record<string, unknown>>(() => formValuesForSource(definition, source))
+  const platformManaged = platformManagedSourceTypes.has(definition.type)
   const lockedFieldNames = platformConnectionFieldNames(definition, configLocked)
   const formId = useId()
   const footerSlot = useContext(DialogFooterContext)
@@ -162,7 +163,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
         default_channel: channel || null,
         default_topics: topics,
         secret_env: secretEnv || null,
-        enabled: configLocked || platformManagedSourceTypes.has(definition.type)
+        enabled: configLocked || (platformManaged && !source)
           ? undefined
           : form.has('enabled'),
       } }))
@@ -215,8 +216,11 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
     {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
     {definition.credential_mode === 'workspace_apify_pool' && <HeroNotice title="由工作区 Apify Key 池自动管理" />}
-    {platformManagedSourceTypes.has(definition.type)
-      ? <HeroNotice title="系统会自动准备并启用来源" status="info"><p>订阅保存后，系统只用本地证据核验；通过即启用，不会立即启动 Actor 或抓取。</p></HeroNotice>
+    {platformManaged
+      ? <><HeroNotice title={source?.enabled === false ? '来源已停用' : '系统会自动准备并启用来源'} status="info"><p>{source?.enabled === false
+        ? '重新启用会恢复 Binding 并只用本地证据核验；不会立即启动 Actor 或抓取。'
+        : '订阅保存后，系统只用本地证据核验；通过即启用，不会立即启动 Actor 或抓取。'}</p></HeroNotice>
+        {source && !configLocked && <Checkbox name="enabled" defaultSelected={source.enabled}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>}</>
       : <Checkbox name="enabled" defaultSelected={source?.enabled ?? true} isDisabled={configLocked}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>}
     {!configLocked && !platformManagedSourceTypes.has(definition.type) && <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>}
     {error && <HeroNotice title={error} />}

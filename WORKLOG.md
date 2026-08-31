@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "Closed ActorOps stage-two evidence gaps by preserving proof under immutable provider Actor identity, correcting real-schema aliases and input semantics, stopping AI at five quality-ranked candidates, and exposing exact Binding proof deficits or blockers instead of a generic sample state.",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-stage2-evidence-closure",
-  "unresolved": [],
-  "validation": [
-    "Real Catalog/DeepSeek discovery: X 5/5, Instagram 5/5, YouTube 5/5 reached static_ready or sample_required with zero Actor starts",
-    "Existing settled Dataset evidence: 4/7 system_usable and all 7/7 resolved as system_usable or an exact safe blocker; 344 attempts and 337 remote runs remained unchanged during no-run validation",
-    "Backend targeted: 137 passed; frontend targeted: 25 passed; TypeScript, ESLint, backend/frontend code-size and diff checks passed",
-    "Final impacted preflight: 15/15 commands passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-29",
@@ -378,6 +357,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Apify Catalog、Discovery、Discovery AI 与 Worker 定向 Pytest 67 项通过，更新日志 Vitest 5 项通过。",
     "功能分支 impacted preflight 14/14 通过；版本与 uv lock 已同步为 2.6.4，未增加数据库迁移或付费 Actor 调用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-31",
+  "result": "为 X、Instagram 与 YouTube 既有来源补回显式启用控制；订阅仍开启但来源/Binding 已停用时，可由有来源管理权限的用户恢复 Binding 并以本地证据重新启用，且不创建 Job、Actor Attempt 或费用。",
+  "status": "completed",
+  "task_id": "2026-08-31-managed-source-explicit-recovery",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 来源生命周期 Pytest 6/6、来源表单 Vitest 12/12、锁定平台场景 1/1 通过；TypeScript 与相关 ESLint 通过",
+    "snapshot impacted preflight 14/14 通过，前后端均命中且 SQLite 连接警告为 0",
+    "本地生产构建、核心 API smoke 8/8、live/ready、API/Worker 双容器与 React 资源均健康；未调用真实来源、Actor、AI 或通知"
   ]
 }
 ```

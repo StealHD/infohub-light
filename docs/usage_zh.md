@@ -31,6 +31,8 @@ Nginx Basic Auth 只能作为可选外层门禁，不能替代应用登录和角
 
 来源可见范围为 public、workspace 或 private。创建来源后可订阅；订阅 shared 来源不会改变其他用户，最后一个 private owner 取消订阅时会软停用无人引用来源。
 
+X、Instagram 或 YouTube 出现“订阅已开启、来源已停用”时，由 Owner/Admin（private 来源也可由所有者）在“来源库 → 来源设置”重新勾选“启用来源”。系统会恢复 Binding 并只用当前本地证据核验；保存本身不会创建 Job、启动 Actor 或产生费用。显式停用不会被 Worker 自动撤销，自动更新继续沿用该用户已经配置的全局或单源计划。
+
 自动计划全部由现有 Worker 执行：
 
 - 每用户 Feed 周期：1/3/6/12/24 小时，默认关闭。

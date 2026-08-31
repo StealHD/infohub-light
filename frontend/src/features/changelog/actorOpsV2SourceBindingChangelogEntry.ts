@@ -1,6 +1,14 @@
 import type { ChangelogEntry } from './changelogTypes'
 
 export const actorOpsV2SourceBindingChangelogEntries: ChangelogEntry[] = [{
+  date: '2026-08-31',
+  title: '停用的平台来源可以从来源设置恢复',
+  summary: '订阅仍开启但来源或 Binding 已停用时，管理员和私人来源所有者可以显式恢复，不再卡在只读冲突状态。',
+  items: [
+    { title: '恢复入口回到来源设置', description: 'X、Instagram 与 YouTube 的既有来源会显示“启用来源”；重新启用后，系统先恢复 Binding，再使用当前本地证据核验并启用来源。' },
+    { title: '恢复不触发抓取或费用', description: '保存来源不会创建 Job、启动 Actor 或产生费用；显式停用仍不会被 Worker 自动推翻，自动更新继续使用用户已有的全局或单源计划。' },
+  ],
+}, {
   date: '2026-08-23',
   title: 'OpenClaw 可以订阅全部支持来源',
   summary: '来源库里的可见来源都能直接订阅；GitHub/Reddit 用户、Hacker News、X 与 Instagram 也可由订阅管理连接新建。',

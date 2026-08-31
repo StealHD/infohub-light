@@ -89,6 +89,58 @@ def test_youtube_channel_is_canonical_idempotent_and_auto_enabled_on_subscribe(
     assert client.get("/api/jobs").json()["data"]["jobs"] == []
 
 
+def test_youtube_channel_can_be_explicitly_restored_after_source_disable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, _data_dir = build_client(tmp_path, monkeypatch)
+    login(client)
+    store = client.app.state.service_store
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    created = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "workspace",
+            "type": "youtube_channel",
+            "display_name": "Recoverable YouTube Channel",
+            "config": {"url": channel_id},
+        },
+    ).json()["data"]
+    subscribed = client.post(
+        f"/api/catalog/sources/{created['id']}/subscribe"
+    )
+    assert subscribed.status_code == 200, subscribed.text
+
+    disabled = client.patch(
+        f"/api/catalog/sources/{created['id']}", json={"enabled": False}
+    )
+    assert disabled.status_code == 200, disabled.text
+    binding = ActorOpsBindingService(
+        store, workspace_id=created["workspace_id"]
+    ).repository.get_binding(created["id"])
+    assert binding.status == "disabled"
+    assert binding.binding_version == 2
+    subscription = store.get_user_subscription_for_source(
+        store.get_user_by_username("owner")["id"], created["id"]
+    )
+    assert subscription["enabled"] is True
+
+    restored = client.patch(
+        f"/api/catalog/sources/{created['id']}", json={"enabled": True}
+    )
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["data"]["enabled"] is True
+    binding = ActorOpsBindingService(
+        store, workspace_id=created["workspace_id"]
+    ).repository.get_binding(created["id"])
+    assert binding.status == "ready"
+    assert binding.binding_version == 3
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM actor_attempts_v2"
+    ).fetchone()[0] == 0
+    assert client.get("/api/jobs").json()["data"]["jobs"] == []
+
+
 def test_platform_source_crud_uses_only_v2_bindings_with_v1_denied(
     tmp_path: Path, monkeypatch
 ) -> None:
