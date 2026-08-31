@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "修复平台托管 X、Instagram、YouTube 来源在保存设置时因隐藏启用控件缺席而误提交 enabled=false；恢复本地 X 来源与 ActorOps Binding 并重建健康容器。",
-  "status": "completed",
-  "task_id": "2026-08-29-managed-source-hidden-enabled-fix",
-  "unresolved": [],
-  "validation": [
-    "HeroSubscriptionDialogs Vitest 11/11 通过",
-    "TypeScript、ESLint 与 snapshot impacted preflight 11/11 通过",
-    "本地 X Source enabled、Binding ready；API、Worker 与前端 revision 健康"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -375,6 +357,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps 来源生命周期 Pytest 6/6、来源表单 Vitest 12/12、锁定平台场景 1/1 通过；TypeScript 与相关 ESLint 通过",
     "snapshot impacted preflight 14/14 通过，前后端均命中且 SQLite 连接警告为 0",
     "本地生产构建、核心 API smoke 8/8、live/ready、API/Worker 双容器与 React 资源均健康；未调用真实来源、Actor、AI 或通知"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-31",
+  "result": "修复 YouTube 条目把底层 rss 显示为来源名的问题：既有 Feed/收藏/历史/详情按 source_id 投影当前频道名，ActorOps 后续获取写入规范来源名称与 catalog 类型，不迁移或改写旧内容。",
+  "status": "completed",
+  "task_id": "2026-08-31-youtube-feed-source-name",
+  "unresolved": [],
+  "validation": [
+    "后端定向 Pytest 20 项、更新日志 Vitest 5 项通过；原失败头像 spec 单独复验通过。",
+    "本地 service.db 只读备份中的真实异常行已从 rss 投影为老高與小茉 Mr & Mrs Gao。",
+    "snapshot impacted preflight 重跑 14/14 通过，覆盖 Feed/Store/API、ActorOps、前端与控制检查，SQLite 连接警告为 0。"
   ]
 }
 ```

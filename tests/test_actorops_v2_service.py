@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from src.apify_actor_identity import source_target_fingerprint
+from src.models import ApifySocialSubscriptionConfig, ContentItem, SourceType
+from src.services.content_presentation import build_content_presentation
 from src.services.actorops.apify_remote import _LocalAttemptCoordinator
 from src.services.actorops.domain import CandidateLifecycle
 from src.services.actorops.publication import (
@@ -144,6 +146,32 @@ def test_v2_publication_proof_round_trips_through_cache_transport() -> None:
     restored = with_publication_proof([], proof)
     assert isinstance(restored, ActorOpsV2RoutedList)
     assert proof_from_items(restored) == proof
+
+
+def test_actorops_youtube_projection_uses_canonical_source_name_metadata() -> None:
+    subscription = ApifySocialSubscriptionConfig(
+        profile_id="route-youtube",
+        platform="youtube",
+        kind="channel",
+        target="https://www.youtube.com/feeds/videos.xml?channel_id=UCexample",
+        source_id="source-youtube",
+        source_display_name="Example Channel",
+        catalog_source_type="rss",
+    )
+    item = ContentItem(
+        id="actor:youtube:item",
+        source_type=SourceType.RSS,
+        title="Video",
+        url="https://www.youtube.com/watch?v=video",
+        published_at=datetime(2026, 8, 31, tzinfo=timezone.utc),
+        metadata={"platform": "youtube", "native_id": "video"},
+    )
+
+    projected = ActorOpsV2Service._project_items((item,), subscription, "actor")[0]
+
+    assert projected.metadata["source_display_name"] == "Example Channel"
+    assert projected.metadata["catalog_source_type"] == "rss"
+    assert build_content_presentation(projected)["source"]["name"] == "Example Channel"
 
 
 def test_local_attempt_coordinator_never_calls_workspace_unknown_barriers() -> None:

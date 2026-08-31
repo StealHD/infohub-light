@@ -172,7 +172,10 @@ class ActorOpsV2Service:
                 {
                     "source_id": str(subscription.source_id),
                     "source_key": source_key,
-                    "source_name": str(subscription.source_display_name or subscription.target),
+                    "source_display_name": str(subscription.source_display_name or subscription.target),
+                    "catalog_source_type": str(
+                        subscription.catalog_source_type or item.source_type.value
+                    ),
                     "tags": list(subscription.tags),
                     "topics": list(subscription.topics),
                     "personal_tags": list(subscription.personal_tags),

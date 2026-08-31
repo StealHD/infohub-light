@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 from ..models import ContentItem
 from .content_presentation import complete_content_presentation
 from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
+from .feed_current_source import apply_current_feed_sources
 from .user_item_state import UserItemStateStore
-from .media_cache import MediaCacheService
 from ..ai.analysis_cache import AnalysisCache
 from .content_timeline import (
     FeedWindow,
@@ -554,30 +554,11 @@ class UserContentStore:
         workspace_id: str,
         items: list[dict[str, Any]],
     ) -> None:
-        item_sources: list[tuple[dict[str, Any], str]] = []
-        source_ids: set[str] = set()
-        for item in items:
-            presentation = item.get("presentation")
-            if not isinstance(presentation, dict):
-                continue
-            source = presentation.get("source")
-            if not isinstance(source, dict):
-                continue
-            source_id = str(source.get("id") or item.get("source_id") or "").strip()
-            if not source_id:
-                source["avatar_url"] = ""
-                continue
-            source_ids.add(source_id)
-            item_sources.append((source, source_id))
-        urls = MediaCacheService(
+        apply_current_feed_sources(
             self.store,
-            data_dir=self.store.data_dir,
-        ).avatar_urls_for_sources(
             workspace_id=workspace_id,
-            source_ids=source_ids,
+            items=items,
         )
-        for source, source_id in item_sources:
-            source["avatar_url"] = urls.get(source_id, "")
 
     @staticmethod
     def _history_search_text(item: dict[str, Any], row: Any) -> str:
@@ -1323,19 +1304,14 @@ class UserContentStore:
             return None
         item = deepcopy(stored["item"])
         presentation = complete_content_presentation(item)
+        item["presentation"] = presentation
+        self._apply_current_source_avatars(
+            workspace_id=workspace_id,
+            items=[item],
+        )
         source = presentation.get("source")
         if not isinstance(source, dict):
             source = {}
-        avatar_url = ""
-        if stored.get("source_id"):
-            avatar = MediaCacheService(
-                self.store, data_dir=self.store.data_dir
-            ).avatar_for_source(
-                workspace_id=workspace_id,
-                source_id=str(stored["source_id"]),
-            )
-            avatar_url = f"/api/media/{avatar['id']}" if avatar else ""
-        source["avatar_url"] = avatar_url
         content = presentation.get("content")
         if not isinstance(content, dict):
             content = {}

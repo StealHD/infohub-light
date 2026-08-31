@@ -79,6 +79,60 @@ def test_effective_at_prefers_trusted_publish_time_and_rejects_future_time():
     ) == first_seen.isoformat()
 
 
+def test_feed_reads_current_catalog_name_for_legacy_youtube_rss_item(
+    tmp_path,
+    monkeypatch,
+):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="workspace",
+        owner_user_id=None,
+        source_type="rss",
+        display_name="Example Channel",
+        config={
+            "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCexample"
+        },
+    )
+    now = datetime(2026, 8, 31, 4, 30, tzinfo=timezone.utc)
+    content = UserContentStore(store)
+    content.upsert_items(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        seen_at=now.isoformat(),
+        items=[{
+            "id": "rss:youtube:legacy-name",
+            "source_id": source_id,
+            "source_type": "rss",
+            "source": "rss",
+            "title": "Legacy YouTube video",
+            "url": "https://www.youtube.com/watch?v=legacy",
+            "published_at": now.isoformat(),
+            "presentation": {
+                "source": {"id": source_id, "platform": "youtube", "name": "rss"},
+                "links": {"canonical_url": "https://www.youtube.com/watch?v=legacy"},
+            },
+        }],
+    )
+
+    [feed_item] = content.feed_items(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        window=feed_window(7, now=now),
+    )
+    detail_item = content.detail_item(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:youtube:legacy-name",
+    )
+
+    assert feed_item["source"] == "Example Channel"
+    assert feed_item["presentation"]["source"]["name"] == "Example Channel"
+    assert detail_item is not None
+    assert detail_item["presentation"]["source"]["name"] == "Example Channel"
+    store.close()
+
+
 def test_stable_store_repartitions_without_overlap_and_refetch_does_not_revive(
     tmp_path,
     monkeypatch,

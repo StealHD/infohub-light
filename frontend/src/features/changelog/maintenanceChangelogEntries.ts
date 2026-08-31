@@ -73,4 +73,14 @@ export const feedSourceLabelChangelogEntry = {
   ],
 } satisfies ChangelogEntry
 
+export const youtubeSourceLabelChangelogEntry = {
+  date: '2026-08-31',
+  title: 'YouTube 信息流恢复频道名称',
+  summary: 'YouTube 视频不再把底层 RSS 类型显示成来源名，既有条目和后续获取都会使用当前频道名称。',
+  items: [
+    { title: '既有条目立即修正', description: '历史条目仍保存为 RSS 时，信息流、收藏、历史和详情会按来源编号读取当前频道名称，不需要重新抓取或改写旧数据。' },
+    { title: '后续获取写入规范名称', description: 'Actor 与公开 Feed 路径统一把频道名称写入展示字段；RSS 仍只作为内部采集类型，不再出现在卡片名称位置。' },
+  ],
+} satisfies ChangelogEntry
+
 export { systemSettingsChangelogEntry } from './systemSettingsChangelogEntry'
