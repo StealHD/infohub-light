@@ -267,6 +267,29 @@ describe('VirtualFeed', () => {
     expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.')).toHaveLength(1)
   })
 
+  it('shows a channel classification only in the footer when the social source label repeats it', () => {
+    const item = socialItem()
+    if (!item.presentation) throw new Error('presentation fixture missing')
+    item.presentation.source.name = 'X · @朋友动态'
+    item.presentation.author.name = 'thsottiaux'
+    item.presentation.taxonomy.channel = '朋友动态'
+
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(item)]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const metadata = screen.getByLabelText('来源信息')
+    expect(within(metadata).getAllByText('X').length).toBeGreaterThan(0)
+    expect(within(metadata).getByText('thsottiaux')).toBeInTheDocument()
+    expect(within(metadata).queryByText('@朋友动态')).not.toBeInTheDocument()
+    expect(screen.getByText('朋友动态')).toBeInTheDocument()
+  })
+
   it('keeps the Agent context action neutral until selected and uses the same sparkle icon', () => {
     const view = render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}

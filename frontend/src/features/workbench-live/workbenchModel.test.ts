@@ -123,6 +123,25 @@ describe('live workbench model', () => {
     expect(workbenchSourceLabels(card)).toEqual(['X', '@朋友动态'])
   })
 
+  it('hides a social source label duplicated by the channel while preserving the followed account', () => {
+    const social = socialItemWithMedia()
+    if (!social.presentation) throw new Error('presentation fixture missing')
+    social.presentation.source.name = 'X · @朋友动态'
+    social.presentation.source.platform = 'x'
+    social.presentation.author.name = 'thsottiaux'
+    social.presentation.taxonomy.channel = '朋友动态'
+
+    const card = toWorkbenchCardModel(social)
+
+    expect(card).toMatchObject({
+      platformLabel: 'X',
+      sourceLabel: '@朋友动态',
+      authorLabel: 'thsottiaux',
+      channel: '朋友动态',
+    })
+    expect(workbenchSourceLabels(card)).toEqual(['X', 'thsottiaux'])
+  })
+
   it('derives an X handle when both source fields contain only the post URL', () => {
     const social = socialItemWithMedia()
     if (!social.presentation) throw new Error('presentation fixture missing')

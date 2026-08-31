@@ -83,4 +83,13 @@ export const youtubeSourceLabelChangelogEntry = {
   ],
 } satisfies ChangelogEntry
 
+export const socialChannelDedupChangelogEntry = {
+  date: '2026-08-31',
+  title: '社交卡片不再重复分类名称',
+  summary: '来源名称与底部频道相同时，卡片顶部只保留平台、账号和时间，分类仍可在底部清楚识别。',
+  items: [
+    { title: '朋友动态只显示一次', description: '类似“朋友动态”的来源名称与频道重复时，不再同时占用顶部来源行和底部分类；真实账号名称与来源平台保持可见。' },
+  ],
+} satisfies ChangelogEntry
+
 export { systemSettingsChangelogEntry } from './systemSettingsChangelogEntry'

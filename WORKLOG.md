@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "修复 ActorOps Replacement 两轮 Dataset 适配耗尽后仍以 running/adaptation_pending 永久占用 Route 的状态机缺口；计划改为保留具体原因与费用事实后终态失败，Candidate 不记故障，历史卡住计划由 Worker 零新增 Run 收敛。",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-adaptation-terminal-release",
-  "unresolved": [],
-  "validation": [
-    "Dataset 适配失败释放 Route 与成功单 Run 路径定向 Pytest 2/2 通过",
-    "Replacement Drawer Vitest 9/9、TypeScript、ESLint 通过",
-    "snapshot impacted preflight 15/15 通过；本地 API、Worker、前端 revision 健康"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -376,6 +356,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "后端定向 Pytest 20 项、更新日志 Vitest 5 项通过；原失败头像 spec 单独复验通过。",
     "本地 service.db 只读备份中的真实异常行已从 rss 投影为老高與小茉 Mr & Mrs Gao。",
     "snapshot impacted preflight 重跑 14/14 通过，覆盖 Feed/Store/API、ActorOps、前端与控制检查，SQLite 连接警告为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-31",
+  "result": "社交卡片顶部不再显示与底部频道同名的来源标签；平台、关注账号、时间和底部频道分类保持可见，真实来源 handle 不受影响。",
+  "status": "completed",
+  "task_id": "2026-08-31-social-card-channel-label-dedup",
+  "unresolved": [],
+  "validation": [
+    "Workbench 模型、卡片渲染与更新日志定向 Vitest 65 项通过。",
+    "snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与 control，SQLite 连接警告为 0。"
   ]
 }
 ```

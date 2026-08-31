@@ -196,8 +196,12 @@ function resolveContentFormat(item: FeedItem, displayKind: WorkbenchDisplayKind,
 }
 
 export function workbenchSourceLabels(card: WorkbenchCardModel, includeArticleDetails = false): string[] {
+  const channelKey = card.displayKind === 'social' ? normalizeDisplayText(card.channel) : ''
+  const sourceLabel = channelKey && normalizeDisplayText(card.sourceLabel) === channelKey
+    ? undefined
+    : card.sourceLabel
   const values = card.displayKind === 'social' || includeArticleDetails
-    ? [card.platformLabel, card.authorLabel, card.sourceLabel]
+    ? [card.platformLabel, card.authorLabel, sourceLabel]
     : [card.source]
   const seen = new Set<string>()
   return values.flatMap((value) => {
