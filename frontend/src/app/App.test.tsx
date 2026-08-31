@@ -740,8 +740,7 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     const card = await screen.findByRole('article', { name: '可撤销忽略' })
-    await browser.click(within(card).getByRole('button', { name: '更多操作 可撤销忽略' }))
-    await browser.click(screen.getByRole('button', { name: '忽略' }))
+    await browser.click(within(card).getByRole('button', { name: '忽略 可撤销忽略' }))
     expect(await screen.findByText('已忽略这条内容')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('article', { name: '可撤销忽略' })).not.toBeInTheDocument())
     await browser.click(screen.getByRole('button', { name: '撤销' }))

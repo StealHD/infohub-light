@@ -342,7 +342,8 @@ describe('VirtualFeed', () => {
     const compactActions = [
       within(card).getByRole('link', { name: '打开 信息 1 原文' }),
       within(card).getByRole('button', { name: '收藏 信息 1' }),
-      within(card).getByRole('button', { name: '更多操作 信息 1' }),
+      within(card).getByRole('button', { name: '复制摘要 信息 1' }),
+      within(card).getByRole('button', { name: '忽略 信息 1' }),
     ]
 
     for (const action of compactActions) {
@@ -402,7 +403,7 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    const actions = screen.getByRole('article', { name: '信息 1' }).querySelector<HTMLElement>('[data-card-actions]')
+    const actions = screen.getByRole('article', { name: '信息 1' }).querySelector<HTMLElement>('[data-card-footer-actions]')
     if (!actions) throw new Error('Quiet Studio card actions were not rendered')
 
     expect(actions).toHaveClass(
@@ -449,7 +450,7 @@ describe('VirtualFeed', () => {
     const card = screen.getByRole('article')
     const expandZone = within(card).getByLabelText('内容分类、频道和主题')
     const expandButton = within(card).getByRole('button', { name: /^展开 / })
-    const actions = card.querySelector<HTMLElement>('[data-card-actions]')
+    const actions = card.querySelector<HTMLElement>('[data-card-footer-actions]')
     if (!actions) throw new Error('card actions were not rendered')
 
     expect(expandButton).toHaveTextContent('')
@@ -466,11 +467,9 @@ describe('VirtualFeed', () => {
 
     await user.click(within(actions).getByRole('button', { name: /^收藏 / }))
     await user.click(within(actions).getByRole('button', { name: /^将 .* 加入 Agent 上下文$/ }))
-    await user.click(within(actions).getByRole('button', { name: /^更多操作 / }))
     expect(onToggleSaved).toHaveBeenCalledTimes(1)
     expect(onToggleContext).toHaveBeenCalledTimes(1)
     expect(onToggleExpanded).toHaveBeenCalledTimes(2)
-    await user.keyboard('{Escape}')
 
     fireEvent.pointerEnter(expandButton, { pointerType: 'mouse' })
     expect(await screen.findByRole('tooltip')).toHaveTextContent('展开内容')
@@ -487,32 +486,34 @@ describe('VirtualFeed', () => {
     expect(screen.getByRole('button', { name: /^收起 / }).querySelector('.lucide-fold-vertical')).not.toBeNull()
   })
 
-  it('keeps only one card action menu open at a time', async () => {
+  it('reveals direct copy and ignore actions on card hover or focus and explains each icon', async () => {
     const user = userEvent.setup()
+    const onItemAction = vi.fn()
     render(<VirtualFeed
-      cards={[toWorkbenchCardModel(makeItem(1)), toWorkbenchCardModel(makeItem(2))]}
+      cards={[toWorkbenchCardModel(makeItem(1))]}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
       onToggleContext={vi.fn()}
-      onItemAction={vi.fn()}
+      onItemAction={onItemAction}
     />)
 
-    const firstTrigger = screen.getByRole('button', { name: '更多操作 信息 1' })
-    const secondTrigger = screen.getByRole('button', { name: '更多操作 信息 2' })
-    await user.click(firstTrigger)
-    expect(screen.getByRole('dialog', { name: '信息 1 更多操作' })).toBeInTheDocument()
+    const card = screen.getByRole('article', { name: '信息 1' })
+    const hoverActions = card.querySelector<HTMLElement>('[data-card-hover-actions]')
+    if (!hoverActions) throw new Error('hover actions were not rendered')
+    expect(hoverActions).toHaveClass('pointer-fine:opacity-0', 'pointer-fine:group-hover/card:opacity-100', 'pointer-fine:group-focus-within/card:opacity-100')
+    expect(within(card).queryByRole('button', { name: /更多操作/ })).not.toBeInTheDocument()
 
-    secondTrigger.focus()
-    fireEvent.click(secondTrigger)
-    expect(screen.queryByRole('dialog', { name: '信息 1 更多操作' })).not.toBeInTheDocument()
-    const secondDialog = screen.getByRole('dialog', { name: '信息 2 更多操作' })
-    expect(secondDialog).toBeInTheDocument()
-
-    secondDialog.focus()
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog', { name: '信息 2 更多操作' })).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('button', { name: '更多操作 信息 2' })).toHaveFocus())
+    const copyButton = within(hoverActions).getByRole('button', { name: '复制摘要 信息 1' })
+    const ignoreButton = within(hoverActions).getByRole('button', { name: '忽略 信息 1' })
+    fireEvent.pointerEnter(copyButton, { pointerType: 'mouse' })
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('复制摘要')
+    fireEvent.pointerLeave(copyButton, { pointerType: 'mouse' })
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument())
+    fireEvent.pointerEnter(ignoreButton, { pointerType: 'mouse' })
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('忽略这条内容')
+    await user.click(ignoreButton)
+    expect(onItemAction).toHaveBeenCalledWith('item-1', true)
   })
 
   it('does not render a fake expand control for fully visible short content', () => {
@@ -587,6 +588,7 @@ describe('VirtualFeed', () => {
     const details = screen.getByTestId('card-details-social-x')
     expect(stack).toHaveAttribute('data-stack-depth', '2')
     expect(stack).toHaveAccessibleName('打开图片预览，从第 1 张开始，可查看 2 张，共 8 张')
+    expect(stack).toHaveClass('mt-10', 'pointer-coarse:mt-12')
     expect(stack.querySelectorAll('[data-card-media-stack-layer]')).toHaveLength(2)
     expect(stack.querySelectorAll('img[src="/api/media/one"]')).toHaveLength(1)
     expect(stack.querySelector('img')).toHaveAttribute('alt', '')
@@ -809,10 +811,9 @@ describe('VirtualFeed', () => {
     const card = await screen.findByRole('article', { name: '信息 1' })
     expect(within(card).getByRole('link', { name: '打开 信息 1 原文' })).toHaveAttribute('href', 'https://example.com/1')
     expect(within(card).getByRole('button', { name: '收藏 信息 1' })).toBeDisabled()
-    await user.click(within(card).getByRole('button', { name: '更多操作 信息 1' }))
     expect(within(card).queryByRole('button', { name: /标记.*读/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '忽略' })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: '复制摘要' }))
+    expect(within(card).getByRole('button', { name: '忽略 信息 1' })).toBeDisabled()
+    await user.click(within(card).getByRole('button', { name: '复制摘要 信息 1' }))
     expect(copy).toHaveBeenCalledWith('这是第 1 条摘要')
     expect(await within(card).findByRole('status')).toHaveTextContent('摘要已复制')
   })
@@ -834,8 +835,7 @@ describe('VirtualFeed', () => {
     />)
 
     const card = await screen.findByRole('article', { name: '信息 1' })
-    await user.click(within(card).getByRole('button', { name: '更多操作 信息 1' }))
-    await user.click(screen.getByRole('button', { name: '复制摘要' }))
+    await user.click(within(card).getByRole('button', { name: '复制摘要 信息 1' }))
 
     expect(await within(card).findByRole('status')).toHaveTextContent('复制失败，请手动复制')
   })

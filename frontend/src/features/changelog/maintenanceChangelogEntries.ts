@@ -85,10 +85,11 @@ export const youtubeSourceLabelChangelogEntry = {
 
 export const socialChannelDedupChangelogEntry = {
   date: '2026-08-31',
-  title: '社交卡片不再重复分类名称',
-  summary: '来源名称与底部频道相同时，卡片顶部只保留平台、账号和时间，分类仍可在底部清楚识别。',
+  title: '社交卡片信息与常用操作更简洁',
+  summary: '重复分类只显示一次，复制和忽略也可在卡片上直接完成，不再需要展开更多菜单。',
   items: [
     { title: '朋友动态只显示一次', description: '类似“朋友动态”的来源名称与频道重复时，不再同时占用顶部来源行和底部分类；真实账号名称与来源平台保持可见。' },
+    { title: '悬停即可复制或忽略', description: '鼠标移到卡片时，右上角会显示复制摘要和忽略图标；移到图标上会说明用途，键盘与触屏也保留可访问的操作入口。' },
   ],
 } satisfies ChangelogEntry
 

@@ -150,8 +150,6 @@ type SourceFeedProps = Pick<SourceOverviewFeedProps,
   'contextIds' | 'detailLoading' | 'detailError' | 'expandedId' | 'onItemAction' | 'onToggleContext' | 'onToggleExpanded' | 'onToggleSaved' | 'readonly'
 > & {
   cards: WorkbenchCardModel[]
-  actionMenuCardId: string | null
-  onActionMenuOpenChange: (id: string, open: boolean) => void
   onOpenMedia: (card: WorkbenchCardModel, index: number, trigger: HTMLButtonElement) => void
   onBeforeLayoutChange: () => void
 }
@@ -163,8 +161,6 @@ export function SourceFeed({
   detailLoading,
   detailError,
   readonly,
-  actionMenuCardId,
-  onActionMenuOpenChange,
   onBeforeLayoutChange,
   onItemAction,
   onToggleContext,
@@ -189,7 +185,6 @@ export function SourceFeed({
         inContext={contextIds.includes(card.id)}
         contextFull={contextIds.length >= 8}
         contextCount={contextIds.length}
-        actionMenuOpen={actionMenuCardId === card.id}
         detailLoading={card.id === expandedId && detailLoading}
         detailError={card.id === expandedId && detailError}
         readonly={readonly}
@@ -199,7 +194,6 @@ export function SourceFeed({
         }}
         onToggleSaved={() => onToggleSaved(card.id, !card.userState.is_saved)}
         onToggleContext={() => onToggleContext(card)}
-        onActionMenuOpenChange={(open) => onActionMenuOpenChange(card.id, open)}
         onItemAction={(dismissed) => {
           onBeforeLayoutChange()
           onItemAction(card.id, dismissed)
@@ -219,8 +213,6 @@ type SourceSectionProps = Pick<SourceOverviewFeedProps,
   feedWindowDays: number
   expanded: boolean
   onToggleSource: (id: string) => void
-  actionMenuCardId: string | null
-  onActionMenuOpenChange: (id: string, open: boolean) => void
   onOpenMedia: (card: WorkbenchCardModel, index: number, trigger: HTMLButtonElement) => void
   onBeforeLayoutChange: () => void
   summaryState?: SourceSummaryViewState
@@ -301,7 +293,6 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
   const didResumeAnchor = useRef(false)
   const mediaTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [newItemCount, setNewItemCount] = useState(0)
-  const [openActionCardId, setOpenActionCardId] = useState<string | null>(null)
   const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null)
   const sectionsSignature = props.sections.map((section) => `${section.id}:${section.cards.map((card) => card.id).join(',')}`).join('|')
   const sourceItemIds = props.sourceItemIds ?? props.sections.flatMap((section) => section.cards.map((card) => card.id))
@@ -584,8 +575,6 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
               detailLoading={props.detailLoading}
               detailError={props.detailError}
               readonly={props.readonly}
-              actionMenuCardId={openActionCardId}
-              onActionMenuOpenChange={(id, open) => setOpenActionCardId(open ? id : null)}
               onBeforeLayoutChange={captureAnchor}
               summaryState={props.summaryStates?.[section.id]?.fingerprint === section.contentFingerprint ? props.summaryStates[section.id] : undefined}
               canSummarize={props.canSummarize}

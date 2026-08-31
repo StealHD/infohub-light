@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
-
+import { expectCardHoverActions } from './cardHoverActions'
 import { installProductionWorkbenchApiMocks, suppressAutomaticWorkbenchInsights } from './productionWorkbenchApiMocks'
 
 const items = Array.from({ length: 200 }, (_, index) => ({
@@ -527,7 +527,7 @@ for (const viewport of [
       await expect(tooltip).toBeHidden()
     }
     await expect(card.getByRole('button', { name: /加入 Agent 上下文/ })).toHaveText('问 Agent')
-    await expect(card.getByRole('button', { name: /更多操作/ })).toHaveAttribute('title', '复制摘要或忽略这条内容')
+    await expectCardHoverActions(page, card)
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     const accessibility = await new AxeBuilder({ page }).analyze()
@@ -1070,7 +1070,7 @@ test('Feed source overview keeps each source contiguous across supported viewpor
   await expect(sections.nth(0).getByRole('link', { name: /原文/u })).toHaveCount(0)
   await expect(sections.nth(0).getByRole('button', { name: /收藏 实时条目 200/u })).toHaveCount(0)
   await expect(sections.nth(0).getByRole('button', { name: /将 实时条目 200 加入 Agent/u })).toHaveCount(0)
-  await expect(sections.nth(0).getByRole('button', { name: /更多操作/u })).toHaveCount(0)
+  await expect(sections.nth(0).getByRole('button', { name: /更多操作|复制摘要|忽略 /u })).toHaveCount(0)
   const summaryRequest = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/feed/source-summary'))
   await sections.nth(0).getByRole('button', { name: '总结专题 OpenAI Blog' }).click()
   const summaryBody = (await summaryRequest).postDataJSON() as { article_ids: string[] }

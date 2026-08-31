@@ -7,26 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "ActorOps 路线管理已合并为持久化单 Drawer：搜索、自动推荐、主备槽位选择、免费预检、按钮授权实测、Dataset 适配和按钮应用连续完成；Route 卡持续投影阶段、来源进度与安全费用。",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-unified-operator-workflow",
-  "unresolved": [],
-  "validation": [
-    "后端影响域完整重跑通过，SQLite ResourceWarning 根因修复并以 error 级警告验证",
-    "前端 ESLint、TypeScript、UI/E2E 合同、95 文件 688 项 Vitest、生产构建和前后端代码尺寸门通过",
-    "完整 preflight 前 6 道通过后由新增测试连接警告停止；按规则未第三次整门重跑，修复后原失败域及剩余检查均分别通过",
-    "Docker/Worker 保持关闭；本地 API 18080 与 Vite 15173 healthy，ActorOps schema 2 返回 3 条 Route 且均含 workflow 投影"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-08-30",
   "result": "校准 ActorOps 最终 Route 卡在 macOS 与 Linux 的三视口视觉基线，覆盖不可用状态、故障 Candidate、双备用槽与统一管理操作，解除 v2.6.0 main Gate 的旧快照阻断；未改产品运行逻辑。",
@@ -373,6 +353,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Workbench 模型、卡片渲染与更新日志定向 Vitest 65 项通过。",
     "snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与 control，SQLite 连接警告为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-31",
+  "result": "Feed 卡片将复制摘要与忽略从三点菜单改为右上角悬浮/聚焦直达操作，图标提供下方说明；带图卡片为操作区预留空间并隔离媒体命中区域，触屏继续常显，来源概览不展示这些逐条操作。",
+  "status": "completed",
+  "task_id": "2026-08-31-feed-card-hover-actions",
+  "unresolved": [],
+  "validation": [
+    "VirtualFeed、来源概览、模型、更新日志等定向 Vitest 71 项通过；失败的 App 忽略/撤销用例更新后单独复验通过。",
+    "真实已登录本地页面完成悬浮、命中区域和提示文本检查；Playwright 在 320、390、645、1024、1440px 五档全部通过。",
+    "snapshot impacted preflight 12/12 通过，覆盖 frontend_full、control、694 个前端测试、类型、Lint、UI 契约与代码尺寸检查。"
   ]
 }
 ```

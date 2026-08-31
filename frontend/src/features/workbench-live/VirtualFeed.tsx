@@ -7,10 +7,10 @@ import {
   ImageGalleryModal,
   Icons,
   MetaTag,
-  Popover,
   Skeleton,
   Tooltip,
   TooltipTriggerButton,
+  bottomAnchoredTooltipProps,
   topAnchoredTooltipProps,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
@@ -75,7 +75,6 @@ export function WorkbenchCard({
   inContext,
   contextFull,
   contextCount,
-  actionMenuOpen,
   detailLoading,
   detailError,
   readonly,
@@ -84,7 +83,6 @@ export function WorkbenchCard({
   onToggleExpanded,
   onToggleSaved,
   onToggleContext,
-  onActionMenuOpenChange,
   onItemAction,
   onOpenMedia,
   variant = 'timeline',
@@ -94,7 +92,6 @@ export function WorkbenchCard({
   inContext: boolean
   contextFull: boolean
   contextCount: number
-  actionMenuOpen: boolean
   detailLoading?: boolean
   detailError?: boolean
   readonly?: boolean
@@ -103,7 +100,6 @@ export function WorkbenchCard({
   onToggleExpanded: () => void
   onToggleSaved: () => void
   onToggleContext: () => void
-  onActionMenuOpenChange: (open: boolean) => void
   onItemAction: (dismissed: boolean) => void
   onOpenMedia: (index: number, trigger: HTMLButtonElement) => void
   variant?: 'timeline' | 'source-overview'
@@ -116,7 +112,6 @@ export function WorkbenchCard({
   const sourceParts = workbenchSourceLabels(card)
   const [copyNotice, setCopyNotice] = useState('')
   const copyNoticeTimer = useRef<number | undefined>(undefined)
-  const actionMenuTriggerRef = useRef<HTMLDivElement>(null)
   const {
     overflow: measuredOverflow,
     primaryRef: measurePrimary,
@@ -144,7 +139,7 @@ export function WorkbenchCard({
       {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
     </>
   const summaryContent = <>
-    {!sourceOverview && <span aria-label="来源信息" className="type-meta mb-2 flex min-w-0 items-center gap-2 text-muted">
+    {!sourceOverview && <span aria-label="来源信息" className={`type-meta mb-2 flex min-w-0 items-center gap-2 text-muted ${showCompactMedia ? '' : 'pr-24 pointer-coarse:pr-28'}`}>
       <SourceAvatar
         name={card.source}
         avatarUrl={card.sourceAvatar}
@@ -169,15 +164,6 @@ export function WorkbenchCard({
 
   useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
 
-  function setActionMenuOpen(open: boolean) {
-    onActionMenuOpenChange(open)
-    if (!open) {
-      window.requestAnimationFrame(() => {
-        if (actionMenuTriggerRef.current?.isConnected) actionMenuTriggerRef.current.focus()
-      })
-    }
-  }
-
   async function copySummary() {
     window.clearTimeout(copyNoticeTimer.current)
     try {
@@ -187,7 +173,6 @@ export function WorkbenchCard({
     } catch {
       setCopyNotice('复制失败，请手动复制')
     }
-    setActionMenuOpen(false)
     copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(''), 2800)
   }
 
@@ -196,6 +181,31 @@ export function WorkbenchCard({
     if (event.target.closest('a, button, input, select, textarea, [role="button"], [data-card-actions]')) return
     onToggleExpanded()
   }
+
+  const hoverActions = sourceOverview ? null : <div
+    data-card-hover-actions
+    data-card-actions
+    className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-xl border border-separator bg-surface-secondary/95 p-1 shadow-sm backdrop-blur-sm transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:pointer-events-none pointer-fine:opacity-0 pointer-fine:group-hover/card:pointer-events-auto pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:pointer-events-auto pointer-fine:group-focus-within/card:opacity-100 motion-reduce:transition-none"
+  >
+    <Tooltip delay={500}>
+      <TooltipTriggerButton
+        className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+        aria-label={`复制摘要 ${cardLabel}`}
+        onClick={() => void copySummary()}
+      ><Icons.Copy size={15} aria-hidden="true" /></TooltipTriggerButton>
+      <Tooltip.Content {...bottomAnchoredTooltipProps}>复制摘要</Tooltip.Content>
+    </Tooltip>
+    <Tooltip delay={500}>
+      <TooltipTriggerButton
+        className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+        disabled={readonly}
+        aria-label={`${card.userState.dismissed ? '取消忽略' : '忽略'} ${cardLabel}`}
+        onClick={() => onItemAction(!card.userState.dismissed)}
+      ><Icons.EyeOff size={15} aria-hidden="true" /></TooltipTriggerButton>
+      <Tooltip.Content {...bottomAnchoredTooltipProps}>{card.userState.dismissed ? '取消忽略' : '忽略这条内容'}</Tooltip.Content>
+    </Tooltip>
+    {copyNotice && <span role="status" aria-live="polite" className="sr-only">{copyNotice}</span>}
+  </div>
 
   return <Card
     data-testid="workbench-card"
@@ -207,18 +217,18 @@ export function WorkbenchCard({
     variant="secondary"
     className={sourceOverview
       ? 'group/card w-full gap-0 rounded-none border-0 bg-transparent p-0 shadow-none'
-      : 'group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none'}
+      : 'group/card relative w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none'}
     onClick={handleCardClick}
   >
     {canToggleExpansion
       ? showCompactMedia && mediaPreview
         ? <div
           data-card-media-layout="compact"
-          className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${sourceOverview ? 'px-0 pt-2' : 'px-[19px] pt-[18px]'}`}
+          className={`pointer-events-none grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${sourceOverview ? 'px-0 pt-2' : 'px-[19px] pt-[18px]'}`}
         >
           <button
             type="button"
-            className="min-w-0 cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            className="pointer-events-auto min-w-0 cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
             aria-label={`打开详情 ${cardLabel}`}
             aria-controls={detailsId}
             aria-expanded={false}
@@ -229,7 +239,7 @@ export function WorkbenchCard({
             data-testid="card-media-stack"
             data-stack-depth={mediaStackDepth}
             aria-label={mediaPreviewActionLabel}
-            className="group/media relative block min-h-11 min-w-11 shrink-0 pb-[6px] pr-[6px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:scale-95 motion-reduce:transform-none"
+            className={`group/media pointer-events-auto relative block min-h-11 min-w-11 shrink-0 pb-[6px] pr-[6px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:scale-95 motion-reduce:transform-none ${sourceOverview ? '' : 'mt-10 pointer-coarse:mt-12'}`}
             onClick={(event) => onOpenMedia(0, event.currentTarget)}
           >
             {mediaStackDepth >= 2 && <span
@@ -245,7 +255,7 @@ export function WorkbenchCard({
             <span
               aria-hidden="true"
               data-card-media-stack-front
-              className="relative z-10 block aspect-[4/3] w-[clamp(72px,15vw,88px)] overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default transition-colors duration-[var(--inteliscope-motion-standard)] group-hover/media:border-border motion-reduce:transition-none"
+              className="relative block aspect-[4/3] w-[clamp(72px,15vw,88px)] overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default transition-colors duration-[var(--inteliscope-motion-standard)] group-hover/media:border-border motion-reduce:transition-none"
             >
               <img
                 className="size-full object-contain"
@@ -340,6 +350,7 @@ export function WorkbenchCard({
       </Tooltip>}
       <div
         data-card-actions
+        data-card-footer-actions
         className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100"
       >
         {externalUrl && <Tooltip delay={600}>
@@ -375,35 +386,9 @@ export function WorkbenchCard({
           <Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" />
           <span>{inContext ? `已加入 ${contextCount}/8` : '问 Agent'}</span>
         </button>
-        <Popover isOpen={actionMenuOpen} onOpenChange={setActionMenuOpen}>
-          <Popover.Trigger
-            ref={actionMenuTriggerRef}
-            aria-label={`更多操作 ${cardLabel}`}
-            title="复制摘要或忽略这条内容"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-          ><Icons.MoreHorizontal size={16} aria-hidden="true" /></Popover.Trigger>
-          <Popover.Content placement="top end" offset={6} className="z-40 min-w-36 p-0">
-            <Popover.Dialog aria-label={`${cardLabel} 更多操作`} className="grid gap-1 p-1">
-              <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus" onClick={() => void copySummary()}>
-                <Icons.Copy size={14} aria-hidden="true" />复制摘要
-              </button>
-              <button
-                disabled={readonly}
-                type="button"
-                className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40"
-                onClick={() => {
-                  setActionMenuOpen(false)
-                  onItemAction(!card.userState.dismissed)
-                }}
-              >
-                <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
-              </button>
-            </Popover.Dialog>
-          </Popover.Content>
-        </Popover>
-        {copyNotice && <span role="status" aria-live="polite" className="sr-only">{copyNotice}</span>}
       </div>
     </Card.Footer>}
+    {hoverActions}
   </Card>
 }
 
@@ -434,7 +419,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
   const [newItemCount, setNewItemCount] = useState(0)
-  const [openActionCardId, setOpenActionCardId] = useState<string | null>(null)
   const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null)
   const mediaTriggerRef = useRef<HTMLButtonElement | null>(null)
   const terminalEnabled = Boolean(props.terminal)
@@ -822,7 +806,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
               inContext={props.contextIds.includes(card.id)}
               contextFull={props.contextIds.length >= 8}
               contextCount={props.contextIds.length}
-              actionMenuOpen={openActionCardId === card.id}
               detailLoading={card.id === props.expandedId && props.detailLoading}
               detailError={card.id === props.expandedId && props.detailError}
               readonly={props.readonly}
@@ -831,7 +814,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
               onToggleContext={() => props.onToggleContext(card)}
-              onActionMenuOpenChange={(open) => setOpenActionCardId(open ? card.id : null)}
               onItemAction={(dismissed) => props.onItemAction(card.id, dismissed)}
               onOpenMedia={(index, trigger) => openMediaViewer(card, index, trigger)}
             />
