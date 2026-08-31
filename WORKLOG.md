@@ -8,29 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "完成 ActorOps 候选质量与第二阶段可用性闭环：商城最多召回 80 条并检查 20 个 exact Revision 以补足 5 个相关候选；缺 Output Schema 通过 global 35 私有 InputPlan 进入受控单 Run 样本适配；仅 observed Manifest、当前 Binding 真实证明、最终费用及健康状态齐备时投影 system_usable，UI 按四类候选分组且静态结果不再显示为可替换。",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-stage2-usability",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 全域 Pytest（actorops、worker、migration）通过；缺 Schema 集成用例证明远端启动数始终为 1，适配失败不记为 Actor 故障。",
-    "ActorOps 前端 Vitest 10 文件 46 项、TypeScript、ESLint 与代码尺寸硬门通过。",
-    "独立本地端口 18089/15189 验证 API live/ready、OpenAPI、Vite 页面及 API 代理；未操作浏览器、未启动 Worker、未重建容器、未部署 VPS。",
-    "impacted preflight：15/15 commands passed。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -384,6 +361,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Apify Catalog、Discovery、Discovery AI 与 Worker 定向 Pytest 67 项通过；更新日志 Vitest 5 项通过。",
     "impacted preflight 14/14 通过，后端、前端、控制文件、代码尺寸、语法与构建检查全部成功。",
     "实现与验证未启动新的 Apify Actor Run，README 原文、账户对象、目标和密钥均未持久化或进入 AI。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-08-31",
+  "result": "将 ActorOps 当前账户套餐适配排序合入本地 main，并整理为 v2.6.4 发布版本；FREE API、Demo、月运行和监控受限 Actor 会在兼容候选之后参与既有质量排序。",
+  "status": "completed",
+  "task_id": "2026-08-31-release-v2-6-4",
+  "unresolved": [],
+  "validation": [
+    "Apify Catalog、Discovery、Discovery AI 与 Worker 定向 Pytest 67 项通过，更新日志 Vitest 5 项通过。",
+    "功能分支 impacted preflight 14/14 通过；版本与 uv lock 已同步为 2.6.4，未增加数据库迁移或付费 Actor 调用。"
   ]
 }
 ```
