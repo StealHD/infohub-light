@@ -174,6 +174,7 @@ class ActorOpsDiscovery:
                 "query_hits": match.query_hits,
                 "catalog_rank": int(stored_rank),
             })
+        refs.sort(key=candidate_quality_key)
         self._checkpoint(
             row, status=DiscoveryStatus.RUNNING, stage=DiscoveryStage.VALIDATION,
             cursor=self._cursor(
@@ -191,7 +192,9 @@ class ActorOpsDiscovery:
             # ID, while comparing the public revision without that scope.
             ref = {**raw_ref, "route_id": str(row["route_id"])}
             revision = await self.catalog.get_revision(str(ref["actor_id"]))
-            if self._revision_ref(revision) != self._revision_identity(ref):
+            if self._revision_identity(
+                self._revision_ref(revision)
+            ) != self._revision_identity(ref):
                 rejected.append(self._rejection(ref, "actorops_discovery_revision_changed"))
             elif not self._valid_revision(revision, cap):
                 rejected.append(self._rejection(ref, "actorops_discovery_validation_rejected"))
@@ -215,7 +218,9 @@ class ActorOpsDiscovery:
         for raw_ref in state["refs"]:
             ref = {**raw_ref, "route_id": str(row["route_id"])}
             revision = await self.catalog.get_revision(str(ref["actor_id"]))
-            if self._revision_ref(revision) != self._revision_identity(ref):
+            if self._revision_identity(
+                self._revision_ref(revision)
+            ) != self._revision_identity(ref):
                 descriptors.append(self._rejection(ref, "actorops_discovery_revision_changed"))
                 continue
             if not _usable_output_schema(revision.output_schema):
@@ -568,6 +573,8 @@ class ActorOpsDiscovery:
             "actor_id": revision.actor_id, "publisher": revision.publisher,
             "build_id": revision.build_id, "build_number": revision.build_number,
             "price_per_run_usd": revision.price_per_run_usd,
+            "account_fit_rank": revision.account_fit_rank,
+            "account_fit_reason": revision.account_fit_reason,
             "input_schema_hash": ActorOpsDiscovery._hash_value(revision.input_schema),
             "output_schema_hash": ActorOpsDiscovery._hash_value(revision.output_schema),
         }
@@ -606,6 +613,7 @@ class ActorOpsDiscovery:
                 "route_id", "catalog_rank", "total_users", "rating",
                 "review_count", "bookmark_count", "query_hits",
                 "display_name", "short_description",
+                "account_fit_rank", "account_fit_reason",
             }
         }
 

@@ -5,9 +5,17 @@ import hashlib
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
-from src.services.actorops.apify_catalog import ApifyDiscoveryCatalog
+from src.services.actorops.account_fit import (
+    ACCOUNT_FIT_INCOMPATIBLE,
+    actor_account_fit,
+)
+from src.services.actorops.apify_catalog import (
+    ApifyDiscoveryCatalog,
+    ApifyStoreRestClient,
+)
 from src.services.actorops.discovery import DiscoveryCatalogError
 from src.services.actorops.domain import AssignmentRole, CandidateLifecycle, CandidateRecord
 from src.services.actorops.ports import DiscoveryActorMatch
@@ -50,6 +58,9 @@ class _Metadata:
             "datasetSchema": {"properties": {"id": {"type": "string"}}},
         }
 
+    async def get_account_tier(self):
+        return "UNKNOWN"
+
 
 def test_apify_catalog_reads_only_public_actor_build_metadata() -> None:
     catalog = ApifyDiscoveryCatalog(_Metadata())
@@ -72,6 +83,93 @@ def test_apify_catalog_reads_only_public_actor_build_metadata() -> None:
     assert "run_actor" not in source
     assert ".abort" not in source
     assert "dataset_items" not in source
+
+
+def test_free_account_fit_detects_api_and_recurring_run_restrictions() -> None:
+    fit = actor_account_fit(
+        """
+        **Free users** are limited to **5 runs per month**, each capped at 10 items.
+        Free users also **cannot use the actor via API**.
+        **No monitoring** - don't run the same query repeatedly in short intervals.
+        """,
+        account_tier="FREE",
+    )
+
+    assert fit.rank == ACCOUNT_FIT_INCOMPATIBLE
+    assert fit.reason_code == "actorops_candidate_free_api_restricted"
+
+
+def test_paid_account_ignores_free_only_actor_restrictions() -> None:
+    fit = actor_account_fit(
+        "Free users cannot use this actor via API and get 10 items per run.",
+        account_tier="BRONZE",
+    )
+
+    assert fit.rank == 0
+    assert fit.reason_code is None
+
+
+def test_recurring_source_fit_demotes_monitoring_restriction_on_paid_plan() -> None:
+    fit = actor_account_fit(
+        "No monitoring - don't run the same query repeatedly in short intervals.",
+        account_tier="BRONZE",
+    )
+
+    assert fit.rank == ACCOUNT_FIT_INCOMPATIBLE
+    assert fit.reason_code == "actorops_candidate_monitoring_restricted"
+
+
+def test_apify_catalog_derives_safe_account_fit_from_build_readme() -> None:
+    class _FreeRestrictedMetadata(_Metadata):
+        async def get_account_tier(self):
+            return "FREE"
+
+        async def get_build(self, build_id):
+            build = dict(await super().get_build(build_id))
+            build["readme"] = (
+                "Users on the Free Plan can use the actor only in Demo Mode. "
+                "Free users cannot use the actor via API."
+            )
+            return build
+
+    revision = asyncio.run(
+        ApifyDiscoveryCatalog(_FreeRestrictedMetadata()).get_revision(
+            "publisher/actor"
+        )
+    )
+
+    assert revision.account_fit_rank == ACCOUNT_FIT_INCOMPATIBLE
+    assert revision.account_fit_reason == "actorops_candidate_free_api_restricted"
+    assert "Free users" not in repr(revision)
+
+
+def test_apify_store_client_reads_and_caches_account_tier() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert request.url.path == "/v2/users/me"
+        assert request.headers["Authorization"] == "Bearer private-token"
+        assert "token" not in request.url.params
+        return httpx.Response(
+            200,
+            json={"data": {"plan": {"tier": "FREE"}}},
+        )
+
+    async def read_twice() -> tuple[str, str]:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as client:
+            store = ApifyStoreRestClient(
+                "private-token",
+                base_url="https://api.apify.test/v2",
+                client=client,
+            )
+            return await store.get_account_tier(), await store.get_account_tier()
+
+    assert asyncio.run(read_twice()) == ("FREE", "FREE")
+    assert calls == 1
 
 
 def test_apify_catalog_accepts_public_build_act_id_ownership() -> None:

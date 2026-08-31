@@ -85,8 +85,10 @@ def match_cursor(value: DiscoveryActorMatch, *, rank: int) -> dict[str, object]:
 
 def candidate_quality_key(value: Mapping[str, object]) -> tuple[object, ...]:
     return (
+        min(2, _integer(value.get("account_fit_rank"))),
         _integer(value.get("catalog_rank")),
         str(value.get("publisher") or ""),
+        str(value.get("actor_id") or ""),
         str(value.get("candidate_id") or ""),
     )
 

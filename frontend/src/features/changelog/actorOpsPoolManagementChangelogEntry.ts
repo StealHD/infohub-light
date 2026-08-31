@@ -23,6 +23,15 @@ export const actorOpsPoolManagementChangelogEntry: ChangelogEntry = {
 
 export const actorOpsPoolManagementChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-08-31',
+    title: '免费套餐不兼容的 Actor 会自动后排',
+    summary: 'ActorOps 免费发现会结合当前 Apify 套餐和公开使用限制排序，避免高热度但禁止免费 API 或周期监控的 Actor 抢占候选名额。',
+    items: [
+      { title: '套餐适配优先于商城热度', description: '系统先判断当前套餐能否通过 API 持续运行该 Actor，再比较使用人数、评分和评价数；仅 Demo、限制免费月运行次数或禁止监控的 Actor 会排在兼容候选之后，不会因热度高成为优先项。' },
+      { title: '只读取公开规则且不产生费用', description: '判断只使用当前账户套餐、精确 Build 的公开说明和已有免费目录接口，不启动 Actor。公开说明原文、账户资料、目标和密钥不会写入候选、日志、AI 或浏览器。' },
+    ],
+  },
+  {
     date: '2026-08-25',
     title: 'Apify 主备切换不再被独立验证记录卡住',
     summary: '专用验证密钥的历史未知启动会保留审计并只读核验，但不会阻塞生产采集 Key 的安全排空与备用切换。',

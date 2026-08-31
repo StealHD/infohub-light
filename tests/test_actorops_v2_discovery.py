@@ -323,6 +323,68 @@ def test_discovery_merges_queries_then_keeps_highest_quality_actors(
     store.close()
 
 
+def test_discovery_demotes_account_restricted_actor_below_compatible_candidates(
+    tmp_path: Path,
+) -> None:
+    store, repository, _route_id = _repository(tmp_path)
+    restricted_id = "popular/restricted"
+    compatible_ids = [f"compatible/actor-{index}" for index in range(5)]
+    revisions = {
+        restricted_id: replace(
+            _revision(restricted_id),
+            account_fit_rank=2,
+            account_fit_reason="actorops_candidate_free_api_restricted",
+        ),
+        **{
+            actor_id: _revision(actor_id)
+            for actor_id in compatible_ids
+        },
+    }
+
+    class _AccountFitCatalog(_Catalog):
+        async def search(self, _query: str):
+            self.searches += 1
+            return (
+                DiscoveryActorMatch(
+                    restricted_id,
+                    total_users=1_000_000,
+                    rating=5.0,
+                    review_count=10_000,
+                ),
+                *(
+                    DiscoveryActorMatch(
+                        actor_id,
+                        total_users=1_000 - index,
+                        rating=4.0,
+                        review_count=10,
+                    )
+                    for index, actor_id in enumerate(compatible_ids)
+                ),
+            )
+
+    result = asyncio.run(
+        ActorOpsDiscovery(
+            repository,
+            build_default_registry(),
+            _AccountFitCatalog(revisions),
+        ).run("discovery-one")
+    )
+    rows = repository.connection.execute(
+        """SELECT candidate.actor_id
+             FROM actor_discovery_job_candidates_v2 AS link
+             JOIN actor_candidates_v2 AS candidate
+               ON candidate.workspace_id=link.workspace_id
+              AND candidate.candidate_id=link.candidate_id
+            WHERE link.discovery_id='discovery-one'
+            ORDER BY link.rank"""
+    ).fetchall()
+
+    assert result.status == "completed"
+    assert [str(row["actor_id"]) for row in rows] == compatible_ids
+    assert restricted_id not in {str(row["actor_id"]) for row in rows}
+    store.close()
+
+
 def test_wrong_store_types_do_not_consume_revision_or_route_slots(
     tmp_path: Path,
 ) -> None:

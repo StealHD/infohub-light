@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
+from .account_fit import actor_account_fit, normalize_account_tier
 from .apify_dataset_views import row_schema_from_dataset_views
 from .discovery import DiscoveryCatalogError
 from .ports import DiscoveryActorMatch, DiscoveryRevision, ProbePreflightResult
@@ -22,6 +23,8 @@ class ApifyStoreMetadata(Protocol):
     async def get_actor(self, actor_id: str) -> Mapping[str, Any]: ...
 
     async def get_build(self, build_id: str) -> Mapping[str, Any]: ...
+
+    async def get_account_tier(self) -> str: ...
 
 
 class ApifyStoreRestClient:
@@ -45,6 +48,7 @@ class ApifyStoreRestClient:
         self._base_url = base_url.rstrip("/")
         self._client = client
         self._timeout = timeout_seconds
+        self._account_tier: str | None = None
 
     async def search_store(self, query: str) -> Sequence[Mapping[str, Any]]:
         payload = await self._get(
@@ -72,6 +76,14 @@ class ApifyStoreRestClient:
 
     async def get_build(self, build_id: str) -> Mapping[str, Any]:
         return _unwrap(await self._get(f"/actor-builds/{quote(build_id, safe='')}"))
+
+    async def get_account_tier(self) -> str:
+        if self._account_tier is None:
+            account = _unwrap(await self._get("/users/me"))
+            plan = account.get("plan")
+            raw_tier = plan.get("tier") if isinstance(plan, Mapping) else None
+            self._account_tier = normalize_account_tier(raw_tier)
+        return self._account_tier
 
     async def _get(
         self, path: str, *, params: Mapping[str, Any] | None = None
@@ -190,11 +202,15 @@ class ApifyDiscoveryCatalog:
                 raise DiscoveryCatalogError(
                     "actorops_discovery_revision_changed", retryable=False
                 )
+            account_tier = await _account_tier(self.metadata)
         except DiscoveryCatalogError:
             raise
         except Exception as error:
             raise _catalog_error(error) from error
         input_schema, output_schema = _schemas(build)
+        account_fit = actor_account_fit(
+            build.get("readme"), account_tier=account_tier
+        )
         publisher = _publisher(actor, actor_id)
         if not publisher:
             raise DiscoveryCatalogError("actorops_discovery_publisher_invalid", retryable=False)
@@ -206,6 +222,8 @@ class ApifyDiscoveryCatalog:
             price_per_run_usd=_price(actor),
             input_schema=input_schema,
             output_schema=output_schema,
+            account_fit_rank=account_fit.rank,
+            account_fit_reason=account_fit.reason_code,
         )
 
     async def verify_candidate(
@@ -290,6 +308,13 @@ class ApifyDiscoveryCatalog:
 def _catalog_error(error: Exception) -> DiscoveryCatalogError:
     code = str(getattr(error, "code", "actorops_discovery_catalog_unavailable"))
     return DiscoveryCatalogError(code[:96], retryable=bool(getattr(error, "retryable", True)))
+
+
+async def _account_tier(metadata: object) -> str:
+    reader = getattr(metadata, "get_account_tier", None)
+    if not callable(reader):
+        return "UNKNOWN"
+    return normalize_account_tier(await reader())
 
 
 def _actor_id(value: Mapping[str, Any]) -> str | None:

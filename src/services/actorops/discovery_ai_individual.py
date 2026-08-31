@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+from .discovery_search import candidate_quality_key
 from .ports import (
     DiscoveryAiMapper,
     DiscoveryAiResult,
@@ -141,13 +142,13 @@ def _route_candidate(item: dict[str, object]) -> bool:
     )
 
 
-def _rank(item: dict[str, object]) -> int:
-    return int(item.get("catalog_rank") or 0)
+def _rank(item: dict[str, object]) -> tuple[object, ...]:
+    return candidate_quality_key(item)
 
 
 def _route_cutoff_rank(
     items: Sequence[dict[str, object]], max_route_candidates: int
-) -> int | None:
+) -> tuple[object, ...] | None:
     ranks = sorted(_rank(item) for item in items if _route_candidate(item))
     return (
         ranks[max_route_candidates - 1]

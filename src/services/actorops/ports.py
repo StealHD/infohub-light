@@ -49,6 +49,8 @@ class DiscoveryRevision:
     input_schema: Mapping[str, object]
     output_schema: Mapping[str, object]
     mapping_feedback: str | None = None
+    account_fit_rank: int = 0
+    account_fit_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
