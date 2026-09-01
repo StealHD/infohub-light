@@ -89,7 +89,18 @@ export const socialChannelDedupChangelogEntry = {
   summary: '重复分类只显示一次，复制和忽略也可在卡片上直接完成，不再需要展开更多菜单。',
   items: [
     { title: '朋友动态只显示一次', description: '类似“朋友动态”的来源名称与频道重复时，不再同时占用顶部来源行和底部分类；真实账号名称与来源平台保持可见。' },
-    { title: '悬停即可复制或忽略', description: '鼠标移到卡片时，右上角会显示复制摘要和忽略图标；移到图标上会说明用途，键盘与触屏也保留可访问的操作入口。' },
+    { title: '悬停即可复制或忽略', description: '鼠标移到卡片时，右上角会以与卡片底部一致的无外框图标样式显示复制摘要和忽略；复制成功后图标会短暂变为勾并显示“已复制”，键盘与触屏也保留可访问的操作入口。' },
+    { title: '展开内容更稳定', description: '展开和收起按钮点击时保持固定尺寸，避免按钮缩放与内容展开动画叠加造成视觉抖动。' },
+  ],
+} satisfies ChangelogEntry
+
+export const existingSourceSubscriptionReuseChangelogEntry = {
+  date: '2026-09-01',
+  title: '订阅已有来源会立即显示近期内容',
+  summary: '新用户订阅工作区已有来源时，会复用该来源已获取的中性内容，不必等待下一次抓取。',
+  items: [
+    { title: '来源缓存也可用于回填', description: '即使没有其他用户的完整信息流记录，只要工作区已获取过该来源，订阅后就会把可用内容投影到新用户的信息流，并继续遵守近 7 天窗口。' },
+    { title: '托管来源准备中也不再空白', description: 'YouTube、X、Instagram 等托管来源在绑定启用前，会先复用已有安全内容；后续抓取仍按正常启用状态执行。' },
   ],
 } satisfies ChangelogEntry
 

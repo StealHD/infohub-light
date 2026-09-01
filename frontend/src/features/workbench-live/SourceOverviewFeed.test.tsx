@@ -110,6 +110,8 @@ describe('SourceOverviewFeed', () => {
     expect(expandMarker).toHaveAttribute('data-expand-trigger')
     expect(expandMarker).toHaveAttribute('aria-controls', 'card-details-a-detail')
     expect(expandMarker).toHaveAttribute('aria-expanded', 'false')
+    expect(expandMarker).toHaveClass('size-8', 'shrink-0')
+    expect(expandMarker).not.toHaveClass('active:scale-95')
     await browser.click(expandMarker)
     expect(onToggleExpanded).toHaveBeenLastCalledWith('a-detail')
     expect(screen.queryByRole('button', { name: '收藏 标题 a-detail' })).not.toBeInTheDocument()

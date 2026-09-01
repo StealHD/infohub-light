@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Mapping
 from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from .content_presentation import complete_content_presentation
 from .feed_snapshot_runtime import compact_feed_snapshots_enabled
-from .media_cache import MediaCacheService
 from .source_projection import (
     TargetSubscriptionProjection,
     target_subscription_projection,
@@ -599,128 +598,23 @@ class UserFeedStore:
         source_id: str,
         subscription_id: str,
         limit: int = 200,
+        allow_disabled_source: bool = False,
         commit: bool = True,
     ) -> dict[str, Any]:
         """Seed a subscriber Feed from already indexed shared-source content."""
 
-        source = self.store.get_source(source_id)
-        subscription = self.store.get_subscription(subscription_id)
-        user = self.store.get_user(user_id)
-        if (
-            source is None
-            or subscription is None
-            or user is None
-            or source.get("workspace_id") != workspace_id
-            or user.get("workspace_id") != workspace_id
-            or subscription.get("user_id") != user_id
-            or subscription.get("source_id") != source_id
-            or not bool(subscription.get("enabled"))
-            or not bool(source.get("enabled"))
-            or (
-                source.get("scope") == "private"
-                and source.get("owner_user_id") != user_id
-            )
-        ):
-            return {"reused_count": 0, "snapshot": None}
-        projection = _reuse_projection(
-            source=source,
-            subscription=subscription,
-        )
-        avatar = MediaCacheService(
-            self.store,
-            data_dir=self.store.data_dir,
-        ).avatar_for_source(
-            workspace_id=workspace_id,
-            source_id=source_id,
-        )
-        source_avatar_url = (
-            f"/api/media/{avatar['id']}" if avatar is not None else ""
-        )
-        reused_at = _now_iso()
-        rows = self.store.connect().execute(
-            """
-            SELECT item_json, source_native_title, body_text, body_truncated,
-                   body_completeness, unresolved_reason, first_seen_at,
-                   last_seen_at, article_id
-            FROM user_content_items
-            WHERE workspace_id = ? AND source_id = ?
-            ORDER BY last_seen_at DESC, first_seen_at DESC, id DESC
-            LIMIT ?
-            """,
-            (workspace_id, source_id, max(1, min(int(limit), 1000))),
-        ).fetchall()
-        reused: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for row in rows:
-            article_id = str(row["article_id"])
-            if article_id in seen_ids:
-                continue
-            source_native_title = str(
-                row["source_native_title"] or ""
-            ).strip()
-            if not source_native_title:
-                continue
-            item = _json_loads(row["item_json"], {})
-            if not isinstance(item, dict):
-                continue
-            seen_ids.add(article_id)
-            reused.append(
-                _neutral_reuse_item(
-                    donor=item,
-                    article_id=article_id,
-                    source_native_title=source_native_title,
-                    row=row,
-                    projection=projection,
-                    source_avatar_url=source_avatar_url,
-                    reused_at=reused_at,
-                )
-            )
-        if not reused:
-            return {"reused_count": 0, "snapshot": None}
+        from .source_content_reuse import reuse_source_content
 
-        latest = self.latest_snapshot(workspace_id=workspace_id, user_id=user_id)
-        existing_items = _list((latest or {}).get("payload", {}).get("items"))
-        merged_by_id: dict[str, dict[str, Any]] = {}
-        order: list[str] = []
-        for original in [*existing_items, *reused]:
-            if not isinstance(original, dict) or not original.get("id"):
-                continue
-            article_id = str(original["id"])
-            if article_id not in merged_by_id:
-                merged_by_id[article_id] = deepcopy(original)
-                order.append(article_id)
-                continue
-            current = merged_by_id[article_id]
-            for plural, singular, incoming in (
-                ("source_ids", "source_id", source_id),
-                ("subscription_ids", "subscription_id", subscription_id),
-            ):
-                values = [
-                    str(value)
-                    for value in [*(_list(current.get(plural))), current.get(singular), incoming]
-                    if value
-                ]
-                current[plural] = list(dict.fromkeys(values))
-                current[singular] = current[plural][0]
-        generated_at = _now_iso()
-        payload = deepcopy((latest or {}).get("payload") or {})
-        payload.update(
-            {
-                "schema_version": max(2, int(payload.get("schema_version") or 2)),
-                "generated_at": generated_at,
-                "run_id": f"source-reuse:{source_id}:{user_id}:{generated_at}",
-                "run_status": "succeeded",
-                "items": [merged_by_id[article_id] for article_id in order],
-            }
-        )
-        snapshot = self.save_snapshot(
+        return reuse_source_content(
+            self,
             workspace_id=workspace_id,
             user_id=user_id,
-            job_id=None,
-            payload=payload,
+            source_id=source_id,
+            subscription_id=subscription_id,
+            limit=limit,
+            allow_disabled_source=allow_disabled_source,
             commit=commit,
         )
-        return {"reused_count": len(reused), "snapshot": snapshot}
 
     def save_run_snapshot(
         self,

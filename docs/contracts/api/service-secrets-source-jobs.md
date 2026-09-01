@@ -43,7 +43,7 @@ Source catalog 规则：
 8. API 使用 Pydantic field-set 信息，storage 使用私有 sentinel，确保 omission/null/空列表语义不会在入口到 SQLite 的传递中丢失；读取既有 subscription 时继续返回整数 priority。
 9. `GET /api/catalog/sources?include_disabled=true` 只允许 `owner/admin`；`member/viewer` 返回 `403 forbidden`。管理权限检查不得依赖来源是否 enabled，普通成员取消订阅必须使用自己的 subscription id，即使 catalog source 已停用也可完成。
 10. 启用订阅时，100 条默认上限的检查与 subscription upsert 必须处于同一个 `BEGIN IMMEDIATE`；并发请求最多一个越过最后名额。任务 retry 的重新排队、配额检查和 usage 写入也必须同事务提交或回滚。
-11. private source 提升为 workspace/public 时只改变 catalog 管理边界并把该来源的共享媒体投影为 workspace/public；不重新抓取、不批量重写历史 snapshot。新订阅者从 `user_content_items` 复用最多 200 条去重稳定内容，重写为自己的 subscription provenance 并创建自己的 Feed snapshot。
+11. private source 提升为 workspace/public 时只改变 catalog 管理边界并把该来源的共享媒体投影为 workspace/public；不重新抓取、不批量重写历史 snapshot。新订阅者优先从 `user_content_items` 复用最多 200 条去重稳定内容；没有安全用户供体时可回退读取同 workspace 的中性 `source_content_items`，重写为自己的 subscription provenance 并创建自己的 Feed snapshot，不调用网络或 AI。托管来源处于订阅后本地 Binding 对账的准备状态时，也必须先完成该零网络复用。
 12. 来源引用人数不得成为 catalog 列表的常驻聚合查询；客户端只在用户展开引用信息时调用 usage 接口。shared source 的最后一个普通订阅者取消订阅不软停用 catalog，只有最后一个 private owner 取消订阅时防御性软停用僵尸来源。
 13. 池模式下 Apify source 的公开 `secret_configured` 只表示当前 active 池成员在 `SecretStore` 中有值；不得从 legacy `source_catalog.secret_env` 推断。配置兼容 facade、catalog runner、`source_test`、`source_fetch` 与 `user_feed_refresh` 必须使用同一个 workspace pool coordinator。
 

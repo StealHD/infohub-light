@@ -7,56 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-08-30",
-  "result": "校准 ActorOps 最终 Route 卡在 macOS 与 Linux 的三视口视觉基线，覆盖不可用状态、故障 Candidate、双备用槽与统一管理操作，解除 v2.6.0 main Gate 的旧快照阻断；未改产品运行逻辑。",
-  "status": "completed",
-  "task_id": "2026-08-30-actorops-route-card-release-baselines",
-  "unresolved": [],
-  "validation": [
-    "GitHub main Gate 的 backend-full 与 frontend-full 通过，UI E2E 仅三张 ActorOps Linux 旧快照失败。",
-    "人工核对 macOS 与 Linux actual 均为当前统一管理 Route 卡；失败视觉测试本地 3/3 通过。",
-    "完整 ActorOps Playwright spec 本地 13 passed、2 skipped。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-30",
-  "result": "消除生产管理 E2E 在桌面侧栏展开动画期间强制滚动并误点击文档菜单的竞态；验收等待侧栏达到最终 232px 几何后再验证菜单。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-sidebar-menu-gate-stability",
-  "unresolved": [],
-  "validation": [
-    "GitHub main Gate trace 确认点击时侧栏仍由 72px 向 232px 过渡且 footer 被水平滚动。",
-    "桌面账户与文档菜单 Playwright 场景并发重复 20 次，20/20 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将 ActorOps 头像证据从 Instagram 专用路径收敛为 proof 与 source 绑定的通用 sidecar，X 与其他可信来源可在正常获取及 acquisition cache 命中时静默更新当前头像；成功任务会刷新 Catalog 头像而不新增外部调用。",
-  "status": "completed",
-  "task_id": "2026-08-30-source-avatar-auto-refresh",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 直接传递与 acquisition cache 回放定向 Pytest 8 项通过；头像 checksum、24 小时复核、失败保旧与事务清理相关 Pytest 19 项通过。",
-    "任务终态、头像 immutable URL 与 changelog 定向 Vitest 26 项通过，TypeScript 类型检查通过。",
-    "snapshot impacted preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与隔离 E2E，SQLite 连接警告为 0。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "interface",
     "ui"
@@ -93,23 +43,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-29",
-  "result": "按订阅页 command bar 统一 ActorOps 路由/日志切换，移除顶部说明，将路线模式并入标题行，并把底部事实与操作按左右/移动端上下布局重新对齐。",
-  "status": "completed",
-  "task_id": "2026-08-29-actorops-subscription-ui-alignment",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 与页面定向 Vitest 14 项、TypeScript 和 ESLint 通过。",
-    "ActorOps Playwright 三视口规格 13 项通过、2 项按范围跳过，并更新三端视觉基线。",
-    "snapshot impacted preflight 12/12 命令通过；本地浏览器确认无横向溢出。"
-  ]
-}
-```
 
 ```json
 {
@@ -371,6 +304,86 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "VirtualFeed、来源概览、模型、更新日志等定向 Vitest 71 项通过；失败的 App 忽略/撤销用例更新后单独复验通过。",
     "真实已登录本地页面完成悬浮、命中区域和提示文本检查；Playwright 在 320、390、645、1024、1440px 五档全部通过。",
     "snapshot impacted preflight 12/12 通过，覆盖 frontend_full、control、694 个前端测试、类型、Lint、UI 契约与代码尺寸检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-31",
+  "result": "移除 Feed 卡片右上角复制/忽略操作组的独立描边、背景、圆角、阴影和模糊面板，统一复用右下角无外框图标操作组的视觉处理，单个图标仍保留共享悬浮反馈和说明。",
+  "status": "completed",
+  "task_id": "2026-08-31-feed-card-action-visual-unity",
+  "unresolved": [
+    "代码保留在 codex/fix-youtube-source-label 工作区，等待用户明确授权提交。"
+  ],
+  "validation": [
+    "VirtualFeed 与更新日志定向 Vitest 42 项通过；TypeScript、ESLint 和 UI 契约检查通过。",
+    "已登录本地页面实测无外层面板且复制摘要 Tooltip 正常；320、390、645、1024、1440px Playwright 5/5 通过，并比较上下操作组计算样式一致。",
+    "snapshot impacted preflight 12/12 通过，覆盖 frontend_full、control、全量前端测试、代码尺寸与控制文件检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-01",
+  "result": "修复 Feed 文章展开/收起时按钮按压缩放与内容展开动画叠加造成的视觉抖动；时间流与专题速览共用的展开控件在点击期间保持固定几何尺寸，同时保留内容过渡和滚动锚点。",
+  "status": "completed",
+  "task_id": "2026-09-01-feed-expand-press-jitter",
+  "unresolved": [
+    "代码保留在 codex/fix-youtube-source-label 工作区，等待用户明确授权提交。"
+  ],
+  "validation": [
+    "VirtualFeed、SourceOverviewFeed 与更新日志定向 Vitest 48/48 通过；TypeScript 与 UI 契约检查通过。",
+    "专题速览真实指针 Playwright 1/1 通过，按下时 transform 为 none 且按钮宽高位移不超过 0.5px；已登录本地页面完成展开视觉复验。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-01",
+  "result": "Feed 卡片复制摘要现在提供即时视觉反馈：成功后图标临时变为勾并在上方显示“已复制”，失败时保留复制图标并显示“复制失败”，2.8 秒后恢复空闲状态；屏幕阅读器状态继续保留。",
+  "status": "completed",
+  "task_id": "2026-09-01-feed-copy-feedback",
+  "unresolved": [
+    "代码保留在 codex/fix-youtube-source-label 工作区，等待用户明确授权提交。"
+  ],
+  "validation": [
+    "VirtualFeed 与更新日志定向 Vitest 42/42 通过；TypeScript、ESLint、UI 契约与代码尺寸检查通过。",
+    "已登录本地页面实测勾选、上方“已复制”和自动恢复；桌面 Playwright 2/2 通过，验证反馈位置、图标及 2.8 秒复位。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-09-01",
+  "result": "修复新用户订阅已有 workspace/public 来源后近 7 天 Feed 为空：可证明 title_origin=native 的旧稳定条目不再因缺 source_native_title 被跳过，没有安全用户供体时回退到同 workspace 中性来源缓存；托管来源准备启用时也先完成零网络目标订阅投影。",
+  "status": "completed",
+  "task_id": "2026-09-01-existing-source-new-subscriber-reuse",
+  "unresolved": [
+    "尚未部署或修改 VPS；修复保留在 codex/fix-youtube-source-label 工作区，等待用户确认后续合入与发布。"
+  ],
+  "validation": [
+    "新增合成回归覆盖来源缓存无用户供体、托管来源暂时停用、旧条目缺 source_native_title 但原始标题可证明三条路径，定向 Pytest 7/7 通过。",
+    "既有订阅复用、API、Feed Store 与 import boundary 回归 35 项通过；本地真实数据库只读聚合确认 235 条旧记录中 176 条具备可信 native title 证明。",
+    "snapshot full preflight 16/16 通过，覆盖完整后端、前端、控制检查、代码尺寸和映射 E2E，SQLite 连接警告为 0。"
   ]
 }
 ```

@@ -20,6 +20,7 @@ import { clampPendingNavigation, type PendingNavigation } from './workbenchNavig
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
 import { workbenchMediaLabels, workbenchTimelineLabel } from './workbenchCardPresentation'
+import { CopySummaryAction } from './CopySummaryAction'
 import { useMeasuredClampOverflow } from './useMeasuredClampOverflow'
 
 type VirtualFeedProps = {
@@ -110,8 +111,6 @@ export function WorkbenchCard({
   const socialText = expanded ? card.detailBody || card.primaryText : card.primaryText
   const cardLabel = social ? `${card.sourceLabel}: ${card.primaryText}` : card.title
   const sourceParts = workbenchSourceLabels(card)
-  const [copyNotice, setCopyNotice] = useState('')
-  const copyNoticeTimer = useRef<number | undefined>(undefined)
   const {
     overflow: measuredOverflow,
     primaryRef: measurePrimary,
@@ -162,20 +161,6 @@ export function WorkbenchCard({
       </>}
   </>
 
-  useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
-
-  async function copySummary() {
-    window.clearTimeout(copyNoticeTimer.current)
-    try {
-      if (typeof navigator.clipboard?.writeText !== 'function') throw new Error('Clipboard API unavailable')
-      await navigator.clipboard.writeText(social ? socialText : card.summary || card.title)
-      setCopyNotice('摘要已复制')
-    } catch {
-      setCopyNotice('复制失败，请手动复制')
-    }
-    copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(''), 2800)
-  }
-
   function handleCardClick(event: ReactMouseEvent<HTMLElement>) {
     if (!canToggleExpansion || !(event.target instanceof Element)) return
     if (event.target.closest('a, button, input, select, textarea, [role="button"], [data-card-actions]')) return
@@ -185,16 +170,9 @@ export function WorkbenchCard({
   const hoverActions = sourceOverview ? null : <div
     data-card-hover-actions
     data-card-actions
-    className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-xl border border-separator bg-surface-secondary/95 p-1 shadow-sm backdrop-blur-sm transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:pointer-events-none pointer-fine:opacity-0 pointer-fine:group-hover/card:pointer-events-auto pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:pointer-events-auto pointer-fine:group-focus-within/card:opacity-100 motion-reduce:transition-none"
+    className="absolute right-3 top-3 z-30 flex items-center gap-1 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:pointer-events-none pointer-fine:opacity-0 pointer-fine:group-hover/card:pointer-events-auto pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:pointer-events-auto pointer-fine:group-focus-within/card:opacity-100 motion-reduce:transition-none"
   >
-    <Tooltip delay={500}>
-      <TooltipTriggerButton
-        className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-        aria-label={`复制摘要 ${cardLabel}`}
-        onClick={() => void copySummary()}
-      ><Icons.Copy size={15} aria-hidden="true" /></TooltipTriggerButton>
-      <Tooltip.Content {...bottomAnchoredTooltipProps}>复制摘要</Tooltip.Content>
-    </Tooltip>
+    <CopySummaryAction label={cardLabel} text={social ? socialText : card.summary || card.title} />
     <Tooltip delay={500}>
       <TooltipTriggerButton
         className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
@@ -204,7 +182,6 @@ export function WorkbenchCard({
       ><Icons.EyeOff size={15} aria-hidden="true" /></TooltipTriggerButton>
       <Tooltip.Content {...bottomAnchoredTooltipProps}>{card.userState.dismissed ? '取消忽略' : '忽略这条内容'}</Tooltip.Content>
     </Tooltip>
-    {copyNotice && <span role="status" aria-live="polite" className="sr-only">{copyNotice}</span>}
   </div>
 
   return <Card
@@ -323,7 +300,7 @@ export function WorkbenchCard({
       {canToggleExpansion && <Tooltip delay={600}>
         <TooltipTriggerButton
           data-expand-trigger
-          className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+          className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
           aria-label={`${expanded ? '收起' : '展开'} ${cardLabel}`}
           aria-controls={detailsId}
           aria-expanded={expanded}
@@ -340,7 +317,7 @@ export function WorkbenchCard({
       {canToggleExpansion && <Tooltip delay={600}>
         <TooltipTriggerButton
           data-expand-trigger
-          className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+          className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
           aria-label={`${expanded ? '收起' : '展开'} ${cardLabel}`}
           aria-controls={detailsId}
           aria-expanded={expanded}

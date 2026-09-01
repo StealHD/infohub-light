@@ -35,7 +35,7 @@ Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_run
 
 `src/services/source_acquisition.py::SourceAcquisitionCoordinator` 是 Service 生产抓取共享的唯一边界。public/workspace source 只共享同 workspace 的规范化中性内容；private source 的 acquisition key 必须包含 user isolation。用户频道/主题/标签、priority、analysis mode、AI 分析、行为状态和 Feed snapshot 永远不进入共享池。key 还必须覆盖 source identity/type、规范化网络配置、adapter contract、secret-ref identity/version 与抓取窗口；Apify 池模式额外覆盖 pool generation，generation 变化后旧 owner 不得发布缓存。真实 secret 值不得入 key、表或诊断。
 
-`source_acquisition_states` 只负责 claim-token lease/backoff，`source_content_snapshots/items` 只负责成功内容（包括零条结果）。TTL 由相关启用 source/feed schedule 的最短周期派生并受 5..60 分钟边界约束；等待者不计上游 attempt，只有 claim winner 在实际调用前计量。`source_test` 共用同源互斥但绕过 production cache 且不写 content pool。该能力由 `HORIZON_SHARED_ACQUISITION_ENABLED` 控制并默认关闭，不改变公开 job type、API 异步边界或默认 API + Worker 拓扑。
+`source_acquisition_states` 只负责 claim-token lease/backoff，`source_content_snapshots/items` 只负责成功内容（包括零条结果）。TTL 由相关启用 source/feed schedule 的最短周期派生并受 5..60 分钟边界约束；等待者不计上游 attempt，只有 claim winner 在实际调用前计量。`source_test` 共用同源互斥但绕过 production cache 且不写 content pool。新用户订阅 workspace/public 来源且没有安全 `user_content_items` 供体时，可零网络读取该 workspace 中性内容池并按目标订阅重新投影；不得读取 private user isolation、复制其他用户 AI/行为字段或绕过 200 条上限。该能力由 `HORIZON_SHARED_ACQUISITION_ENABLED` 控制并默认关闭，不改变公开 job type、API 异步边界或默认 API + Worker 拓扑。
 
 ### 3.6E Canonical Feed Storage Boundary
 

@@ -72,12 +72,14 @@
         "frontend/src/features/workbench-heroui/**",
         "frontend/src/features/workbench-live/**",
         "frontend/e2e/desktop-sidebar-motion.spec.ts",
+        "frontend/e2e/feed-expand-motion.spec.ts",
         "frontend/e2e/heroui-workbench-preview.spec.ts",
         "frontend/e2e/production-workbench.spec.ts",
         "frontend/e2e/production-workbench.spec.ts-snapshots/**"
       ],
       "specs": [
         "e2e/desktop-sidebar-motion.spec.ts",
+        "e2e/feed-expand-motion.spec.ts",
         "e2e/heroui-workbench-preview.spec.ts",
         "e2e/production-workbench.spec.ts"
       ]
@@ -412,12 +414,14 @@
         "src/services/network_policy.py",
         "src/services/response_schema.py",
         "src/services/source_avatar.py",
+        "src/services/source_content_reuse.py",
         "src/services/source_projection.py",
         "src/services/source_summary.py",
         "src/services/user_analysis_cache.py",
         "src/services/user_feed_store.py",
         "src/services/worker_feed_handler.py",
-        "tests/test_feed_end_messages.py"
+        "tests/test_feed_end_messages.py",
+        "tests/test_shared_source_content_reuse.py"
       ],
       "groups": ["python_feed"]
     },

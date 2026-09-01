@@ -457,6 +457,8 @@ describe('VirtualFeed', () => {
     expect(expandButton.querySelector('.lucide-unfold-vertical')).not.toBeNull()
     expect(expandButton).toHaveAttribute('aria-controls', 'card-details-social-x')
     expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+    expect(expandButton).toHaveClass('size-8', 'shrink-0')
+    expect(expandButton).not.toHaveClass('active:scale-95')
     expect(expandZone).not.toContainElement(expandButton)
     expect(expandZone).not.toContainElement(actions)
 
@@ -502,6 +504,7 @@ describe('VirtualFeed', () => {
     const hoverActions = card.querySelector<HTMLElement>('[data-card-hover-actions]')
     if (!hoverActions) throw new Error('hover actions were not rendered')
     expect(hoverActions).toHaveClass('pointer-fine:opacity-0', 'pointer-fine:group-hover/card:opacity-100', 'pointer-fine:group-focus-within/card:opacity-100')
+    expect(hoverActions).not.toHaveClass('rounded-xl', 'border', 'bg-surface-secondary/95', 'p-1', 'shadow-sm', 'backdrop-blur-sm')
     expect(within(card).queryByRole('button', { name: /更多操作/ })).not.toBeInTheDocument()
 
     const copyButton = within(hoverActions).getByRole('button', { name: '复制摘要 信息 1' })
@@ -813,8 +816,12 @@ describe('VirtualFeed', () => {
     expect(within(card).getByRole('button', { name: '收藏 信息 1' })).toBeDisabled()
     expect(within(card).queryByRole('button', { name: /标记.*读/ })).not.toBeInTheDocument()
     expect(within(card).getByRole('button', { name: '忽略 信息 1' })).toBeDisabled()
-    await user.click(within(card).getByRole('button', { name: '复制摘要 信息 1' }))
+    const copyButton = within(card).getByRole('button', { name: '复制摘要 信息 1' })
+    await user.click(copyButton)
     expect(copy).toHaveBeenCalledWith('这是第 1 条摘要')
+    expect(copyButton).toHaveAttribute('data-copy-state', 'success')
+    expect(copyButton.querySelector('.lucide-check')).not.toBeNull()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('已复制')
     expect(await within(card).findByRole('status')).toHaveTextContent('摘要已复制')
   })
 
@@ -835,8 +842,12 @@ describe('VirtualFeed', () => {
     />)
 
     const card = await screen.findByRole('article', { name: '信息 1' })
-    await user.click(within(card).getByRole('button', { name: '复制摘要 信息 1' }))
+    const copyButton = within(card).getByRole('button', { name: '复制摘要 信息 1' })
+    await user.click(copyButton)
 
+    expect(copyButton).toHaveAttribute('data-copy-state', 'error')
+    expect(copyButton.querySelector('.lucide-copy')).not.toBeNull()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('复制失败')
     expect(await within(card).findByRole('status')).toHaveTextContent('复制失败，请手动复制')
   })
 

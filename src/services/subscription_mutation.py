@@ -1878,7 +1878,6 @@ class SubscriptionMutationService:
                 post_commit_cleanup=cleanup,
             )
         return updated
-
     # REST keeps administrator rights while sharing transactional lifecycle logic.
     def rest_create_subscription(
         self,
@@ -1940,6 +1939,7 @@ class SubscriptionMutationService:
                     user_id=actor.user_id,
                     source_id=source_id,
                     subscription_id=str(result["id"]),
+                    allow_disabled_source=allow_disabled_source,
                     commit=False,
                 )
                 reused_count = int(reused.get("reused_count") or 0)
