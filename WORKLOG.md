@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复 tibo/thsottiaux 回退头像未更新的本地验证链路：用最新成功 Attempt 的冻结 proof 与账号身份零启动回放当前 Dataset，生成新 immutable 头像资产；补充 A→B→A 回退缓存用例，并将 15173/18080/Worker 原生运行时切到头像修复工作树。",
-  "status": "completed",
-  "task_id": "2026-08-30-x-avatar-reversion-runtime-fix",
-  "unresolved": [],
-  "validation": [
-    "最新头像从 med_55f8ede…/b5d8… 更新为 med_5bdf262…/35e3…，文件落盘且 Feed 8 个 thsottiaux 条目均请求新 asset ID",
-    "X 实际字段、publication 与 A→B→A 回退相关 Pytest 44 项通过；冻结文件增长问题已移至新聚焦测试文件",
-    "精确基线 snapshot impacted preflight 16/16 通过；15173/18080 与受限原生 Worker 运行修复分支，无容器和新增 Actor Run"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-30",
@@ -383,6 +363,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并后的本地 main 为干净线性历史，功能修复 snapshot full preflight 16/16 通过。",
     "版本与 uv lock 同步为 2.6.6；版本准备 snapshot full preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与映射 E2E，SQLite 连接警告为 0。",
     "本次没有数据库 migration 文件或 schema delta，适用标准 revision-locked VPS 发布流程。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-01",
+  "result": "修复 v2.6.6 首次 main UI Gate 暴露的卡片交互回归：带缩略图卡片的复制/忽略按钮改为位于图片左侧并恢复顶部对齐，不再增加卡片高度；悬停交互测试在提示检查后重新激活卡片再点击。",
+  "status": "completed",
+  "task_id": "2026-09-01-release-v2-6-6-ui-gate-fix",
+  "unresolved": [],
+  "validation": [
+    "首次失败的 production-workbench 桌面 Playwright 7/7 通过，覆盖 320/390/645/1024/1440px 操作反馈及 1440x900 至少四张完整卡片。",
+    "VirtualFeed 定向 Vitest 37/37、TypeScript、UI 契约通过；snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与控制检查。"
   ]
 }
 ```

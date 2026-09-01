@@ -33,6 +33,8 @@ export async function expectCardHoverActions(page: Page, card: Locator) {
     await expect(tooltip).toBeHidden()
   }
   const copy = card.getByRole('button', { name: /复制摘要 / })
+  await card.hover()
+  await expect(actions).toHaveCSS('opacity', '1')
   await copy.click()
   await expect(copy).toHaveAttribute('data-copy-state', 'success')
   await expect(copy.locator('.lucide-check')).toBeVisible()

@@ -138,7 +138,7 @@ export function WorkbenchCard({
       {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
     </>
   const summaryContent = <>
-    {!sourceOverview && <span aria-label="来源信息" className={`type-meta mb-2 flex min-w-0 items-center gap-2 text-muted ${showCompactMedia ? '' : 'pr-24 pointer-coarse:pr-28'}`}>
+    {!sourceOverview && <span aria-label="来源信息" className={`type-meta mb-2 flex min-w-0 items-center gap-2 text-muted ${showCompactMedia ? 'pr-20 pointer-coarse:pr-24' : 'pr-24 pointer-coarse:pr-28'}`}>
       <SourceAvatar
         name={card.source}
         avatarUrl={card.sourceAvatar}
@@ -170,7 +170,7 @@ export function WorkbenchCard({
   const hoverActions = sourceOverview ? null : <div
     data-card-hover-actions
     data-card-actions
-    className="absolute right-3 top-3 z-30 flex items-center gap-1 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:pointer-events-none pointer-fine:opacity-0 pointer-fine:group-hover/card:pointer-events-auto pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:pointer-events-auto pointer-fine:group-focus-within/card:opacity-100 motion-reduce:transition-none"
+    className={`absolute top-3 z-30 flex items-center gap-1 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:pointer-events-none pointer-fine:opacity-0 pointer-fine:group-hover/card:pointer-events-auto pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:pointer-events-auto pointer-fine:group-focus-within/card:opacity-100 motion-reduce:transition-none ${showCompactMedia ? 'right-[calc(clamp(72px,15vw,88px)+1.5rem)]' : 'right-3'}`}
   >
     <CopySummaryAction label={cardLabel} text={social ? socialText : card.summary || card.title} />
     <Tooltip delay={500}>
@@ -216,7 +216,7 @@ export function WorkbenchCard({
             data-testid="card-media-stack"
             data-stack-depth={mediaStackDepth}
             aria-label={mediaPreviewActionLabel}
-            className={`group/media pointer-events-auto relative block min-h-11 min-w-11 shrink-0 pb-[6px] pr-[6px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:scale-95 motion-reduce:transform-none ${sourceOverview ? '' : 'mt-10 pointer-coarse:mt-12'}`}
+            className="group/media pointer-events-auto relative block min-h-11 min-w-11 shrink-0 pb-[6px] pr-[6px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:scale-95 motion-reduce:transform-none"
             onClick={(event) => onOpenMedia(0, event.currentTarget)}
           >
             {mediaStackDepth >= 2 && <span

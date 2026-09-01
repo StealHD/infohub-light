@@ -589,9 +589,11 @@ describe('VirtualFeed', () => {
 
     const stack = screen.getByTestId('card-media-stack')
     const details = screen.getByTestId('card-details-social-x')
+    const hoverActions = stack.closest('[data-testid="workbench-card"]')?.querySelector<HTMLElement>('[data-card-hover-actions]')
     expect(stack).toHaveAttribute('data-stack-depth', '2')
     expect(stack).toHaveAccessibleName('打开图片预览，从第 1 张开始，可查看 2 张，共 8 张')
-    expect(stack).toHaveClass('mt-10', 'pointer-coarse:mt-12')
+    expect(stack).not.toHaveClass('mt-10', 'pointer-coarse:mt-12')
+    expect(hoverActions).toHaveClass('right-[calc(clamp(72px,15vw,88px)+1.5rem)]')
     expect(stack.querySelectorAll('[data-card-media-stack-layer]')).toHaveLength(2)
     expect(stack.querySelectorAll('img[src="/api/media/one"]')).toHaveLength(1)
     expect(stack.querySelector('img')).toHaveAttribute('alt', '')
