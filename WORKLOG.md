@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-30",
-  "result": "补齐 X Actor 实际 user_profile_image_url 头像别名，复用已成功且 proof/source/身份校验通过的 Dataset 零启动回放并替换 immutable 头像资产；同时移除 15173 指向临时库的旧本地运行时，统一到修复分支与正式本地数据。",
-  "status": "completed",
-  "task_id": "2026-08-30-x-avatar-runtime-alias-repair",
-  "unresolved": [],
-  "validation": [
-    "ActorOps、头像 publication 与 acquisition 定向 Pytest 72 项通过；头像刷新、Catalog 失效与 ActorOps 页面定向 Vitest 35 项通过",
-    "已验证头像映射 /user_profile_image_url、asset ID 与 checksum 均变化，新文件落盘且只保留一个 ready 资产",
-    "snapshot impacted preflight 16/16 通过；15173 代理 18081，API 与原生 Worker ready，15174/18080 关闭且未启动容器"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
   "result": "修复 tibo/thsottiaux 回退头像未更新的本地验证链路：用最新成功 Attempt 的冻结 proof 与账号身份零启动回放当前 Dataset，生成新 immutable 头像资产；补充 A→B→A 回退缓存用例，并将 15173/18080/Worker 原生运行时切到头像修复工作树。",
   "status": "completed",
   "task_id": "2026-08-30-x-avatar-reversion-runtime-fix",
@@ -384,6 +365,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增合成回归覆盖来源缓存无用户供体、托管来源暂时停用、旧条目缺 source_native_title 但原始标题可证明三条路径，定向 Pytest 7/7 通过。",
     "既有订阅复用、API、Feed Store 与 import boundary 回归 35 项通过；本地真实数据库只读聚合确认 235 条旧记录中 176 条具备可信 native title 证明。",
     "snapshot full preflight 16/16 通过，覆盖完整后端、前端、控制检查、代码尺寸和映射 E2E，SQLite 连接警告为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-09-01",
+  "result": "将 YouTube 来源名称、社交标签去重、卡片复制/忽略与展开反馈、以及新用户订阅已有来源的安全内容回填合入本地 main，并整理为 v2.6.6 正式发布版本。",
+  "status": "completed",
+  "task_id": "2026-09-01-release-v2-6-6",
+  "unresolved": [],
+  "validation": [
+    "合并后的本地 main 为干净线性历史，功能修复 snapshot full preflight 16/16 通过。",
+    "版本与 uv lock 同步为 2.6.6；版本准备 snapshot full preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与映射 E2E，SQLite 连接警告为 0。",
+    "本次没有数据库 migration 文件或 schema delta，适用标准 revision-locked VPS 发布流程。"
   ]
 }
 ```
