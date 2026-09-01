@@ -81,10 +81,10 @@ The config runtime is owned by `src/services/config_runtime.py`. `GET /api/confi
 
 ## Source acquisition and limits
 
-Service jobs are user-scoped. Optional shared acquisition may reuse neutral content for a public/workspace source within a freshness window; private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared.
+Service jobs remain user-scoped, but every successful public/workspace source fetch projects its safe neutral content to all active subscribers in that workspace. The shared acquisition cache is enabled by default and avoids duplicate upstream calls within its freshness window; disabling the cache only disables that upstream reuse, never the per-user projection. Private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared.
 
 ```bash
-HORIZON_SHARED_ACQUISITION_ENABLED=false
+HORIZON_SHARED_ACQUISITION_ENABLED=true
 HORIZON_SHARED_ACQUISITION_MIN_TTL_MINUTES=5
 HORIZON_SHARED_ACQUISITION_MAX_TTL_MINUTES=60
 HORIZON_SHARED_ACQUISITION_FALLBACK_TTL_MINUTES=30

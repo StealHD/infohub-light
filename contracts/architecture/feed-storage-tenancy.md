@@ -24,7 +24,7 @@
 
 `source_catalog.source_key` 是同 workspace 内 source 的幂等身份键。旧 `data/config.json` source 导入、同一操作者的重复/并发 catalog 写入和后续 source 市场同步必须按 `source_key` 更新已有 source，不得制造重复公共源；另一用户拥有的 private source 不得因 key 碰撞被返回、接管或覆盖。Telegram 这类字段名复用的来源必须在 registry/API helper 中区分“源身份字段”和“Hub 分类字段”。
 
-Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_runner.py` 管理。该 runner 只能读取 catalog source、当前用户 subscription override 和全局非 source 配置来生成单源 `Config`；不得把 UI payload 当作权威抓取配置，也不得在 Worker 中绕过用户作用域 snapshot 写入。
+Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_runner.py` 管理。该 runner 只能读取 catalog source、当前用户 subscription override 和全局非 source 配置来生成单源 `Config`；不得把 UI payload 当作权威抓取配置。它先写入触发用户的 Feed，再在同一事务调用 `src/services/public_source_content_sharing.py` 为 public/workspace 来源的全部有效订阅者生成各自的安全投影；不得绕过用户作用域 snapshot 写入。
 
 ### 3.6C Structured Feed Production Boundary
 `HorizonOrchestrator.execute()` 只负责抓取、跨源去重、可选分析并返回不可变 `FeedRunResult`；来源级成功/失败必须由 `SourceOutcome` 显式表达，抓取异常不得折叠为空列表。跨源 URL 去重必须保留完整 `source_ids/subscription_ids/source_keys` provenance，且 query identifier 属于 URL 身份。`FeedProductionService` 是全量刷新、单源合并、失败来源旧内容保留、窗口清理和排序的唯一 finalizer；partial 保留判断使用 provenance 与 failed active source 的交集，不能只看 primary `source_id`。Service Worker 与 catalog runner 必须共用该 finalizer，不得写全局静态文件、摘要、旧通知或图谱；偏好来源事件只可交给 3.8C 的 Service outbox。
@@ -35,7 +35,7 @@ Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_run
 
 `src/services/source_acquisition.py::SourceAcquisitionCoordinator` 是 Service 生产抓取共享的唯一边界。public/workspace source 只共享同 workspace 的规范化中性内容；private source 的 acquisition key 必须包含 user isolation。用户频道/主题/标签、priority、analysis mode、AI 分析、行为状态和 Feed snapshot 永远不进入共享池。key 还必须覆盖 source identity/type、规范化网络配置、adapter contract、secret-ref identity/version 与抓取窗口；Apify 池模式额外覆盖 pool generation，generation 变化后旧 owner 不得发布缓存。真实 secret 值不得入 key、表或诊断。
 
-`source_acquisition_states` 只负责 claim-token lease/backoff，`source_content_snapshots/items` 只负责成功内容（包括零条结果）。TTL 由相关启用 source/feed schedule 的最短周期派生并受 5..60 分钟边界约束；等待者不计上游 attempt，只有 claim winner 在实际调用前计量。`source_test` 共用同源互斥但绕过 production cache 且不写 content pool。新用户订阅 workspace/public 来源且没有安全 `user_content_items` 供体时，可零网络读取该 workspace 中性内容池并按目标订阅重新投影；不得读取 private user isolation、复制其他用户 AI/行为字段或绕过 200 条上限。该能力由 `HORIZON_SHARED_ACQUISITION_ENABLED` 控制并默认关闭，不改变公开 job type、API 异步边界或默认 API + Worker 拓扑。
+`source_acquisition_states` 只负责 claim-token lease/backoff，`source_content_snapshots/items` 只负责成功内容（包括零条结果）。TTL 由相关启用 source/feed schedule 的最短周期派生并受 5..60 分钟边界约束；等待者不计上游 attempt，只有 claim winner 在实际调用前计量。`source_test` 共用同源互斥但绕过 production cache 且不写 content pool。每次成功的 public/workspace `source_fetch` 都在当前用户写入后，以中性缓存优先、稳定内容索引兜底的顺序，为同工作区所有 enabled、非 viewer 订阅者生成目标投影；零网络、零 AI、单订阅至多 200 条，且不读取 private isolation 或复制其他用户 AI/行为字段。新订阅沿用同一顺序即时回填。`HORIZON_SHARED_ACQUISITION_ENABLED` 默认开启并只控制上游中性缓存复用；临时关闭缓存不得关闭这次成功任务的安全 fan-out，不改变公开 job type、API 异步边界或默认 API + Worker 拓扑。
 
 ### 3.6E Canonical Feed Storage Boundary
 
