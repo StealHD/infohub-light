@@ -54,6 +54,7 @@ def _context(tmp_path):
 def test_registry_has_exact_typed_allowlist_and_aliases() -> None:
     assert len(SYSTEM_SETTING_DEFINITIONS) == 21
     assert len(MANAGED_SYSTEM_SETTING_ENV_NAMES) == 21
+    assert SYSTEM_SETTING_DEFINITIONS["acquisition.shared_enabled"].default is True
     assert canonical_setting_key(
         "INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY"
     ) == "limits.max_workspace_fetch_attempts_per_day"

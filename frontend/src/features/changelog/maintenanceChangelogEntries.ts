@@ -104,4 +104,14 @@ export const existingSourceSubscriptionReuseChangelogEntry = {
   ],
 } satisfies ChangelogEntry
 
+export const publicSourceContentSharingChangelogEntry = {
+  date: '2026-09-01',
+  title: '公共订阅源会同步近期内容',
+  summary: '任一成员成功获取公共来源后，所有有效订阅者都会看到自己的安全信息流投影，不必各自重复抓取。',
+  items: [
+    { title: '一次获取，分别展示', description: 'X、YouTube、RSS 等 public/workspace 来源会优先复用工作区中性缓存，并按每位订阅者自己的频道、主题、个人标签和分析模式写入信息流。其他成员的 AI 结果、阅读状态和个人标签不会共享。' },
+    { title: '近期内容会自动补齐', description: '新订阅与后续来源获取都会补齐最多 200 条可安全复用内容，优先保留近 7 天；历史回填不触发新内容通知。' },
+  ],
+} satisfies ChangelogEntry
+
 export { systemSettingsChangelogEntry } from './systemSettingsChangelogEntry'

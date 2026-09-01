@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复生产 Feed 社交卡名称字段误显示完整帖子 URL：卡片与 Agent 上下文过滤 URL 形态的来源/作者名，保留可读账号名，并在名称均无效时从可信社交链接提取账号 handle 兜底。",
-  "status": "completed",
-  "task_id": "2026-08-30-feed-social-source-url-label",
-  "unresolved": [
-    "尚未发布到生产 VPS；本任务仅完成本地代码修复与验证。"
-  ],
-  "validation": [
-    "Workbench 定向 Vitest 58 项、TypeScript、ESLint 与 UI 合约检查通过。",
-    "Playwright 本地 Vite 桌面回归通过，证明 Feed 卡片和 Agent 上下文均不显示帖子 URL，并继续显示 X 与可读账号名。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "phase",
@@ -380,6 +361,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "首次失败的 production-workbench 桌面 Playwright 7/7 通过，覆盖 320/390/645/1024/1440px 操作反馈及 1440x900 至少四张完整卡片。",
     "VirtualFeed 定向 Vitest 37/37、TypeScript、UI 契约通过；snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与控制检查。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-09-01",
+  "result": "修复 public/workspace 来源只写入触发用户的问题：成功 source_fetch 现会在同一事务向全部有效非 Viewer 订阅者生成各自的 Feed 投影；中性缓存默认开启，新订阅优先缓存并安全回退稳定内容，最多 200 条。",
+  "status": "completed",
+  "task_id": "2026-09-01-public-source-content-sharing",
+  "unresolved": [
+    "未合并、未推送或部署 VPS；发布后需对已有 X 来源执行一次正常成功抓取以补齐现有缺失的近期条目。"
+  ],
+  "validation": [
+    "公共来源 fan-out、private/Viewer 隔离、缓存优先回填、catalog runner 接线与系统默认值定向 Pytest 22 项通过。",
+    "完整 impacted preflight 16/16 通过：Python 全量、前端 lint/typecheck/Vitest 694 项、构建、UI/控制/代码规模检查全部成功。"
   ]
 }
 ```

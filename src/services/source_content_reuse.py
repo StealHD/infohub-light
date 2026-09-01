@@ -122,7 +122,7 @@ def reuse_source_content(
     allow_disabled_source: bool = False,
     commit: bool = True,
 ) -> dict[str, Any]:
-    """Seed a subscriber Feed from stable rows, then neutral source cache."""
+    """Seed a subscriber Feed from neutral cache, then stable source rows."""
 
     from .user_feed_store import (
         _list,
@@ -161,12 +161,7 @@ def reuse_source_content(
     reused_at = _now_iso()
     reused: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
-    candidates = _stable_content_candidates(
-        feed_store,
-        workspace_id=workspace_id,
-        source_id=source_id,
-        limit=bounded_limit,
-    )
+    candidates: list[tuple[dict[str, Any], str, str, Any]] = []
     if source.get("scope") != "private":
         candidates.extend(
             _source_cache_candidates(
@@ -176,6 +171,14 @@ def reuse_source_content(
                 limit=bounded_limit,
             )
         )
+    candidates.extend(
+        _stable_content_candidates(
+            feed_store,
+            workspace_id=workspace_id,
+            source_id=source_id,
+            limit=bounded_limit,
+        )
+    )
     for donor, article_id, title, row in candidates:
         if article_id in seen_ids:
             continue

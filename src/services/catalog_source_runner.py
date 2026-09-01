@@ -29,6 +29,7 @@ from .apify_pool_runtime import apify_coordinator_for_workspace
 from .apify_actor_source_runtime import with_actorops_runtime_profiles
 from .operation_log import safe_emit_operation_event
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
+from .public_source_content_sharing import fan_out_public_source_content
 from .source_avatar import SourceAvatarService
 
 
@@ -300,11 +301,11 @@ def _stage_catalog_publication(
         publication.execute("BEGIN IMMEDIATE")
     cleanup = PostCommitMediaCleanup()
     try:
-        if hasattr(
-            orchestrator,
-            "assert_service_apify_actor_ops_publishable",
-        ):
-            orchestrator.assert_service_apify_actor_ops_publishable()
+        publication_fence = getattr(
+            orchestrator, "assert_service_apify_actor_ops_publishable", None
+        )
+        if callable(publication_fence):
+            publication_fence()
 
         avatar_cleanup = PostCommitMediaCleanup()
         publication.execute("SAVEPOINT actor_ops_avatar_cache")
@@ -395,21 +396,20 @@ def _stage_catalog_publication(
             job_type="source_fetch",
             source_id=source_id,
             result=run_result,
-            publication_fence=(
-                orchestrator.assert_service_apify_actor_ops_publishable
-                if hasattr(
-                    orchestrator,
-                    "assert_service_apify_actor_ops_publishable",
-                )
-                else None
-            ),
+            publication_fence=publication_fence,
             commit=False,
         )
         source_outcomes = tuple(
-            outcome
-            for outcome in run_result.source_outcomes
+            outcome for outcome in run_result.source_outcomes
             if outcome.source_id == source_id
         )
+        if any(outcome.status == "succeeded" for outcome in source_outcomes):
+            fan_out_public_source_content(
+                store,
+                workspace_id=str(job["workspace_id"]),
+                source_id=source_id,
+                commit=False,
+            )
         fetched_count = sum(
             max(int(outcome.fetched_count), 0) for outcome in source_outcomes
         )

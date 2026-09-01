@@ -199,6 +199,7 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
     calls = []
     acquisition_coordinators = []
     apify_coordinators = []
+    fan_out_calls = []
 
     class FakeOrchestrator:
         def __init__(self, config, _storage):
@@ -248,6 +249,10 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
             )
 
     monkeypatch.setattr("src.services.catalog_source_runner.HorizonOrchestrator", FakeOrchestrator)
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.fan_out_public_source_content",
+        lambda *args, **kwargs: fan_out_calls.append((args, kwargs)),
+    )
 
     job = JobQueue(store).create_job(
         workspace_id=workspace["id"],
@@ -269,6 +274,13 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
     assert acquisition_coordinators[0].user_id == owner["id"]
     assert len(apify_coordinators) == 1
     assert apify_coordinators[0].workspace_id == workspace["id"]
+    assert fan_out_calls == [
+        ((store,), {
+            "workspace_id": workspace["id"],
+            "source_id": source_id,
+            "commit": False,
+        })
+    ]
     assert result["ok"] is True
     assert result["job_type"] == "source_fetch"
     assert result["source_id"] == source_id

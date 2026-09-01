@@ -38,7 +38,7 @@ X、Instagram 或 YouTube 出现“订阅已开启、来源已停用”时，由
 - 每用户 Feed 周期：1/3/6/12/24 小时，默认关闭。
 - 每订阅单源周期：30 分钟或 1/3/6/12/24 小时，默认跟随全局。
 
-它们创建普通 `user_feed_refresh` 或 `source_fetch` Job，共用去重、配额、Source Health、Feed finalization 和通知规则。没有 scheduler 服务或 profile。
+它们创建普通 `user_feed_refresh` 或 `source_fetch` Job，共用去重、配额、Source Health、Feed finalization 和通知规则。public/workspace 来源任一成功获取后，近期内容会按每位有效订阅者自己的频道、主题和状态投影到信息流；不会复制其他用户的 AI、个人标签或阅读状态，也不会补发通知。没有 scheduler 服务或 profile。
 
 ## 4. 通知服务
 

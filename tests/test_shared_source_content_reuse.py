@@ -195,3 +195,61 @@ def test_new_subscriber_reuses_legacy_row_with_proven_native_title(reuse_context
         user_id=member["id"],
     )
     assert latest["items"][0]["title"] == item.title
+
+
+def test_new_subscriber_prioritizes_shared_cache_before_stable_donor(
+    reuse_context,
+):
+    store, workspace, member = reuse_context
+    source = _shared_source(store, workspace["id"])
+    owner = store.get_user_by_username("owner")
+    owner_subscription = store.create_subscription(
+        user_id=owner["id"], source_id=source["id"]
+    )
+    donor = ContentItem(
+        id="youtube:donor:video-1",
+        source_type=SourceType.RSS,
+        title="Earlier stable donor",
+        url="https://www.youtube.com/watch?v=donor-video-1",
+        published_at=datetime.now(timezone.utc) - timedelta(days=1),
+        metadata={
+            "source_id": source["id"],
+            "subscription_id": owner_subscription["id"],
+        },
+    )
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "items": [serialize_feed_item(donor, featured_threshold=8.0)],
+        },
+    )
+    cached = ContentItem(
+        id="youtube:cache:video-2",
+        source_type=SourceType.RSS,
+        title="Latest neutral cache item",
+        url="https://www.youtube.com/watch?v=cache-video-2",
+        published_at=datetime.now(timezone.utc),
+    )
+    _insert_shared_source_cache(
+        store,
+        workspace_id=workspace["id"],
+        source_id=source["id"],
+        item=cached,
+    )
+
+    result = SubscriptionMutationService(store).rest_create_subscription(
+        SubscriptionActor.from_user(member), source_id=source["id"], values={}
+    )
+
+    assert result["reused_item_count"] == 2
+    snapshot = UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"], user_id=member["id"]
+    )
+    assert [entry["id"] for entry in snapshot["payload"]["items"]] == [
+        cached.id,
+        donor.id,
+    ]

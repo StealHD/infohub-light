@@ -11,7 +11,7 @@
 1. 没有 `user_source_schedules` row 等同于 `enabled=false`、`interval_minutes=60`；GET 不隐式写库。`enabled=false` 的产品语义是“跟随全局（默认）”，不是手动更新；`enabled=true` 才表示单源独立周期。允许周期固定为 `[30,60,180,360,720,1440]` 分钟。
 2. 单条 GET/PATCH 响应包含 `schema_version=1`、`subscription_id`、`source_id`、计划时间、`last_job`、`active_job` 和 `worker_status`；公开 job 不得包含 `claim_token`。订阅列表默认内嵌相同完整 schedule；`GET /api/me/subscriptions?schedule_view=summary` 只省略每条 schedule 的 `last_job/active_job`，服务端必须批量读取当前用户计划并且该摘要路径不得查询 Job。
 3. 首次开启默认在下一个 Worker tick 运行；已开启时修改周期从当前时间重新计算。切回跟随全局时保留 `interval_minutes`，把 `next_run_at` 清空，并取消仍 queued 且 `reason=scheduled_source_fetch` 的任务；running 任务继续完成。未来再次开启单源独立周期时可复用该周期。停用订阅或把用户降级为 viewer 时必须同步关闭计划。
-4. Worker 每次 schedule tick 在 claim 普通任务前原子评估到期订阅。自动 job 固定为 `job_type=source_fetch`、`reason=scheduled_source_fetch`、`priority=-10`，沿用现有配额、claim token、Source Health 和 Feed v2 单源合并语义。
+4. Worker 每次 schedule tick 在 claim 普通任务前原子评估到期订阅。自动 job 固定为 `job_type=source_fetch`、`reason=scheduled_source_fetch`、`priority=-10`，沿用现有配额、claim token、Source Health 和 Feed v2 单源合并语义。public/workspace source 成功后同一事务会为全部有效订阅者写各自的安全 Feed 投影；健康仍只记录触发该 job 的用户，投影不补发通知。
 5. 同一订阅最多一个 queued/running `source_fetch`；手动、自动和重复页面提交复用已有 active job。当前用户存在 active 全量刷新时延后 5 分钟；只有手动全量刷新会包含单源独立周期来源，并在成功参与该订阅后推进其下一次单源计划，避免紧邻重复抓取。自动全局刷新不包含这些来源。停用 catalog source 时，相关计划关闭并记录 `source_disabled`，仍 queued 的自动任务被取消。
 6. 调度链路只由当前 Worker 与 Service `execute` 主链组成，不得重新引入第三个 scheduler/dispatcher、全局 publisher，也不得读取或写入全局静态 Feed、旧摘要/通知、Graph 或 Archive analytics。偏好来源通知只可由下述 Service outbox 在 Feed/Health/Job 提交后消费。
 
