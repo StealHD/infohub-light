@@ -21,6 +21,7 @@ import {
   Radio,
   RadioGroup,
   RemovableTag,
+  StableAsyncButton,
   TextArea,
   TextField,
 } from '../../design-system'
@@ -202,7 +203,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     })
   }
 
-  const submitAction = <Button type="submit" form={formId} size="sm" isDisabled={pending}>{pending ? '保存中…' : submitLabel}</Button>
+  const submitAction = <StableAsyncButton type="submit" form={formId} size="sm" pending={pending} pendingContent="保存中…">{submitLabel}</StableAsyncButton>
 
   return <><form id={formId} className="grid gap-4" noValidate onSubmit={submit} onInvalidCapture={captureInvalid}>
     <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
@@ -462,7 +463,7 @@ export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, childr
     <Modal.Backdrop isDismissable={!locked} onAnimationEnd={(event) => {
       if (event.target === event.currentTarget && event.currentTarget.dataset.exiting === 'true') finishReturnFocus()
     }}>
-      <Modal.Container size="lg" scroll="inside"><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body>{children}</Modal.Body><Modal.Footer className="flex flex-wrap items-center gap-2"><div ref={setFooterSlot} className="flex min-w-0 flex-1 flex-wrap items-center gap-2" /><Button size="sm" variant="ghost" isDisabled={locked} onPress={() => onOpenChange(false)}>{locked ? '正在保存…' : '关闭'}</Button></Modal.Footer></Modal.Dialog></Modal.Container>
+      <Modal.Container size="lg" scroll="inside"><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body>{children}</Modal.Body><Modal.Footer className="flex flex-wrap items-center gap-2"><div ref={setFooterSlot} className="flex min-w-0 flex-1 flex-wrap items-center gap-2" /><StableAsyncButton size="sm" variant="ghost" pending={locked} pendingContent="正在保存…" onPress={() => onOpenChange(false)}>关闭</StableAsyncButton></Modal.Footer></Modal.Dialog></Modal.Container>
     </Modal.Backdrop>
   </Modal></DialogFooterContext.Provider>
 }

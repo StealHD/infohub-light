@@ -8,43 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "来源抓取在 Worker 心跳过期或状态未知时改为提示“获取未开始”，明确任务未创建且未产生费用，不再误报来源获取失败。",
-  "status": "completed",
-  "task_id": "2026-08-30-source-fetch-not-started-copy",
-  "unresolved": [
-    "本地预览按合同未启动 Worker；需要真实手动抓取时仍须显式进入可能产生 Apify 费用的 Worker 执行边界。"
-  ],
-  "validation": [
-    "数据库定向查询确认 @thsottiaux 最近四次抓取成功，本次没有创建 source_fetch Job，阻断原因是 Worker 心跳过期。",
-    "App 定向 Vitest、更新日志 5 项测试与 TypeScript 通过。",
-    "本地订阅页通过 Vite/API 正常加载，显示 Worker 不可用且 @thsottiaux 来源健康，浏览器无控制台错误。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将本地最新 main 的 ActorOps 稳定性、来源头像、Feed 社交名称修复整理为 v2.6.1 发布版本；版本身份与既有 v2.6.0 标签分离，global 36 保持显式停机迁移。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-v2-6-1",
-  "unresolved": [],
-  "validation": [
-    "ActorOps、迁移、头像、运行脚本定向 Pytest 164 项通过。",
-    "Workbench、ActorOps、Settings、变更日志与 App 定向 Vitest 172 项通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -380,6 +343,46 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增公共来源抓取→任务快照→真实 fan-out→通知 outbox 集成回归，生产代码先稳定复现 0 条，修复后精确生成 1 条 pending delivery。",
     "通知、公共共享/复用与 Catalog runner 定向 Pytest 67 项通过；更新日志 Vitest 5 项、TypeScript、ESLint、编译和代码规模检查通过。",
     "impacted preflight 14/14 通过；本地唯一共享 Telegram 服务执行一次真实 smoke，返回 provider_accepted。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "新增统一的稳定异步按钮并迁移系统内保存、提交、测试、刷新、连接、删除等文字操作；通知设置保存不再重挂载表单，UI 合同与静态门禁禁止中间态改变按钮外部几何。",
+  "status": "completed",
+  "task_id": "2026-09-02-stable-async-buttons",
+  "unresolved": [
+    "完整 Playwright 运行仍有 8 个与本次按钮和更新日志改动无关的既有失败，集中在旧 HeroUI 预览 CSS 隔离及 ActorOps/页头视觉快照；本次直接影响的更新日志验收修正后已全部通过。"
+  ],
+  "validation": [
+    "StableAsyncButton、UI 合同、通知设置与更新日志定向 Vitest 57 项通过；完整 Vitest 96 文件 698 项通过。",
+    "TypeScript、ESLint、UI 合同、生产构建及预览产物检查通过；门禁控制、代码尺寸和 diff 检查通过。",
+    "补齐声明的 dev 依赖后，门禁选中的后端 Pytest 组完整通过。",
+    "本地通知页 DOM 验证按钮为 110×36 px，正常态和保存中状态共用同一布局轨道；更新日志相关 Playwright 4 项在桌面、平板和移动端通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "将用户发起的刷新与重试收敛到 RefreshButton：图标立即旋转，快请求仍保留 400 ms 可感知反馈，长请求持续到完成，并保持文案、图标位置与按钮几何稳定；已迁移存储、助手、订阅、系统设置、密钥与 ActorOps 的同类请求按钮。",
+  "status": "completed",
+  "task_id": "2026-09-02-refresh-button-feedback",
+  "unresolved": [],
+  "validation": [
+    "RefreshButton、StableAsyncButton、UI 合同与更新日志定向 Vitest 60 项通过，受影响文件 ESLint、UI 合同检查与生产构建通过。",
+    "本地真实浏览器验收 /agents 与 /settings/storage：点击后旋转类、busy 状态、禁用状态与稳定可见文案均生效。",
+    "完整 impacted preflight 14/14 通过，包含 97 个前端测试文件共 702 项、控制合同、代码尺寸、后端定向检查与生产构建。"
   ]
 }
 ```

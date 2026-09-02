@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
-import { actionToast, Button, Icons, Input, Label, Modal, Popover, TextField } from '../../design-system'
+import { actionToast, Button, Icons, Input, Label, Modal, Popover, StableAsyncButton, TextField } from '../../design-system'
 import { actorOpsV2CandidateLabel, orderedActorOpsV2StandbyCandidates, type ActorOpsV2CandidateView, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 import { ActorOpsV2ReplacementDrawer, type ActorOpsV2ReplacementTarget } from './ActorOpsV2ReplacementDrawer'
 import { actorOpsV2WorkflowActionLabel } from './actorOpsV2WorkflowModel'
@@ -97,7 +97,7 @@ function PriceCapControl({ route, onSaved }: { route: ActorOpsV2RouteView; onSav
   return <Popover isOpen={open} onOpenChange={(next) => { setOpen(next); if (next) { setValue(route.per_run_cap_usd.toFixed(2)); setConfirmation('') } }}>
     <Popover.Trigger<'button'> type="button" className="rounded-lg px-2 py-1 type-meta text-muted outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus" aria-label="调整单次费用上限">调整</Popover.Trigger>
     <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-[min(280px,calc(100vw-24px))] p-0">
-      <Popover.Dialog aria-label="编辑 Actor 单次费用上限" className="grid gap-3 p-4"><Popover.Heading className="type-control">单次费用上限</Popover.Heading><p className="type-meta text-muted">商城标价只读；这里限制每次实际运行最多费用。</p><TextField value={value} onChange={setValue} isDisabled={update.isPending}><Label>美元（最高 $0.20）</Label><Input inputMode="decimal" /></TextField>{raised && <TextField value={confirmation} onChange={setConfirmation} isDisabled={update.isPending}><Label>输入“确认提高 Actor 费用上限”</Label><Input /></TextField>}<div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onPress={() => setOpen(false)}>取消</Button><Button size="sm" isDisabled={!Number.isFinite(cap) || cap <= 0 || cap > 0.20 || update.isPending || (raised && confirmation !== '确认提高 Actor 费用上限')} onPress={() => update.mutate()}>{update.isPending ? '保存中…' : '保存'}</Button></div></Popover.Dialog>
+      <Popover.Dialog aria-label="编辑 Actor 单次费用上限" className="grid gap-3 p-4"><Popover.Heading className="type-control">单次费用上限</Popover.Heading><p className="type-meta text-muted">商城标价只读；这里限制每次实际运行最多费用。</p><TextField value={value} onChange={setValue} isDisabled={update.isPending}><Label>美元（最高 $0.20）</Label><Input inputMode="decimal" /></TextField>{raised && <TextField value={confirmation} onChange={setConfirmation} isDisabled={update.isPending}><Label>输入“确认提高 Actor 费用上限”</Label><Input /></TextField>}<div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onPress={() => setOpen(false)}>取消</Button><StableAsyncButton size="sm" pending={update.isPending} pendingContent="保存中…" isDisabled={!Number.isFinite(cap) || cap <= 0 || cap > 0.20 || (raised && confirmation !== '确认提高 Actor 费用上限')} onPress={() => update.mutate()}>保存</StableAsyncButton></div></Popover.Dialog>
     </Popover.Content>
   </Popover>
 }
@@ -110,7 +110,7 @@ function ConfirmDialog({ target, pending, onClose, onConfirm }: {
   const expected = '确认设为主用 Actor'
   const title = '设为当前主用'
   const detail = `将 ${actorOpsV2CandidateLabel(target || null)} 设为主用；不会启动 Actor，也不会产生费用。`
-  return visible ? <Modal isOpen onOpenChange={(next) => { if (!next && !pending) onClose() }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">{title}</Modal.Trigger><Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body><div className="grid gap-3"><p className="type-control">{detail}</p><TextField fullWidth value={value} onChange={setValue} isDisabled={pending}><Label>确认短语</Label><Input placeholder={expected} /></TextField></div></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={pending} onPress={onClose}>取消</Button><Button isDisabled={pending || value !== expected} onPress={onConfirm}>{pending ? '处理中…' : '确认'}</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal> : null
+  return visible ? <Modal isOpen onOpenChange={(next) => { if (!next && !pending) onClose() }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">{title}</Modal.Trigger><Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body><div className="grid gap-3"><p className="type-control">{detail}</p><TextField fullWidth value={value} onChange={setValue} isDisabled={pending}><Label>确认短语</Label><Input placeholder={expected} /></TextField></div></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={pending} onPress={onClose}>取消</Button><StableAsyncButton pending={pending} pendingContent="处理中…" isDisabled={value !== expected} onPress={onConfirm}>确认</StableAsyncButton></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal> : null
 }
 
 function actionError(error: unknown, fallback: string) {

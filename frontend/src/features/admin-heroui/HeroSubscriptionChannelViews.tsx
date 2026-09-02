@@ -11,6 +11,7 @@ import {
   Modal,
   Popover,
   SearchField,
+  StableAsyncButton,
   StatusIndicator,
   Tooltip,
   TooltipTriggerButton,
@@ -505,18 +506,7 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
             source={source}
             onShare={(trigger) => onShare(source, trigger)}
           />}
-          {entry.subscribed ? <Button
-            size="sm"
-            variant="ghost"
-            aria-label={`${entry.unsubscribePending ? '取消中' : '取消订阅'} ${source.display_name}`}
-            isDisabled={!editable || !entry.subscription || entry.unsubscribePending}
-            onPress={() => onUnsubscribe(entry)}
-          >{entry.unsubscribePending ? '取消中' : '取消订阅'}</Button> : <Button
-            size="sm"
-            aria-label={`${entry.subscribePending ? '订阅中' : '订阅'} ${source.display_name}`}
-            isDisabled={!editable || entry.subscribePending}
-            onPress={() => onSubscribe(source)}
-          >{entry.subscribePending ? '订阅中' : '订阅'}</Button>}
+          {entry.subscribed ? <StableAsyncButton size="sm" variant="ghost" aria-label={`${entry.unsubscribePending ? '取消中' : '取消订阅'} ${source.display_name}`} pending={entry.unsubscribePending} pendingContent="取消中" isDisabled={!editable || !entry.subscription} onPress={() => onUnsubscribe(entry)}>取消订阅</StableAsyncButton> : <StableAsyncButton size="sm" aria-label={`${entry.subscribePending ? '订阅中' : '订阅'} ${source.display_name}`} pending={entry.subscribePending} pendingContent="订阅中" isDisabled={!editable} onPress={() => onSubscribe(source)}>订阅</StableAsyncButton>}
         </div>
       </Card>
     })}

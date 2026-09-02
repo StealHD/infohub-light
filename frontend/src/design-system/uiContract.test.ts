@@ -131,6 +131,46 @@ describe('HeroUI import contract', () => {
     expect(result.stderr).toContain('业务表单选择必须使用设计系统 Select 或 HeroSelect')
   })
 
+  it('rejects async text replacement on a plain Button', () => {
+    const result = checkSource(
+      'src/features/settings/UnstableSaveButton.tsx',
+      "export const Example = ({ saving }: { saving: boolean }) => <Button>{saving ? '保存中…' : '保存设置'}</Button>\n",
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('异步中间态按钮必须使用 StableAsyncButton 保持外部几何不变')
+  })
+
+  it('allows the shared stable async button pattern', () => {
+    const result = checkSource(
+      'src/features/settings/StableSaveButton.tsx',
+      "export const Example = ({ saving }: { saving: boolean }) => <StableAsyncButton pending={saving} pendingContent=\"保存中…\">保存设置</StableAsyncButton>\n",
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+  })
+
+  it('rejects refetch actions on a plain button', () => {
+    const result = checkSource(
+      'src/features/settings/SilentRefreshButton.tsx',
+      "export const Example = ({ query }: { query: { refetch: () => void } }) => <Button onPress={() => query.refetch()}>刷新</Button>\n",
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('刷新与重试请求必须使用 RefreshButton')
+  })
+
+  it('allows the shared refresh feedback pattern', () => {
+    const result = checkSource(
+      'src/features/settings/VisibleRefreshButton.tsx',
+      "export const Example = ({ query }: { query: { isFetching: boolean; refetch: () => void } }) => <RefreshButton pending={query.isFetching} onPress={() => query.refetch()} />\n",
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+  })
+
   it('rejects visual constants in business CSS', () => {
     const result = checkSource(
       'src/features/feed/feed-surface.css',

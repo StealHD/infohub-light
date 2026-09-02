@@ -2,9 +2,8 @@ import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry
 import { codeHealthMaintenanceEntry, existingSourceSubscriptionReuseChangelogEntry, feedSourceLabelChangelogEntry, instagramSourceAvatarChangelogEntry, pageHeaderChangelogEntry, publicSourceContentSharingChangelogEntry, publicSourceNotificationFixChangelogEntry, socialChannelDedupChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, sourceFetchPreflightChangelogEntry, subscriptionCommandBarChangelogEntry, systemSettingsChangelogEntry, youtubeSourceLabelChangelogEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntries } from './actorOpsV2SourceBindingChangelogEntry'
-import type { ChangelogMonth } from './changelogTypes' // v2.4.2 review: includes ActorOps freshness recovery; store/release locking has no user-visible workflow.
-export const changelogMonths: ChangelogMonth[] = [
-  {
+import { stableAsyncButtonChangelogEntry } from './stableAsyncButtonChangelogEntry'
+export const changelogMonths: import('./changelogTypes').ChangelogMonth[] = [{ id: 'month-2026-09', label: '2026 年 9 月', entries: [stableAsyncButtonChangelogEntry] }, {
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [publicSourceNotificationFixChangelogEntry, publicSourceContentSharingChangelogEntry, existingSourceSubscriptionReuseChangelogEntry, socialChannelDedupChangelogEntry, youtubeSourceLabelChangelogEntry, sourceFetchPreflightChangelogEntry, feedSourceLabelChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, instagramSourceAvatarChangelogEntry, systemSettingsChangelogEntry,
@@ -811,6 +810,6 @@ export const changelogMonths: ChangelogMonth[] = [
   },
 ]
 export const defaultChangelogMonthId = changelogMonths[0].id
-export function isChangelogMonthId(value: string): value is ChangelogMonth['id'] {
+export function isChangelogMonthId(value: string): value is import('./changelogTypes').ChangelogMonth['id'] {
   return changelogMonths.some((month) => month.id === value)
 }

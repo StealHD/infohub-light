@@ -24,7 +24,7 @@ import {
   Icons,
   LoadingState,
   PageFrame,
-  ScrollAdaptiveViewBar,
+  RefreshButton, ScrollAdaptiveViewBar, StableAsyncButton,
   StatusIndicator,
   Switch,
   Tabs,
@@ -704,7 +704,7 @@ export function HeroSubscriptionsPage() {
         {jobsQuery.isLoading && <LoadingState label="正在读取运行记录" rows={2} />}
         {jobsQuery.isError && <HeroNotice title="运行记录读取失败" status="warning">
           <span>订阅和来源仍可继续使用。</span>
-          <Button size="sm" variant="ghost" className="ml-2" onPress={() => void jobsQuery.refetch()}>重试</Button>
+          <RefreshButton size="sm" variant="ghost" className="ml-2" pending={jobsQuery.isFetching} label="重试" onPress={() => void jobsQuery.refetch()} />
         </HeroNotice>}
         {visibleJobs.map((job) => {
           const presented = presentJob(job, sourceMap)
@@ -754,7 +754,7 @@ export function HeroSubscriptionsPage() {
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-separator pt-2">
               {isAdmin && !presented.actorOpsIssue && <HeroActorOpsTraceDisclosure api={api} job={job} actorOps={isActorOpsJob(job)} fallback={{ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }} />}
               {!presented.actorOpsIssue && !['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} api={api} userId={user.id} className="m-0" />}
-              {editable && job.retryable && !presented.actorOpsIssue && <Button size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
+              {editable && job.retryable && !presented.actorOpsIssue && <StableAsyncButton size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} pending={retryPending} pendingContent="重试中" onPress={() => retryMutation.mutate(job)}>重试</StableAsyncButton>}
               {presented.actorOpsHref && <Button size="sm" className="ml-auto" onPress={() => navigate(presented.actorOpsHref || '/settings/actorops?tab=logs')}>返回 ActorOps 处理</Button>}
             </div>
           </Card>
@@ -784,7 +784,7 @@ export function HeroSubscriptionsPage() {
         ? <LoadingState label="正在读取可用 Key" rows={2} />
         : sourceDialogNeedsSecret && secretsQuery.isError
           ? <HeroNotice title="可用 Key 读取失败" status="warning">
-              <Button size="sm" variant="ghost" className="ml-2" onPress={() => void secretsQuery.refetch()}>重试</Button>
+              <RefreshButton size="sm" variant="ghost" className="ml-2" pending={secretsQuery.isFetching} label="重试" onPress={() => void secretsQuery.refetch()} />
             </HeroNotice>
           : <div className="grid gap-4">
               {activeDefinitionUnavailable && <HeroNotice title="平台连接字段暂时锁定" status="warning">
@@ -823,7 +823,7 @@ export function HeroSubscriptionsPage() {
           ? <LoadingState label="正在读取可用 Key" rows={2} />
           : sourceDialogNeedsSecret && secretsQuery.isError
             ? <HeroNotice title="可用 Key 读取失败" status="warning">
-                <Button size="sm" variant="ghost" className="ml-2" onPress={() => void secretsQuery.refetch()}>重试</Button>
+                <RefreshButton size="sm" variant="ghost" className="ml-2" pending={secretsQuery.isFetching} label="重试" onPress={() => void secretsQuery.refetch()} />
               </HeroNotice>
             : <SourceForm
                 key={activeDefinition.type}
@@ -854,7 +854,7 @@ export function HeroSubscriptionsPage() {
     <div className="grid gap-4">
       <HeroNotice title="分享后管理权将发生变化" status="warning">来源订阅地址和管理权会转交给工作区超级用户与管理员。你之后取消订阅只影响自己，不会删除其他成员正在使用的来源。</HeroNotice>
       <p className="type-body text-muted">分享后将成为公共订阅，所有成员都可以发现并订阅。</p>
-      <Button isDisabled={shareMutation.isPending} onPress={() => shareSource && shareMutation.mutate({ source: shareSource, scope: 'public' })}>{shareMutation.isPending ? '分享中…' : '确认公开并转交管理权'}</Button>
+      <StableAsyncButton pending={shareMutation.isPending} pendingContent="分享中…" onPress={() => shareSource && shareMutation.mutate({ source: shareSource, scope: 'public' })}>确认公开并转交管理权</StableAsyncButton>
     </div>
   </HeroDialog>
   </div>

@@ -118,10 +118,14 @@ describe('HeroNotificationSettings', () => {
     const browser = userEvent.setup()
     const initial = settings()
     const selected = target()
-    const notificationSettings = vi.fn().mockResolvedValue(initial)
-    const updateNotificationSettings = vi.fn().mockResolvedValue(settings({
+    const updated = settings({
       target_ids: [selected.id],
       selected_targets: [selected],
+    })
+    let resolveUpdate!: (value: UserNotificationSettings) => void
+    const notificationSettings = vi.fn().mockResolvedValue(initial)
+    const updateNotificationSettings = vi.fn().mockImplementation(() => new Promise<UserNotificationSettings>((resolve) => {
+      resolveUpdate = resolve
     }))
     const api = {
       notificationSettings,
@@ -174,12 +178,18 @@ describe('HeroNotificationSettings', () => {
     </QueryClientProvider>)
 
     await browser.click(await screen.findByRole('checkbox', { name: selected.name }))
-    await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
+    const saveButton = screen.getByRole('button', { name: '保存通知设置' })
+    await browser.click(saveButton)
 
     await waitFor(() => expect(updateNotificationSettings).toHaveBeenCalledWith({
       enabled: true,
       target_ids: [selected.id],
     }))
+    expect(screen.getByRole('button', { name: '保存中…' })).toBe(saveButton)
+    expect(saveButton.querySelector('[aria-busy="true"]')).not.toBeNull()
+
+    resolveUpdate(updated)
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存通知设置' })).toBe(saveButton))
     expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
   })
 })

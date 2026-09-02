@@ -3,7 +3,7 @@ import { useId, useRef, useState, type FormEvent } from 'react'
 import type { SecretRef } from '../../api/types'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import { useAppContext } from '../../app/AppContext'
-import { actionToast, Button, Icons, Input, Label, Modal, Popover, StatusNotice, TextField } from '../../design-system'
+import { actionToast, Button, Icons, Input, Label, Modal, Popover, StableAsyncButton, StatusNotice, TextField } from '../../design-system'
 import { secretActionError } from './settingsSecretsModel'
 
 export function SecretActions({ secret, lifecycleLocked = false, lifecycleDescription = '请先安全排空，再轮换或删除。', compact = false, onChanged }: {
@@ -100,7 +100,7 @@ export function SecretActions({ secret, lifecycleLocked = false, lifecycleDescri
       <Modal.Backdrop isDismissable={!rotating} isKeyboardDismissDisabled={rotating}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>{`轮换 ${secret.name}`}</Modal.Heading></Modal.Header>
         <Modal.Body><form id={`rotate-secret-${secret.id}`} className="grid gap-3" onSubmit={rotate}><TextField fullWidth value={value} onChange={setValue} isRequired><Label>新 Key 值</Label><Input type="password" autoComplete="new-password" placeholder="粘贴新 Key（不会回显）" /></TextField>{rotateError && <StatusNotice title={rotateError} status="warning" />}</form></Modal.Body>
-        <Modal.Footer><Button type="button" variant="ghost" isDisabled={rotating} onPress={closeRotate}>取消轮换</Button><Button type="submit" form={`rotate-secret-${secret.id}`} isDisabled={rotating}>{rotating ? '轮换中…' : '确认轮换'}</Button></Modal.Footer>
+        <Modal.Footer><Button type="button" variant="ghost" isDisabled={rotating} onPress={closeRotate}>取消轮换</Button><StableAsyncButton type="submit" form={`rotate-secret-${secret.id}`} pending={rotating} pendingContent="轮换中…">确认轮换</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
     <Modal isOpen={deleteOpen} onOpenChange={(open) => {
@@ -112,7 +112,7 @@ export function SecretActions({ secret, lifecycleLocked = false, lifecycleDescri
       <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>{`删除 ${secret.name}？`}</Modal.Heading></Modal.Header>
         <Modal.Body><p>删除后无法恢复；如需再次使用，必须重新添加 Key。</p>{deleteError && <div className="mt-3"><StatusNotice title={deleteError} status="warning" /></div>}</Modal.Body>
-        <Modal.Footer><Button type="button" variant="ghost" isDisabled={removing} onPress={closeDelete}>取消删除</Button><Button type="button" variant="danger" isDisabled={removing} onPress={() => void remove()}>{removing ? '删除中…' : '确认删除'}</Button></Modal.Footer>
+        <Modal.Footer><Button type="button" variant="ghost" isDisabled={removing} onPress={closeDelete}>取消删除</Button><StableAsyncButton type="button" variant="danger" pending={removing} pendingContent="删除中…" onPress={() => void remove()}>确认删除</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
   </div>

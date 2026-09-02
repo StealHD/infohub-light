@@ -8,6 +8,7 @@ import {
   Input,
   Label,
   Modal,
+  StableAsyncButton,
   StatusIndicator,
   TextField,
   Tooltip,
@@ -166,9 +167,7 @@ export function OpenClawBrowserSettings({
         dismissable={!forgetPending}
         footer={<>
           <Button variant="ghost" isDisabled={forgetPending} onPress={closeForgetDialog}>取消</Button>
-          <Button variant="danger" isDisabled={forgetPending} onPress={() => void confirmForget()}>
-            {forgetPending ? '正在移除…' : '确认移除并忘记'}
-          </Button>
+          <StableAsyncButton variant="danger" pending={forgetPending} pendingContent="正在移除…" onPress={() => void confirmForget()}>确认移除并忘记</StableAsyncButton>
         </>}
       >
         <p className="type-body text-muted">这会让当前浏览器设备失去 OpenClaw 访问权限，并删除此用户在该 Gateway 下的本地对话与配对凭据。服务端拒绝时，本地恢复材料会保留。</p>

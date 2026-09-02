@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { Button, Input, Label, RemovableTag, TextField } from '../../design-system'
+import { Button, Input, Label, RemovableTag, StableAsyncButton, TextField } from '../../design-system'
 import { normalizeTopics } from './settingsFetchingModel'
 
 export function SettingsTopicLibrary({ topics, draft, pending, onDraftChange, onSave }: {
@@ -34,6 +34,6 @@ export function SettingsTopicLibrary({ topics, draft, pending, onDraftChange, on
       {visible.map((topic) => <RemovableTag key={topic} label={topic} disabled={pending} onRemove={() => onDraftChange(normalizedDraft.filter((item) => item !== topic))} />)}
       {!visible.length && <span className="type-body text-muted">没有匹配的主题。</span>}
     </div>
-    <div className="flex flex-wrap gap-2"><Button size="sm" isDisabled={!dirty || pending} onPress={() => onSave(normalizedDraft)}>{pending ? '保存中…' : '保存更改'}</Button><Button size="sm" variant="ghost" isDisabled={!dirty || pending} onPress={() => onDraftChange(source)}>撤销更改</Button></div>
+    <div className="flex flex-wrap gap-2"><StableAsyncButton size="sm" pending={pending} pendingContent="保存中…" isDisabled={!dirty} onPress={() => onSave(normalizedDraft)}>保存更改</StableAsyncButton><Button size="sm" variant="ghost" isDisabled={!dirty || pending} onPress={() => onDraftChange(source)}>撤销更改</Button></div>
   </div>
 }

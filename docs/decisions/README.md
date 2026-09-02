@@ -1,8 +1,6 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/decisions/ -->
 # 决策索引
 
-决策理由真源。新决策追加到 `D176–D200`，满后续桶。
-
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
 | D001 | 初始化控制面 | 2026-07-08 | [查看](records/D001-D025.md#d001) |
@@ -204,3 +202,4 @@
 | D198 | ActorOps Dataset 真实适配 | 2026-08-29 | [查看](records/D176-D200.md#d198) |
 | D199 | ActorOps 已验证候选自动替换 | 2026-08-30 | [查看](records/D176-D200.md#d199) |
 | D200 | Actor 套餐适配排序 | 2026-08-31 | [查看](records/D176-D200.md#d200) |
+| D201 | 异步按钮稳定几何 | 2026-09-02 | [查看](records/D201-D225.md#d201) |

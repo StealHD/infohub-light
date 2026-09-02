@@ -5,7 +5,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import { useAppContext } from '../../app/AppContext'
 import { SettingsGroup, SettingsItem, SettingsSection, StatusBadge } from '../../components/settings'
-import { actionToast, Button, Icons, LoadingState, PageFrame, StatusNotice } from '../../design-system'
+import { actionToast, Icons, LoadingState, PageFrame, RefreshButton, StableAsyncButton, StatusNotice } from '../../design-system'
 
 const errorMessage = (caught: unknown, fallback: string) => caught instanceof ApiError
   ? caught.message
@@ -41,7 +41,7 @@ export function SettingsIgnoredPage() {
           ? <LoadingState label="正在读取已忽略内容" rows={2} />
           : ignored.isError
             ? <StatusNotice title="已忽略内容读取失败" status="warning">
-              <Button size="sm" variant="ghost" onPress={() => void ignored.refetch()}>重试此区域</Button>
+              <RefreshButton size="sm" variant="ghost" pending={ignored.isFetching} label="重试此区域" onPress={() => void ignored.refetch()} />
             </StatusNotice>
             : <SettingsGroup ariaLabel="已忽略内容列表">
               {!ignored.data?.items.length
@@ -56,12 +56,13 @@ export function SettingsIgnoredPage() {
                   label={item.presentation?.content?.title || item.title || '无标题内容'}
                   description={item.presentation?.source?.name || item.source || '未知来源'}
                   icon={<Icons.EyeOff size={17} aria-hidden="true" />}
-                  trailing={<Button
+                  trailing={<StableAsyncButton
                     size="sm"
                     variant="ghost"
-                    isDisabled={restoreMutation.isPending && restoreMutation.variables === item.id}
+                    pending={restoreMutation.isPending && restoreMutation.variables === item.id}
+                    pendingContent="恢复中…"
                     onPress={() => restoreMutation.mutate(item.id)}
-                  >{restoreMutation.isPending && restoreMutation.variables === item.id ? '恢复中…' : '恢复'}</Button>}
+                  >恢复</StableAsyncButton>}
                 />)}
             </SettingsGroup>}
       </SettingsSection>

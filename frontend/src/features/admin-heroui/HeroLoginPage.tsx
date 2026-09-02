@@ -12,6 +12,7 @@ import {
   InputGroup,
   Label,
   PageFrame,
+  StableAsyncButton,
   ThemeModeToggle,
   TextField,
 } from '../../design-system'
@@ -133,7 +134,7 @@ export function HeroLoginPage({ api, onAuthenticated }: { api: ServiceApi; onAut
                 <FieldError />
               </TextField>
               {error && <div id="hero-login-error"><HeroNotice title={error} /></div>}
-              <Button type="submit" fullWidth isPending={pending} isDisabled={pending}>{pending ? '登录中…' : '登录'}</Button>
+              <StableAsyncButton type="submit" fullWidth pending={pending} pendingContent="登录中…">登录</StableAsyncButton>
             </Form>
           </div>
         </section>

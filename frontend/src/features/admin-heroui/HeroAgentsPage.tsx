@@ -20,7 +20,7 @@ import {
   LoadingState,
   Modal,
   PageFrame,
-  StatusIndicator,
+  RefreshButton, StatusIndicator, StableAsyncButton,
   Switch,
   TextField,
 } from '../../design-system'
@@ -198,7 +198,7 @@ export function HeroAgentsPage() {
   }
 
   if (query.isLoading) return <div data-page-scroll-region className="h-full overflow-y-auto"><PageFrame width="admin" className="p-5"><LoadingState label="正在读取助手连接" rows={1} /></PageFrame></div>
-  if (query.isError || !query.data) return <div data-page-scroll-region className="h-full overflow-y-auto"><PageFrame width="admin" className="p-5"><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></PageFrame></div>
+  if (query.isError || !query.data) return <div data-page-scroll-region className="h-full overflow-y-auto"><PageFrame width="admin" className="p-5"><HeroNotice title="连接列表读取失败。"><RefreshButton size="sm" variant="ghost" pending={query.isFetching} label="重试" onPress={() => void query.refetch()} /></HeroNotice></PageFrame></div>
 
   const activeCount = query.data.connections.filter((connection) => connection.status === 'active').length
   const limitReached = activeCount >= query.data.max_active
@@ -213,7 +213,7 @@ export function HeroAgentsPage() {
   return <div data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
       <AdminPageHeader description="管理 OpenClaw 对当前账户的数据权限，以及浏览器到本地 Gateway 的对话连接。" actions={<>
-        <Button size="sm" variant="ghost" isIconOnly aria-label="刷新最近使用时间" onPress={() => void query.refetch()}><Icons.RefreshCw size={16} /></Button>
+        <RefreshButton size="sm" variant="ghost" isIconOnly iconSize={16} pending={query.isFetching} aria-label="刷新最近使用时间" pendingLabel="正在刷新最近使用时间" onPress={() => void query.refetch()} />
         <Button size="sm" isDisabled={creationDisabled} onPress={openCreateDialog}><Icons.Bot size={16} />创建连接</Button>
       </>} />
       {!query.data.enabled && <HeroNotice title="管理员尚未启用 Remote MCP。" status="warning" role="status" />}
@@ -275,7 +275,7 @@ export function HeroAgentsPage() {
 
     <Modal isOpen={createOpen} onOpenChange={(open) => !createPending && setCreateOpen(open)}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开创建连接</Modal.Trigger>
-      <DialogFrame title="创建助手连接" footer={<><Button variant="ghost" isDisabled={createPending} onPress={() => setCreateOpen(false)}>取消</Button><Button isDisabled={!createName.trim() || createPending} onPress={() => void createConnection()}>{createPending ? '生成中…' : '生成一次性令牌'}</Button></>}>
+      <DialogFrame title="创建助手连接" footer={<><Button variant="ghost" isDisabled={createPending} onPress={() => setCreateOpen(false)}>取消</Button><StableAsyncButton pending={createPending} pendingContent="生成中…" isDisabled={!createName.trim()} onPress={() => void createConnection()}>生成一次性令牌</StableAsyncButton></>}>
         <Form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void createConnection() }}>
           <TextField autoFocus fullWidth isRequired value={createName} onChange={setCreateName}><Label>连接名称</Label><Input maxLength={80} /><p className="type-meta text-muted">令牌有效 {query.data.token_ttl_days} 天，只会显示一次。</p></TextField>
           <HeroSelect
@@ -331,7 +331,7 @@ export function HeroAgentsPage() {
 
     <Modal isOpen={Boolean(renameTarget)} onOpenChange={(open) => !open && !rename.isPending && closeRenameDialog()}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开重命名连接</Modal.Trigger>
-      <DialogFrame title="重命名助手连接" dismissable={!rename.isPending} footer={<><Button variant="ghost" isDisabled={rename.isPending} onPress={closeRenameDialog}>取消</Button><Button isDisabled={!renameName.trim() || rename.isPending} onPress={() => rename.mutate()}>{rename.isPending ? '保存中…' : '保存名称'}</Button></>}>
+      <DialogFrame title="重命名助手连接" dismissable={!rename.isPending} footer={<><Button variant="ghost" isDisabled={rename.isPending} onPress={closeRenameDialog}>取消</Button><StableAsyncButton pending={rename.isPending} pendingContent="保存中…" isDisabled={!renameName.trim()} onPress={() => rename.mutate()}>保存名称</StableAsyncButton></>}>
         <TextField autoFocus fullWidth isRequired value={renameName} onChange={setRenameName}><Label>连接名称</Label><Input maxLength={80} /></TextField>
         {renameError && <div className="mt-4"><HeroNotice title={renameError} /></div>}
       </DialogFrame>
@@ -339,7 +339,7 @@ export function HeroAgentsPage() {
 
     <Modal isOpen={Boolean(revokeTarget)} onOpenChange={(open) => !open && !revoke.isPending && closeRevokeDialog()}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开吊销连接</Modal.Trigger>
-      <DialogFrame title="吊销助手连接" dismissable={!revoke.isPending} footer={<><Button variant="ghost" isDisabled={revoke.isPending} onPress={closeRevokeDialog}>取消</Button><Button variant="danger" isDisabled={revoke.isPending} onPress={() => revoke.mutate()}>{revoke.isPending ? '正在吊销…' : '确认吊销'}</Button></>}>
+      <DialogFrame title="吊销助手连接" dismissable={!revoke.isPending} footer={<><Button variant="ghost" isDisabled={revoke.isPending} onPress={closeRevokeDialog}>取消</Button><StableAsyncButton variant="danger" pending={revoke.isPending} pendingContent="正在吊销…" onPress={() => revoke.mutate()}>确认吊销</StableAsyncButton></>}>
         <p className="type-body text-muted">吊销后无法恢复，OpenClaw 的下一次请求会立即失败。需要恢复时请创建新连接。</p>
         {revokeError && <div className="mt-4"><HeroNotice title={revokeError} /></div>}
       </DialogFrame>
@@ -350,7 +350,7 @@ export function HeroAgentsPage() {
       <DialogFrame
         title="删除已吊销连接"
         dismissable={!deleteRecord.isPending}
-        footer={<><Button variant="ghost" isDisabled={deleteRecord.isPending} onPress={closeDeleteDialog}>取消</Button><Button variant="danger" isDisabled={deleteRecord.isPending} onPress={() => deleteRecord.mutate()}>{deleteRecord.isPending ? '正在删除…' : '确认删除'}</Button></>}
+        footer={<><Button variant="ghost" isDisabled={deleteRecord.isPending} onPress={closeDeleteDialog}>取消</Button><StableAsyncButton variant="danger" pending={deleteRecord.isPending} pendingContent="正在删除…" onPress={() => deleteRecord.mutate()}>确认删除</StableAsyncButton></>}
       >
         <p className="type-body text-muted">只会删除这一条已吊销连接记录，不会影响其他连接。删除后无法恢复。</p>
         {deleteError && <div className="mt-4"><HeroNotice title={deleteError} /></div>}

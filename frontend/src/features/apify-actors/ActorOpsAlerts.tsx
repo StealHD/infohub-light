@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { queryKeys } from '../../api/queryKeys'
 import type { ApifyActorAlertEvent, ApifyActorAlertSettings, ApifyActorAlertSettingsPatch } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
-import { Button, Checkbox, LoadingState, Modal, StatusIndicator, StatusNotice, Switch } from '../../design-system'
+import { Button, Checkbox, LoadingState, Modal, RefreshButton, StableAsyncButton, StatusIndicator, StatusNotice, Switch } from '../../design-system'
 import { type ActorOpsIssueActionTarget, presentActorOpsIncidentIssue } from './actorOpsIssuePresentation'
 
 const eventLabels: Record<ApifyActorAlertEvent, string> = {
@@ -38,7 +38,7 @@ export function ActorOpsAlertSettingsPanel() {
   })
   if (settings.isPending) return <LoadingState label="正在读取 ActorOps 告警设置" rows={2} />
   if (settings.isError || !settings.data) return <StatusNotice title="ActorOps 告警设置读取失败" status="warning">
-    <Button size="sm" variant="ghost" onPress={() => void settings.refetch()}>重试此区域</Button>
+    <RefreshButton size="sm" variant="ghost" pending={settings.isFetching} label="重试此区域" onPress={() => void settings.refetch()} />
   </StatusNotice>
   const save = async (patch: Pick<ApifyActorAlertSettingsPatch, 'enabled' | 'target_ids' | 'events'>) => {
     setSaving(true)
@@ -99,7 +99,7 @@ function AlertEditor({ settings, services, saving, saveError, onSave, onClose }:
       </Checkbox>)}
     </fieldset>
     {saveError && <StatusNotice title="ActorOps 告警未保存" status="warning">{saveError}</StatusNotice>}
-    <div className="flex justify-end gap-2"><Button variant="ghost" onPress={onClose} isDisabled={saving}>取消</Button><Button isDisabled={saving} onPress={() => void submit()}>{saving ? '保存中…' : '保存告警'}</Button></div>
+    <div className="flex justify-end gap-2"><Button variant="ghost" onPress={onClose} isDisabled={saving}>取消</Button><StableAsyncButton pending={saving} pendingContent="保存中…" onPress={() => void submit()}>保存告警</StableAsyncButton></div>
   </div>
 }
 
@@ -114,7 +114,7 @@ export function ActorOpsAlertIncidentList() {
   })
   if (incidents.isPending) return <LoadingState label="正在读取 ActorOps 告警事件" rows={2} />
   if (incidents.isError || !incidents.data) return <StatusNotice title="ActorOps 告警事件读取失败" status="warning">
-    <Button size="sm" variant="ghost" onPress={() => void incidents.refetch()}>重试此区域</Button>
+    <RefreshButton size="sm" variant="ghost" pending={incidents.isFetching} label="重试此区域" onPress={() => void incidents.refetch()} />
   </StatusNotice>
   if (!incidents.data.incidents.length) return <p className="type-meta text-muted">尚无需要处理的 ActorOps 告警。</p>
   return <ol className="grid gap-2" aria-label="ActorOps 告警事件">
@@ -129,7 +129,7 @@ export function ActorOpsAlertIncidentList() {
         <dl className="mt-2 grid gap-1 type-meta"><div><dt className="inline text-muted">原因： </dt><dd className="inline">{issue.reason}</dd></div><div><dt className="inline text-muted">影响： </dt><dd className="inline">{issue.impact}</dd></div><div><dt className="inline text-muted">下一步： </dt><dd className="inline">{issue.next}</dd></div></dl>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {incident.status === 'open' && <IncidentAction target={issue.action?.target} route={incident.route} onNavigate={navigate} />}
-          {incident.status === 'open' && issue.action?.target === 'apify-runs' && <Button size="sm" variant="ghost" onPress={refreshLogs}>刷新日志</Button>}
+          {incident.status === 'open' && issue.action?.target === 'apify-runs' && <RefreshButton size="sm" variant="ghost" pending={incidents.isFetching} label="刷新日志" onPress={refreshLogs} />}
           <time className="type-meta text-muted">{formatTime(incident.last_seen_at)}</time>
         </div>
       </li>

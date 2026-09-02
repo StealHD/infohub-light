@@ -19,6 +19,7 @@ import {
   Modal,
   PageFrame,
   StatusIndicator,
+  StableAsyncButton,
   Table,
   TextField,
   type SortDescriptor,
@@ -113,7 +114,7 @@ function AccountPasswordSection() {
       <TextField fullWidth name="current_password" isRequired><Label>当前密码</Label><Input type="password" autoComplete="current-password" /></TextField>
       <TextField fullWidth name="new_password" isRequired><Label>新密码</Label><Input type="password" autoComplete="new-password" minLength={8} /></TextField>
       <TextField fullWidth name="confirmation" isRequired><Label>确认新密码</Label><Input type="password" autoComplete="new-password" minLength={8} /></TextField>
-      <Button className="w-fit" type="submit" isDisabled={mutation.isPending}><Icons.KeyRound size={15} />{mutation.isPending ? '更新中…' : '更新密码'}</Button>
+      <StableAsyncButton className="w-fit" type="submit" pending={mutation.isPending} pendingContent="更新中…"><Icons.KeyRound size={15} />更新密码</StableAsyncButton>
     </form>
     {error && <div className="mt-3"><HeroNotice title={error} /></div>}
   </AdminSection>
@@ -418,7 +419,7 @@ export function HeroUsersPage() {
         <TextField fullWidth name="display_name"><Label>显示名</Label><Input /></TextField>
         <TextField fullWidth name="password" isRequired><Label>初始密码</Label><Input type="password" autoComplete="new-password" /></TextField>
         <HeroSelect label="角色" value={newUserRole} onChange={setNewUserRole} options={[{ id: 'admin', label: '管理员' }, { id: 'member', label: '成员' }, { id: 'viewer', label: '只读成员' }]} />
-        <Button className="self-end" type="submit" isDisabled={feedback.isPending('member-create', 'new')}><Icons.UserPlus size={15} />{feedback.isPending('member-create', 'new') ? '创建中…' : '新增成员'}</Button>
+        <StableAsyncButton className="self-end" type="submit" pending={feedback.isPending('member-create', 'new')} pendingContent="创建中…"><Icons.UserPlus size={15} />新增成员</StableAsyncButton>
         {createError && <div className="min-[760px]:col-span-5"><HeroNotice title={createError} /></div>}
       </form>
       {users.isLoading && <LoadingState label="正在读取成员" rows={2} />}
@@ -476,7 +477,7 @@ export function HeroUsersPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button type="button" variant="ghost" isDisabled={resetPasswordMutation.isPending} onPress={() => setResetTarget(null)}>取消</Button>
-            <Button type="submit" form="member-password-reset-form" isDisabled={resetPasswordMutation.isPending}>{resetPasswordMutation.isPending ? '重置中…' : '确认重置'}</Button>
+            <StableAsyncButton type="submit" form="member-password-reset-form" pending={resetPasswordMutation.isPending} pendingContent="重置中…">确认重置</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>
@@ -510,9 +511,7 @@ export function HeroUsersPage() {
               setRenameUsername('')
               setRenameError('')
             }}>取消</Button>
-            <Button type="submit" form="member-username-form" isDisabled={!renameUsername.trim() || renameMutation.isPending}>
-              {renameMutation.isPending ? '保存中…' : '保存用户名'}
-            </Button>
+            <StableAsyncButton type="submit" form="member-username-form" pending={renameMutation.isPending} pendingContent="保存中…" isDisabled={!renameUsername.trim()}>保存用户名</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>
@@ -544,14 +543,14 @@ export function HeroUsersPage() {
               setDeleteConfirmation('')
               setDeleteError('')
             }}>取消</Button>
-            <Button
+            <StableAsyncButton
               type="button"
               variant="danger"
-              isDisabled={deleteConfirmation !== deleteTarget?.username || deleteMutation.isPending}
+              pending={deleteMutation.isPending}
+              pendingContent="删除中…"
+              isDisabled={deleteConfirmation !== deleteTarget?.username}
               onPress={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id })}
-            >
-              {deleteMutation.isPending ? '删除中…' : '确认删除账号'}
-            </Button>
+            >确认删除账号</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>

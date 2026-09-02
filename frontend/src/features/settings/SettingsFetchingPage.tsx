@@ -13,7 +13,7 @@ import {
   SettingsItem,
   SettingsSection,
 } from '../../components/settings'
-import { actionToast, Button, Icons, Input, Label, LoadingState, PageFrame, StatusNotice, TextField } from '../../design-system'
+import { actionToast, Icons, Input, Label, LoadingState, PageFrame, RefreshButton, StableAsyncButton, StatusNotice, TextField } from '../../design-system'
 import { HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { canAdministerWorkspace } from './settingsModel'
 import { SettingsTopicLibrary } from './SettingsTopicLibrary'
@@ -226,16 +226,14 @@ export function SettingsFetchingPage() {
       {dirtySections.size > 0 && <div className="sticky top-3 z-10"><StatusNotice title="有尚未保存的更改" status="warning" role="status">
         <div className="flex flex-wrap items-center gap-3">
           <span className="min-w-0 flex-1">{dirtySections.size} 项设置待保存。</span>
-          <Button size="sm" isDisabled={configMutation.isPending} onPress={() => saveSections([...dirtySections])}>
-            <Icons.Save size={15} aria-hidden="true" />{configMutation.isPending ? '保存中…' : '保存全部配置'}
-          </Button>
+          <StableAsyncButton size="sm" pending={configMutation.isPending} pendingContent="保存中…" onPress={() => saveSections([...dirtySections])}><Icons.Save size={15} aria-hidden="true" />保存全部配置</StableAsyncButton>
         </div>
       </StatusNotice></div>}
 
       {config.isPending
         ? <LoadingState label="正在读取 RSSHub 设置" rows={2} />
         : config.isError
-          ? <StatusNotice title="RSSHub 设置读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></StatusNotice>
+          ? <StatusNotice title="RSSHub 设置读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => void config.refetch()} /></StatusNotice>
           : <RsshubServiceSettings
               baseUrl={String(rsshub.base_url ?? 'http://rsshub:1200')}
               formRef={rsshubFormRef}
@@ -248,7 +246,7 @@ export function SettingsFetchingPage() {
         {config.isPending
           ? <LoadingState label="正在读取获取窗口" rows={2} />
           : config.isError
-            ? <StatusNotice title="获取窗口读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></StatusNotice>
+            ? <StatusNotice title="获取窗口读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => void config.refetch()} /></StatusNotice>
             : <SettingsGroup ariaLabel="获取窗口">
               <SettingsItem label="抓取与展示范围" description="按上海自然日划分 Feed 与历史。" icon={<Icons.Clock3 size={17} aria-hidden="true" />}>
                 <form ref={filteringFormRef} className="grid gap-4" onChange={() => refreshDirty('filtering')} onSubmit={saveFiltering}>
@@ -258,7 +256,7 @@ export function SettingsFetchingPage() {
                     <HeroSelect name="rss_initial_fetch_window_hours" label="RSS 首次抓取窗口" value={rssInitialFetchWindow} onChange={(value) => { setRssInitialFetchWindowOverride(value); refreshDirty('filtering') }} options={[{ id: '168', label: '7 天' }, { id: '720', label: '30 天' }]} />
                     <FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} required />
                   </div>
-                  <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>{configMutation.isPending && configMutation.variables?.sections.includes('filtering') ? '保存中…' : '保存获取设置'}</Button>
+                  <StableAsyncButton className="w-fit" type="submit" pending={configMutation.isPending && Boolean(configMutation.variables?.sections.includes('filtering'))} pendingContent="保存中…" isDisabled={configMutation.isPending}>保存获取设置</StableAsyncButton>
                 </form>
                 <SettingsDisclosure title="窗口说明" description="首次抓取和日常抓取采用不同范围。" className="mt-4">
                   <p className="type-body text-muted">RSS 或 RSSHub 订阅在首次成功前使用首次抓取窗口；成功后恢复日常窗口。信息流活跃窗口只影响 Feed 与历史展示，不改变抓取窗口。</p>
@@ -271,7 +269,7 @@ export function SettingsFetchingPage() {
         {config.isPending
           ? <LoadingState label="正在读取主题库" rows={2} />
           : config.isError
-            ? <StatusNotice title="主题库读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></StatusNotice>
+            ? <StatusNotice title="主题库读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => void config.refetch()} /></StatusNotice>
             : <SettingsGroup ariaLabel="阅读主题库">
               <SettingsItem label="工作区主题" description="新增或删除后单独保存。" icon={<Icons.Tags size={17} aria-hidden="true" />}>
                 <SettingsTopicLibrary topics={savedTopics} draft={topicsDraft} pending={configMutation.isPending} onDraftChange={setTopicsDirty} onSave={() => saveSections(['topics'])} />

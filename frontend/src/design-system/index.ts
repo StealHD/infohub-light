@@ -53,6 +53,8 @@ export { interactivePopoverCloseDelayMs, useHoverPopoverIntent } from './useHove
 export { Tooltip } from './AnchoredTooltip'
 export { anchoredTooltipProps, bottomAnchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
+export { RefreshButton } from './RefreshButton'
+export { StableAsyncButton } from './StableAsyncButton'
 export { Timeline } from './Timeline'
 export { ImageGalleryModal } from './ImageGalleryModal'
 export type { ImageGalleryImage } from './ImageGalleryModal'

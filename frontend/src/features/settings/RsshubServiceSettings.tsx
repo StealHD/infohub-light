@@ -6,7 +6,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import { useAppContext } from '../../app/AppContext'
 import { SettingsDisclosure, SettingsGroup, SettingsSection } from '../../components/settings'
-import { actionToast, Button, Icons, Input, Label, Modal, StatusIndicator, StatusNotice, TextField } from '../../design-system'
+import { actionToast, Button, Icons, Input, Label, Modal, RefreshButton, StableAsyncButton, StatusIndicator, StatusNotice, TextField } from '../../design-system'
 
 type RsshubServiceSettingsProps = {
   baseUrl: string
@@ -102,7 +102,7 @@ export function RsshubServiceSettings({ baseUrl, formRef, isSaving, onFormChange
   const accessKeyAction = accessKey.isPending
     ? <StatusIndicator label="正在检查访问密钥" tone="neutral" />
     : accessKey.isError
-      ? <div className="flex flex-wrap items-center gap-2"><StatusIndicator label="状态读取失败" tone="warning" /><Button size="sm" variant="ghost" onPress={() => void accessKey.refetch()}>重试</Button></div>
+      ? <div className="flex flex-wrap items-center gap-2"><StatusIndicator label="状态读取失败" tone="warning" /><RefreshButton size="sm" variant="ghost" pending={accessKey.isFetching} label="重试" onPress={() => void accessKey.refetch()} /></div>
       : <div className="flex flex-wrap items-center gap-2">
           <AccessKeyStatus source={source} configured={configured} />
           {source === 'environment'
@@ -123,7 +123,7 @@ export function RsshubServiceSettings({ baseUrl, formRef, isSaving, onFormChange
         {source === 'environment' && <p className="type-meta text-muted">访问密钥由部署环境注入；如需由页面管理，请先在部署环境移除该变量。</p>}
         <form ref={formRef} className="grid gap-3 min-[640px]:grid-cols-[minmax(0,1fr)_auto] min-[640px]:items-end" onChange={onFormChange} onSubmit={onSave}>
           <TextField fullWidth name="base_url" defaultValue={baseUrl} isRequired><Label>RSSHub Base URL</Label><Input type="url" /></TextField>
-          <Button className="w-full min-[640px]:w-auto" type="submit" isDisabled={isSaving}>{isSaving ? '保存中…' : '保存 RSSHub 地址'}</Button>
+          <StableAsyncButton className="w-full min-[640px]:w-auto" type="submit" pending={isSaving} pendingContent="保存中…">保存 RSSHub 地址</StableAsyncButton>
         </form>
         <SettingsDisclosure title="连接说明" description="了解访问密钥和服务端边界。">
           <p className="type-body text-muted">自建公网实例可使用访问密钥保护；Worker 只发送路由级 code，助手不接收地址或密钥。</p>
@@ -140,7 +140,7 @@ export function RsshubServiceSettings({ baseUrl, formRef, isSaving, onFormChange
           {configured && source === 'secret_store' && <Button size="sm" variant="ghost" className="justify-start text-danger" isDisabled={busy} onPress={() => { setAccessKeyOpen(false); setRemoveOpen(true) }}><Icons.Trash2 size={14} aria-hidden="true" />移除访问密钥</Button>}
           {error && <StatusNotice title={error} status="warning" />}
         </form></Modal.Body>
-        <Modal.Footer><Button type="button" variant="ghost" isDisabled={busy} onPress={closeAccessKey}>取消</Button><Button type="submit" form="rsshub-access-key" isDisabled={busy}>{saveAccessKey.isPending ? '保存中…' : '保存访问密钥'}</Button></Modal.Footer>
+        <Modal.Footer><Button type="button" variant="ghost" isDisabled={busy} onPress={closeAccessKey}>取消</Button><StableAsyncButton type="submit" form="rsshub-access-key" pending={saveAccessKey.isPending} pendingContent="保存中…" isDisabled={removeAccessKey.isPending}>保存访问密钥</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
     <Modal isOpen={removeOpen} onOpenChange={(open) => open ? setRemoveOpen(true) : closeRemove()}>
@@ -148,7 +148,7 @@ export function RsshubServiceSettings({ baseUrl, formRef, isSaving, onFormChange
       <Modal.Backdrop isDismissable={!busy} isKeyboardDismissDisabled={busy}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>移除 RSSHub 访问密钥？</Modal.Heading></Modal.Header>
         <Modal.Body><StatusNotice title="移除后，仍要求访问码的 RSSHub 来源会抓取失败。" status="warning">RSSHub 地址和现有订阅不会被删除。</StatusNotice>{error && <div className="mt-3"><StatusNotice title={error} status="warning" /></div>}</Modal.Body>
-        <Modal.Footer><Button type="button" variant="ghost" isDisabled={busy} onPress={closeRemove}>取消</Button><Button type="button" variant="danger" isDisabled={busy} onPress={() => removeAccessKey.mutate()}>{removeAccessKey.isPending ? '移除中…' : '确认移除'}</Button></Modal.Footer>
+        <Modal.Footer><Button type="button" variant="ghost" isDisabled={busy} onPress={closeRemove}>取消</Button><StableAsyncButton type="button" variant="danger" pending={removeAccessKey.isPending} pendingContent="移除中…" isDisabled={saveAccessKey.isPending} onPress={() => removeAccessKey.mutate()}>确认移除</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
   </SettingsSection>

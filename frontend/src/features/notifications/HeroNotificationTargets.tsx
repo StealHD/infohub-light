@@ -23,6 +23,7 @@ import {
   Modal,
   Popover,
   Separator,
+  StableAsyncButton,
   Table,
   TextField,
 } from '../../design-system'
@@ -688,9 +689,7 @@ export function HeroNotificationTargets({
             </Modal.Body>
             <Modal.Footer data-notification-service-dialog-footer>
               <Button variant="ghost" isDisabled={creating} onPress={closeCreateDialog}>取消</Button>
-              <Button type="submit" form="notification-service-create-form" isDisabled={creating || !name.trim() || !destination.trim()}>
-                {creating ? '保存并测试中…' : '保存并测试'}
-              </Button>
+              <StableAsyncButton type="submit" form="notification-service-create-form" pending={creating} pendingContent="保存并测试中…" isDisabled={!name.trim() || !destination.trim()}>保存并测试</StableAsyncButton>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
@@ -731,7 +730,7 @@ export function HeroNotificationTargets({
             </form>}</Modal.Body>
             <Modal.Footer>
               <Button variant="ghost" isDisabled={busyService === editingTarget?.id} onPress={() => setEditingService(null)}>取消</Button>
-              <Button type="submit" form="notification-service-edit-form" isDisabled={busyService === editingTarget?.id}>{busyService === editingTarget?.id ? '处理中…' : '保存并测试'}</Button>
+              <StableAsyncButton type="submit" form="notification-service-edit-form" pending={busyService === editingTarget?.id} pendingContent="处理中…">保存并测试</StableAsyncButton>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
@@ -746,7 +745,7 @@ export function HeroNotificationTargets({
             <Modal.Body><p className="type-body text-muted">归档“{archiveTarget?.name ?? ''}”后，个人通知和系统告警将无法继续选择它。若仍有业务正在使用，服务端会安全阻止归档。</p>{requestError && <HeroNotice title={requestError} />}</Modal.Body>
             <Modal.Footer>
               <Button variant="ghost" isDisabled={busyService === archiveTarget?.id} onPress={closeArchiveDialog}>取消</Button>
-              <Button variant="danger" isDisabled={busyService === archiveTarget?.id} onPress={() => void archive()}>{busyService === archiveTarget?.id ? '归档中…' : '确认归档'}</Button>
+              <StableAsyncButton variant="danger" pending={busyService === archiveTarget?.id} pendingContent="归档中…" onPress={() => void archive()}>确认归档</StableAsyncButton>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

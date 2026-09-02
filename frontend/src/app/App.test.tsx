@@ -2796,7 +2796,7 @@ describe('App routes', () => {
       remaining_hard_limit_usd: 9,
     }))
     expect(await screen.findByText('$4.00')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled())
 
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Retry 额度' }))
     const backgroundRetry = await screen.findByRole('button', { name: '重试 Apify Retry 额度' })
@@ -2821,7 +2821,7 @@ describe('App routes', () => {
       remaining_hard_limit_usd: 8,
     }))
     expect(await screen.findByText('$3.00')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled())
 
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Retry 额度' }))
     expect(await screen.findByRole('button', { name: '重试 Apify Retry 额度' })).toBeEnabled()

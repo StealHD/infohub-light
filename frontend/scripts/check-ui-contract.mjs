@@ -42,6 +42,16 @@ function sourceViolations(file, source) {
       [/(?:\bh-\[52px\]|\bgrid-rows-\[52px_)/, '页面头高度必须使用设计系统页头令牌'],
     ]
     for (const [pattern, message] of checks) if (pattern.test(source)) violations.push(`${file}: ${message}`)
+    const buttonBlocks = source.match(/<Button\b[^>]*>(?:(?!<Button\b|<\/Button>)[\s\S])*<\/Button>/g) ?? []
+    const intermediateState = /(?:isPending|pending|saving|busy|creating|loading|draining|refreshing|updating|removing|rotating|running|isRunning|connecting|submitting|reloading)/i
+    const hasUnstableIntermediateChild = (block) => (block.match(/\{[^{}]*\?[^{}]*:[^{}]*\}/g) ?? [])
+      .some((conditional) => intermediateState.test(conditional.slice(0, conditional.indexOf('?'))))
+    if (buttonBlocks.some((block) => !/\bisIconOnly\b/.test(block) && hasUnstableIntermediateChild(block))) {
+      violations.push(`${file}: 异步中间态按钮必须使用 StableAsyncButton 保持外部几何不变`)
+    }
+    if (buttonBlocks.some((block) => /\brefetch\s*\(/.test(block))) {
+      violations.push(`${file}: 刷新与重试请求必须使用 RefreshButton 提供可感知的旋转反馈`)
+    }
   }
   return violations
 }

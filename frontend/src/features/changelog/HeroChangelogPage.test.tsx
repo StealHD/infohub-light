@@ -43,6 +43,8 @@ describe('HeroChangelogPage', () => {
   it('renders source-controlled Chinese entries as an accessible timeline with responsive month navigation', () => {
     renderChangelog('/changelog#month-2026-07')
 
+    expect(screen.getByRole('heading', { level: 2, name: '2026 年 9 月' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: '操作按钮在处理中不再跳动' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 8 月' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '订阅源头像会自动跟随来源更新' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '内部结构更易维护，用户流程保持不变' })).toBeInTheDocument()
@@ -115,12 +117,18 @@ describe('HeroChangelogPage', () => {
     expect(within(entries[12] as HTMLElement).getByText('默认跟随全局')).toBeVisible()
     expect(within(entries[12] as HTMLElement).getByText('卡片信息更准确')).toBeVisible()
     expect(within(entries[12] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
+    const currentTimeline = screen.getByRole('list', { name: '2026 年 9 月更新记录' })
+    const currentEntries = currentTimeline.querySelectorAll(':scope > [data-timeline-item]')
+    expect(currentEntries).toHaveLength(1)
+    expect(currentEntries[0]).toHaveAttribute('aria-current', 'true')
+    expect(within(currentTimeline).getByText('按钮尺寸保持稳定')).toBeVisible()
+    expect(within(currentTimeline).getByText('通知设置不再整体闪动')).toBeVisible()
     const latestTimeline = screen.getByRole('list', { name: '2026 年 8 月更新记录' })
     const latestEntries = latestTimeline.querySelectorAll(':scope > [data-timeline-item]')
     expect(latestEntries).toHaveLength(
       changelogMonths.find((month) => month.id === 'month-2026-08')?.entries.length ?? 0,
     )
-    expect(latestEntries[0]).toHaveAttribute('aria-current', 'true')
+    expect(latestEntries[0]).not.toHaveAttribute('aria-current')
     expect(within(latestTimeline).getByText('认证 Actor 按“最新条数”直接获取')).toBeVisible()
     expect(within(latestTimeline).getByText('助手连接命令可直接复制')).toBeVisible()
     expect(within(latestTimeline).getByText('功能优先但费用仍需确认')).toBeVisible()
