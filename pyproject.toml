@@ -1,6 +1,6 @@
 [project]
 name = "horizon"
-version = "2.6.7"
+version = "2.6.8"
 description = "AI-driven information aggregation system for tracking academic and social trends"
 readme = "README.md"
 license = "MIT"
