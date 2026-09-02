@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复 Actor 明确 no-results 被误判为账号身份不匹配的问题；无内容控制行现在安全完成为空结果，demo/占位和其他普通语义异常保留具体错误并按证据阈值恢复，不再统一升级为一次即确认的合同故障。",
-  "status": "completed",
-  "task_id": "2026-08-30-actor-no-results-health-recovery",
-  "unresolved": [
-    "本轮按用户要求只完成本地修复；VPS 仍运行 v2.6.2，需后续发布新版本并对既有 X 故障证据执行受控恢复。"
-  ],
-  "validation": [
-    "noResults/no_results、身份不匹配、placeholder 与合同错误分类定向回归通过。",
-    "Actor Manifest、候选 Runtime、X 回复过滤与输出错误分类受影响测试全部通过。",
-    "impacted preflight 14/14 通过，后端、Worker、前端、控制校验和代码尺寸检查均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-30",
@@ -387,6 +367,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "UI Contract 与 TypeScript 检查通过；12 个直接影响 Vitest 文件共 131 项通过，StableAsyncButton 额外回归 7 项通过。",
     "Markdown、project-controls、Worklog、JSON 与 diff 校验全部通过；生产构建在实现阶段通过。",
     "唯一一次 impacted preflight 14/14 通过，覆盖 control、frontend_full 与 python_api_store，无 SQLite 连接泄漏警告。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-03",
+  "result": "修复 StableAsyncButton 同步锁在真实浏览器中抢先禁用 submitter、导致登录和设置表单无响应的回归：表单按钮先完成原生 submit 分发，再发布 pending，连续点击仍由同步锁阻止。",
+  "status": "completed",
+  "task_id": "2026-09-03-fix-stable-submit-activation",
+  "unresolved": [
+    "修复仅提交到 codex/non-docker-dev-20260902，继续等待用户实际验收，未经批准不得合入 main。"
+  ],
+  "validation": [
+    "StableAsyncButton、登录、订阅、通知、RSSHub 设置与更新日志定向 Vitest 7 文件 37 项通过；TypeScript 与 UI Contract 检查通过。",
+    "真实浏览器使用虚构账号发起登录探针，服务端返回明确的账号密码错误，证明 submit 与 API 请求恢复；浏览器无 error。"
   ]
 }
 ```

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { createRef, useState } from 'react'
+import { createRef, type FormEvent, useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -87,6 +87,26 @@ describe('StableAsyncButton', () => {
     expect(screen.getByRole('button', { name: '发送中…' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
+  })
+
+  it('lets the first native submit reach the form and blocks a repeated click', async () => {
+    vi.useFakeTimers()
+    const onSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault())
+    render(<MemoryRouter><DesignSystemProvider>
+      <form onSubmit={onSubmit}>
+        <StableAsyncButton type="submit" pending={false} pendingContent="发送中…">发送</StableAsyncButton>
+      </form>
+    </DesignSystemProvider></MemoryRouter>)
+
+    const button = screen.getByRole('button', { name: '发送' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    expect(onSubmit).toHaveBeenCalledOnce()
+    await act(async () => vi.runAllTimers())
+    act(() => vi.runAllTimers())
+    expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
+    vi.useRealTimers()
   })
 
   it('releases a synchronous action on the next frame', () => {

@@ -12,9 +12,11 @@ type StableAsyncButtonProps = Omit<ComponentProps<typeof Button>, 'children' | '
 export const StableAsyncButton = forwardRef<HTMLButtonElement, StableAsyncButtonProps>(function StableAsyncButton({
   children,
   isDisabled = false,
+  onClick,
   onPress,
   pending,
   pendingContent,
+  type,
   ...props
 }, ref) {
   const [activationPending, setActivationPending] = useState(false)
@@ -65,11 +67,39 @@ export const StableAsyncButton = forwardRef<HTMLButtonElement, StableAsyncButton
     })
   }
 
+  const nativeSubmit = type === 'submit' && !onPress
+  const handleSubmitClick: NonNullable<ComponentProps<typeof Button>['onClick']> = (event) => {
+    if (activationLocked.current || pendingRef.current || isDisabled) {
+      event.preventDefault()
+      return
+    }
+    activationLocked.current = true
+    try {
+      onClick?.(event)
+    } catch (error) {
+      releaseActivation()
+      throw error
+    }
+
+    // Disabling a submitter during its click event cancels native form submission
+    // in real browsers. Keep the synchronous ref lock, but publish pending only
+    // after the browser has dispatched the form's submit event.
+    window.setTimeout(() => {
+      if (!activationLocked.current) return
+      setActivationPending(true)
+      window.requestAnimationFrame(() => {
+        if (!pendingRef.current && !observedExternalPending.current) releaseActivation()
+      })
+    }, 0)
+  }
+
   return <Button
     {...props}
     ref={ref}
     isDisabled={isDisabled || effectivePending}
-    onPress={handlePress}
+    onClick={nativeSubmit ? handleSubmitClick : onClick}
+    onPress={nativeSubmit ? undefined : handlePress}
+    type={type}
   >
     <span
       data-stable-async-button-content
