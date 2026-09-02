@@ -1,6 +1,6 @@
 import { forwardRef, type ComponentProps } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '@heroui/react'
+import { Button } from './Button'
 
 import { RefreshCw } from './icons'
 

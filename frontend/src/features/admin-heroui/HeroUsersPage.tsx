@@ -9,8 +9,6 @@ import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
   actionToast,
-  AvatarFallback,
-  AvatarRoot,
   Button,
   Icons,
   Input,
@@ -26,6 +24,7 @@ import {
 } from '../../design-system'
 import { canAdministerWorkspace } from '../settings/settingsModel'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
+import { MemberIdentity } from './MemberIdentity'
 
 const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
 const messageOf = (caught: unknown, fallback: string) => caught instanceof ApiError || caught instanceof Error ? caught.message : fallback
@@ -39,13 +38,6 @@ const memberColumns = [
 
 type MemberColumnKey = typeof memberColumns[number]['key']
 
-const avatarTones = [
-  'from-violet-300 via-fuchsia-300 to-rose-400',
-  'from-emerald-300 via-teal-300 to-blue-500',
-  'from-amber-200 via-orange-300 to-rose-500',
-  'from-sky-200 via-cyan-300 to-violet-500',
-] as const
-
 const roleOrder: Record<User['role'], number> = {
   owner: 0,
   admin: 1,
@@ -54,16 +46,6 @@ const roleOrder: Record<User['role'], number> = {
 }
 
 const memberCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
-
-function avatarTone(username: string) {
-  let hash = 0
-  for (const character of username) hash = ((hash << 5) - hash + character.codePointAt(0)!) | 0
-  return avatarTones[Math.abs(hash) % avatarTones.length]
-}
-
-function memberInitial(member: User) {
-  return (member.display_name || member.username).trim().slice(0, 1).toUpperCase()
-}
 
 function compareMembers(a: User, b: User, column: MemberColumnKey) {
   switch (column) {
@@ -304,18 +286,7 @@ export function HeroUsersPage() {
 
     switch (columnKey) {
       case 'identity':
-        return <div className="flex min-w-0 items-center gap-3">
-          <AvatarRoot
-            aria-hidden="true"
-            className={`size-10 shrink-0 bg-gradient-to-br ${avatarTone(member.username)} shadow-sm ring-1 ring-white/10`}
-          >
-            <AvatarFallback className="type-control bg-transparent text-black/70">{memberInitial(member)}</AvatarFallback>
-          </AvatarRoot>
-          <div className="min-w-0">
-            <strong className="type-body block truncate">{member.display_name || member.username}</strong>
-            <span className="type-meta block truncate text-muted">@{member.username}</span>
-          </div>
-        </div>
+        return <MemberIdentity member={member} />
       case 'role':
         return member.role === 'owner'
           ? <span className="type-meta inline-flex items-center gap-1.5 text-muted">
@@ -362,21 +333,19 @@ export function HeroUsersPage() {
           >
             <Icons.Pencil size={16} aria-hidden="true" />
           </Button>}
-          <Button
+          <StableAsyncButton
             size="sm"
             variant={member.enabled && member.role !== 'owner' ? 'danger-soft' : 'tertiary'}
             isIconOnly
             className="size-9 rounded-full"
             aria-label={`切换 ${member.username} 状态`}
             isDisabled={member.role === 'owner' || pending}
-            onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}
+            pending={feedback.isPending('member-update', member.id)}
+            pendingContent={<Icons.LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            onPress={() => memberMutation.mutateAsync({ id: member.id, patch: { enabled: !member.enabled } })}
           >
-            {pending
-              ? <Icons.LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
-              : member.role === 'owner'
-                ? <Icons.LockKeyhole size={16} aria-hidden="true" />
-                : <Icons.Power size={16} aria-hidden="true" />}
-          </Button>
+            {member.role === 'owner' ? <Icons.LockKeyhole size={16} aria-hidden="true" /> : <Icons.Power size={16} aria-hidden="true" />}
+          </StableAsyncButton>
           {member.role !== 'owner' && <Button
             size="sm"
             variant="tertiary"

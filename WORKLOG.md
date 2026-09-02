@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将本地 main 的 Apify 已删除 Build 精确错误分类整理为 v2.6.2 发布版本，并同步修正项目锁文件中的版本身份。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-v2-6-2",
-  "unresolved": [],
-  "validation": [
-    "Apify Client、ActorOps Maintenance 与 Repair 定向 Pytest 41 项通过。",
-    "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端/前端全域检查、控制校验与构建均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-30",
@@ -383,6 +366,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "按钮修改完整 Vitest 97 文件 703 项、TypeScript、UI 合同、生产构建通过；43 文件 staged preflight 14/14 通过。",
     "项目 inteliscope-ui Skill quick_validate、Markdown/项目控制、worklog、JSON、UI 合同、TypeScript 和 diff 检查通过。",
     "蒸馏差异 staged preflight 16/16 通过，覆盖控制面、Python/前端全量、生产构建和 UI 合同。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-03",
+  "result": "完成新 UI Skill 驱动的全局交互整改：稳定异步按钮增加同步单飞锁，刷新、订阅、通知、成员、存储、ActorOps 与专题操作统一局部 pending 反馈；新增 coarse-pointer 按钮命中区、OverflowValue 长文本入口及保留页面上下文的 Empty/Error 状态。",
+  "status": "completed",
+  "task_id": "2026-09-03-global-ui-interaction-remediation",
+  "unresolved": [
+    "代码仅保留在 codex/non-docker-dev-20260902，等待用户完成实际操作与视觉验收；未经明确批准不得合入 main。",
+    "移动端 13px 输入文字及 iOS 自动缩放风险按既有裁决本次不修改。"
+  ],
+  "validation": [
+    "UI Contract 与 TypeScript 检查通过；12 个直接影响 Vitest 文件共 131 项通过，StableAsyncButton 额外回归 7 项通过。",
+    "Markdown、project-controls、Worklog、JSON 与 diff 校验全部通过；生产构建在实现阶段通过。",
+    "唯一一次 impacted preflight 14/14 通过，覆盖 control、frontend_full 与 python_api_store，无 SQLite 连接泄漏警告。"
   ]
 }
 ```

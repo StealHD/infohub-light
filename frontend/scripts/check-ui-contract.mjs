@@ -42,6 +42,10 @@ function sourceViolations(file, source) {
       [/(?:\bh-\[52px\]|\bgrid-rows-\[52px_)/, '页面头高度必须使用设计系统页头令牌'],
     ]
     for (const [pattern, message] of checks) if (pattern.test(source)) violations.push(`${file}: ${message}`)
+    const spinningClassNames = source.match(/className\s*=\s*["'`][^"'`]*\banimate-spin\b[^"'`]*["'`]/g) ?? []
+    if (spinningClassNames.some((className) => !/\bmotion-reduce:animate-none\b/.test(className))) {
+      violations.push(`${file}: 旋转反馈必须提供 motion-reduce:animate-none`)
+    }
     const buttonBlocks = source.match(/<Button\b[^>]*>(?:(?!<Button\b|<\/Button>)[\s\S])*<\/Button>/g) ?? []
     const intermediateState = /(?:isPending|pending|saving|busy|creating|loading|draining|refreshing|updating|removing|rotating|running|isRunning|connecting|submitting|reloading)/i
     const hasUnstableIntermediateChild = (block) => (block.match(/\{[^{}]*\?[^{}]*:[^{}]*\}/g) ?? [])
@@ -51,6 +55,19 @@ function sourceViolations(file, source) {
     }
     if (buttonBlocks.some((block) => /\brefetch\s*\(/.test(block))) {
       violations.push(`${file}: 刷新与重试请求必须使用 RefreshButton 提供可感知的旋转反馈`)
+    }
+    if (buttonBlocks.some((block) => /\bmutate(?:Async)?\s*\(/.test(block))) {
+      violations.push(`${file}: 远端 mutation 必须使用 StableAsyncButton 提供同步单飞锁`)
+    }
+    if (buttonBlocks.some((block) => {
+      const openingTag = block.slice(0, block.indexOf('>') + 1)
+      return /\btype\s*=\s*["']submit["']/.test(openingTag)
+        && /\bisDisabled\s*=\s*\{[^}]*(?:isPending|pending|saving|busy|submitting)/i.test(openingTag)
+    })) {
+      violations.push(`${file}: 带 pending 的提交按钮必须使用 StableAsyncButton`)
+    }
+    if (buttonBlocks.some((block) => /\bLoaderCircle\b/.test(block) && intermediateState.test(block))) {
+      violations.push(`${file}: loading 图标与文案必须由 StableAsyncButton 预占同一布局轨道`)
     }
   }
   return violations

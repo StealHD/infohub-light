@@ -6,8 +6,9 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
 import { SettingsCard, SettingsGroup, SettingsItem, SettingsSection, StatusBadge, type StatusBadgeTone } from '../../components/settings'
-import { actionToast, Button, Icons, Input, Label, LoadingState, Modal, Popover, RefreshButton, Separator, StableAsyncButton, Table, TextField } from '../../design-system'
+import { actionToast, Button, Icons, Input, Label, LoadingState, Popover, RefreshButton, Separator, StableAsyncButton, Table, TextField } from '../../design-system'
 import { HeroNotice } from './HeroAdminControls'
+import { StorageArchivePreviewDialog, type ArchiveActionTarget } from './StorageArchivePreviewDialog'
 
 const recordOf = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {}
 const errorMessage = (caught: unknown, fallback: string) => caught instanceof ApiError
@@ -49,11 +50,6 @@ function archiveStatusTone(status: StorageArchive['status']): StatusBadgeTone {
   if (status === 'restored') return 'success'
   if (status === 'deleted') return 'neutral'
   return 'danger'
-}
-
-type ArchiveActionTarget = {
-  archive: StorageArchive
-  operation: 'restore' | 'delete_archive'
 }
 
 function ArchiveActions({
@@ -162,7 +158,7 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
     apply.reset()
     setActivePlan(null)
     setConfirmation('')
-    preview.mutate({ operation, payload: batchId ? { batch_id: batchId } : {} })
+    return preview.mutateAsync({ operation, payload: batchId ? { batch_id: batchId } : {} })
   }
 
   function closeArchiveActionDialog() {
@@ -177,11 +173,13 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
     setArchiveActionTarget({ operation, archive })
   }
 
-  function confirmArchiveAction() {
+  async function confirmArchiveAction() {
     if (!archiveActionTarget) return
-    previewPlan(archiveActionTarget.operation, archiveActionTarget.archive.id)
-    setArchiveActionTarget(null)
-    window.requestAnimationFrame(() => archiveActionTriggerRef.current?.focus())
+    try {
+      await previewPlan(archiveActionTarget.operation, archiveActionTarget.archive.id)
+      setArchiveActionTarget(null)
+      window.requestAnimationFrame(() => archiveActionTriggerRef.current?.focus())
+    } catch { /* Keep the confirmation open so its error remains actionable. */ }
   }
 
   return <div className="grid gap-7">
@@ -208,8 +206,8 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
           description={`清理只处理轻量记录和孤立媒体；正文与媒体满 ${summary.data.policy.archive_after_days} 天后可转冷归档，永不自动永久删除。最近清理：${formatDateTime(summary.data.last_cleanup_at)}。`}
           icon={<Icons.ShieldCheck size={17} aria-hidden="true" />}
           trailing={<>
-            <Button size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} onPress={() => previewPlan('cleanup')}><Icons.BrushCleaning size={15} aria-hidden="true" />预演标准清理</Button>
-            <Button size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} onPress={() => previewPlan('archive')}><Icons.Archive size={15} aria-hidden="true" />预演 90 日归档</Button>
+            <StableAsyncButton size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} pending={preview.isPending && preview.variables?.operation === 'cleanup'} pendingContent="计算中…" onPress={() => previewPlan('cleanup')}><Icons.BrushCleaning size={15} aria-hidden="true" />预演标准清理</StableAsyncButton>
+            <StableAsyncButton size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} pending={preview.isPending && preview.variables?.operation === 'archive'} pendingContent="计算中…" onPress={() => previewPlan('archive')}><Icons.Archive size={15} aria-hidden="true" />预演 90 日归档</StableAsyncButton>
           </>}
         />
       </SettingsGroup>}
@@ -262,19 +260,6 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
       </SettingsGroup>
     </SettingsSection>
 
-    <Modal isOpen={Boolean(archiveActionTarget)} onOpenChange={(open) => !open && closeArchiveActionDialog()}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开归档操作确认</Modal.Trigger>
-      <Modal.Backdrop isDismissable={!planPending} isKeyboardDismissDisabled={planPending}>
-        <Modal.Container size="sm">
-          <Modal.Dialog>
-            <Modal.Header><Modal.Heading>{archiveActionTarget?.operation === 'delete_archive' ? '预演永久删除' : '预演恢复归档'}</Modal.Heading></Modal.Header>
-            <Modal.Body><p className="type-body text-muted">{archiveActionTarget?.operation === 'delete_archive'
-              ? `将为 ${archiveActionTarget.archive.id} 生成永久删除预演。执行前仍需输入精确确认文本，且服务端会重新核对归档状态。`
-              : `将为 ${archiveActionTarget?.archive.id ?? ''} 生成恢复预演；确认后不会立即修改数据。`}</p></Modal.Body>
-            <Modal.Footer><Button variant="ghost" onPress={closeArchiveActionDialog}>取消</Button><Button variant={archiveActionTarget?.operation === 'delete_archive' ? 'danger' : 'primary'} onPress={confirmArchiveAction}>生成预演</Button></Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <StorageArchivePreviewDialog target={archiveActionTarget} pending={preview.isPending} error={preview.error} onClose={closeArchiveActionDialog} onConfirm={confirmArchiveAction} />
   </div>
 }

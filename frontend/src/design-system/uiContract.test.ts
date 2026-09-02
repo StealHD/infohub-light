@@ -171,6 +171,34 @@ describe('HeroUI import contract', () => {
     expect(result.stderr).toBe('')
   })
 
+  it('rejects spinning feedback without a Reduced Motion fallback', () => {
+    const result = checkSource('src/features/settings/UnsafeSpinner.tsx', 'export const Example = () => <LoaderCircle className="animate-spin text-muted" />\n')
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('旋转反馈必须提供 motion-reduce:animate-none')
+  })
+
+  it('allows spinning feedback with a Reduced Motion fallback', () => {
+    const result = checkSource('src/features/settings/SafeSpinner.tsx', 'export const Example = () => <LoaderCircle className="animate-spin motion-reduce:animate-none" />\n')
+    expect(result.status).toBe(0)
+  })
+
+  it('rejects a remote mutation on a plain Button', () => {
+    const result = checkSource('src/features/settings/UnsafeMutation.tsx', 'export const Example = ({ mutation }) => <Button onPress={() => mutation.mutate()}>保存</Button>\n')
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('远端 mutation 必须使用 StableAsyncButton')
+  })
+
+  it('rejects a pending plain submit button', () => {
+    const result = checkSource('src/features/settings/UnsafeSubmit.tsx', '<Button type="submit" isDisabled={saving}>保存</Button>\n')
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('带 pending 的提交按钮必须使用 StableAsyncButton')
+  })
+
+  it('does not mistake local disclosure or stable list keys for remote actions', () => {
+    const result = checkSource('src/features/settings/LocalDisclosure.tsx', 'export const Example = ({ rows, open }) => <>{rows.map((row) => <Button key={row.id} onPress={() => open(row.id)}>查看</Button>)}</>\n')
+    expect(result.status).toBe(0)
+  })
+
   it('rejects visual constants in business CSS', () => {
     const result = checkSource(
       'src/features/feed/feed-surface.css',

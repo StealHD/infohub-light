@@ -3,7 +3,6 @@ export {
   AvatarImage,
   AvatarRoot,
   Alert,
-  Button,
   Card,
   Checkbox,
   CheckboxGroup,
@@ -53,6 +52,8 @@ export { interactivePopoverCloseDelayMs, useHoverPopoverIntent } from './useHove
 export { Tooltip } from './AnchoredTooltip'
 export { anchoredTooltipProps, bottomAnchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
+export { Button } from './Button'
+export { OverflowValue } from './OverflowValue'
 export { RefreshButton } from './RefreshButton'
 export { StableAsyncButton } from './StableAsyncButton'
 export { Timeline } from './Timeline'

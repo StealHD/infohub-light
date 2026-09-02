@@ -21,14 +21,14 @@ import {
   Label,
   LoadingState,
   Modal,
-  Popover,
-  Separator,
+  OverflowValue,
   StableAsyncButton,
   Table,
   TextField,
 } from '../../design-system'
 import { HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { safeNotificationError } from './notificationModel'
+import { NotificationServiceActions } from './NotificationServiceActions'
 
 const channelLabels: Record<NotificationChannel, string> = {
   email: '邮箱',
@@ -104,90 +104,6 @@ function emailTransportPayload(draft: EmailDraft): NotificationServiceEmailTrans
     smtp_username: usesSes ? draft.smtpUsername.trim() : null,
     ...(draft.credential ? { credential: draft.credential } : {}),
   }
-}
-
-function NotificationServiceActions({
-  service,
-  busy,
-  admin,
-  onTestAndEnable,
-  onResume,
-  onPause,
-  onEdit,
-  onArchive,
-}: {
-  service: NotificationService
-  busy: boolean
-  admin: boolean
-  onTestAndEnable: (service: NotificationService) => void
-  onResume: (service: NotificationService) => void
-  onPause: (service: NotificationService) => void
-  onEdit: (service: NotificationService) => void
-  onArchive: (service: NotificationService, trigger: HTMLButtonElement | null) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const canManageShared = admin && !service.legacy_private
-  const canManageLegacy = service.legacy_private && service.can_edit
-  const canResumeWithoutTest = Boolean(!service.enabled && service.can_enable && service.transport_ready)
-  const canManage = canManageShared || canManageLegacy
-  const hasPrimaryAction = Boolean(
-    (canManageShared && !service.available && !canResumeWithoutTest)
-    || canResumeWithoutTest
-    || service.enabled
-    || canManageShared,
-  )
-
-  if (!canManage) return null
-
-  function choose(action: () => void) {
-    setOpen(false)
-    action()
-  }
-
-  return <Popover isOpen={open} onOpenChange={setOpen}>
-    <Popover.Trigger<'button'>
-      ref={triggerRef}
-      aria-label={`更多操作：${service.name}`}
-      className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11"
-      render={(triggerProps) => <button {...triggerProps} type="button" disabled={busy} />}
-    ><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
-    <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-44 p-0">
-      <Popover.Dialog aria-label={`${service.name} 通知服务操作`} className="grid gap-0.5 p-2">
-        {canManageShared && !service.available && !canResumeWithoutTest && <Button
-          variant="ghost"
-          className="w-full justify-start"
-          isDisabled={!service.can_validate || busy}
-          onPress={() => choose(() => onTestAndEnable(service))}
-        ><Icons.Send size={15} aria-hidden="true" />{service.enabled ? '测试并恢复' : '测试并启用'}</Button>}
-        {canResumeWithoutTest && <Button
-          variant="ghost"
-          className="w-full justify-start"
-          isDisabled={busy}
-          onPress={() => choose(() => onResume(service))}
-        ><Icons.Play size={15} aria-hidden="true" />启用</Button>}
-        {service.enabled && <Button
-          variant="ghost"
-          className="w-full justify-start"
-          isDisabled={busy}
-          onPress={() => choose(() => onPause(service))}
-        ><Icons.Pause size={15} aria-hidden="true" />暂停</Button>}
-        {canManageShared && <Button
-          variant="ghost"
-          className="w-full justify-start"
-          isDisabled={busy}
-          onPress={() => choose(() => onEdit(service))}
-        ><Icons.Pencil size={15} aria-hidden="true" />编辑</Button>}
-        {hasPrimaryAction && <Separator className="my-1" />}
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-danger"
-          isDisabled={busy}
-          onPress={() => choose(() => onArchive(service, triggerRef.current))}
-        ><Icons.Archive size={15} aria-hidden="true" />归档</Button>
-      </Popover.Dialog>
-    </Popover.Content>
-  </Popover>
 }
 
 export function HeroNotificationTargets({
@@ -592,14 +508,14 @@ export function HeroNotificationTargets({
               const usage = usageCount > 0 ? `${usageCount} 个业务正在使用` : '尚未被业务选择'
               return <Table.Row key={service.id} id={service.id} className="border-b border-separator bg-surface-secondary transition-colors last:border-b-0 hover:bg-default/35">
                 <Table.Cell className="px-3 py-3 align-top min-[640px]:px-4">
-                  <p className="type-control truncate text-foreground">{service.name}</p>
+                  <OverflowValue value={service.name} ariaLabel={`查看 ${service.name} 的完整服务名称`} className="type-control text-foreground" />
                   <p className="type-meta mt-1 text-muted">{scope}<span className="min-[640px]:hidden"> · {channelLabels[service.channel]} · generation {service.config_generation} · {usage}</span></p>
                   {!service.available && <p className="type-meta mt-1 text-warning">{serviceUnavailableReason(service)}</p>}
                 </Table.Cell>
                 <Table.Cell className="hidden px-3 py-3 align-top min-[640px]:table-cell"><p className="type-meta text-muted">{channelLabels[service.channel]}</p></Table.Cell>
                 <Table.Cell className="px-2 py-3 align-top"><StatusBadge tone={serviceStatusTone(service)}>{serviceStatus(service)}</StatusBadge></Table.Cell>
                 <Table.Cell className="hidden px-3 py-3 align-top min-[640px]:table-cell"><p className="type-meta text-muted">generation {service.config_generation} · {usage}</p></Table.Cell>
-                <Table.Cell className="px-2 py-2 text-right align-top"><NotificationServiceActions service={service} busy={busy} admin={admin} onTestAndEnable={(target) => void testAndEnable(target)} onResume={(target) => void resume(target)} onPause={(target) => void pause(target)} onEdit={beginEdit} onArchive={requestArchive} /></Table.Cell>
+                <Table.Cell className="px-2 py-2 text-right align-top"><NotificationServiceActions service={service} busy={busy} admin={admin} onTestAndEnable={testAndEnable} onResume={resume} onPause={pause} onEdit={beginEdit} onArchive={requestArchive} /></Table.Cell>
               </Table.Row>
             })}</Table.Body>
           </Table.Content>

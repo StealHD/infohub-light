@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
@@ -16,6 +16,8 @@ export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView 
   const [replacementTarget, setReplacementTarget] = useState<ActorOpsV2ReplacementTarget | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [moreAction, setMoreAction] = useState<'metadata' | 'reconcile' | null>(null)
+  const moreTriggerRef = useRef<HTMLButtonElement>(null)
   const targets = replacementTargets(route)
   const openPlan = route.workflow?.replacement && ['previewed', 'authorized', 'running', 'ready'].includes(route.workflow.replacement.status)
   const directTargets = openPlan ? [] : targets.filter((item) => item.candidate === null || item.candidate.operational_status === 'confirmed_failure')
@@ -39,21 +41,32 @@ export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView 
     onSuccess: () => { void refresh(); actionToast.success('已排队更新商城信息', { description: '仅读取 Apify 公开信息，不启动 Actor。' }) },
     onError: (error) => actionToast.danger(actionError(error, '未能更新商城信息。')),
   })
+  async function runMoreAction(action: 'metadata' | 'reconcile') {
+    if (moreAction) return
+    setMoreAction(action)
+    try {
+      await (action === 'metadata' ? metadata.mutateAsync() : reconcile.mutateAsync())
+    } finally {
+      setMoreAction(null)
+      setMoreOpen(false)
+      window.requestAnimationFrame(() => moreTriggerRef.current?.focus())
+    }
+  }
   return <div className="flex flex-wrap items-center gap-1.5">
     <Button size="sm" variant="secondary" onPress={() => { setReplacementTarget(null); setDrawerOpen(true) }}>{actorOpsV2WorkflowActionLabel(route.workflow)}</Button>
     {directTargets.map((target) => <Button key={replacementTargetKey(target)} size="sm" variant="secondary" onPress={() => { setReplacementTarget(target); setDrawerOpen(true) }}>{replacementActionLabel(target)}</Button>)}
     <PriceCapControl route={route} onSaved={refresh} />
-    <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
-      <Popover.Trigger<'button'> type="button" className="inline-flex size-8 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus" aria-label="Actor 路由更多操作"><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
+    <Popover isOpen={moreOpen} onOpenChange={(open) => { if (open || !moreAction) setMoreOpen(open) }}>
+      <Popover.Trigger<'button'> ref={moreTriggerRef} type="button" className="inline-flex size-8 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11" aria-label="Actor 路由更多操作"><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
       <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-44 p-0">
         <Popover.Dialog aria-label="Actor 路由更多操作" className="grid gap-0.5 p-2">
           {route.standby_candidates.map((item) => <Button key={item.candidate_id} size="sm" variant="ghost" className="justify-start" onPress={() => { setMoreOpen(false); setCandidate(item) }}>设为主用</Button>)}
-          <Button size="sm" variant="ghost" className="justify-start" isDisabled={metadata.isPending} onPress={() => { setMoreOpen(false); metadata.mutate() }}>更新商城信息</Button>
-          {route.binding_summary.pending_count > 0 && <Button size="sm" variant="ghost" className="justify-start" isDisabled={reconcile.isPending} onPress={() => { setMoreOpen(false); reconcile.mutate() }}>重新检查准备中的来源</Button>}
+          <StableAsyncButton size="sm" variant="ghost" className="justify-start" isDisabled={Boolean(moreAction)} pending={moreAction === 'metadata'} pendingContent="更新中…" onPress={() => runMoreAction('metadata')}>更新商城信息</StableAsyncButton>
+          {route.binding_summary.pending_count > 0 && <StableAsyncButton size="sm" variant="ghost" className="justify-start" isDisabled={Boolean(moreAction)} pending={moreAction === 'reconcile'} pendingContent="检查中…" onPress={() => runMoreAction('reconcile')}>重新检查准备中的来源</StableAsyncButton>}
         </Popover.Dialog>
       </Popover.Content>
     </Popover>
-    <ConfirmDialog target={candidate} pending={promote.isPending} onClose={() => setCandidate(null)} onConfirm={() => candidate && promote.mutate(candidate)} />
+    <ConfirmDialog target={candidate} pending={promote.isPending} onClose={() => setCandidate(null)} onConfirm={() => candidate ? promote.mutateAsync(candidate) : Promise.resolve()} />
     <ActorOpsV2ReplacementDrawer route={route} target={replacementTarget} targets={targets} open={drawerOpen} onOpenChange={(open) => { setDrawerOpen(open); if (!open) setReplacementTarget(null) }} onUpdated={refresh} />
   </div>
 }
@@ -95,15 +108,15 @@ function PriceCapControl({ route, onSaved }: { route: ActorOpsV2RouteView; onSav
     onError: (error) => actionToast.danger(actionError(error, '未能更新费用上限。')),
   })
   return <Popover isOpen={open} onOpenChange={(next) => { setOpen(next); if (next) { setValue(route.per_run_cap_usd.toFixed(2)); setConfirmation('') } }}>
-    <Popover.Trigger<'button'> type="button" className="rounded-lg px-2 py-1 type-meta text-muted outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus" aria-label="调整单次费用上限">调整</Popover.Trigger>
+    <Popover.Trigger<'button'> type="button" className="rounded-lg px-2 py-1 type-meta text-muted outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:min-h-11" aria-label="调整单次费用上限">调整</Popover.Trigger>
     <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-[min(280px,calc(100vw-24px))] p-0">
-      <Popover.Dialog aria-label="编辑 Actor 单次费用上限" className="grid gap-3 p-4"><Popover.Heading className="type-control">单次费用上限</Popover.Heading><p className="type-meta text-muted">商城标价只读；这里限制每次实际运行最多费用。</p><TextField value={value} onChange={setValue} isDisabled={update.isPending}><Label>美元（最高 $0.20）</Label><Input inputMode="decimal" /></TextField>{raised && <TextField value={confirmation} onChange={setConfirmation} isDisabled={update.isPending}><Label>输入“确认提高 Actor 费用上限”</Label><Input /></TextField>}<div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onPress={() => setOpen(false)}>取消</Button><StableAsyncButton size="sm" pending={update.isPending} pendingContent="保存中…" isDisabled={!Number.isFinite(cap) || cap <= 0 || cap > 0.20 || (raised && confirmation !== '确认提高 Actor 费用上限')} onPress={() => update.mutate()}>保存</StableAsyncButton></div></Popover.Dialog>
+      <Popover.Dialog aria-label="编辑 Actor 单次费用上限" className="grid gap-3 p-4"><Popover.Heading className="type-control">单次费用上限</Popover.Heading><p className="type-meta text-muted">商城标价只读；这里限制每次实际运行最多费用。</p><TextField value={value} onChange={setValue} isDisabled={update.isPending}><Label>美元（最高 $0.20）</Label><Input inputMode="decimal" /></TextField>{raised && <TextField value={confirmation} onChange={setConfirmation} isDisabled={update.isPending}><Label>输入“确认提高 Actor 费用上限”</Label><Input /></TextField>}<div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onPress={() => setOpen(false)}>取消</Button><StableAsyncButton size="sm" pending={update.isPending} pendingContent="保存中…" isDisabled={!Number.isFinite(cap) || cap <= 0 || cap > 0.20 || (raised && confirmation !== '确认提高 Actor 费用上限')} onPress={() => update.mutateAsync()}>保存</StableAsyncButton></div></Popover.Dialog>
     </Popover.Content>
   </Popover>
 }
 
 function ConfirmDialog({ target, pending, onClose, onConfirm }: {
-  target?: ActorOpsV2CandidateView | null; pending: boolean; onClose: () => void; onConfirm: () => void
+  target?: ActorOpsV2CandidateView | null; pending: boolean; onClose: () => void; onConfirm: () => Promise<unknown>
 }) {
   const [value, setValue] = useState('')
   const visible = Boolean(target)

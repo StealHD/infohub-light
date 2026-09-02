@@ -110,17 +110,17 @@ export function ActorOpsV2ReplacementDrawer({ route, target, targets = [], open,
         busy={actions.preview.isPending || actions.discovery.isPending || actions.metadata.isPending}
         onTarget={setSelectedTarget}
         onSelect={(candidate) => { setSelectionMode('manual'); setSelected(candidate) }}
-        onPreview={() => effectiveSelected && actions.preview.mutate(effectiveSelected)}
-        onDiscover={() => actions.discovery.mutate()}
-        onMetadata={() => actions.metadata.mutate()}
+        onPreview={() => effectiveSelected ? actions.preview.mutateAsync(effectiveSelected) : Promise.resolve()}
+        onDiscover={() => actions.discovery.mutateAsync()}
+        onMetadata={() => actions.metadata.mutateAsync()}
       /> : <PlanStep
         plan={visiblePlan}
         slotLabel={currentSlot}
         busy={actions.authorize.isPending || actions.apply.isPending || actions.cancel.isPending || actions.revalidate.isPending}
-        onAuthorize={() => actions.authorize.mutate()}
-        onApply={() => actions.apply.mutate()}
-        onCancel={() => actions.cancel.mutate()}
-        onRevalidate={() => actions.revalidate.mutate()}
+        onAuthorize={() => actions.authorize.mutateAsync()}
+        onApply={() => actions.apply.mutateAsync()}
+        onCancel={() => actions.cancel.mutateAsync()}
+        onRevalidate={() => actions.revalidate.mutateAsync()}
         onReset={() => { setDismissedPlanId(visiblePlan.plan_id); setPlan(null) }}
       />}
     </Drawer.Body></Drawer.Dialog></Drawer.Content></Drawer.Backdrop>
@@ -278,7 +278,7 @@ function CandidateSelection({ targets, selectedTarget, systemCandidates, staticC
   targets: ActorOpsV2ReplacementTarget[]; selectedTarget: ActorOpsV2ReplacementTarget | null
   systemCandidates: ActorOpsV2CandidateView[]; staticCandidates: ActorOpsV2CandidateView[]; sampleCandidates: ActorOpsV2CandidateView[]; blockedCandidates: ActorOpsV2CandidateView[]; mappingCandidates: ActorOpsV2CandidateView[]; incompleteCount: number; loading: boolean; selected: ActorOpsV2CandidateView | null
   cap: number; total: number; discovery: ActorOpsV2RouteDetail['discoveries'][number] | null; busy: boolean
-  onTarget: (target: ActorOpsV2ReplacementTarget) => void; onSelect: (candidate: ActorOpsV2CandidateView) => void; onPreview: () => void; onDiscover: () => void; onMetadata: () => void
+  onTarget: (target: ActorOpsV2ReplacementTarget) => void; onSelect: (candidate: ActorOpsV2CandidateView) => void; onPreview: () => Promise<unknown>; onDiscover: () => Promise<unknown>; onMetadata: () => Promise<unknown>
 }) {
   const candidates = [...systemCandidates, ...staticCandidates, ...sampleCandidates]
   const recommendedId = candidates[0]?.candidate_id
@@ -287,7 +287,7 @@ function CandidateSelection({ targets, selectedTarget, systemCandidates, staticC
     <TargetSelector targets={targets} selected={selectedTarget} onSelect={onTarget} />
     <p className="type-meta text-muted">每次实测最多 ${cap.toFixed(2)}；本计划总额最多 ${total.toFixed(2)}。只会串行测试当前选中的一个候选 Actor，不会自动换下一个。</p>
     <ActorOpsV2DiscoveryProgress discovery={discovery} />
-    <div className="flex flex-wrap gap-2"><StableAsyncButton variant="secondary" pending={discoveryActive} pendingContent="正在搜索候选…" isDisabled={busy} onPress={onDiscover}>搜索更多候选</StableAsyncButton><Button variant="ghost" isDisabled={busy} onPress={onMetadata}>更新商城信息</Button></div>
+    <div className="flex flex-wrap gap-2"><StableAsyncButton variant="secondary" pending={discoveryActive} pendingContent="正在搜索候选…" isDisabled={busy} onPress={onDiscover}>搜索更多候选</StableAsyncButton><StableAsyncButton variant="ghost" pending={false} pendingContent="更新中…" isDisabled={busy} onPress={onMetadata}>更新商城信息</StableAsyncButton></div>
     {loading && <p className="type-meta text-muted">正在加载候选…</p>}
     {systemCandidates.length > 0 && <p className="type-control">系统可用</p>}
     {systemCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
@@ -305,18 +305,18 @@ function CandidateSelection({ targets, selectedTarget, systemCandidates, staticC
 
 function PlanStep({ plan, slotLabel, busy, onAuthorize, onApply, onCancel, onRevalidate, onReset }: {
   plan: ActorOpsV2ReplacementPlan; slotLabel: string; busy: boolean
-  onAuthorize: () => void; onApply: () => void; onCancel: () => void; onRevalidate: () => void; onReset: () => void
+  onAuthorize: () => Promise<unknown>; onApply: () => Promise<unknown>; onCancel: () => Promise<unknown>; onRevalidate: () => Promise<unknown>; onReset: () => void
 }) {
   const progress = <ActorOpsV2ReplacementProgress plan={plan} />
-  if (plan.status === 'ready') return <div className="grid gap-3">{progress}<p className="type-control">全部 {plan.binding_count} 条来源已通过，将把 {actorOpsV2CandidateLabel(plan.candidate)} 应用到{slotLabel}。</p><div className="flex justify-end gap-2"><Button variant="ghost" isDisabled={busy} onPress={onCancel}>取消计划</Button><StableAsyncButton pending={busy} pendingContent="应用中…" onPress={onApply}>应用到{slotLabel}</StableAsyncButton></div></div>
-  if (plan.status === 'previewed') return <div className="grid gap-3">{progress}<p className="type-control">免费预检已通过。实测将按来源串行进行，每个来源最多 ${plan.per_probe_cap_usd.toFixed(2)}，总额不超过 ${plan.total_cap_usd.toFixed(2)}。</p><div className="flex justify-end gap-2"><Button variant="ghost" isDisabled={busy} onPress={onCancel}>取消计划</Button><StableAsyncButton pending={busy} pendingContent="启动中…" onPress={onAuthorize}>开始实测，最高 ${plan.total_cap_usd.toFixed(2)}</StableAsyncButton></div></div>
+  if (plan.status === 'ready') return <div className="grid gap-3">{progress}<p className="type-control">全部 {plan.binding_count} 条来源已通过，将把 {actorOpsV2CandidateLabel(plan.candidate)} 应用到{slotLabel}。</p><div className="flex justify-end gap-2"><StableAsyncButton variant="ghost" isDisabled={busy} pending={false} pendingContent="取消中…" onPress={onCancel}>取消计划</StableAsyncButton><StableAsyncButton pending={busy} pendingContent="应用中…" onPress={onApply}>应用到{slotLabel}</StableAsyncButton></div></div>
+  if (plan.status === 'previewed') return <div className="grid gap-3">{progress}<p className="type-control">免费预检已通过。实测将按来源串行进行，每个来源最多 ${plan.per_probe_cap_usd.toFixed(2)}，总额不超过 ${plan.total_cap_usd.toFixed(2)}。</p><div className="flex justify-end gap-2"><StableAsyncButton variant="ghost" isDisabled={busy} pending={false} pendingContent="取消中…" onPress={onCancel}>取消计划</StableAsyncButton><StableAsyncButton pending={busy} pendingContent="启动中…" onPress={onAuthorize}>开始实测，最高 ${plan.total_cap_usd.toFixed(2)}</StableAsyncButton></div></div>
   if (plan.status === 'authorized' || plan.status === 'running') return <div className="grid gap-3">{progress}
     {plan.phase === 'dataset_revalidating' || plan.phase === 'dataset_adapting'
       ? <StatusNotice title="正在复用已付费 Dataset 重映射" status="info">本步骤只读取本次 Run 精确绑定的 Dataset，最多两轮字段修正；不会启动新的 Actor，也不会新增 Actor Run 费用。</StatusNotice>
       : plan.phase === 'cost_reconciliation'
         ? <StatusNotice title="正在核对费用事实" status="warning">费用最终确认前不会提交 Dataset 重验证据，也不会继续下一个付费调用。</StatusNotice>
         : <p className="type-control">正在按来源串行实测。出现未知远端结果时会停止后续付费调用，等待只读对账。</p>}
-    <p className="type-meta text-muted">取消只会停止计划继续执行；已发起或待对账的运行、Dataset 与费用事实仍会保留。</p><Button variant="ghost" isDisabled={busy} onPress={onCancel}>取消替换计划</Button></div>
+    <p className="type-meta text-muted">取消只会停止计划继续执行；已发起或待对账的运行、Dataset 与费用事实仍会保留。</p><StableAsyncButton variant="ghost" isDisabled={busy} pending={false} pendingContent="取消中…" onPress={onCancel}>取消替换计划</StableAsyncButton></div>
   if (plan.status === 'failed') return <div className="grid gap-3">{progress}<StatusNotice title="替换未完成" status="danger"><span>{replacementError(plan.error_code)}</span><span className="mt-1 block">{replacementFailureCostMessage(plan.error_code)}</span></StatusNotice>{REVALIDATABLE_ERRORS.has(plan.error_code || '') && <StatusNotice title="可以零费用重验" status="info">系统会只读原已结算 Dataset，并用当前字段规则重新核验；不会启动 Actor，也不会改写原费用记录。</StatusNotice>}<div className="flex flex-wrap gap-2">{REVALIDATABLE_ERRORS.has(plan.error_code || '') && <StableAsyncButton pending={busy} pendingContent="重验中…" onPress={onRevalidate}>重新验证已有结果（$0 Actor 费）</StableAsyncButton>}<Button variant="secondary" isDisabled={busy} onPress={onReset}>重新选择候选</Button></div></div>
   return <div className="grid gap-3">{progress}<StatusNotice title="替换计划已取消" status="warning">未继续执行剩余步骤。</StatusNotice><Button variant="secondary" onPress={onReset}>重新选择候选</Button></div>
 }

@@ -478,12 +478,16 @@ describe('SubscriptionForm notification ownership', () => {
       onPendingChange,
     })
 
-    await browser.click(screen.getByRole('button', { name: '保存' }))
+    const save = screen.getByRole('button', { name: '保存' })
+    const fetch = screen.getByRole('button', { name: '保存并获取' })
+    const test = screen.getByRole('button', { name: '仅测试连接' })
+    const unsubscribe = screen.getByRole('button', { name: '取消订阅…' })
+    await browser.click(save)
     await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(true))
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '保存并获取' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '仅测试连接' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '取消订阅…' })).toBeDisabled()
+    for (const action of [save, fetch, test, unsubscribe]) {
+      expect(action).toBeDisabled()
+      expect(action.isConnected).toBe(true)
+    }
 
     updateRequest.resolve(subscription)
     await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(false))

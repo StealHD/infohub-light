@@ -47,6 +47,7 @@ import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './
 import { readCachedSourceSummaries, writeCachedSourceSummary } from './sourceSummaryCache'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
+import { WorkbenchPaginationFooter } from './WorkbenchPaginationFooter'
 import { FeedRefreshButton } from './FeedRefreshButton'
 import {
   builtinFeedEndMessages,
@@ -637,20 +638,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       : historyTotalCount
   const paginationFooter = paginationQuery
     && (paginationQuery.hasNextPage || paginationQuery.isFetchNextPageError)
-    ? <div className="flex flex-col items-center gap-2 pt-1">
-      {paginationQuery.isFetchNextPageError && <p role="alert" className="type-meta text-danger">更多内容加载失败，已加载内容仍可继续查看。</p>}
-      <Button
-        size="sm"
-        variant="secondary"
-        aria-busy={paginationQuery.isFetchingNextPage || undefined}
-        isDisabled={paginationQuery.isFetchingNextPage}
-        onPress={() => void paginationQuery.fetchNextPage()}
-      >
-        {paginationQuery.isFetchingNextPage
-          ? <><Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在加载</>
-          : paginationQuery.isFetchNextPageError ? '重试加载更多' : `加载更多（已显示 ${cards.length}/${paginationTotal}）`}
-      </Button>
-    </div>
+    ? <WorkbenchPaginationFooter error={paginationQuery.isFetchNextPageError} pending={paginationQuery.isFetchingNextPage} label={paginationQuery.isFetchNextPageError ? '重试加载更多' : `加载更多（已显示 ${cards.length}/${paginationTotal}）`} onLoad={() => paginationQuery.fetchNextPage()} />
     : undefined
   const waitingForSingleCharacterSubmit = globalSearchRequested && !globalSearchActive
   const hasUnloadedPages = Boolean(paginationQuery?.hasNextPage)
@@ -953,7 +941,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       }}
       onTerminalReach={handleTerminalReach}
       onToggleSource={toggleSourceOverviewSection}
-      onRequestSummary={(section, regenerate) => void requestSourceSummary(section, regenerate)}
+      onRequestSummary={requestSourceSummary}
       onAskAgent={askAgentAboutSource}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => {

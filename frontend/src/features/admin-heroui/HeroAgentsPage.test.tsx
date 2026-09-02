@@ -91,7 +91,7 @@ function includedTools(configuration: string): string[] {
   return JSON.parse(command.slice(prefix.length, -1)).toolFilter.include as string[]
 }
 
-function renderPage(response: AgentDelegationsResponse = listing, currentUser: User = member) {
+function renderPage(response: AgentDelegationsResponse = listing, currentUser: User = member, apiOverrides: Partial<ServiceApi> = {}) {
   const api = {
     agentDelegations: vi.fn().mockResolvedValue(response),
     createAgentDelegation: vi.fn().mockResolvedValue({
@@ -101,6 +101,7 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
     renameAgentDelegation: vi.fn().mockResolvedValue({ ...response.connections[0], name: 'Renamed Mac' }),
     revokeAgentDelegation: vi.fn().mockResolvedValue({ revoked: true }),
     deleteAgentDelegationRecord: vi.fn().mockResolvedValue({ deleted: true }),
+    ...apiOverrides,
   } as unknown as ServiceApi
   const context: AppOutletContext = {
     api,
@@ -234,6 +235,22 @@ describe('OpenClaw browser pairing settings', () => {
 })
 
 describe('HeroAgentsPage delegation access', () => {
+  it('preserves the page header and connection section when the list fails', async () => {
+    renderPage(listing, member, { agentDelegations: vi.fn().mockRejectedValue(new Error('offline')) })
+
+    expect(await screen.findByText('连接列表读取失败。')).toBeInTheDocument()
+    expect(screen.getByText('管理 OpenClaw 对当前账户的数据权限，以及浏览器到本地 Gateway 的对话连接。')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '我的连接' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+  })
+
+  it('offers the nearest safe creation action in the empty state', async () => {
+    renderPage({ ...listing, connections: [] })
+
+    expect(await screen.findByText('还没有助手连接')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '创建连接' })).toHaveLength(2)
+  })
+
   it('creates a subscription-management connection with the seventeen-tool configuration', async () => {
     const browser = userEvent.setup()
     const { api } = renderPage()
