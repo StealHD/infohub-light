@@ -523,6 +523,7 @@
     {
       "id": "React UI contract directory authority",
       "globs": [
+        ".agents/skills/inteliscope-ui/**",
         "docs/contracts/ui/**",
         "frontend/scripts/check-preview-build.mjs",
         "frontend/scripts/check-ui-contract.mjs",

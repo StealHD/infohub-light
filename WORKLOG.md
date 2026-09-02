@@ -8,28 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复 Apify 以 403 build-not-found 拒绝已删除固定 Build 时的错误分类：第一次失败即确认为 Build 不可用并触发候选发现、有界实测与自动替换；完成本地 ActorOps 根因复现、候选换版验证和 Worker 热加载。",
-  "status": "completed",
-  "task_id": "2026-08-30-apify-build-not-found-auto-upgrade",
-  "unresolved": [
-    "X 当前主 Actor 可正常获取，但两个旧备用 Build 已删除；同 Actor 新 Build 在第二来源返回 noResults/demo，已被正确隔离，后续候选探测因当日 5 次安全上限延至下一 UTC 日。",
-    "YouTube 仍通过免费原生 RSS 降级稳定获取；现有 Actor 候选为 stale_regression 或输出合同不兼容，自动修复将在探测额度恢复后继续。"
-  ],
-  "validation": [
-    "授权最小复现确认旧 Build 0.0.980 返回 403 build-not-found 且未创建远端 Run；现行 Build 0.0.982 可启动并返回有效 X 数据。",
-    "Apify 错误分类、远端 no-start 证据与硬故障修复定向 Pytest 通过；完整影响 preflight 16/16 通过。",
-    "本地 8080 API readiness 返回 database/worker/logging 全部 ready，5173 前端可用；ActorOps 页面显示 Instagram 健康、X 降级可用、YouTube 原生降级。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-30",
@@ -383,6 +361,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "RefreshButton、StableAsyncButton、UI 合同与更新日志定向 Vitest 60 项通过，受影响文件 ESLint、UI 合同检查与生产构建通过。",
     "本地真实浏览器验收 /agents 与 /settings/storage：点击后旋转类、busy 状态、禁用状态与稳定可见文案均生效。",
     "完整 impacted preflight 14/14 通过，包含 97 个前端测试文件共 702 项、控制合同、代码尺寸、后端定向检查与生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "instructions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "纠正分支关系：本地 main 回退到 39ee4a92 后，纯快进合入 codex/non-docker-dev-20260902 的稳定异步/刷新按钮修改；随后在同一分支将固定版本外部 UI 教材蒸馏为项目唯一交互宪章、Skill 入口、验收清单和自动影响映射。",
+  "status": "completed",
+  "task_id": "2026-09-02-ui-contract-distillation",
+  "unresolved": [
+    "移动端部分输入控件沿用现有 13px type-control，可能触发 iOS Safari 聚焦缩放；按用户裁决本次不改变现法，仅保留后续审计项。"
+  ],
+  "validation": [
+    "按钮修改完整 Vitest 97 文件 703 项、TypeScript、UI 合同、生产构建通过；43 文件 staged preflight 14/14 通过。",
+    "项目 inteliscope-ui Skill quick_validate、Markdown/项目控制、worklog、JSON、UI 合同、TypeScript 和 diff 检查通过。",
+    "蒸馏差异 staged preflight 16/16 通过，覆盖控制面、Python/前端全量、生产构建和 UI 合同。"
   ]
 }
 ```

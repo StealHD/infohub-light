@@ -75,7 +75,7 @@ Read `project-defaults.yaml` only when capability, limit, degradation, provider 
 | --- | --- |
 | API, public payload, auth, error, Job or compatibility | `docs/contracts/api/README.md`, then only the linked module |
 | Source/AI/frontend/store/tenant boundary | `docs/contracts/architecture/README.md`, then only the linked module |
-| React visual, layout, interaction or browser acceptance | `docs/contracts/ui/README.md`, `component-parameters.md`, its linked route module, relevant `frontend/src/` and Vitest/Playwright |
+| React visual, layout, interaction or browser acceptance | `docs/contracts/ui/README.md`, `interaction-constitution.md`, `component-parameters.md`, its linked route module, `acceptance.md`, relevant `frontend/src/` and Vitest/Playwright |
 | Storage or migration | API Feed/storage module, architecture runtime/migration module, target migration and tests |
 | Remote MCP or Browser OpenClaw | API Remote MCP/Gateway module, target integration code and tests |
 | Durable reason, supersession or compatibility dispute | `docs/decisions/README.md`, then the matching record bucket |
