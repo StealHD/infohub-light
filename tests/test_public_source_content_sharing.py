@@ -7,6 +7,10 @@ import pytest
 from src.models import ContentItem, SourceType
 from src.services.feed_payload import serialize_feed_item
 from src.services.feed_read import FeedReadService
+from src.services.job_queue import JobQueue
+from src.services.preferred_source_notifications import (
+    PreferredSourceNotificationService,
+)
 from src.services.public_source_content_sharing import fan_out_public_source_content
 from src.services.user_feed_store import UserFeedStore
 from src.storage.service_store import ServiceStore
@@ -141,3 +145,111 @@ def test_private_source_is_never_fanned_out(sharing_context):
     assert UserFeedStore(store).latest_snapshot(
         workspace_id=workspace["id"], user_id=member["id"]
     ) is None
+
+
+def test_triggering_subscriber_stages_new_item_after_public_fanout(
+    sharing_context,
+    tmp_path,
+):
+    store, workspace, owner, _member, _viewer = sharing_context
+    source = _source(store, workspace["id"], owner["id"])
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source["id"],
+        notify_on_new_items=True,
+    )
+    notifications = PreferredSourceNotificationService(
+        store,
+        data_dir=str(tmp_path),
+    )
+    notifications.upsert_settings(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        enabled=True,
+        channel="webhook",
+        webhook_url="https://hooks.example.com/inteliscope",
+    )
+    watermark = "2020-01-01T00:00:00+00:00"
+    store.connect().execute(
+        "UPDATE user_notification_settings SET notification_enabled_at = ? "
+        "WHERE user_id = ?",
+        (watermark, owner["id"]),
+    )
+    store.connect().execute(
+        "UPDATE user_notification_channels SET enabled_at = ? "
+        "WHERE user_id = ? AND channel = 'webhook'",
+        (watermark, owner["id"]),
+    )
+    store.connect().execute(
+        "UPDATE user_subscriptions SET notification_enabled_at = ? WHERE id = ?",
+        (watermark, subscription["id"]),
+    )
+    feed_store = UserFeedStore(store)
+    feed_store.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-09-02T00:00:00+00:00",
+            "items": [],
+        },
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source["id"],
+        subscription_id=subscription["id"],
+        job_type="source_fetch",
+        payload={},
+    )
+    item = ContentItem(
+        id="rss:shared:new",
+        source_type=SourceType.RSS,
+        title="New shared item",
+        url="https://example.com/shared/new",
+        published_at=datetime(2026, 9, 2, 0, 5, tzinfo=timezone.utc),
+        metadata={"source_id": source["id"]},
+    )
+    store.connect().execute("BEGIN IMMEDIATE")
+    job_snapshot = feed_store.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=job["id"],
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-09-02T00:05:01+00:00",
+            "items": [serialize_feed_item(item, featured_threshold=8.0)],
+        },
+        commit=False,
+    )
+
+    fan_out_public_source_content(
+        store,
+        workspace_id=workspace["id"],
+        source_id=source["id"],
+        commit=False,
+    )
+
+    latest = feed_store.latest_snapshot(
+        workspace_id=workspace["id"], user_id=owner["id"]
+    )
+    assert latest is not None and latest["job_id"] is None
+    assert not job_snapshot["payload"]["items"][0].get("subscription_id")
+    assert latest["payload"]["items"][0]["subscription_id"] == subscription["id"]
+    assert notifications.stage_for_job(
+        job=job,
+        snapshot_id=job_snapshot["id"],
+        snapshot_created=True,
+    ) == 1
+    delivery = store.connect().execute(
+        "SELECT user_id, subscription_id, article_id, channel, status "
+        "FROM preferred_source_notification_deliveries"
+    ).fetchone()
+    assert dict(delivery) == {
+        "user_id": owner["id"],
+        "subscription_id": subscription["id"],
+        "article_id": item.id,
+        "channel": "webhook",
+        "status": "pending",
+    }

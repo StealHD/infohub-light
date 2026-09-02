@@ -1,5 +1,14 @@
 import type { ChangelogEntry } from './changelogTypes'
 
+export const publicSourceNotificationFixChangelogEntry = {
+  date: '2026-09-02',
+  title: '公共来源的新内容通知恢复正常',
+  summary: '公共来源获取完成后的安全内容同步不再抵消当前订阅者的新内容差集，已开启铃铛的来源会继续按原水位发送通知。',
+  items: [
+    { title: '同步快照不再覆盖通知基线', description: '系统只使用本次抓取任务开始前的 Feed 快照判断新增内容；随后为其他成员生成的安全投影不会被误当成上一份快照。共享历史内容仍不补发通知。' },
+  ],
+} satisfies ChangelogEntry
+
 export const sourceFetchPreflightChangelogEntry = {
   date: '2026-08-30',
   title: '来源获取不再把未启动误报为失败',

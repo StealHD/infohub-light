@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 from ..storage.service_store import NOTIFICATION_CHANNELS, ServiceStore
 from .network_policy import post_public_http
+from .notification_candidate_provenance import notification_candidate_subscription_ids
 from .notification_webhook_transport import (
     DINGTALK,
     FEISHU_LARK_V2,
@@ -1494,7 +1495,7 @@ class PreferredSourceNotificationService:
 
         snapshot = conn.execute(
             """
-            SELECT *
+            SELECT rowid AS snapshot_rowid, *
             FROM user_feed_snapshots
             WHERE id = ? AND workspace_id = ? AND user_id = ?
             """,
@@ -1508,11 +1509,11 @@ class PreferredSourceNotificationService:
             """
             SELECT id
             FROM user_feed_snapshots
-            WHERE workspace_id = ? AND user_id = ? AND id != ?
+            WHERE workspace_id = ? AND user_id = ? AND rowid < ?
             ORDER BY generated_at DESC, created_at DESC, id DESC
             LIMIT 1
             """,
-            (workspace_id, user_id, snapshot_id),
+            (workspace_id, user_id, snapshot["snapshot_rowid"]),
         ).fetchone()
         if previous is None:
             return 0
@@ -1550,21 +1551,11 @@ class PreferredSourceNotificationService:
             published_at = _parse_time(item.get("published_at"))
             if published_at is None:
                 continue
-            item_subscription_ids = item.get("subscription_ids")
-            subscription_ids = list(
-                dict.fromkeys(
-                    str(value)
-                    for value in [
-                        *(
-                            item_subscription_ids
-                            if isinstance(item_subscription_ids, list)
-                            else []
-                        ),
-                        item.get("subscription_id"),
-                        row["subscription_id"],
-                    ]
-                    if value
-                )
+            subscription_ids = notification_candidate_subscription_ids(
+                item,
+                row_source_id=row["source_id"],
+                row_subscription_id=row["subscription_id"],
+                job=job,
             )
             for subscription_id in subscription_ids:
                 if subscription_id not in subscription_cache:

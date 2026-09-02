@@ -8,29 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复 Instagram Probe 条数下限与已证明无启动失败记账；按 exact Schema 核验 YouTube Shorts/排序，并以 global 36 仅为业务验证成功候选开启非最后一路自动替换。",
-  "status": "completed",
-  "task_id": "2026-08-30-actorops-verified-auto-replacement",
-  "unresolved": [
-    "未启动 Worker、未发起新的付费 Probe、未部署 VPS；生产自动替换仍须走现有发布与有界付费授权门。"
-  ],
-  "validation": [
-    "ActorOps Adapter/Discovery/Maintenance/Replacement/Readiness/global36 定向 Pytest 通过；前端变更日志 5 项测试与 TypeScript 通过。",
-    "免费 Catalog GET 核验 YouTube exact Build，未启动 Actor；确认 Shorts-only、长短二选一与 all+newest 三类能力差异。",
-    "本地 global36 显式迁移创建 0600 backup，integrity/FK 通过，3 条 system_default Route 开启 proof gate；18080 API 与 15173 前端代理健康。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-30",
@@ -382,6 +359,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "公共来源 fan-out、private/Viewer 隔离、缓存优先回填、catalog runner 接线与系统默认值定向 Pytest 22 项通过。",
     "完整 impacted preflight 16/16 通过：Python 全量、前端 lint/typecheck/Vitest 694 项、构建、UI/控制/代码规模检查全部成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "修复公共来源成功抓取后的通知差集：后续 fan-out 快照不再覆盖任务基线，同一 source_fetch 的可信订阅身份可补齐中性共享内容缺失的 provenance，并保留共享历史不补发语义。",
+  "status": "completed",
+  "task_id": "2026-09-02-fix-public-source-notification-fanout",
+  "unresolved": [
+    "尚未部署 VPS；生产历史漏发内容按现有通知水位合同不自动补发。"
+  ],
+  "validation": [
+    "新增公共来源抓取→任务快照→真实 fan-out→通知 outbox 集成回归，生产代码先稳定复现 0 条，修复后精确生成 1 条 pending delivery。",
+    "通知、公共共享/复用与 Catalog runner 定向 Pytest 67 项通过；更新日志 Vitest 5 项、TypeScript、ESLint、编译和代码规模检查通过。",
+    "impacted preflight 14/14 通过；本地唯一共享 Telegram 服务执行一次真实 smoke，返回 provider_accepted。"
   ]
 }
 ```
