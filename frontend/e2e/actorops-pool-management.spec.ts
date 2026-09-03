@@ -103,7 +103,21 @@ async function mockActorOpsV2(page: Page) {
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'owner-1', username: 'owner', role: 'owner', enabled: true } }
     else if (url.pathname === '/api/admin/apify-routes') { routeListRequests += 1; data = { schema_version: 2, routes: [{ ...detail, candidates: undefined, bindings: undefined, attempts: undefined, discoveries: undefined, replacements: undefined }] } }
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile' && request.method() === 'GET') data = detail
-    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/v2-candidates' && request.method() === 'GET') data = { route_id: detail.route_id, candidates: [candidate('replacement', 'inactive', null)] }
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/v2-candidates' && request.method() === 'GET') {
+      const replacement = candidate('replacement', 'inactive', null)
+      data = {
+        route_id: detail.route_id,
+        candidates: [{
+          ...replacement,
+          build_number: '2026.08.23',
+          store_metadata: {
+            ...replacement.store_metadata,
+            actor_slug: 'publisher/standby',
+            display_name: 'Publisher B Standby',
+          },
+        }],
+      }
+    }
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile/v2-candidates/standby/promote' && request.method() === 'POST') {
       promotePayload = request.postDataJSON() as Record<string, unknown>
       data = { route_id: detail.route_id }
@@ -151,6 +165,8 @@ test('ActorOps v2 route cards keep a safe desktop flow', async ({ page }) => {
   await expect(page.getByRole('button', { name: '替换备用 1' })).toBeVisible()
   await page.getByRole('button', { name: '替换备用 1' }).click()
   await expect(page.getByRole('heading', { name: '替换备用 1 Actor' })).toBeVisible()
+  await expect(page.getByText('系统推荐（同 Actor 新版本）')).toBeVisible()
+  await expect(page.getByText('这是同一商城 Actor 的另一固定版本，已作为独立候选核验，不是当前故障版本本身。')).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '查看运行详情' }).click()
   await expect(page.getByText('候选与商城信息', { exact: true })).toBeVisible()

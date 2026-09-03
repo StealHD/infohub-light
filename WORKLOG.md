@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "来源抓取在 Worker 心跳过期或状态未知时改为提示“获取未开始”，明确任务未创建且未产生费用，不再误报来源获取失败。",
-  "status": "completed",
-  "task_id": "2026-08-30-source-fetch-not-started-copy",
-  "unresolved": [
-    "本地预览按合同未启动 Worker；需要真实手动抓取时仍须显式进入可能产生 Apify 费用的 Worker 执行边界。"
-  ],
-  "validation": [
-    "数据库定向查询确认 @thsottiaux 最近四次抓取成功，本次没有创建 source_fetch Job，阻断原因是 Worker 心跳过期。",
-    "App 定向 Vitest、更新日志 5 项测试与 TypeScript 通过。",
-    "本地订阅页通过 Vite/API 正常加载，显示 Worker 不可用且 @thsottiaux 来源健康，浏览器无控制台错误。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-08-30",
@@ -380,6 +360,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增公共来源抓取→任务快照→真实 fan-out→通知 outbox 集成回归，生产代码先稳定复现 0 条，修复后精确生成 1 条 pending delivery。",
     "通知、公共共享/复用与 Catalog runner 定向 Pytest 67 项通过；更新日志 Vitest 5 项、TypeScript、ESLint、编译和代码规模检查通过。",
     "impacted preflight 14/14 通过；本地唯一共享 Telegram 服务执行一次真实 smoke，返回 provider_accepted。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-03",
+  "result": "ActorOps 替换候选会把同一商城 Actor 的另一固定版本明确标为独立核验的新版本；候选读取失败时隐藏旧推荐并禁止继续替换，精确 Build 保留在技术详情。",
+  "status": "completed",
+  "task_id": "2026-09-03-actorops-same-actor-version-recommendation",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 候选卡、替换 Drawer 和路由模型定向 Vitest 22/22 通过，TypeScript、ESLint 与 UI 合同检查通过。",
+    "ActorOps 三视口 Playwright 13 passed、2 skipped；同 Actor 新版本提示、焦点恢复和无横向溢出通过。"
   ]
 }
 ```

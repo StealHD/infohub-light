@@ -2,6 +2,15 @@ import type { ChangelogEntry } from './changelogTypes'
 
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-09-02',
+    title: 'Actor 替换会区分同一 Actor 的不同版本',
+    summary: '当故障版本和推荐版本属于同一商城 Actor 时，页面会明确说明候选是另一固定版本；候选状态读取失败时不再继续使用旧推荐。',
+    items: [
+      { title: '同一 Actor 的候选不再混淆', description: '同一 Actor 的另一固定版本会被明确标注为独立核验的新版本，不再看起来是用故障项替换自己；精确 Build 仍保留在技术详情中。' },
+      { title: '候选过期时安全停止', description: '候选轮询或重新读取失败后，页面隐藏上次缓存的推荐并禁止准备实测；重新加载成功后才恢复选择。' },
+    ],
+  },
+  {
     date: '2026-08-30',
     title: 'Actor 自动替换只使用业务验证成功的候选',
     summary: 'Instagram 实测输入与失败结算已修正，YouTube 会核验 Shorts 覆盖和最新排序；后台会立即隔离已删除 Build，不再反复选择已拒绝启动的 Actor。',

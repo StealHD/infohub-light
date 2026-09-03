@@ -19,7 +19,7 @@ const candidate: ActorOpsV2Candidate = {
 
 const assigned: ActorOpsV2Candidate = {
   ...candidate, candidate_id: 'candidate-standby', assignment: 'standby', priority: 1,
-  store_metadata: { ...candidate.store_metadata!, display_name: 'Current Standby' },
+  store_metadata: { ...candidate.store_metadata!, actor_slug: 'publisher/current-standby', display_name: 'Current Standby' },
 }
 
 const route: ActorOpsV2RouteView = {
@@ -37,7 +37,7 @@ function replacementPlan(overrides: Partial<ActorOpsV2ReplacementPlan> = {}): Ac
   return { plan_id: 'plan-1', target_assignment: 'standby', target_priority: 1, status: 'previewed', generation: 1, binding_count: 1, per_probe_cap_usd: 0.05, total_cap_usd: 0.05, error_code: null, candidate, ...overrides }
 }
 
-function renderDrawer(overrides: Partial<ServiceApi> = {}, replacementTarget = target) {
+function renderDrawer(overrides: Partial<ServiceApi> = {}, replacementTarget = target, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })) {
   const api = {
     actorOpsV2Candidates: vi.fn().mockResolvedValue({ candidates: [candidate] }),
     actorOpsV2Route: vi.fn().mockResolvedValue({ replacements: [], discoveries: [] }),
@@ -52,7 +52,7 @@ function renderDrawer(overrides: Partial<ServiceApi> = {}, replacementTarget = t
     ...overrides,
   } as unknown as ServiceApi
   const context = { api, user: { id: 'owner-1', username: 'owner', role: 'owner', enabled: true } } as unknown as AppOutletContext
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+  render(<QueryClientProvider client={queryClient}>
     <MemoryRouter><Routes><Route element={<Outlet context={context} />}><Route path="*" element={<ActorOpsV2ReplacementDrawer route={route} target={replacementTarget} open onOpenChange={vi.fn()} onUpdated={vi.fn().mockResolvedValue(undefined)} />} /></Route></Routes></MemoryRouter>
   </QueryClientProvider>)
   return api
@@ -69,6 +69,39 @@ describe('ActorOpsV2ReplacementDrawer', () => {
 
     await waitFor(() => expect(api.createActorOpsV2Replacement).toHaveBeenCalledWith('route-x', expect.objectContaining({ target_assignment: 'standby', target_priority: 1, candidate_id: 'candidate-new' })))
     expect(api.authorizeActorOpsV2Replacement).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes another fixed version of the same public Actor', async () => {
+    const sameActorTarget: ActorOpsV2ReplacementTarget = {
+      ...target,
+      candidate: {
+        ...assigned,
+        build_number: '1.9.0',
+        store_metadata: { ...candidate.store_metadata!, display_name: 'New Actor' },
+      },
+    }
+    renderDrawer({}, sameActorTarget)
+
+    expect(await screen.findByText('系统推荐（同 Actor 新版本）')).toBeInTheDocument()
+    expect(screen.getByText('这是同一商城 Actor 的另一固定版本，已作为独立候选核验，不是当前故障版本本身。')).toBeInTheDocument()
+  })
+
+  it('hides cached recommendations and blocks preview when candidate refresh fails', async () => {
+    const candidates = vi.fn()
+      .mockResolvedValueOnce({ candidates: [candidate] })
+      .mockRejectedValue(new Error('offline'))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    renderDrawer({
+      actorOpsV2Candidates: candidates,
+    } as Partial<ServiceApi>, target, queryClient)
+
+    expect(await screen.findByText('New Actor')).toBeInTheDocument()
+    await queryClient.refetchQueries()
+    expect(await screen.findByText('候选状态未能更新')).toBeInTheDocument()
+    expect(screen.getByText(/上次成功读取的推荐已隐藏/)).toBeInTheDocument()
+    expect(screen.queryByText('New Actor')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新加载候选' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '免费检查并准备实测' })).toBeDisabled()
   })
 
   it('authorizes the capped probe with one explicit button and no phrase field', async () => {

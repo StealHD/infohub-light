@@ -55,4 +55,19 @@ describe('ActorOpsV2CandidateCard', () => {
 
     expect(screen.getByText(/还需验证 1 个来源/)).toBeInTheDocument()
   })
+
+  it('labels a recommended Candidate as another fixed version of the same Actor', () => {
+    const currentCandidate: ActorOpsV2CandidateView = {
+      ...readableCandidate,
+      candidate_id: 'candidate-current',
+      build_number: '1.2.2',
+      assignment: 'standby',
+      priority: 1,
+    }
+
+    render(<ActorOpsV2CandidateCard candidate={readableCandidate} currentCandidate={currentCandidate} selected={false} recommended onSelect={vi.fn()} />)
+
+    expect(screen.getByText('系统推荐（同 Actor 新版本）')).toBeInTheDocument()
+    expect(screen.getByText('这是同一商城 Actor 的另一固定版本，已作为独立候选核验，不是当前故障版本本身。')).toBeInTheDocument()
+  })
 })

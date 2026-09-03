@@ -71,8 +71,11 @@ export function ActorOpsV2ReplacementDrawer({ route, target, targets = [], open,
   })
   const visiblePlan = unwrapPlan(planQuery.data) || plan || resumablePlan
   const candidateList = useMemo(() => replacementCandidates(candidatesQuery.data), [candidatesQuery.data])
-  const recommended = candidateList.systemCandidates[0] || candidateList.staticCandidates[0] || candidateList.sampleCandidates[0] || null
-  const effectiveSelected = selectionMode === 'manual' ? selected : recommended
+  const selectableCandidates = [...candidateList.systemCandidates, ...candidateList.staticCandidates, ...candidateList.sampleCandidates]
+  const candidateUnavailable = candidatesQuery.error !== null
+  const recommended = candidateUnavailable ? null : selectableCandidates[0] || null
+  const manualSelected = selected && selectableCandidates.some((item) => item.candidate_id === selected.candidate_id) ? selected : null
+  const effectiveSelected = candidateUnavailable ? null : selectionMode === 'manual' ? manualSelected : recommended
   const [cap, total] = replacementCaps(route)
   const refreshDrawer = () => refreshReplacementDrawer(queryClient, candidateKey, detailKey)
   useReplacementFailureNotice(visiblePlan, user.id, route.route_id, onUpdated)
@@ -103,6 +106,9 @@ export function ActorOpsV2ReplacementDrawer({ route, target, targets = [], open,
         mappingCandidates={candidateList.mappingCandidates}
         incompleteCount={candidateList.incompleteCount}
         loading={candidatesQuery.isLoading}
+        refreshing={candidatesQuery.isFetching}
+        candidateError={candidateUnavailable}
+        currentCandidate={activeTarget?.candidate || null}
         selected={effectiveSelected}
         cap={cap}
         total={total}
@@ -113,6 +119,7 @@ export function ActorOpsV2ReplacementDrawer({ route, target, targets = [], open,
         onPreview={() => effectiveSelected && actions.preview.mutate(effectiveSelected)}
         onDiscover={() => actions.discovery.mutate()}
         onMetadata={() => actions.metadata.mutate()}
+        onRetry={() => { void candidatesQuery.refetch() }}
       /> : <PlanStep
         plan={visiblePlan}
         slotLabel={currentSlot}
@@ -274,11 +281,12 @@ function refreshReplacementDrawer(
   ])
 }
 
-function CandidateSelection({ targets, selectedTarget, systemCandidates, staticCandidates, sampleCandidates, blockedCandidates, mappingCandidates, incompleteCount, loading, selected, cap, total, discovery, busy, onTarget, onSelect, onPreview, onDiscover, onMetadata }: {
+function CandidateSelection({ targets, selectedTarget, systemCandidates, staticCandidates, sampleCandidates, blockedCandidates, mappingCandidates, incompleteCount, loading, refreshing, candidateError, currentCandidate, selected, cap, total, discovery, busy, onTarget, onSelect, onPreview, onDiscover, onMetadata, onRetry }: {
   targets: ActorOpsV2ReplacementTarget[]; selectedTarget: ActorOpsV2ReplacementTarget | null
   systemCandidates: ActorOpsV2CandidateView[]; staticCandidates: ActorOpsV2CandidateView[]; sampleCandidates: ActorOpsV2CandidateView[]; blockedCandidates: ActorOpsV2CandidateView[]; mappingCandidates: ActorOpsV2CandidateView[]; incompleteCount: number; loading: boolean; selected: ActorOpsV2CandidateView | null
+  refreshing: boolean; candidateError: boolean; currentCandidate: ActorOpsV2CandidateView | null
   cap: number; total: number; discovery: ActorOpsV2RouteDetail['discoveries'][number] | null; busy: boolean
-  onTarget: (target: ActorOpsV2ReplacementTarget) => void; onSelect: (candidate: ActorOpsV2CandidateView) => void; onPreview: () => void; onDiscover: () => void; onMetadata: () => void
+  onTarget: (target: ActorOpsV2ReplacementTarget) => void; onSelect: (candidate: ActorOpsV2CandidateView) => void; onPreview: () => void; onDiscover: () => void; onMetadata: () => void; onRetry: () => void
 }) {
   const candidates = [...systemCandidates, ...staticCandidates, ...sampleCandidates]
   const recommendedId = candidates[0]?.candidate_id
@@ -289,17 +297,20 @@ function CandidateSelection({ targets, selectedTarget, systemCandidates, staticC
     <ActorOpsV2DiscoveryProgress discovery={discovery} />
     <div className="flex flex-wrap gap-2"><Button variant="secondary" isDisabled={busy || discoveryActive} onPress={onDiscover}>{discoveryActive ? '正在搜索候选…' : '搜索更多候选'}</Button><Button variant="ghost" isDisabled={busy} onPress={onMetadata}>更新商城信息</Button></div>
     {loading && <p className="type-meta text-muted">正在加载候选…</p>}
-    {systemCandidates.length > 0 && <p className="type-control">系统可用</p>}
-    {systemCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
-    {staticCandidates.length > 0 && <p className="type-control">可实测</p>}
-    {staticCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
-    {sampleCandidates.length > 0 && <><p className="type-control">需要真实样本</p><p className="type-meta text-muted">授权后只启动一次 Actor；同一 Dataset 最多两轮自动映射，不会重复收费启动。</p></>}
-    {sampleCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
-    {blockedCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={false} onSelect={onSelect} disabled disabledReason={actorOpsV2CandidateIssueLabel(candidate) || '已确认故障'} />)}
-    {mappingCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} selected={false} onSelect={onSelect} disabled disabledReason={actorOpsV2MappingIssueLabel(candidate) || '字段映射尚未完成'} />)}
-    {incompleteCount > 0 && <p className="type-meta text-muted">另有 {incompleteCount} 个候选缺少可读的商城公开资料，更新商城信息后才能比较。</p>}
-    {!loading && !candidates.length && <StatusNotice title="暂无可替换候选" status="warning">{mappingCandidates.length ? '已找到 Actor，但输入或输出合同仍有精确阻断；可查看每个候选的具体缺口。' : blockedCandidates.length ? '现有候选均已确认故障，请搜索新的候选。' : '先搜索候选；若候选已存在但缺少公开资料，再更新商城信息。'}</StatusNotice>}
-    <Button isDisabled={!selectedTarget || !selected || busy || total <= 0} onPress={onPreview}>{busy ? '处理中…' : !selectedTarget ? '先选择替换位置' : '免费检查并准备实测'}</Button>
+    {candidateError && <StatusNotice title="候选状态未能更新" status="danger"><div className="grid gap-2"><span>上次成功读取的推荐已隐藏；在确认当前 Build、故障和来源证明前不能继续替换。</span><div><Button size="sm" variant="secondary" isDisabled={refreshing} onPress={onRetry}>{refreshing ? '重新加载中…' : '重新加载候选'}</Button></div></div></StatusNotice>}
+    {!candidateError && <>
+      {systemCandidates.length > 0 && <p className="type-control">系统可用</p>}
+      {systemCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} currentCandidate={currentCandidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
+      {staticCandidates.length > 0 && <p className="type-control">可实测</p>}
+      {staticCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} currentCandidate={currentCandidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
+      {sampleCandidates.length > 0 && <><p className="type-control">需要真实样本</p><p className="type-meta text-muted">授权后只启动一次 Actor；同一 Dataset 最多两轮自动映射，不会重复收费启动。</p></>}
+      {sampleCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} currentCandidate={currentCandidate} selected={selected?.candidate_id === candidate.candidate_id} recommended={recommendedId === candidate.candidate_id} onSelect={onSelect} />)}
+      {blockedCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} currentCandidate={currentCandidate} selected={false} onSelect={onSelect} disabled disabledReason={actorOpsV2CandidateIssueLabel(candidate) || '已确认故障'} />)}
+      {mappingCandidates.map((candidate) => <ActorOpsV2CandidateCard key={candidate.candidate_id} candidate={candidate} currentCandidate={currentCandidate} selected={false} onSelect={onSelect} disabled disabledReason={actorOpsV2MappingIssueLabel(candidate) || '字段映射尚未完成'} />)}
+      {incompleteCount > 0 && <p className="type-meta text-muted">另有 {incompleteCount} 个候选缺少可读的商城公开资料，更新商城信息后才能比较。</p>}
+      {!loading && !candidates.length && <StatusNotice title="暂无可替换候选" status="warning">{mappingCandidates.length ? '已找到 Actor，但输入或输出合同仍有精确阻断；可查看每个候选的具体缺口。' : blockedCandidates.length ? '现有候选均已确认故障，请搜索新的候选。' : '先搜索候选；若候选已存在但缺少公开资料，再更新商城信息。'}</StatusNotice>}
+    </>}
+    <Button isDisabled={candidateError || !selectedTarget || !selected || busy || total <= 0} onPress={onPreview}>{busy ? '处理中…' : !selectedTarget ? '先选择替换位置' : '免费检查并准备实测'}</Button>
   </div>
 }
 

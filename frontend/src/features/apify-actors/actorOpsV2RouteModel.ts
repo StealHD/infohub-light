@@ -49,6 +49,15 @@ export function actorOpsV2CandidateHasPublicIdentity(candidate: ActorOpsV2Candid
   return actorOpsV2CandidateLabel(candidate) !== '商城信息待更新'
 }
 
+export function actorOpsV2SamePublicActor(
+  left: ActorOpsV2CandidateView | null,
+  right: ActorOpsV2CandidateView | null,
+) {
+  const leftSlug = actorOpsV2PublicActorSlug(left)?.toLocaleLowerCase()
+  const rightSlug = actorOpsV2PublicActorSlug(right)?.toLocaleLowerCase()
+  return Boolean(leftSlug && rightSlug && leftSlug === rightSlug)
+}
+
 export function actorOpsV2CandidateIssueLabel(candidate: ActorOpsV2CandidateView) {
   const labels: Record<NonNullable<ActorOpsV2CandidateView['issue_code']>, string> = {
     actor_deleted: 'Actor 已下架',
