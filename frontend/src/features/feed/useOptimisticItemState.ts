@@ -247,6 +247,12 @@ export function useOptimisticItemState(options: ItemStateMutationOptions) {
       token: options.beginAction(),
       sequence: ++nextSequence.current,
     }),
+    mutateItemAsync: (id: string, patch: Partial<UserItemState>) => mutation.mutateAsync({
+      id,
+      patch,
+      token: options.beginAction(),
+      sequence: ++nextSequence.current,
+    }),
     isItemActionPending: (action: keyof UserItemState, id: string) => options.publishFeedback === false
       ? mutation.isPending && mutation.variables?.id === id && action in mutation.variables.patch
       : feedback.isPending(`item-${String(action)}`, id),

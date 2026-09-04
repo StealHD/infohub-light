@@ -6,7 +6,7 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import { useAppContext } from '../../app/AppContext'
-import { Button, LoadingState, PageFrame, ScrollAdaptiveViewBar, StatusNotice, Tabs } from '../../design-system'
+import { LoadingState, PageFrame, RefreshButton, ScrollAdaptiveViewBar, StatusNotice, Tabs } from '../../design-system'
 import { ActorOpsV2ControlPlane } from '../apify-actors/ActorOpsV2ControlPlane'
 import { ActorOpsV2Logs } from '../apify-actors/ActorOpsV2Logs'
 import { ActorOpsV2RouteControls } from '../apify-actors/ActorOpsV2RouteControls'
@@ -65,8 +65,8 @@ export function SettingsActorOpsPage() {
         <div data-actorops-tabs-toolbar className="sticky top-0 z-20 py-2"><ScrollAdaptiveViewBar state={toolbarState} appearance="command" className="min-w-0 justify-start"><div className="min-w-0 max-w-full overflow-x-auto"><Tabs.List data-command-bar-tabs aria-label="ActorOps 页面" className="flex w-max min-w-0 gap-1"><Tabs.Tab data-command-bar-tab id="routes" aria-label="路由管理" className="w-auto shrink-0 justify-center gap-2">路由管理<Tabs.Indicator /></Tabs.Tab><Tabs.Tab data-command-bar-tab id="logs" aria-label="运行日志" className="w-auto shrink-0 justify-center gap-2">运行日志<Tabs.Indicator /></Tabs.Tab></Tabs.List></div></ScrollAdaptiveViewBar></div>
         <Tabs.Panel id="routes" className="grid gap-5 pt-5">
           {routes.isPending ? <LoadingState label="正在读取 ActorOps v2 路由" rows={3} />
-            : routes.isError ? <ActorOpsRouteError error={routes.error} onRetry={() => void routes.refetch()} />
-              : routes.data?.schema_version !== 2 ? <ActorOpsRouteError error={new ApiError(503, { code: 'actorops_v2_unavailable', message: 'ActorOps v2 响应不可用。' })} onRetry={() => void routes.refetch()} />
+            : routes.isError ? <ActorOpsRouteError error={routes.error} pending={routes.isFetching} onRetry={() => routes.refetch()} />
+              : routes.data?.schema_version !== 2 ? <ActorOpsRouteError error={new ApiError(503, { code: 'actorops_v2_unavailable', message: 'ActorOps v2 响应不可用。' })} pending={routes.isFetching} onRetry={() => routes.refetch()} />
                 : routes.data.routes.length === 0 ? <StatusNotice title="暂无 ActorOps v2 Route" status="warning">当前工作区没有可管理的 v2 Route；系统不会改走旧 ActorOps。</StatusNotice>
                   : <ActorOpsV2ControlPlane routes={routes.data.routes.map(actorOpsV2RouteView)} focusedRouteKey={focusedRouteKey} renderRouteActions={(route) => <ActorOpsV2RouteControls route={route} />} />}
         </Tabs.Panel>
@@ -76,7 +76,7 @@ export function SettingsActorOpsPage() {
   </div>
 }
 
-function ActorOpsRouteError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+function ActorOpsRouteError({ error, pending, onRetry }: { error: unknown; pending: boolean; onRetry: () => void | Promise<unknown> }) {
   const code = error instanceof ApiError ? error.code : ''
   const state = code === 'actorops_v2_migration_required'
     ? { title: 'ActorOps v2 需要数据库迁移', detail: '请先完成所需的 ActorOps v2 迁移。普通 RSS 和 GitHub 来源不受影响。', retry: false }
@@ -85,6 +85,6 @@ function ActorOpsRouteError({ error, onRetry }: { error: unknown; onRetry: () =>
       : { title: 'ActorOps v2 当前不可用', detail: '路线状态恢复前不会提供旧系统回退或付费操作。', retry: true }
   return <StatusNotice title={state.title} status="warning">
     <p>{state.detail}</p>
-    {state.retry && <Button size="sm" variant="ghost" className="mt-2" onPress={onRetry}>重试此区域</Button>}
+    {state.retry && <RefreshButton size="sm" variant="ghost" className="mt-2" pending={pending} label="重试此区域" onPress={onRetry} />}
   </StatusNotice>
 }

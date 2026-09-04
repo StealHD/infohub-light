@@ -38,7 +38,7 @@ export function ActorOpsAlertSettingsPanel() {
   })
   if (settings.isPending) return <LoadingState label="正在读取 ActorOps 告警设置" rows={2} />
   if (settings.isError || !settings.data) return <StatusNotice title="ActorOps 告警设置读取失败" status="warning">
-    <RefreshButton size="sm" variant="ghost" pending={settings.isFetching} label="重试此区域" onPress={() => void settings.refetch()} />
+    <RefreshButton size="sm" variant="ghost" pending={settings.isFetching} label="重试此区域" onPress={() => settings.refetch()} />
   </StatusNotice>
   const save = async (patch: Pick<ApifyActorAlertSettingsPatch, 'enabled' | 'target_ids' | 'events'>) => {
     setSaving(true)
@@ -99,7 +99,7 @@ function AlertEditor({ settings, services, saving, saveError, onSave, onClose }:
       </Checkbox>)}
     </fieldset>
     {saveError && <StatusNotice title="ActorOps 告警未保存" status="warning">{saveError}</StatusNotice>}
-    <div className="flex justify-end gap-2"><Button variant="ghost" onPress={onClose} isDisabled={saving}>取消</Button><StableAsyncButton pending={saving} pendingContent="保存中…" onPress={() => void submit()}>保存告警</StableAsyncButton></div>
+    <div className="flex justify-end gap-2"><Button variant="ghost" onPress={onClose} isDisabled={saving}>取消</Button><StableAsyncButton pending={saving} pendingContent="保存中…" onPress={submit}>保存告警</StableAsyncButton></div>
   </div>
 }
 
@@ -114,16 +114,16 @@ export function ActorOpsAlertIncidentList() {
   })
   if (incidents.isPending) return <LoadingState label="正在读取 ActorOps 告警事件" rows={2} />
   if (incidents.isError || !incidents.data) return <StatusNotice title="ActorOps 告警事件读取失败" status="warning">
-    <RefreshButton size="sm" variant="ghost" pending={incidents.isFetching} label="重试此区域" onPress={() => void incidents.refetch()} />
+    <RefreshButton size="sm" variant="ghost" pending={incidents.isFetching} label="重试此区域" onPress={() => incidents.refetch()} />
   </StatusNotice>
   if (!incidents.data.incidents.length) return <p className="type-meta text-muted">尚无需要处理的 ActorOps 告警。</p>
   return <ol className="grid gap-2" aria-label="ActorOps 告警事件">
     {[...incidents.data.incidents].sort((left, right) => Number(left.status === 'resolved') - Number(right.status === 'resolved')).slice(0, 5).map((incident) => {
       const issue = presentActorOpsIncidentIssue(incident.event_type)
-      const refreshLogs = () => {
-        void incidents.refetch()
-        void queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Events(user.id) })
-      }
+      const refreshLogs = () => Promise.all([
+        incidents.refetch(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.actorOpsV2Events(user.id) }),
+      ])
       return <li key={incident.id} className="rounded-control border border-separator bg-surface-secondary p-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><p className="type-control">{eventLabels[incident.event_type]}</p><StatusIndicator label={incident.status === 'resolved' ? '已恢复' : '需处理'} tone={incident.status === 'resolved' ? 'success' : 'warning'} /></div>
         <dl className="mt-2 grid gap-1 type-meta"><div><dt className="inline text-muted">原因： </dt><dd className="inline">{issue.reason}</dd></div><div><dt className="inline text-muted">影响： </dt><dd className="inline">{issue.impact}</dd></div><div><dt className="inline text-muted">下一步： </dt><dd className="inline">{issue.next}</dd></div></dl>

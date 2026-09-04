@@ -199,6 +199,16 @@ describe('HeroUI import contract', () => {
     expect(result.status).toBe(0)
   })
 
+  it.each([
+    '<form key={configVersion}><Button type="submit">保存</Button></form>\n',
+    '<Card key={dataGeneration}>内容</Card>\n',
+  ])('rejects data-driven form or card remounts: %s', (source) => {
+    const result = checkSource('src/features/settings/RemountedSurface.tsx', source)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('保存或刷新不得通过动态 key 重挂整个 form/card')
+  })
+
   it('rejects visual constants in business CSS', () => {
     const result = checkSource(
       'src/features/feed/feed-surface.css',

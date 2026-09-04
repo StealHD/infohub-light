@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Button, Card, ChatSource, ChatSources, ImageGalleryModal, Icons, PromptSuggestion } from '../../../design-system'
+import { Button, Card, ChatSource, ChatSources, ImageGalleryModal, Icons, PromptSuggestion, StableAsyncButton } from '../../../design-system'
 import type { OpenClawChatController } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
 import { OpenClawActivityTrace } from './OpenClawActivityTrace'
@@ -93,7 +93,7 @@ export function OpenClawTimeline({ chat, composer }: {
       <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
         <span className="type-meta min-w-0 truncate text-muted">{chat.sessionKey ? 'Inscope 对话' : '正在准备对话'}</span>
         <div className="flex shrink-0 gap-1">
-          <Button size="sm" variant="ghost" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={() => void chat.newConversation()}><Icons.Plus size={14} />新对话</Button>
+          <StableAsyncButton size="sm" variant="ghost" pending={chat.runtimeUpdating} pendingContent="新建中…" isDisabled={chat.isRunning} onPress={() => chat.newConversation()}><Icons.Plus size={14} />新对话</StableAsyncButton>
           <Button size="sm" variant="ghost" onPress={chat.disconnect}>断开</Button>
         </div>
       </div>
@@ -140,11 +140,11 @@ export function OpenClawTimeline({ chat, composer }: {
               role={message.role}
               messageId={message.id}
               onOpen={(imageIndex) => openImages(message.role === 'assistant' ? 'OpenClaw 返回的图片' : '你发送的图片', message.images ?? [], imageIndex, message.id)}
-              onRefresh={(imageId) => { void chat.refreshMedia(message.id, imageId) }}
+              onRefresh={(imageId) => chat.refreshMedia(message.id, imageId)}
             />}
             {message.status === 'aborted' && <div className="type-label mt-1.5 text-muted">已停止</div>}
             {message.status === 'failed' && message.role === 'user' && <div className="mt-1.5 flex flex-wrap gap-1">
-              <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => void chat.retry(message.id)}>重试</Button>
+              <StableAsyncButton size="sm" variant="ghost" pending={chat.isRunning} pendingContent="重试中…" onPress={() => chat.retry(message.id)}>重试</StableAsyncButton>
               <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => composer.editFailed(message.id)}>重新编辑</Button>
             </div>}
             {traceAttached && runTrace && <OpenClawActivityTrace trace={runTrace} running={false} />}

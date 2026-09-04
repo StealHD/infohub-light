@@ -15,7 +15,7 @@ import {
   Label,
   LoadingState,
   Modal,
-  PageFrame,
+  PageFrame, RefreshButton,
   StatusIndicator,
   StableAsyncButton,
   Table,
@@ -392,7 +392,7 @@ export function HeroUsersPage() {
         {createError && <div className="min-[760px]:col-span-5"><HeroNotice title={createError} /></div>}
       </form>
       {users.isLoading && <LoadingState label="正在读取成员" rows={2} />}
-      {users.isError && <div className="mt-4"><HeroNotice title="成员列表读取失败" /></div>}
+      {users.isError && <div className="mt-4"><HeroNotice title="成员列表读取失败"><RefreshButton size="sm" variant="ghost" pending={users.isFetching} label="重试此区域" onPress={() => users.refetch()} /></HeroNotice></div>}
       {!users.isLoading && !users.isError && <Table className="mt-5 overflow-hidden rounded-[var(--inteliscope-radius-table)] border border-separator bg-surface-secondary shadow-sm" variant="secondary">
         <Table.ScrollContainer className="max-w-full overflow-x-auto overscroll-x-contain rounded-[var(--inteliscope-radius-table)]">
           <Table.Content
@@ -518,7 +518,7 @@ export function HeroUsersPage() {
               pending={deleteMutation.isPending}
               pendingContent="删除中…"
               isDisabled={deleteConfirmation !== deleteTarget?.username}
-              onPress={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id })}
+              onPress={() => deleteTarget ? deleteMutation.mutateAsync({ id: deleteTarget.id }) : undefined}
             >确认删除账号</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>

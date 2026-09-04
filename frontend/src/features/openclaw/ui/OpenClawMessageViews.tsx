@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { Button, Icons, Tooltip, TooltipTriggerButton } from '../../../design-system'
+import { Icons, RefreshButton, Tooltip, TooltipTriggerButton } from '../../../design-system'
 import type { OpenClawContextUsage } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
 
@@ -208,7 +208,7 @@ export function OpenClawImageGrid({
   role: 'user' | 'assistant'
   messageId?: string
   onOpen: (index: number) => void
-  onRefresh?: (imageId: string) => void
+  onRefresh?: (imageId: string) => void | Promise<unknown>
 }) {
   if (!images.length) return null
   const label = role === 'assistant' ? 'OpenClaw 返回的图片' : '你发送的图片'
@@ -237,7 +237,7 @@ export function OpenClawImageGrid({
       <div>
         <Icons.ImageOff size={18} className="mx-auto text-muted" aria-hidden="true" />
         <p className="type-label mt-1 text-muted">图片暂不可用</p>
-        {messageId && onRefresh && <Button size="sm" variant="ghost" className="mt-1" onPress={() => onRefresh(image.id)}>重试</Button>}
+        {messageId && onRefresh && <RefreshButton size="sm" variant="ghost" className="mt-1" pending={false} label="重试" onPress={() => onRefresh(image.id)} />}
       </div>
     </div>)}
   </div>

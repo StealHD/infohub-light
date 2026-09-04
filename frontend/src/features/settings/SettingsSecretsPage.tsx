@@ -82,7 +82,7 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
 
   if (!quota.data) return <div className="flex flex-wrap items-center gap-2" role="alert" aria-busy={retryBusy}>
     <span className="type-meta text-danger">{failure ?? '暂无额度数据'}</span>
-    <RefreshButton size="sm" variant="ghost" aria-label={`重试 ${secret.name} 额度`} pendingLabel={`正在重试 ${secret.name} 额度`} pending={retryBusy} label="重试" onPress={() => void refetch('retry')} />
+    <RefreshButton size="sm" variant="ghost" aria-label={`重试 ${secret.name} 额度`} pendingLabel={`正在重试 ${secret.name} 额度`} pending={retryBusy} label="重试" onPress={() => refetch('retry')} />
   </div>
 
   const hardLimitConstrained = quota.data.remaining_hard_limit_usd < quota.data.remaining_included_credits_usd
@@ -110,7 +110,7 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
         aria-label={failure ? `重试 ${secret.name} 额度` : `刷新 ${secret.name} 额度`}
         pendingLabel={failure ? `正在重试 ${secret.name} 额度` : `正在刷新 ${secret.name} 额度`}
         pending={refreshing || retryBusy}
-        onPress={() => void refetch(failure ? 'retry' : 'refresh')}
+        onPress={() => refetch(failure ? 'retry' : 'refresh')}
       />
     </div>
     {hardLimitConstrained && <span className="type-meta text-warning">硬上限仅余 {formatUsd(quota.data.remaining_hard_limit_usd)}</span>}
@@ -325,7 +325,7 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                     <div className="flex shrink-0 items-center justify-end gap-1.5">
                       <StatusBadge tone={member?.role === 'validation' ? 'warning' : 'neutral'}>{member?.role === 'validation' ? '专用校验' : '生产抓取'}</StatusBadge>
                       <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
-                      {canDrain && <StableAsyncButton size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} pending={draining || member?.status === 'draining'} pendingContent="排空中…" isDisabled={pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />安全排空</StableAsyncButton>}
+                      {canDrain && <StableAsyncButton size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} pending={draining || member?.status === 'draining'} pendingContent="排空中…" isDisabled={pool?.status === 'blocked'} onPress={() => drainMutation.mutateAsync(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />安全排空</StableAsyncButton>}
                     </div>
                   </Card.Header>
                   <Card.Content className="grid gap-1.5 px-4 pb-2 pt-0">
@@ -347,7 +347,7 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
           </div>
         </>}
   </SettingsSection>
-  <Modal isOpen={validationTarget !== undefined} onOpenChange={(open) => { if (!open && !validationMutation.isPending) closeValidationModal() }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">确认校验 Key 角色</Modal.Trigger><Modal.Backdrop isDismissable={!validationMutation.isPending} isKeyboardDismissDisabled={validationMutation.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>{validationTarget ? '指定专用校验 Key' : '取消专用校验 Key'}</Modal.Heading></Modal.Header><Modal.Body><StatusNotice title={validationTarget ? '该 Key 将与生产抓取完全隔离' : '自动新鲜度校验将停止创建新任务'} status="warning">{validationTarget ? '它只用于 ActorOps Canary、兼容试跑和新鲜度比对，不进入生产排序，生产 Key 耗尽时也不会兜底。' : '现有非终态校验 Run 必须先结束；取消后普通抓取不受影响。'}</StatusNotice></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={validationMutation.isPending} onPress={closeValidationModal}>取消</Button><StableAsyncButton pending={validationMutation.isPending} pendingContent="保存中…" isDisabled={!pool} onPress={() => pool && validationMutation.mutate({ secretId: validationTarget ?? null, expectedGeneration: pool.generation })}>确认角色变更</StableAsyncButton></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
+  <Modal isOpen={validationTarget !== undefined} onOpenChange={(open) => { if (!open && !validationMutation.isPending) closeValidationModal() }}><Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">确认校验 Key 角色</Modal.Trigger><Modal.Backdrop isDismissable={!validationMutation.isPending} isKeyboardDismissDisabled={validationMutation.isPending}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>{validationTarget ? '指定专用校验 Key' : '取消专用校验 Key'}</Modal.Heading></Modal.Header><Modal.Body><StatusNotice title={validationTarget ? '该 Key 将与生产抓取完全隔离' : '自动新鲜度校验将停止创建新任务'} status="warning">{validationTarget ? '它只用于 ActorOps Canary、兼容试跑和新鲜度比对，不进入生产排序，生产 Key 耗尽时也不会兜底。' : '现有非终态校验 Run 必须先结束；取消后普通抓取不受影响。'}</StatusNotice></Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={validationMutation.isPending} onPress={closeValidationModal}>取消</Button><StableAsyncButton pending={validationMutation.isPending} pendingContent="保存中…" isDisabled={!pool} onPress={() => pool ? validationMutation.mutateAsync({ secretId: validationTarget ?? null, expectedGeneration: pool.generation }) : undefined}>确认角色变更</StableAsyncButton></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
   </>
 }
 
@@ -484,7 +484,7 @@ export function SettingsSecretsPage() {
       {secrets.isPending
         ? <LoadingState label="正在读取密钥元数据" rows={3} />
         : secrets.isError
-          ? <StatusNotice title="密钥读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={secrets.isFetching} label="重试此区域" onPress={() => void secrets.refetch()} /></StatusNotice>
+          ? <StatusNotice title="密钥读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={secrets.isFetching} label="重试此区域" onPress={() => secrets.refetch()} /></StatusNotice>
           : <>
             <ApifyKeyPoolGroup secrets={secrets.data?.secrets ?? []} userId={user.id} onSecretChanged={secretChanged} />
             <SettingsSection title="AI Key" description="每个 AI Key 单独保存自己的连接地址；未填写时使用该 Provider 的默认地址。">

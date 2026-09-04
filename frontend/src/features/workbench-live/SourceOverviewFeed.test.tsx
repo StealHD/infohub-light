@@ -252,6 +252,19 @@ describe('SourceOverviewFeed', () => {
     expect(screen.getByRole('list', { name: '专题总结关键要点' })).toHaveTextContent('发布新版')
     await browser.click(screen.getByRole('button', { name: '重新总结' }))
     expect(onRequestSummary).toHaveBeenLastCalledWith(section, true)
+
+    const cachedData = { schema_version: 1 as const, overview: '保留的可信总结。', highlights: ['已有要点'], item_count: 1 }
+    rerender(<SourceOverviewFeed {...baseProps} summaryStates={{
+      [section.id]: { fingerprint: section.contentFingerprint, status: 'loading', data: cachedData },
+    }} />)
+    expect(screen.getByText('保留的可信总结。')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('正在重新总结，当前结果仍保留')
+
+    rerender(<SourceOverviewFeed {...baseProps} summaryStates={{
+      [section.id]: { fingerprint: section.contentFingerprint, status: 'error', data: cachedData, message: '刷新暂时失败' },
+    }} />)
+    expect(screen.getByText('保留的可信总结。')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('刷新暂时失败')
   })
 
   it('keeps SourceInsight absent until a summary state is provided', () => {

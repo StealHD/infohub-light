@@ -50,15 +50,17 @@ export function OpenClawSetupPanel({ chat }: { chat: ChatController }) {
             >
               连接并授权
             </StableAsyncButton>
-            <Button
+            <StableAsyncButton
               type="button"
               variant="secondary"
               className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]"
+              pending={chat.status === 'connecting'}
+              pendingContent="正在连接…"
               isDisabled={!url.trim() || chat.status === 'connecting'}
-              onPress={() => void chat.connect(undefined, url)}
+              onPress={() => chat.connect(undefined, url)}
             >
               使用已配对设备重连
-            </Button>
+            </StableAsyncButton>
           </div>
         </Form>
       </Card>

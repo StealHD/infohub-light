@@ -15,6 +15,7 @@ import {
   Checkbox,
   Description,
   LoadingState,
+  RefreshButton,
   StableAsyncButton,
   Switch,
 } from '../../design-system'
@@ -39,7 +40,15 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
 
   if (settings.isPending || services.isPending) return <LoadingState label="正在读取消息通知设置" rows={2} />
   if (settings.isError || services.isError || !settings.data || !services.data) {
-    return <HeroNotice title="消息通知设置读取失败，请刷新后重试。" />
+    return <HeroNotice title="消息通知设置读取失败，请刷新后重试。">
+      <RefreshButton
+        size="sm"
+        variant="ghost"
+        pending={settings.isFetching || services.isFetching}
+        label="重试此区域"
+        onPress={() => Promise.all([settings.refetch(), services.refetch()])}
+      />
+    </HeroNotice>
   }
 
   async function save(patch: UserNotificationSettingsPatch) {

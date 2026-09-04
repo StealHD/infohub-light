@@ -31,6 +31,7 @@ type SourceOverviewFeedProps = {
   detailLoading?: boolean
   detailError?: boolean
   readonly?: boolean
+  isItemActionPending?: (action: 'is_saved' | 'dismissed', id: string) => boolean
   resumeAnchor?: SourceOverviewViewportAnchor | null
   onResumeAnchorRestored?: () => void
   onToggleSource: (id: string) => void
@@ -52,28 +53,26 @@ function sectionForItem(sections: SourceOverviewSectionModel[], itemId: string):
   return sections.findIndex((section) => section.cards.some((card) => card.id === itemId))
 }
 
-export function SourceInsight({ state, onRetry }: { state?: SourceSummaryViewState; onRetry?: () => void }) {
+export function SourceInsight({ state, onRetry }: { state?: SourceSummaryViewState; onRetry?: () => void | Promise<unknown> }) {
   if (!state) return null
+  const hasData = Boolean(state.data)
   return <div data-source-insight className="border-t border-separator px-4 py-3 sm:px-5">
-    {state.status === 'loading' && <div role="status" className="type-meta flex items-center gap-2 text-muted">
-      <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在总结当前专题…
-    </div>}
-    {state.status === 'error' && <div className="flex min-w-0 flex-wrap items-center gap-2" role="alert">
-      <span className="type-meta min-w-0 flex-1 text-danger">{state.message || '专题总结生成失败，请稍后重试。'}</span>
-      {onRetry && <RefreshButton size="sm" variant="ghost" pending={false} label="重试" onPress={onRetry} />}
-    </div>}
-    {state.status === 'success' && state.data && <div className="grid gap-2">
+    {state.status === 'loading' && !hasData && <div role="status" className="type-meta flex items-center gap-2 text-muted"><Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在总结当前专题…</div>}
+    {hasData && state.data && <div className="grid gap-2">
       <p className="type-body text-foreground">{state.data.overview}</p>
       <ul className="grid gap-1 pl-4 text-muted" aria-label="专题总结关键要点">
         {state.data.highlights.map((highlight, index) => <li key={`${index}:${highlight}`} className="type-meta list-disc">{highlight}</li>)}
       </ul>
-      {onRetry && <div><RefreshButton size="sm" variant="ghost" pending={false} label="重新总结" onPress={onRetry} /></div>}
+      {state.status === 'loading' && <div role="status" className="type-meta flex items-center gap-2 text-muted"><Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在重新总结，当前结果仍保留。</div>}
+      {state.status === 'error' && <div className="flex min-w-0 flex-wrap items-center gap-2" role="alert"><span className="type-meta min-w-0 flex-1 text-danger">{state.message || '专题总结生成失败，请稍后重试。'}</span>{onRetry && <RefreshButton size="sm" variant="ghost" pending={false} label="重试" onPress={onRetry} />}</div>}
+      {state.status === 'success' && onRetry && <div><RefreshButton size="sm" variant="ghost" pending={false} label="重新总结" onPress={onRetry} /></div>}
     </div>}
+    {state.status === 'error' && !hasData && <div className="flex min-w-0 flex-wrap items-center gap-2" role="alert"><span className="type-meta min-w-0 flex-1 text-danger">{state.message || '专题总结生成失败，请稍后重试。'}</span>{onRetry && <RefreshButton size="sm" variant="ghost" pending={false} label="重试" onPress={onRetry} />}</div>}
   </div>
 }
 
 type SourceFeedProps = Pick<SourceOverviewFeedProps,
-  'contextIds' | 'detailLoading' | 'detailError' | 'expandedId' | 'onItemAction' | 'onToggleContext' | 'onToggleExpanded' | 'onToggleSaved' | 'readonly'
+  'contextIds' | 'detailLoading' | 'detailError' | 'expandedId' | 'isItemActionPending' | 'onItemAction' | 'onToggleContext' | 'onToggleExpanded' | 'onToggleSaved' | 'readonly'
 > & {
   cards: WorkbenchCardModel[]
   onOpenMedia: (card: WorkbenchCardModel, index: number, trigger: HTMLButtonElement) => void
@@ -86,6 +85,7 @@ export function SourceFeed({
   expandedId,
   detailLoading,
   detailError,
+  isItemActionPending,
   readonly,
   onBeforeLayoutChange,
   onItemAction,
@@ -113,6 +113,8 @@ export function SourceFeed({
         contextCount={contextIds.length}
         detailLoading={card.id === expandedId && detailLoading}
         detailError={card.id === expandedId && detailError}
+        savedPending={isItemActionPending?.('is_saved', card.id)}
+        dismissedPending={isItemActionPending?.('dismissed', card.id)}
         readonly={readonly}
         onToggleExpanded={() => {
           onBeforeLayoutChange()
@@ -133,7 +135,7 @@ export function SourceFeed({
 }
 
 type SourceSectionProps = Pick<SourceOverviewFeedProps,
-  'contextIds' | 'detailLoading' | 'detailError' | 'expandedId' | 'onItemAction' | 'onToggleContext' | 'onToggleExpanded' | 'onToggleSaved' | 'readonly'
+  'contextIds' | 'detailLoading' | 'detailError' | 'expandedId' | 'isItemActionPending' | 'onItemAction' | 'onToggleContext' | 'onToggleExpanded' | 'onToggleSaved' | 'readonly'
 > & {
   section: SourceOverviewSectionModel
   feedWindowDays: number
@@ -143,7 +145,7 @@ type SourceSectionProps = Pick<SourceOverviewFeedProps,
   onBeforeLayoutChange: () => void
   summaryState?: SourceSummaryViewState
   canSummarize?: boolean
-  onRequestSummary?: (section: SourceOverviewSectionModel, regenerate?: boolean) => void
+  onRequestSummary?: (section: SourceOverviewSectionModel, regenerate?: boolean) => void | Promise<unknown>
   onAskAgent?: (section: SourceOverviewSectionModel) => void
 }
 
@@ -185,10 +187,7 @@ export function SourceSection({ section, feedWindowDays, expanded, onToggleSourc
         className={`grid transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
       >
         <div className="min-h-0 overflow-hidden">
-          <SourceInsight state={summaryState} onRetry={onRequestSummary ? () => {
-            onBeforeLayoutChange()
-            onRequestSummary(section, true)
-          } : undefined} />
+          <SourceInsight state={summaryState} onRetry={onRequestSummary ? () => { onBeforeLayoutChange(); return onRequestSummary(section, true) } : undefined} />
           <SourceFeed cards={section.cards} onBeforeLayoutChange={onBeforeLayoutChange} {...feedProps} />
         </div>
       </div>
@@ -500,6 +499,7 @@ export function SourceOverviewFeed(props: SourceOverviewFeedProps) {
               contextIds={props.contextIds}
               detailLoading={props.detailLoading}
               detailError={props.detailError}
+              isItemActionPending={props.isItemActionPending}
               readonly={props.readonly}
               onBeforeLayoutChange={captureAnchor}
               summaryState={props.summaryStates?.[section.id]?.fingerprint === section.contentFingerprint ? props.summaryStates[section.id] : undefined}

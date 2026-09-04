@@ -9,6 +9,7 @@ import {
   Icons,
   MetaTag,
   Modal,
+  OverflowValue,
   Popover,
   SearchField,
   StableAsyncButton,
@@ -120,7 +121,7 @@ function SourceIdentity({ source, detail }: { source: CatalogSource; detail: str
       className="size-9 shrink-0 rounded-xl bg-accent/10 type-label text-accent"
     />
     <span className="min-w-0">
-      <span className="type-control block truncate text-foreground">{source.display_name}</span>
+      <OverflowValue value={source.display_name} ariaLabel={`查看 ${source.display_name} 的完整来源名称`} className="type-control text-foreground" />
       <span className="type-meta mt-0.5 block truncate text-muted">{detail}</span>
     </span>
   </div>
@@ -301,8 +302,8 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
   editable: boolean
   feedWindowDays?: number
   globalSchedule?: FeedSchedule
-  onFetch: (entry: SubscriptionViewEntry) => void
-  onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void
+  onFetch: (entry: SubscriptionViewEntry) => void | Promise<unknown>
+  onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void | Promise<unknown>
   onEditSubscription: (entry: SubscriptionViewEntry) => void
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
@@ -407,15 +408,13 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
           <div data-source-card-controls className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <Tooltip delay={250}>
               <TooltipTriggerButton
-                role="switch"
+                pending={entry.notificationPending} role="switch"
                 aria-label={`新内容通知：${source.display_name}`}
                 aria-checked={notificationSelected}
                 aria-busy={entry.notificationPending}
                 aria-disabled={notificationDisabled}
                 className={`size-8 shrink-0 rounded-lg pointer-coarse:size-11 ${notificationSelected ? 'bg-accent/15 text-accent hover:bg-accent/20' : 'text-muted hover:bg-default hover:text-foreground'} ${notificationDisabled ? 'cursor-not-allowed opacity-45' : ''}`}
-                onClick={() => {
-                  if (!notificationDisabled) onToggleNotification(entry, !notificationSelected)
-                }}
+                onClick={() => notificationDisabled ? undefined : onToggleNotification(entry, !notificationSelected)}
               >
                 {entry.notificationPending
                   ? <Icons.LoaderCircle size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -450,6 +449,7 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
             {editable && <Tooltip delay={250}>
               <span className="inline-flex" aria-busy={fetchBusy || undefined}>
                 <TooltipTriggerButton
+                  pending={fetchBusy}
                   className="type-control min-h-8 min-w-[104px] gap-1.5 rounded-xl bg-accent px-3 text-accent-foreground hover:bg-accent/90 pointer-coarse:min-h-11"
                   aria-label={`${entry.fetchLabel} ${source.display_name}；上次抓取 ${health?.last_fetched_count ?? 0} 条；最近更新 ${formatUpdateTime(latestAt)}`}
                   disabled={fetchBusy}
@@ -519,8 +519,8 @@ export function SubscriptionListView({ items, editable, feedWindowDays = 7, glob
   feedWindowDays?: number
   globalSchedule?: FeedSchedule
   schedule: ReactNode
-  onFetch: (entry: SubscriptionViewEntry) => void
-  onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void
+  onFetch: (entry: SubscriptionViewEntry) => void | Promise<unknown>
+  onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void | Promise<unknown>
   onEditSubscription: (entry: SubscriptionViewEntry) => void
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
@@ -548,8 +548,8 @@ export function SourceLibraryListView({ items, editable, hasSources, onSubscribe
   items: LibraryViewEntry[]
   editable: boolean
   hasSources: boolean
-  onSubscribe: (source: CatalogSource) => void
-  onUnsubscribe: (entry: LibraryViewEntry) => void
+  onSubscribe: (source: CatalogSource) => void | Promise<unknown>
+  onUnsubscribe: (entry: LibraryViewEntry) => void | Promise<unknown>
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
 }) {

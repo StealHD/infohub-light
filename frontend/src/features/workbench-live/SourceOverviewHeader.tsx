@@ -18,12 +18,12 @@ type SourceHeaderProps = {
   onToggle: () => void
   summaryState?: SourceSummaryViewState
   canSummarize?: boolean
-  onRequestSummary?: () => void
+  onRequestSummary?: () => void | Promise<unknown>
   onAskAgent?: () => void
 }
 
 export function SourceHeader({ section, feedWindowDays, expanded, controlsId, onToggle, summaryState, canSummarize = true, onRequestSummary, onAskAgent }: SourceHeaderProps) {
-  const summaryReady = summaryState?.status === 'success'
+  const summaryReady = Boolean(summaryState?.data)
   const summaryAction = summaryReady ? (expanded ? '重新总结' : '查看总结') : 'AI 总结'
   const summaryActionLabel = summaryReady ? `${expanded ? '重新' : '查看'}总结专题 ${section.sourceName}` : `总结专题 ${section.sourceName}`
   const summaryPending = summaryState?.status === 'loading'

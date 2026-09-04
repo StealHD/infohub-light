@@ -16,11 +16,11 @@ import {
   actionToast,
   Button,
   Description,
+  EmptyState, RefreshButton,
   Icons,
   Input,
   Label,
-  LoadingState,
-  Modal,
+  LoadingState, Modal,
   OverflowValue,
   StableAsyncButton,
   Table,
@@ -470,7 +470,7 @@ export function HeroNotificationTargets({
 
   if (services.isPending) return <LoadingState label="正在读取通知服务" rows={3} />
   if (services.isError || !services.data) {
-    return <HeroNotice title="通知服务读取失败，请刷新后重试。" />
+    return <HeroNotice title="通知服务读取失败，请刷新后重试。"><RefreshButton size="sm" variant="ghost" pending={services.isFetching} label="重试此区域" onPress={() => services.refetch()} /></HeroNotice>
   }
 
   const providerPreset = services.data.channel_credentials.email.providers.find(
@@ -486,11 +486,11 @@ export function HeroNotificationTargets({
           管理员在这里一次性配置接收地址、共享凭据并完成测试；个人通知和系统告警只选择已配置服务。
         </Description>
       </div>
-      {admin && <Button size="sm" onPress={() => { setRequestError(''); setCreateOpen(true) }}><Icons.Plus size={15} aria-hidden="true" />新增通知服务</Button>}
+      {admin && services.data.services.length > 0 && <Button size="sm" onPress={() => { setRequestError(''); setCreateOpen(true) }}><Icons.Plus size={15} aria-hidden="true" />新增通知服务</Button>}
     </div>
 
     {services.data.services.length === 0
-      ? <HeroNotice title="还没有通知服务" status="default" role="status">管理员创建并测试一个服务后，个人通知和系统告警就能直接选择。</HeroNotice>
+      ? <EmptyState title="还没有通知服务" description="管理员创建并测试一个服务后，个人通知和系统告警就能直接选择。" actions={admin ? <Button size="sm" onPress={() => { setRequestError(''); setCreateOpen(true) }}><Icons.Plus size={15} aria-hidden="true" />新增通知服务</Button> : undefined} />
       : <Table className="overflow-hidden rounded-[var(--inteliscope-radius-card)] border border-separator bg-surface-secondary shadow-sm" variant="secondary">
         <Table.ScrollContainer className="max-w-full overflow-hidden">
           <Table.Content aria-label="通知服务列表" className="w-full table-fixed">
@@ -661,7 +661,7 @@ export function HeroNotificationTargets({
             <Modal.Body><p className="type-body text-muted">归档“{archiveTarget?.name ?? ''}”后，个人通知和系统告警将无法继续选择它。若仍有业务正在使用，服务端会安全阻止归档。</p>{requestError && <HeroNotice title={requestError} />}</Modal.Body>
             <Modal.Footer>
               <Button variant="ghost" isDisabled={busyService === archiveTarget?.id} onPress={closeArchiveDialog}>取消</Button>
-              <StableAsyncButton variant="danger" pending={busyService === archiveTarget?.id} pendingContent="归档中…" onPress={() => void archive()}>确认归档</StableAsyncButton>
+              <StableAsyncButton variant="danger" pending={busyService === archiveTarget?.id} pendingContent="归档中…" onPress={archive}>确认归档</StableAsyncButton>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

@@ -41,7 +41,7 @@ export function SettingsIgnoredPage() {
           ? <LoadingState label="正在读取已忽略内容" rows={2} />
           : ignored.isError
             ? <StatusNotice title="已忽略内容读取失败" status="warning">
-              <RefreshButton size="sm" variant="ghost" pending={ignored.isFetching} label="重试此区域" onPress={() => void ignored.refetch()} />
+              <RefreshButton size="sm" variant="ghost" pending={ignored.isFetching} label="重试此区域" onPress={() => ignored.refetch()} />
             </StatusNotice>
             : <SettingsGroup ariaLabel="已忽略内容列表">
               {!ignored.data?.items.length
@@ -61,7 +61,7 @@ export function SettingsIgnoredPage() {
                     variant="ghost"
                     pending={restoreMutation.isPending && restoreMutation.variables === item.id}
                     pendingContent="恢复中…"
-                    onPress={() => restoreMutation.mutate(item.id)}
+                    onPress={() => restoreMutation.mutateAsync(item.id)}
                   >恢复</StableAsyncButton>}
                 />)}
             </SettingsGroup>}

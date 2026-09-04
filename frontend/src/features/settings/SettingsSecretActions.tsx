@@ -87,7 +87,7 @@ export function SecretActions({ secret, lifecycleLocked = false, lifecycleDescri
     {lifecycleLocked && <span id={lifecycleDescriptionId} className="sr-only">{lifecycleDescription}</span>}
     {compact
       ? <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
-          <Popover.Trigger<'button'> ref={moreTriggerRef} aria-label={`更多 Key 操作：${secret.name}`} className="inline-flex size-8 items-center justify-center rounded-[var(--inteliscope-radius-compact)] text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus" render={(triggerProps) => <button {...triggerProps} type="button" />}><Icons.MoreHorizontal size={16} aria-hidden="true" /></Popover.Trigger>
+          <Popover.Trigger<'button'> ref={moreTriggerRef} aria-label={`更多 Key 操作：${secret.name}`} className="inline-flex size-8 items-center justify-center rounded-[var(--inteliscope-radius-compact)] text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11" render={(triggerProps) => <button {...triggerProps} type="button" />}><Icons.MoreHorizontal size={16} aria-hidden="true" /></Popover.Trigger>
           <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-36 p-0"><Popover.Dialog aria-label={`${secret.name} Key 操作`} className="grid gap-0.5 p-2">{rotateControl}{deleteControl}</Popover.Dialog></Popover.Content>
         </Popover>
       : <div className="flex flex-wrap gap-2">{rotateControl}{deleteControl}</div>}
@@ -112,7 +112,7 @@ export function SecretActions({ secret, lifecycleLocked = false, lifecycleDescri
       <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>{`删除 ${secret.name}？`}</Modal.Heading></Modal.Header>
         <Modal.Body><p>删除后无法恢复；如需再次使用，必须重新添加 Key。</p>{deleteError && <div className="mt-3"><StatusNotice title={deleteError} status="warning" /></div>}</Modal.Body>
-        <Modal.Footer><Button type="button" variant="ghost" isDisabled={removing} onPress={closeDelete}>取消删除</Button><StableAsyncButton type="button" variant="danger" pending={removing} pendingContent="删除中…" onPress={() => void remove()}>确认删除</StableAsyncButton></Modal.Footer>
+        <Modal.Footer><Button type="button" variant="ghost" isDisabled={removing} onPress={closeDelete}>取消删除</Button><StableAsyncButton type="button" variant="danger" pending={removing} pendingContent="删除中…" onPress={remove}>确认删除</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
   </div>

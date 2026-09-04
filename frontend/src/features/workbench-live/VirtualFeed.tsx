@@ -40,11 +40,11 @@ type VirtualFeedProps = {
   contextIds: string[]
   detailLoading?: boolean
   detailError?: boolean
-  readonly?: boolean
+  readonly?: boolean; isItemActionPending?: (action: 'is_saved' | 'dismissed', id: string) => boolean
   onToggleExpanded: (id: string) => void
-  onToggleSaved: (id: string, saved: boolean) => void
+  onToggleSaved: (id: string, saved: boolean) => unknown
   onToggleContext: (card: WorkbenchCardModel) => void
-  onItemAction: (id: string, dismissed: boolean) => void
+  onItemAction: (id: string, dismissed: boolean) => unknown
   onTerminalReach?: () => void
 }
 
@@ -78,6 +78,7 @@ export function WorkbenchCard({
   contextCount,
   detailLoading,
   detailError,
+  savedPending = false, dismissedPending = false,
   readonly,
   showTimelineBucket,
   feedWindowDays,
@@ -93,15 +94,13 @@ export function WorkbenchCard({
   inContext: boolean
   contextFull: boolean
   contextCount: number
-  detailLoading?: boolean
-  detailError?: boolean
+  detailLoading?: boolean; detailError?: boolean; savedPending?: boolean; dismissedPending?: boolean
   readonly?: boolean
   showTimelineBucket?: boolean
   feedWindowDays?: number
   onToggleExpanded: () => void
-  onToggleSaved: () => void
-  onToggleContext: () => void
-  onItemAction: (dismissed: boolean) => void
+  onToggleSaved: () => unknown; onToggleContext: () => void
+  onItemAction: (dismissed: boolean) => unknown
   onOpenMedia: (index: number, trigger: HTMLButtonElement) => void
   variant?: 'timeline' | 'source-overview'
 }) {
@@ -176,7 +175,7 @@ export function WorkbenchCard({
     <Tooltip delay={500}>
       <TooltipTriggerButton
         className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-        disabled={readonly}
+        disabled={readonly} pending={dismissedPending}
         aria-label={`${card.userState.dismissed ? '取消忽略' : '忽略'} ${cardLabel}`}
         onClick={() => onItemAction(!card.userState.dismissed)}
       ><Icons.EyeOff size={15} aria-hidden="true" /></TooltipTriggerButton>
@@ -345,7 +344,7 @@ export function WorkbenchCard({
         <Tooltip delay={600}>
           <TooltipTriggerButton
             className={`size-8 rounded-lg active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none ${card.userState.is_saved ? 'bg-default text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`}
-            disabled={readonly}
+            disabled={readonly} pending={savedPending}
             aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
             onClick={onToggleSaved}
           ><Icons.Star size={15} fill={card.userState.is_saved ? 'currentColor' : 'none'} aria-hidden="true" /></TooltipTriggerButton>
@@ -785,6 +784,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
               contextCount={props.contextIds.length}
               detailLoading={card.id === props.expandedId && props.detailLoading}
               detailError={card.id === props.expandedId && props.detailError}
+              savedPending={props.isItemActionPending?.('is_saved', card.id)} dismissedPending={props.isItemActionPending?.('dismissed', card.id)}
               readonly={props.readonly}
               showTimelineBucket={props.showTimelineBucket}
               feedWindowDays={props.feedWindowDays}

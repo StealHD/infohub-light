@@ -69,6 +69,10 @@ function sourceViolations(file, source) {
     if (buttonBlocks.some((block) => /\bLoaderCircle\b/.test(block) && intermediateState.test(block))) {
       violations.push(`${file}: loading 图标与文案必须由 StableAsyncButton 预占同一布局轨道`)
     }
+    if (/<form\b[^>]*\bkey\s*=\s*\{[^}]+\}/i.test(source)
+      || /<Card\b[^>]*\bkey\s*=\s*\{[^}]*(?:config|data|version|generation)[^}]*\}/i.test(source)) {
+      violations.push(`${file}: 保存或刷新不得通过动态 key 重挂整个 form/card`)
+    }
   }
   return violations
 }

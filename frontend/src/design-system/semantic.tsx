@@ -51,7 +51,7 @@ export function StatusIndicator({
   return <Tooltip delay={250}>
     <Tooltip.Trigger<'button'>
       aria-label={label}
-      className="inline-flex shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-focus"
+      className="inline-flex shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       render={(triggerProps) => <button {...triggerProps} type="button">{indicator}</button>}
     />
     <Tooltip.Content {...topAnchoredTooltipProps}>{label}</Tooltip.Content>
@@ -116,7 +116,7 @@ export function RemovableTag({
       type="button"
       aria-label={`移除 ${label}`}
       disabled={disabled || pending}
-      className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-tertiary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40"
+      className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-tertiary hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40 pointer-coarse:size-11"
       onClick={onRemove}
     >
       {pending

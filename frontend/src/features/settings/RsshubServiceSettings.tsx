@@ -102,7 +102,7 @@ export function RsshubServiceSettings({ baseUrl, formRef, isSaving, onFormChange
   const accessKeyAction = accessKey.isPending
     ? <StatusIndicator label="正在检查访问密钥" tone="neutral" />
     : accessKey.isError
-      ? <div className="flex flex-wrap items-center gap-2"><StatusIndicator label="状态读取失败" tone="warning" /><RefreshButton size="sm" variant="ghost" pending={accessKey.isFetching} label="重试" onPress={() => void accessKey.refetch()} /></div>
+      ? <div className="flex flex-wrap items-center gap-2"><StatusIndicator label="状态读取失败" tone="warning" /><RefreshButton size="sm" variant="ghost" pending={accessKey.isFetching} label="重试" onPress={() => accessKey.refetch()} /></div>
       : <div className="flex flex-wrap items-center gap-2">
           <AccessKeyStatus source={source} configured={configured} />
           {source === 'environment'
@@ -148,7 +148,7 @@ export function RsshubServiceSettings({ baseUrl, formRef, isSaving, onFormChange
       <Modal.Backdrop isDismissable={!busy} isKeyboardDismissDisabled={busy}><Modal.Container><Modal.Dialog>
         <Modal.Header><Modal.Heading>移除 RSSHub 访问密钥？</Modal.Heading></Modal.Header>
         <Modal.Body><StatusNotice title="移除后，仍要求访问码的 RSSHub 来源会抓取失败。" status="warning">RSSHub 地址和现有订阅不会被删除。</StatusNotice>{error && <div className="mt-3"><StatusNotice title={error} status="warning" /></div>}</Modal.Body>
-        <Modal.Footer><Button type="button" variant="ghost" isDisabled={busy} onPress={closeRemove}>取消</Button><StableAsyncButton type="button" variant="danger" pending={removeAccessKey.isPending} pendingContent="移除中…" isDisabled={saveAccessKey.isPending} onPress={() => removeAccessKey.mutate()}>确认移除</StableAsyncButton></Modal.Footer>
+        <Modal.Footer><Button type="button" variant="ghost" isDisabled={busy} onPress={closeRemove}>取消</Button><StableAsyncButton type="button" variant="danger" pending={removeAccessKey.isPending} pendingContent="移除中…" isDisabled={saveAccessKey.isPending} onPress={() => removeAccessKey.mutateAsync()}>确认移除</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
   </SettingsSection>

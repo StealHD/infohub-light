@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { anchoredTooltipProps } from './tooltip'
 import { TooltipTriggerButton } from './TooltipTriggerButton'
@@ -13,6 +13,7 @@ describe('TooltipTriggerButton', () => {
     const trigger = screen.getByRole('button', { name: '强调动作' })
     expect(trigger).toHaveClass('bg-accent')
     expect(trigger).not.toHaveClass('bg-transparent')
+    expect(trigger).toHaveClass('pointer-coarse:min-h-11', 'pointer-coarse:min-w-11')
   })
 
   it('opens its nearby tooltip from the actual hovered button', async () => {
@@ -41,5 +42,24 @@ describe('TooltipTriggerButton', () => {
 
     expect(screen.getByRole('button', { name: '键盘说明' })).toHaveFocus()
     expect(await screen.findByRole('tooltip')).toHaveTextContent('键盘附近说明')
+  })
+
+  it('synchronously locks a managed async trigger until its Promise settles', async () => {
+    let resolve!: () => void
+    const operation = new Promise<void>((done) => { resolve = done })
+    const onClick = vi.fn(() => operation)
+    render(<TooltipTriggerButton aria-label="保存状态" pending={false} onClick={onClick}>S</TooltipTriggerButton>)
+
+    const trigger = screen.getByRole('button', { name: '保存状态' })
+    fireEvent.click(trigger)
+    fireEvent.click(trigger)
+
+    expect(onClick).toHaveBeenCalledOnce()
+    expect(trigger).toBeDisabled()
+    expect(trigger).toHaveAttribute('aria-busy', 'true')
+
+    await act(async () => resolve())
+    expect(trigger).toBeEnabled()
+    expect(trigger).not.toHaveAttribute('aria-busy')
   })
 })

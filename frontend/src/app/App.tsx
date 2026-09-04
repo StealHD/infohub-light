@@ -146,7 +146,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
 
   const outlet = <AppErrorBoundary key={location.pathname} surface="page">
     <Suspense fallback={<RouteLoadingState />}>
-      <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, cancelRefresh: canMutate ? feedActivity.cancelRefresh : () => undefined, canCancelRefresh: canMutate && feedActivity.canCancelRefresh, isCancellingRefresh: feedActivity.isCancellingRefresh, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+      <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, refreshPending: feedActivity.pending, cancelRefresh: canMutate ? feedActivity.cancelRefresh : () => undefined, canCancelRefresh: canMutate && feedActivity.canCancelRefresh, isCancellingRefresh: feedActivity.isCancellingRefresh, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
     </Suspense>
   </AppErrorBoundary>
 
