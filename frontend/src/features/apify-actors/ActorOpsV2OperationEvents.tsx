@@ -36,7 +36,7 @@ export function ActorOpsV2OperationEvents({ jobId }: { jobId?: string }) {
   })
   if (events.isPending) return <LoadingState label="正在读取 ActorOps v2 操作记录" rows={2} />
   if (events.isError || !events.data) return <StatusNotice title="ActorOps v2 操作记录读取失败" status="warning">
-    <RefreshButton size="sm" variant="ghost" pending={events.isFetching} label="刷新日志" onPress={() => void events.refetch()} />
+    <RefreshButton size="sm" variant="ghost" pending={events.isFetching} label="刷新日志" onPress={() => events.refetch()} />
   </StatusNotice>
   if (events.data.availability === 'unavailable') return <StatusNotice title="ActorOps v2 操作记录当前不可用" status="warning">当前不会读取旧诊断记录；请稍后刷新日志。</StatusNotice>
   if (!events.data.events.length) return <p className="type-meta text-muted">{jobId ? '该任务尚无可显示的安全执行记录。' : '尚无可显示的 v2 管理操作记录。'}</p>

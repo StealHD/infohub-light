@@ -26,6 +26,7 @@ describe('semantic indicators', () => {
     expect(screen.getByText('运行中')).toHaveClass('sr-only')
     const trigger = indicator?.parentElement
     expect(trigger).toHaveAttribute('tabindex', '0')
+    expect(trigger).toHaveClass('pointer-coarse:min-h-11', 'pointer-coarse:min-w-11')
 
     await browser.hover(trigger!)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('运行中')
@@ -41,6 +42,7 @@ describe('semantic indicators', () => {
 
     const button = screen.getByRole('button', { name: '移除 视觉系统' })
     expect(button).toHaveClass('size-7')
+    expect(button).toHaveClass('pointer-coarse:size-11')
     await browser.click(button)
     expect(remove).toHaveBeenCalledTimes(1)
 

@@ -25,7 +25,7 @@ export function ActorOpsV2RouteDetailPanel({ route, open }: { route: ActorOpsV2R
   return open ? <section aria-label={`${route.platform} 运行详情`} className="mt-3 grid gap-3 rounded-xl border border-separator bg-surface-secondary p-3">
       {detail.isPending && <LoadingState label="正在读取 v2 运行详情" rows={2} />}
       {detail.isError && <StatusNotice title={detailErrorTitle(detail.error)} status="warning">
-        {isRetiredDetailError(detail.error) ? '请从当前 v2 Route、Binding、Discovery 或 Replacement 控制面继续操作。' : <RefreshButton size="sm" variant="ghost" pending={detail.isFetching} label="重试此区域" onPress={() => void detail.refetch()} />}
+        {isRetiredDetailError(detail.error) ? '请从当前 v2 Route、Binding、Discovery 或 Replacement 控制面继续操作。' : <RefreshButton size="sm" variant="ghost" pending={detail.isFetching} label="重试此区域" onPress={() => detail.refetch()} />}
       </StatusNotice>}
       {detail.data && <RouteDetailPanel detail={detail.data} />}
     </section> : null

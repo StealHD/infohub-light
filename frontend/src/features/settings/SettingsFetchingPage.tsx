@@ -233,7 +233,7 @@ export function SettingsFetchingPage() {
       {config.isPending
         ? <LoadingState label="正在读取 RSSHub 设置" rows={2} />
         : config.isError
-          ? <StatusNotice title="RSSHub 设置读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => void config.refetch()} /></StatusNotice>
+          ? <StatusNotice title="RSSHub 设置读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => config.refetch()} /></StatusNotice>
           : <RsshubServiceSettings
               baseUrl={String(rsshub.base_url ?? 'http://rsshub:1200')}
               formRef={rsshubFormRef}
@@ -246,7 +246,7 @@ export function SettingsFetchingPage() {
         {config.isPending
           ? <LoadingState label="正在读取获取窗口" rows={2} />
           : config.isError
-            ? <StatusNotice title="获取窗口读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => void config.refetch()} /></StatusNotice>
+            ? <StatusNotice title="获取窗口读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => config.refetch()} /></StatusNotice>
             : <SettingsGroup ariaLabel="获取窗口">
               <SettingsItem label="抓取与展示范围" description="按上海自然日划分 Feed 与历史。" icon={<Icons.Clock3 size={17} aria-hidden="true" />}>
                 <form ref={filteringFormRef} className="grid gap-4" onChange={() => refreshDirty('filtering')} onSubmit={saveFiltering}>
@@ -269,7 +269,7 @@ export function SettingsFetchingPage() {
         {config.isPending
           ? <LoadingState label="正在读取主题库" rows={2} />
           : config.isError
-            ? <StatusNotice title="主题库读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => void config.refetch()} /></StatusNotice>
+            ? <StatusNotice title="主题库读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={config.isFetching} label="重试此区域" onPress={() => config.refetch()} /></StatusNotice>
             : <SettingsGroup ariaLabel="阅读主题库">
               <SettingsItem label="工作区主题" description="新增或删除后单独保存。" icon={<Icons.Tags size={17} aria-hidden="true" />}>
                 <SettingsTopicLibrary topics={savedTopics} draft={topicsDraft} pending={configMutation.isPending} onDraftChange={setTopicsDirty} onSave={() => saveSections(['topics'])} />

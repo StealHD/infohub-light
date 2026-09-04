@@ -8,23 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将本地 main 的 Actor no-results 合法空结果与可恢复语义故障修复整理为 v2.6.3 发布版本，并同步项目版本和锁文件身份。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-v2-6-3",
-  "unresolved": [],
-  "validation": [
-    "运行与健康脚本定向 Pytest 38 项通过，uv lock 校验成功。",
-    "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端、前端、控制校验与构建均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-31",
@@ -386,6 +369,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "StableAsyncButton、登录、订阅、通知、RSSHub 设置与更新日志定向 Vitest 7 文件 37 项通过；TypeScript 与 UI Contract 检查通过。",
     "真实浏览器使用虚构账号发起登录探针，服务端返回明确的账号密码错误，证明 submit 与 API 请求恢复；浏览器无 error。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-03",
+  "result": "按项目 UI Constitution 完成 M1-M7 全局交互稳定性整改：统一异步与刷新单飞反馈、保留局部内容和 DOM 身份、补齐粗指针命中区与 Reduced Motion、改善长文本及局部空错状态，并强化 UI 静态合同。",
+  "status": "completed",
+  "task_id": "2026-09-03-global-ui-interaction-stability",
+  "unresolved": [
+    "修改仅保留在 codex/non-docker-dev-20260902 供用户视觉与操作验收，未经明确确认不合入 main、不推送。"
+  ],
+  "validation": [
+    "前端 lint、typecheck、UI contract、生产构建与全量 Vitest 100 文件 729 项全部通过。",
+    "snapshot impacted preflight 14/14 通过，覆盖控制面、前端全量、Python API/store 与映射 UI E2E；代码体积冻结策略通过。",
+    "目标 Worktree 的非 Docker API、Vite 与 Worker 已启动，8080/5173 readiness 均为 ready 且 worker_status=ready。"
   ]
 }
 ```

@@ -13,7 +13,7 @@ import {
   ListBox,
   LoadingReveal,
   PageFrame, PAGE_HEADER_SIZE_PX,
-  Popover,
+  Popover, RefreshIconButton,
   RemovableTag,
   SearchField,
   Select,
@@ -70,7 +70,7 @@ function FeedModeLayer({ mode, children }: { mode: FeedViewMode; children: React
 }
 
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
-  const { api, user, query, setQuery, refresh, cancelRefresh, canCancelRefresh, isCancellingRefresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
+  const { api, user, query, setQuery, refresh, refreshPending = false, cancelRefresh, canCancelRefresh, isCancellingRefresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
   const queryClient = useQueryClient()
   const agent = useWorkbenchAgentContext()
   const location = useLocation()
@@ -561,10 +561,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     sourceSummaryRequests.current.get(section.id)?.abort()
     const controller = new AbortController()
     sourceSummaryRequests.current.set(section.id, controller)
-    setSourceSummaryStates((states) => ({
-      ...states,
-      [section.id]: { fingerprint: section.contentFingerprint, status: 'loading' },
-    }))
+    setSourceSummaryStates((states) => {
+      const previous = states[section.id]; return { ...states, [section.id]: { fingerprint: section.contentFingerprint, status: 'loading', data: previous?.fingerprint === section.contentFingerprint ? previous.data : undefined } }
+    })
     try {
       const data = await api.sourceSummary(section.cards.map((card) => card.id), controller.signal)
       if (controller.signal.aborted) return
@@ -575,14 +574,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       void writeCachedSourceSummary(user.id, section.id, section.contentFingerprint, data)
     } catch (caught) {
       if (controller.signal.aborted) return
-      setSourceSummaryStates((states) => ({
-        ...states,
-        [section.id]: {
-          fingerprint: section.contentFingerprint,
-          status: 'error',
-          message: caught instanceof ApiError ? caught.message : '专题总结生成失败，请稍后重试。',
-        },
-      }))
+      setSourceSummaryStates((states) => {
+        const previous = states[section.id]; return { ...states, [section.id]: { fingerprint: section.contentFingerprint, status: 'error', data: previous?.fingerprint === section.contentFingerprint ? previous.data : undefined, message: caught instanceof ApiError ? caught.message : '专题总结生成失败，请稍后重试。' } }
+      })
     } finally {
       if (sourceSummaryRequests.current.get(section.id) === controller) sourceSummaryRequests.current.delete(section.id)
     }
@@ -808,18 +802,18 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             {globalSearchRequested ? '全部内容搜索固定按最新优先' : preference.order === 'newest' ? '当前最新优先；点击改为最旧优先' : '当前最旧优先；点击改为最新优先'}
           </Tooltip.Content>
         </Tooltip>
-        {!collectionRoute && <Tooltip delay={500}>
-          <TooltipTriggerButton
-            ref={reloadButtonRef}
-            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
-            aria-label="重新载入信息流数据"
-            aria-busy={reloading || undefined}
-            disabled={reloading}
-            onClick={() => void reloadFeedData()}
-          ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></TooltipTriggerButton>
-          <Tooltip.Content {...bottomAnchoredTooltipProps}>重新载入本地信息流数据</Tooltip.Content>
-        </Tooltip>}
-        {!collectionRoute && <FeedRefreshButton role={user.role} stopping={stopping} canStop={canStopUpdate} onRefresh={updateFeed} onStop={cancelRefresh} />}
+        {!collectionRoute && <RefreshIconButton
+          ref={reloadButtonRef}
+          className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+          iconSize={14}
+          label="重新载入信息流数据"
+          pending={reloading}
+          pendingLabel="重新载入信息流数据"
+          tooltip="重新载入本地信息流数据"
+          tooltipProps={bottomAnchoredTooltipProps}
+          onPress={() => reloadFeedData()}
+        />}
+        {!collectionRoute && <FeedRefreshButton role={user.role} pending={refreshPending} stopping={stopping} canStop={canStopUpdate} onRefresh={updateFeed} onStop={cancelRefresh} />}
         <Popover>
           <Popover.Trigger
             aria-label={`筛选信息流${activeFilterCount > 0 ? `，已启用 ${activeFilterCount} 项` : ''}`}
@@ -935,6 +929,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       detailLoading={detailQuery.isFetching}
       detailError={detailQuery.isError && selectedInSource}
       readonly={user.role === 'viewer'}
+      isItemActionPending={stateMutation.isItemActionPending}
       resumeAnchor={sourceOverviewResumeAnchor}
       onResumeAnchorRestored={() => {
         setSourceOverviewResumeAnchor(null)
@@ -945,7 +940,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       onAskAgent={askAgentAboutSource}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => {
-        stateMutation.mutateItem(id, { is_saved: saved })
+        const operation = stateMutation.mutateItemAsync(id, { is_saved: saved })
         if (!saved) {
           actionToast.info('已取消收藏', {
             description: '内容已从收藏列表移除。',
@@ -954,6 +949,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             onRetry: () => stateMutation.mutateItem(id, { is_saved: true }),
           })
         }
+        return operation
       }}
       onToggleContext={(card) => {
         const alreadySelected = agent.draft.items.some((item) => item.articleId === card.id)
@@ -968,7 +964,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         if (!alreadySelected) agent.openComposer()
       }}
       onItemAction={(id, value) => {
-        stateMutation.mutateItem(id, { dismissed: value })
+        const operation = stateMutation.mutateItemAsync(id, { dismissed: value })
         if (value) {
           actionToast.info('已忽略这条内容', {
             description: '8 秒内可以撤销，内容会回到原来的排序位置。',
@@ -977,6 +973,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             onRetry: () => stateMutation.mutateItem(id, { dismissed: false }),
           })
         }
+        return operation
       }}
         />
       </FeedModeLayer> : <FeedModeLayer key="timeline" mode="timeline">
@@ -998,10 +995,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       detailLoading={detailQuery.isFetching}
       detailError={detailQuery.isError && selectedInSource}
       readonly={user.role === 'viewer'}
+      isItemActionPending={stateMutation.isItemActionPending}
       onTerminalReach={handleTerminalReach}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => {
-        stateMutation.mutateItem(id, { is_saved: saved })
+        const operation = stateMutation.mutateItemAsync(id, { is_saved: saved })
         if (!saved) {
           actionToast.info('已取消收藏', {
             description: '内容已从收藏列表移除。',
@@ -1010,6 +1008,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             onRetry: () => stateMutation.mutateItem(id, { is_saved: true }),
           })
         }
+        return operation
       }}
       onToggleContext={(card) => {
         const alreadySelected = agent.draft.items.some((item) => item.articleId === card.id)
@@ -1024,7 +1023,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         if (!alreadySelected) agent.openComposer()
       }}
       onItemAction={(id, value) => {
-        stateMutation.mutateItem(id, { dismissed: value })
+        const operation = stateMutation.mutateItemAsync(id, { dismissed: value })
         if (value) {
           actionToast.info('已忽略这条内容', {
             description: '8 秒内可以撤销，内容会回到原来的排序位置。',
@@ -1033,6 +1032,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             onRetry: () => stateMutation.mutateItem(id, { dismissed: false }),
           })
         }
+        return operation
       }}
         />
       </FeedModeLayer>}

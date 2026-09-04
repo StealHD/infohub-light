@@ -132,7 +132,8 @@ export function OpenClawComposer({ chat, composer }: {
           <TooltipTriggerButton
             aria-label={chat.isRunning ? '停止生成' : '发送给 OpenClaw'}
             disabled={chat.isRunning ? chat.isStopping : !canSend || chat.status !== 'connected'}
-            onClick={chat.isRunning ? () => void chat.stop() : () => void send()}
+            pending={chat.isRunning ? chat.isStopping : false}
+            onClick={chat.isRunning ? () => chat.stop() : send}
             className="size-9 shrink-0 rounded-full bg-accent text-accent-foreground hover:bg-accent-hover"
           >{chat.isRunning ? <Icons.Square size={14} fill="currentColor" aria-hidden="true" /> : <Icons.ArrowUp size={16} aria-hidden="true" />}</TooltipTriggerButton>
           <Tooltip.Content {...anchoredTooltipProps}>{chat.isRunning ? (chat.isStopping ? '正在停止…' : '停止生成') : '发送给 OpenClaw'}</Tooltip.Content>

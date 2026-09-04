@@ -35,6 +35,7 @@ function renderCard(
   globalSchedule?: FeedSchedule,
 ) {
   const onToggleNotification = vi.fn()
+  const onFetch = vi.fn()
   const onEditSource = vi.fn()
   const onShare = vi.fn()
   render(<MemoryRouter><DesignSystemProvider><SubscriptionRows
@@ -49,13 +50,13 @@ function renderCard(
     }]}
     editable
     globalSchedule={globalSchedule}
-    onFetch={vi.fn()}
+    onFetch={onFetch}
     onToggleNotification={onToggleNotification}
     onEditSubscription={vi.fn()}
     onEditSource={onEditSource}
     onShare={onShare}
   /></DesignSystemProvider></MemoryRouter>)
-  return { onToggleNotification, onEditSource, onShare }
+  return { onFetch, onToggleNotification, onEditSource, onShare }
 }
 
 describe('subscription source card notifications', () => {
@@ -248,6 +249,27 @@ describe('subscription source card notifications', () => {
     expect(fetchButton.parentElement).toHaveAttribute('aria-busy', 'true')
     expect(fetchButton).toBeDisabled()
     expect(fetchButton.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+  })
+
+  it('locks source fetch and notification actions synchronously', () => {
+    const { onFetch, onToggleNotification } = renderCard({
+      id: 'subscription-sync-lock',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      analysis_mode: 'full',
+      notify_on_new_items: false,
+    })
+
+    const fetchButton = screen.getByRole('button', { name: /^立即获取 通知来源；/ })
+    const notification = screen.getByRole('switch', { name: '新内容通知：通知来源' })
+    fetchButton.click()
+    fetchButton.click()
+    notification.click()
+    notification.click()
+
+    expect(onFetch).toHaveBeenCalledOnce()
+    expect(onToggleNotification).toHaveBeenCalledOnce()
   })
 
   it('keeps edit and share directly visible in the lower control row', async () => {

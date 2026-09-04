@@ -54,7 +54,7 @@ export { anchoredTooltipProps, bottomAnchoredTooltipProps, topAnchoredTooltipPro
 export { TooltipTriggerButton } from './TooltipTriggerButton'
 export { Button } from './Button'
 export { OverflowValue } from './OverflowValue'
-export { RefreshButton } from './RefreshButton'
+export { RefreshButton, RefreshIconButton } from './RefreshButton'
 export { StableAsyncButton } from './StableAsyncButton'
 export { Timeline } from './Timeline'
 export { ImageGalleryModal } from './ImageGalleryModal'

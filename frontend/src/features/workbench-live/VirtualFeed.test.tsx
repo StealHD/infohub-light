@@ -356,6 +356,32 @@ describe('VirtualFeed', () => {
     expect(agentAction).toHaveTextContent('问 Agent')
   })
 
+  it('locks repeated save and ignore actions before external mutation state renders', () => {
+    const onToggleSaved = vi.fn()
+    const onItemAction = vi.fn()
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={onToggleSaved}
+      onToggleContext={vi.fn()}
+      onItemAction={onItemAction}
+    />)
+
+    const card = screen.getByRole('article', { name: '信息 1' })
+    const save = within(card).getByRole('button', { name: '收藏 信息 1' })
+    const ignore = within(card).getByRole('button', { name: '忽略 信息 1' })
+    fireEvent.click(save)
+    fireEvent.click(save)
+    fireEvent.click(ignore)
+    fireEvent.click(ignore)
+
+    expect(onToggleSaved).toHaveBeenCalledOnce()
+    expect(onItemAction).toHaveBeenCalledOnce()
+    expect(save).toHaveAttribute('aria-busy', 'true')
+    expect(ignore).toHaveAttribute('aria-busy', 'true')
+  })
+
   it('uses the sidebar star icon and fills it only for saved content', () => {
     const unsaved = toWorkbenchCardModel(makeItem(1))
     const saved = toWorkbenchCardModel({
@@ -547,9 +573,10 @@ describe('VirtualFeed', () => {
       scrollHeight: { configurable: true, value: 80 },
       clientHeight: { configurable: true, value: 40 },
     })
-    fireEvent(window, new Event('resize'))
-
-    expect(await screen.findByRole('button', { name: '展开 信息 1' })).toBeInTheDocument()
+    await waitFor(() => {
+      fireEvent(window, new Event('resize'))
+      expect(screen.getByRole('button', { name: '展开 信息 1' })).toBeInTheDocument()
+    })
   })
 
   it('shows one representative thumbnail with the cached and original image counts', () => {

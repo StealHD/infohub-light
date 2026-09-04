@@ -352,7 +352,7 @@ export function SettingsAIPage() {
           ? <LoadingState label="正在读取 AI 设置" rows={2} />
           : config.isError || secrets.isError
             ? <StatusNotice title="AI 设置读取失败" status="warning">
-              <RefreshButton size="sm" variant="ghost" pending={config.isFetching || secrets.isFetching} label="重试此区域" onPress={() => { void config.refetch(); void secrets.refetch() }} />
+              <RefreshButton size="sm" variant="ghost" pending={config.isFetching || secrets.isFetching} label="重试此区域" onPress={() => Promise.all([config.refetch(), secrets.refetch()])} />
             </StatusNotice>
             : <SettingsGroup className="p-4 min-[640px]:p-5" ariaLabel="工作区 AI 配置">
               <form ref={aiFormRef} className="grid gap-4" onChange={() => refreshDirty('ai')} onSubmit={saveAi}>
@@ -429,7 +429,7 @@ export function SettingsAIPage() {
             {feedEndMessagesStatus.isPending
               ? <LoadingState label="正在读取触底文案状态" rows={2} />
               : feedEndMessagesStatus.isError || !feedEndMessagesStatus.data
-                ? <HeroNotice title="触底文案状态读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={feedEndMessagesStatus.isFetching} label="重试状态读取" onPress={() => void feedEndMessagesStatus.refetch()} /></HeroNotice>
+                ? <HeroNotice title="触底文案状态读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={feedEndMessagesStatus.isFetching} label="重试状态读取" onPress={() => feedEndMessagesStatus.refetch()} /></HeroNotice>
                 : <>
                   <SettingsDisclosure
                     title={feedEndMessageStatusLabels[feedEndMessagesStatus.data.status] ?? '状态未知'}
@@ -440,7 +440,7 @@ export function SettingsAIPage() {
                       || feedEndMessagesStatus.data.status === 'refreshing'
                     } label="立即刷新" isDisabled={
                       !savedFeedEndGenerationEnabled
-                    } onPress={() => feedEndMessagesRefreshMutation.mutate()} />}
+                    } onPress={() => feedEndMessagesRefreshMutation.mutateAsync()} />}
                   >
                     {!savedFeedEndGenerationEnabled && <p className="type-meta text-muted">保存并启用触底文案生成后，才可请求立即刷新。</p>}
                     {feedEndMessagesStatus.data.last_error_code && <p className="type-meta text-warning">
