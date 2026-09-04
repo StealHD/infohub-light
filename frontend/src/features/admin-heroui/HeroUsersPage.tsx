@@ -9,8 +9,6 @@ import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
   actionToast,
-  AvatarFallback,
-  AvatarRoot,
   Button,
   Icons,
   Input,
@@ -19,12 +17,14 @@ import {
   Modal,
   PageFrame,
   StatusIndicator,
+  StableAsyncButton,
   Table,
   TextField,
   type SortDescriptor,
 } from '../../design-system'
 import { canAdministerWorkspace } from '../settings/settingsModel'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
+import { MemberIdentity } from './MemberIdentity'
 
 const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
 const messageOf = (caught: unknown, fallback: string) => caught instanceof ApiError || caught instanceof Error ? caught.message : fallback
@@ -38,13 +38,6 @@ const memberColumns = [
 
 type MemberColumnKey = typeof memberColumns[number]['key']
 
-const avatarTones = [
-  'from-violet-300 via-fuchsia-300 to-rose-400',
-  'from-emerald-300 via-teal-300 to-blue-500',
-  'from-amber-200 via-orange-300 to-rose-500',
-  'from-sky-200 via-cyan-300 to-violet-500',
-] as const
-
 const roleOrder: Record<User['role'], number> = {
   owner: 0,
   admin: 1,
@@ -53,16 +46,6 @@ const roleOrder: Record<User['role'], number> = {
 }
 
 const memberCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
-
-function avatarTone(username: string) {
-  let hash = 0
-  for (const character of username) hash = ((hash << 5) - hash + character.codePointAt(0)!) | 0
-  return avatarTones[Math.abs(hash) % avatarTones.length]
-}
-
-function memberInitial(member: User) {
-  return (member.display_name || member.username).trim().slice(0, 1).toUpperCase()
-}
 
 function compareMembers(a: User, b: User, column: MemberColumnKey) {
   switch (column) {
@@ -113,7 +96,7 @@ function AccountPasswordSection() {
       <TextField fullWidth name="current_password" isRequired><Label>当前密码</Label><Input type="password" autoComplete="current-password" /></TextField>
       <TextField fullWidth name="new_password" isRequired><Label>新密码</Label><Input type="password" autoComplete="new-password" minLength={8} /></TextField>
       <TextField fullWidth name="confirmation" isRequired><Label>确认新密码</Label><Input type="password" autoComplete="new-password" minLength={8} /></TextField>
-      <Button className="w-fit" type="submit" isDisabled={mutation.isPending}><Icons.KeyRound size={15} />{mutation.isPending ? '更新中…' : '更新密码'}</Button>
+      <StableAsyncButton className="w-fit" type="submit" pending={mutation.isPending} pendingContent="更新中…"><Icons.KeyRound size={15} />更新密码</StableAsyncButton>
     </form>
     {error && <div className="mt-3"><HeroNotice title={error} /></div>}
   </AdminSection>
@@ -303,18 +286,7 @@ export function HeroUsersPage() {
 
     switch (columnKey) {
       case 'identity':
-        return <div className="flex min-w-0 items-center gap-3">
-          <AvatarRoot
-            aria-hidden="true"
-            className={`size-10 shrink-0 bg-gradient-to-br ${avatarTone(member.username)} shadow-sm ring-1 ring-white/10`}
-          >
-            <AvatarFallback className="type-control bg-transparent text-black/70">{memberInitial(member)}</AvatarFallback>
-          </AvatarRoot>
-          <div className="min-w-0">
-            <strong className="type-body block truncate">{member.display_name || member.username}</strong>
-            <span className="type-meta block truncate text-muted">@{member.username}</span>
-          </div>
-        </div>
+        return <MemberIdentity member={member} />
       case 'role':
         return member.role === 'owner'
           ? <span className="type-meta inline-flex items-center gap-1.5 text-muted">
@@ -361,21 +333,19 @@ export function HeroUsersPage() {
           >
             <Icons.Pencil size={16} aria-hidden="true" />
           </Button>}
-          <Button
+          <StableAsyncButton
             size="sm"
             variant={member.enabled && member.role !== 'owner' ? 'danger-soft' : 'tertiary'}
             isIconOnly
             className="size-9 rounded-full"
             aria-label={`切换 ${member.username} 状态`}
             isDisabled={member.role === 'owner' || pending}
-            onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}
+            pending={feedback.isPending('member-update', member.id)}
+            pendingContent={<Icons.LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            onPress={() => memberMutation.mutateAsync({ id: member.id, patch: { enabled: !member.enabled } })}
           >
-            {pending
-              ? <Icons.LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
-              : member.role === 'owner'
-                ? <Icons.LockKeyhole size={16} aria-hidden="true" />
-                : <Icons.Power size={16} aria-hidden="true" />}
-          </Button>
+            {member.role === 'owner' ? <Icons.LockKeyhole size={16} aria-hidden="true" /> : <Icons.Power size={16} aria-hidden="true" />}
+          </StableAsyncButton>
           {member.role !== 'owner' && <Button
             size="sm"
             variant="tertiary"
@@ -418,7 +388,7 @@ export function HeroUsersPage() {
         <TextField fullWidth name="display_name"><Label>显示名</Label><Input /></TextField>
         <TextField fullWidth name="password" isRequired><Label>初始密码</Label><Input type="password" autoComplete="new-password" /></TextField>
         <HeroSelect label="角色" value={newUserRole} onChange={setNewUserRole} options={[{ id: 'admin', label: '管理员' }, { id: 'member', label: '成员' }, { id: 'viewer', label: '只读成员' }]} />
-        <Button className="self-end" type="submit" isDisabled={feedback.isPending('member-create', 'new')}><Icons.UserPlus size={15} />{feedback.isPending('member-create', 'new') ? '创建中…' : '新增成员'}</Button>
+        <StableAsyncButton className="self-end" type="submit" pending={feedback.isPending('member-create', 'new')} pendingContent="创建中…"><Icons.UserPlus size={15} />新增成员</StableAsyncButton>
         {createError && <div className="min-[760px]:col-span-5"><HeroNotice title={createError} /></div>}
       </form>
       {users.isLoading && <LoadingState label="正在读取成员" rows={2} />}
@@ -476,7 +446,7 @@ export function HeroUsersPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button type="button" variant="ghost" isDisabled={resetPasswordMutation.isPending} onPress={() => setResetTarget(null)}>取消</Button>
-            <Button type="submit" form="member-password-reset-form" isDisabled={resetPasswordMutation.isPending}>{resetPasswordMutation.isPending ? '重置中…' : '确认重置'}</Button>
+            <StableAsyncButton type="submit" form="member-password-reset-form" pending={resetPasswordMutation.isPending} pendingContent="重置中…">确认重置</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>
@@ -510,9 +480,7 @@ export function HeroUsersPage() {
               setRenameUsername('')
               setRenameError('')
             }}>取消</Button>
-            <Button type="submit" form="member-username-form" isDisabled={!renameUsername.trim() || renameMutation.isPending}>
-              {renameMutation.isPending ? '保存中…' : '保存用户名'}
-            </Button>
+            <StableAsyncButton type="submit" form="member-username-form" pending={renameMutation.isPending} pendingContent="保存中…" isDisabled={!renameUsername.trim()}>保存用户名</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>
@@ -544,14 +512,14 @@ export function HeroUsersPage() {
               setDeleteConfirmation('')
               setDeleteError('')
             }}>取消</Button>
-            <Button
+            <StableAsyncButton
               type="button"
               variant="danger"
-              isDisabled={deleteConfirmation !== deleteTarget?.username || deleteMutation.isPending}
+              pending={deleteMutation.isPending}
+              pendingContent="删除中…"
+              isDisabled={deleteConfirmation !== deleteTarget?.username}
               onPress={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id })}
-            >
-              {deleteMutation.isPending ? '删除中…' : '确认删除账号'}
-            </Button>
+            >确认删除账号</StableAsyncButton>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>

@@ -20,6 +20,8 @@ import {
   LoadingState,
   Modal,
   PageFrame,
+  RefreshButton,
+  StableAsyncButton,
   Switch,
   TextField,
   actionToast,
@@ -132,7 +134,7 @@ function ProposalDialog({ proposal, confirmation, pending, error, onConfirmation
             {error && <HeroNotice title={error} />}
           </div>
         </Modal.Body>
-        <Modal.Footer><Button variant="ghost" isDisabled={pending} onPress={onClose}>取消</Button><Button isDisabled={pending || confirmation !== proposal.confirmation} onPress={onApply}>{pending ? '应用中…' : '应用变更'}</Button></Modal.Footer>
+        <Modal.Footer><Button variant="ghost" isDisabled={pending} onPress={onClose}>取消</Button><StableAsyncButton pending={pending} pendingContent="应用中…" isDisabled={confirmation !== proposal.confirmation} onPress={onApply}>应用变更</StableAsyncButton></Modal.Footer>
       </Modal.Dialog></Modal.Container>
     </Modal.Backdrop>
   </Modal>
@@ -176,11 +178,11 @@ export function SettingsSystemPage() {
 
   if (!canAdministerSettings(user.role)) return <Navigate to="/settings" state={preserveSettingsReturnState(location.state)} replace />
   if (query.isLoading) return <PageFrame width="settings" className="p-6"><LoadingState label="正在读取系统参数" rows={5} /></PageFrame>
-  if (query.isError || !query.data) return <PageFrame width="settings" className="p-6"><HeroNotice title={errorMessage(query.error)}><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></PageFrame>
+  if (query.isError || !query.data) return <PageFrame width="settings" className="p-6"><HeroNotice title={errorMessage(query.error)}><RefreshButton size="sm" variant="ghost" pending={query.isFetching} label="重试" onPress={() => void query.refetch()} /></HeroNotice></PageFrame>
 
   return <div data-settings-page="system" data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
-      <SettingsSection title="系统参数" description={`工作区安全白名单参数 · 当前代次 ${query.data.generation}`} actions={<Button isDisabled={!changes.length || invalidKeys.size > 0 || prepare.isPending} onPress={() => prepare.mutate()}>{prepare.isPending ? '生成预演中…' : `预演 ${changes.length || ''} 项变更`}</Button>}>
+      <SettingsSection title="系统参数" description={`工作区安全白名单参数 · 当前代次 ${query.data.generation}`} actions={<StableAsyncButton pending={prepare.isPending} pendingContent="生成预演中…" isDisabled={!changes.length || invalidKeys.size > 0} onPress={() => prepare.mutate()}>预演 {changes.length || ''} 项变更</StableAsyncButton>}>
         <HeroNotice title="数据库覆盖值优先于环境变量和内置默认值" status="accent" role="status">所有修改都要先预演并输入精确确认短语；页面不提供密钥、地址、数据库路径或付费 Actor 参数。</HeroNotice>
         {operationError && !proposal && <div className="mt-3"><HeroNotice title={operationError} /></div>}
       </SettingsSection>

@@ -1,8 +1,6 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/decisions/ -->
 # 决策索引
 
-决策理由真源。新决策追加到 `D176–D200`，满后续桶。
-
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
 | D001 | 初始化控制面 | 2026-07-08 | [查看](records/D001-D025.md#d001) |
@@ -15,7 +13,7 @@
 | D008 | 当前产品收口为信息获取与 Feed 留存 | 2026-07-11 | [查看](records/D001-D025.md#d008) |
 | D009 | 每用户 opt-in 周期由现有 Worker 调度 | 2026-07-11 | [查看](records/D001-D025.md#d009) |
 | D010 | RC1 采用不可变镜像和分阶段 VPS 切换 | 2026-07-12 | [查看](records/D001-D025.md#d010) |
-| D011 | 本地密钥使用 write-only 文件边界并为每篇文章生成受控概括 | 2026-07-13 | [查看](records/D001-D025.md#d011) |
+| D011 | 密钥边界与受控概括 | 2026-07-13 | [查看](records/D001-D025.md#d011) |
 | D012 | 订阅级自动抓取复用现有 Worker 与单源 finalizer | 2026-07-13 | [查看](records/D001-D025.md#d012) |
 | D013 | Service API 使用请求级连接，macOS bind mount 使用 DELETE journal | 2026-07-13 | [查看](records/D001-D025.md#d013) |
 | D014 | 默认 Service UI 迁移为 React 三栏信息雷达 | 2026-07-13 | [查看](records/D001-D025.md#d014) |
@@ -204,3 +202,5 @@
 | D198 | ActorOps Dataset 真实适配 | 2026-08-29 | [查看](records/D176-D200.md#d198) |
 | D199 | ActorOps 已验证候选自动替换 | 2026-08-30 | [查看](records/D176-D200.md#d199) |
 | D200 | Actor 套餐适配排序 | 2026-08-31 | [查看](records/D176-D200.md#d200) |
+| D201 | 异步按钮稳定几何 | 2026-09-02 | [查看](records/D201-D225.md#d201) |
+| D202 | UI 宪章 | 2026-09-02 | [查看](records/D201-D225.md#d202) |

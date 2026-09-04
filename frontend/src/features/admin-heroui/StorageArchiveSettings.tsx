@@ -6,8 +6,9 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
 import { SettingsCard, SettingsGroup, SettingsItem, SettingsSection, StatusBadge, type StatusBadgeTone } from '../../components/settings'
-import { actionToast, Button, Icons, Input, Label, LoadingState, Modal, Popover, Separator, Table, TextField } from '../../design-system'
+import { actionToast, Button, Icons, Input, Label, LoadingState, Popover, RefreshButton, Separator, StableAsyncButton, Table, TextField } from '../../design-system'
 import { HeroNotice } from './HeroAdminControls'
+import { StorageArchivePreviewDialog, type ArchiveActionTarget } from './StorageArchivePreviewDialog'
 
 const recordOf = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {}
 const errorMessage = (caught: unknown, fallback: string) => caught instanceof ApiError
@@ -49,11 +50,6 @@ function archiveStatusTone(status: StorageArchive['status']): StatusBadgeTone {
   if (status === 'restored') return 'success'
   if (status === 'deleted') return 'neutral'
   return 'danger'
-}
-
-type ArchiveActionTarget = {
-  archive: StorageArchive
-  operation: 'restore' | 'delete_archive'
 }
 
 function ArchiveActions({
@@ -162,7 +158,7 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
     apply.reset()
     setActivePlan(null)
     setConfirmation('')
-    preview.mutate({ operation, payload: batchId ? { batch_id: batchId } : {} })
+    return preview.mutateAsync({ operation, payload: batchId ? { batch_id: batchId } : {} })
   }
 
   function closeArchiveActionDialog() {
@@ -177,11 +173,13 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
     setArchiveActionTarget({ operation, archive })
   }
 
-  function confirmArchiveAction() {
+  async function confirmArchiveAction() {
     if (!archiveActionTarget) return
-    previewPlan(archiveActionTarget.operation, archiveActionTarget.archive.id)
-    setArchiveActionTarget(null)
-    window.requestAnimationFrame(() => archiveActionTriggerRef.current?.focus())
+    try {
+      await previewPlan(archiveActionTarget.operation, archiveActionTarget.archive.id)
+      setArchiveActionTarget(null)
+      window.requestAnimationFrame(() => archiveActionTriggerRef.current?.focus())
+    } catch { /* Keep the confirmation open so its error remains actionable. */ }
   }
 
   return <div className="grid gap-7">
@@ -189,7 +187,7 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
       {summary.isPending
         ? <LoadingState label="正在读取存储状态" rows={2} />
         : summary.isError
-          ? <HeroNotice title="存储状态读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void summary.refetch()}>重试此区域</Button></HeroNotice>
+          ? <HeroNotice title="存储状态读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={summary.isFetching} label="重试此区域" onPress={() => void summary.refetch()} /></HeroNotice>
           : summary.data && <>
             {!summary.data.readiness.ready && <HeroNotice title="迁移尚未完成" status="warning">必须先完成 Feed Storage v3 与时间索引 v11 的带备份迁移，之后才能生成清理或归档计划。</HeroNotice>}
             <div className="grid gap-3 min-[560px]:grid-cols-2 min-[920px]:grid-cols-4">
@@ -208,8 +206,8 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
           description={`清理只处理轻量记录和孤立媒体；正文与媒体满 ${summary.data.policy.archive_after_days} 天后可转冷归档，永不自动永久删除。最近清理：${formatDateTime(summary.data.last_cleanup_at)}。`}
           icon={<Icons.ShieldCheck size={17} aria-hidden="true" />}
           trailing={<>
-            <Button size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} onPress={() => previewPlan('cleanup')}><Icons.BrushCleaning size={15} aria-hidden="true" />预演标准清理</Button>
-            <Button size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} onPress={() => previewPlan('archive')}><Icons.Archive size={15} aria-hidden="true" />预演 90 日归档</Button>
+            <StableAsyncButton size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} pending={preview.isPending && preview.variables?.operation === 'cleanup'} pendingContent="计算中…" onPress={() => previewPlan('cleanup')}><Icons.BrushCleaning size={15} aria-hidden="true" />预演标准清理</StableAsyncButton>
+            <StableAsyncButton size="sm" variant="secondary" isDisabled={!summary.data.readiness.ready || planPending} pending={preview.isPending && preview.variables?.operation === 'archive'} pendingContent="计算中…" onPress={() => previewPlan('archive')}><Icons.Archive size={15} aria-hidden="true" />预演 90 日归档</StableAsyncButton>
           </>}
         />
       </SettingsGroup>}
@@ -222,7 +220,7 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
           {activePlan.operation === 'restore' && <p>将校验并恢复 {Number(previewData.item_count ?? 0)} 条内容、{Number(previewData.media_count ?? 0)} 个媒体文件。</p>}
           {activePlan.operation === 'delete_archive' && <><p>这是不可恢复的所有者操作。归档已先恢复到在线存储，预计释放 {formatBytes(Number(previewData.byte_size ?? 0))}。</p><TextField fullWidth value={confirmation} onChange={setConfirmation}><Label>输入确认文本</Label><Input placeholder={requiredConfirmation} /></TextField></>}
           <p className="type-meta text-muted">预演有效至 {formatDateTime(activePlan.expires_at)}；执行前会再次核对候选指纹。</p>
-          <div className="flex flex-wrap gap-2"><Button size="sm" variant={activePlan.operation === 'delete_archive' ? 'danger' : 'primary'} isDisabled={!activePlanHasWork || planPending || (activePlan.operation === 'delete_archive' && confirmation !== requiredConfirmation)} onPress={() => apply.mutate({ plan: activePlan, confirmationText: confirmation })}>{!activePlanHasWork ? '无需执行' : apply.isPending ? '执行中…' : `执行${storageOperationLabels[activePlan.operation]}`}</Button><Button size="sm" variant="ghost" isDisabled={planPending} onPress={() => { setActivePlan(null); setConfirmation('') }}>取消</Button></div>
+          <div className="flex flex-wrap gap-2"><StableAsyncButton size="sm" variant={activePlan.operation === 'delete_archive' ? 'danger' : 'primary'} pending={apply.isPending} pendingContent="执行中…" isDisabled={!activePlanHasWork || (activePlan.operation === 'delete_archive' && confirmation !== requiredConfirmation)} onPress={() => apply.mutate({ plan: activePlan, confirmationText: confirmation })}>{activePlanHasWork ? `执行${storageOperationLabels[activePlan.operation]}` : '无需执行'}</StableAsyncButton><Button size="sm" variant="ghost" isDisabled={planPending} onPress={() => { setActivePlan(null); setConfirmation('') }}>取消</Button></div>
         </div>
       </HeroNotice>}
       {activePlan?.status === 'applied' && <HeroNotice title={`${storageOperationLabels[activePlan.operation]}已完成`} status="success">数据状态已刷新；完整结果已记录到审计计划。</HeroNotice>}
@@ -232,7 +230,7 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
     <SettingsSection
       title="冷归档批次"
       description="管理员可预演恢复；只有所有者可在恢复完成后预演永久删除。"
-      actions={<Button size="sm" variant="ghost" isDisabled={archives.isFetching} onPress={() => void archives.refetch()}><Icons.RefreshCw size={14} className={archives.isFetching ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />刷新</Button>}
+      actions={<RefreshButton size="sm" variant="ghost" pending={archives.isFetching} onPress={() => void archives.refetch()} />}
     >
       <SettingsGroup ariaLabel="冷归档批次" className="p-0">
         {archives.isPending && <div className="p-4"><LoadingState label="正在读取归档批次" rows={2} /></div>}
@@ -262,19 +260,6 @@ export function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean
       </SettingsGroup>
     </SettingsSection>
 
-    <Modal isOpen={Boolean(archiveActionTarget)} onOpenChange={(open) => !open && closeArchiveActionDialog()}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开归档操作确认</Modal.Trigger>
-      <Modal.Backdrop isDismissable={!planPending} isKeyboardDismissDisabled={planPending}>
-        <Modal.Container size="sm">
-          <Modal.Dialog>
-            <Modal.Header><Modal.Heading>{archiveActionTarget?.operation === 'delete_archive' ? '预演永久删除' : '预演恢复归档'}</Modal.Heading></Modal.Header>
-            <Modal.Body><p className="type-body text-muted">{archiveActionTarget?.operation === 'delete_archive'
-              ? `将为 ${archiveActionTarget.archive.id} 生成永久删除预演。执行前仍需输入精确确认文本，且服务端会重新核对归档状态。`
-              : `将为 ${archiveActionTarget?.archive.id ?? ''} 生成恢复预演；确认后不会立即修改数据。`}</p></Modal.Body>
-            <Modal.Footer><Button variant="ghost" onPress={closeArchiveActionDialog}>取消</Button><Button variant={archiveActionTarget?.operation === 'delete_archive' ? 'danger' : 'primary'} onPress={confirmArchiveAction}>生成预演</Button></Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <StorageArchivePreviewDialog target={archiveActionTarget} pending={preview.isPending} error={preview.error} onClose={closeArchiveActionDialog} onConfirm={confirmArchiveAction} />
   </div>
 }

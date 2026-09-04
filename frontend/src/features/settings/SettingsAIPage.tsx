@@ -23,6 +23,8 @@ import {
   Label,
   LoadingState,
   PageFrame,
+  RefreshButton,
+  StableAsyncButton,
   StatusNotice,
   TextField,
 } from '../../design-system'
@@ -315,9 +317,7 @@ export function SettingsAIPage() {
       {dirtySections.size > 0 && <StatusNotice title="有尚未保存的更改" status="warning" role="status">
         <div className="flex flex-wrap items-center gap-3">
           <span className="min-w-0 flex-1">{dirtySections.size} 项设置待保存。</span>
-          <Button size="sm" isDisabled={configMutation.isPending} onPress={() => saveSections([...dirtySections])}>
-            <Icons.Save size={15} aria-hidden="true" />{configMutation.isPending ? '保存中…' : '保存全部配置'}
-          </Button>
+          <StableAsyncButton size="sm" pending={configMutation.isPending} pendingContent="保存中…" onPress={() => saveSections([...dirtySections])}><Icons.Save size={15} aria-hidden="true" />保存全部配置</StableAsyncButton>
         </div>
       </StatusNotice>}
 
@@ -352,7 +352,7 @@ export function SettingsAIPage() {
           ? <LoadingState label="正在读取 AI 设置" rows={2} />
           : config.isError || secrets.isError
             ? <StatusNotice title="AI 设置读取失败" status="warning">
-              <Button size="sm" variant="ghost" onPress={() => { void config.refetch(); void secrets.refetch() }}>重试此区域</Button>
+              <RefreshButton size="sm" variant="ghost" pending={config.isFetching || secrets.isFetching} label="重试此区域" onPress={() => { void config.refetch(); void secrets.refetch() }} />
             </StatusNotice>
             : <SettingsGroup className="p-4 min-[640px]:p-5" ariaLabel="工作区 AI 配置">
               <form ref={aiFormRef} className="grid gap-4" onChange={() => refreshDirty('ai')} onSubmit={saveAi}>
@@ -384,9 +384,7 @@ export function SettingsAIPage() {
                     <FormField name="analysis_max_output_tokens" label="最大输出 Token" type="number" min={256} max={2048} defaultValue={Number(ai.analysis_max_output_tokens ?? 800)} />
                   </div>
                 </SettingsDisclosure>
-                <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>
-                  <Icons.Save size={15} aria-hidden="true" />{configMutation.isPending && configMutation.variables?.sections.includes('ai') ? '保存中…' : '保存 AI 设置'}
-                </Button>
+                <StableAsyncButton className="w-fit" type="submit" pending={configMutation.isPending && Boolean(configMutation.variables?.sections.includes('ai'))} pendingContent="保存中…" isDisabled={configMutation.isPending}><Icons.Save size={15} aria-hidden="true" />保存 AI 设置</StableAsyncButton>
               </form>
             </SettingsGroup>)}
       </SettingsSection>
@@ -424,30 +422,25 @@ export function SettingsAIPage() {
               <Label>自定义风格补充</Label>
               <Input maxLength={500} placeholder="可留空，最多 500 字；不能覆盖安全约束" />
             </TextField>
-            <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>
-              <Icons.Save size={15} aria-hidden="true" />
-              {configMutation.isPending && configMutation.variables?.sections.includes('feed_end_messages') ? '保存中…' : '保存触底文案设置'}
-            </Button>
+            <StableAsyncButton className="w-fit" type="submit" pending={configMutation.isPending && Boolean(configMutation.variables?.sections.includes('feed_end_messages'))} pendingContent="保存中…" isDisabled={configMutation.isPending}><Icons.Save size={15} aria-hidden="true" />保存触底文案设置</StableAsyncButton>
           </form>
 
           <div className="mt-5">
             {feedEndMessagesStatus.isPending
               ? <LoadingState label="正在读取触底文案状态" rows={2} />
               : feedEndMessagesStatus.isError || !feedEndMessagesStatus.data
-                ? <HeroNotice title="触底文案状态读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void feedEndMessagesStatus.refetch()}>重试状态读取</Button></HeroNotice>
+                ? <HeroNotice title="触底文案状态读取失败" status="warning"><RefreshButton size="sm" variant="ghost" pending={feedEndMessagesStatus.isFetching} label="重试状态读取" onPress={() => void feedEndMessagesStatus.refetch()} /></HeroNotice>
                 : <>
                   <SettingsDisclosure
                     title={feedEndMessageStatusLabels[feedEndMessagesStatus.data.status] ?? '状态未知'}
                     description={`最近生成 ${formatDateTime(feedEndMessagesStatus.data.generated_at)} · 下次更新 ${formatDateTime(feedEndMessagesStatus.data.next_refresh_at)}`}
-                    trailing={<Button size="sm" variant="ghost" isDisabled={
-                      !savedFeedEndGenerationEnabled
-                      || feedEndMessagesRefreshMutation.isPending
+                    trailing={<RefreshButton size="sm" variant="ghost" pending={
+                      feedEndMessagesRefreshMutation.isPending
                       || feedEndMessagesStatus.data.status === 'pending'
                       || feedEndMessagesStatus.data.status === 'refreshing'
-                    } onPress={() => feedEndMessagesRefreshMutation.mutate()}>
-                      <Icons.RefreshCw size={14} className={feedEndMessagesRefreshMutation.isPending ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />
-                      {feedEndMessagesStatus.data.status === 'pending' ? '已等待刷新' : feedEndMessagesStatus.data.status === 'refreshing' ? '正在刷新' : '立即刷新'}
-                    </Button>}
+                    } label="立即刷新" isDisabled={
+                      !savedFeedEndGenerationEnabled
+                    } onPress={() => feedEndMessagesRefreshMutation.mutate()} />}
                   >
                     {!savedFeedEndGenerationEnabled && <p className="type-meta text-muted">保存并启用触底文案生成后，才可请求立即刷新。</p>}
                     {feedEndMessagesStatus.data.last_error_code && <p className="type-meta text-warning">

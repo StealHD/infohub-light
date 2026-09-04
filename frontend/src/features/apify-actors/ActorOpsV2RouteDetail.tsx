@@ -5,7 +5,7 @@ import type { ActorOpsV2RouteDetail as RouteDetail } from '../../api/actorOpsV2T
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useAppContext } from '../../app/AppContext'
-import { Button, LoadingState, StatusNotice } from '../../design-system'
+import { Button, LoadingState, RefreshButton, StatusNotice } from '../../design-system'
 import { actorOpsV2CandidateLabel, actorOpsV2MappingIssueLabel, actorOpsV2PriceLabel, type ActorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 export function ActorOpsV2RouteDetailTrigger({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -25,7 +25,7 @@ export function ActorOpsV2RouteDetailPanel({ route, open }: { route: ActorOpsV2R
   return open ? <section aria-label={`${route.platform} 运行详情`} className="mt-3 grid gap-3 rounded-xl border border-separator bg-surface-secondary p-3">
       {detail.isPending && <LoadingState label="正在读取 v2 运行详情" rows={2} />}
       {detail.isError && <StatusNotice title={detailErrorTitle(detail.error)} status="warning">
-        {isRetiredDetailError(detail.error) ? '请从当前 v2 Route、Binding、Discovery 或 Replacement 控制面继续操作。' : <Button size="sm" variant="ghost" onPress={() => void detail.refetch()}>重试此区域</Button>}
+        {isRetiredDetailError(detail.error) ? '请从当前 v2 Route、Binding、Discovery 或 Replacement 控制面继续操作。' : <RefreshButton size="sm" variant="ghost" pending={detail.isFetching} label="重试此区域" onPress={() => void detail.refetch()} />}
       </StatusNotice>}
       {detail.data && <RouteDetailPanel detail={detail.data} />}
     </section> : null

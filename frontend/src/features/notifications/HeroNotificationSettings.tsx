@@ -11,11 +11,11 @@ import type {
 import { useAppContext } from '../../app/AppContext'
 import {
   actionToast,
-  Button,
   Card,
   Checkbox,
   Description,
   LoadingState,
+  StableAsyncButton,
   Switch,
 } from '../../design-system'
 import { HeroNotice } from '../admin-heroui/HeroAdminControls'
@@ -42,12 +42,6 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
     return <HeroNotice title="消息通知设置读取失败，请刷新后重试。" />
   }
 
-  const cacheKey = [
-    settings.data.enabled,
-    settings.data.target_ids.join(':'),
-    services.data.services.map((service) => `${service.id}:${service.available}:${service.config_generation}`).join('|'),
-  ].join(':')
-
   async function save(patch: UserNotificationSettingsPatch) {
     const updated = await api.updateNotificationSettings(patch)
     queryClient.setQueryData(queryKeys.notificationSettings(user.id), updated)
@@ -55,7 +49,6 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
   }
 
   return <NotificationTargetSelectionForm
-    key={cacheKey}
     settings={settings.data}
     targets={services.data.services}
     onSave={save}
@@ -163,9 +156,7 @@ export function NotificationTargetSelectionForm({
     </div>
     {requestError && <HeroNotice title={requestError} />}
     <div className="flex flex-wrap gap-2">
-      <Button type="submit" isDisabled={readOnly || saving || !dirty}>
-        {saving ? '保存中…' : '保存通知设置'}
-      </Button>
+      <StableAsyncButton type="submit" pending={saving} pendingContent="保存中…" isDisabled={readOnly || !dirty}>保存通知设置</StableAsyncButton>
     </div>
   </form>
 }

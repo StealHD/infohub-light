@@ -5,7 +5,7 @@ import type { ServiceApi } from '../../api/service'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import type { Job, ResponseSchemaField, ResponseSchemaSummary, SourceResponseSchema } from '../../api/types'
-import { Button, MetaTag, StatusIndicator } from '../../design-system'
+import { MetaTag, RefreshButton, StatusIndicator } from '../../design-system'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 
 type SourceName = string | { display_name?: string }
@@ -52,7 +52,7 @@ export function HeroResponseSchemaDetails({ job, sourceNames, api, userId, class
   const values = schemas(detail.data ?? job)
   return <HeroSoftDisclosure label="响应结构" className={className} onOpenChange={setOpen}>
     {detail.isFetching && <p className="type-body text-foreground" role="status">正在读取响应结构…</p>}
-    {detail.isError && <p className="type-body text-foreground">响应结构读取失败。<Button size="sm" variant="ghost" className="ml-2" onPress={() => void detail.refetch()}>重试</Button></p>}
+    {detail.isError && <p className="type-body text-foreground">响应结构读取失败。<RefreshButton size="sm" variant="ghost" className="ml-2" pending={detail.isFetching} label="重试" onPress={() => void detail.refetch()} /></p>}
     {!detail.isFetching && !detail.isError && !values.length && <p className="type-body text-foreground">本次运行未记录响应结构。</p>}<div className="grid gap-4">{values.map((schema, index) => {
     const source = sourceNames.get(schema.source_id)
     const name = typeof source === 'string' ? source : source?.display_name || schema.source_id

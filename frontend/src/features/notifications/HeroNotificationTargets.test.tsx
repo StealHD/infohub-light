@@ -10,6 +10,12 @@ import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
 import { HeroNotificationTargets } from './HeroNotificationTargets'
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 const service = (overrides: Partial<NotificationService> = {}): NotificationService => ({
   id: 'service-shared-telegram',
   name: '值班 Telegram',
@@ -183,6 +189,30 @@ describe('HeroNotificationTargets', () => {
       { enabled: true },
     ))
     expect(api.testAndEnableNotificationService).not.toHaveBeenCalled()
+  })
+
+  it('keeps the accepted Popover action mounted and single-flight until completion', async () => {
+    const browser = userEvent.setup()
+    const existing = service()
+    const update = deferred<NotificationService>()
+    const api = renderServices({
+      notificationServices: vi.fn().mockResolvedValue(response([existing])),
+      updateNotificationService: vi.fn().mockReturnValue(update.promise),
+    })
+
+    const trigger = await screen.findByRole('button', { name: '更多操作：值班 Telegram' })
+    await browser.click(trigger)
+    const menu = await screen.findByRole('dialog', { name: '值班 Telegram 通知服务操作' })
+    const enable = within(menu).getByRole('button', { name: '启用' })
+    await browser.dblClick(enable)
+
+    expect(within(menu).getByRole('button', { name: '启用中…' })).toBeDisabled()
+    expect(api.updateNotificationService).toHaveBeenCalledTimes(1)
+    expect(menu).toBeInTheDocument()
+
+    update.resolve(existing)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '值班 Telegram 通知服务操作' })).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger).toHaveFocus())
   })
 
   it('tests and enables a service whose current generation is not verified', async () => {

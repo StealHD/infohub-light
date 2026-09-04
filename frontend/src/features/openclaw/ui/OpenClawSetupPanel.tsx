@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { Button, Card, Form, Icons, Input, Label, TextField } from '../../../design-system'
+import { Button, Card, Form, Icons, Input, Label, StableAsyncButton, TextField } from '../../../design-system'
 import type { OpenClawChatController } from '../openclawContracts'
 import { gatewayOriginSetupCommands } from '../openclawOriginSetup'
 
@@ -41,13 +41,15 @@ export function OpenClawSetupPanel({ chat }: { chat: ChatController }) {
             <Input aria-label="OpenClaw Gateway token" type="password" autoComplete="new-password" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
           </TextField>
           <div className="grid min-w-0 grid-cols-2 gap-2" data-testid="openclaw-setup-actions">
-            <Button
+            <StableAsyncButton
               type="submit"
               className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]"
-              isDisabled={!url.trim() || !authInput.trim() || chat.status === 'connecting'}
+              pending={chat.status === 'connecting'}
+              pendingContent="正在连接…"
+              isDisabled={!url.trim() || !authInput.trim()}
             >
-              {chat.status === 'connecting' ? '正在连接…' : '连接并授权'}
-            </Button>
+              连接并授权
+            </StableAsyncButton>
             <Button
               type="button"
               variant="secondary"

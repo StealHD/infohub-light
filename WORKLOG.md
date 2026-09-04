@@ -8,99 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将本地最新 main 的 ActorOps 稳定性、来源头像、Feed 社交名称修复整理为 v2.6.1 发布版本；版本身份与既有 v2.6.0 标签分离，global 36 保持显式停机迁移。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-v2-6-1",
-  "unresolved": [],
-  "validation": [
-    "ActorOps、迁移、头像、运行脚本定向 Pytest 164 项通过。",
-    "Workbench、ActorOps、Settings、变更日志与 App 定向 Vitest 172 项通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复 Apify 以 403 build-not-found 拒绝已删除固定 Build 时的错误分类：第一次失败即确认为 Build 不可用并触发候选发现、有界实测与自动替换；完成本地 ActorOps 根因复现、候选换版验证和 Worker 热加载。",
-  "status": "completed",
-  "task_id": "2026-08-30-apify-build-not-found-auto-upgrade",
-  "unresolved": [
-    "X 当前主 Actor 可正常获取，但两个旧备用 Build 已删除；同 Actor 新 Build 在第二来源返回 noResults/demo，已被正确隔离，后续候选探测因当日 5 次安全上限延至下一 UTC 日。",
-    "YouTube 仍通过免费原生 RSS 降级稳定获取；现有 Actor 候选为 stale_regression 或输出合同不兼容，自动修复将在探测额度恢复后继续。"
-  ],
-  "validation": [
-    "授权最小复现确认旧 Build 0.0.980 返回 403 build-not-found 且未创建远端 Run；现行 Build 0.0.982 可启动并返回有效 X 数据。",
-    "Apify 错误分类、远端 no-start 证据与硬故障修复定向 Pytest 通过；完整影响 preflight 16/16 通过。",
-    "本地 8080 API readiness 返回 database/worker/logging 全部 ready，5173 前端可用；ActorOps 页面显示 Instagram 健康、X 降级可用、YouTube 原生降级。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将本地 main 的 Apify 已删除 Build 精确错误分类整理为 v2.6.2 发布版本，并同步修正项目锁文件中的版本身份。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-v2-6-2",
-  "unresolved": [],
-  "validation": [
-    "Apify Client、ActorOps Maintenance 与 Repair 定向 Pytest 41 项通过。",
-    "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端/前端全域检查、控制校验与构建均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "修复 Actor 明确 no-results 被误判为账号身份不匹配的问题；无内容控制行现在安全完成为空结果，demo/占位和其他普通语义异常保留具体错误并按证据阈值恢复，不再统一升级为一次即确认的合同故障。",
-  "status": "completed",
-  "task_id": "2026-08-30-actor-no-results-health-recovery",
-  "unresolved": [
-    "本轮按用户要求只完成本地修复；VPS 仍运行 v2.6.2，需后续发布新版本并对既有 X 故障证据执行受控恢复。"
-  ],
-  "validation": [
-    "noResults/no_results、身份不匹配、placeholder 与合同错误分类定向回归通过。",
-    "Actor Manifest、候选 Runtime、X 回复过滤与输出错误分类受影响测试全部通过。",
-    "impacted preflight 14/14 通过，后端、Worker、前端、控制校验和代码尺寸检查均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-30",
-  "result": "将本地 main 的 Actor no-results 合法空结果与可恢复语义故障修复整理为 v2.6.3 发布版本，并同步项目版本和锁文件身份。",
-  "status": "completed",
-  "task_id": "2026-08-30-release-v2-6-3",
-  "unresolved": [],
-  "validation": [
-    "运行与健康脚本定向 Pytest 38 项通过，uv lock 校验成功。",
-    "依赖与构建配置触发的完整 impacted preflight 16/16 通过，后端、前端、控制校验与构建均成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface"
   ],
   "recorded_on": "2026-08-31",
@@ -360,6 +267,108 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增公共来源抓取→任务快照→真实 fan-out→通知 outbox 集成回归，生产代码先稳定复现 0 条，修复后精确生成 1 条 pending delivery。",
     "通知、公共共享/复用与 Catalog runner 定向 Pytest 67 项通过；更新日志 Vitest 5 项、TypeScript、ESLint、编译和代码规模检查通过。",
     "impacted preflight 14/14 通过；本地唯一共享 Telegram 服务执行一次真实 smoke，返回 provider_accepted。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "新增统一的稳定异步按钮并迁移系统内保存、提交、测试、刷新、连接、删除等文字操作；通知设置保存不再重挂载表单，UI 合同与静态门禁禁止中间态改变按钮外部几何。",
+  "status": "completed",
+  "task_id": "2026-09-02-stable-async-buttons",
+  "unresolved": [
+    "完整 Playwright 运行仍有 8 个与本次按钮和更新日志改动无关的既有失败，集中在旧 HeroUI 预览 CSS 隔离及 ActorOps/页头视觉快照；本次直接影响的更新日志验收修正后已全部通过。"
+  ],
+  "validation": [
+    "StableAsyncButton、UI 合同、通知设置与更新日志定向 Vitest 57 项通过；完整 Vitest 96 文件 698 项通过。",
+    "TypeScript、ESLint、UI 合同、生产构建及预览产物检查通过；门禁控制、代码尺寸和 diff 检查通过。",
+    "补齐声明的 dev 依赖后，门禁选中的后端 Pytest 组完整通过。",
+    "本地通知页 DOM 验证按钮为 110×36 px，正常态和保存中状态共用同一布局轨道；更新日志相关 Playwright 4 项在桌面、平板和移动端通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "将用户发起的刷新与重试收敛到 RefreshButton：图标立即旋转，快请求仍保留 400 ms 可感知反馈，长请求持续到完成，并保持文案、图标位置与按钮几何稳定；已迁移存储、助手、订阅、系统设置、密钥与 ActorOps 的同类请求按钮。",
+  "status": "completed",
+  "task_id": "2026-09-02-refresh-button-feedback",
+  "unresolved": [],
+  "validation": [
+    "RefreshButton、StableAsyncButton、UI 合同与更新日志定向 Vitest 60 项通过，受影响文件 ESLint、UI 合同检查与生产构建通过。",
+    "本地真实浏览器验收 /agents 与 /settings/storage：点击后旋转类、busy 状态、禁用状态与稳定可见文案均生效。",
+    "完整 impacted preflight 14/14 通过，包含 97 个前端测试文件共 702 项、控制合同、代码尺寸、后端定向检查与生产构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "instructions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-02",
+  "result": "纠正分支关系：本地 main 回退到 39ee4a92 后，纯快进合入 codex/non-docker-dev-20260902 的稳定异步/刷新按钮修改；随后在同一分支将固定版本外部 UI 教材蒸馏为项目唯一交互宪章、Skill 入口、验收清单和自动影响映射。",
+  "status": "completed",
+  "task_id": "2026-09-02-ui-contract-distillation",
+  "unresolved": [
+    "移动端部分输入控件沿用现有 13px type-control，可能触发 iOS Safari 聚焦缩放；按用户裁决本次不改变现法，仅保留后续审计项。"
+  ],
+  "validation": [
+    "按钮修改完整 Vitest 97 文件 703 项、TypeScript、UI 合同、生产构建通过；43 文件 staged preflight 14/14 通过。",
+    "项目 inteliscope-ui Skill quick_validate、Markdown/项目控制、worklog、JSON、UI 合同、TypeScript 和 diff 检查通过。",
+    "蒸馏差异 staged preflight 16/16 通过，覆盖控制面、Python/前端全量、生产构建和 UI 合同。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-03",
+  "result": "完成新 UI Skill 驱动的全局交互整改：稳定异步按钮增加同步单飞锁，刷新、订阅、通知、成员、存储、ActorOps 与专题操作统一局部 pending 反馈；新增 coarse-pointer 按钮命中区、OverflowValue 长文本入口及保留页面上下文的 Empty/Error 状态。",
+  "status": "completed",
+  "task_id": "2026-09-03-global-ui-interaction-remediation",
+  "unresolved": [
+    "代码仅保留在 codex/non-docker-dev-20260902，等待用户完成实际操作与视觉验收；未经明确批准不得合入 main。",
+    "移动端 13px 输入文字及 iOS 自动缩放风险按既有裁决本次不修改。"
+  ],
+  "validation": [
+    "UI Contract 与 TypeScript 检查通过；12 个直接影响 Vitest 文件共 131 项通过，StableAsyncButton 额外回归 7 项通过。",
+    "Markdown、project-controls、Worklog、JSON 与 diff 校验全部通过；生产构建在实现阶段通过。",
+    "唯一一次 impacted preflight 14/14 通过，覆盖 control、frontend_full 与 python_api_store，无 SQLite 连接泄漏警告。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-03",
+  "result": "修复 StableAsyncButton 同步锁在真实浏览器中抢先禁用 submitter、导致登录和设置表单无响应的回归：表单按钮先完成原生 submit 分发，再发布 pending，连续点击仍由同步锁阻止。",
+  "status": "completed",
+  "task_id": "2026-09-03-fix-stable-submit-activation",
+  "unresolved": [
+    "修复仅提交到 codex/non-docker-dev-20260902，继续等待用户实际验收，未经批准不得合入 main。"
+  ],
+  "validation": [
+    "StableAsyncButton、登录、订阅、通知、RSSHub 设置与更新日志定向 Vitest 7 文件 37 项通过；TypeScript 与 UI Contract 检查通过。",
+    "真实浏览器使用虚构账号发起登录探针，服务端返回明确的账号密码错误，证明 submit 与 API 请求恢复；浏览器无 error。"
   ]
 }
 ```
