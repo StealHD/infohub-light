@@ -8,137 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-03",
-  "result": "ActorOps 替换候选会把同一商城 Actor 的另一固定版本明确标为独立核验的新版本；候选读取失败时隐藏旧推荐并禁止继续替换，精确 Build 保留在技术详情。",
-  "status": "completed",
-  "task_id": "2026-09-03-actorops-same-actor-version-recommendation",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 候选卡、替换 Drawer 和路由模型定向 Vitest 22/22 通过，TypeScript、ESLint 与 UI 合同检查通过。",
-    "ActorOps 三视口 Playwright 13 passed、2 skipped；同 Actor 新版本提示、焦点恢复和无横向溢出通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-09-04",
-  "result": "在本地 main@3e9524f9 创建 codex/agent-workspace，并完成浏览器直连 OpenClaw Gateway 的 Agent Workspace：共享普通会话运行时、完整对话、可信父子 Session 与 Worktree 任务、Tasks、Artifacts、ZIP Skills、isolated agentTurn Automations，以及隔离的临时 operator.admin 管理连接和响应式导航布局。",
-  "status": "completed",
-  "task_id": "2026-09-04-agent-workspace",
-  "unresolved": [],
-  "validation": [
-    "前端全量 Vitest 105 文件 751 项通过；ESLint、TypeScript、UI Contract、生产构建及直接代码体积检查通过。",
-    "Agent Workspace Playwright 在独立目标 Worktree 服务上 8 passed、4 skipped，覆盖目标视口、深浅主题、Reduced Motion、200% 重排、Axe 与横向溢出。",
-    "第二次且最后一次 impacted preflight 中 Python 全量与此前 9 个门禁通过，随后只因新增 hook 超过 150 行停止；拆出会话导航后直接代码体积检查通过，按门禁规则未执行第三次完整 preflight。",
-    "Markdown 控制面、project controls、WORKLOG、JSON 格式与 git diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-09-04",
-  "result": "将 Agent 重构为与 Inscope 平级的 OpenClaw 工作区：加入分用户产品切换与路由记忆、固定会话侧栏、按需检查器、工作区对话变体、列表化 Skills/Automations 和写操作触发的临时管理授权，同时保持 Feed 紧凑 Agent 面板及常驻 Gateway 运行时不变。",
-  "status": "completed",
-  "task_id": "2026-09-04-openclaw-peer-workspace-ui",
-  "unresolved": [
-    "修改保留在 codex/agent-workspace；未合并、推送、发布或部署。"
-  ],
-  "validation": [
-    "impacted preflight 14/14 通过，涵盖前端全量 757 项、受影响 Python、typecheck、lint、build、UI 合同及代码体积策略。",
-    "Agent Workspace Playwright 9 passed、6 skipped，覆盖桌面、平板、移动端、200% 缩放、主题、Reduced Motion、Axe 与横向溢出。",
-    "本地 8080 API、Worker 和前端 revision 3e9524f9a7d4-dirty-0acd320541cd 健康；实页检查确认单层工作区和按需授权。",
-    "Markdown、project controls、WORKLOG、JSON 与 git diff 独立校验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "完成 Inscope/OpenClaw 新功能整改：普通 Runtime 提升到认证应用壳，连接与 Session 引入 epoch，严格收口 capability、响应与 provenance；Worktree 幂等重试、可信根会话树、Tasks/Artifacts scope、Admin 销毁、Skill/Cron 回执及响应式单层工作区均已落地。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-workspace-audit-remediation",
-  "unresolved": [
-    "修改保留在 codex/agent-workspace；未合并、推送、发布或部署。",
-    "完整 production-workbench 140 项并发回归受 Axe 超时及既有专题列表偶发缺节点影响未全绿；本次直接影响的 Agent/Insights handoff 场景单独复验通过。"
-  ],
-  "validation": [
-    "OpenClaw/Agent Workspace 定向 Vitest 27 文件 155 项通过；Agent Workspace Playwright 四档矩阵 12 passed、12 skipped，受控 WebSocket 覆盖连接、资源 provenance 与写前信任确认。",
-    "ESLint、TypeScript、UI Contract、生产构建、前端代码体积、Markdown/project controls/WORKLOG/JSON 与 git diff 检查通过。",
-    "最后一次 impacted preflight 的前 7 项通过后命中新 callable 150 行硬限制；拆分 Skill/Task/Worktree/Session Runtime 后直接代码体积门禁通过，按规则未执行第三次完整 preflight。",
-    "目标 Worktree 已重建到本地 8080，revision 3e9524f9a7d4-dirty-ee45366092e2，API、Worker 与前端资产健康。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "收尾修复 Workbench 并发回归暴露的 Agent/Insights 打开竞态和 Source Overview 标题语义，拆分超限 callable，并重建最新本地运行时。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-workspace-audit-followup",
-  "unresolved": [
-    "修改保留在 codex/agent-workspace；未合并、推送、发布或部署。",
-    "完整 production-workbench 140 项并发套件未再次全量运行；已逐项复验其暴露的相关失败，且按门禁规则不执行第三次完整 impacted preflight。"
-  ],
-  "validation": [
-    "Agent/Insights handoff 与 Source Overview Playwright 均单独通过；相关 Vitest 3 文件 40 项通过。",
-    "OpenClaw/Agent Workspace 定向 Vitest 27 文件 155 项、代码体积、ESLint、TypeScript、UI Contract 与生产构建通过。",
-    "本地 8080 已重建到 revision 3e9524f9a7d4-dirty-8e5773605942，API、Worker 与前端资产健康。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "修复本地 Inscope 连接既有 OpenClaw Gateway 失败：按 2026.8.1 实际合同使用 sessions.preview{keys:[exactKey]} 和严格状态投影，失效 Session 只更新本地绑定并创建一个新 Session，保留已有设备身份、device token 与生产页面连接。",
-  "status": "completed",
-  "task_id": "2026-09-05-openclaw-local-production-pairing-recovery",
-  "unresolved": [
-    "本地与生产站点虽按浏览器 Origin 隔离凭据，但若指向同一 Gateway，消息、Worktree、Task、Skill 和 Automation 仍作用于同一 Gateway 后端。",
-    "修改保留在 codex/agent-workspace；未合并、推送或部署生产站点。"
-  ],
-  "validation": [
-    "现场复现 Gateway 拒绝错误为 sessions.preview 参数应使用 keys；修复后本地 127.0.0.1:8080 显示 Gateway 已连接并建立独立 Inscope Session。",
-    "OpenClaw Runtime、Workspace 与公开错误回归加 Changelog 共 4 文件 20 项通过；TypeScript、ESLint、UI Contract 和前端代码体积通过。",
-    "生产站点既有设备、凭据与 Session 未执行删除、覆盖、断开或重新配对。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -412,6 +281,138 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "有内容聊天回归先复现 8px 接缝，修复后深浅主题/四视口通过；直接浏览器 40 passed、9 skipped，相关 Vitest 16 passed",
     "最终 impacted preflight 14/14 通过；完整浏览器门禁 212 passed、91 skipped；UI/类型/构建/控制文件校验通过",
     "5173 已提供更新样式，API readiness 正常，保持本地运行且未重建 Docker"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "context",
+    "decisions",
+    "instructions",
+    "phase",
+    "verification"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "采用 init-pro 0.4 增量维护：按需 PLAN、10 主题 watch 和显式索引 policy；统一验证真源，旧计划原文归档，默认入口字节减少 62.1%。",
+  "status": "completed",
+  "task_id": "2026-09-05-init-pro-04-controls",
+  "unresolved": [],
+  "validation": [
+    "init-pro 0.4 audit/check、兼容结构/WORKLOG/JSON 校验通过；Markdown 控制测试 6 项通过。",
+    "8 组模拟 diff 路由、10 主题 watch 覆盖及历史排除通过；243 个文档链接与 4 项索引负向夹具通过。",
+    "旧 PLAN 与任务基线逐字节一致；轮转涉及的既有 22 条 WORKLOG 记录完整保留，整个 compact namespace 共 407 条且结构有效。",
+    "基于 736ed01b 任务 snapshot 的最终 impacted preflight 16/16 通过，覆盖完整后端/前端代码域；SQLite 连接警告为 0，用时约 432 秒。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复 / Skills 子菜单无法返回：提供返回/关闭入口、空搜索退格返回并清除过期模式；恢复草稿光标时避免延迟竞态，同步手册与更新日志。按用户要求用本地后端运行，不重建 Docker。",
+  "status": "completed",
+  "task_id": "2026-09-05-composer-skills-return",
+  "unresolved": [],
+  "validation": [
+    "任务 snapshot 范围 diff 已审查；保留此前控制面修改，修复限于快捷菜单、直接回归与产品说明。",
+    "快捷输入 Vitest 12 项通过；最终快捷菜单 Playwright 17 项通过、4 项按视口跳过，覆盖三种视口、320px 侧栏、浅色缩放、焦点、Axe 与无真实 Gateway 写入。",
+    "最终 impacted preflight 14/14 通过（control、frontend_full、python_api_store），耗时约 311 秒，SQLite 连接警告 0；policy check 与 Markdown/WORKLOG 结构校验通过。",
+    "原生后端在 127.0.0.1:8081 运行目标 Worktree，共用既有运行目录并匹配 SQLite DELETE 模式；live、ready、/agent 均 HTTP 200，已提供修复的静态资源且与构建逐字节一致；未重建 Docker。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复新地址未配对时被误报为 Gateway token 失效的问题，并同步本地配套服务与首次连接说明；Gateway 保留已有来源并允许 8081/5173，本地前端固定代理目标 worktree 的 8081 后端，未重建 Docker。",
+  "status": "partial",
+  "task_id": "2026-09-05-local-gateway-first-pairing",
+  "unresolved": [
+    "等待用户在新地址用本机 Gateway token 完成首次配对并确认真实连接；代码与本地运行环境验证已完成。"
+  ],
+  "validation": [
+    "任务 snapshot 范围 diff 已审查；新增配对 Vitest 4 项、Playwright 三种视口 3 项通过，未发送真实聊天。",
+    "impacted preflight 14/14 通过，覆盖 control、frontend_full、python_api_store，耗时 454.647 秒，SQLite 连接警告 0。",
+    "8081 与 5173 的 /agent、live、ready 均 HTTP 200；8081 提供的脚本与目标 worktree 构建一致且含新提示。",
+    "Gateway RPC 健康、精确来源已生效；浏览器实测无凭据重连显示首次配对说明。未读取或轮换 token，未迁移其他来源凭据。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "按用户要求将 / 命令结果放入对话时间线：Skills、状态与帮助直接输出，模型/推理选项和新建/Worktree 确认行内展示；移除 Skills 子菜单及命令触发的设置弹窗，保留 @ 引用、草稿和既有写入保护，同步 UI 合同、D207 与产品说明。",
+  "status": "completed",
+  "task_id": "2026-09-05-inline-slash-commands",
+  "unresolved": [],
+  "validation": [
+    "任务 snapshot /tmp/infohub-inline-commands-impact.json 已建立；审查任务范围源码、回归与合同 diff。",
+    "定向组件测试通过，覆盖命令发现、技能选择、精确命令 Send/Enter、草稿保留、模型防重入与失败、上下文隔离、命令结果排除模型请求，以及行内 Worktree 创建和原 Session 重试。",
+    "受控 Gateway 浏览器验收 43 项通过、14 项按视口或场景跳过，覆盖桌面/平板/手机、320px Feed 侧栏、浅色缩放、Reduced Motion 与 Axe；未执行真实 Gateway 写入。",
+    "最终 impacted preflight 14/14 通过（356.064 秒），前端 125 个文件、837 项测试通过，SQLite 连接警告 0；UI 静态、ESLint、Markdown 与 init-pro policy check 通过。",
+    "最终 Skills 输出与 Worktree 确认浏览器复验 6/6 通过；额外只读命令发送和行内表单锁定定向测试通过。",
+    "8081 进程仍来自 codex/agent-workspace-pr；/agent、live、ready 均 HTTP 200，对话脚本与本次构建逐字节一致且包含行内命令输出。内置浏览器尚未配对，真实连接未代验；未重建 Docker，未切换 UI 分支。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "93b96fcba36b06667169962fa011e9076dfa1e6f",
+  "control_topics": [
+    "instructions",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-06",
+  "result": "将 codex/agent-workspace-pr 的 Agent Workspace 基础、项目约束维护、斜杠命令内联结果与配对修复整合至本地 main；不纳入独立 UI 分支改动。",
+  "status": "completed",
+  "task_id": "2026-09-06-merge-agent-workspace-pr-local-main",
+  "unresolved": [
+    "共享 Gateway 用户隔离尚未实现；本次未纳入 codex/agent-workspace-ui 独立改动。"
+  ],
+  "validation": [
+    "审查 main 3e9524f9 至来源 736ed01b 及暂存改动；修复一次执行 Automation 编辑的 UTC/本地时区偏移，上海和纽约回归各 5 项通过。",
+    "init-pro audit/check/context、Markdown 结构与 6 项控制测试、JSON、WORKLOG、git diff --check 通过；默认上下文 26697→10172 字节，审计候选另经任务范围语义审查。",
+    "定向 Vitest 46 项通过；preflight merge-agent-workspace-pr-20260906 的 control/full 全部 16 项通过，含后端全量、前端 125 文件 840 测试、lint、类型检查及构建。",
+    "相关 Playwright 复跑 59 项通过、21 项条件跳过；首轮工作进程退出超时，独立 tablet 用例通过后单进程复跑正常退出。",
+    "来源由 736ed01b 提交至 93b96fcba36b06667169962fa011e9076dfa1e6f；本地 main 从 3e9524f9a7d4221c2a31c78d531847b145cbb419 快进至同一来源提交。未推送、未重建 Docker。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-06",
+  "result": "已提交 UI 分支 d481eb17，并在该分支整合本地 main@f5476b02；保留对话内命令、配对修复与 UI 会话目录、主题输入区、Fast 交互，解决冲突并保留全部工作记录，UI 决策编号调整为 D208。",
+  "status": "partial",
+  "task_id": "2026-09-06-merge-agent-workspace-ui-local-main",
+  "unresolved": [
+    "等待最终合并版本 preflight、完整浏览器门禁与本地 main 快进"
+  ],
+  "validation": [
+    "UI 提交前 staged preflight 14/14 通过",
+    "合并后重点浏览器 18/18 通过；相关单元测试复验通过，类型与控制结构校验通过"
   ]
 }
 ```

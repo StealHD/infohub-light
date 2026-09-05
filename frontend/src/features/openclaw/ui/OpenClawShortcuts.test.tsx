@@ -7,12 +7,12 @@ import type { AgentContextDraftV6 } from '../../workbench-live/agentContext'
 import type { OpenClawChatController } from '../openclawContracts'
 
 const skill = { key: 'weather', name: 'weather', description: '天气查询', enabled: true, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true, missingBins: [], missingEnv: [], installOptions: [] }
-function setup(initial: Partial<AgentContextDraftV6> = {}) {
+function setup(initial: Partial<AgentContextDraftV6> = {}, overrides: Partial<OpenClawChatController> = {}) {
   const skillsStatus = vi.fn().mockResolvedValue({ skills: [skill] })
   const chat = chatController({ status: 'connected', sessionKey: 'root', workspace: {
     skillScope: () => ({ agentId: 'main', generation: 1 }), capabilities: () => ({ 'skills.status': true }),
     subscribe: () => () => {}, skillsStatus,
-  } }) as unknown as OpenClawChatController
+  }, ...overrides }) as unknown as OpenClawChatController
   function Harness() {
     const [draft, setDraft] = useState<AgentContextDraftV6>({ userId: 'test', items: [], question: '', ...initial })
     const value = { ...createWorkbenchAgentValue(draft, setDraft), openComposer: vi.fn() }
@@ -66,7 +66,8 @@ describe('shared Composer shortcuts', () => {
     const { input, user, chat } = setup()
     await user.type(input, '待发送 /new')
     await user.keyboard('{Enter}')
-    await screen.findByRole('dialog')
+    expect(await screen.findByRole('region', { name: '/new 命令结果' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '取消' }))
     expect(chat.newConversation).not.toHaveBeenCalled()
     expect(input).toHaveValue('待发送 ')
@@ -74,12 +75,11 @@ describe('shared Composer shortcuts', () => {
   it('help and status are local reads and help documents the shortcuts', async () => {
     const { input, user, chat } = setup()
     await user.type(input, '/status'); await user.keyboard('{Enter}')
-    expect(await screen.findByText('当前对话状态')).toBeInTheDocument()
-    expect(screen.getByText('暂无可信用量')).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '/status 命令结果' })).toHaveTextContent('当前对话状态')
+    expect(screen.getByRole('region', { name: '/status 命令结果' })).toHaveTextContent('暂无可信用量')
     expect(chat.send).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: '关闭' }))
     await user.type(input, '/help'); await user.keyboard('{Enter}')
-    expect(await screen.findByText('OpenClaw 使用示例')).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '/help 命令结果' })).toHaveTextContent('快捷输入')
     expect(chat.newConversation).not.toHaveBeenCalled()
   })
   it('reopens the same command after dismissing and retyping it', async () => {
@@ -88,13 +88,13 @@ describe('shared Composer shortcuts', () => {
     await user.clear(input); await user.type(input, '/status')
     await expect(screen.findByRole('option', { name: /\/status/u })).resolves.toBeInTheDocument()
     await user.keyboard('{Enter}')
-    expect(await screen.findByText('当前对话状态')).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '/status 命令结果' })).toHaveTextContent('当前对话状态')
   })
   it('opens Skills from slash and mouse selection restores the caret', async () => {
     const { input, user, chat } = setup()
     await user.type(input, '/skills'); await user.keyboard('{Enter}')
     expect(screen.queryByRole('option', { name: /\/new/u })).not.toBeInTheDocument()
-    await user.click(await screen.findByRole('option', { name: /weather/u }))
+    await user.click(await screen.findByRole('button', { name: '使用 weather' }))
     await waitFor(() => expect(input).toHaveFocus())
     expect(input.selectionStart).toBe(0)
     expect(chat.send).not.toHaveBeenCalled()
@@ -109,4 +109,102 @@ describe('shared Composer shortcuts', () => {
     expect(screen.queryByText('Skill：weather')).not.toBeInTheDocument()
     expect(chat.send).not.toHaveBeenCalled()
   })
+})
+
+describe('inline slash command results', () => {
+  it('outputs Skills in the timeline and leaves slash in command mode with the surrounding draft intact', async () => {
+    const { input, user, chat } = setup({ question: '前文 /skills 后文' })
+    input.focus(); input.setSelectionRange(10, 10); fireEvent.select(input)
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('region', { name: '/skills 命令结果' })).toBeVisible()
+    expect(input).toHaveValue('前文  后文')
+    expect(input.selectionStart).toBe(3)
+    expect(input).toHaveFocus()
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    await user.keyboard('/')
+    expect(screen.getByRole('option', { name: /\/status/u })).toBeVisible()
+    expect(screen.queryByRole('option', { name: /weather/u })).not.toBeInTheDocument()
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+
+  it('only reads Skills on explicit invocation and allows another command without dismissing a submenu', async () => {
+    const { input, user, skillsStatus, chat } = setup()
+    await user.type(input, '/')
+    expect(skillsStatus).not.toHaveBeenCalled()
+    await user.keyboard('skills{Enter}')
+    await screen.findByRole('button', { name: '使用 weather' })
+    await user.type(input, '/status'); await user.keyboard('{Enter}')
+    expect(await screen.findByRole('region', { name: '/status 命令结果' })).toBeVisible()
+    expect(screen.getByRole('region', { name: '/skills 命令结果' })).toBeVisible()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+
+  it('dispatches a known command through the send button even after Escape and trailing whitespace', async () => {
+    const { input, user, chat } = setup()
+    await user.type(input, '/status '); await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: '发送给 OpenClaw' }))
+    expect(await screen.findByRole('region', { name: '/status 命令结果' })).toBeVisible()
+    expect(input).toHaveValue('')
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+
+  it('reports an empty Skill directory inside the conversation and leaves the composer usable', async () => {
+    const { input, user, skillsStatus, chat } = setup()
+    skillsStatus.mockResolvedValue({ skills: [] })
+    await user.type(input, '/skills'); await user.keyboard('{Enter}')
+    expect(await screen.findByText('没有匹配的 Skills。')).toBeVisible()
+    expect(input).toHaveValue('')
+    await user.type(input, '/help'); await user.keyboard('{Enter}')
+    expect(await screen.findByRole('region', { name: '/help 命令结果' })).toBeVisible()
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+})
+
+describe('inline command write guards', () => {
+  it('keeps model selection inline, preserves the draft on failure and locks repeated activation', async () => {
+    let resolve!: (value: boolean) => void
+    const setModel = vi.fn().mockImplementation(() => new Promise<boolean>((done) => { resolve = done }))
+    const { input, user, chat } = setup({}, {
+      models: [{ id: 'provider/a', name: 'Model A', provider: 'provider' }, { id: 'provider/b', name: 'Model B', provider: 'provider' }],
+      runtimeSelection: { modelId: 'provider/a', thinkingLevel: null, defaultModelId: null, defaultThinkingLevel: null }, setModel,
+    })
+    await user.type(input, '保留草稿 /model'); await user.keyboard('{Enter}')
+    const choose = await screen.findByRole('button', { name: '选择 Model B' })
+    await user.dblClick(choose)
+    expect(setModel).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(input).toHaveValue('保留草稿 ')
+    resolve(false)
+    await screen.findByText(/设置未完成，当前会话和草稿仍保留/u)
+    expect(input).toHaveValue('保留草稿 ')
+    await waitFor(() => expect(choose).toBeEnabled())
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+
+  it('cancels old confirmations when a later command is issued and never includes local output in chat', async () => {
+    const { input, user, chat } = setup()
+    await user.type(input, '/new'); await user.keyboard('{Enter}')
+    await screen.findByRole('button', { name: '确认新建' })
+    await user.type(input, '/help'); await user.keyboard('{Enter}')
+    expect(screen.queryByRole('button', { name: '确认新建' })).not.toBeInTheDocument()
+    await user.type(input, '普通问题'); await user.keyboard('{Enter}')
+    expect(chat.send).toHaveBeenCalledWith(expect.objectContaining({ displayText: '普通问题' }))
+    const request = vi.mocked(chat.send).mock.calls[0][0]
+    expect(request.gatewayPrompt).not.toContain('快捷输入')
+    expect(request.gatewayPrompt).not.toContain('新建对话？')
+    expect(chat.newConversation).not.toHaveBeenCalled()
+  })
+})
+
+it('runs read-only slash commands even when a conflicting Skill and source snapshot block chat sending', async () => {
+  const { input, user, chat } = setup({
+    sourceSnapshot: { sourceName: '快照', itemCount: 1, windowLabel: '今日', items: [] } as never,
+    selectedSkill: { key: 'weather', name: 'weather', gatewayUrl: 'ws://127.0.0.1:18789', agentId: 'main' },
+  })
+  await user.type(input, '/status')
+  await user.click(screen.getByRole('button', { name: '发送给 OpenClaw' }))
+  expect(await screen.findByRole('region', { name: '/status 命令结果' })).toBeVisible()
+  expect(screen.getByText('Skill：weather')).toBeInTheDocument()
+  expect(chat.send).not.toHaveBeenCalled()
 })

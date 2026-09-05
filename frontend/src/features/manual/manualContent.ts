@@ -171,11 +171,11 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '连接本地 Gateway',
-        description: '浏览器直接连接用户自己的 OpenClaw Gateway。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
+        description: '浏览器直接连接用户自己的 OpenClaw Gateway。切换本地端口或浏览器后，需要为当前地址完成首次配对：运行 openclaw gateway auth-token --show，在本机终端查看当前 token，再填写到连接表单。只有当前地址已经配对，才能使用“使用已配对设备重连”。多套本地环境各自固定前端端口和对应 API 代理目标，并将实际页面来源加入 Gateway 允许来源；不要依赖默认端口。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },
       {
         title: '快捷输入 @ 与 /',
-        description: '在问题开头或空白后输入 @，搜索当前 Agent 的 Skills 或已经附带的材料；输入 /skills 或 /技能名称也能筛选 Skill。选择后只有一个可移除的 Skill 标签，发送前会重新核验，不会自动启用或安装。来源快照禁止同时选 Skill。↑/↓ 选择、Enter 确认候选但不发送、Esc 关闭、Tab 正常切换焦点，输入法组合期间不截获回车。/new 打开确认且保留草稿；/model 与 /reasoning 使用原选择器；/worktree 预填当前问题并等待最终确认；/status 查看现有状态；/help 查看使用示例。未知命令可在关闭候选后作为普通问题发送，不执行原生命令。',
+        description: '在问题开头或空白后输入 @，搜索当前 Agent 的 Skills 或已附带材料；输入 / 查看命令。执行 /skills 后，Skills 列表直接显示在对话中，输入框恢复普通状态，再输入 / 仍显示命令。/status 与 /help 输出状态和帮助；/model、/reasoning 在对话结果中列出选项；/new 与 /worktree 在对话中确认并保留草稿，不自动发送或创建。命令结果仅保留在当前页面会话中，不作为模型上下文。Skill 选择后显示可移除标签，发送前重新核验；来源快照禁止同时选 Skill。↑/↓ 选择、Enter 执行候选、Esc 关闭候选、Tab 正常切换焦点，输入法组合期间不截获回车。完整命令点击发送也会本地执行。未知文本可关闭候选后作为普通问题发送，不执行原生命令。',
       },
       {
         title: '切换到 OpenClaw 工作区',

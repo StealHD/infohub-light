@@ -9,55 +9,145 @@
       "kind": "directory",
       "managed": false,
       "path": "docs/contracts/architecture",
-      "watch": []
+      "watch": [
+        "src/**",
+        "frontend/src/app/**",
+        "frontend/src/api/**",
+        "frontend/src/features/openclaw/**",
+        "frontend/src/features/agent-workspace/**",
+        "integrations/openclaw/**",
+        "scripts/migrate_*.py",
+        "scripts/repair_*.py",
+        "scripts/retire_*.py",
+        "scripts/runtime_health.py",
+        "scripts/up-latest.sh",
+        "scripts/release*.sh",
+        "Dockerfile",
+        "docker-compose*.yml",
+        "deploy/*.compose.yml"
+      ]
     },
     "capabilities": {
       "kind": "file",
       "managed": false,
       "path": "project-defaults.yaml",
-      "watch": []
+      "watch": [
+        "src/services/config_runtime.py",
+        "src/services/user_config_builder.py",
+        "src/services/system_settings*.py",
+        "src/mcp/remote_config.py",
+        "src/config_migration.py",
+        "src/tag_policy.py",
+        ".env.example"
+      ]
     },
     "context": {
       "kind": "file",
       "managed": false,
       "path": "AGENTS.md",
-      "watch": []
+      "watch": [
+        "project-controls.json",
+        "project-controls-policy.json",
+        ".agents/skills/**",
+        "docs/contracts/*/README.md",
+        "docs/decisions/README.md"
+      ]
     },
     "decisions": {
       "kind": "directory",
       "managed": false,
       "path": "docs/decisions",
-      "watch": []
+      "watch": [
+        "AGENTS.md",
+        "PLAN.md",
+        "project-controls.json",
+        "project-controls-policy.json",
+        "project-defaults.yaml",
+        "docs/contracts/**",
+        "docs/dev/test-gate.md",
+        "docs/dev/observability-logging.md"
+      ]
     },
     "instructions": {
       "kind": "file",
       "managed": false,
       "path": "AGENTS.md",
-      "watch": []
+      "watch": [
+        "project-controls.json",
+        "project-controls-policy.json",
+        ".agents/skills/**"
+      ]
     },
     "interface": {
       "kind": "directory",
       "managed": false,
       "path": "docs/contracts/api",
-      "watch": []
+      "watch": [
+        "src/api/**",
+        "src/mcp/remote_*.py",
+        "src/models.py",
+        "src/services/feed_payload.py",
+        "src/services/content_presentation.py",
+        "src/services/user_content_store.py",
+        "src/services/feed_snapshot_runtime.py",
+        "src/storage/**",
+        "scripts/migrate_*.py",
+        "frontend/src/api/**",
+        "integrations/openclaw/**"
+      ]
     },
     "observability": {
       "kind": "file",
       "managed": false,
       "path": "docs/dev/observability-logging.md",
-      "watch": []
+      "watch": [
+        "src/logging_utils.py",
+        "src/observability_context.py",
+        "src/services/operation_log.py",
+        "scripts/check_observability_contract.py",
+        "scripts/test_gate_log.py"
+      ]
     },
     "phase": {
       "kind": "file",
       "managed": false,
       "path": "PLAN.md",
-      "watch": []
+      "watch": [
+        "project-defaults.yaml"
+      ]
     },
     "ui": {
       "kind": "directory",
       "managed": false,
       "path": "docs/contracts/ui",
-      "watch": []
+      "watch": [
+        "frontend/src/**",
+        "frontend/e2e/**",
+        "frontend/index.html",
+        "frontend/*config*",
+        "frontend/package*.json",
+        "frontend/scripts/check-ui-contract.mjs",
+        ".agents/skills/inteliscope-ui/**"
+      ]
+    },
+    "verification": {
+      "kind": "file",
+      "managed": false,
+      "path": "docs/dev/test-gate.md",
+      "watch": [
+        "scripts/test_gate*.py",
+        "scripts/check_*.py",
+        "scripts/code_size*",
+        "scripts/release*.sh",
+        "scripts/up-latest.sh",
+        "scripts/runtime_health.py",
+        "tests/test_impact_map.json",
+        "tests/code_size_policy.json",
+        "tests/test_test_gate.py",
+        "tests/test_markdown_controls.py",
+        ".github/workflows/test-gate.yml",
+        ".github/workflows/release-tag.yml"
+      ]
     }
   },
   "worklog": {

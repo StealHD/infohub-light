@@ -17,11 +17,11 @@ function workspace(result: { runStarted: boolean }) {
   } as unknown as OpenClawWorkspaceController
 }
 
-function Harness({ controller }: { controller: OpenClawWorkspaceController }) {
+function Harness({ controller, inline = false }: { controller: OpenClawWorkspaceController; inline?: boolean }) {
   const [open, setOpen] = useState(true)
   return <MemoryRouter><DesignSystemProvider>
     <button type="button" onClick={() => setOpen(true)}>重新打开</button>
-    <AgentWorktreeDialog open={open} onOpenChange={setOpen} workspace={controller} onCreated={vi.fn()} />
+    <AgentWorktreeDialog inline={inline} open={open} onOpenChange={setOpen} workspace={controller} onCreated={vi.fn()} />
   </DesignSystemProvider></MemoryRouter>
 }
 
@@ -61,4 +61,23 @@ describe('Agent Worktree dialog state machine', () => {
     expect(calls[0][2]).toBe(calls[1][2])
     expect(vi.mocked(controller.createWorktreeSession)).toHaveBeenCalledOnce()
   })
+})
+
+it('creates inline without a dialog and retains the form and one request during pending', async () => {
+  const browser = userEvent.setup()
+  const controller = workspace({ runStarted: true })
+  let resolve!: (value: { sessionKey: string; runStarted: boolean; runId: string }) => void
+  vi.mocked(controller.createWorktreeSession).mockImplementation(() => new Promise((done) => { resolve = done }))
+  render(<Harness controller={controller} inline />)
+  await screen.findByRole('button', { name: /main.*基础分支/u })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  const title = screen.getByLabelText('任务标题')
+  await browser.type(title, 'Inline task')
+  await browser.type(screen.getByLabelText('完整提示词'), 'Implement it')
+  await browser.dblClick(screen.getByRole('button', { name: '确认创建' }))
+  expect(controller.createWorktreeSession).toHaveBeenCalledOnce()
+  expect(screen.getByLabelText('任务标题')).toBe(title)
+  expect(screen.getByRole('button', { name: '取消' })).toBeDisabled()
+  resolve({ sessionKey: 'child', runStarted: true, runId: 'run' })
+  await waitFor(() => expect(screen.queryByLabelText('任务标题')).not.toBeInTheDocument())
 })

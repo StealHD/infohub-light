@@ -2,6 +2,12 @@ import type { OpenClawSetupIssue } from '../openclawContracts'
 import { GatewayRequestError } from '../openclawGateway'
 import { isOpenClawSessionLabelConflict } from '../openclawSession'
 
+export class MissingOpenClawCredentialError extends Error {
+  constructor() {
+    super('当前地址尚未配对。请填写 OpenClaw Gateway token，完成首次连接。')
+  }
+}
+
 export function runtimeFailureMessage(error: unknown, action: 'load' | 'switch'): string {
   const raw = error instanceof Error ? error.message : String(error)
   const fingerprint = raw.toLowerCase()
@@ -29,6 +35,7 @@ export function isMissingOpenClawSession(error: unknown): boolean {
 }
 
 export function setupIssue(error: unknown): OpenClawSetupIssue {
+  if (error instanceof MissingOpenClawCredentialError) return { kind: 'auth', message: error.message }
   const gatewayError = error instanceof GatewayRequestError
   const code = gatewayError ? error.code.toUpperCase() : ''
   const message = error instanceof Error ? error.message : String(error)

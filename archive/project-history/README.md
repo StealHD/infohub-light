@@ -11,3 +11,5 @@
 | `init-pro/`、`reference/`、`sdd-reports/`、`superpowers/` | 既有规划、审计和参考资料 | 按任务定向读取 |
 
 历史原文以 `git mv` 保留；若需要核对某次迁移，可使用 Git 历史和 SHA-256，而不是复制回活动控制面。
+
+- [2026-09-05 计划原文](control/PLAN-schema3-2026-09-05.md)：init-pro 0.4 维护前的 schema 3 PLAN，保存 ActorOps 已完成阶段与当时的迁移/验证矩阵；当前阶段以根目录 PLAN 为准。

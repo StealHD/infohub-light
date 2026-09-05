@@ -17,7 +17,7 @@ function useOpenClawWorkbenchAdapter(
 ): OpenClawComposerPort {
   const latest = useRef(value)
   useEffect(() => { latest.current = value }, [value])
-  const commands = useComposerCommands(chat)
+  const commands = useComposerCommands(chat, value)
   return {
     ...commands,
     selectedSkill: value.draft.selectedSkill,

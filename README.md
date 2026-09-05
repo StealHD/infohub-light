@@ -66,7 +66,7 @@ started or forces removal of an image still referenced by a container. Set
 
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), log in, create or subscribe to a source, and select “获取新内容”.
 
-When this command runs from a linked task Worktree, it builds that Worktree and mounts `.env`, `data`, and `logs` from the primary checkout resolved through Git's common directory. Use `--runtime-root /absolute/path` only to select another runtime intentionally, and `--dry-run` to inspect the resolved roots without calling Docker. The authoritative completion and migration-safety rules are in [AGENTS.md](AGENTS.md#6-verification). Production images do not contain `.env`, `service.db`, `data/config.json`, logs, or backups.
+When this command runs from a linked task Worktree, it builds that Worktree and mounts `.env`, `data`, and `logs` from the primary checkout resolved through Git's common directory. Use `--runtime-root /absolute/path` only to select another runtime intentionally, and `--dry-run` to inspect the resolved roots without calling Docker. The authoritative completion and migration-safety rules are in the [runtime and migration contract](docs/contracts/architecture/jobs-notifications-runtime-migrations.md#310-runtime--migration-boundary). Production images do not contain `.env`, `service.db`, `data/config.json`, logs, or backups.
 API and Worker runtime/operation logs are private UTC-rotated JSONL files with a 30-day default retention. See the [diagnostic logging developer guide](docs/dev/observability-logging.md); logs are never rendered in the frontend.
 
 The default Service UI is the React three-column radar. For frontend development:

@@ -8,8 +8,8 @@ export type OpenClawComposerPort = {
   selectedSkill?: OpenClawSkillSelection
   materials?: { id: string; title: string }[]
   selectSkill?: (skill: OpenClawSkillSelection | undefined, question: string) => void
-  command?: (command: ComposerCommand, question: string) => void
-  dialogs?: ReactNode
+  command?: (command: ComposerCommand, question: string) => boolean
+  commandEntries?: { id: string; afterMessageId?: string; content: ReactNode }[]
   question: string
   itemCount: number
   snapshot: { sourceName: string; itemCount: number } | null

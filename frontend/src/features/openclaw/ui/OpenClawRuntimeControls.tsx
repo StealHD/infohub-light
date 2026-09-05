@@ -43,7 +43,7 @@ function groupModelsByProvider(models: OpenClawModelOption[]) {
   return groups
 }
 
-export function OpenClawRuntimeControls({ chat, picker, onPickerClose, variant = 'compact' }: { chat: ChatController; variant?: 'compact' | 'workspace'; picker?: 'model' | 'reasoning' | null; onPickerClose?: () => void }) {
+export function OpenClawRuntimeControls({ chat, variant = 'compact' }: { chat: ChatController; variant?: 'compact' | 'workspace' }) {
   const thinkingDescriptionId = useId()
   const currentModel = chat.models.find((model) => model.id === chat.runtimeSelection.modelId)
   const currentThinking = chat.thinkingOptions.find((option) => option.id === chat.runtimeSelection.thinkingLevel)
@@ -72,7 +72,7 @@ export function OpenClawRuntimeControls({ chat, picker, onPickerClose, variant =
   ]
 
   if (variant === 'workspace') return <Suspense fallback={<div className="flex min-w-0 justify-end"><button type="button" disabled className="effort-picker-trigger type-control">选择思考</button></div>}>
-    <WorkspaceRuntimeControls chat={chat} picker={picker} onPickerClose={onPickerClose} />
+    <WorkspaceRuntimeControls chat={chat} />
   </Suspense>
 
   return <div
@@ -82,8 +82,6 @@ export function OpenClawRuntimeControls({ chat, picker, onPickerClose, variant =
     <OpenClawContextUsageIndicator usage={chat.contextUsage} />
 
     <Select
-      isOpen={picker === 'model' ? true : undefined}
-      onOpenChange={(open) => { if (!open) onPickerClose?.() }}
       aria-label={`OpenClaw 模型：${modelLabel}`}
       selectedKey={chat.runtimeSelection.modelId ?? undefined}
       onSelectionChange={(key: Key | null) => {
@@ -125,8 +123,6 @@ export function OpenClawRuntimeControls({ chat, picker, onPickerClose, variant =
 
     <div className="shrink-0" title={thinkingUnavailableReason || undefined}>
       <Select
-        isOpen={picker === 'reasoning' ? true : undefined}
-        onOpenChange={(open) => { if (!open) onPickerClose?.() }}
         aria-label={`OpenClaw 思考程度：${thinkingLabel}`}
         selectedKey={chat.runtimeSelection.thinkingLevel ?? AUTO_THINKING_KEY}
         onSelectionChange={(key: Key | null) => {

@@ -1,52 +1,47 @@
-import { useState } from 'react'
-import { Button, Modal, StableAsyncButton, actionToast } from '../../../design-system'
-import { AgentUseCasesDialog } from '../../agent-workspace/AgentUseCasesDialog'
-import { AgentWorktreeDialog } from '../../agent-workspace/AgentWorktreeDialog'
-import { GatewayWriteTrustDialog } from '../../agent-workspace/GatewayWriteTrustDialog'
+import { useRef, useState } from 'react'
+import type { WorkbenchAgentContextValue } from '../../workbench-live/workbenchAgentContext'
 import type { OpenClawChatController } from '../openclawContracts'
+import { OpenClawCommandResult, type OpenClawCommandRecord } from '../ui/OpenClawCommandResult'
 import type { ComposerCommand } from '../ui/openclawShortcuts'
 
-export function useComposerCommands(chat: OpenClawChatController) {
-  const [dialog, setDialog] = useState<ComposerCommand | 'trust' | null>(null)
+function commandSummary(command: ComposerCommand, chat: OpenClawChatController) {
+  const model = chat.models.find((item) => item.id === chat.runtimeSelection.modelId)?.name ?? '暂无可信模型信息'
+  const thinking = chat.thinkingOptions.find((item) => item.id === chat.runtimeSelection.thinkingLevel)?.label ?? '自动'
+  switch (command) {
+    case 'status': return `当前对话状态\n连接：${chat.status === 'connected' ? 'Gateway 已连接' : 'Gateway 未连接'}\n模型：${model}\n推理档位：${thinking}\n运行：${chat.isRunning ? '正在运行' : '空闲'}\n上下文用量：${chat.contextUsage ? `${chat.contextUsage.usedTokens} / ${chat.contextUsage.contextTokens}` : '暂无可信用量'}`
+    case 'help': return '快捷输入：@ 引用 Skill 或材料；/ 查看命令。命令结果显示在对话中，不发送给模型。'
+    case 'skills': return '可用 Skills'
+    case 'model': return `当前模型：${model}`
+    case 'reasoning': return `当前推理档位：${thinking}`
+    case 'new': return '新建对话？建立独立的新对话，不删除原会话；未发送的问题、材料、Skill 和图片会保留。'
+    case 'worktree': return '在对话中准备独立 Worktree 任务，确认前不会创建或启动任务。'
+  }
+}
+
+export function useComposerCommands(chat: OpenClawChatController, value: WorkbenchAgentContextValue) {
+  const [records, setRecords] = useState<OpenClawCommandRecord[]>([])
   const [trusted, setTrusted] = useState('')
-  const [prompt, setPrompt] = useState('')
+  const busy = useRef(false)
   const scope = chat.workspace.skillScope?.()
   const connection = JSON.stringify([chat.gatewayUrl, scope?.generation, chat.status])
-  const close = (open: boolean) => { if (!open) setDialog(null) }
+  const context = JSON.stringify([connection, chat.sessionKey, value.draft.userId])
+  const visible = records.filter((record) => record.scope === context)
   function command(next: ComposerCommand, question: string) {
-    if (next === 'worktree') {
-      const caps = chat.workspace.capabilities()
-      if (!['sessions.create', 'projects.list', 'worktrees.branches'].every((method) => caps[method as keyof typeof caps])) {
-        actionToast.warning('当前 Gateway 不支持 Worktree 创建'); return
-      }
-      if (trusted !== connection) { setDialog('trust'); return }
-      setPrompt(question)
-    }
-    setDialog(next)
+    if (busy.current) return false
+    setRecords((current) => [...current.slice(-19), { id: crypto.randomUUID(), scope: context, afterMessageId: chat.messages.at(-1)?.id, command: next, question, summary: commandSummary(next, chat) }])
+    return true
   }
-  const dialogs = <>
-    <AgentUseCasesDialog open={dialog === 'help'} onOpenChange={close} />
-    <GatewayWriteTrustDialog open={dialog === 'trust'} gatewayUrl={chat.gatewayUrl} onOpenChange={close} onConfirm={() => setTrusted(connection)} />
-    <AgentWorktreeDialog open={dialog === 'worktree' && trusted === connection} onOpenChange={close} workspace={chat.workspace} initialPrompt={prompt} onCreated={() => setDialog(null)} />
-    <Modal isOpen={dialog === 'new' || dialog === 'status'} onOpenChange={close}>
-      <Modal.Backdrop><Modal.Container size="sm"><Modal.Dialog>
-        <Modal.Header><Modal.Heading>{dialog === 'new' ? '新建对话？' : '当前对话状态'}</Modal.Heading></Modal.Header>
-        <Modal.Body>
-          {dialog === 'new' ? <p className="type-body">建立独立的新对话，不删除原会话；未发送的问题、材料、Skill 和图片会保留。</p> : <dl className="type-body grid gap-3">
-            <div><dt>连接</dt><dd>{chat.status === 'connected' ? 'Gateway 已连接' : 'Gateway 未连接'}</dd></div>
-            <div><dt>模型</dt><dd className="[overflow-wrap:anywhere]">{chat.models.find((item) => item.id === chat.runtimeSelection.modelId)?.name ?? '暂无可信模型信息'}</dd></div>
-            <div><dt>运行</dt><dd>{chat.isRunning ? '正在运行' : '空闲'}</dd></div>
-            <div><dt>上下文用量</dt><dd>{chat.contextUsage ? `${chat.contextUsage.usedTokens} / ${chat.contextUsage.contextTokens}` : '暂无可信用量'}</dd></div>
-          </dl>}
-        </Modal.Body>
-        <Modal.Footer><Button variant="ghost" onPress={() => close(false)}>{dialog === 'new' ? '取消' : '关闭'}</Button>
-          {dialog === 'new' && <StableAsyncButton pending={chat.runtimeUpdating} pendingContent="正在新建…" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={async () => {
-            if (await chat.newConversation()) setDialog(null)
-            else actionToast.warning('新对话未建立，原会话和草稿仍保留。')
-          }}>确认新建</StableAsyncButton>}
-        </Modal.Footer>
-      </Modal.Dialog></Modal.Container></Modal.Backdrop>
-    </Modal>
-  </>
-  return { command, dialogs }
+  const commandEntries = visible.map((record) => ({
+    id: record.id, afterMessageId: record.afterMessageId,
+    content: <OpenClawCommandResult record={record} chat={chat} active={record.id === visible.at(-1)?.id} snapshot={Boolean(value.draft.sourceSnapshot)} trusted={trusted === connection}
+      onBusy={(pending) => { busy.current = pending }}
+      onTrust={() => setTrusted(connection)}
+      onDone={(outcome) => setRecords((current) => current.map((item) => item.id === record.id ? { ...item, outcome } : item))}
+      onSelect={(skill) => {
+        value.restoreComposer(value.draft.question, value.draft.items, value.draft.sourceSnapshot, skill)
+        setRecords((current) => current.map((item) => item.id === record.id ? { ...item, outcome: `已选择 ${skill.name}，下一条消息会使用此 Skill。` } : item))
+        document.querySelector<HTMLElement>('[data-testid="openclaw-composer-textarea"]')?.focus()
+      }} />,
+  }))
+  return { command, commandEntries }
 }
