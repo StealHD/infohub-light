@@ -8,105 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复新用户订阅已有 workspace/public 来源后近 7 天 Feed 为空：可证明 title_origin=native 的旧稳定条目不再因缺 source_native_title 被跳过，没有安全用户供体时回退到同 workspace 中性来源缓存；托管来源准备启用时也先完成零网络目标订阅投影。",
-  "status": "completed",
-  "task_id": "2026-09-01-existing-source-new-subscriber-reuse",
-  "unresolved": [
-    "尚未部署或修改 VPS；修复保留在 codex/fix-youtube-source-label 工作区，等待用户确认后续合入与发布。"
-  ],
-  "validation": [
-    "新增合成回归覆盖来源缓存无用户供体、托管来源暂时停用、旧条目缺 source_native_title 但原始标题可证明三条路径，定向 Pytest 7/7 通过。",
-    "既有订阅复用、API、Feed Store 与 import boundary 回归 35 项通过；本地真实数据库只读聚合确认 235 条旧记录中 176 条具备可信 native title 证明。",
-    "snapshot full preflight 16/16 通过，覆盖完整后端、前端、控制检查、代码尺寸和映射 E2E，SQLite 连接警告为 0。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "将 YouTube 来源名称、社交标签去重、卡片复制/忽略与展开反馈、以及新用户订阅已有来源的安全内容回填合入本地 main，并整理为 v2.6.6 正式发布版本。",
-  "status": "completed",
-  "task_id": "2026-09-01-release-v2-6-6",
-  "unresolved": [],
-  "validation": [
-    "合并后的本地 main 为干净线性历史，功能修复 snapshot full preflight 16/16 通过。",
-    "版本与 uv lock 同步为 2.6.6；版本准备 snapshot full preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与映射 E2E，SQLite 连接警告为 0。",
-    "本次没有数据库 migration 文件或 schema delta，适用标准 revision-locked VPS 发布流程。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复 v2.6.6 首次 main UI Gate 暴露的卡片交互回归：带缩略图卡片的复制/忽略按钮改为位于图片左侧并恢复顶部对齐，不再增加卡片高度；悬停交互测试在提示检查后重新激活卡片再点击。",
-  "status": "completed",
-  "task_id": "2026-09-01-release-v2-6-6-ui-gate-fix",
-  "unresolved": [],
-  "validation": [
-    "首次失败的 production-workbench 桌面 Playwright 7/7 通过，覆盖 320/390/645/1024/1440px 操作反馈及 1440x900 至少四张完整卡片。",
-    "VirtualFeed 定向 Vitest 37/37、TypeScript、UI 契约通过；snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与控制检查。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复 public/workspace 来源只写入触发用户的问题：成功 source_fetch 现会在同一事务向全部有效非 Viewer 订阅者生成各自的 Feed 投影；中性缓存默认开启，新订阅优先缓存并安全回退稳定内容，最多 200 条。",
-  "status": "completed",
-  "task_id": "2026-09-01-public-source-content-sharing",
-  "unresolved": [
-    "未合并、未推送或部署 VPS；发布后需对已有 X 来源执行一次正常成功抓取以补齐现有缺失的近期条目。"
-  ],
-  "validation": [
-    "公共来源 fan-out、private/Viewer 隔离、缓存优先回填、catalog runner 接线与系统默认值定向 Pytest 22 项通过。",
-    "完整 impacted preflight 16/16 通过：Python 全量、前端 lint/typecheck/Vitest 694 项、构建、UI/控制/代码规模检查全部成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-02",
-  "result": "修复公共来源成功抓取后的通知差集：后续 fan-out 快照不再覆盖任务基线，同一 source_fetch 的可信订阅身份可补齐中性共享内容缺失的 provenance，并保留共享历史不补发语义。",
-  "status": "completed",
-  "task_id": "2026-09-02-fix-public-source-notification-fanout",
-  "unresolved": [
-    "尚未部署 VPS；生产历史漏发内容按现有通知水位合同不自动补发。"
-  ],
-  "validation": [
-    "新增公共来源抓取→任务快照→真实 fan-out→通知 outbox 集成回归，生产代码先稳定复现 0 条，修复后精确生成 1 条 pending delivery。",
-    "通知、公共共享/复用与 Catalog runner 定向 Pytest 67 项通过；更新日志 Vitest 5 项、TypeScript、ESLint、编译和代码规模检查通过。",
-    "impacted preflight 14/14 通过；本地唯一共享 Telegram 服务执行一次真实 smoke，返回 provider_accepted。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -416,6 +317,115 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Agent 与快捷输入四尺寸浏览器批次 51 通过、21 条件跳过并正常退出；现有页面的桌面、平板、移动端回归分批补齐，失败项均定向复验通过。串行执行重型门禁，不把中断或未运行用例计作通过。",
     "Mac 固定时间页头桌面/平板普通比较 2 项通过；Linux 关闭外网的生产构建上，ActorOps 触控、页头、订阅深浅主题、登录深浅主题 4 项普通视觉比较通过；保留焦点、Axe、无溢出与交互断言。",
     "up-latest.sh 从任务 worktree 构建并更新本地 API/Worker，保留旧镜像。健康检查确认 revision 3e9524f9a7d4-dirty-6df2f716e765、双容器 healthy、前端资源 index-wwJRK93U.js 已提供；生产 Gateway 未参与测试。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "context",
+    "decisions",
+    "instructions",
+    "phase",
+    "verification"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "采用 init-pro 0.4 增量维护：按需 PLAN、10 主题 watch 和显式索引 policy；统一验证真源，旧计划原文归档，默认入口字节减少 62.1%。",
+  "status": "completed",
+  "task_id": "2026-09-05-init-pro-04-controls",
+  "unresolved": [],
+  "validation": [
+    "init-pro 0.4 audit/check、兼容结构/WORKLOG/JSON 校验通过；Markdown 控制测试 6 项通过。",
+    "8 组模拟 diff 路由、10 主题 watch 覆盖及历史排除通过；243 个文档链接与 4 项索引负向夹具通过。",
+    "旧 PLAN 与任务基线逐字节一致；轮转涉及的既有 22 条 WORKLOG 记录完整保留，整个 compact namespace 共 407 条且结构有效。",
+    "基于 736ed01b 任务 snapshot 的最终 impacted preflight 16/16 通过，覆盖完整后端/前端代码域；SQLite 连接警告为 0，用时约 432 秒。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复 / Skills 子菜单无法返回：提供返回/关闭入口、空搜索退格返回并清除过期模式；恢复草稿光标时避免延迟竞态，同步手册与更新日志。按用户要求用本地后端运行，不重建 Docker。",
+  "status": "completed",
+  "task_id": "2026-09-05-composer-skills-return",
+  "unresolved": [],
+  "validation": [
+    "任务 snapshot 范围 diff 已审查；保留此前控制面修改，修复限于快捷菜单、直接回归与产品说明。",
+    "快捷输入 Vitest 12 项通过；最终快捷菜单 Playwright 17 项通过、4 项按视口跳过，覆盖三种视口、320px 侧栏、浅色缩放、焦点、Axe 与无真实 Gateway 写入。",
+    "最终 impacted preflight 14/14 通过（control、frontend_full、python_api_store），耗时约 311 秒，SQLite 连接警告 0；policy check 与 Markdown/WORKLOG 结构校验通过。",
+    "原生后端在 127.0.0.1:8081 运行目标 Worktree，共用既有运行目录并匹配 SQLite DELETE 模式；live、ready、/agent 均 HTTP 200，已提供修复的静态资源且与构建逐字节一致；未重建 Docker。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复新地址未配对时被误报为 Gateway token 失效的问题，并同步本地配套服务与首次连接说明；Gateway 保留已有来源并允许 8081/5173，本地前端固定代理目标 worktree 的 8081 后端，未重建 Docker。",
+  "status": "partial",
+  "task_id": "2026-09-05-local-gateway-first-pairing",
+  "unresolved": [
+    "等待用户在新地址用本机 Gateway token 完成首次配对并确认真实连接；代码与本地运行环境验证已完成。"
+  ],
+  "validation": [
+    "任务 snapshot 范围 diff 已审查；新增配对 Vitest 4 项、Playwright 三种视口 3 项通过，未发送真实聊天。",
+    "impacted preflight 14/14 通过，覆盖 control、frontend_full、python_api_store，耗时 454.647 秒，SQLite 连接警告 0。",
+    "8081 与 5173 的 /agent、live、ready 均 HTTP 200；8081 提供的脚本与目标 worktree 构建一致且含新提示。",
+    "Gateway RPC 健康、精确来源已生效；浏览器实测无凭据重连显示首次配对说明。未读取或轮换 token，未迁移其他来源凭据。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "按用户要求将 / 命令结果放入对话时间线：Skills、状态与帮助直接输出，模型/推理选项和新建/Worktree 确认行内展示；移除 Skills 子菜单及命令触发的设置弹窗，保留 @ 引用、草稿和既有写入保护，同步 UI 合同、D207 与产品说明。",
+  "status": "completed",
+  "task_id": "2026-09-05-inline-slash-commands",
+  "unresolved": [],
+  "validation": [
+    "任务 snapshot /tmp/infohub-inline-commands-impact.json 已建立；审查任务范围源码、回归与合同 diff。",
+    "定向组件测试通过，覆盖命令发现、技能选择、精确命令 Send/Enter、草稿保留、模型防重入与失败、上下文隔离、命令结果排除模型请求，以及行内 Worktree 创建和原 Session 重试。",
+    "受控 Gateway 浏览器验收 43 项通过、14 项按视口或场景跳过，覆盖桌面/平板/手机、320px Feed 侧栏、浅色缩放、Reduced Motion 与 Axe；未执行真实 Gateway 写入。",
+    "最终 impacted preflight 14/14 通过（356.064 秒），前端 125 个文件、837 项测试通过，SQLite 连接警告 0；UI 静态、ESLint、Markdown 与 init-pro policy check 通过。",
+    "最终 Skills 输出与 Worktree 确认浏览器复验 6/6 通过；额外只读命令发送和行内表单锁定定向测试通过。",
+    "8081 进程仍来自 codex/agent-workspace-pr；/agent、live、ready 均 HTTP 200，对话脚本与本次构建逐字节一致且包含行内命令输出。内置浏览器尚未配对，真实连接未代验；未重建 Docker，未切换 UI 分支。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "instructions",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-06",
+  "result": "将 codex/agent-workspace-pr 的 Agent Workspace 基础、项目约束维护、斜杠命令内联结果与配对修复整合至本地 main；不纳入独立 UI 分支改动。",
+  "status": "partial",
+  "task_id": "2026-09-06-merge-agent-workspace-pr-local-main",
+  "unresolved": [
+    "待完成完整差异审查、相关测试和 impacted preflight，再提交并快进本地 main。",
+    "共享 Gateway 用户隔离尚未实现，不属于本次合并完成声明。"
+  ],
+  "validation": [
+    "已记录来源 736ed01b 与 main 3e9524f9；main 工作区干净且可快进。",
+    "init-pro audit/check/context、Markdown 结构、WORKLOG 和三项 JSON 校验通过。"
   ]
 }
 ```

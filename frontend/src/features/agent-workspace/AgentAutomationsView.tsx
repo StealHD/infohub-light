@@ -7,7 +7,7 @@ import {
 import type { OpenClawChatController } from '../openclaw'
 import type { OpenClawAutomation, OpenClawAutomationDraft, OpenClawAutomationRun, OpenClawAutomationSchedule } from '../openclaw/admin/OpenClawAdminSessionController'
 import { AdminAuthorizationDialog, AdminConnectedNotice } from './OpenClawAdminAuthorization'
-import { projectAutomationDraft } from './agentAutomationDraft'
+import { automationLocalTime, projectAutomationDraft } from './agentAutomationDraft'
 import { useOpenClawAdminSession } from './useOpenClawAdminSession'
 
 type ScheduleKind = OpenClawAutomationSchedule['kind']
@@ -77,7 +77,7 @@ export function AgentAutomationsView({ chat }: { chat: OpenClawChatController })
       return
     }
     setName(target.name); setMessage(target.message); setScheduleKind(target.schedule.kind)
-    if (target.schedule.kind === 'at') setAt(new Date(target.schedule.at).toISOString().slice(0, 16))
+    if (target.schedule.kind === 'at') setAt(automationLocalTime(target.schedule.at))
     if (target.schedule.kind === 'every') setEveryMinutes(String(target.schedule.everyMs / 60_000))
     if (target.schedule.kind === 'cron') { setCronExpr(target.schedule.expr); setTimezone(target.schedule.tz) }
   }

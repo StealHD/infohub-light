@@ -60,6 +60,7 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
     && !(composer.snapshot && composer.selectedSkill)
 
   async function send() {
+    if (shortcuts.submitCommand()) return
     if (!canSend || chat.isRunning || sendLatch.current) return
     sendLatch.current = true
     try { if (await composer.send(attachmentState.attachments)) attachmentState.markSent() }
@@ -143,11 +144,11 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
               : '添加图片'}</Tooltip.Content>
         </Tooltip>
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" aria-label="选择图片" onChange={onImageInput} />
-        <OpenClawRuntimeControls chat={chat} picker={shortcuts.picker} onPickerClose={shortcuts.closePicker} />
+        <OpenClawRuntimeControls chat={chat} />
         <Tooltip delay={250}>
           <TooltipTriggerButton
             aria-label={chat.isRunning ? '停止生成' : '发送给 OpenClaw'}
-            disabled={chat.isRunning ? chat.isStopping : !canSend || chat.status !== 'connected'}
+            disabled={chat.isRunning ? chat.isStopping : (!canSend && !shortcuts.hasExactCommand) || chat.status !== 'connected'}
             pending={chat.isRunning ? chat.isStopping : false}
             onClick={chat.isRunning ? () => chat.stop() : send}
             className="size-9 shrink-0 rounded-full bg-accent text-accent-foreground hover:bg-accent-hover"
@@ -164,7 +165,6 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
     </PromptInput>
     {shortcuts.issue && <p role="status" className="type-meta text-warning">{shortcuts.issue}</p>}
     {shortcuts.suggestions}
-    {composer.dialogs}
     <ImageGalleryModal
       isOpen={previewIndex !== null}
       heading="待发送图片"

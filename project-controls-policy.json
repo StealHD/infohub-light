@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "scan": {
+    "exclude_globs": [
+      "data/**",
+      "logs/**",
+      ".test-results/**",
+      ".cache/**",
+      "frontend/dist/**",
+      "frontend/node_modules/**"
+    ],
+    "history_globs": [
+      "archive/**",
+      "archives/**"
+    ]
+  },
+  "indexes": [
+    {
+      "path": "docs/contracts/api/README.md",
+      "members": [
+        "docs/contracts/api/*.md"
+      ]
+    },
+    {
+      "path": "docs/contracts/architecture/README.md",
+      "members": [
+        "docs/contracts/architecture/*.md"
+      ]
+    },
+    {
+      "path": "docs/contracts/ui/README.md",
+      "members": [
+        "docs/contracts/ui/*.md"
+      ]
+    },
+    {
+      "path": "docs/decisions/README.md",
+      "members": [
+        "docs/decisions/records/*.md"
+      ],
+      "id_pattern": "^### (D[0-9]+)\\b"
+    }
+  ]
+}

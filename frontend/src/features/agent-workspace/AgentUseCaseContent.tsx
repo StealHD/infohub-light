@@ -1,5 +1,5 @@
 const examples = [
-  { title: '快捷输入：@ 与 /', steps: '输入 @ 搜索可调用 Skill 或已附带材料；也可输入 /skills 或 /加技能名称。上下键选择，Enter 确认但不发送，Esc 关闭，Tab 继续切换焦点。', result: 'Skill 标签表示“本次请求使用该 Skill”，点击发送才重新核验并请求调用。/new 需确认且保留草稿；/model、/reasoning 打开现有选择器；/worktree 预填问题但不创建；/status 与 /help 只查看信息。来源快照禁止同时调用 Skill。' },
+  { title: '快捷输入：@ 与 /', steps: '输入 @ 选择 Skill 或材料，输入 / 查看命令；上下键选择，Enter 执行，Esc 关闭候选，Tab 正常切换焦点。/skills 把列表输出到对话中，输入框不会进入技能子菜单。', result: '命令结果显示在当前对话中：/status、/help 查看信息，/model、/reasoning 列出选项，/new、/worktree 等待行内确认。选 Skill 不发送，点击发送才核验并调用；来源快照禁止同时调用 Skill。' },
   { title: '对话：整理阅读结论', steps: '在信息流选择一篇文章加入 Agent，再问“总结主要结论，并指出证据不足的地方”。', result: '在对话中看到回答和来源；发送前可以修改问题。' },
   { title: '上下文：核对本次附带的材料', steps: '打开“上下文”，查看从信息流带来的文章或任务，移除不相关的条目。', result: '只改变待发送材料，不会发送消息，也不会删除原文章。' },
   { title: 'Worktree：独立修改项目', steps: '点击侧栏分支图标，选择已注册项目和 main 分支，输入“为登录表单补充校验和测试”，核对后创建。', result: 'Gateway 创建独立工作目录与子会话，父对话保留。此操作会真实修改项目，需要你确认。' },

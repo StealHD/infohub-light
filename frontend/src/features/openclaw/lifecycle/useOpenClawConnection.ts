@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability -- lifecycle refs are imperative controller state */
 import { useCallback, useEffect } from 'react'
 
-import { hasInteliscopeTools, isMissingOpenClawSession, setupIssue } from '../chat/openclawSetupIssue'
+import { hasInteliscopeTools, isMissingOpenClawSession, MissingOpenClawCredentialError, setupIssue } from '../chat/openclawSetupIssue'
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
 import type { OpenClawCredentialVault } from '../openclawCredentialVault'
 import type { OpenClawChatOptions, OpenClawClientPort } from '../openclawContracts'
@@ -97,7 +97,7 @@ async function performOpenClawConnect(
     if (parsed.gatewayUrl !== input.getGatewayUrl()) setGatewayUrl(parsed.gatewayUrl)
     const stored = await input.vault.load(input.options.userId, parsed.gatewayUrl)
     if (!isCurrent()) return false
-    if (!stored && !parsed.bootstrapToken) throw new Error('请输入 OpenClaw Gateway token 完成首次配对。')
+    if (!stored && !parsed.bootstrapToken) throw new MissingOpenClawCredentialError()
     const identity = stored?.identity ?? await generateDeviceIdentity()
     if (!isCurrent()) return false
     const factory = input.options.clientFactory ?? ((clientOptions) => new OpenClawGatewayClient(clientOptions))

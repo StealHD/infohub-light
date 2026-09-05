@@ -65,6 +65,8 @@ Webhook egress 只接受 SecretStore 当前保存并与所选 Provider 精确匹
 member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL userinfo；Worker 必须以 catalog row 而非 job payload 为权威。初始请求和每次 redirect 都必须解析并审核全部地址，随后只连接本次审核通过的字面 IP并保留原 Host/SNI；安全请求使用隔离且 `trust_env=False` 的连接、拒绝压缩响应并执行 2 MB 流式上限。受控 RSSHub row 是单独边界：成员只能提供 allowlisted `site/route_key/params`，运行 origin 只来自管理员配置，Worker 禁止跟随 redirect。除此之外，`owner/admin` 拥有的 source 仍是本地/私网任意 RSS URL 的唯一显式信任边界。
 
 ### 3.10 Runtime / Migration Boundary
+本地 Web 重建必须从目标任务 Worktree 执行 `./scripts/up-latest.sh`，构建该 Worktree 的源码，并通过 Git common directory 解析主 checkout 的 `.env`、`data` 与 `logs`。只有明确使用另一运行目录时才传 `--runtime-root ABSOLUTE_PATH`；不得用临时 Compose override、运行数据 symlink 或从主 checkout 构建来代替。命令通过一个 host-local lock 保护共享 Compose project 和容器；构建前后核对源码摘要，源码中途变化即拒绝启动。
+
 部署单元固定为独立 `horizon-api + horizon-worker`；用户 Feed schedule 内嵌在现有 Worker，不形成第三个进程或容器，也不存在 scheduler profile。发布脚本必须在切换前阻断仍在运行的历史 scheduler 容器，避免旧镜像继续写数据或发送通知。旧 snapshot 到 Feed v2 的清空重建只能由 `scripts/migrate_user_feed_v2.py --apply` 在服务停止后显式执行，应用启动不得自动删除用户数据；未完成迁移时 readiness 和 Feed Worker 都必须拒绝继续。迁移工具已存在不表示真实数据库已执行迁移。
 
 Feed storage v3 使用 `scripts/migrate_feed_storage_v3.py --dry-run|--apply`。apply 前必须停止 Worker；工具以 SQLite backup API 创建 UTC 命名、权限 `0600` 的独立副本，additive 初始化/backfill content hash，执行 retention，并通过 `integrity_check` 与 `foreign_key_check` 后才记录 version 3。Worker maintenance 以持久化小时门禁执行相同 retention，且无论时间/数量阈值都保留每用户/每 acquisition key 最新必要记录。
@@ -83,7 +85,7 @@ Notification channels v15 使用 `scripts/migrate_notification_channels_v15.py -
 
 生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。Inteliscope production image 必须从干净、revision-locked commit 在本机以 `linux/amd64` 构建并验收，压缩归档经校验上传后只在 VPS 执行 `docker load`；禁止在 `vps-tokyo` 对本仓库执行 Docker build。RSSHub 作为单独的 VPS-only 容器加入生产 Compose 网络并只绑定 VPS loopback；VPS 项目使用容器 DNS，本地项目经现有 Nginx 的 HTTPS path prefix 复用同一实例，不使用 SSH tunnel，也不在本地启动第二套 RSSHub。公网入口必须启用 RSSHub `ACCESS_KEY`、关闭该 location 的 access log 并保持容器端口不直接暴露；固定摘要的 `chromium-bundled` 镜像必须显式使用已验证的容器内 Chromium 路径和 RSSHub 非随机 UA，匿名 Bilibili Cookie 只能通过受控刷新脚本写入 SecretStore。匿名参数不构成 Bilibili 可用性保证；连续冷路由出现上游 `-352` 时必须停止高频探测，等待上游窗口恢复或切换第三方实例显式降级。RSSHub 这类 pinned third-party runtime image 可以在 VPS 直接 pull。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；源码发布包必须来自同一干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
 
-本地 `up-latest` 与正式 VPS cutover 只能通过 `scripts/runtime_health.py` 判定运行面完成：目标版本/revision、API ready、Worker ready、API/Worker Docker health、React asset 与适用的公网 revision 必须同时成立。Docker health 为 `starting` 时继续有界等待，只有 `unhealthy` 或超时失败。回滚在旧 API/Worker 重新 healthy 前不得更新 `current` 或报告成功；显式迁移发布必须让 `INTELISCOPE_PRE_MIGRATION_BACKUP` 指向 `$base/data/backups/` 下的非符号链接迁移前副本，旧代码启动前先恢复并校验该数据库。
+本地 `up-latest` 与正式 VPS cutover 只能通过 `scripts/runtime_health.py` 判定运行面完成：目标版本/revision、API ready、Worker ready、API/Worker Docker health、两容器 source digest、React asset 与适用的公网 revision 必须同时成立。Docker health 为 `starting` 时继续有界等待，只有 `unhealthy` 或超时失败。回滚在旧 API/Worker 重新 healthy 前不得更新 `current` 或报告成功；显式迁移发布必须让 `INTELISCOPE_PRE_MIGRATION_BACKUP` 指向 `$base/data/backups/` 下的非符号链接迁移前副本，旧代码启动前先恢复并校验该数据库。
 
 ### 3.11 Content Repair Boundary
 

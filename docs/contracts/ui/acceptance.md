@@ -2,7 +2,7 @@
 
 This file is the sole production UI review checklist. It verifies the laws owned by the UI README, Interaction Constitution, component matrix, and route contracts; it does not redefine them.
 
-Composer shortcuts acceptance additionally covers both Feed and workspace TextAreas: caret-middle insertion, IME, disabled and duplicate Skills, read failure/retry, generation races, source-snapshot exclusion, selection without send, send-time revalidation and retry snapshots. Controlled Gateway browser fixtures must prove no real Gateway writes, new/Worktree cancellation, model/reasoning reuse, route-preserved Skill drafts, 320 px rail and mobile viewport bounds, keyboard focus, Reduced Motion, themes and Axe with the menu open.
+Composer shortcuts acceptance additionally covers both Feed and workspace TextAreas: caret-middle insertion, IME, disabled and duplicate Skills, read failure/retry, generation races, source-snapshot exclusion, selection without send, send-time revalidation and retry snapshots. Controlled Gateway browser fixtures must prove no real Gateway writes, new/Worktree cancellation, inline command output without dialogs or nested Skills menus, exact command Send/Enter parity, scoped local results excluded from chat payload/history, inline model/reasoning and Worktree confirmations, route-preserved Skill drafts, 320 px rail and mobile viewport bounds, keyboard focus, Reduced Motion, themes and Axe with the menu open.
 
 ### 9.1 Required gate order
 
