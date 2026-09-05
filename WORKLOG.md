@@ -409,6 +409,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "93b96fcba36b06667169962fa011e9076dfa1e6f",
   "control_topics": [
     "instructions",
     "interface",
@@ -417,15 +418,17 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-06",
   "result": "将 codex/agent-workspace-pr 的 Agent Workspace 基础、项目约束维护、斜杠命令内联结果与配对修复整合至本地 main；不纳入独立 UI 分支改动。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "2026-09-06-merge-agent-workspace-pr-local-main",
   "unresolved": [
-    "待完成完整差异审查、相关测试和 impacted preflight，再提交并快进本地 main。",
-    "共享 Gateway 用户隔离尚未实现，不属于本次合并完成声明。"
+    "共享 Gateway 用户隔离尚未实现；本次未纳入 codex/agent-workspace-ui 独立改动。"
   ],
   "validation": [
-    "已记录来源 736ed01b 与 main 3e9524f9；main 工作区干净且可快进。",
-    "init-pro audit/check/context、Markdown 结构、WORKLOG 和三项 JSON 校验通过。"
+    "审查 main 3e9524f9 至来源 736ed01b 及暂存改动；修复一次执行 Automation 编辑的 UTC/本地时区偏移，上海和纽约回归各 5 项通过。",
+    "init-pro audit/check/context、Markdown 结构与 6 项控制测试、JSON、WORKLOG、git diff --check 通过；默认上下文 26697→10172 字节，审计候选另经任务范围语义审查。",
+    "定向 Vitest 46 项通过；preflight merge-agent-workspace-pr-20260906 的 control/full 全部 16 项通过，含后端全量、前端 125 文件 840 测试、lint、类型检查及构建。",
+    "相关 Playwright 复跑 59 项通过、21 项条件跳过；首轮工作进程退出超时，独立 tablet 用例通过后单进程复跑正常退出。",
+    "来源由 736ed01b 提交至 93b96fcba36b06667169962fa011e9076dfa1e6f；本地 main 从 3e9524f9a7d4221c2a31c78d531847b145cbb419 快进至同一来源提交。未推送、未重建 Docker。"
   ]
 }
 ```
