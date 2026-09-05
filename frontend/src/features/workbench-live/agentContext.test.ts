@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   INTELISCOPE_HANDOFF_MARKER,
-  buildAgentHandoffPrompt,
   clearAgentContextDraft,
   createAgentSourceSnapshot,
   projectAgentHandoffDisplay,
@@ -11,6 +10,7 @@ import {
   updateAgentContextDraft,
   writeAgentContextDraft,
 } from './agentContext'
+import { buildAgentHandoffPrompt } from './agentHandoffPrompt'
 
 describe('Agent context draft', () => {
   beforeEach(() => window.sessionStorage.clear())

@@ -85,9 +85,16 @@
       ]
     },
     {
+      "id": "Shared Agent composer draft",
+      "globs": ["frontend/src/features/workbench-live/HeroWorkbenchShell.tsx", "frontend/src/features/workbench-live/createWorkbenchAgentValue.ts", "frontend/src/features/workbench-live/agentContext.ts", "frontend/src/features/workbench-live/workbenchAgentContext.ts"],
+      "specs": ["e2e/production-agent-workspace.spec.ts", "e2e/production-agent-shortcuts.spec.ts", "e2e/production-workbench.spec.ts"]
+    },
+    {
       "id": "OpenClaw",
-      "globs": ["frontend/src/features/openclaw/**"],
+      "globs": ["frontend/src/features/openclaw/**", "frontend/src/features/agent-workspace/**", "frontend/e2e/production-agent-workspace.spec.ts", "frontend/e2e/production-agent-shortcuts.spec.ts", "frontend/e2e/fixtures/agent-shortcuts.ts"],
       "specs": [
+        "e2e/production-agent-workspace.spec.ts",
+        "e2e/production-agent-shortcuts.spec.ts",
         "e2e/production-workbench.spec.ts",
         "e2e/production-admin.spec.ts"
       ]

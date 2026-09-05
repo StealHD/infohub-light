@@ -192,6 +192,11 @@ test('ActorOps v2 route card keeps the approved three-viewport visual baseline',
 
   const routeCard = page.locator('[data-actorops-route-card="x"]')
   await expect(routeCard).toBeVisible()
+  if (await page.evaluate(() => matchMedia('(pointer: coarse)').matches)) {
+    const target = await routeCard.getByRole('button', { name: 'Actor 路由更多操作' }).boundingBox()
+    expect(target!.width).toBeGreaterThanOrEqual(44)
+    expect(target!.height).toBeGreaterThanOrEqual(44)
+  }
   await expect(routeCard).toHaveScreenshot('actorops-v2-route-card.png', { animations: 'disabled' })
 })
 

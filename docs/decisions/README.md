@@ -169,21 +169,21 @@
 | D165 | ActorOps v2 站立维护采用双授权、单 Probe 与最后一路保护 | 2026-08-20 | [查看](records/D151-D175.md#d165) |
 | D166 | ActorOps v2 以离线 Route CAS 和逐平台费用授权切流 | 2026-08-20 | [查看](records/D151-D175.md#d166) |
 | D167 | 历史 Actor 费用以保留最坏暴露的离线证据隔离 | 2026-08-21 | [查看](records/D151-D175.md#d167) |
-| D168 | ActorOps v2 管理面采用 additive facade 与默认关闭策略 CAS | 2026-08-21 | [查看](records/D151-D175.md#d168) |
-| D169 | global 26 只接受单一已结算远端 Run 作为旧 Attempt 费用证明 | 2026-08-21 | [查看](records/D151-D175.md#d169) |
-| D170 | 目录社交订阅缺失旧 binding 时以离线 pending bridge 修复 | 2026-08-21 | [查看](records/D151-D175.md#d170) |
-| D171 | 切流只比较当前可执行 revision，并以 settled 来源证明解锁既有 binding | 2026-08-21 | [查看](records/D151-D175.md#d171) |
-| D172 | 实际 Canary 的 AI 字段映射必须逐精确 Revision 证明 | 2026-08-21 | [查看](records/D151-D175.md#d172) |
-| D173 | 可配置 Canary 上限与真实费用证明一致 | 2026-08-21 | [查看](records/D151-D175.md#d173) |
-| D174 | ActorOps v2 管理台以脱敏主备切换与来源证据核验收口 | 2026-08-21 | [查看](records/D151-D175.md#d174) |
-| D175 | ActorOps v2 公开商城快照与替换采用显式费用授权 | 2026-08-21 | [查看](records/D151-D175.md#d175) |
+| D168 | ActorOps v2 additive facade 与关闭默认 | 2026-08-21 | [查看](records/D151-D175.md#d168) |
+| D169 | global 26 单一结算 Run 费用证明 | 2026-08-21 | [查看](records/D151-D175.md#d169) |
+| D170 | 缺失 binding 的离线 pending bridge | 2026-08-21 | [查看](records/D151-D175.md#d170) |
+| D171 | 当前 revision 的 settled 切流证明 | 2026-08-21 | [查看](records/D151-D175.md#d171) |
+| D172 | Canary AI 映射须按 revision 证明 | 2026-08-21 | [查看](records/D151-D175.md#d172) |
+| D173 | Canary 上限与费用证明 | 2026-08-21 | [查看](records/D151-D175.md#d173) |
+| D174 | ActorOps v2 脱敏切换与来源核验 | 2026-08-21 | [查看](records/D151-D175.md#d174) |
+| D175 | ActorOps v2 商城替换显式费用授权 | 2026-08-21 | [查看](records/D151-D175.md#d175) |
 | D176 | ActorOps 以 global 30 完成 v2 单轨运行面 | 2026-08-23 | [查看](records/D176-D200.md#d176) |
 | D177 | OpenClaw 专属架构先行，通用 Agent Core 延后 | 2026-08-22 | [查看](records/D176-D200.md#d177) |
 | D178 | 产品文档按用户影响维护，不以机械 diff 代替审查 | 2026-08-23 | [查看](records/D176-D200.md#d178) |
-| D179 | OpenClaw 订阅覆盖全部用户来源且付费平台先建立停用绑定 | 2026-08-23 | [查看](records/D176-D200.md#d179) |
+| D179 | OpenClaw 全来源订阅与停用付费绑定 | 2026-08-23 | [查看](records/D176-D200.md#d179) |
 | D180 | X 账号订阅默认排除断上下文回复 | 2026-08-24 | [查看](records/D176-D200.md#d180) |
 | D181 | ActorOps 来源级交叉验证与 Repair | 2026-08-24 | [查看](records/D176-D200.md#d181) |
-| D182 | 系统运行参数采用 typed workspace override 与独立 Admin MCP 授权 | 2026-08-24 | [查看](records/D176-D200.md#d182) |
+| D182 | 运行参数 typed override 与 Admin MCP 授权 | 2026-08-24 | [查看](records/D176-D200.md#d182) |
 | D183 | UI 默认继承以组件参数矩阵和语义令牌收口 | 2026-08-24 | [查看](records/D176-D200.md#d183) |
 | D184 | 固定 RSSHub 运行密钥使用用途专用入口 | 2026-08-24 | [查看](records/D176-D200.md#d184) |
 | D185 | 付费平台订阅意图与来源就绪解耦并收紧默认获取量 | 2026-08-25 | [查看](records/D176-D200.md#d185) |
@@ -204,3 +204,6 @@
 | D200 | Actor 套餐适配排序 | 2026-08-31 | [查看](records/D176-D200.md#d200) |
 | D201 | 异步按钮稳定几何 | 2026-09-02 | [查看](records/D201-D225.md#d201) |
 | D202 | UI 宪章 | 2026-09-02 | [查看](records/D201-D225.md#d202) |
+| D203 | Agent 权限隔离 | 2026-09-04 | [查看](records/D201-D225.md#d203) |
+| D204 | OpenClaw 工作区 | 2026-09-04 | [查看](records/D201-D225.md#d204) |
+| D205 | Agent 协议与生命周期 | 2026-09-05 | [查看](records/D201-D225.md#d205) |

@@ -13,6 +13,8 @@ import type {
 import { messageMergeId } from '../storage/openclawTranscriptStore'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
+import { OpenClawSkillValidationError } from '../chat/openclawSkillSelection'
+import { validateOpenClawSkill } from './validateOpenClawSkill'
 
 type TranscriptPort = {
   persist(update: OpenClawChatMessage[] | ((current: OpenClawChatMessage[]) => OpenClawChatMessage[])): OpenClawChatMessage[]
@@ -36,6 +38,7 @@ function prepareOpenClawSend(
   })
   const snapshot: OpenClawSendSnapshot = {
     displayText, gatewayPrompt, contextItems,
+    ...(request.selectedSkill ? { selectedSkill: { ...request.selectedSkill } } : {}),
     ...(request.contextCount !== undefined ? { contextCount: request.contextCount } : {}),
     ...(request.sourceSnapshot ? { sourceSnapshot: request.sourceSnapshot } : {}),
     idempotencyKey, modelId: state.runtimeSelection.modelId,
@@ -70,7 +73,9 @@ export function useOpenClawSendActions(input: {
     const client = input.refs.connection.client
     const sessionKey = input.refs.session.sessionKey
     const agentId = input.refs.session.agentId
-    if (!client || !sessionKey || !agentId || !snapshot.gatewayPrompt.trim() || input.refs.run.runId) return false
+    const generation = input.refs.connection.generation
+    const currentScope = () => input.refs.connection.client === client && input.refs.connection.generation === generation && input.refs.session.sessionKey === sessionKey && input.refs.session.agentId === agentId
+    if (!client || !sessionKey || !agentId || !snapshot.gatewayPrompt.trim() || input.refs.run.runId || input.refs.run.pendingSend) return false
     const sendAttempt = ++input.refs.run.sendAttempt
     input.refs.run.terminalSendAttempts.delete(sendAttempt)
     input.beginRunTrace(snapshot.contextCount ?? snapshot.contextItems.length)
@@ -79,6 +84,10 @@ export function useOpenClawSendActions(input: {
     input.refs.run.streamCreatedAt = null
     input.dispatch({ type: 'patch', value: { streamText: '', streamCreatedAt: null, issue: null, sending: true } })
     try {
+      if (snapshot.selectedSkill) {
+        await validateOpenClawSkill(input.refs, snapshot, input.state.gatewayUrl)
+      }
+      if (!currentScope() || sendAttempt !== input.refs.run.sendAttempt) return false
       const result = await client.request<{ runId?: string }>('chat.send', {
         sessionKey, agentId, message: snapshot.gatewayPrompt, deliver: false,
         idempotencyKey: snapshot.idempotencyKey,
@@ -87,6 +96,7 @@ export function useOpenClawSendActions(input: {
           type: 'image', mimeType: attachment.mimeType, fileName: attachment.fileName, content: attachment.content,
         })) } : {}),
       })
+      if (!currentScope()) return false
       const terminatedBeforeResponse = input.refs.run.terminalSendAttempts.delete(sendAttempt)
       input.transcript.persist((current) => current.map((message) => (
         message.id === messageId ? { ...message, status: 'sent', sendSnapshot: undefined } : message
@@ -100,6 +110,7 @@ export function useOpenClawSendActions(input: {
       } : current)
       return true
     } catch (error) {
+      if (!currentScope()) return false
       const terminated = input.refs.run.terminalSendAttempts.delete(sendAttempt)
       input.transcript.persist((current) => current.map((message) => message.id === messageId
         ? { ...message, status: terminated ? 'sent' : 'failed', ...(terminated ? { sendSnapshot: undefined } : {}) }
@@ -109,16 +120,17 @@ export function useOpenClawSendActions(input: {
       const failedRunId = input.refs.run.runId || snapshot.idempotencyKey
       input.refs.run.pendingSend = false
       input.refs.run.runId = null
-      input.dispatch({ type: 'patch', value: { runId: null, issue: setupIssue(error) } })
+      input.dispatch({ type: 'patch', value: { runId: null, issue: error instanceof OpenClawSkillValidationError
+        ? { kind: 'unknown', message: '无法确认本次 Skill 仍可调用。草稿已保留，请移除 Skill 或重试。' } : setupIssue(error) } })
       input.finishRunTrace('failed', failedRunId)
       return false
     } finally {
-      if (sendAttempt === input.refs.run.sendAttempt) input.dispatch({ type: 'patch', value: { sending: false } })
+      if (currentScope() && sendAttempt === input.refs.run.sendAttempt) input.dispatch({ type: 'patch', value: { sending: false } })
     }
   }, [input])
 
   const send = useCallback(async (request: OpenClawSendRequest): Promise<boolean> => {
-    if (input.refs.run.runId || input.state.sending) return false
+    if (input.refs.run.runId || input.refs.run.pendingSend || input.state.sending) return false
     const prepared = prepareOpenClawSend(request, input.state)
     if (!prepared) return false
     const { snapshot, message } = prepared
@@ -128,7 +140,7 @@ export function useOpenClawSendActions(input: {
 
   const retry = useCallback(async (messageId: string): Promise<boolean> => {
     const message = input.refs.transcript.messages.find((candidate) => candidate.id === messageId)
-    if (message?.status !== 'failed' || !message.sendSnapshot || input.refs.run.runId || input.state.sending) return false
+    if (message?.status !== 'failed' || !message.sendSnapshot || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending) return false
     input.transcript.persist((current) => current.map((candidate) => candidate.id === messageId ? { ...candidate, status: 'pending' } : candidate))
     if (message.sendSnapshot.modelId && message.sendSnapshot.modelId !== input.state.runtimeSelection.modelId) {
       if (!await input.setModel(message.sendSnapshot.modelId)) {
@@ -148,6 +160,7 @@ export function useOpenClawSendActions(input: {
       contextItems: message.sendSnapshot.contextItems.map((item) => ({ ...item })),
       ...(contextCount !== undefined ? { contextCount } : {}),
       ...(sourceSnapshot ? { sourceSnapshot } : {}),
+      ...(message.sendSnapshot.selectedSkill ? { selectedSkill: message.sendSnapshot.selectedSkill } : {}),
     }
     input.transcript.persist((current) => current.filter((candidate) => candidate.id !== messageId))
     return request

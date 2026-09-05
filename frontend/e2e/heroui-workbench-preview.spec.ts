@@ -63,17 +63,18 @@ test('HeroUI workbench keeps its isolated responsive interaction contract', asyn
     await expect(agent.getByRole('status')).toHaveText('交接提示词已复制')
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('get_item')
   } else {
+    const viewport = page.viewportSize()!
     const closedBounds = await agent.boundingBox()
-    if (testInfo.project.name === 'mobile') expect(closedBounds?.y).toBeGreaterThanOrEqual(844)
-    else expect(closedBounds?.x).toBeGreaterThanOrEqual(1024)
+    if (testInfo.project.name === 'mobile') expect(closedBounds?.y).toBeGreaterThanOrEqual(viewport.height)
+    else expect(closedBounds?.x).toBeGreaterThanOrEqual(viewport.width)
 
     const openAgent = page.getByRole('button', { name: '展开 Agent 面板' })
     await openAgent.click()
     await expect(page.getByRole('textbox', { name: '交给 OpenClaw 的问题' })).toBeVisible()
     if (testInfo.project.name === 'mobile') {
-      await expect.poll(async () => (await agent.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844)
+      await expect.poll(async () => (await agent.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(viewport.height)
     } else {
-      await expect.poll(async () => (await agent.boundingBox())?.x ?? Number.POSITIVE_INFINITY).toBeLessThan(1024)
+      await expect.poll(async () => (await agent.boundingBox())?.x ?? Number.POSITIVE_INFINITY).toBeLessThan(viewport.width)
     }
 
     await page.keyboard.press('Escape')

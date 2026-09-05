@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 
 import type { AgentContextDraftV6, AgentContextItem, AgentSourceSnapshot } from './agentContext'
+import type { OpenClawSkillSelection } from '../openclaw/chat/openclawSkillSelection'
 
 export type WorkbenchAgentContextValue = {
   draft: AgentContextDraftV6
@@ -10,8 +11,9 @@ export type WorkbenchAgentContextValue = {
   openComposer: () => void
   openWithSourceSnapshot: (snapshot: AgentSourceSnapshot) => void
   setQuestion: (question: string) => void
+  setSkill?: (skill?: OpenClawSkillSelection) => void
   clearComposer: () => void
-  restoreComposer: (question: string, items: AgentContextItem[], sourceSnapshot?: AgentSourceSnapshot) => void
+  restoreComposer: (question: string, items: AgentContextItem[], sourceSnapshot?: AgentSourceSnapshot, selectedSkill?: OpenClawSkillSelection) => void
 }
 
 export const WorkbenchAgentContext = createContext<WorkbenchAgentContextValue | null>(null)

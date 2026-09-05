@@ -18,22 +18,36 @@ export function runtimeFailureMessage(error: unknown, action: 'load' | 'switch')
     : '无法读取 OpenClaw 模型设置。'
 }
 
+const MISSING_SESSION_CODES = new Set(['NOT_FOUND', 'SESSION_NOT_FOUND', 'UNKNOWN_SESSION'])
+
+export function isMissingOpenClawSession(error: unknown): boolean {
+  if (!(error instanceof GatewayRequestError)) return false
+  const code = error.code.trim().toUpperCase()
+  if (MISSING_SESSION_CODES.has(code)) return true
+  return code === 'INVALID_REQUEST'
+    && /^unknown session key(?:\s|$)/iu.test(error.message.trim())
+}
+
 export function setupIssue(error: unknown): OpenClawSetupIssue {
-  const code = error instanceof GatewayRequestError ? error.code : ''
+  const gatewayError = error instanceof GatewayRequestError
+  const code = gatewayError ? error.code.toUpperCase() : ''
   const message = error instanceof Error ? error.message : String(error)
   const details = error instanceof GatewayRequestError && error.details && typeof error.details === 'object'
     ? error.details as Record<string, unknown>
     : {}
-  const requestId = typeof details.requestId === 'string' ? details.requestId : undefined
-  const fingerprint = `${code} ${message}`.toLowerCase()
+  const requestId = typeof details.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/u.test(details.requestId)
+    ? details.requestId
+    : undefined
+  const fingerprint = gatewayError ? code.toLowerCase() : message.toLowerCase()
   if (isOpenClawSessionLabelConflict(error)) return { kind: 'session', message: 'OpenClaw 会话名称冲突，请重新连接。', requestId }
-  if (fingerprint.includes('pairing_required') || fingerprint.includes('pairing required')) return { kind: 'pairing', message: '这个浏览器需要在 OpenClaw 中批准设备配对。', requestId }
+  if (isMissingOpenClawSession(error)) return { kind: 'session', message: '之前的 OpenClaw 会话已失效，请重新连接。' }
+  if (fingerprint.includes('pairing_required') || (!gatewayError && fingerprint.includes('pairing required'))) return { kind: 'pairing', message: '这个浏览器需要在 OpenClaw 中批准设备配对。', requestId }
   if (fingerprint.includes('origin')) return { kind: 'origin', message: 'OpenClaw 尚未允许当前 Inscope 页面来源。' }
   if (fingerprint.includes('protocol')) return { kind: 'protocol', message: 'OpenClaw Gateway 协议版本不兼容，请升级到 2026.7.1 或更高兼容版本。' }
-  if (fingerprint.includes('scope') || fingerprint.includes('permission') || fingerprint.includes('权限')) return { kind: 'permission', message: 'OpenClaw 返回的浏览器权限不符合最小权限要求。' }
-  if (fingerprint.includes('auth') || fingerprint.includes('token') || fingerprint.includes('unauthorized')) return { kind: 'auth', message: 'OpenClaw Gateway token 无效或已轮换。' }
-  if (fingerprint.includes('websocket') || fingerprint.includes('network') || fingerprint.includes('连接')) return { kind: 'network', message: '无法连接 OpenClaw Gateway；浏览器可能还在等待本地网络权限。' }
-  return { kind: 'unknown', message: message || 'OpenClaw 连接失败。' }
+  if (fingerprint.includes('scope') || (!gatewayError && (fingerprint.includes('permission') || fingerprint.includes('权限')))) return { kind: 'permission', message: 'OpenClaw 返回的浏览器权限不符合最小权限要求。' }
+  if (fingerprint.includes('unauthorized') || fingerprint.includes('invalid_token') || (!gatewayError && (fingerprint.includes('auth') || fingerprint.includes('token')))) return { kind: 'auth', message: 'OpenClaw Gateway token 无效或已轮换。' }
+  if (fingerprint.includes('unavailable') || (!gatewayError && (fingerprint.includes('websocket') || fingerprint.includes('network') || fingerprint.includes('连接')))) return { kind: 'network', message: '无法连接 OpenClaw Gateway；浏览器可能还在等待本地网络权限。' }
+  return { kind: 'unknown', message: 'OpenClaw 连接失败，请检查 Gateway 后重试。' }
 }
 
 export function hasInteliscopeTools(value: unknown): boolean {

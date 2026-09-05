@@ -999,14 +999,14 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   }
 }
 
-async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable = false } = {}) {
+async function expectHeroAdminPage(page: Page, heading: string) {
   await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
   await expect(page.locator('h1')).toHaveCount(1)
   await expect(page.locator('[data-page-frame="admin"]')).toBeVisible()
   await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
   await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
   await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /Agent 面板/ })).toHaveCount(agentAvailable ? 1 : 0)
+  await expect(page.getByRole('button', { name: /Agent 面板/ })).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
@@ -1017,7 +1017,7 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await mockAdminApi(page)
 
   await page.goto('/subscriptions')
-  await expectHeroAdminPage(page, '订阅与来源', { agentAvailable: true })
+  await expectHeroAdminPage(page, '订阅与来源')
   await expect(page.getByRole('tab')).toHaveCount(3)
 
   await page.goto('/agents')
@@ -1779,7 +1779,7 @@ test('subscription sources stay compact, actionable and accessible at every acce
   await expect(runCard).toBeVisible()
   const runBounds = await runCard.boundingBox()
   expect(runBounds).not.toBeNull()
-  expect(runBounds!.height).toBeLessThanOrEqual(190)
+  expect(runBounds!.height).toBeLessThanOrEqual(190 + (testInfo.project.use.hasTouch ? 44 - 32 : 0))
   if (testInfo.project.name === 'mobile') {
     const technicalDisclosure = runCard.getByRole('button', { name: '技术详情' })
     const schemaDisclosure = runCard.getByRole('button', { name: '响应结构' })

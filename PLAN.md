@@ -11,7 +11,7 @@
 - 系统参数：global 32 提供 21 项 workspace 热调；Owner/Admin Web/MCP 共用 proposal、确认、CAS；已有库须先完成 global 31；排除秘密、端点和付费 Actor。
 - ActorOps 稳定控制环：global 36 只为 untouched Route 开启 proof-gated `auto_replace_non_last`。候选须对当前 ready Binding 完成最多两个最终有效 Probe；YouTube 还须由 exact Manifest 证明 `all` 与最新排序。只替换已确认故障的非最后一路，既有预算、授权、单 Probe、对账和人工 Replacement 门不变。
 - ActorOps 高适配闭环：候选获取、系统可用性判断和稳定投入使用分为三阶段；Manifest v1 可选有界 Dataset 展开，Runtime/Maintenance/Replacement/Revalidation 共享验证入口。已结算映射失败在同一 Replacement plan 内最多两轮复用原 Dataset 自动修正，新增 Actor Run 为零；真实证明完成前不得标记 `system_usable`，最终应用仍需人工确认。
-- OpenClaw 全来源订阅已实现；社交源仅建 pending Binding。
+- OpenClaw 全来源订阅与平级工作区已实现；社交源仅建 pending Binding。工作区复用 Shell 常驻 Gateway 连接，管理写入使用临时 admin 连接。未部署。
 
 当前轻量门禁任务基线为 `16014e4` / `v2.3.3`；任何运行操作前仍必须以实际 API、Worker 和容器 revision 重新核对。
 
@@ -62,7 +62,7 @@
 
 Global 33 为 untouched workspace/Route 提供 `system_default` 维护；global 36 只为同一路由开启证明门控的非最后一路替换。exact-revision 预检、当前 Binding Probe、账本、预算和 Owner/Admin 仍是硬门；operator 策略不覆盖，人工 Replacement 保留事实。新增平台仍通过独立 Adapter 注册。
 
-不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway 或未授权的真实外部调用。旧 CLI、静态站、scheduler、本地 MCP、archive/Graph/feedback API 不再是兼容面。
+不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway、Inscope Agent 后端，或未授权的真实外部调用。旧 CLI、静态站、scheduler、本地 MCP、archive/Graph/feedback API 不再是兼容面。
 
 ## 验证门禁
 

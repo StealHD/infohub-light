@@ -59,6 +59,7 @@ export {
   Moon,
   MoreHorizontal,
   Palette,
+  PanelRightOpen,
   Pause,
   Pencil,
   Play,

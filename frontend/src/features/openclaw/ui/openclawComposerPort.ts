@@ -1,8 +1,15 @@
 import type { ReactNode } from 'react'
 
 import type { OpenClawImageAttachment } from '../openclawMedia'
+import type { OpenClawSkillSelection } from '../chat/openclawSkillSelection'
+import type { ComposerCommand } from './openclawShortcuts'
 
 export type OpenClawComposerPort = {
+  selectedSkill?: OpenClawSkillSelection
+  materials?: { id: string; title: string }[]
+  selectSkill?: (skill: OpenClawSkillSelection | undefined, question: string) => void
+  command?: (command: ComposerCommand, question: string) => void
+  dialogs?: ReactNode
   question: string
   itemCount: number
   snapshot: { sourceName: string; itemCount: number } | null

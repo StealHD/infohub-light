@@ -25,47 +25,14 @@ import {
 import { useOpenClawSessionRuntime } from './lifecycle/useOpenClawSessionRuntime'
 import { useOpenClawTranscriptController } from './lifecycle/useOpenClawTranscriptController'
 import { clearOpenClawTranscript } from './storage/openclawTranscriptStore'
+import { createOpenClawWorkspaceRuntime } from './workspace/openclawWorkspaceRuntime'
 
-export type {
-  OpenClawChatController,
-  OpenClawChatMessage,
-  OpenClawChatOptions,
-  OpenClawClientPort,
-  OpenClawConnectionStatus,
-  OpenClawContextUsage,
-  OpenClawModelOption,
-  OpenClawModelSwitchFallback,
-  OpenClawRunActivity,
-  OpenClawRunPhase,
-  OpenClawRunTrace,
-  OpenClawRuntimeSelection,
-  OpenClawSanitizedAgentEvent,
-  OpenClawSendRequest,
-  OpenClawSendSnapshot,
-  OpenClawSetupIssue,
-  OpenClawThinkingOption,
-  OpenClawToolsStatus,
-} from './openclawContracts'
+export type { OpenClawChatController, OpenClawChatMessage, OpenClawChatOptions, OpenClawClientPort, OpenClawConnectionStatus, OpenClawContextUsage, OpenClawModelOption, OpenClawModelSwitchFallback, OpenClawRunActivity, OpenClawRunPhase, OpenClawRunTrace, OpenClawRuntimeSelection, OpenClawSanitizedAgentEvent, OpenClawSendRequest, OpenClawSendSnapshot, OpenClawSetupIssue, OpenClawThinkingOption, OpenClawToolsStatus } from './openclawContracts'
 export { projectOpenClawAgentEvent } from './chat/openclawEventProjection'
 export { projectChatHistory } from './chat/openclawHistoryProjection'
-export {
-  projectOpenClawContextUsage,
-  projectOpenClawRuntime,
-} from './chat/openclawRuntimeProjection'
-export {
-  OPENCLAW_GATEWAY_URL_KEY_PREFIX,
-  readSavedGatewayUrl,
-  saveGatewayUrl,
-} from './storage/openclawGatewayPreferences'
-export {
-  OPENCLAW_TRANSCRIPT_KEY_PREFIX,
-  boundChatMessages,
-  clearOpenClawTranscript,
-  mergeOpenClawTranscript,
-  openClawTranscriptStorageKey,
-  readOpenClawTranscript,
-  writeOpenClawTranscript,
-} from './storage/openclawTranscriptStore'
+export { projectOpenClawContextUsage, projectOpenClawRuntime } from './chat/openclawRuntimeProjection'
+export { OPENCLAW_GATEWAY_URL_KEY_PREFIX, readSavedGatewayUrl, saveGatewayUrl } from './storage/openclawGatewayPreferences'
+export { OPENCLAW_TRANSCRIPT_KEY_PREFIX, boundChatMessages, clearOpenClawTranscript, mergeOpenClawTranscript, openClawTranscriptStorageKey, readOpenClawTranscript, writeOpenClawTranscript } from './storage/openclawTranscriptStore'
 
 export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatController {
   const initialGatewayUrl = useMemo(
@@ -74,6 +41,7 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
   )
   const gatewayUrlRef = useRef(initialGatewayUrl)
   const refs = useMemo(() => createOpenClawLifecycleRefs(), [])
+  const workspace = useMemo(() => createOpenClawWorkspaceRuntime(refs), [refs])
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const [state, dispatch] = useReducer(
     openClawChatReducer,
@@ -126,6 +94,7 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
 
   const routeGatewayEvent = useCallback((event: GatewayEvent, generation: number) => {
     if (generation !== refs.connection.generation) return
+    workspace.routeEvent(event)
     const sessionKey = refs.session.sessionKey
     if (!sessionKey) return
     if (event.event === 'sessions.changed') {
@@ -141,7 +110,7 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
     const payload = event.payload as Partial<OpenClawChatEvent>
     if (payload.sessionKey !== sessionKey || !conversation.acceptsRun(payload.runId)) return
     conversation.handleChat(payload as OpenClawChatEvent)
-  }, [conversation, refs, session])
+  }, [conversation, refs, session, workspace])
 
   const connection = useOpenClawConnection({
     options,
@@ -180,6 +149,7 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
   const currentModelSupportsImages = state.models
     .find((model) => model.id === state.runtimeSelection.modelId)?.supportsImages === true
   return {
+    workspace: workspace.controller,
     gatewayUrl: state.gatewayUrl,
     setGatewayUrl: connection.setGatewayUrl,
     status,
@@ -217,5 +187,6 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
     setThinking: session.setThinking,
     switchToBlankConversation: session.switchToBlankConversation,
     newConversation: session.newConversation,
+    openSession: session.openSession,
   }
 }

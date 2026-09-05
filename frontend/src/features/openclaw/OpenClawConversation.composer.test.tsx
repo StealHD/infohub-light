@@ -219,7 +219,7 @@ describe('OpenClaw conversation surface', () => {
     await browser.click(screen.getByRole('button', { name: '重试' }))
     expect(chat.retry).toHaveBeenCalledWith('send-1')
     await browser.click(screen.getByRole('button', { name: '重新编辑' }))
-    expect(value.restoreComposer).toHaveBeenCalledWith('分析机会', snapshot.contextItems, undefined)
+    expect(value.restoreComposer).toHaveBeenCalledWith('分析机会', snapshot.contextItems, undefined, undefined)
   })
 
 

@@ -17,6 +17,7 @@ import {
 } from '../storage/openclawTranscriptStore'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
+import { openOpenClawSession } from './openClawSessionNavigation'
 import { useOpenClawSessionActions } from './openclawSessionActions'
 import { readOpenClawRuntime } from './openclawSessionOperations'
 
@@ -39,10 +40,23 @@ export type OpenClawSessionRuntimeController = {
   setThinking(thinkingLevel: string | null): Promise<boolean>
   switchToBlankConversation(): Promise<boolean>
   newConversation(): Promise<boolean>
+  openSession(sessionKey: string): Promise<boolean>
   reset(): void
 }
 
+type SessionRuntimeInput = {
+  userId: string
+  refs: OpenClawLifecycleRefs
+  state: OpenClawLifecycleState
+  dispatch: OpenClawChatDispatch
+  vault: OpenClawCredentialVault
+  getGatewayUrl: () => string
+  transcript: RuntimeTranscriptPort
+  resetConversation: () => void
+}
+
 function resetSessionRuntime(refs: OpenClawLifecycleRefs, dispatch: OpenClawChatDispatch): void {
+  refs.session.navigationEpoch += 1
   refs.session.agentId = null
   refs.session.sessionKey = null
   refs.session.thinkingLevel = null
@@ -56,16 +70,7 @@ function resetSessionRuntime(refs: OpenClawLifecycleRefs, dispatch: OpenClawChat
   })
 }
 
-export function useOpenClawSessionRuntime(input: {
-  userId: string
-  refs: OpenClawLifecycleRefs
-  state: OpenClawLifecycleState
-  dispatch: OpenClawChatDispatch
-  vault: OpenClawCredentialVault
-  getGatewayUrl: () => string
-  transcript: RuntimeTranscriptPort
-  resetConversation: () => void
-}): OpenClawSessionRuntimeController {
+function useRuntimeProjectionState(input: SessionRuntimeInput) {
   const bind = useCallback((agentId: string, sessionKey: string) => {
     input.refs.session.agentId = agentId
     input.refs.session.sessionKey = sessionKey
@@ -98,23 +103,30 @@ export function useOpenClawSessionRuntime(input: {
     })
   }, [input.dispatch, input.refs, input.state.runtimeIssue])
 
+  return { bind, applyRuntime }
+}
+
+export function useOpenClawSessionRuntime(input: SessionRuntimeInput): OpenClawSessionRuntimeController {
+  const { bind, applyRuntime } = useRuntimeProjectionState(input)
+
   const loadRuntime = useCallback(async (
     client: OpenClawClientPort,
     sessionKey: string,
     agentId: string,
     preserveThinking = false,
   ): Promise<OpenClawRuntimeProjection | null> => {
+    const connection = input.refs.connection
     input.dispatch({ type: 'patch', value: { runtimeLoading: true, runtimeIssue: null } })
     try {
       const projection = await readOpenClawRuntime(client, sessionKey, agentId)
-      if (input.refs.session.sessionKey !== sessionKey) return null
+      if (connection.client !== client || input.refs.session.sessionKey !== sessionKey) return null
       applyRuntime(projection, preserveThinking)
       return projection
     } catch (error) {
-      input.dispatch({ type: 'patch', value: { runtimeIssue: runtimeFailureMessage(error, 'load') } })
+      if (connection.client === client && input.refs.session.sessionKey === sessionKey) input.dispatch({ type: 'patch', value: { runtimeIssue: runtimeFailureMessage(error, 'load') } })
       return null
     } finally {
-      input.dispatch({ type: 'patch', value: { runtimeLoading: false } })
+      if (connection.client === client && input.refs.session.sessionKey === sessionKey) input.dispatch({ type: 'patch', value: { runtimeLoading: false } })
     }
   }, [applyRuntime, input.dispatch, input.refs])
 
@@ -128,7 +140,7 @@ export function useOpenClawSessionRuntime(input: {
       client.request('sessions.subscribe', {}),
       client.request('sessions.list', { search: sessionKey, limit: 100 }),
     ])
-    if (input.refs.session.sessionKey !== sessionKey || listResult.status !== 'fulfilled') return
+    if (input.refs.connection.client !== client || input.refs.session.sessionKey !== sessionKey || listResult.status !== 'fulfilled') return
     input.dispatch({ type: 'patch', value: { contextUsage: projectOpenClawContextUsage(listResult.value, sessionKey) } })
   }, [input.dispatch, input.refs])
 
@@ -144,11 +156,13 @@ export function useOpenClawSessionRuntime(input: {
     projection: OpenClawRuntimeProjection,
     clearMessages: boolean,
     preserveThinking = false,
+    isCurrent: () => boolean = () => true,
   ) => {
     const gatewayUrl = input.getGatewayUrl()
     const previousKey = input.refs.session.sessionKey
     const visibleMessages = input.refs.transcript.messages
-    await input.vault.updateSession(input.userId, gatewayUrl, sessionKey)
+    await input.vault.updateSession(input.userId, gatewayUrl, sessionKey, isCurrent)
+    if (!isCurrent() || input.refs.connection.client !== client) return
     if (clearMessages) {
       if (previousKey) clearOpenClawTranscript(input.userId, gatewayUrl, previousKey)
       clearOpenClawTranscript(input.userId, gatewayUrl, sessionKey)
@@ -184,6 +198,10 @@ export function useOpenClawSessionRuntime(input: {
     }
   }, [])
 
+  const openSession = useCallback((sessionKey: string) => openOpenClawSession({
+    ...input, bind, applyRuntime, loadContextUsage,
+  }, sessionKey), [applyRuntime, bind, input, loadContextUsage])
+
   const actions = useOpenClawSessionActions({
     refs: input.refs,
     state: input.state,
@@ -198,6 +216,6 @@ export function useOpenClawSessionRuntime(input: {
 
   return {
     bind, loadRuntime, reloadRuntime, loadContextUsage, routeContextUsage,
-    ...actions, reset,
+    ...actions, openSession, reset,
   }
 }

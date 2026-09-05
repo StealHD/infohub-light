@@ -3,6 +3,7 @@ import type {
   OpenClawClientPort,
   OpenClawRunTrace,
 } from '../openclawContracts'
+import type { GatewayHello } from '../openclawGateway'
 
 export type OpenClawLifecycleRefs = {
   connection: {
@@ -15,11 +16,13 @@ export type OpenClawLifecycleRefs = {
     automaticConnectKey: string | null
     reconnect: (reconnecting?: boolean) => void
     mediaTicketSupported: boolean
+    hello: GatewayHello | null
   }
   session: {
     agentId: string | null
     sessionKey: string | null
     thinkingLevel: string | null
+    navigationEpoch: number
   }
   run: {
     runId: string | null
@@ -51,8 +54,9 @@ export function createOpenClawLifecycleRefs(): OpenClawLifecycleRefs {
       automaticConnectKey: null,
       reconnect: () => undefined,
       mediaTicketSupported: false,
+      hello: null,
     },
-    session: { agentId: null, sessionKey: null, thinkingLevel: null },
+    session: { agentId: null, sessionKey: null, thinkingLevel: null, navigationEpoch: 0 },
     run: {
       runId: null,
       runTrace: null,

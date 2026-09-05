@@ -7,6 +7,8 @@ import type {
   OpenClawImageAttachment,
   OpenClawMessageImage,
 } from './openclawMedia'
+import type { OpenClawWorkspaceController } from './workspace/openclawWorkspaceContracts'
+import type { OpenClawSkillSelection } from './chat/openclawSkillSelection'
 
 export type OpenClawConnectionStatus = 'disabled' | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 export type OpenClawToolsStatus = 'unknown' | 'available' | 'missing'
@@ -89,6 +91,7 @@ export type OpenClawChatMessage = {
 }
 
 export type OpenClawSendRequest = {
+  selectedSkill?: OpenClawSkillSelection
   displayText: string
   gatewayPrompt: string
   contextItems: OpenClawContextItem[]
@@ -156,6 +159,7 @@ export interface OpenClawClientPort {
   connect(): Promise<GatewayHello>
   request<T>(method: string, params: Record<string, unknown>): Promise<T>
   close(): void
+  destroy?(): void
 }
 
 export interface OpenClawTranscriptPort {
@@ -206,6 +210,7 @@ export type OpenClawChatState = {
 }
 
 export type OpenClawChatController = OpenClawChatState & {
+  workspace: OpenClawWorkspaceController
   setGatewayUrl(value: string): void
   connect(authInput?: string, requestedUrl?: string): Promise<boolean>
   retryConnection(): void
@@ -221,4 +226,5 @@ export type OpenClawChatController = OpenClawChatState & {
   setThinking(thinkingLevel: string | null): Promise<boolean>
   switchToBlankConversation(): Promise<boolean>
   newConversation(): Promise<boolean>
+  openSession(sessionKey: string): Promise<boolean>
 }

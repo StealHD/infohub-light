@@ -27,6 +27,7 @@ export function contextValue(overrides: Partial<WorkbenchAgentContextValue['draf
 
 export function chatController(overrides: Record<string, unknown> = {}) {
   return {
+    workspace: { skillScope: () => null, capabilities: () => ({}), subscribe: () => () => {}, skillsStatus: vi.fn() },
     gatewayUrl: 'ws://127.0.0.1:18789',
     setGatewayUrl: vi.fn(),
     status: 'idle',
@@ -53,6 +54,7 @@ export function chatController(overrides: Record<string, unknown> = {}) {
     connect: vi.fn().mockResolvedValue(true),
     retryConnection: vi.fn(),
     disconnect: vi.fn(),
+    clearTranscript: vi.fn(),
     forget: vi.fn(),
     send: vi.fn().mockResolvedValue(true),
     retry: vi.fn().mockResolvedValue(true),

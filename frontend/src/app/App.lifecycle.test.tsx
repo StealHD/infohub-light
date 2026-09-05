@@ -33,6 +33,7 @@ vi.mock('../features/openclaw/useOpenClawChat', () => ({
       }
     }, [])
     return {
+      workspace: { skillScope: () => null, capabilities: () => ({}), subscribe: () => () => {}, skillsStatus: vi.fn() },
       gatewayUrl: 'ws://127.0.0.1:18789',
       setGatewayUrl: vi.fn(),
       status: 'connected' as const,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { anchoredTooltipProps, Button, Icons, TextArea, Tooltip } from '../../design-system'
-import { buildAgentHandoffPrompt } from './agentContext'
+import { buildAgentHandoffPrompt } from './agentHandoffPrompt'
 import type { WorkbenchAgentContextValue } from './workbenchAgentContext'
 
 export function HandoffComposer({ value }: { value: WorkbenchAgentContextValue }) {

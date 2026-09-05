@@ -28,6 +28,9 @@
 | `useOpenClawChat.ts` | 组合生命周期模块、提供唯一 Gateway Event Router，并返回 `OpenClawChatController`。 |
 | `ui/` | 只消费 Controller 与 Composer Port 的 Setup、Timeline、Message、Activity、Runtime、Context、Image、Composer 和 Shell。 |
 | `adapters/` | 唯一允许导入 Workbench Context 的边界，负责 DTO 映射、handoff、draft 清理与失败恢复。 |
+| `workspace/` | Workspace RPC 合同、严格响应投影、capability map、事件广播与 React provider；只消费普通 Gateway client port，不访问 Service、持久存储或页面组件。 |
+| `admin/` | 独立临时 admin device/socket 与固定 Skill/Cron allowlist；不导入聊天 lifecycle、transcript、Workbench 或 Service，不暴露裸 RPC。 |
+| `features/agent-workspace/` | 只消费公开 Chat/Workspace Controller 与 Workbench Context，组合完整工作台；除独立 admin controller 外不访问 Gateway 实现。 |
 
 固定依赖方向为：
 
@@ -43,13 +46,23 @@ Workbench Context
   → adapters/OpenClawConversation
   → OpenClaw Send / Composer DTO
   → ui/
+
+Gateway hello.features.methods
+  → workspace/ strict projection + typed controller
+  → Agent Workspace resource views
+
+Temporary operator.admin device
+  → admin/ fixed Skill + Cron allowlist
+  → Skills / Automations confirmation UI
 ```
 
 Event Router 必须先校验当前 connection generation，再对 session 事件执行 exact session 校验，对 chat/run 事件继续执行 exact run 校验。生命周期子 Controller 不互相导入，也不分别消费同一个原始 Gateway event。OpenClaw core 不导入 `workbench-live`；只有 `adapters/` 可导入 Workbench Context。UI 不直接访问 Gateway Client、原始 frame、IndexedDB、`sessionStorage` 或 `localStorage`。
 
-`frontend/src/features/workbench-live/LazyOpenClawConversation.tsx` 只延迟加载 Adapter；`HeroWorkbenchShell.tsx` 只持有显式 Controller 类型并完成组件接线。Handoff 的 V8–V3/legacy 显示协议归 `chat/openclawHandoffProtocol.ts`，Workbench `agentContext.ts` 只保留兼容委托与自身 Context 状态。
+`frontend/src/features/workbench-live/LazyOpenClawConversation.tsx` 只延迟加载 Adapter；`HeroWorkbenchShell.tsx` 只持有显式 Controller 类型并完成组件接线。它在 Feed 类路由与 `/agent/**` 之间保持同一个普通 Hook、session、run、transcript 和 draft，完整工作台不得自行创建第二个普通 client。Handoff 的 V8–V3/legacy 显示协议归 `chat/openclawHandoffProtocol.ts`，Workbench `agentContext.ts` 只保留兼容委托与自身 Context 状态。Admin controller 是唯一第二 WebSocket 例外：生命周期短、内存-only、无重连、无 chat event route，且不能读取 transcript 或普通 client。
 
 ## 4. Remote MCP 所有权
+
+Composer 快捷候选复用普通 Workspace Controller；`ui/useComposerShortcuts` 只解析光标与候选，`adapters/useComposerCommands` 组合现有本地确认/选择器，发送前校验归 `lifecycle/validateOpenClawSkill`。`chat/openclawSkillSelection` 拥有有界选择与历史解包，`chat/openclawSkillInvocation` 拥有纯引用格式；不得引入独立 Skill RPC 或在 UI 中操作 Gateway。Workbench `agentHandoffPrompt.ts` 单独拥有发送提示词生成，`agentContext.ts` 拥有草稿投影与状态；手动交接组件和提示词跟随交互按需加载，不能因快捷入口扩张首屏包。
 
 `src/mcp/remote_server.py` 是 composition root：构造 Server 与 Tool Context、依次调用三个固定 registrar、完成 schema finalize 和 lifespan/HTTP 组合。它不定义工具实现、认证算法、限流算法、审计投影或业务读取。
 

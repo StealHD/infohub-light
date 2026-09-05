@@ -25,9 +25,20 @@ function suggestions(composer: OpenClawComposerPort) {
   ]
 }
 
-export function OpenClawTimeline({ chat, composer }: {
+function CompactTimelineHeader({ chat }: { chat: OpenClawChatController }) {
+  return <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
+    <span className="type-meta min-w-0 truncate text-muted">{chat.sessionKey ? 'Inscope 对话' : '正在准备对话'}</span>
+    <div className="flex shrink-0 gap-1">
+      <StableAsyncButton size="sm" variant="ghost" pending={chat.runtimeUpdating} pendingContent="新建中…" isDisabled={chat.isRunning} onPress={() => chat.newConversation()}><Icons.Plus size={14} />新对话</StableAsyncButton>
+      <Button size="sm" variant="ghost" onPress={chat.disconnect}>断开</Button>
+    </div>
+  </div>
+}
+
+export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
   chat: OpenClawChatController
   composer: OpenClawComposerPort
+  variant?: 'compact' | 'workspace'
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const followRef = useRef(true)
@@ -81,8 +92,8 @@ export function OpenClawTimeline({ chat, composer }: {
   return <>
     <div
       ref={scrollRef}
-      className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-[15px] pb-4 pt-[13px]"
-      data-testid="agent-scroll-region"
+      className={`quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain ${variant === 'workspace' ? 'px-4 pb-8 pt-6 min-[640px]:px-8' : 'px-[15px] pb-4 pt-[13px]'}`}
+      data-testid="agent-scroll-region" data-page-scroll-region={variant === 'workspace' ? '' : undefined}
       aria-live="polite"
       onScroll={(event) => {
         const region = event.currentTarget
@@ -90,19 +101,13 @@ export function OpenClawTimeline({ chat, composer }: {
         if (followRef.current) setNewOutputBelow(false)
       }}
     >
-      <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
-        <span className="type-meta min-w-0 truncate text-muted">{chat.sessionKey ? 'Inscope 对话' : '正在准备对话'}</span>
-        <div className="flex shrink-0 gap-1">
-          <StableAsyncButton size="sm" variant="ghost" pending={chat.runtimeUpdating} pendingContent="新建中…" isDisabled={chat.isRunning} onPress={() => chat.newConversation()}><Icons.Plus size={14} />新对话</StableAsyncButton>
-          <Button size="sm" variant="ghost" onPress={chat.disconnect}>断开</Button>
-        </div>
-      </div>
+      {variant !== 'workspace' && <CompactTimelineHeader chat={chat} />}
       {chat.toolsStatus === 'missing' && <Card variant="secondary" className="mb-3 min-w-0 border-warning/40 p-3" role="status">
         <Card.Title>未发现 Inscope 工具</Card.Title>
         <Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description>
         <a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a>
       </Card>}
-      {!chat.messages.length && !chat.streamText && !runTrace && <PromptSuggestion className="mx-auto max-w-sm py-3 text-center">
+      {!chat.messages.length && !chat.streamText && !runTrace && <PromptSuggestion className={`${variant === 'workspace' ? 'max-w-[var(--inteliscope-width-agent-conversation)] py-12' : 'max-w-sm py-3'} mx-auto text-center`}>
         <PromptSuggestion.Header>
           <PromptSuggestion.Title>从哪里开始？</PromptSuggestion.Title>
           <PromptSuggestion.Description className="mt-1">可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</PromptSuggestion.Description>
@@ -118,7 +123,7 @@ export function OpenClawTimeline({ chat, composer }: {
           </PromptSuggestion.Item>)}
         </PromptSuggestion.Items>
       </PromptSuggestion>}
-      <div data-testid="openclaw-timeline" className="grid min-w-0 grid-cols-[12px_minmax(0,1fr)] gap-x-[9px] overflow-x-hidden">
+      <div data-testid="openclaw-timeline" data-conversation-variant={variant} className={`${variant === 'workspace' ? 'mx-auto w-full max-w-[var(--inteliscope-width-agent-conversation)] grid-cols-1 gap-x-0' : 'grid-cols-[12px_minmax(0,1fr)] gap-x-[9px]'} grid min-w-0 overflow-x-hidden`}>
         {chat.messages.map((message, index) => {
           const traceAttached = attachTerminalTrace && index === chat.messages.length - 1
           const contextSources = message.contextSources ?? []
@@ -128,8 +133,9 @@ export function OpenClawTimeline({ chat, composer }: {
             role={message.role}
             text={message.text}
             createdAt={message.createdAt}
-            status={message.status}
-            hasNext={index < chat.messages.length - 1 || Boolean(chat.streamText) || showStandaloneTrace}
+              status={message.status}
+              hasNext={index < chat.messages.length - 1 || Boolean(chat.streamText) || showStandaloneTrace}
+              variant={variant}
           >
             {Boolean(contextSources.length) && <ChatSources className="mt-2" label="本条消息引用的来源">
               {contextSources.map((source, sourceIndex) => <ChatSource key={`${source.url}:${sourceIndex}`} source={source} compact />)}
@@ -150,10 +156,10 @@ export function OpenClawTimeline({ chat, composer }: {
             {traceAttached && runTrace && <OpenClawActivityTrace trace={runTrace} running={false} />}
           </ConversationTurn>
         })}
-        {chat.streamText && <ConversationTurn role="assistant" text={chat.streamText} createdAt={chat.streamCreatedAt} hasNext={false}>
+        {chat.streamText && <ConversationTurn role="assistant" text={chat.streamText} createdAt={chat.streamCreatedAt} hasNext={false} variant={variant}>
           {runTrace && <OpenClawActivityTrace trace={runTrace} running />}
         </ConversationTurn>}
-        {showStandaloneTrace && runTrace && <ConversationTurn role="assistant" text="" createdAt={runTrace.startedAt} status={runTrace.status} hasNext={false}>
+        {showStandaloneTrace && runTrace && <ConversationTurn role="assistant" text="" createdAt={runTrace.startedAt} status={runTrace.status} hasNext={false} variant={variant}>
           <OpenClawActivityTrace trace={runTrace} running={chat.isRunning} />
         </ConversationTurn>}
       </div>

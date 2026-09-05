@@ -30,6 +30,7 @@ export type OpenClawGatewayClientOptions = {
   deviceToken?: string
   deviceIdentity: OpenClawDeviceIdentity
   requestedScopes?: readonly string[]
+  credentialClass?: 'stored' | 'ephemeral-admin'
   platform?: string
   deviceFamily?: string
   socketFactory?: (url: string) => GatewaySocket

@@ -19,6 +19,7 @@ export function useOpenClawSessionActions(input: {
     projection: OpenClawRuntimeProjection,
     clearMessages: boolean,
     preserveThinking?: boolean,
+    isCurrent?: () => boolean,
   ): Promise<void>
   archiveFailedSession(client: OpenClawClientPort, sessionKey: string, agentId: string): Promise<void>
 }) {
@@ -31,18 +32,23 @@ export function useOpenClawSessionActions(input: {
     if (!client || !parentSessionKey || !agentId || !selected || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
     if (input.state.runtimeSelection.modelId === selected.id) return true
     input.dispatch({ type: 'patch', value: { runtimeUpdating: true, runtimeIssue: null, modelSwitchFallback: null } })
+    const epoch = ++input.refs.session.navigationEpoch
+    const isCurrent = () => input.refs.session.navigationEpoch === epoch && input.refs.connection.client === client
     let createdKey: string | null = null
     try {
       createdKey = await createOpenClawSession(client, { agentId, parentSessionKey, fork: true, model: selected.id })
+      if (!isCurrent()) return false
       const projection = await readOpenClawRuntime(client, createdKey, agentId)
+      if (!isCurrent()) return false
       if (projection.invalidSessionModel || projection.selection.modelId !== selected.id) {
         throw new Error('OpenClaw 返回的实际模型与选择不一致。')
       }
-      await input.activateSession(client, createdKey, agentId, projection, false, true)
+      await input.activateSession(client, createdKey, agentId, projection, false, true, isCurrent)
+      if (!isCurrent()) return false
       return true
     } catch (error) {
-      if (createdKey) await input.archiveFailedSession(client, createdKey, agentId)
-      input.dispatch({
+      if (createdKey && isCurrent()) await input.archiveFailedSession(client, createdKey, agentId)
+      if (isCurrent()) input.dispatch({
         type: 'patch',
         value: {
           runtimeIssue: `${runtimeFailureMessage(error, 'switch')} 可新建空白对话并切换到 ${selected.name}。`,
@@ -51,7 +57,7 @@ export function useOpenClawSessionActions(input: {
       })
       return false
     } finally {
-      input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
+      if (isCurrent()) input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
     }
   }, [input])
 
@@ -70,24 +76,29 @@ export function useOpenClawSessionActions(input: {
     const agentId = input.refs.session.agentId
     if (!client || !agentId || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
     input.dispatch({ type: 'patch', value: { runtimeUpdating: true, runtimeIssue: null } })
+    const epoch = ++input.refs.session.navigationEpoch
+    const isCurrent = () => input.refs.session.navigationEpoch === epoch && input.refs.connection.client === client
     let createdKey: string | null = null
     try {
       createdKey = await createOpenClawSession(client, { agentId, ...(modelId ? { model: modelId } : {}) })
+      if (!isCurrent()) return false
       const projection = await readOpenClawRuntime(client, createdKey, agentId)
+      if (!isCurrent()) return false
       if (modelId && (projection.invalidSessionModel || projection.selection.modelId !== modelId)) {
         throw new Error('OpenClaw 返回的实际模型与选择不一致。')
       }
-      await input.activateSession(client, createdKey, agentId, projection, true)
+      await input.activateSession(client, createdKey, agentId, projection, true, false, isCurrent)
+      if (!isCurrent()) return false
       return true
     } catch (error) {
-      if (createdKey && modelId) await input.archiveFailedSession(client, createdKey, agentId)
-      input.dispatch({
+      if (createdKey && modelId && isCurrent()) await input.archiveFailedSession(client, createdKey, agentId)
+      if (isCurrent()) input.dispatch({
         type: 'patch',
         value: { runtimeIssue: modelId ? `${runtimeFailureMessage(error, 'switch')} 原对话仍然可用。` : runtimeFailureMessage(error, 'switch') },
       })
       return false
     } finally {
-      input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
+      if (isCurrent()) input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
     }
   }, [input])
 

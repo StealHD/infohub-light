@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildAgentHandoffPrompt } from '../workbench-live/agentContext'
+import { buildAgentHandoffPrompt } from '../workbench-live/agentHandoffPrompt'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
 import { forgetOpenClawBrowser } from './openclawDevice'
-import type { GatewayEvent, GatewayHello } from './openclawGateway'
+import { GatewayRequestError, type GatewayEvent, type GatewayHello } from './openclawGateway'
 import { MemoryAdapter, agents, models, session } from './useOpenClawChat.test.support'
 import { useOpenClawChat } from './useOpenClawChat'
 
@@ -443,5 +443,68 @@ describe('useOpenClawChat', () => {
       defaultThinkingLevel: 'medium',
     })
     expect(result.current.thinkingOptions).toEqual([{ id: 'medium', label: '中等' }])
+  })
+
+  it('keeps the paired device and replaces only a missing saved session', async () => {
+    const adapter = new MemoryAdapter()
+    const vault = new OpenClawCredentialVault(adapter)
+    const gatewayUrl = 'ws://127.0.0.1:13789'
+    await vault.save('local-user', gatewayUrl, {
+      identity: { deviceId: 'production-paired-device', publicKey: 'public-key', privateKey: {} as CryptoKey },
+      deviceToken: 'production-device-token',
+      scopes: ['operator.read', 'operator.write'],
+      sessionKey: 'agent:main:dashboard:stale-session',
+    })
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'sessions.preview') return {
+        previews: [{ key: 'agent:main:dashboard:stale-session', status: 'missing', items: [] }],
+      }
+      if (method === 'sessions.create') return { key: 'agent:main:inscope:new-session' }
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') {
+        if (params?.sessionKey === 'agent:main:dashboard:stale-session') {
+          throw new GatewayRequestError({
+            code: 'INVALID_REQUEST',
+            message: 'unknown session key "agent:main:dashboard:stale-session"',
+          })
+        }
+        return { messages: [] }
+      }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      if (method === 'sessions.subscribe') return { ok: true }
+      if (method === 'sessions.list') return { sessions: [] }
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn(() => ({
+      connect: vi.fn(async (): Promise<GatewayHello> => ({
+        auth: { deviceToken: 'production-device-token', scopes: ['operator.read', 'operator.write'] },
+        features: { methods: ['sessions.preview'] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      })),
+      request,
+      close: vi.fn(),
+    }))
+
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true,
+      userId: 'local-user',
+      defaultGatewayUrl: gatewayUrl,
+      vault,
+      clientFactory: clientFactory as never,
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+    expect(result.current.sessionKey).toBe('agent:main:inscope:new-session')
+    expect(request).toHaveBeenCalledWith('sessions.preview', {
+      keys: ['agent:main:dashboard:stale-session'],
+    })
+    expect(request.mock.calls.filter(([method]) => method === 'sessions.create')).toHaveLength(1)
+    await expect(vault.load('local-user', gatewayUrl)).resolves.toMatchObject({
+      identity: { deviceId: 'production-paired-device' },
+      deviceToken: 'production-device-token',
+      sessionKey: 'agent:main:inscope:new-session',
+    })
   })
 })

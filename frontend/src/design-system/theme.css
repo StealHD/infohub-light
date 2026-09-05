@@ -16,6 +16,10 @@
   --inteliscope-width-settings-sidebar: 232px;
   --inteliscope-width-workbench-sidebar-collapsed: 72px;
   --inteliscope-width-workbench-sidebar-expanded: 232px;
+  --inteliscope-width-agent-sidebar: 288px;
+  --inteliscope-width-agent-inspector: 360px;
+  --inteliscope-width-agent-conversation: 860px;
+  --inteliscope-width-agent-composer: 920px;
   --inteliscope-width-auth: 960px;
   --inteliscope-size-page-header: 52px;
   --inteliscope-size-page-header-surface: 44px;
@@ -278,8 +282,8 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
  * copy must keep their final canvas width while that track is still narrow,
  * otherwise labels reflow vertically before the track reaches 232px. */
 .inteliscope-design-system [data-desktop-sidebar] {
-  --inteliscope-sidebar-toggle-collapsed-inset: 16px;
-  --inteliscope-sidebar-toggle-expanded-inset: 12px;
+  --inteliscope-sidebar-toggle-collapsed-inset: 4px;
+  --inteliscope-sidebar-toggle-expanded-inset: 8px;
 }
 
 .inteliscope-design-system [data-sidebar-layer],
@@ -305,7 +309,7 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
 
 .inteliscope-design-system .sidebar-desktop-toggle {
   position: absolute;
-  inset-block-start: calc((var(--inteliscope-size-page-header) - 40px) / 2);
+  inset-block-start: calc((var(--inteliscope-size-page-header) - 32px) / 2);
   inset-inline-end: var(--inteliscope-sidebar-toggle-collapsed-inset);
   z-index: 1;
 }

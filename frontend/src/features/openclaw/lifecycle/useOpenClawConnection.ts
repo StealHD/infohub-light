@@ -1,7 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability -- lifecycle refs are imperative controller state */
 import { useCallback, useEffect } from 'react'
 
-import { hasInteliscopeTools, setupIssue } from '../chat/openclawSetupIssue'
+import { hasInteliscopeTools, isMissingOpenClawSession, setupIssue } from '../chat/openclawSetupIssue'
+import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
 import type { OpenClawCredentialVault } from '../openclawCredentialVault'
 import type { OpenClawChatOptions, OpenClawClientPort } from '../openclawContracts'
 import {
@@ -53,6 +54,29 @@ type OpenClawConnectionInput = {
   setGatewayUrlRef: (value: string) => void
 }
 
+async function loadConnectedSession(
+  input: OpenClawConnectionInput,
+  client: OpenClawClientPort,
+  sessionKey: string,
+  agentId: string,
+): Promise<unknown> {
+  input.session.bind(agentId, sessionKey)
+  input.transcript.restoreLocal(input.getGatewayUrl(), sessionKey)
+  const [tools] = await Promise.all([
+    client.request('tools.effective', { sessionKey, agentId }),
+    input.transcript.loadHistory(client, sessionKey, agentId),
+    input.session.loadRuntime(client, sessionKey, agentId),
+    input.session.loadContextUsage(client, sessionKey),
+  ])
+  return tools
+}
+
+function resetFailedSessionLoad(input: OpenClawConnectionInput): void {
+  input.session.reset()
+  input.resetConversation()
+  input.transcript.reset()
+}
+
 async function performOpenClawConnect(
   input: OpenClawConnectionInput,
   setGatewayUrl: (value: string) => void,
@@ -63,6 +87,7 @@ async function performOpenClawConnect(
   if (!input.options.enabled) return false
   const connection = input.refs.connection
   const generation = ++connection.generation
+  const isCurrent = (client?: OpenClawClientPort) => generation === connection.generation && (!client || connection.client === client)
   connection.manualClose = false
   input.dispatch({ type: 'patch', value: { status: reconnecting ? 'reconnecting' : 'connecting', issue: null } })
   try {
@@ -71,8 +96,10 @@ async function performOpenClawConnect(
       : { gatewayUrl: validateGatewayUrl(requestedUrl ?? input.getGatewayUrl()), bootstrapToken: '' }
     if (parsed.gatewayUrl !== input.getGatewayUrl()) setGatewayUrl(parsed.gatewayUrl)
     const stored = await input.vault.load(input.options.userId, parsed.gatewayUrl)
+    if (!isCurrent()) return false
     if (!stored && !parsed.bootstrapToken) throw new Error('请输入 OpenClaw Gateway token 完成首次配对。')
     const identity = stored?.identity ?? await generateDeviceIdentity()
+    if (!isCurrent()) return false
     const factory = input.options.clientFactory ?? ((clientOptions) => new OpenClawGatewayClient(clientOptions))
     const client = factory({
       url: parsed.gatewayUrl,
@@ -99,7 +126,7 @@ async function performOpenClawConnect(
     connection.client?.close()
     connection.client = client
     const hello: GatewayHello = await client.connect()
-    if (generation !== connection.generation) {
+    if (!isCurrent(client)) {
       client.close()
       return false
     }
@@ -108,26 +135,51 @@ async function performOpenClawConnect(
       && input.options.mediaOrigins?.length
       && gatewaySupportsMethod(hello, 'chat.media.ticket'),
     )
+    connection.hello = hello
     input.dispatch({ type: 'patch', value: { imageInputAvailable: Boolean(input.options.imageIoEnabled) } })
     const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
     if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
     const credential = { identity, deviceToken, scopes: hello.auth?.scopes ?? stored?.scopes ?? [] }
-    await input.vault.save(input.options.userId, parsed.gatewayUrl, { ...credential, sessionKey: stored?.sessionKey })
+    if (!stored) {
+      await input.vault.save(input.options.userId, parsed.gatewayUrl, credential, () => isCurrent(client))
+      if (!isCurrent(client)) return false
+    }
     const agentId = hello.snapshot?.sessionDefaults?.defaultAgentId
     if (!agentId) throw new Error('OpenClaw Gateway 没有返回默认 Agent。')
-    const sessionKey = stored?.sessionKey ?? await createOpenClawSession(client, { agentId })
-    if (!stored?.sessionKey) {
-      await input.vault.save(input.options.userId, parsed.gatewayUrl, { ...credential, sessionKey })
+    let sessionKey = stored?.sessionKey ?? null
+    if (sessionKey && gatewaySupportsMethod(hello, 'sessions.preview')) {
+      try {
+        const preview = await client.request('sessions.preview', openClawSessionPreviewParams(sessionKey))
+        if (!isCurrent(client)) return false
+        const previewStatus = projectOpenClawSessionPreview(preview, sessionKey)
+        if (previewStatus === 'missing') sessionKey = null
+        else if (previewStatus === 'error') throw new Error('OpenClaw 暂时无法验证已保存会话。')
+      } catch (error) {
+        if (!isCurrent(client)) return false
+        if (!isMissingOpenClawSession(error)) throw error
+        sessionKey = null
+      }
     }
-    input.session.bind(agentId, sessionKey)
-    input.transcript.restoreLocal(parsed.gatewayUrl, sessionKey)
-    const [tools] = await Promise.all([
-      client.request('tools.effective', { sessionKey, agentId }),
-      input.transcript.loadHistory(client, sessionKey, agentId),
-      input.session.loadRuntime(client, sessionKey, agentId),
-      input.session.loadContextUsage(client, sessionKey),
-    ])
-    if (generation !== connection.generation) return false
+    let reusedStoredSession = sessionKey !== null && sessionKey === stored?.sessionKey
+    if (!sessionKey) {
+      sessionKey = await createOpenClawSession(client, { agentId })
+      if (!isCurrent(client)) return false
+      reusedStoredSession = false
+    }
+    if (!isCurrent(client)) return false
+    let tools: unknown
+    try {
+      tools = await loadConnectedSession(input, client, sessionKey, agentId)
+    } catch (error) {
+      if (!reusedStoredSession || !isMissingOpenClawSession(error) || !isCurrent(client)) throw error
+      resetFailedSessionLoad(input)
+      sessionKey = await createOpenClawSession(client, { agentId })
+      if (!isCurrent(client)) return false
+      tools = await loadConnectedSession(input, client, sessionKey, agentId)
+    }
+    if (!isCurrent(client)) return false
+    await input.vault.save(input.options.userId, parsed.gatewayUrl, { ...credential, sessionKey }, () => isCurrent(client))
+    if (!isCurrent(client)) return false
     connection.reconnectDelay = 1_000
     connection.reconnectAttempt = 0
     input.dispatch({
@@ -143,6 +195,10 @@ async function performOpenClawConnect(
     if (generation === connection.generation) {
       connection.client?.close()
       connection.client = null
+      connection.hello = null
+      input.session.reset()
+      input.resetConversation()
+      input.transcript.reset()
       input.dispatch({ type: 'patch', value: { status: 'error', issue: setupIssue(error) } })
     }
     return false
@@ -168,6 +224,7 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
     connection.reconnectAttempt = 0
     connection.reconnectDelay = 1_000
     connection.mediaTicketSupported = false
+    connection.hello = null
     input.session.reset()
     input.resetConversation()
     input.transcript.reset()

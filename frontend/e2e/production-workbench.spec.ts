@@ -960,8 +960,8 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await expect(toggle).toBeFocused()
   }
   if (testInfo.project.name === 'mobile') {
-    await expect(mobileNavigation.getByRole('link')).toHaveCount(4)
-    await expect(mobileNavigation.getByRole('link', { name: '助手连接' })).toBeVisible()
+    await expect(mobileNavigation.getByRole('link')).toHaveCount(3)
+    await expect(mobileNavigation.getByRole('link', { name: '助手连接' })).toHaveCount(0)
     await expect(mobileNavigation.getByRole('button', { name: '更多与账户' })).toBeVisible()
   }
 

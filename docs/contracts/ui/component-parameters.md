@@ -1,6 +1,10 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/contracts/ui/component-parameters.md -->
 # Inteliscope UI Component Parameters
 
+### Composer suggestion surface
+
+`ComposerSuggestions` reuses panel/control radii, separator, surface, accent selection, and type-control/type-meta roles. It is an upward-first non-modal portal with 8 px anchor offset; width is at most 360 px and the textarea width, with 12 px viewport clearance per side. Scroll height is at most 320 px or 40 dvh. Rows are at least 44 px for touch and use 8 px padding; no composer or rail resizing occurs when the menu opens.
+
 ## 1. Default and precedence
 
 - When the user does not name a style, use the current Quiet Studio / graphite-purple system and this matrix.
@@ -50,6 +54,7 @@ Ordinary composition uses 4 px for tightly related icon internals, 8 px for cont
 | Compact select | `CompactSelect` | 32 px trigger, `type-control`, 12 px indicator; use only in toolbars and high-density rows. |
 | Navigation/settings row | shared navigation pattern / `SettingsItem` | At least 40 px row, `type-control` label, `type-body` description, 17 px navigation icon in a 32 px slot; rows do not translate or scale. |
 | Sidebar rail | Workbench desktop sidebar | Use a 52 px header, one flexible scrolling navigation region and a fixed 64 px account footer. Its scrollbar gutter is `auto`: it consumes rail space only when navigation truly overflows, while mouse wheel, keyboard and touch scrolling remain available at low heights. The refresh Bootstrap shell mirrors these three tracks with icon/line silhouettes rather than row-sized blocks. A rail may animate width and text visibility, but its account/footer baseline must not move between collapsed and expanded states. |
+| OpenClaw workspace layout | `AgentWorkspaceLayout` | ≥1024 px uses one fixed 288 px session sidebar. ≥1440 px may dock one on-demand 360 px inspector while preserving at least 720 px center; no inspector is open by default and there are no resizers. 768–1023 px uses side Drawers; <768 px uses bottom Sheets and safe-area composer spacing. Conversation/read width is about 860 px and Composer max width is about 920 px. |
 | Card/group | HeroUI `Card`, `PageSection`, `SettingsCard`, `SettingsGroup` | Semantic surface, thin separator, card radius, 16 px default padding; static content has no glow or heavy shadow. |
 | Settings operation card | HeroUI `Card` | Use independent cards for independently managed records or routes: header holds identity and status, content holds the current configuration/metrics, footer holds persistent facts and direct actions. ActorOps Route cards keep the collapsed view to identity/health, main/standby choices, then LKG/metrics/actions; technical detail is lazy, stays inside the card, and only one Route opens at a time. Do not use one large flat card to impersonate several independently actionable records. |
 | Log-heavy settings view | HeroUI `Tabs`, `Card`, `StatusIndicator` | Separate high-volume events from the primary configuration cards with a URL-driven tab. An actionable event always shows reason, impact, next step and a safe entry; a normal status never relies on color alone, and recovered events expose confirmation rather than an unnecessary action. |
