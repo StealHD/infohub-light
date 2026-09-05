@@ -405,14 +405,14 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-06",
   "result": "已提交 UI 分支 d481eb17，并在该分支整合本地 main@f5476b02；保留对话内命令、配对修复与 UI 会话目录、主题输入区、Fast 交互，解决冲突并保留全部工作记录，UI 决策编号调整为 D208。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "2026-09-06-merge-agent-workspace-ui-local-main",
-  "unresolved": [
-    "等待最终合并版本 preflight、完整浏览器门禁与本地 main 快进"
-  ],
+  "unresolved": [],
   "validation": [
     "UI 提交前 staged preflight 14/14 通过",
-    "合并后重点浏览器 18/18 通过；相关单元测试复验通过，类型与控制结构校验通过"
+    "合并后重点浏览器 18/18 通过；相关单元测试复验通过，类型与控制结构校验通过",
+    "最终合并版本 preflight 14/14 通过；完整浏览器门禁 218 passed、91 skipped",
+    "合并提交 25e55799 已快进至本地 main，保留两侧代码与历史；未推送远端、未重建 Docker"
   ]
 }
 ```
