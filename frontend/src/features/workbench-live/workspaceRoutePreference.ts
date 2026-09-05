@@ -12,6 +12,7 @@ const openClawRoutes = new Set([
   '/agent/artifacts',
   '/agent/skills',
   '/agent/automations',
+  '/agent/examples',
 ])
 
 function preferenceKey(userId: string, mode: WorkspaceMode): string {

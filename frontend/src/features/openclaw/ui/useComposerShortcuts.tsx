@@ -25,7 +25,7 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
     const unavailable = ['new', 'model', 'reasoning', 'worktree'].includes(command.id) && (chat.isRunning || chat.runtimeUpdating || chat.runtimeLoading || chat.status !== 'connected')
       || command.id === 'model' && !chat.models.length
       || command.id === 'reasoning' && (!chat.thinkingOptions.length || chat.models.find((model) => model.id === chat.runtimeSelection.modelId)?.reasoning === false)
-    items.push({ ...command, id: `command:${command.id}`, group: '快捷操作', disabled: unavailable })
+    items.push({ ...command, icon: ({ skills: 'Sparkles', new: 'Plus', model: 'Bot', reasoning: 'Brain', worktree: 'GitCompareArrows', status: 'Activity', help: 'BookOpen' } as const)[command.id], id: `command:${command.id}`, group: '快捷操作', disabled: unavailable })
   }
   for (const skill of directory.items) {
     if (!`${skill.name} ${skill.description ?? ''}`.toLocaleLowerCase().includes(needle)) continue
@@ -33,7 +33,7 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
     items.push({ id: `skill:${skill.key}`, group: 'Skills', title: skill.name, description: reason ?? skill.description ?? '本次请求使用此 Skill', disabled: Boolean(reason) || !composer.selectSkill || !scope })
   }
   if (trigger?.prefix === '@' && !skillsOnly) for (const material of composer.materials ?? []) {
-    if (material.title.toLocaleLowerCase().includes(needle)) items.push({ id: `material:${material.id}`, group: '已附带材料', title: material.title, description: '引用标题，不重复添加附件' })
+    if (material.title.toLocaleLowerCase().includes(needle)) items.push({ id: `material:${material.id}`, group: '已附带材料', icon: 'Paperclip', title: material.title, description: '引用标题，不重复添加附件' })
   }
   const enabled = items.filter((item) => !item.disabled)
   const activeId = enabled.find((item) => item.id === active)?.id ?? enabled[0]?.id
@@ -83,6 +83,6 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
   return {
     setCaret, inputChanged: (position: number) => { setCaret(position); setDismissed(''); setActive('') }, keyDown, issue, picker, closePicker: () => setPicker(null),
     aria: { 'aria-autocomplete': 'list' as const, 'aria-controls': trigger ? id : undefined, 'aria-activedescendant': trigger && activeIndex >= 0 ? `${id}-${activeIndex}` : undefined },
-    suggestions: trigger ? <ComposerSuggestions anchor={inputRef} id={id} items={items} activeId={activeId} loading={directory.loading} error={directory.error} onChoose={choose} onClose={close} onRetry={directory.retry} /> : null,
+    suggestions: trigger ? <ComposerSuggestions anchor={inputRef} id={id} items={items} activeId={activeId} loading={directory.loading} error={directory.error} onChoose={choose} onHighlight={setActive} onClose={close} onRetry={directory.retry} /> : null,
   }
 }

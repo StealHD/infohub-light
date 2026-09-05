@@ -45,20 +45,20 @@ describe('Agent Workspace page', () => {
   it('explains every feature without sending, creating a task or clearing the draft', async () => {
     const browser = userEvent.setup()
     const { chat, context } = renderPage('/agent')
-    await browser.click(screen.getAllByRole('button', { name: '使用示例' })[0])
+    await browser.click(screen.getByRole('link', { name: '使用示例' }))
     for (const feature of ['对话', '上下文', 'Worktree', 'Tasks', 'Artifacts', 'Skills', 'Automations']) {
       expect(screen.getByRole('heading', { name: new RegExp(`^${feature}：`) })).toBeInTheDocument()
     }
     expect(chat.openSession).not.toHaveBeenCalled()
     expect(context.draft.question).toBe('保留中的 Feed 草稿')
-    await browser.click(screen.getByRole('button', { name: '知道了' }))
+    expect(screen.getByRole('heading', { name: /^使用示例$/u })).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('keeps the conversation mounted while a deep-linked Tasks inspector is open', () => {
     renderPage('/agent/tasks')
     expect(screen.getByTestId('agent-scroll-region')).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Tasks检查器' })).toHaveClass('w-[var(--inteliscope-width-agent-inspector)]')
+    expect(screen.getByRole('complementary', { name: 'Tasks检查器' })).toHaveClass('disclosure-panel')
     expect(screen.getByRole('heading', { name: 'Tasks' })).toBeInTheDocument()
     expect(screen.getByText('连接 Gateway 后查看 Tasks')).toBeInTheDocument()
   })

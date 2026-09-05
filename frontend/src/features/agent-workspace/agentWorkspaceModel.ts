@@ -15,5 +15,5 @@ export function routeForInspector(inspector: OpenClawInspector): string {
 }
 
 export function isOpenClawResourcePage(pathname: string): boolean {
-  return pathname === '/agent/skills' || pathname === '/agent/automations'
+  return pathname === '/agent/skills' || pathname === '/agent/automations' || pathname === '/agent/examples'
 }

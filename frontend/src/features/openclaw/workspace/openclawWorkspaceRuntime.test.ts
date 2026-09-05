@@ -90,7 +90,7 @@ describe('OpenClaw Agent Workspace runtime', () => {
     const { controller } = runtimeWith(request)
     await expect(controller.previewSession('child-1')).resolves.toMatchObject({ key: 'child-1', label: 'Child task', parentSessionKey: 'parent-session', createdActor: { type: 'human', label: 'Me' }, hasActiveRun: true })
     expect(request).toHaveBeenCalledWith('sessions.preview', { keys: ['child-1'] })
-    expect(request).toHaveBeenCalledWith('sessions.list', { limit: 200 })
+    expect(request).toHaveBeenCalledWith('sessions.list', { search: 'child-1', limit: 100, archived: 'all' })
   })
 
   it('rejects cross-session task and artifact responses before exposing actions', async () => {

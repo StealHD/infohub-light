@@ -8,227 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复新用户订阅已有 workspace/public 来源后近 7 天 Feed 为空：可证明 title_origin=native 的旧稳定条目不再因缺 source_native_title 被跳过，没有安全用户供体时回退到同 workspace 中性来源缓存；托管来源准备启用时也先完成零网络目标订阅投影。",
-  "status": "completed",
-  "task_id": "2026-09-01-existing-source-new-subscriber-reuse",
-  "unresolved": [
-    "尚未部署或修改 VPS；修复保留在 codex/fix-youtube-source-label 工作区，等待用户确认后续合入与发布。"
-  ],
-  "validation": [
-    "新增合成回归覆盖来源缓存无用户供体、托管来源暂时停用、旧条目缺 source_native_title 但原始标题可证明三条路径，定向 Pytest 7/7 通过。",
-    "既有订阅复用、API、Feed Store 与 import boundary 回归 35 项通过；本地真实数据库只读聚合确认 235 条旧记录中 176 条具备可信 native title 证明。",
-    "snapshot full preflight 16/16 通过，覆盖完整后端、前端、控制检查、代码尺寸和映射 E2E，SQLite 连接警告为 0。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "将 YouTube 来源名称、社交标签去重、卡片复制/忽略与展开反馈、以及新用户订阅已有来源的安全内容回填合入本地 main，并整理为 v2.6.6 正式发布版本。",
-  "status": "completed",
-  "task_id": "2026-09-01-release-v2-6-6",
-  "unresolved": [],
-  "validation": [
-    "合并后的本地 main 为干净线性历史，功能修复 snapshot full preflight 16/16 通过。",
-    "版本与 uv lock 同步为 2.6.6；版本准备 snapshot full preflight 16/16 通过，覆盖完整前后端、控制检查、代码尺寸与映射 E2E，SQLite 连接警告为 0。",
-    "本次没有数据库 migration 文件或 schema delta，适用标准 revision-locked VPS 发布流程。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复 v2.6.6 首次 main UI Gate 暴露的卡片交互回归：带缩略图卡片的复制/忽略按钮改为位于图片左侧并恢复顶部对齐，不再增加卡片高度；悬停交互测试在提示检查后重新激活卡片再点击。",
-  "status": "completed",
-  "task_id": "2026-09-01-release-v2-6-6-ui-gate-fix",
-  "unresolved": [],
-  "validation": [
-    "首次失败的 production-workbench 桌面 Playwright 7/7 通过，覆盖 320/390/645/1024/1440px 操作反馈及 1440x900 至少四张完整卡片。",
-    "VirtualFeed 定向 Vitest 37/37、TypeScript、UI 契约通过；snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与控制检查。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复 public/workspace 来源只写入触发用户的问题：成功 source_fetch 现会在同一事务向全部有效非 Viewer 订阅者生成各自的 Feed 投影；中性缓存默认开启，新订阅优先缓存并安全回退稳定内容，最多 200 条。",
-  "status": "completed",
-  "task_id": "2026-09-01-public-source-content-sharing",
-  "unresolved": [
-    "未合并、未推送或部署 VPS；发布后需对已有 X 来源执行一次正常成功抓取以补齐现有缺失的近期条目。"
-  ],
-  "validation": [
-    "公共来源 fan-out、private/Viewer 隔离、缓存优先回填、catalog runner 接线与系统默认值定向 Pytest 22 项通过。",
-    "完整 impacted preflight 16/16 通过：Python 全量、前端 lint/typecheck/Vitest 694 项、构建、UI/控制/代码规模检查全部成功。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-02",
-  "result": "修复公共来源成功抓取后的通知差集：后续 fan-out 快照不再覆盖任务基线，同一 source_fetch 的可信订阅身份可补齐中性共享内容缺失的 provenance，并保留共享历史不补发语义。",
-  "status": "completed",
-  "task_id": "2026-09-02-fix-public-source-notification-fanout",
-  "unresolved": [
-    "尚未部署 VPS；生产历史漏发内容按现有通知水位合同不自动补发。"
-  ],
-  "validation": [
-    "新增公共来源抓取→任务快照→真实 fan-out→通知 outbox 集成回归，生产代码先稳定复现 0 条，修复后精确生成 1 条 pending delivery。",
-    "通知、公共共享/复用与 Catalog runner 定向 Pytest 67 项通过；更新日志 Vitest 5 项、TypeScript、ESLint、编译和代码规模检查通过。",
-    "impacted preflight 14/14 通过；本地唯一共享 Telegram 服务执行一次真实 smoke，返回 provider_accepted。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-02",
-  "result": "新增统一的稳定异步按钮并迁移系统内保存、提交、测试、刷新、连接、删除等文字操作；通知设置保存不再重挂载表单，UI 合同与静态门禁禁止中间态改变按钮外部几何。",
-  "status": "completed",
-  "task_id": "2026-09-02-stable-async-buttons",
-  "unresolved": [
-    "完整 Playwright 运行仍有 8 个与本次按钮和更新日志改动无关的既有失败，集中在旧 HeroUI 预览 CSS 隔离及 ActorOps/页头视觉快照；本次直接影响的更新日志验收修正后已全部通过。"
-  ],
-  "validation": [
-    "StableAsyncButton、UI 合同、通知设置与更新日志定向 Vitest 57 项通过；完整 Vitest 96 文件 698 项通过。",
-    "TypeScript、ESLint、UI 合同、生产构建及预览产物检查通过；门禁控制、代码尺寸和 diff 检查通过。",
-    "补齐声明的 dev 依赖后，门禁选中的后端 Pytest 组完整通过。",
-    "本地通知页 DOM 验证按钮为 110×36 px，正常态和保存中状态共用同一布局轨道；更新日志相关 Playwright 4 项在桌面、平板和移动端通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-02",
-  "result": "将用户发起的刷新与重试收敛到 RefreshButton：图标立即旋转，快请求仍保留 400 ms 可感知反馈，长请求持续到完成，并保持文案、图标位置与按钮几何稳定；已迁移存储、助手、订阅、系统设置、密钥与 ActorOps 的同类请求按钮。",
-  "status": "completed",
-  "task_id": "2026-09-02-refresh-button-feedback",
-  "unresolved": [],
-  "validation": [
-    "RefreshButton、StableAsyncButton、UI 合同与更新日志定向 Vitest 60 项通过，受影响文件 ESLint、UI 合同检查与生产构建通过。",
-    "本地真实浏览器验收 /agents 与 /settings/storage：点击后旋转类、busy 状态、禁用状态与稳定可见文案均生效。",
-    "完整 impacted preflight 14/14 通过，包含 97 个前端测试文件共 702 项、控制合同、代码尺寸、后端定向检查与生产构建。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "instructions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-02",
-  "result": "纠正分支关系：本地 main 回退到 39ee4a92 后，纯快进合入 codex/non-docker-dev-20260902 的稳定异步/刷新按钮修改；随后在同一分支将固定版本外部 UI 教材蒸馏为项目唯一交互宪章、Skill 入口、验收清单和自动影响映射。",
-  "status": "completed",
-  "task_id": "2026-09-02-ui-contract-distillation",
-  "unresolved": [
-    "移动端部分输入控件沿用现有 13px type-control，可能触发 iOS Safari 聚焦缩放；按用户裁决本次不改变现法，仅保留后续审计项。"
-  ],
-  "validation": [
-    "按钮修改完整 Vitest 97 文件 703 项、TypeScript、UI 合同、生产构建通过；43 文件 staged preflight 14/14 通过。",
-    "项目 inteliscope-ui Skill quick_validate、Markdown/项目控制、worklog、JSON、UI 合同、TypeScript 和 diff 检查通过。",
-    "蒸馏差异 staged preflight 16/16 通过，覆盖控制面、Python/前端全量、生产构建和 UI 合同。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-03",
-  "result": "完成新 UI Skill 驱动的全局交互整改：稳定异步按钮增加同步单飞锁，刷新、订阅、通知、成员、存储、ActorOps 与专题操作统一局部 pending 反馈；新增 coarse-pointer 按钮命中区、OverflowValue 长文本入口及保留页面上下文的 Empty/Error 状态。",
-  "status": "completed",
-  "task_id": "2026-09-03-global-ui-interaction-remediation",
-  "unresolved": [
-    "代码仅保留在 codex/non-docker-dev-20260902，等待用户完成实际操作与视觉验收；未经明确批准不得合入 main。",
-    "移动端 13px 输入文字及 iOS 自动缩放风险按既有裁决本次不修改。"
-  ],
-  "validation": [
-    "UI Contract 与 TypeScript 检查通过；12 个直接影响 Vitest 文件共 131 项通过，StableAsyncButton 额外回归 7 项通过。",
-    "Markdown、project-controls、Worklog、JSON 与 diff 校验全部通过；生产构建在实现阶段通过。",
-    "唯一一次 impacted preflight 14/14 通过，覆盖 control、frontend_full 与 python_api_store，无 SQLite 连接泄漏警告。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-03",
-  "result": "修复 StableAsyncButton 同步锁在真实浏览器中抢先禁用 submitter、导致登录和设置表单无响应的回归：表单按钮先完成原生 submit 分发，再发布 pending，连续点击仍由同步锁阻止。",
-  "status": "completed",
-  "task_id": "2026-09-03-fix-stable-submit-activation",
-  "unresolved": [
-    "修复仅提交到 codex/non-docker-dev-20260902，继续等待用户实际验收，未经批准不得合入 main。"
-  ],
-  "validation": [
-    "StableAsyncButton、登录、订阅、通知、RSSHub 设置与更新日志定向 Vitest 7 文件 37 项通过；TypeScript 与 UI Contract 检查通过。",
-    "真实浏览器使用虚构账号发起登录探针，服务端返回明确的账号密码错误，证明 submit 与 API 请求恢复；浏览器无 error。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-03",
-  "result": "按项目 UI Constitution 完成 M1-M7 全局交互稳定性整改：统一异步与刷新单飞反馈、保留局部内容和 DOM 身份、补齐粗指针命中区与 Reduced Motion、改善长文本及局部空错状态，并强化 UI 静态合同。",
-  "status": "completed",
-  "task_id": "2026-09-03-global-ui-interaction-stability",
-  "unresolved": [
-    "修改仅保留在 codex/non-docker-dev-20260902 供用户视觉与操作验收，未经明确确认不合入 main、不推送。"
-  ],
-  "validation": [
-    "前端 lint、typecheck、UI contract、生产构建与全量 Vitest 100 文件 729 项全部通过。",
-    "snapshot impacted preflight 14/14 通过，覆盖控制面、前端全量、Python API/store 与映射 UI E2E；代码体积冻结策略通过。",
-    "目标 Worktree 的非 Docker API、Vite 与 Worker 已启动，8080/5173 readiness 均为 ready 且 worker_status=ready。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-09-03",
@@ -416,6 +195,223 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Agent 与快捷输入四尺寸浏览器批次 51 通过、21 条件跳过并正常退出；现有页面的桌面、平板、移动端回归分批补齐，失败项均定向复验通过。串行执行重型门禁，不把中断或未运行用例计作通过。",
     "Mac 固定时间页头桌面/平板普通比较 2 项通过；Linux 关闭外网的生产构建上，ActorOps 触控、页头、订阅深浅主题、登录深浅主题 4 项普通视觉比较通过；保留焦点、Axe、无溢出与交互断言。",
     "up-latest.sh 从任务 worktree 构建并更新本地 API/Worker，保留旧镜像。健康检查确认 revision 3e9524f9a7d4-dirty-6df2f716e765、双容器 healthy、前端资源 index-wwJRK93U.js 已提供；生产 Gateway 未参与测试。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "从 736ed01b 创建独立 codex/agent-workspace-ui worktree，完成授权会话目录分页/搜索/归档、三条单行导航、精确跨 Agent 切换与失败回退、原生自动标题及回退显示；收紧输入框并右置运行控件，共享 Feed 账户菜单和退出清理，新增 examples 路由，移除工作区助手连接入口，统一侧栏动效和焦点恢复。同步 UI/Gateway 合同、D206、手册及更新日志。仅启动本 worktree 的 Vite 5173 并代理现有 8080，保留 Gateway Origin 已有项；未重建 Docker、提交、推送或部署。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-workspace-ui",
+  "unresolved": [],
+  "validation": [
+    "最终 impacted preflight 14/14 通过：受影响后端测试、127 文件 842 项 Vitest、UI/lint/类型/构建、控制合同、代码尺寸均通过；首屏 JavaScript Brotli 244596 bytes，未放宽预算。",
+    "完整生产浏览器门禁最终复跑 172 通过、86 条件跳过，正常退出；覆盖桌面、平板、手机，另有紧凑桌面定向验收。修复动效期间主题/提示采样竞态后先定向复验，再执行唯一完整复跑，未放宽超时或截图容差。",
+    "新增超过 200 会话分页、归档搜索、跨 Agent 刷新恢复、异步标题、可信资源范围隔离、会话切换失败保留原状态、用户/Gateway 目录隔离测试；验证草稿、长输入、账户菜单、Reduced Motion、快速反向开合与焦点恢复。",
+    "真实 5173 页面已连接现有 Gateway，读取并搜索授权历史会话；未发送真实聊天或触发历史 AI 重命名。人工检查桌面和手机截图，保留本地验收标签页与 Vite 进程。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "按用户截图复刻 Agent 输入区和思考选择：局部石墨/粉色外观、右侧胶囊、向上浮层、模型列表、分档滑杆与白色圆形滑块。仅使用 Gateway 已提供档位，松开后应用本地思考设置，支持恢复自动、并发排除、失败回退、键盘和触控；保留附件、草稿和快捷命令。同步组件参数、路由合同、验收、手册和更新日志；未新增语音或审批能力，未重建 Docker、提交或推送。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-effort-reference",
+  "unresolved": [
+    "当前真实 Gateway 的已配对设备重连仍返回连接失败；已确认 Gateway 端口及开发 Origin 存在，未更改令牌或设备权限。此运行问题不影响已通过的隔离 UI 验收。"
+  ],
+  "validation": [
+    "最终 impacted preflight 14/14 通过，128 文件 845 项 Vitest 全部通过，类型、lint、UI 合同、代码尺寸与构建通过；首屏 JavaScript Brotli 244877 bytes，预算未放宽。",
+    "完整生产 Playwright 门禁 178 通过、86 条件跳过，正常退出；定向三个尺寸浮层/快捷命令测试 20 通过、4 条件跳过。涵盖深浅主题、可访问性、自动重置、模型列表焦点/Escape、中文草稿与无横向溢出。人工核对实际页面裁剪截图。",
+    "5173 Vite 继续代理本分支 8082 API，二者健康检查通过；现有 8080 未重建。本次所有聊天交互验收使用隔离 Gateway fixture，未发送真实聊天。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "按 Codex 参考细化思考面板：档位标题与模型名组成统一入口，滑块和填色切档平滑过渡、拖动直接跟手、胶囊箭头随开合旋转；Ultra/Max 自动播放一次渐变粒子后静止，Reduced Motion 立即静态。修正手机浏览器门禁把已隐藏的省略文本计作横向溢出的误判，保留信息流八条紧凑上下文布局。同步组件参数、验收与更新日志，未添加加速、语音或审批能力，未重建 Docker。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-effort-motion",
+  "unresolved": [
+    "真实开发页面仍显示此前的 Gateway 重连失败；本次 UI 使用隔离 Gateway fixture 验证，未更改连接配置。"
+  ],
+  "validation": [
+    "最终 impacted preflight 14/14 通过；128 文件 845 项 Vitest、UI 合同、lint、类型、代码体积、构建和控制检查通过。",
+    "思考面板三视口定向浏览器测试 9/9 通过；完整浏览器首轮发现一处省略文本误判，按失败复验和唯一完整重跑流程执行，重跑 181 通过、86 条件跳过。随后恢复紧凑行并修正断言，最终相关 34 项单测和原手机用例通过，未再运行第三次完整浏览器门禁。",
+    "人工核对深浅主题及手机截图；验证有限动效、Reduced Motion 静态、键盘和焦点、恢复自动、无真实 chat.send。5173 代理 8082 健康检查 ready，保持本地服务运行。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "按用户纠正：闪电只代表独立 Fast 状态，移除随 Ultra/Max 档位高亮的假象；当前前端未接入 Fast，通过可聚焦的不可用控件给出说明且不执行操作。输入框恢复原 surface-secondary，浮层、控件与文字边框复用项目深浅主题；思考控件局部采用系统圆润字体和较柔和字重。保留已验证的分档滑块和有限粒子动效，同步组件参数、路由合同及更新日志。未重建 Docker、提交或推送。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-effort-fast-style",
+  "unresolved": [
+    "Fast 的实际设置写入尚未接入当前前端，本次只纠正语义和外观。",
+    "现有开发标签仍显示 Gateway 重连失败，UI 使用隔离 Gateway fixture 验证；未改动连接配置。"
+  ],
+  "validation": [
+    "impacted preflight 14/14 通过，128 文件 845 项 Vitest、lint、UI、类型、冻结文件体积、构建及控制检查通过。",
+    "完整浏览器门禁首轮 181 通过、86 条件跳过；三视口定向9项通过，最终44px Fast触控列调整后三项手机用例通过。核对深浅主题、圆润控件、背景恢复、Fast与最高思考档位隔离、键盘说明和无横向溢出。",
+    "本地5173代理8082健康检查ready；保持前后端运行，未发送真实聊天或写入Fast设置。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "接入独立 Fast 开关，使用原生 chat.send.fastMode 按请求覆盖；读取精确会话默认，未选择时省略，明确关闭发送 false，原失败重试保留原设置，新会话和用户切换清除本地覆盖。只有 Fast 开启才有粒子，添加短暂使用额度提醒；白球去黑边、悬停微放大与拖动微缩，面板、文字和图标进一步缩小，保留项目背景及 Reduced Motion。同步 Gateway/UI 合同、D206 补充、手册和更新日志；不发送 /fast 文本或 admin patch，不承诺固定倍速，未重建 Docker、提交或推送。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-fast-live",
+  "unresolved": [],
+  "validation": [
+    "直接影响 Vitest 3 文件 13 项、production-agent-effort 浏览器 12 项通过；含真实 hook 的 Fast 参数、失败重试、隔离和动效 fixture 验证，无实际 AI 请求。",
+    "完整浏览器门禁 184 passed / 86 skipped；impacted preflight agent-fast-live-final 14/14 通过，其中 Vitest 129 文件 849 项通过，UI 合同、类型、lint、构建及 Python 受影响检查通过。",
+    "5173 经本地 8082 后端代理 /api/health/ready 返回 ready；本地前后端保持运行，未重建 Docker。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复滑杆两端刻度及滑块圆心对齐和填充接缝、模型名称裁切；模型名称/思考档位/上下文用量集中至发送按钮左侧，强调色跟随主题。连接表单操作等宽等高，工作区小于 640px 时纵向铺满，错误改用语义正文。Fast 和成功切入 Ultra 复用短暂用量提醒；Ultra 说明额外 Token，失败不提示，粒子仍仅随 Fast。保留 Gateway 全部支持档位与自动，未擅自精简。同步 UI 合同、手册和更新日志；保留本地前后端，不重建 Docker、不提交或推送。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-effort-alignment",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 2 文件 26 项通过；浏览器 production-agent-effort 18 项通过，覆盖主题、圆心几何、右对齐、624/320px 重排、Ultra 成功/失败及 Reduced Motion。",
+    "impacted preflight agent-effort-alignment-final 14/14 通过；Vitest 129 文件 850 项、UI 合同、类型、lint、构建和受影响 Python 检查通过。",
+    "完整浏览器门禁 190 passed / 86 skipped（7.7m），产物 .test-results/agent-effort-alignment-release；复核截图并通过控制文件校验与 diff 检查。",
+    "5173 代理 /api/health/ready 返回 ready，本地前后端保持运行；无真实 AI 请求、Docker 重建、提交或推送。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "工作区思考去除 off/none/auto；只显示可信已选/默认档位，未知默认不猜测或自动写入。OpenClaw 侧栏复用信息流 232px token；切换菜单收至栏内、减小语义字体并移除多余前导图标。共享 FormSelect 为长值和箭头分配独立区域，完整值通过可操作列表换行展示；Artifacts 窄检查器上下排版。修复 Skills 等页会话点击不跳转：当前会话可直接返回，历史切换成功才跳转，失败保留路由/会话，新对话成功后返回。新增 UI-LAYOUT-04 控件内部防重叠约束和截图级矩形回归，更新组件/路由合同、决策补充、手册和更新日志；保留隔离 worktree 与本地运行，不提交、推送或重建 Docker。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-ui-containment",
+  "unresolved": [],
+  "validation": [
+    "直接 Vitest 3 文件 14 项通过；定向浏览器 28 passed / 2 skipped，覆盖关/自动过滤与未知默认、长 Session 内部矩形/完整值展开、侧栏同宽、Skills 当前/历史会话返回、草稿及失败回退。",
+    "完整浏览器门禁 200 passed / 88 skipped（9.3m），产物 .test-results/agent-ui-containment-release；已人工检查长 Session 和紧凑工作区菜单截图。",
+    "preflight 首次发现新 CSS 末尾空行，修正并单独复验失败检查；agent-ui-containment-final-fixed 14/14 通过，含 Vitest 129 文件 852 项、类型、lint、构建、UI/代码体积/受影响 Python 检查。",
+    "Markdown、schema-v3 控制文件与 diff 校验通过；5173 代理健康检查 ready，本地前后端保留，未调用真实 AI 或重建 Docker。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复 OpenClaw 左栏点击抖动：切换等待提示原先挤入文档流让导航下移 48 px，现改用非布局状态播报；新建按钮仅跟踪自身动作的 pending。会话按实际活动排序，选中已显示会话不再置顶；列表外当前会话保留可见。资源路由共享稳定的 error-boundary key，Skills、Automations、Examples 切换不再重建整个左栏。UI-INT-01 补充固定导航待处理/终态几何与节点稳定要求，更新路由合同、决策和更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-sidebar-stability",
+  "unresolved": [],
+  "validation": [
+    "先用浏览器复现并测得导航下移 48 px；修复后按压、键盘资源导航、延迟会话切换、成功/失败及 Reduced Motion 的矩形和 DOM 身份检查通过，已查看等待态截图。",
+    "直接 Vitest 4 文件 123 项通过；受影响导航浏览器 19 passed / 9 skipped，最终稳定性专项 6 passed / 6 skipped。",
+    "agent-sidebar-stability-final impacted preflight 12/12 通过，含 129 文件 853 项 Vitest、类型、lint、构建、UI 合同及代码体积检查。",
+    "完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-sidebar-stability-release；控制文件与 diff 检查通过。5173 API 代理健康状态 ready，保留本地服务，未重建 Docker、提交或推送。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-06",
+  "result": "完成本轮 Agent 输入区细节：Fast 默认透明，仅精细指针悬停显示底色，开启时底部模型名前增加主题色闪电并播报状态；箭头旋转仅作用于尾部 chevron。发送按钮恢复共享主题色及禁用透明度；输入框移除静态描边，保留主题表面与非布局焦点提示。/ 与 @ 候选改为输入框上方同宽浮层，语义图标、名称、说明横排，圆角选中态，窄屏换行并保留滚动、键盘及草稿行为。同步设计系统参数与更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-06-agent-composer-polish",
+  "unresolved": [],
+  "validation": [
+    "直接控件单测 3 文件 22 项通过；构建版思考控件 18 项通过；快捷候选 18 passed / 6 skipped，覆盖同宽对齐、图标、200% 等效缩放、窄 Feed 栏、IME、撤销 Skill、草稿与不自动发送。已检查深浅主题及桌面/手机截图。",
+    "修正构建版颜色百分比/小数序列化造成的测试误报；收窄动态图标依赖后首屏 JavaScript Brotli 245311 bytes，低于 245760 bytes 门槛，构建复验通过。",
+    "agent-composer-polish-final impacted preflight 14/14 通过，含 129 文件 853 项 Vitest、受影响 Python、类型、lint、构建、代码体积和 UI 合同检查。最终完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-composer-polish-release-final。",
+    "控制文件、JSON 和 diff 校验通过；5173 API 代理健康状态 ready，保留本地前后端。未重建 Docker、调用真实 AI、提交或推送。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-06",
+  "result": "纠正把用户的无黑边仅处理成静态无描边：删除 Agent 输入框聚焦外圈及其 2px 偏移，所有状态使用零 border、outline、outline-offset 和 box-shadow，保留主题表面与可见光标。Fast 提示复用向上 Tooltip 参数，以 13/12px 常规字重显示 Fast / 用量更多，避免覆盖模型区域；同步组件参数与更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-06-agent-composer-edge-tooltip",
+  "unresolved": [],
+  "validation": [
+    "构建版定向 9 项通过，覆盖桌面/平板/手机深浅主题、鼠标与键盘聚焦的零外圈，以及 Fast 提示顶部位置和 400 字重。",
+    "已直接查看聚焦输入框截图；提示截图在父浮层和 Tooltip 进入动效完成后采样，单项视觉复验通过，确认上方间距与简短文本。",
+    "agent-composer-edge-tooltip-final impacted preflight 14/14 通过，含 853 项前端单测、受影响 Python、类型、lint、构建、UI/体积检查；完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-composer-edge-tooltip-release。",
+    "控制文件、JSON 与 diff 校验通过；本地 5173 前端及 API 代理保持运行，未重建 Docker、提交或推送。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-06",
+  "result": "移除聊天滚动区与输入框之间的 8px 顶部间隔，输入框加高并增加文字顶部留白；Fast 粒子持续循环且 Reduced Motion 静止，工作区品牌图标恢复并跟随主题色。",
+  "status": "completed",
+  "task_id": "2026-09-06-agent-composer-seam-brand",
+  "unresolved": [],
+  "validation": [
+    "有内容聊天回归先复现 8px 接缝，修复后深浅主题/四视口通过；直接浏览器 40 passed、9 skipped，相关 Vitest 16 passed",
+    "最终 impacted preflight 14/14 通过；完整浏览器门禁 212 passed、91 skipped；UI/类型/构建/控制文件校验通过",
+    "5173 已提供更新样式，API readiness 正常，保持本地运行且未重建 Docker"
   ]
 }
 ```

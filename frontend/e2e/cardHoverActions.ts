@@ -40,6 +40,7 @@ export async function expectCardHoverActions(page: Page, card: Locator) {
   await expect(copy.locator('.lucide-check')).toBeVisible()
   const feedback = page.getByRole('tooltip').filter({ hasText: '已复制' })
   await expect(feedback).toBeVisible()
+  await expect(feedback).toHaveCSS('opacity', '1')
   const [copyBounds, feedbackBounds] = await Promise.all([copy.boundingBox(), feedback.boundingBox()])
   expect(copyBounds).not.toBeNull()
   expect(feedbackBounds).not.toBeNull()

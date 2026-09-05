@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 
 import { Drawer } from '@heroui/react'
 import { Button } from './Button'
+import { DisclosurePanel } from './DisclosurePanel'
 import { X } from './icons'
 
 function AgentInspectorFrame({ title, onClose, mobile = false, children }: { title: string; onClose: () => void; mobile?: boolean; children: ReactNode }) {
@@ -82,6 +83,8 @@ export function AgentWorkspaceLayout({
   inspectorOpen: boolean
   onInspectorOpenChange: (open: boolean) => void
 }) {
+  const [lastInspector, setLastInspector] = useState({ content: inspector, title: inspectorTitle })
+  if (inspector && (lastInspector.content !== inspector || lastInspector.title !== inspectorTitle)) setLastInspector({ content: inspector, title: inspectorTitle })
   const viewportWidth = useViewportWidth()
   const desktop = viewportWidth >= 1024
   const wide = viewportWidth >= 1440
@@ -97,10 +100,9 @@ export function AgentWorkspaceLayout({
       {children}
     </section>
 
-    {wide && inspectorOpen && inspector && <aside
-      aria-label={`${inspectorTitle}检查器`}
-      className="flex min-h-0 w-[var(--inteliscope-width-agent-inspector)] shrink-0 flex-col overflow-hidden border-l border-separator bg-surface"
-    ><AgentInspectorFrame title={inspectorTitle} onClose={() => onInspectorOpenChange(false)}>{inspector}</AgentInspectorFrame></aside>}
+    {wide && <DisclosurePanel width="var(--inteliscope-width-agent-inspector)" open={Boolean(inspectorOpen && inspector)} label={inspectorTitle + '检查器'}>
+      <AgentInspectorFrame title={inspectorTitle} onClose={() => onInspectorOpenChange(false)}>{inspector}</AgentInspectorFrame>
+    </DisclosurePanel>}
 
     {!desktop && <WorkspaceDrawer
       open={sidebarOpen}
@@ -109,12 +111,12 @@ export function AgentWorkspaceLayout({
       placement={mobile ? 'bottom' : 'left'}
     >{sidebar}</WorkspaceDrawer>}
 
-    {!wide && inspector && <WorkspaceDrawer
+    {!wide && <WorkspaceDrawer
       open={inspectorOpen}
       onOpenChange={onInspectorOpenChange}
-      title={inspectorTitle}
+      title={inspector ? inspectorTitle : lastInspector.title}
       placement={mobile ? 'bottom' : 'right'}
       frameContent
-    >{inspector}</WorkspaceDrawer>}
+    >{inspector ?? lastInspector.content}</WorkspaceDrawer>}
   </div>
 }

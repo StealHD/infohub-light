@@ -72,7 +72,7 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
     void attachmentState.append(files)
   }
 
-  return <div data-testid="openclaw-composer-dock" data-composer-variant={variant} className={`min-w-0 shrink-0 overflow-hidden ${variant === 'workspace' ? 'px-3 pb-[calc(12px+env(safe-area-inset-bottom))] pt-2 min-[640px]:px-6' : 'p-2'}`}>
+  return <div data-testid="openclaw-composer-dock" data-composer-variant={variant} className={`min-w-0 shrink-0 overflow-hidden ${variant === 'workspace' ? 'px-3 pb-[calc(12px+env(safe-area-inset-bottom))] min-[640px]:px-6' : 'p-2'}`}>
     <div className={variant === 'workspace' ? 'mx-auto w-full max-w-[var(--inteliscope-width-agent-composer)]' : ''}>
     {chat.status === 'reconnecting' && <div role="status" className="type-meta mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-warning/10 px-2 py-1.5 text-warning">
       <Icons.WifiOff size={14} className="shrink-0" aria-hidden="true" />
@@ -82,7 +82,7 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
     {composer.contextSummary}
     <PromptInput
       data-testid="openclaw-composer"
-      className={`grid gap-2 p-2 ${variant === 'workspace' ? 'grid-rows-[minmax(104px,auto)_36px]' : 'grid-rows-[minmax(80px,auto)_36px]'}`}
+      className={`grid gap-2 p-2 ${variant === 'workspace' ? 'agent-workspace-composer' : 'grid-rows-[minmax(80px,auto)_36px]'}`}
       onDragOver={(event: DragEvent<HTMLDivElement>) => {
         if (!chat.imageInputAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return
         event.preventDefault()
@@ -103,7 +103,7 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
           fullWidth
           variant="secondary"
           data-testid="openclaw-composer-textarea"
-          className="type-body !min-h-20 !max-h-[180px] min-w-0 max-w-full resize-none !rounded-none !border-0 !bg-transparent px-1 py-1 !shadow-none outline-none focus:!ring-0 focus:!ring-offset-0 focus-visible:outline-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]"
+          className={`type-body ${variant === 'workspace' ? '' : '!min-h-20'} !max-h-[180px] min-w-0 max-w-full resize-none !rounded-none !border-0 !bg-transparent px-1 py-1 !shadow-none outline-none focus:!ring-0 focus:!ring-offset-0 focus-visible:outline-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]`}
           aria-label="发送给 OpenClaw 的问题"
           value={composer.question}
           maxLength={1200}
@@ -128,22 +128,24 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
           }}
         />
       </PromptInputBody>
-      <PromptInputToolbar data-testid="openclaw-composer-toolbar" className="grid grid-cols-[36px_minmax(0,1fr)_36px] px-1 pb-0.5">
+      <PromptInputToolbar data-testid="openclaw-composer-toolbar" className={variant === "workspace" ? "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 px-1 pb-0.5" : "grid grid-cols-[36px_minmax(0,1fr)_36px] px-1 pb-0.5"}>
+        <div className="flex items-center gap-1">
         <Tooltip delay={250}>
           <TooltipTriggerButton
             aria-label="添加图片"
             disabled={!chat.imageInputAvailable || chat.isRunning || attachmentState.attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN}
             onClick={() => fileInputRef.current?.click()}
             className="size-9 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground"
-          ><Icons.ImagePlus size={17} aria-hidden="true" /></TooltipTriggerButton>
+          >{variant === 'workspace' ? <Icons.Plus size={20} aria-hidden="true" /> : <Icons.ImagePlus size={17} aria-hidden="true" />}</TooltipTriggerButton>
           <Tooltip.Content {...anchoredTooltipProps}>{!chat.imageInputAvailable
             ? '图片输入尚未启用'
             : attachmentState.attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN
               ? `每次最多 ${OPENCLAW_MAX_IMAGES_PER_TURN} 张图片`
               : '添加图片'}</Tooltip.Content>
         </Tooltip>
+        </div>
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" aria-label="选择图片" onChange={onImageInput} />
-        <OpenClawRuntimeControls chat={chat} picker={shortcuts.picker} onPickerClose={shortcuts.closePicker} />
+        <OpenClawRuntimeControls variant={variant} chat={chat} picker={shortcuts.picker} onPickerClose={shortcuts.closePicker} />
         <Tooltip delay={250}>
           <TooltipTriggerButton
             aria-label={chat.isRunning ? '停止生成' : '发送给 OpenClaw'}

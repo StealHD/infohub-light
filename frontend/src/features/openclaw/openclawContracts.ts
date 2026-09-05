@@ -102,6 +102,7 @@ export type OpenClawSendRequest = {
 
 export type OpenClawSendSnapshot = OpenClawSendRequest & {
   idempotencyKey: string
+  fastMode?: boolean
   modelId: string | null
   thinkingLevel: string | null
 }
@@ -121,6 +122,8 @@ export type OpenClawModelOption = {
 }
 
 export type OpenClawRuntimeSelection = {
+  fastMode?: boolean
+  defaultFastMode?: boolean
   modelId: string | null
   thinkingLevel: string | null
   defaultModelId: string | null
@@ -224,7 +227,8 @@ export type OpenClawChatController = OpenClawChatState & {
   stop(): Promise<void>
   setModel(modelId: string | null): Promise<boolean>
   setThinking(thinkingLevel: string | null): Promise<boolean>
+  setFastMode(enabled: boolean): Promise<boolean>
   switchToBlankConversation(): Promise<boolean>
   newConversation(): Promise<boolean>
-  openSession(sessionKey: string): Promise<boolean>
+  openSession(sessionKey: string, agentId?: string): Promise<boolean>
 }

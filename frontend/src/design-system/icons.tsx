@@ -2,6 +2,9 @@ import type { SVGProps } from 'react'
 
 export {
   Archive,
+  Activity,
+  Brain,
+  Paperclip,
   ArrowDown,
   ArrowDownUp,
   ArrowLeft,
@@ -99,6 +102,7 @@ export {
   Waypoints,
   WifiOff,
   X,
+  Zap,
 } from 'lucide-react'
 
 type SplitPanelProps = SVGProps<SVGSVGElement> & {

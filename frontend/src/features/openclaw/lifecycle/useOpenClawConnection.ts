@@ -18,6 +18,7 @@ import {
 import { readSavedGatewayUrl, saveGatewayUrl } from '../storage/openclawGatewayPreferences'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
+import { restoredSessionAgent } from './openclawSessionIdentity'
 import { createOpenClawSession } from './openclawSessionOperations'
 
 type ConnectionSessionPort = {
@@ -144,7 +145,7 @@ async function performOpenClawConnect(
       await input.vault.save(input.options.userId, parsed.gatewayUrl, credential, () => isCurrent(client))
       if (!isCurrent(client)) return false
     }
-    const agentId = hello.snapshot?.sessionDefaults?.defaultAgentId
+    let agentId = hello.snapshot?.sessionDefaults?.defaultAgentId
     if (!agentId) throw new Error('OpenClaw Gateway 没有返回默认 Agent。')
     let sessionKey = stored?.sessionKey ?? null
     if (sessionKey && gatewaySupportsMethod(hello, 'sessions.preview')) {
@@ -160,6 +161,8 @@ async function performOpenClawConnect(
         sessionKey = null
       }
     }
+    if (sessionKey) agentId = await restoredSessionAgent(client, sessionKey, agentId)
+    if (!isCurrent(client)) return false
     let reusedStoredSession = sessionKey !== null && sessionKey === stored?.sessionKey
     if (!sessionKey) {
       sessionKey = await createOpenClawSession(client, { agentId })
@@ -280,7 +283,7 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
       if (active && stored) void connectInternal(undefined, false, input.state.gatewayUrl)
     }).catch(() => undefined)
     return () => { active = false }
-  }, [connectInternal, input.options.enabled, input.options.userId, input.refs, input.state.gatewayUrl, input.state.status, input.vault])
+  }, [input.options.enabled, input.options.userId, input.refs, input.state.gatewayUrl, input.state.status, input.vault])
 
   return {
     setGatewayUrl,

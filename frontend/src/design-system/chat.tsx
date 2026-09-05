@@ -24,7 +24,7 @@ function sourceHost(url: string): string {
 export function PromptInput({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div
     {...props}
-    className={`min-w-0 rounded-2xl border border-separator bg-surface-secondary shadow-sm transition-colors focus-within:border-focus ${className}`}
+    data-prompt-input className={`min-w-0 rounded-2xl border border-separator bg-surface-secondary shadow-sm transition-colors focus-within:border-focus ${className}`}
   />
 }
 

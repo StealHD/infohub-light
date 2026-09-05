@@ -1,3 +1,4 @@
+import { logoutOpenClawWorkspace } from '../openclaw/openclawLogout'
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -878,7 +879,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         {!agentWorkspaceRoute && <DesktopSidebar
           activeQuickView={activeQuickView}
           extraWideDesktop={extraWideDesktop}
-          onLogout={() => { openclawChat.clearTranscript(); openclawChat.disconnect(); props.onLogout() }}
+          onLogout={() => logoutOpenClawWorkspace(openclawChat, props.onLogout)}
           onQuickView={selectQuickView}
           quickViewsOpen={quickViewsOpen}
           onQuickViewsToggle={() => setQuickViewsOpen((value) => !value)}
@@ -1048,9 +1049,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   <Separator className="my-2" />
                   <Button variant="ghost" className="min-h-11 w-full justify-start text-danger" aria-label="退出登录" onPress={() => {
                     setMobileMoreOpen(false)
-                    openclawChat.clearTranscript()
-                    openclawChat.disconnect()
-                    props.onLogout()
+                    logoutOpenClawWorkspace(openclawChat, props.onLogout)
                   }}><Icons.LogOut size={17} aria-hidden="true" />退出登录</Button>
                 </Drawer.Body>
               </Drawer.Dialog>

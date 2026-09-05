@@ -15,7 +15,7 @@
 | D010 | RC1 采用不可变镜像和分阶段 VPS 切换 | 2026-07-12 | [查看](records/D001-D025.md#d010) |
 | D011 | 密钥边界与受控概括 | 2026-07-13 | [查看](records/D001-D025.md#d011) |
 | D012 | 订阅级自动抓取复用现有 Worker 与单源 finalizer | 2026-07-13 | [查看](records/D001-D025.md#d012) |
-| D013 | Service API 使用请求级连接，macOS bind mount 使用 DELETE journal | 2026-07-13 | [查看](records/D001-D025.md#d013) |
+| D013 | Service API 与 SQLite 日志 | 2026-07-13 | [查看](records/D001-D025.md#d013) |
 | D014 | 默认 Service UI 迁移为 React 三栏信息雷达 | 2026-07-13 | [查看](records/D001-D025.md#d014) |
 | D015 | React Shell 与 Feed 采用受控 Material UI 视觉系统 | 2026-07-14 | [查看](records/D001-D025.md#d015) |
 | D016 | Service Feed 使用确定性 Presentation v1，取消“为什么值得关注” | 2026-07-14 | [查看](records/D001-D025.md#d016) |
@@ -207,3 +207,4 @@
 | D203 | Agent 权限隔离 | 2026-09-04 | [查看](records/D201-D225.md#d203) |
 | D204 | OpenClaw 工作区 | 2026-09-04 | [查看](records/D201-D225.md#d204) |
 | D205 | Agent 协议与生命周期 | 2026-09-05 | [查看](records/D201-D225.md#d205) |
+| D206 | Agent 会话目录与交互 | 2026-09-05 | [查看](records/D201-D225.md#d206) |

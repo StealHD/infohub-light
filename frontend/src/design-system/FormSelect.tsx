@@ -1,4 +1,5 @@
 import type { Key } from 'react'
+import './form-select.css'
 
 import { Description, FieldError, Label, ListBox, Select } from '@heroui/react'
 import { ChevronDown } from './icons'
@@ -38,17 +39,17 @@ export function FormSelect({
     isDisabled={isDisabled}
     isRequired={isRequired}
     isInvalid={Boolean(errorMessage)}
-    className={`min-w-0 ${className}`}
+    className={`min-w-0 max-w-full ${className}`}
   >
     <Label>{label}</Label>
-    <Select.Trigger className="type-control min-h-10">
-      <Select.Value />
-      <Select.Indicator><ChevronDown size={15} aria-hidden="true" /></Select.Indicator>
+    <Select.Trigger className="form-select-trigger type-control min-h-10 w-full min-w-0">
+      <Select.Value className="min-w-0 flex-1 truncate text-left" />
+      <Select.Indicator className="shrink-0"><ChevronDown size={15} aria-hidden="true" /></Select.Indicator>
     </Select.Trigger>
-    <Select.Popover>
+    <Select.Popover className="max-w-[calc(100vw-24px)]">
       <ListBox items={options}>
-        {(item) => <ListBox.Item id={item.id} textValue={item.label} isDisabled={item.isDisabled} className="type-control">
-          <span>{item.label}</span>
+        {(item) => <ListBox.Item id={item.id} textValue={item.label} isDisabled={item.isDisabled} className="type-control min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{item.label}</span>
           {item.description && <span className="type-meta block text-muted">{item.description}</span>}
         </ListBox.Item>}
       </ListBox>

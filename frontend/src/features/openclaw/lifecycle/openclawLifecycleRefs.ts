@@ -22,6 +22,7 @@ export type OpenClawLifecycleRefs = {
     agentId: string | null
     sessionKey: string | null
     thinkingLevel: string | null
+    fastMode?: boolean
     navigationEpoch: number
   }
   run: {

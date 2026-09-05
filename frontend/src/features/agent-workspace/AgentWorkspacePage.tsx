@@ -5,6 +5,7 @@ import type { User } from '../../api/types'
 import { AgentWorkspaceLayout } from '../../design-system'
 import { useOpenClawWorkspaceRuntime } from '../openclaw/workspace/openClawWorkspaceRuntimeContext'
 import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContext'
+import { AgentExamplesView } from './AgentExamplesView'
 import { AgentArtifactsView } from './AgentArtifactsView'
 import { AgentAutomationsView } from './AgentAutomationsView'
 import { AgentContextPanel } from './AgentContextPanel'
@@ -31,11 +32,11 @@ const fallbackUser: User = {
 export function AgentWorkspacePage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const outlet = useOutletContext<{ user?: User } | null>()
+  const outlet = useOutletContext<{ user?: User; onLogout?: () => void } | null>()
   const user = outlet?.user ?? fallbackUser
   const chat = useOpenClawWorkspaceRuntime()
   const context = useWorkbenchAgentContext()
-  const sessions = useAgentWorkspaceSessions(chat)
+  const sessions = useAgentWorkspaceSessions(chat, user.id)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [writeTrustedGateway, setWriteTrustedGateway] = useState<string | null>(null)
   const [trustOpen, setTrustOpen] = useState(false)
@@ -51,7 +52,9 @@ export function AgentWorkspacePage() {
         ? <AgentContextPanel chat={chat} context={context} />
         : undefined
   const inspectorTitle = inspector === 'tasks' ? 'Tasks' : inspector === 'artifacts' ? 'Artifacts' : '上下文'
-  const content = location.pathname === '/agent/skills'
+  const content = location.pathname === '/agent/examples'
+    ? <AgentExamplesView />
+    : location.pathname === '/agent/skills'
     ? <AgentSkillsView chat={chat} />
     : location.pathname === '/agent/automations'
       ? <AgentAutomationsView chat={chat} />
@@ -71,7 +74,7 @@ export function AgentWorkspacePage() {
 
   return <div className="h-full min-h-0 min-w-0 overflow-hidden">
     <AgentWorkspaceLayout
-      sidebar={<AgentWorkspaceSidebar chat={chat} sessions={sessions} user={user} onNavigate={() => setSidebarOpen(false)} writeTrusted={writeTrusted} onRequireWriteTrust={() => setTrustOpen(true)} />}
+      sidebar={<AgentWorkspaceSidebar chat={chat} sessions={sessions} user={user} onLogout={() => outlet?.onLogout?.()} onNavigate={() => setSidebarOpen(false)} writeTrusted={writeTrusted} onRequireWriteTrust={() => setTrustOpen(true)} />}
       inspector={inspectorView}
       inspectorTitle={inspectorTitle}
       sidebarOpen={sidebarOpen}
@@ -84,7 +87,7 @@ export function AgentWorkspacePage() {
         current={sessions.current}
         inspector={inspector as OpenClawInspector}
         userId={user.id}
-        pageTitle={location.pathname === '/agent/skills' ? 'Skills' : location.pathname === '/agent/automations' ? 'Automations' : undefined}
+        pageTitle={location.pathname === '/agent/examples' ? '使用示例' : location.pathname === '/agent/skills' ? 'Skills' : location.pathname === '/agent/automations' ? 'Automations' : undefined}
         onOpenSessions={() => setSidebarOpen(true)}
         onNavigate={navigateInspector}
       />

@@ -25,6 +25,7 @@ External references are non-authoritative evidence. The analyzed UI UX Pro Max r
 - A shared async control SHOULD place its idle and pending contents in the same grid track and let both participate in intrinsic size calculation. Only the active layer is perceivable; the inactive layer is visually hidden and removed from the accessibility tree, not removed from size calculation.
 - Browser acceptance allows at most 1 CSS px difference per axis between measured idle and pending border boxes to account for fractional layout rounding.
 - A progress disclosure, expanding details panel, navigation, or destructive removal MAY intentionally change surrounding geometry. It is not an exception for a button itself to jitter.
+- Persistent navigation MUST keep row positions, dimensions and scroll position stable through pointer press, keyboard activation, pending and settled selection. Pending feedback MUST NOT insert temporary in-flow blocks above navigation. Selection alone MUST NOT reorder the visible collection; actual activity, creation, deletion or revealing an off-list item may update membership. Browser acceptance MUST measure both pending and settled geometry, with normal and Reduced Motion, rather than checking only the final screenshot.
 
 ### UI-INT-02 — Single in-flight action
 
@@ -56,6 +57,12 @@ External references are non-authoritative evidence. The analyzed UI UX Pro Max r
 - Focus, selection, scroll position, expanded/collapsed intent, and unsaved input MUST remain stable unless the accepted action necessarily removes the focused object or navigates away.
 - Business correctness MUST NOT depend on `animationend` or `transitionend`. Motion completion can clean up a visual layer only when a timeout or immediate Reduced Motion path reaches the same final semantic state.
 
+### UI-INT-06 — Smooth side-panel disclosure
+
+- Docked side panels MUST animate occupied width together with restrained opacity/translation, using the shared disclosure pattern and motion tokens. Overlay Drawers/Sheets use the corresponding shared surface transition.
+- Opening, closing and rapid reversal MUST preserve the center conversation DOM, draft and scroll context. Exiting content may remain mounted for the bounded visual transition, but MUST become inert and leave the accessibility tree immediately.
+- Closing from within the panel MUST restore the initiating control's focus. Reduced Motion reaches the final state immediately; cleanup MUST have a timer or equivalent fallback rather than depend exclusively on a transition event.
+
 ## 3. State vocabulary
 
 ### UI-STATE-01 — Local loading
@@ -84,6 +91,13 @@ External references are non-authoritative evidence. The analyzed UI UX Pro Max r
 - Compact tags, filters, and editable value collections SHOULD wrap. A bounded single-line collection MAY use an operable `+N` disclosure; it MUST NOT silently hide values.
 - Essential headings, action labels, validation errors, safety copy, and record names MUST remain fully accessible. If visual truncation is necessary, a keyboard-, pointer-, and touch-operable path reveals the full value; a hover-only tooltip or HTML `title` is insufficient.
 - A compact label SHOULD remain on one line when practical, while its containing row can wrap or stack without horizontal overflow.
+
+### UI-LAYOUT-04 — Control-local containment
+
+- Page-level horizontal overflow checks alone MUST NOT count as containment acceptance. At each supported narrow panel width and zoom/reflow state, verify value, indicator, action and container rectangles independently.
+- Selected text MUST have a shrinkable, bounded region separate from the indicator/action region. Long unbroken identifiers MUST NOT paint beneath an arrow, dismiss button, sibling column or panel edge. Reserve indicator space in the shared component, not ad-hoc feature offsets.
+- If a compact value is truncated, opening the control with keyboard or touch MUST expose its complete value with wrapping inside the bounded overlay. The indicator remains visible and operable. Closing restores trigger focus.
+- Docked inspectors MUST reflow headings, descriptions and selectors according to their own available width, even when the viewport is desktop-wide. Hiding overflow on an ancestor is not a substitute for correcting the child layout.
 
 ### UI-LAYOUT-03 — Existing hierarchy and density
 

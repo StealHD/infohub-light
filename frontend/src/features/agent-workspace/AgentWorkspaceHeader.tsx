@@ -4,7 +4,7 @@ import { Button, Drawer, Icons, PageHeader, OverflowValue, StatusIndicator, Them
 import type { OpenClawChatController, OpenClawWorkspaceSession } from '../openclaw'
 import { WorkspaceSwitcher } from '../workbench-live/WorkspaceSwitcher'
 import { routeForInspector, type OpenClawInspector } from './agentWorkspaceModel'
-import { AgentUseCasesDialog } from './AgentUseCasesDialog'
+import { openClawSessionTitle } from '../openclaw/chat/openclawSessionTitle'
 
 const inspectorActions = [
   { id: 'context' as const, label: '上下文', icon: Icons.Layers3 },
@@ -30,10 +30,7 @@ export function AgentWorkspaceHeader({
   onNavigate: (route: string) => void
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [examplesOpen, setExamplesOpen] = useState(false)
-  const label = current?.label
-  const generatedLabel = !label || label === current?.key || /^(?:Inscope|Inteliscope) · .+ · [a-f0-9-]+$/iu.test(label)
-  const title = pageTitle ?? (generatedLabel ? 'OpenClaw 对话' : label)
+  const title = pageTitle ?? (current ? openClawSessionTitle(current, chat.messages.find((message) => message.role === 'user')?.text) : 'OpenClaw 对话')
   const connectionLabel = chat.status === 'connected'
     ? chat.isRunning ? '正在运行' : 'Gateway 已连接'
     : chat.status === 'reconnecting' ? '正在重连' : 'Gateway 未连接'
@@ -64,7 +61,6 @@ export function AgentWorkspaceHeader({
       </Tooltip>)}
     </nav>
     <span className="hidden min-[768px]:inline-flex"><ThemeModeToggle /></span>
-    <Button variant="ghost" size="sm" className="hidden min-[768px]:inline-flex" onPress={() => setExamplesOpen(true)}><Icons.BookOpen size={15} aria-hidden="true" />使用示例</Button>
     <Drawer isOpen={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
       <Drawer.Trigger className="flex size-10 items-center justify-center rounded-[var(--inteliscope-radius-control)] text-muted hover:bg-default focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11 min-[768px]:hidden" aria-label="打开更多操作" render={(props) => <button {...props} type="button" />}><Icons.MoreHorizontal size={18} aria-hidden="true" /></Drawer.Trigger>
       <Drawer.Backdrop variant="blur"><Drawer.Content placement="bottom"><Drawer.Dialog aria-label="OpenClaw 更多操作" className="max-h-[72dvh] rounded-t-[var(--inteliscope-radius-panel)] bg-surface p-0 outline-none">
@@ -72,10 +68,8 @@ export function AgentWorkspaceHeader({
         <Drawer.Body className="grid gap-1 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {inspectorActions.map(({ id, label, icon: Icon }) => <Button key={id} variant="ghost" className="min-h-11 justify-start" onPress={() => { setMobileMenuOpen(false); onNavigate(routeForInspector(id)) }}><Icon size={17} aria-hidden="true" />{label}{inspector === id && <Icons.Check size={16} className="ml-auto" aria-hidden="true" />}</Button>)}
           <div className="flex min-h-11 items-center justify-between rounded-[var(--inteliscope-radius-control)] px-3"><span className="type-control">主题</span><ThemeModeToggle /></div>
-          <Button variant="ghost" className="min-h-11 justify-start" onPress={() => { setMobileMenuOpen(false); setExamplesOpen(true) }}><Icons.BookOpen size={17} aria-hidden="true" />使用示例</Button>
         </Drawer.Body>
       </Drawer.Dialog></Drawer.Content></Drawer.Backdrop>
     </Drawer>
-  </>} />
-  <AgentUseCasesDialog open={examplesOpen} onOpenChange={setExamplesOpen} /></>
+  </>} /></>
 }

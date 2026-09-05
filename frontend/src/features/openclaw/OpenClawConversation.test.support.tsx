@@ -62,6 +62,7 @@ export function chatController(overrides: Record<string, unknown> = {}) {
     stop: vi.fn(),
     setModel: vi.fn().mockResolvedValue(true),
     setThinking: vi.fn().mockResolvedValue(true),
+    setFastMode: vi.fn().mockResolvedValue(true),
     switchToBlankConversation: vi.fn().mockResolvedValue(true),
     newConversation: vi.fn(),
     refreshMedia: vi.fn().mockResolvedValue(undefined),

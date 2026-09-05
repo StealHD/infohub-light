@@ -124,6 +124,7 @@ export function projectOpenClawRuntime(
   agentsValue: unknown,
   sessionValue: unknown,
   requestedAgentId: string,
+  expectedSessionKey?: string,
 ): OpenClawRuntimeProjection {
   const models = normalizeModels(modelsValue)
   const agentsRoot = recordOf(agentsValue)
@@ -161,6 +162,7 @@ export function projectOpenClawRuntime(
     thinkingOptions,
     selection: {
       modelId,
+      ...((!expectedSessionKey || session?.key === expectedSessionKey) && (typeof session?.effectiveFastMode === 'boolean' || session?.effectiveFastMode === 'auto') ? { defaultFastMode: session.effectiveFastMode !== false } : {}),
       thinkingLevel: sessionThinking && thinkingOptions.some((option) => option.id === sessionThinking)
         ? sessionThinking
         : null,

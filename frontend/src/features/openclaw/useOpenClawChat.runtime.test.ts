@@ -319,7 +319,6 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.setModel('local/quick') })
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
       parentSessionKey: 'session-1',
       fork: true,
       model: 'local/quick',
@@ -433,7 +432,6 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.switchToBlankConversation() })
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
       model: 'openai/gpt-5.4',
     })
     expect(result.current.sessionKey).toBe('session-fallback')

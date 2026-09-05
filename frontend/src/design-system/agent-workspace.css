@@ -1,0 +1,68 @@
+:root {
+  --inteliscope-size-agent-composer: 120px;
+  --inteliscope-space-agent-composer-top: 16px;
+  --inteliscope-size-agent-input: 44px;
+  --inteliscope-size-agent-input-max: 180px;
+  --inteliscope-shift-panel: 8px;
+}
+
+.inteliscope-design-system .agent-workspace-composer {
+  min-height: var(--inteliscope-size-agent-composer);
+  padding-top: var(--inteliscope-space-agent-composer-top);
+  grid-template-rows: minmax(var(--inteliscope-size-agent-input), auto) auto;
+}
+
+.inteliscope-design-system .agent-workspace-composer textarea {
+  min-height: var(--inteliscope-size-agent-input) !important;
+  max-height: var(--inteliscope-size-agent-input-max) !important;
+  padding-block: 0;
+}
+
+.inteliscope-design-system .agent-workspace-composer [data-testid="openclaw-composer-toolbar"] {
+  min-height: 32px;
+}
+
+.inteliscope-design-system .agent-workspace-composer [data-testid="openclaw-composer-toolbar"] button {
+  min-height: 32px;
+}
+
+.inteliscope-design-system .disclosure-panel {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: width var(--inteliscope-motion-standard) ease-out, opacity var(--inteliscope-motion-standard) ease-out;
+}
+
+.inteliscope-design-system .disclosure-panel[data-open="true"] {
+  width: var(--inteliscope-disclosure-width);
+  opacity: 1;
+  transition-duration: var(--inteliscope-motion-deliberate);
+}
+
+.inteliscope-design-system .disclosure-panel-content {
+  width: var(--inteliscope-disclosure-width);
+  translate: var(--inteliscope-shift-panel) 0;
+  transition: translate var(--inteliscope-motion-standard) ease-out;
+}
+
+.inteliscope-design-system .disclosure-panel[data-open="true"] .disclosure-panel-content {
+  translate: 0 0;
+  transition-duration: var(--inteliscope-motion-deliberate);
+}
+
+@media (pointer: coarse) {
+  .inteliscope-design-system .agent-workspace-composer [data-testid="openclaw-composer-toolbar"] button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inteliscope-design-system :is(.disclosure-panel, .disclosure-panel-content) {
+    transition: none !important;
+    translate: none;
+  }
+}
+
+.inteliscope-design-system .workspace-switcher-popover { width: min(calc(var(--inteliscope-width-workbench-sidebar-expanded) - 16px), calc(100vw - 24px)); }

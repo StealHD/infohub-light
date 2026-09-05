@@ -74,29 +74,25 @@ export function WorkspaceSwitcher({
   }
 
   const options = workspaceOptions.map((option) => {
-    const Icon = option.icon
     const selected = option.id === mode
     return <Button
       key={option.id}
       variant="ghost"
-      className={`min-h-16 w-full justify-start gap-3 px-3 text-left ${selected ? 'bg-default text-foreground' : ''}`}
+      className={`h-auto min-h-13 w-full min-w-0 justify-start gap-2 px-2 py-2 text-left ${selected ? 'bg-default text-foreground' : ''}`}
       aria-current={selected ? 'page' : undefined}
       onPress={() => switchWorkspace(option.id)}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--inteliscope-radius-control)] bg-surface-secondary text-accent">
-        <Icon size={18} aria-hidden="true" />
-      </span>
       <span className="min-w-0 flex-1">
-        <span className="type-page-title block truncate">{option.label}</span>
-        <span className="type-body block truncate text-muted">{option.description}</span>
+        <span className="type-control block truncate">{option.label}</span>
+        <span className="type-meta block truncate text-muted">{option.description}</span>
       </span>
-      {selected && <Icons.Check size={17} className="shrink-0" aria-hidden="true" />}
+      {selected && <Icons.Check size={14} className="shrink-0" aria-hidden="true" />}
     </Button>
   })
 
   const trigger = <>
-    <ActiveIcon size={compact ? 18 : 20} aria-hidden="true" />
-    {!compact && <span className="type-page-title min-w-0 flex-1 truncate">{active.label}</span>}
+    <ActiveIcon size={18} className="shrink-0 text-accent" aria-hidden="true" />
+    {!compact && <span className="type-control min-w-0 flex-1 truncate">{active.label}</span>}
     {!compact && <Icons.ChevronDown size={14} className="shrink-0 text-muted" aria-hidden="true" />}
   </>
   const triggerProps = {
@@ -120,7 +116,7 @@ export function WorkspaceSwitcher({
 
   return <Popover isOpen={open} onOpenChange={updateOpen}>
     <Popover.Trigger<'button'> ref={popoverTriggerRef} {...triggerProps} render={(props) => <button {...props} type="button" />}>{trigger}</Popover.Trigger>
-    <Popover.Content placement={placement} offset={8} containerPadding={12} className="z-50 w-[280px] p-0">
+    <Popover.Content placement={placement} offset={8} containerPadding={12} className="workspace-switcher-popover z-50 p-0">
       <Popover.Dialog aria-label="切换工作区" className="grid gap-1 p-2">{options}</Popover.Dialog>
     </Popover.Content>
   </Popover>

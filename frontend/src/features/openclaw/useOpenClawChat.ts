@@ -184,7 +184,7 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
     refreshMedia: conversation.refreshMedia,
     stop: conversation.stop,
     setModel: session.setModel,
-    setThinking: session.setThinking,
+    setThinking: session.setThinking, setFastMode: session.setFastMode,
     switchToBlankConversation: session.switchToBlankConversation,
     newConversation: session.newConversation,
     openSession: session.openSession,

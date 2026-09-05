@@ -118,7 +118,7 @@ export function AgentArtifactsView({
 
   return <div className="quiet-scroll-region h-full overflow-y-auto" data-agent-artifacts-view data-agent-resource-variant={variant}>
     <div className={compact ? '' : 'mx-auto max-w-5xl p-4 min-[768px]:p-6'}>
-      <div className={`flex flex-wrap items-center gap-3 ${compact ? 'border-b border-separator px-4 py-4' : 'mb-4'}`}>
+      <div className={`min-w-0 gap-3 ${compact ? 'grid' : 'flex flex-wrap items-center'} ${compact ? 'border-b border-separator px-4 py-4' : 'mb-4'}`}>
         <div className="min-w-0 flex-1">
           {!compact && <h2 className="type-page-title">Artifacts</h2>}
           <p className="type-body mt-1 text-muted">文件直接来自 Gateway，不进入 Inscope 存储。</p>
@@ -129,7 +129,7 @@ export function AgentArtifactsView({
           options={trustedSessions.map((session) => ({ id: session.key, label: session.label }))}
           onChange={setSessionKey}
           isDisabled={loading}
-          className="w-52"
+          className={compact ? 'w-full' : 'w-52 max-w-full'}
         />
       </div>
       <div className={compact ? 'p-4' : ''}>
@@ -141,7 +141,7 @@ export function AgentArtifactsView({
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--inteliscope-radius-control)] bg-default text-accent"><Icons.FileText size={18} /></span>
                 <div className="min-w-0 flex-1">
                   <strong className="type-control block truncate">{artifact.title}</strong>
-                  <span className="type-meta text-muted">{artifact.mimeType ?? artifact.type} · {readableBytes(artifact.sizeBytes)}</span>
+                  <span className="type-meta text-muted">{artifact.mimeType ?? artifact.type} · <span className="whitespace-nowrap">{readableBytes(artifact.sizeBytes)}</span></span>
                 </div>
                 {artifact.downloadMode === 'unsupported' ? <span className="type-meta text-muted">不可下载</span> : <div className="flex gap-1">
                   {artifactPreviewKind({ artifact }) !== 'download' && <StableAsyncButton size="sm" variant="ghost" pending={busyId === artifact.id} pendingContent="读取中…" onPress={() => void download(artifact, true)}>预览</StableAsyncButton>}

@@ -1021,7 +1021,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
 
   const horizontalOverflow = await agent.evaluate((element) => {
     const regions = [element, ...element.querySelectorAll<HTMLElement>('*')]
-    return regions.flatMap((region) => !region.classList.contains('sr-only') && region.scrollWidth > region.clientWidth ? [{
+    return regions.flatMap((region) => !region.classList.contains('sr-only') && !(region.classList.contains('truncate') && getComputedStyle(region).overflowX === 'hidden') && region.scrollWidth > region.clientWidth ? [{
       testId: region.getAttribute('data-testid') || 'agent-panel',
       tag: region.tagName.toLowerCase(),
       className: region.className,

@@ -303,58 +303,6 @@ describe('useOpenClawChat', () => {
   })
 
 
-  it('retries one label collision with a fresh label and keeps all other session parameters', async () => {
-    const vault = new OpenClawCredentialVault(new MemoryAdapter())
-    await vault.save('user-collision', 'ws://127.0.0.1:18789', {
-      identity: { deviceId: 'device-1', publicKey: 'public-1', privateKey: {} as CryptoKey },
-      deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'],
-    })
-    let creates = 0
-    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
-      void params
-      if (method === 'sessions.create') {
-        creates += 1
-        if (creates === 1) throw new GatewayRequestError({
-          code: 'INVALID_REQUEST', message: 'label already in use: Inscope',
-        })
-        return { key: 'session-created' }
-      }
-      if (method === 'tools.effective') return { groups: [] }
-      if (method === 'chat.history') return { messages: [] }
-      if (method === 'models.list') return models
-      if (method === 'agents.list') return agents
-      if (method === 'sessions.describe') return session
-      throw new Error(`unexpected method ${method}`)
-    })
-    const clientFactory = vi.fn(() => ({
-      connect: vi.fn(async (): Promise<GatewayHello> => ({
-        auth: { deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'] },
-        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
-      })),
-      request,
-      close: vi.fn(),
-    }))
-
-    const { result } = renderHook(() => useOpenClawChat({
-      enabled: true, userId: 'user-collision', defaultGatewayUrl: 'ws://127.0.0.1:18789',
-      vault, clientFactory: clientFactory as never,
-    }))
-
-    await waitFor(() => expect(result.current.status).toBe('connected'))
-    const calls = request.mock.calls.filter(([method]) => method === 'sessions.create')
-    expect(calls).toHaveLength(2)
-    expect(calls[0][1]).toEqual({
-      agentId: 'main',
-      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
-    })
-    expect(calls[1][1]).toEqual({
-      agentId: 'main',
-      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
-    })
-    expect(calls[0][1]?.label).not.toBe(calls[1][1]?.label)
-  })
-
-
   it('retains an exact-scope pairing when session setup fails and reuses it on retry', async () => {
     const adapter = new MemoryAdapter()
     const vault = new OpenClawCredentialVault(adapter)
@@ -362,7 +310,7 @@ describe('useOpenClawChat', () => {
     const request = vi.fn(async (method: string) => {
       if (method === 'sessions.create') {
         creates += 1
-        if (creates <= 2) throw new GatewayRequestError({
+        if (creates <= 1) throw new GatewayRequestError({
           code: 'INVALID_REQUEST', message: 'label already in use: Inscope',
         })
         return { key: 'session-recovered' }
@@ -396,7 +344,7 @@ describe('useOpenClawChat', () => {
     await act(async () => { firstSuccess = await result.current.connect('bootstrap-token') })
     expect(firstSuccess).toBe(false)
     expect(clientFactory).toHaveBeenCalledTimes(1)
-    expect(creates).toBe(2)
+    expect(creates).toBe(1)
     expect(result.current.issue).toEqual(expect.objectContaining({
       kind: 'session',
       message: 'OpenClaw 会话名称冲突，请重新连接。',
@@ -520,7 +468,6 @@ describe('useOpenClawChat', () => {
 
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: expect.stringMatching(/^Inscope · .+ · [0-9a-f]{16}$/u),
     })
     expect(result.current.sessionKey).toBe('session-2')
   })

@@ -41,12 +41,12 @@ export function OpenClawSetupPanel({ chat, variant = 'compact' }: {
         <Label>Gateway token 或 dashboard 地址</Label>
         <Input aria-label="OpenClaw Gateway token" type="password" autoComplete="new-password" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
       </TextField>
-      <div className="grid min-w-0 grid-cols-2 gap-2" data-testid="openclaw-setup-actions">
-        <StableAsyncButton type="submit" className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]" pending={chat.status === 'connecting'} pendingContent="正在连接…" isDisabled={!url.trim() || !authInput.trim()}>连接并授权</StableAsyncButton>
-        <StableAsyncButton type="button" variant="secondary" className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]" pending={chat.status === 'connecting'} pendingContent="正在连接…" isDisabled={!url.trim() || chat.status === 'connecting'} onPress={() => chat.connect(undefined, url)}>使用已配对设备重连</StableAsyncButton>
+      <div className={`grid min-w-0 items-stretch gap-2 ${variant === 'workspace' ? 'grid-cols-1 min-[640px]:grid-cols-2' : 'grid-cols-2'}`} data-testid="openclaw-setup-actions">
+        <StableAsyncButton type="submit" className="h-auto min-h-10 w-full min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]" pending={chat.status === 'connecting'} pendingContent="正在连接…" isDisabled={!url.trim() || !authInput.trim()}>连接并授权</StableAsyncButton>
+        <StableAsyncButton type="button" variant="secondary" className="h-auto min-h-10 w-full min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]" pending={chat.status === 'connecting'} pendingContent="正在连接…" isDisabled={!url.trim() || chat.status === 'connecting'} onPress={() => chat.connect(undefined, url)}>使用已配对设备重连</StableAsyncButton>
       </div>
     </Form>
-    {variant === 'workspace' && <p className="type-meta mt-5 border-t border-separator pt-4 text-muted">Gateway token 只保留在这个连接表单中；配对成功后会立即从表单清除。</p>}
+    {variant === 'workspace' && <p className="type-meta mt-4 border-t border-separator pt-4 text-muted">Gateway token 只保留在这个连接表单中；配对成功后会立即从表单清除。</p>}
   </>
 
   return <>
@@ -57,7 +57,7 @@ export function OpenClawSetupPanel({ chat, variant = 'compact' }: {
         : <Card variant="secondary" className="p-4">{form}</Card>}
 
       {chat.issue && <Card variant="secondary" className="mt-3 border-warning/40 p-4" role="alert">
-        <Card.Title>{chat.issue.message}</Card.Title>
+        <p className="type-body">{chat.issue.message}</p>
         {chat.issue.kind === 'pairing' && <div className="type-body mt-3 grid gap-2 text-muted">
           <p>在运行 OpenClaw 的电脑执行：</p>
           <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{`openclaw devices list\nopenclaw devices approve ${chat.issue.requestId || '<requestId>'}`}</pre>

@@ -1,3 +1,4 @@
+import { projectSessionPage, sessionPageParams } from './openclawSessionDirectory'
 import { gatewaySupportsMethod, GatewayRequestError, type GatewayEvent } from '../openclawGateway'
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
 import type { OpenClawLifecycleRefs } from '../lifecycle/openclawLifecycleRefs'
@@ -37,6 +38,10 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
     capabilities: () => Object.fromEntries(OPENCLAW_WORKSPACE_METHODS.map((method) => [method, gatewaySupportsMethod(refs.connection.hello, method)])) as ReturnType<OpenClawWorkspaceController['capabilities']>,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     async listSessions() { return projectWorkspaceSessions(await request('sessions.list', { limit: 200 })) },
+    async listSessionPage(input = {}) {
+      const params = sessionPageParams(input)
+      return projectSessionPage(await request('sessions.list', params), params.offset)
+    },
     async previewSession(sessionKey) {
       const key = requireText(sessionKey, 'Session')
       const status = projectOpenClawSessionPreview(
@@ -44,7 +49,7 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
         key,
       )
       if (status !== 'present') throw new OpenClawWorkspaceError('failed', 'OpenClaw 会话已不存在或暂时无法读取。')
-      const session = (await controller.listSessions()).find((candidate) => candidate.key === key)
+      const session = projectWorkspaceSessions(await request('sessions.list', { search: key, limit: 100, archived: 'all' })).find((candidate) => candidate.key === key)
       if (!session) throw new OpenClawWorkspaceError('failed', 'OpenClaw 会话不在当前可信列表中。')
       return session
     },

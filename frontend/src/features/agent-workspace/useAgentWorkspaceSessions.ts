@@ -34,7 +34,7 @@ function ancestryDepth(
 }
 
 function fallbackSession(key: string, active: boolean): OpenClawWorkspaceSession {
-  return { key, label: '当前会话', hasActiveRun: active }
+  return { key, label: key, hasActiveRun: active }
 }
 
 export function projectTrustedSessionTree(
@@ -81,7 +81,9 @@ export function projectTrustedSessionTree(
   }
 }
 
-export function useAgentWorkspaceSessions(chat: OpenClawChatController): AgentWorkspaceSessionState {
+export function useAgentWorkspaceSessions(chat: OpenClawChatController, userId = ''): AgentWorkspaceSessionState {
+  const scope = JSON.stringify([userId, chat.gatewayUrl, chat.workspace.skillScope?.()?.generation, chat.status])
+  const [loadedScope, setLoadedScope] = useState('')
   const [sessions, setSessions] = useState<OpenClawWorkspaceSession[]>([])
   const [rootKey, setRootKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -110,8 +112,17 @@ export function useAgentWorkspaceSessions(chat: OpenClawChatController): AgentWo
       if (active) { setLoading(true); setError('') }
       return chat.workspace.listSessions()
     })
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return
+        if (!value.some((session) => session.key === chat.sessionKey) && chat.workspace.capabilities()['sessions.preview']) {
+          try {
+            const current = await chat.workspace.previewSession(chat.sessionKey!)
+            if (!active) return
+            value = [...value, current]
+          } catch { /* Keep the current exact-key fallback when metadata is unavailable. */ }
+        }
+        if (!active) return
+        setLoadedScope(scope)
         setSessions(value)
         setRootKey((currentRoot) => {
           if (!currentRoot) return chat.sessionKey
@@ -123,12 +134,12 @@ export function useAgentWorkspaceSessions(chat: OpenClawChatController): AgentWo
       .catch(() => { if (active) setError('暂时无法读取可信会话树，请稍后重试。') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [chat.isRunning, chat.sessionKey, chat.status, chat.workspace, revision])
+  }, [chat.isRunning, chat.sessionKey, chat.status, chat.workspace, revision, scope])
 
   const projection = useMemo(() => {
     if (!chat.sessionKey) return { root: undefined, current: undefined, tree: [], trustedSessions: [], scopeKeys: [] }
-    return projectTrustedSessionTree(sessions, chat.sessionKey, rootKey, chat.isRunning)
-  }, [chat.isRunning, chat.sessionKey, rootKey, sessions])
+    return projectTrustedSessionTree(loadedScope === scope ? sessions : [], chat.sessionKey, loadedScope === scope ? rootKey : null, chat.isRunning)
+  }, [chat.isRunning, chat.sessionKey, rootKey, sessions, loadedScope, scope])
 
   return { ...projection, loading, error, refresh }
 }

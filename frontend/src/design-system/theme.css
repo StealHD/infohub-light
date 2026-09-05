@@ -1,6 +1,8 @@
 @layer theme, base, components, utilities;
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "./agent-workspace.css";
+@import "./effort-picker.css";
 @import "@fontsource-variable/noto-sans-sc/wght.css";
 
 :root {
@@ -16,7 +18,7 @@
   --inteliscope-width-settings-sidebar: 232px;
   --inteliscope-width-workbench-sidebar-collapsed: 72px;
   --inteliscope-width-workbench-sidebar-expanded: 232px;
-  --inteliscope-width-agent-sidebar: 288px;
+  --inteliscope-width-agent-sidebar: var(--inteliscope-width-workbench-sidebar-expanded);
   --inteliscope-width-agent-inspector: 360px;
   --inteliscope-width-agent-conversation: 860px;
   --inteliscope-width-agent-composer: 920px;

@@ -26,6 +26,12 @@ export type OpenClawWorkspaceActor = { type: 'human' | 'agent' | 'system'; id?: 
 export type OpenClawWorkspaceSession = {
   key: string
   label: string
+  displayName?: string
+  derivedTitle?: string
+  lastMessagePreview?: string
+  updatedAt?: number
+  agentId?: string
+  archived?: boolean
   parentSessionKey?: string
   createdVia?: 'operator' | 'agent' | 'claw'
   createdActor?: OpenClawWorkspaceActor
@@ -33,6 +39,9 @@ export type OpenClawWorkspaceSession = {
   hasActiveRun: boolean
   worktree?: { id: string; branch: string; repoRoot?: string }
 }
+
+export type OpenClawSessionPageRequest = { limit?: number; offset?: number; search?: string; archived?: boolean }
+export type OpenClawSessionPage = { sessions: OpenClawWorkspaceSession[]; hasMore: boolean; nextOffset?: number; totalCount?: number }
 
 export type OpenClawWorktreeRequest = { title: string; prompt: string; projectId: string; projectRepoRoot: string; baseRef: string; worktreeName?: string; idempotencyKey: string }
 export type OpenClawWorktreeResult = { sessionKey: string; runStarted: boolean; runId?: string; runError?: string; worktree?: { id: string; path: string; branch: string } }
@@ -61,6 +70,7 @@ export interface OpenClawWorkspaceController {
   capabilities(): OpenClawWorkspaceCapabilityMap
   subscribe(listener: (eventName: string) => void): () => void
   listSessions(): Promise<OpenClawWorkspaceSession[]>
+  listSessionPage(input?: OpenClawSessionPageRequest): Promise<OpenClawSessionPage>
   previewSession(sessionKey: string): Promise<OpenClawWorkspaceSession>
   listProjects(): Promise<OpenClawWorkspaceProject[]>
   listBranches(project: OpenClawWorkspaceProject): Promise<OpenClawWorkspaceBranches>

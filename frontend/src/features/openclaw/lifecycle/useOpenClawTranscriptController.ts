@@ -26,7 +26,7 @@ export type OpenClawTranscriptController = {
   persist(update: TranscriptUpdate, keyOverride?: string): OpenClawChatMessage[]
   replace(messages: OpenClawChatMessage[]): void
   restoreLocal(gatewayUrl: string, sessionKey: string): void
-  loadHistory(client: OpenClawClientPort, sessionKey: string, agentId: string): Promise<void>
+  loadHistory(client: OpenClawClientPort, sessionKey: string, agentId: string, preparedHistory?: unknown): Promise<void>
   resolveMedia(client: OpenClawClientPort, sessionKey: string, messages: OpenClawChatMessage[], force?: boolean): Promise<void>
   clear(gatewayUrl: string): void
   reset(): void
@@ -116,8 +116,8 @@ export function useOpenClawTranscriptController(input: {
     }))
   }, [input.getGatewayUrl, input.imageIoEnabled, input.mediaOrigins, input.refs, persist])
 
-  const loadHistory = useCallback(async (client: OpenClawClientPort, sessionKey: string, agentId: string) => {
-    const history = await client.request('chat.history', {
+  const loadHistory = useCallback(async (client: OpenClawClientPort, sessionKey: string, agentId: string, preparedHistory?: unknown) => {
+    const history = preparedHistory ?? await client.request('chat.history', {
       sessionKey,
       agentId,
       limit: OPENCLAW_MAX_MESSAGES,

@@ -71,6 +71,14 @@ export function useOpenClawSessionActions(input: {
     return true
   }, [input])
 
+  const setFastMode = useCallback(async (enabled: boolean): Promise<boolean> => {
+    if (!input.refs.connection.client || !input.refs.session.sessionKey || !input.state.runtimeSelection.modelId
+      || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending || input.state.runtimeUpdating || input.state.runtimeLoading) return false
+    input.refs.session.fastMode = enabled
+    input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, fastMode: enabled }, runtimeIssue: null } })
+    return true
+  }, [input])
+
   const createBlankConversation = useCallback(async (modelId?: string): Promise<boolean> => {
     const client = input.refs.connection.client
     const agentId = input.refs.session.agentId
@@ -108,5 +116,5 @@ export function useOpenClawSessionActions(input: {
   }, [createBlankConversation, input.state.modelSwitchFallback])
   const newConversation = useCallback(() => createBlankConversation(), [createBlankConversation])
 
-  return { setModel, setThinking, switchToBlankConversation, newConversation }
+  return { setModel, setThinking, setFastMode, switchToBlankConversation, newConversation }
 }

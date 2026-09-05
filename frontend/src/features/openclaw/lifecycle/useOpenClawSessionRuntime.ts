@@ -38,9 +38,10 @@ export type OpenClawSessionRuntimeController = {
   routeContextUsage(payload: unknown, sessionKey: string): void
   setModel(modelId: string | null): Promise<boolean>
   setThinking(thinkingLevel: string | null): Promise<boolean>
+  setFastMode(enabled: boolean): Promise<boolean>
   switchToBlankConversation(): Promise<boolean>
   newConversation(): Promise<boolean>
-  openSession(sessionKey: string): Promise<boolean>
+  openSession(sessionKey: string, agentId?: string): Promise<boolean>
   reset(): void
 }
 
@@ -60,6 +61,7 @@ function resetSessionRuntime(refs: OpenClawLifecycleRefs, dispatch: OpenClawChat
   refs.session.agentId = null
   refs.session.sessionKey = null
   refs.session.thinkingLevel = null
+  delete refs.session.fastMode
   dispatch({
     type: 'patch',
     value: {
@@ -72,6 +74,7 @@ function resetSessionRuntime(refs: OpenClawLifecycleRefs, dispatch: OpenClawChat
 
 function useRuntimeProjectionState(input: SessionRuntimeInput) {
   const bind = useCallback((agentId: string, sessionKey: string) => {
+    if (input.refs.session.sessionKey !== sessionKey) delete input.refs.session.fastMode
     input.refs.session.agentId = agentId
     input.refs.session.sessionKey = sessionKey
     input.refs.transcript.readySessionKey = sessionKey
@@ -86,7 +89,7 @@ function useRuntimeProjectionState(input: SessionRuntimeInput) {
       && projection.thinkingOptions.some((option) => option.id === input.refs.session.thinkingLevel)
         ? input.refs.session.thinkingLevel
         : projection.selection.thinkingLevel
-    const runtimeSelection = { ...projection.selection, thinkingLevel: preservedThinking }
+    const runtimeSelection = { ...projection.selection, thinkingLevel: preservedThinking, ...(preserveThinking && typeof input.refs.session.fastMode === 'boolean' ? { fastMode: input.refs.session.fastMode } : {}) }
     input.refs.session.thinkingLevel = runtimeSelection.thinkingLevel
     const fallbackModel = projection.invalidSessionModel && projection.selection.defaultModelId
       ? projection.models.find((model) => model.id === projection.selection.defaultModelId)
@@ -164,7 +167,7 @@ export function useOpenClawSessionRuntime(input: SessionRuntimeInput): OpenClawS
     await input.vault.updateSession(input.userId, gatewayUrl, sessionKey, isCurrent)
     if (!isCurrent() || input.refs.connection.client !== client) return
     if (clearMessages) {
-      if (previousKey) clearOpenClawTranscript(input.userId, gatewayUrl, previousKey)
+      if (previousKey) writeOpenClawTranscript(input.userId, gatewayUrl, previousKey, visibleMessages)
       clearOpenClawTranscript(input.userId, gatewayUrl, sessionKey)
     } else {
       writeOpenClawTranscript(input.userId, gatewayUrl, sessionKey, visibleMessages)
@@ -198,9 +201,9 @@ export function useOpenClawSessionRuntime(input: SessionRuntimeInput): OpenClawS
     }
   }, [])
 
-  const openSession = useCallback((sessionKey: string) => openOpenClawSession({
+  const openSession = useCallback((sessionKey: string, agentId?: string) => openOpenClawSession({
     ...input, bind, applyRuntime, loadContextUsage,
-  }, sessionKey), [applyRuntime, bind, input, loadContextUsage])
+  }, sessionKey, agentId), [applyRuntime, bind, input, loadContextUsage])
 
   const actions = useOpenClawSessionActions({
     refs: input.refs,

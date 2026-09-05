@@ -43,6 +43,7 @@ function prepareOpenClawSend(
     ...(request.sourceSnapshot ? { sourceSnapshot: request.sourceSnapshot } : {}),
     idempotencyKey, modelId: state.runtimeSelection.modelId,
     thinkingLevel: state.runtimeSelection.thinkingLevel,
+    ...(typeof state.runtimeSelection.fastMode === 'boolean' ? { fastMode: state.runtimeSelection.fastMode } : {}),
     ...(attachments.length ? { attachments } : {}),
   }
   const message: OpenClawChatMessage = {
@@ -92,6 +93,7 @@ export function useOpenClawSendActions(input: {
         sessionKey, agentId, message: snapshot.gatewayPrompt, deliver: false,
         idempotencyKey: snapshot.idempotencyKey,
         ...(snapshot.thinkingLevel ? { thinking: snapshot.thinkingLevel } : {}),
+        ...(typeof snapshot.fastMode === 'boolean' ? { fastMode: snapshot.fastMode } : {}),
         ...(snapshot.attachments?.length ? { attachments: snapshot.attachments.map((attachment) => ({
           type: 'image', mimeType: attachment.mimeType, fileName: attachment.fileName, content: attachment.content,
         })) } : {}),

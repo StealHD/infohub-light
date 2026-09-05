@@ -1,0 +1,2 @@
+.inteliscope-design-system .form-select-trigger { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding-inline-end: 12px; }
+.inteliscope-design-system .form-select-trigger .select__indicator { position: static; translate: none; transform: none; }

@@ -1,8 +1,10 @@
-import { useId, useMemo, type Key } from 'react'
+import { lazy, Suspense, useId, useMemo, type Key } from 'react'
 
 import { Header, Icons, ListBox, Select } from '../../../design-system'
 import type { OpenClawChatController, OpenClawModelOption } from '../openclawContracts'
 import { OpenClawContextUsageIndicator } from './OpenClawMessageViews'
+
+const WorkspaceRuntimeControls = lazy(() => import('./OpenClawWorkspaceRuntimeControls'))
 
 type ChatController = OpenClawChatController
 
@@ -41,7 +43,7 @@ function groupModelsByProvider(models: OpenClawModelOption[]) {
   return groups
 }
 
-export function OpenClawRuntimeControls({ chat, picker, onPickerClose }: { chat: ChatController; picker?: 'model' | 'reasoning' | null; onPickerClose?: () => void }) {
+export function OpenClawRuntimeControls({ chat, picker, onPickerClose, variant = 'compact' }: { chat: ChatController; variant?: 'compact' | 'workspace'; picker?: 'model' | 'reasoning' | null; onPickerClose?: () => void }) {
   const thinkingDescriptionId = useId()
   const currentModel = chat.models.find((model) => model.id === chat.runtimeSelection.modelId)
   const currentThinking = chat.thinkingOptions.find((option) => option.id === chat.runtimeSelection.thinkingLevel)
@@ -68,6 +70,10 @@ export function OpenClawRuntimeControls({ chat, picker, onPickerClose }: { chat:
       ? []
       : chat.thinkingOptions.map((option) => ({ ...option, description: undefined }))),
   ]
+
+  if (variant === 'workspace') return <Suspense fallback={<div className="flex min-w-0 justify-end"><button type="button" disabled className="effort-picker-trigger type-control">选择思考</button></div>}>
+    <WorkspaceRuntimeControls chat={chat} picker={picker} onPickerClose={onPickerClose} />
+  </Suspense>
 
   return <div
     data-testid="openclaw-runtime-controls"

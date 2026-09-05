@@ -1,3 +1,4 @@
+import { logoutOpenClawWorkspace } from '../features/openclaw/openclawLogout'
 import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
@@ -155,12 +156,12 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, { authenticated: false, user: null })
   }
 
-  const recoveryKey = ['/agent', '/agent/tasks', '/agent/artifacts'].includes(location.pathname)
+  const recoveryKey = location.pathname === '/agent' || location.pathname.startsWith('/agent/')
     ? 'agent-conversation'
     : location.pathname
   const outlet = <AppErrorBoundary key={recoveryKey} surface="page">
     <Suspense fallback={<RouteLoadingState />}>
-      <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, refreshPending: feedActivity.pending, cancelRefresh: canMutate ? feedActivity.cancelRefresh : () => undefined, canCancelRefresh: canMutate && feedActivity.canCancelRefresh, isCancellingRefresh: feedActivity.isCancellingRefresh, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+      <Outlet context={{ api, user, onLogout: () => logoutOpenClawWorkspace(openClawRuntime.chat, () => void logout()), query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, refreshPending: feedActivity.pending, cancelRefresh: canMutate ? feedActivity.cancelRefresh : () => undefined, canCancelRefresh: canMutate && feedActivity.canCancelRefresh, isCancellingRefresh: feedActivity.isCancellingRefresh, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
     </Suspense>
   </AppErrorBoundary>
 
