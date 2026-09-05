@@ -96,7 +96,16 @@ class IndexedDbCredentialAdapter implements OpenClawCredentialAdapter {
 }
 
 export class OpenClawCredentialVault {
+  private writes = new Map<string, Promise<void>>()
+
   constructor(private adapter: OpenClawCredentialAdapter = new IndexedDbCredentialAdapter()) {}
+
+  private async enqueue(id: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.writes.get(id) ?? Promise.resolve()
+    const current = previous.catch(() => undefined).then(operation)
+    this.writes.set(id, current)
+    try { await current } finally { if (this.writes.get(id) === current) this.writes.delete(id) }
+  }
 
   async load(userId: string, gatewayUrl: string): Promise<StoredOpenClawCredential | null> {
     const id = await credentialStorageKey(userId, gatewayUrl)
@@ -119,6 +128,7 @@ export class OpenClawCredentialVault {
       scopes: string[]
       sessionKey?: string
     },
+    shouldCommit: () => boolean = () => true,
   ): Promise<StoredOpenClawCredential> {
     const scopes = validateStoredOpenClawScopes(value.scopes)
     if (!value.deviceToken.trim()) throw new Error('OpenClaw 没有返回可保存的设备凭证。')
@@ -133,14 +143,20 @@ export class OpenClawCredentialVault {
       ...(value.sessionKey ? { sessionKey: value.sessionKey } : {}),
       updatedAt: Date.now(),
     }
-    await this.adapter.put(stored)
+    await this.enqueue(id, async () => {
+      if (shouldCommit()) await this.adapter.put(stored)
+    })
     return stored
   }
 
-  async updateSession(userId: string, gatewayUrl: string, sessionKey: string): Promise<void> {
-    const stored = await this.load(userId, gatewayUrl)
-    if (!stored) return
-    await this.adapter.put({ ...stored, sessionKey, updatedAt: Date.now() })
+  async updateSession(userId: string, gatewayUrl: string, sessionKey: string, shouldCommit: () => boolean = () => true): Promise<void> {
+    const id = await credentialStorageKey(userId, gatewayUrl)
+    await this.enqueue(id, async () => {
+      if (!shouldCommit()) return
+      const value = await this.adapter.get(id)
+      if (!value || value.userId !== userId || !shouldCommit()) return
+      await this.adapter.put({ ...value, sessionKey, updatedAt: Date.now() })
+    })
   }
 
   async forget(userId: string, gatewayUrl: string): Promise<void> {

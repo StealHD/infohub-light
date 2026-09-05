@@ -155,6 +155,7 @@ export function ConversationTurn({
   status,
   hasNext,
   children,
+  variant = 'compact',
 }: {
   role: 'user' | 'assistant'
   text: string
@@ -162,14 +163,15 @@ export function ConversationTurn({
   status?: string
   hasNext: boolean
   children?: ReactNode
+  variant?: 'compact' | 'workspace'
 }) {
   return <>
-    <div data-chat-marker className="flex min-h-full flex-col items-center self-stretch" aria-hidden="true">
+    <div data-chat-marker className={`${variant === 'workspace' ? 'hidden' : 'flex'} min-h-full flex-col items-center self-stretch`} aria-hidden="true">
       <span className={`mt-1.5 size-[5px] shrink-0 rounded-full ${role === 'assistant' ? 'bg-accent' : 'bg-muted'}`} />
       {hasNext && <span className="mt-[5px] min-h-8 w-px flex-1 bg-separator" />}
     </div>
     <article
-      className={`min-w-0 max-w-full ${hasNext ? 'pb-4' : ''}`}
+      className={`${variant === 'workspace' ? 'w-full border-b border-separator/70 py-5' : `max-w-full ${hasNext ? 'pb-4' : ''}`} min-w-0`}
       data-chat-role={role}
       data-chat-status={status}
     >
@@ -181,7 +183,7 @@ export function ConversationTurn({
       </div>
       {text && <div
           data-chat-message-body
-          className="type-chat min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+          className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
         >
           <OpenClawMessageText text={text} />
         </div>}

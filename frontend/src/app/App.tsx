@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -9,6 +9,8 @@ import { LoadingState, actionToast } from '../design-system'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
+import { OpenClawWorkspaceRuntimeProvider } from '../features/openclaw/workspace/OpenClawWorkspaceRuntimeProvider'
+import { isOpenClawActivationRoute, useAuthenticatedOpenClawRuntime } from '../features/openclaw/workspace/useAuthenticatedOpenClawRuntime'
 import { canAdministerSettings, settingsDestinationFromLegacyHash } from '../features/settings/settingsNavigation'
 import { preserveSettingsReturnState } from '../features/settings/settingsReturnState'
 import { clearUserCache } from './sessionCache'
@@ -19,6 +21,7 @@ import { clearBootstrapShellSnapshot, releaseBootstrapShell, writeBootstrapShell
 import { readSidebarPreference } from './sidebarPreference'
 
 const HeroAgentsPage = lazy(() => import('../features/admin-heroui/HeroAgentsPage').then((module) => ({ default: module.HeroAgentsPage })))
+const AgentWorkspacePage = lazy(() => import('../features/agent-workspace/AgentWorkspacePage').then((module) => ({ default: module.AgentWorkspacePage })))
 const HeroLoginPage = lazy(() => import('../features/admin-heroui/HeroLoginPage').then((module) => ({ default: module.HeroLoginPage })))
 const HeroSubscriptionsPage = lazy(() => import('../features/admin-heroui/HeroSubscriptionsPage').then((module) => ({ default: module.HeroSubscriptionsPage })))
 const HeroUsersPage = lazy(() => import('../features/admin-heroui/HeroUsersPage').then((module) => ({ default: module.HeroUsersPage })))
@@ -101,6 +104,14 @@ function LoginLoadingState() {
 function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const queryClient = useQueryClient()
   const location = useLocation()
+  const activationRoute = isOpenClawActivationRoute(location.pathname)
+  const [openClawActivationLatched, setOpenClawActivationLatched] = useState(activationRoute)
+  const openClawActivated = openClawActivationLatched || activationRoute
+  useEffect(() => {
+    if (!activationRoute || openClawActivationLatched) return
+    void Promise.resolve().then(() => setOpenClawActivationLatched(true))
+  }, [activationRoute, openClawActivationLatched])
+  const openClawRuntime = useAuthenticatedOpenClawRuntime({ api, userId: user.id, activated: openClawActivated })
   const [contentQueries, setContentQueries] = useState({ feed: '', saved: '', history: '' })
   const previousUserId = useRef(user.id)
   const actionGuard = useMemo(() => new ActionGeneration(user.id), [user.id])
@@ -144,13 +155,16 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, { authenticated: false, user: null })
   }
 
-  const outlet = <AppErrorBoundary key={location.pathname} surface="page">
+  const recoveryKey = ['/agent', '/agent/tasks', '/agent/artifacts'].includes(location.pathname)
+    ? 'agent-conversation'
+    : location.pathname
+  const outlet = <AppErrorBoundary key={recoveryKey} surface="page">
     <Suspense fallback={<RouteLoadingState />}>
       <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, refreshPending: feedActivity.pending, cancelRefresh: canMutate ? feedActivity.cancelRefresh : () => undefined, canCancelRefresh: canMutate && feedActivity.canCancelRefresh, isCancellingRefresh: feedActivity.isCancellingRefresh, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
     </Suspense>
   </AppErrorBoundary>
 
-  return <ActionFeedbackProvider key={user.id} userId={user.id}>
+  return <ActionFeedbackProvider key={user.id} userId={user.id}><OpenClawWorkspaceRuntimeProvider chat={openClawRuntime.chat}>
     {settingsWorkspaceRoute ? <Suspense fallback={<RouteLoadingState />}><SettingsLayout user={user}>{outlet}</SettingsLayout></Suspense> : <HeroWorkbenchShell
       api={api}
       user={user}
@@ -162,8 +176,10 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
       refreshState={feedActivity.isCancellingRefresh ? 'stopping' : feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
       refreshMessage={feedActivity.notice?.message}
       refreshEventKey={feedActivity.notice?.key}
+      openclawChat={openClawRuntime.chat}
+      openclawConfigLoading={openClawRuntime.configLoading}
     >{outlet}</HeroWorkbenchShell>}
-  </ActionFeedbackProvider>
+  </OpenClawWorkspaceRuntimeProvider></ActionFeedbackProvider>
 }
 
 function BootstrapShellRelease({ user, clearSnapshot = false, children }: {
@@ -201,6 +217,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/history" element={<HeroWorkbenchPage kind="history" />} />
         <Route path="/subscriptions" element={<HeroSubscriptionsPage />} />
         <Route path="/agents" element={<HeroAgentsPage />} />
+        <Route path="/agent/*" element={<AgentWorkspacePage />} />
         <Route path="/settings" element={<SettingsOverviewPage />} />
         <Route path="/settings/ai" element={<SettingsAIPage />} />
         <Route path="/settings/actorops" element={<SettingsActorOpsPage />} />

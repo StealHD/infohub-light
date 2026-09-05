@@ -57,7 +57,8 @@ This directory, indexed by this file, is the sole source of truth for production
 | `/feed` | Hero workbench, with time-flow and source-overview reading layouts |
 | `/saved` | Hero workbench, saved collection |
 | `/history` | Hero workbench, history collection |
-| `/subscriptions` | Quiet Studio adaptive administration page with the same on-demand Agent rail/Drawer as Feed |
+| `/subscriptions` | Quiet Studio adaptive administration page; ordinary OpenClaw runtime remains mounted without the compact Agent rail |
+| `/agent`, `/agent/**` | OpenClaw peer workspace sharing the shell-owned ordinary runtime; fixed session navigation, conversation, on-demand Tasks/Artifacts inspectors, Skills and Automations |
 | `/agents` | Quiet Studio adaptive assistant-connection page; no Agent panel |
 | `/settings` | Quiet Studio adaptive settings page; no Agent panel |
 | `/manual` | Quiet Studio source-controlled operation manual with responsive section navigation and no Agent panel |
@@ -75,5 +76,6 @@ This directory, indexed by this file, is the sole source of truth for production
 | 跨页面异步状态、布局稳定、DOM 身份、恢复、长文本与 Reduced Motion | [交互宪章](interaction-constitution.md) |
 | 全站组件角色、尺寸、间距、图标和变体参数 | [组件参数](component-parameters.md) |
 | Workbench shell、Feed、虚拟列表与 OpenClaw | [Workbench、Feed 与 OpenClaw](workbench-feed-openclaw.md) |
+| 完整 Agent Workspace、Worktree、Tasks、Artifacts、Skills 与 Automations | [Agent Workspace](agent-workspace.md) |
 | Admin、Settings、认证与 ActorOps | [Admin、Settings、认证与 ActorOps](admin-settings-auth-actorops.md) |
 | 设计系统/路由以外的可执行验收门禁 | [验收](acceptance.md) |

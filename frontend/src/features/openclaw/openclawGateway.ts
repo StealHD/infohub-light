@@ -4,11 +4,13 @@ export {
 } from './gateway/openclawDeviceIdentity'
 export {
   OPENCLAW_CURRENT_SCOPES,
+  OPENCLAW_ADMIN_SCOPES,
   OPENCLAW_LEGACY_SCOPES,
   GatewayRequestError,
   buildDeviceAuthPayloadV3,
   gatewaySupportsMethod,
   validateNegotiatedScopes,
+  validateAdminOpenClawScopes,
   validateStoredOpenClawScopes,
 } from './gateway/openclawGatewayProtocol'
 export { OpenClawGatewayClient } from './gateway/openclawRpcClient'

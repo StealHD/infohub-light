@@ -41,7 +41,7 @@ function groupModelsByProvider(models: OpenClawModelOption[]) {
   return groups
 }
 
-export function OpenClawRuntimeControls({ chat }: { chat: ChatController }) {
+export function OpenClawRuntimeControls({ chat, picker, onPickerClose }: { chat: ChatController; picker?: 'model' | 'reasoning' | null; onPickerClose?: () => void }) {
   const thinkingDescriptionId = useId()
   const currentModel = chat.models.find((model) => model.id === chat.runtimeSelection.modelId)
   const currentThinking = chat.thinkingOptions.find((option) => option.id === chat.runtimeSelection.thinkingLevel)
@@ -76,6 +76,8 @@ export function OpenClawRuntimeControls({ chat }: { chat: ChatController }) {
     <OpenClawContextUsageIndicator usage={chat.contextUsage} />
 
     <Select
+      isOpen={picker === 'model' ? true : undefined}
+      onOpenChange={(open) => { if (!open) onPickerClose?.() }}
       aria-label={`OpenClaw 模型：${modelLabel}`}
       selectedKey={chat.runtimeSelection.modelId ?? undefined}
       onSelectionChange={(key: Key | null) => {
@@ -117,6 +119,8 @@ export function OpenClawRuntimeControls({ chat }: { chat: ChatController }) {
 
     <div className="shrink-0" title={thinkingUnavailableReason || undefined}>
       <Select
+        isOpen={picker === 'reasoning' ? true : undefined}
+        onOpenChange={(open) => { if (!open) onPickerClose?.() }}
         aria-label={`OpenClaw 思考程度：${thinkingLabel}`}
         selectedKey={chat.runtimeSelection.thinkingLevel ?? AUTO_THINKING_KEY}
         onSelectionChange={(key: Key | null) => {

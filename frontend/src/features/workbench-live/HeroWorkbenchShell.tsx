@@ -1,7 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-
 import type { ServiceApi } from '../../api/service'
 import type { User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
@@ -36,12 +35,11 @@ import {
 import {
   readAgentContextDraft,
   sanitizeSourceUrl,
-  updateAgentContextDraft,
   writeAgentContextDraft,
   type AgentContextDraftV6,
 } from './agentContext'
-import { useOpenClawChat, type OpenClawChatController } from '../openclaw'
-import { HandoffComposer } from './HandoffComposer'
+import type { OpenClawChatController } from '../openclaw'
+const HandoffComposer = lazy(() => import('./HandoffComposer').then((module) => ({ default: module.HandoffComposer })))
 import { FeedInsightsPanel, type FeedInsightsMetric } from './FeedInsightsPanel'
 import {
   FLOATING_INSIGHTS_INSET,
@@ -52,6 +50,7 @@ import {
 import { AgentPanelSkeleton } from './WorkbenchLoadingState'
 import { LazyOpenClawConversation } from './LazyOpenClawConversation'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
+import { createWorkbenchAgentValue } from './createWorkbenchAgentValue'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { relativeTime } from '../feed/feedModel'
 import { toWorkbenchCardModel, workbenchSourceLabels } from './workbenchModel'
@@ -73,7 +72,8 @@ import { settingsReturnStateForLocation } from '../settings/settingsReturnState'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import { showFeedRefreshToast, type FeedRefreshState } from './showFeedRefreshToast'
 import { DesktopSidebar } from './DesktopSidebar'
-
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import { mobilePrimaryNavigation } from './workbenchNavigation'
 export type RightRailMode = 'closed' | 'agent'
 export type InsightsSurfaceState = 'closed' | 'auto' | 'manual' | 'closing'
 type AgentAttentionState = 'none' | 'running' | 'completed' | 'failed' | 'stopped'
@@ -89,24 +89,10 @@ type HeroWorkbenchShellProps = {
   refreshState: FeedRefreshState
   refreshMessage?: string
   refreshEventKey?: string
+  openclawChat: OpenClawChatController
+  openclawConfigLoading: boolean
   children: ReactNode
 }
-
-const browseNavigation = [
-  { id: 'feed', label: '信息流', href: '/feed', icon: Icons.Radio },
-  { id: 'saved', label: '收藏', href: '/saved', icon: Icons.Star },
-  { id: 'history', label: '历史', href: '/history', icon: Icons.History },
-] as const
-
-const managementNavigation = [
-  { id: 'subscriptions', label: '订阅', href: '/subscriptions', icon: Icons.Bell },
-  { id: 'agents', label: '助手连接', href: '/agents', icon: Icons.Bot },
-  { id: 'users', label: '账户与成员', href: '/users', icon: Icons.Users },
-  { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
-] as const
-
-const navigation = [...browseNavigation, ...managementNavigation] as const
-const mobilePrimaryNavigation = navigation.filter((item) => ['feed', 'saved', 'subscriptions', 'agents'].includes(item.id))
 
 const roleLabel = {
   owner: '所有者',
@@ -207,6 +193,7 @@ function AgentPanelContent({
   api: ServiceApi
   userId: string
 }) {
+  const navigate = useNavigate()
   const feedItems = useMemo(
     () => value.draft.items.filter((item) => item.resourceType !== 'job'),
     [value.draft.items],
@@ -288,6 +275,7 @@ function AgentPanelContent({
             : undefined}
         /></LoadingReveal>
       </div>
+      <Button size="sm" variant="ghost" isIconOnly aria-label="在 Agent 工作台打开" onPress={() => navigate('/agent')}><Icons.ArrowUpRight size={17} aria-hidden="true" /></Button>
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" isDisabled={closeDisabled} onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>
@@ -365,7 +353,7 @@ function AgentPanelContent({
           })}
         </div>
       </div>
-      <HandoffComposer value={value} />
+      <Suspense fallback={<AgentPanelSkeleton />}><HandoffComposer value={value} /></Suspense>
     </> : <LazyOpenClawConversation chat={chat} value={value} />}
     </LoadingReveal>}
   </>
@@ -376,7 +364,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
-  const agentRoute = contentRoute || location.pathname === '/subscriptions'
+  const agentWorkspaceRoute = location.pathname === '/agent' || location.pathname.startsWith('/agent/')
+  const agentRoute = contentRoute
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/manual') ? '操作手册' : location.pathname.endsWith('/changelog') ? '更新日志' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const shellRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
@@ -410,20 +399,13 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [feedPreferenceState, setFeedPreferenceState] = useState(() => ({ userId: props.user.id, value: readFeedPreference(props.user.id) }))
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const shownRefreshEvents = useRef(new Set<string>())
-  const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: agentRoute })
   const insightsFeed = useQuery({
     queryKey: queryKeys.feed(props.user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => props.api.latestFeed(signal),
     enabled: feedRoute,
     staleTime: queryStaleTime.feed,
   })
-  const openclawChat = useOpenClawChat({
-    enabled: agentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),
-    imageIoEnabled: Boolean(delegations.data?.openclaw_chat?.image_io_enabled),
-    mediaOrigins: delegations.data?.openclaw_chat?.media_origins ?? [],
-    userId: props.user.id,
-    defaultGatewayUrl: delegations.data?.openclaw_chat?.default_gateway_url ?? 'ws://127.0.0.1:18789',
-  })
+  const openclawChat = props.openclawChat
   const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running' || props.refreshState === 'stopping'
   const sidebarPreference = sidebarState.userId === props.user.id ? sidebarState.value : readSidebarPreference(props.user.id)
   const feedPreference = feedPreferenceState.userId === props.user.id ? feedPreferenceState.value : readFeedPreference(props.user.id)
@@ -446,7 +428,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const rightRailWidth = clampRightRailWidth(storedRightRailWidth, viewportWidth, sidebarWidth)
   const rightRailWidthRef = useRef(rightRailWidth)
   const desktopGridColumns = `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn}`
-  const desktopGridStyle = viewportWidth >= 768
+  const desktopGridStyle = !agentWorkspaceRoute && viewportWidth >= 768
     ? {
         gridTemplateColumns: fixedRailPresent
           ? `${sidebarWidth}px minmax(640px, 1fr) ${fixedRightRail ? rightRailWidth : 0}px`
@@ -560,7 +542,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     if (!dockCapable) {
       closeInsights(false)
     }
-    insightsOpenedAlongsideAgentRef.current = false
+    insightsOpenedAlongsideAgentRef.current = insightsOpen && dockCapable && !insightsObstructsFeed
     cancelFixedRailClose()
     setRightRailAnimated(true)
     setAgentAttention('none')
@@ -571,21 +553,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
       )?.focus()
     })
-  }, [cancelFixedRailClose, closeInsights, dockCapable, props.user.id, rightRailWidth])
+  }, [cancelFixedRailClose, closeInsights, dockCapable, insightsObstructsFeed, insightsOpen, props.user.id, rightRailWidth])
 
   const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
-    draft,
-    toggleItem: (item) => persistDraft(updateAgentContextDraft(draft, item)),
-    removeItem: (id) => persistDraft({ ...draft, items: draft.items.filter((value) => value.articleId !== id) }),
-    clearItems: () => persistDraft({ ...draft, items: [], sourceSnapshot: undefined }),
-    openComposer,
-    openWithSourceSnapshot: (sourceSnapshot) => {
-      persistDraft({ ...draft, items: [], sourceSnapshot })
-      openComposer()
-    },
-    setQuestion: (question) => persistDraft({ ...draft, question }),
-    clearComposer: () => persistDraft({ ...draft, question: '', items: [], sourceSnapshot: undefined }),
-    restoreComposer: (question, items, sourceSnapshot) => persistDraft({ ...draft, question, items, sourceSnapshot }),
+    ...createWorkbenchAgentValue(draft, persistDraft), openComposer,
+    openWithSourceSnapshot: (sourceSnapshot) => { persistDraft({ ...draft, items: [], sourceSnapshot }); openComposer() },
   }), [draft, openComposer, persistDraft])
 
   const closeRightRail = useCallback(() => {
@@ -605,14 +577,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     const nextMode = visibleRightRailMode === 'agent' ? 'closed' : 'agent'
     setRightRailAnimated(true)
     if (nextMode === 'agent') {
-      insightsOpenedAlongsideAgentRef.current = false
+      insightsOpenedAlongsideAgentRef.current = insightsOpen && dockCapable && !insightsObstructsFeed
       cancelFixedRailClose()
       setAgentAttention('none')
     }
     else finishFixedRailClose()
     setRightRailMode(nextMode)
     writeBootstrapShellRightRail(props.user.id, nextMode, rightRailWidth)
-  }, [cancelFixedRailClose, closeInsights, dockCapable, finishFixedRailClose, mobile, openclawChat.isRunning, props.user.id, rightRailWidth, visibleRightRailMode])
+  }, [cancelFixedRailClose, closeInsights, dockCapable, finishFixedRailClose, insightsObstructsFeed, insightsOpen, mobile, openclawChat.isRunning, props.user.id, rightRailWidth, visibleRightRailMode])
 
   const toggleInsights = useCallback(() => {
     if (mobile && openclawChat.isRunning) return
@@ -901,9 +873,9 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         data-layout-motion={rightRailAnimated && !resizingRail ? 'deliberate' : 'immediate'}
         onPointerDown={handleIneffectivePrimaryPointerDown}
         style={desktopGridStyle}
-        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[var(--inteliscope-size-page-header)_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns} ${rightRailAnimated && !resizingRail ? 'transition-[grid-template-columns] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none' : 'transition-none'}`}
+        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[var(--inteliscope-size-page-header)_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${agentWorkspaceRoute ? '' : `min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`} ${rightRailAnimated && !resizingRail ? 'transition-[grid-template-columns] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none' : 'transition-none'}`}
       >
-        <DesktopSidebar
+        {!agentWorkspaceRoute && <DesktopSidebar
           activeQuickView={activeQuickView}
           extraWideDesktop={extraWideDesktop}
           onLogout={() => { openclawChat.clearTranscript(); openclawChat.disconnect(); props.onLogout() }}
@@ -913,10 +885,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           sidebarExpanded={sidebarExpanded}
           onSidebarToggle={toggleSidebar}
           user={props.user}
-        />
+        />}
 
-        <PageHeader
+        {!agentWorkspaceRoute && <PageHeader
           title={pageTitle}
+          leading={<span className="min-[768px]:hidden"><WorkspaceSwitcher userId={props.user.id} compact /></span>}
           className="relative z-20 col-start-1 row-start-1 min-[768px]:col-start-2"
           actions={<div className="flex items-center gap-1">
             <ThemeModeToggle />
@@ -951,13 +924,13 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               <Tooltip.Content {...anchoredTooltipProps}>{agentToggleHelp}</Tooltip.Content>
             </Tooltip>}
           </div>}
-        />
+        />}
 
         <main
           ref={mainRef} data-page-canvas
           data-feed-reading-layout={feedRoute ? 'true' : undefined}
           data-feed-layout-motion={resizingRail ? 'immediate' : 'deliberate'}
-          className="relative col-start-1 row-start-1 row-span-2 min-h-0 min-w-0 overflow-hidden bg-background pb-[calc(64px+env(safe-area-inset-bottom))] min-[768px]:col-start-2 min-[768px]:pb-0"
+          className={`relative col-start-1 row-start-1 row-span-2 min-h-0 min-w-0 overflow-hidden bg-background ${agentWorkspaceRoute ? 'pb-0' : 'pb-[calc(64px+env(safe-area-inset-bottom))] min-[768px]:col-start-2 min-[768px]:pb-0'}`}
           style={feedRoute ? {
             '--inteliscope-feed-reading-shift': `${feedInsightsLayout?.readingShift ?? 0}px`,
           } as CSSProperties : undefined}
@@ -995,7 +968,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             onKeyDown={handleRailKeyDown}
             onDoubleClick={resetRailWidth}
           ><span className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors motion-reduce:transition-none ${resizingRail ? 'bg-accent' : 'bg-separator group-hover:bg-muted group-focus-visible:bg-accent'}`} /></div>
-          <AgentPanelContent open={fixedRailPresent} onClose={closeRightRail} closeDisabled={mobile && openclawChat.isRunning} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+          <AgentPanelContent open={fixedRailPresent} onClose={closeRightRail} closeDisabled={mobile && openclawChat.isRunning} chat={openclawChat} configLoading={props.openclawConfigLoading} value={agentValue} api={props.api} userId={props.user.id} />
         </aside>}
 
         {feedRoute && insightsPresent && !mobile && <aside
@@ -1029,7 +1002,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                 className={`${rightRailAnimated ? 'quiet-surface-enter ' : ''}grid min-h-0 min-w-0 grid-rows-[var(--inteliscope-size-page-header)_minmax(0,1fr)_auto] overflow-hidden overscroll-none border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[min(400px,calc(100vw-24px))] max-w-[400px] rounded-l-2xl border-l'}`}
               >
                 {visibleRightRailMode === 'agent'
-                  ? <AgentPanelContent open onClose={closeRightRail} closeDisabled={mobile && openclawChat.isRunning} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+                  ? <AgentPanelContent open onClose={closeRightRail} closeDisabled={mobile && openclawChat.isRunning} chat={openclawChat} configLoading={props.openclawConfigLoading} value={agentValue} api={props.api} userId={props.user.id} />
                   : <FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} includeDisabledSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} onMetricAction={handleInsightsMetric} onChannelAction={handleInsightsChannel} />}
               </Drawer.Dialog>
             </Drawer.Content>
@@ -1051,6 +1024,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   </div>
                   {[
                     { label: '历史', href: '/history', icon: Icons.History },
+                    { label: '助手连接', href: '/agents', icon: Icons.Bot },
                     { label: '账户与成员', href: '/users', icon: Icons.Users },
                     { label: '设置', href: '/settings', icon: Icons.Settings },
                     { label: '操作手册', href: '/manual', icon: Icons.BookOpen },
@@ -1084,7 +1058,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           </Drawer.Backdrop>
         </Drawer>
 
-        <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid min-h-16 grid-cols-5 border-t border-separator bg-surface pb-[env(safe-area-inset-bottom)] min-[768px]:hidden">
+        {!agentWorkspaceRoute && <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid min-h-16 grid-cols-4 border-t border-separator bg-surface pb-[env(safe-area-inset-bottom)] min-[768px]:hidden">
           {mobilePrimaryNavigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-16 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">
             <Icon size={17} aria-hidden="true" /><span>{label}</span>
           </NavLink>)}
@@ -1092,12 +1066,12 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             type="button"
             aria-label="更多与账户"
             aria-expanded={mobileMoreOpen}
-            className={`type-micro flex min-h-16 min-w-11 flex-col items-center justify-center gap-1 ${mobileMoreOpen || ['/history', '/users', '/settings', '/manual', '/changelog'].includes(location.pathname) ? 'text-accent' : 'text-muted'}`}
+            className={`type-micro flex min-h-16 min-w-11 flex-col items-center justify-center gap-1 ${mobileMoreOpen || ['/history', '/agents', '/users', '/settings', '/manual', '/changelog'].includes(location.pathname) ? 'text-accent' : 'text-muted'}`}
             onClick={() => setMobileMoreOpen(true)}
           >
             <Icons.Menu size={17} aria-hidden="true" /><span>更多</span>
           </button>
-        </nav>
+        </nav>}
       </div>
   </WorkbenchAgentContext.Provider>
 }

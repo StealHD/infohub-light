@@ -17,19 +17,8 @@ import {
 import { settingsSectionsForRole } from '../admin-heroui/settingsSections'
 import { settingsReturnStateForLocation } from '../settings/settingsReturnState'
 import { WORKBENCH_QUICK_VIEWS, type WorkbenchQuickViewId } from './workbenchQuickViews'
-
-const browseNavigation = [
-  { id: 'feed', label: '信息流', href: '/feed', icon: Icons.Radio },
-  { id: 'saved', label: '收藏', href: '/saved', icon: Icons.Star },
-  { id: 'history', label: '历史', href: '/history', icon: Icons.History },
-] as const
-
-const managementNavigation = [
-  { id: 'subscriptions', label: '订阅', href: '/subscriptions', icon: Icons.Bell },
-  { id: 'agents', label: '助手连接', href: '/agents', icon: Icons.Bot },
-  { id: 'users', label: '账户与成员', href: '/users', icon: Icons.Users },
-  { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
-] as const
+import { browseNavigation, managementNavigation } from './workbenchNavigation'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 const roleLabel = {
   owner: '所有者',
@@ -61,7 +50,7 @@ type DesktopSidebarProps = {
 }
 
 const sidebarItemBase = 'type-control mb-0.5 flex w-full items-center rounded-xl text-muted transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
-const sidebarPanelToggleClass = (open: boolean, desktop = true) => `${desktop ? 'sidebar-desktop-toggle ' : ''}inline-flex size-10 items-center justify-center rounded-[var(--inteliscope-radius-card)] transition-[inset-inline-end,color,background-color] duration-[var(--inteliscope-motion-standard)] focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none ${open ? 'bg-accent/15 text-accent hover:bg-accent/20 hover:text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`
+const sidebarPanelToggleClass = (open: boolean, desktop = true) => `${desktop ? 'sidebar-desktop-toggle ' : ''}inline-flex size-8 items-center justify-center rounded-[var(--inteliscope-radius-control)] transition-[inset-inline-end,color,background-color] duration-[var(--inteliscope-motion-standard)] focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none ${open ? 'bg-accent/15 text-accent hover:bg-accent/20 hover:text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`
 
 function SidebarNavItem({
   label,
@@ -388,7 +377,9 @@ export function DesktopSidebar({ activeQuickView, extraWideDesktop, onLogout, on
   return <aside data-desktop-sidebar data-sidebar-state={sidebarExpanded ? 'expanded' : 'collapsed'} className="hidden min-h-0 flex-col overflow-x-hidden border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
     {extraWideDesktop ? <>
       <div data-sidebar-header className="relative flex h-[var(--inteliscope-size-page-header)] shrink-0 overflow-hidden">
-        <div data-sidebar-brand className="sidebar-expanded-canvas flex h-full w-[var(--inteliscope-width-workbench-sidebar-expanded)] items-center gap-2 px-3" aria-hidden={!sidebarExpanded}><Icons.InteliscopeMark size={20} aria-hidden="true" /><span className="type-page-title min-w-0 flex-1 truncate">Inscope</span></div>
+        <div className={`flex h-full items-center ${sidebarExpanded ? 'w-[var(--inteliscope-width-workbench-sidebar-expanded)] px-2 pr-12' : 'w-[var(--inteliscope-width-workbench-sidebar-collapsed)] px-1'}`}>
+          <WorkspaceSwitcher userId={user.id} compact={!sidebarExpanded} placement={sidebarExpanded ? 'bottom start' : 'right top'} />
+        </div>
         <button type="button" data-sidebar-panel-toggle data-inteliscope-mark-trigger className={sidebarPanelToggleClass(sidebarExpanded)} aria-label={sidebarExpanded ? '收起侧栏' : '展开侧栏'} aria-expanded={sidebarExpanded} onClick={onSidebarToggle}><Icons.SplitPanel open={sidebarExpanded} size={18} aria-hidden="true" /></button>
       </div>
       <div data-sidebar-navigation-frame className="relative min-h-0 flex-1 overflow-hidden">
@@ -397,7 +388,8 @@ export function DesktopSidebar({ activeQuickView, extraWideDesktop, onLogout, on
       </div>
       <SidebarAccount expanded={sidebarExpanded} user={user} onLogout={onLogout} />
     </> : <>
-      <div className="type-page-title flex h-[var(--inteliscope-size-page-header)] shrink-0 items-center justify-center px-3">
+      <div className="type-page-title flex h-[var(--inteliscope-size-page-header)] shrink-0 items-center justify-center gap-1 px-1">
+        <WorkspaceSwitcher userId={user.id} compact placement="right top" />
         <Popover isOpen={tabletNavOpen} onOpenChange={changeTabletNavigation}>
           <Popover.Trigger ref={tabletNavToggleRef} data-sidebar-panel-toggle data-inteliscope-mark-trigger aria-label="展开导航" aria-expanded={tabletNavOpen} className={sidebarPanelToggleClass(tabletNavOpen, false)}><Icons.SplitPanel open={tabletNavOpen} size={18} aria-hidden="true" /></Popover.Trigger>
           <Popover.Content placement="right top" offset={8} className="z-50 w-[260px] p-0">

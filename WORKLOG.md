@@ -8,153 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-08-31",
-  "result": "将 ActorOps 当前账户套餐适配排序合入本地 main，并整理为 v2.6.4 发布版本；FREE API、Demo、月运行和监控受限 Actor 会在兼容候选之后参与既有质量排序。",
-  "status": "completed",
-  "task_id": "2026-08-31-release-v2-6-4",
-  "unresolved": [],
-  "validation": [
-    "Apify Catalog、Discovery、Discovery AI 与 Worker 定向 Pytest 67 项通过，更新日志 Vitest 5 项通过。",
-    "功能分支 impacted preflight 14/14 通过；版本与 uv lock 已同步为 2.6.4，未增加数据库迁移或付费 Actor 调用。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-31",
-  "result": "为 X、Instagram 与 YouTube 既有来源补回显式启用控制；订阅仍开启但来源/Binding 已停用时，可由有来源管理权限的用户恢复 Binding 并以本地证据重新启用，且不创建 Job、Actor Attempt 或费用。",
-  "status": "completed",
-  "task_id": "2026-08-31-managed-source-explicit-recovery",
-  "unresolved": [],
-  "validation": [
-    "ActorOps 来源生命周期 Pytest 6/6、来源表单 Vitest 12/12、锁定平台场景 1/1 通过；TypeScript 与相关 ESLint 通过",
-    "snapshot impacted preflight 14/14 通过，前后端均命中且 SQLite 连接警告为 0",
-    "本地生产构建、核心 API smoke 8/8、live/ready、API/Worker 双容器与 React 资源均健康；未调用真实来源、Actor、AI 或通知"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-31",
-  "result": "修复 YouTube 条目把底层 rss 显示为来源名的问题：既有 Feed/收藏/历史/详情按 source_id 投影当前频道名，ActorOps 后续获取写入规范来源名称与 catalog 类型，不迁移或改写旧内容。",
-  "status": "completed",
-  "task_id": "2026-08-31-youtube-feed-source-name",
-  "unresolved": [],
-  "validation": [
-    "后端定向 Pytest 20 项、更新日志 Vitest 5 项通过；原失败头像 spec 单独复验通过。",
-    "本地 service.db 只读备份中的真实异常行已从 rss 投影为老高與小茉 Mr & Mrs Gao。",
-    "snapshot impacted preflight 重跑 14/14 通过，覆盖 Feed/Store/API、ActorOps、前端与控制检查，SQLite 连接警告为 0。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-31",
-  "result": "社交卡片顶部不再显示与底部频道同名的来源标签；平台、关注账号、时间和底部频道分类保持可见，真实来源 handle 不受影响。",
-  "status": "completed",
-  "task_id": "2026-08-31-social-card-channel-label-dedup",
-  "unresolved": [],
-  "validation": [
-    "Workbench 模型、卡片渲染与更新日志定向 Vitest 65 项通过。",
-    "snapshot impacted preflight 12/12 通过，覆盖 frontend_full 与 control，SQLite 连接警告为 0。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-31",
-  "result": "Feed 卡片将复制摘要与忽略从三点菜单改为右上角悬浮/聚焦直达操作，图标提供下方说明；带图卡片为操作区预留空间并隔离媒体命中区域，触屏继续常显，来源概览不展示这些逐条操作。",
-  "status": "completed",
-  "task_id": "2026-08-31-feed-card-hover-actions",
-  "unresolved": [],
-  "validation": [
-    "VirtualFeed、来源概览、模型、更新日志等定向 Vitest 71 项通过；失败的 App 忽略/撤销用例更新后单独复验通过。",
-    "真实已登录本地页面完成悬浮、命中区域和提示文本检查；Playwright 在 320、390、645、1024、1440px 五档全部通过。",
-    "snapshot impacted preflight 12/12 通过，覆盖 frontend_full、control、694 个前端测试、类型、Lint、UI 契约与代码尺寸检查。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-31",
-  "result": "移除 Feed 卡片右上角复制/忽略操作组的独立描边、背景、圆角、阴影和模糊面板，统一复用右下角无外框图标操作组的视觉处理，单个图标仍保留共享悬浮反馈和说明。",
-  "status": "completed",
-  "task_id": "2026-08-31-feed-card-action-visual-unity",
-  "unresolved": [
-    "代码保留在 codex/fix-youtube-source-label 工作区，等待用户明确授权提交。"
-  ],
-  "validation": [
-    "VirtualFeed 与更新日志定向 Vitest 42 项通过；TypeScript、ESLint 和 UI 契约检查通过。",
-    "已登录本地页面实测无外层面板且复制摘要 Tooltip 正常；320、390、645、1024、1440px Playwright 5/5 通过，并比较上下操作组计算样式一致。",
-    "snapshot impacted preflight 12/12 通过，覆盖 frontend_full、control、全量前端测试、代码尺寸与控制文件检查。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "修复 Feed 文章展开/收起时按钮按压缩放与内容展开动画叠加造成的视觉抖动；时间流与专题速览共用的展开控件在点击期间保持固定几何尺寸，同时保留内容过渡和滚动锚点。",
-  "status": "completed",
-  "task_id": "2026-09-01-feed-expand-press-jitter",
-  "unresolved": [
-    "代码保留在 codex/fix-youtube-source-label 工作区，等待用户明确授权提交。"
-  ],
-  "validation": [
-    "VirtualFeed、SourceOverviewFeed 与更新日志定向 Vitest 48/48 通过；TypeScript 与 UI 契约检查通过。",
-    "专题速览真实指针 Playwright 1/1 通过，按下时 transform 为 none 且按钮宽高位移不超过 0.5px；已登录本地页面完成展开视觉复验。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-01",
-  "result": "Feed 卡片复制摘要现在提供即时视觉反馈：成功后图标临时变为勾并在上方显示“已复制”，失败时保留复制图标并显示“复制失败”，2.8 秒后恢复空闲状态；屏幕阅读器状态继续保留。",
-  "status": "completed",
-  "task_id": "2026-09-01-feed-copy-feedback",
-  "unresolved": [
-    "代码保留在 codex/fix-youtube-source-label 工作区，等待用户明确授权提交。"
-  ],
-  "validation": [
-    "VirtualFeed 与更新日志定向 Vitest 42/42 通过；TypeScript、ESLint、UI 契约与代码尺寸检查通过。",
-    "已登录本地页面实测勾选、上方“已复制”和自动恢复；桌面 Playwright 2/2 通过，验证反馈位置、图标及 2.8 秒复位。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface"
@@ -386,6 +239,183 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "ActorOps 候选卡、替换 Drawer 和路由模型定向 Vitest 22/22 通过，TypeScript、ESLint 与 UI 合同检查通过。",
     "ActorOps 三视口 Playwright 13 passed、2 skipped；同 Actor 新版本提示、焦点恢复和无横向溢出通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-09-04",
+  "result": "在本地 main@3e9524f9 创建 codex/agent-workspace，并完成浏览器直连 OpenClaw Gateway 的 Agent Workspace：共享普通会话运行时、完整对话、可信父子 Session 与 Worktree 任务、Tasks、Artifacts、ZIP Skills、isolated agentTurn Automations，以及隔离的临时 operator.admin 管理连接和响应式导航布局。",
+  "status": "completed",
+  "task_id": "2026-09-04-agent-workspace",
+  "unresolved": [],
+  "validation": [
+    "前端全量 Vitest 105 文件 751 项通过；ESLint、TypeScript、UI Contract、生产构建及直接代码体积检查通过。",
+    "Agent Workspace Playwright 在独立目标 Worktree 服务上 8 passed、4 skipped，覆盖目标视口、深浅主题、Reduced Motion、200% 重排、Axe 与横向溢出。",
+    "第二次且最后一次 impacted preflight 中 Python 全量与此前 9 个门禁通过，随后只因新增 hook 超过 150 行停止；拆出会话导航后直接代码体积检查通过，按门禁规则未执行第三次完整 preflight。",
+    "Markdown 控制面、project controls、WORKLOG、JSON 格式与 git diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-09-04",
+  "result": "将 Agent 重构为与 Inscope 平级的 OpenClaw 工作区：加入分用户产品切换与路由记忆、固定会话侧栏、按需检查器、工作区对话变体、列表化 Skills/Automations 和写操作触发的临时管理授权，同时保持 Feed 紧凑 Agent 面板及常驻 Gateway 运行时不变。",
+  "status": "completed",
+  "task_id": "2026-09-04-openclaw-peer-workspace-ui",
+  "unresolved": [
+    "修改保留在 codex/agent-workspace；未合并、推送、发布或部署。"
+  ],
+  "validation": [
+    "impacted preflight 14/14 通过，涵盖前端全量 757 项、受影响 Python、typecheck、lint、build、UI 合同及代码体积策略。",
+    "Agent Workspace Playwright 9 passed、6 skipped，覆盖桌面、平板、移动端、200% 缩放、主题、Reduced Motion、Axe 与横向溢出。",
+    "本地 8080 API、Worker 和前端 revision 3e9524f9a7d4-dirty-0acd320541cd 健康；实页检查确认单层工作区和按需授权。",
+    "Markdown、project controls、WORKLOG、JSON 与 git diff 独立校验通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "完成 Inscope/OpenClaw 新功能整改：普通 Runtime 提升到认证应用壳，连接与 Session 引入 epoch，严格收口 capability、响应与 provenance；Worktree 幂等重试、可信根会话树、Tasks/Artifacts scope、Admin 销毁、Skill/Cron 回执及响应式单层工作区均已落地。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-workspace-audit-remediation",
+  "unresolved": [
+    "修改保留在 codex/agent-workspace；未合并、推送、发布或部署。",
+    "完整 production-workbench 140 项并发回归受 Axe 超时及既有专题列表偶发缺节点影响未全绿；本次直接影响的 Agent/Insights handoff 场景单独复验通过。"
+  ],
+  "validation": [
+    "OpenClaw/Agent Workspace 定向 Vitest 27 文件 155 项通过；Agent Workspace Playwright 四档矩阵 12 passed、12 skipped，受控 WebSocket 覆盖连接、资源 provenance 与写前信任确认。",
+    "ESLint、TypeScript、UI Contract、生产构建、前端代码体积、Markdown/project controls/WORKLOG/JSON 与 git diff 检查通过。",
+    "最后一次 impacted preflight 的前 7 项通过后命中新 callable 150 行硬限制；拆分 Skill/Task/Worktree/Session Runtime 后直接代码体积门禁通过，按规则未执行第三次完整 preflight。",
+    "目标 Worktree 已重建到本地 8080，revision 3e9524f9a7d4-dirty-ee45366092e2，API、Worker 与前端资产健康。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "收尾修复 Workbench 并发回归暴露的 Agent/Insights 打开竞态和 Source Overview 标题语义，拆分超限 callable，并重建最新本地运行时。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-workspace-audit-followup",
+  "unresolved": [
+    "修改保留在 codex/agent-workspace；未合并、推送、发布或部署。",
+    "完整 production-workbench 140 项并发套件未再次全量运行；已逐项复验其暴露的相关失败，且按门禁规则不执行第三次完整 impacted preflight。"
+  ],
+  "validation": [
+    "Agent/Insights handoff 与 Source Overview Playwright 均单独通过；相关 Vitest 3 文件 40 项通过。",
+    "OpenClaw/Agent Workspace 定向 Vitest 27 文件 155 项、代码体积、ESLint、TypeScript、UI Contract 与生产构建通过。",
+    "本地 8080 已重建到 revision 3e9524f9a7d4-dirty-8e5773605942，API、Worker 与前端资产健康。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "修复本地 Inscope 连接既有 OpenClaw Gateway 失败：按 2026.8.1 实际合同使用 sessions.preview{keys:[exactKey]} 和严格状态投影，失效 Session 只更新本地绑定并创建一个新 Session，保留已有设备身份、device token 与生产页面连接。",
+  "status": "completed",
+  "task_id": "2026-09-05-openclaw-local-production-pairing-recovery",
+  "unresolved": [
+    "本地与生产站点虽按浏览器 Origin 隔离凭据，但若指向同一 Gateway，消息、Worktree、Task、Skill 和 Automation 仍作用于同一 Gateway 后端。",
+    "修改保留在 codex/agent-workspace；未合并、推送或部署生产站点。"
+  ],
+  "validation": [
+    "现场复现 Gateway 拒绝错误为 sessions.preview 参数应使用 keys；修复后本地 127.0.0.1:8080 显示 Gateway 已连接并建立独立 Inscope Session。",
+    "OpenClaw Runtime、Workspace 与公开错误回归加 Changelog 共 4 文件 20 项通过；TypeScript、ESLint、UI Contract 和前端代码体积通过。",
+    "生产站点既有设备、凭据与 Session 未执行删除、覆盖、断开或重新配对。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "OpenClaw 顶部复用 Feed PageHeader，隐藏生成的主机/随机会话标题；适配真实 skills.status 的 skillKey/disabled，新增只读详情、刷新和七类使用示例；补充模拟 Gateway 用例并修复临时管理连接 StrictMode/unmount 生命周期。未写入生产 Gateway。",
+  "status": "partial",
+  "task_id": "2026-09-05-agent-header-skills-use-cases",
+  "unresolved": [
+    "完整 Playwright 与 impacted preflight 尚未全绿，不建议据此合并发布。",
+    "本地镜像第一次构建因源文件变化被摘要保护拒绝切换；记录后将使用标准 up-latest 缓存重建，生产 Gateway 配置保持不变。"
+  ],
+  "validation": [
+    "定向 Vitest 14 文件 71 项通过，追加 Admin 生命周期测试 2 项通过；check:ui、typecheck、lint、build、代码尺寸及控制检查通过。",
+    "模拟 Gateway 的 Skills 四视口、使用示例四视口及 Worktree/Tasks/Artifacts/Automation 定向浏览器路径通过，包含 Skills Axe；完整浏览器门禁仍因超时未完成。",
+    "Impacted preflight 12/13 已执行命令通过；全量前端测试 772 通过、11 超时。失败文件串行复验 136 通过，另一个来源表单用例失败，未将完整门禁标记通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-05",
+  "result": "已实现 Feed 与 OpenClaw 工作台共享的 @ 材料/Skill 候选、七个斜杠快捷操作、按用户隔离的 Skill 草稿与发送前复核；保留原 TextArea、模型/推理和确认流程，使用显式 Skill 引用而非原生命令。更新手册、使用示例、UI/API/架构合同及测试映射；交接提示词抽到按需加载模块以满足首屏预算。未向生产 Gateway 写入、未推送或部署，门禁未全绿因此未更新本地 8080。",
+  "status": "partial",
+  "task_id": "2026-09-05-agent-composer-shortcuts",
+  "unresolved": [
+    "完整 impacted preflight 仍因账户管理用例全量运行超时而失败；遵循复跑上限不再执行第三轮完整门禁。",
+    "完整 Playwright 测试断言已通过，但 worker 退出超时尚未收敛；本地 8080 保留原版本，不据此合并或发布。"
+  ],
+  "validation": [
+    "新增解析、Skill 投影/发送校验、并发与失败快照、目录竞态、草稿隔离、输入焦点/IME/材料引用测试；相关缺失模拟接口已修正。最终 preflight 14/15 已执行命令通过，后端全量测试、代码尺寸、UI、lint、类型及控制检查通过。",
+    "最终全量 Vitest 825/826 通过，唯一账户管理测试超时；该失败用例随后独立复验通过。构建独立通过，首屏 JavaScript Brotli 243337 bytes，预算 245760 bytes 未放宽。",
+    "Agent Workspace 与快捷交互浏览器矩阵 51 项断言通过、21 项按项目跳过；但存在 6 个测试 worker 退出超时错误，完整运行未成功。浅色缩放、窄 Feed 侧栏、使用示例和路由记忆另行复验通过，包含候选 Axe。",
+    "安装的 OpenClaw 纯引用解析器验证仅识别已选 Skill 并忽略转义的其他引用，全程无 RPC；自动化浏览器全部使用可控 Gateway fixture。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-05",
+  "result": "完成 Agent @ / 快捷输入的门禁收尾并通过标准脚本更新本地 8080。修正表单校验后立即重提的测试竞态、过时订阅/移动导航断言和预览页生产样式串入；额外 900px 项目限定为 Agent 用例。按现有工作区与 44px 触控合同人工核对并同步两平台移动视觉基线，固定页头截图时间；未改变超时或图片容差，未向生产 Gateway 写入或改动连接配置，未 fetch、合并、推送或部署 VPS。",
+  "status": "completed",
+  "task_id": "2026-09-05-agent-shortcuts-gate-completion",
+  "unresolved": [],
+  "validation": [
+    "原快捷输入任务 snapshot 的最终 impacted preflight 16/16 命令通过：后端全量测试、123 文件 826 项 Vitest、代码尺寸、UI、lint、类型、构建及控制检查均通过；首屏 JavaScript Brotli 243450 bytes，预算 245760 bytes 未放宽。",
+    "Agent 与快捷输入四尺寸浏览器批次 51 通过、21 条件跳过并正常退出；现有页面的桌面、平板、移动端回归分批补齐，失败项均定向复验通过。串行执行重型门禁，不把中断或未运行用例计作通过。",
+    "Mac 固定时间页头桌面/平板普通比较 2 项通过；Linux 关闭外网的生产构建上，ActorOps 触控、页头、订阅深浅主题、登录深浅主题 4 项普通视觉比较通过；保留焦点、Axe、无溢出与交互断言。",
+    "up-latest.sh 从任务 worktree 构建并更新本地 API/Worker，保留旧镜像。健康检查确认 revision 3e9524f9a7d4-dirty-6df2f716e765、双容器 healthy、前端资源 index-wwJRK93U.js 已提供；生产 Gateway 未参与测试。"
   ]
 }
 ```

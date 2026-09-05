@@ -174,6 +174,28 @@ export const manualSections: ManualSection[] = [
         description: '浏览器直接连接用户自己的 OpenClaw Gateway。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },
       {
+        title: '快捷输入 @ 与 /',
+        description: '在问题开头或空白后输入 @，搜索当前 Agent 的 Skills 或已经附带的材料；输入 /skills 或 /技能名称也能筛选 Skill。选择后只有一个可移除的 Skill 标签，发送前会重新核验，不会自动启用或安装。来源快照禁止同时选 Skill。↑/↓ 选择、Enter 确认候选但不发送、Esc 关闭、Tab 正常切换焦点，输入法组合期间不截获回车。/new 打开确认且保留草稿；/model 与 /reasoning 使用原选择器；/worktree 预填当前问题并等待最终确认；/status 查看现有状态；/help 查看使用示例。未知命令可在关闭候选后作为普通问题发送，不执行原生命令。',
+      },
+      {
+        title: '切换到 OpenClaw 工作区',
+        description: '从左上角产品切换器选择“OpenClaw — 对话、执行与自动化”，或在信息流 Agent 右栏点击“在 Agent 工作台打开”。页面会保留当前 Gateway 连接、会话、生成状态、对话和 Feed 草稿；进入助手连接、账户或设置也不会因路由拆除 Runtime。左侧只显示可信根会话以及能通过 parentSessionKey 完整追溯的父级、兄弟和后代；循环、孤儿或同名会话不会混入。生成结束或取消后才可切换。Tasks 与 Artifacts 作为按需检查器打开且不卸载对话，文件不会经过 Inscope API。',
+        href: '/agent',
+        linkLabel: '打开 Agent 工作台',
+      },
+      {
+        title: '创建 Worktree 任务',
+        description: '选择“新 Worktree 任务”后，先确认当前连接属于你的独立 Gateway/信任域，再填写标题和完整提示词；授权只解锁动作，不会自动创建。项目和基础分支只能来自 Gateway，不能输入任意主机路径。创建与重试使用稳定幂等标识；如果 Session 与 Worktree 已建立但任务没有启动，原提示词会保留并在同一 Session 内重试。删除、强制清理和恢复 Worktree仍需前往 OpenClaw 管理界面。',
+      },
+      {
+        title: '管理 Skills 与 Automations',
+        description: 'Skills 只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传，大小不超过 Gateway 上限与 20 MiB 中的较小值；页面只显示缺失环境变量名称，不读取值。Automations 只支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，新建默认停用，关闭 Inscope 后仍由 Gateway 执行。点击写操作时才会弹出独立的临时 operator.admin 授权；授权只解锁操作，不会自动执行刚才的写入。只应在自己的独立 Gateway 或信任域中授权，Token 不会保存。',
+      },
+      {
+        title: '查看使用示例与 Skill 详情',
+        description: 'OpenClaw 桌面页头点击“使用示例”，手机从“更多操作”进入，可查看对话、上下文、Worktree、Tasks、Artifacts、Skills 和 Automations 的操作示例及预期结果。示例只作说明，不会创建任务或发送消息。Skills 列表和详情使用普通连接读取，无需管理授权；详情解释用途、缺失工具、环境变量名称、配置和系统条件。读取失败可以“刷新 Skills”，已有可信内容保留。停用与条件不足分别显示，修改启用状态仍需授权和确认。',
+      },
+      {
         title: '发送和查看图片',
         description: 'v2.2.13 中，管理员开启图片开关后，只要当前模型标有“支持图片”即可选择、粘贴或拖放最多 4 张 JPEG、PNG 或 WebP；图片输入使用 OpenClaw 既有的附件协议，因此原版 Gateway 不需要为发送图片升级。浏览器会在发送前移除原文件名和 EXIF、缩放并重新编码，图片原始数据不会写入 Inscope 服务、日志或浏览器会话存储。对话只有在 Gateway 提供安全图片票据能力时才显示 Gateway 返回的图片；票据过期后会安全续签，外链、file 路径和消息正文中的图片地址不会显示。图片里的文字和二维码同样是用户内容，不能改变工具权限或系统规则。',
       },

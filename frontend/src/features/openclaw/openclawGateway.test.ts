@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   OPENCLAW_CURRENT_SCOPES,
+  OPENCLAW_ADMIN_SCOPES,
   OPENCLAW_LEGACY_SCOPES,
   OpenClawGatewayClient,
   buildDeviceAuthPayloadV3,
@@ -9,6 +10,7 @@ import {
   parseOpenClawConnectionInput,
   validateGatewayUrl,
   validateNegotiatedScopes,
+  validateAdminOpenClawScopes,
   validateStoredOpenClawScopes,
   type GatewaySocket,
 } from './openclawGateway'
@@ -34,6 +36,10 @@ describe('OpenClaw Gateway connection input', () => {
   it('only enables optional media for a Gateway that explicitly advertises the RPC', () => {
     expect(gatewaySupportsMethod({ features: { methods: ['chat.media.ticket'] } }, 'chat.media.ticket')).toBe(true)
     expect(gatewaySupportsMethod({ snapshot: { features: { methods: ['chat.send'] } } }, 'chat.media.ticket')).toBe(false)
+    expect(gatewaySupportsMethod({ methods: ['chat.media.ticket'] } as never, 'chat.media.ticket')).toBe(false)
+    expect(gatewaySupportsMethod({ snapshot: { methods: ['chat.media.ticket'] } } as never, 'chat.media.ticket')).toBe(false)
+    expect(gatewaySupportsMethod({ snapshot: { features: { methods: ['chat.media.ticket'] } } } as never, 'chat.media.ticket')).toBe(false)
+    expect(gatewaySupportsMethod({ features: { methods: 'chat.media.ticket' } } as never, 'chat.media.ticket')).toBe(false)
   })
 
   it('accepts loopback WS and remote WSS but rejects credential-bearing or plain remote WS URLs', () => {
@@ -88,6 +94,8 @@ describe('OpenClaw Gateway v4 client', () => {
     expect(() => validateNegotiatedScopes(['operator.admin', 'operator.read', 'operator.write'])).toThrow('权限')
     expect(() => validateNegotiatedScopes(['operator.read'])).toThrow('权限')
     expect(() => validateStoredOpenClawScopes(['operator.read', 'operator.write', 'operator.approvals'])).toThrow('权限')
+    expect(validateAdminOpenClawScopes(['operator.admin'])).toEqual(OPENCLAW_ADMIN_SCOPES)
+    expect(() => validateAdminOpenClawScopes(['operator.admin', 'operator.read'])).toThrow('只能')
   })
 
   it('answers a challenge, connects with a signed device and supports requests and events', async () => {

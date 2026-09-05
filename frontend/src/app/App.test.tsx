@@ -823,7 +823,7 @@ describe('App routes', () => {
     }
   })
 
-  it('renders the subscriptions route in the HeroUI shell with an available Agent panel', async () => {
+  it('renders subscriptions in the HeroUI shell while keeping the compact Agent rail Feed-only', async () => {
     const source = {
       id: 'source-live', type: 'rss', display_name: '覆盖频道来源', scope: 'private' as const,
       owner_user_id: 'user-live', default_channel: '工作/项目', enabled: true,
@@ -855,7 +855,7 @@ describe('App routes', () => {
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(3)
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '展开 Agent 面板' })).not.toBeInTheDocument()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
     expect(screen.queryByText('选择要持续关注的来源，并查看每次更新发生了什么。')).not.toBeInTheDocument()
     expect(await screen.findByRole('list', { name: '订阅来源' })).toBeInTheDocument()
@@ -1651,11 +1651,11 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
     await browser.click(await screen.findByRole('button', { name: '加入 OpenClaw 上下文：测试来源连接' }))
     await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/subscriptions'))
-    await waitFor(() => {
-      const contextItem = document.querySelector('[data-context-resource="job"]')
-      expect(contextItem).toBeInTheDocument()
-      expect(contextItem).toHaveTextContent('测试来源连接')
-    })
+    await browser.click(screen.getAllByRole('button', { name: '切换工作区，当前为 Inscope' })[0]!)
+    await browser.click(await screen.findByRole('button', { name: /OpenClaw对话、执行与自动化/ }))
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/agent'))
+    await browser.click(await screen.findByRole('button', { name: '打开上下文' }))
+    await waitFor(() => expect(screen.queryByText('测试来源连接')).toBeInTheDocument())
     expect(screen.queryByText('internal-job-id')).not.toBeInTheDocument()
   })
 
@@ -3335,13 +3335,13 @@ describe('App routes', () => {
     expect(screen.getByText('范围为 1 到 10。')).toBeInTheDocument()
     expect(screen.getByText('仅在需要历史内容时开启。')).toBeInTheDocument()
 
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('来源名称不能为空。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.type(screen.getByRole('textbox', { name: '来源名称' }), '受限订阅')
     await browser.type(screen.getByRole('textbox', { name: 'RSS 地址' }), 'not-a-url')
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('RSS 地址必须是有效 URL。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
@@ -3351,31 +3351,31 @@ describe('App routes', () => {
     await browser.type(url, 'https://example.com/feed.xml')
     await browser.clear(limit)
     await browser.type(limit, '11')
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('获取数量不能大于 10。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     await browser.type(limit, '0')
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('获取数量不能小于 1。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     await browser.type(limit, '1.5')
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('获取数量必须是整数。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     fireEvent.input(limit, { target: { value: 'NaN' } })
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText(/获取数量(不能为空|必须是有效数字)。/)).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     await browser.type(limit, '4')
-    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+    await browser.click(await screen.findByRole('button', { name: '创建并订阅' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ url: 'https://example.com/feed.xml', limit: 4 }) })))
   })
 

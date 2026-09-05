@@ -6,6 +6,7 @@ export const OPENCLAW_CURRENT_SCOPES = [
   'operator.write',
   'operator.pairing',
 ] as const
+export const OPENCLAW_ADMIN_SCOPES = ['operator.admin'] as const
 
 export type GatewayErrorShape = {
   code?: string
@@ -33,17 +34,10 @@ export class GatewayRequestError extends Error {
 
 export function gatewaySupportsMethod(hello: GatewayHello | null | undefined, method: string): boolean {
   if (!hello || !method) return false
-  const roots = [hello, hello.snapshot]
-  for (const root of roots) {
-    if (!root || typeof root !== 'object') continue
-    const record = root as Record<string, unknown>
-    const features = record.features
-    const methods = features && typeof features === 'object'
-      ? (features as Record<string, unknown>).methods
-      : record.methods
-    if (Array.isArray(methods) && methods.some((candidate) => candidate === method)) return true
-  }
-  return false
+  const features = (hello as Record<string, unknown>).features
+  if (!features || typeof features !== 'object' || Array.isArray(features)) return false
+  const methods = (features as Record<string, unknown>).methods
+  return Array.isArray(methods) && methods.some((candidate) => candidate === method)
 }
 
 function normalizeDeviceMetadata(value?: string): string {
@@ -97,4 +91,9 @@ export function validateStoredOpenClawScopes(scopes: readonly string[]): string[
   if (hasExactScopes(scopes, OPENCLAW_CURRENT_SCOPES)) return [...OPENCLAW_CURRENT_SCOPES]
   if (hasExactScopes(scopes, OPENCLAW_LEGACY_SCOPES)) return [...OPENCLAW_LEGACY_SCOPES]
   throw new Error('OpenClaw 返回了超出或缺少预期的浏览器权限。')
+}
+
+export function validateAdminOpenClawScopes(scopes: readonly string[]): string[] {
+  if (hasExactScopes(scopes, OPENCLAW_ADMIN_SCOPES)) return [...OPENCLAW_ADMIN_SCOPES]
+  throw new Error('OpenClaw 管理连接必须且只能请求 operator.admin。')
 }

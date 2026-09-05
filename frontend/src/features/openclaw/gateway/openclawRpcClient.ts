@@ -5,6 +5,7 @@ import {
   buildDeviceAuthPayloadV3,
   type GatewayErrorShape,
   validateNegotiatedScopes,
+  validateAdminOpenClawScopes,
   validateStoredOpenClawScopes,
 } from './openclawGatewayProtocol'
 import type {
@@ -34,19 +35,21 @@ export class OpenClawGatewayClient {
   private connectSent = false
   private connectTimer: number | null = null
   private closed = false
+  private destroyed = false
   private hello: GatewayHello | null = null
 
   constructor(options: OpenClawGatewayClientOptions) {
     this.options = {
       ...options,
       url: validateGatewayUrl(options.url),
-      requestedScopes: validateStoredOpenClawScopes(
-        options.requestedScopes ?? OPENCLAW_CURRENT_SCOPES,
-      ),
+      requestedScopes: options.credentialClass === 'ephemeral-admin'
+        ? validateAdminOpenClawScopes(options.requestedScopes ?? [])
+        : validateStoredOpenClawScopes(options.requestedScopes ?? OPENCLAW_CURRENT_SCOPES),
     }
   }
 
   connect(): Promise<GatewayHello> {
+    if (this.destroyed) return Promise.reject(new Error('Gateway 客户端已销毁。'))
     if (this.socket) return Promise.reject(new Error('Gateway 已开始连接。'))
     this.closed = false
     const socketFactory = this.options.socketFactory
@@ -82,6 +85,7 @@ export class OpenClawGatewayClient {
   }
 
   request<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    if (this.destroyed) return Promise.reject(new Error('Gateway 客户端已销毁。'))
     return this.requestOnSocket(method, params) as Promise<T>
   }
 
@@ -92,6 +96,20 @@ export class OpenClawGatewayClient {
     this.socket?.close(1000, 'client closed')
     this.socket = null
     this.hello = null
+  }
+
+  destroy(): void {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.close()
+    const sensitive = this.options as Partial<OpenClawGatewayClientOptions>
+    sensitive.bootstrapToken = undefined
+    sensitive.deviceToken = undefined
+    sensitive.signer = undefined
+    sensitive.onHello = undefined
+    sensitive.onEvent = undefined
+    sensitive.onClose = undefined
+    Reflect.deleteProperty(sensitive, 'deviceIdentity')
   }
 
   private async sendConnect(

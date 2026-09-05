@@ -22,6 +22,7 @@ export default defineConfig({
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], browserName: 'chromium', viewport: { width: 1440, height: 900 } } },
     { name: 'tablet', use: { ...devices['Desktop Chrome'], browserName: 'chromium', viewport: { width: 1024, height: 768 } } },
+    { name: 'compact-desktop', testMatch: '**/production-agent-*.spec.ts', use: { ...devices['Desktop Chrome'], browserName: 'chromium', viewport: { width: 900, height: 768 } } },
     { name: 'mobile', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 } } },
   ],
 })

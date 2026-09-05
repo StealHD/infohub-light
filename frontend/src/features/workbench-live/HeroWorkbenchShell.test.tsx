@@ -9,6 +9,8 @@ import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
 import { DesignSystemProvider } from '../../design-system'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
+import type { OpenClawChatController } from '../openclaw'
+import { chatController } from '../openclaw/OpenClawConversation.test.support'
 import {
   HeroWorkbenchShell,
 } from './HeroWorkbenchShell'
@@ -97,6 +99,7 @@ function Shell({
   onRetry?: () => void
 }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const openclawChat = chatController({ status: 'disabled' }) as unknown as OpenClawChatController
   return <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[path]}>
       <DesignSystemProvider>
@@ -110,6 +113,8 @@ function Shell({
           refreshState={refreshState}
           refreshMessage={refreshMessage}
           refreshEventKey={refreshEventKey}
+          openclawChat={openclawChat}
+          openclawConfigLoading={false}
         >
           <div data-page-frame="reading" data-feed-blank-region>content</div>
         </HeroWorkbenchShell>
@@ -229,7 +234,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(expand).toHaveAttribute('data-sidebar-panel-toggle')
     expect(expand.querySelector('[data-split-panel-icon]')).not.toBeNull()
     expect(expand).toHaveClass('sidebar-desktop-toggle')
-    expect(expand).toHaveClass('size-10')
+    expect(expand).toHaveClass('size-8')
     expect(expand).not.toHaveClass('bg-accent/15', 'text-accent')
 
     await browser.click(expand)
@@ -293,7 +298,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(expandedLayer).not.toHaveAttribute('aria-hidden')
     expect(expandedLayer).not.toHaveAttribute('inert')
     expect(sidebar.querySelector('[data-sidebar-account-copy]')).toHaveAttribute('aria-hidden', 'false')
-    expect(sidebar.querySelector('[data-sidebar-brand]')).toHaveAttribute('aria-hidden', 'false')
+    expect(sidebar.querySelector('[aria-label="切换工作区，当前为 Inscope"]')).toBeInTheDocument()
   })
 
   it('opens account actions from the avatar and logs out only from the menu action', async () => {
@@ -325,7 +330,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     render(<Shell user={{ id: 'mobile-account', username: 'mobile', role: 'member', enabled: true }} onLogout={onLogout} />)
 
     const navigation = screen.getByRole('navigation', { name: '移动端主导航' })
-    expect(navigation).toHaveClass('pb-[env(safe-area-inset-bottom)]', 'grid-cols-5')
+    expect(navigation).toHaveClass('pb-[env(safe-area-inset-bottom)]', 'grid-cols-4')
     const trigger = within(navigation).getByRole('button', { name: '更多与账户' })
     await browser.click(trigger)
 
@@ -422,26 +427,14 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.queryByText('信息流更新未开始')).not.toBeInTheDocument()
   })
 
-  it('exposes Agent on subscriptions without exposing Insights', async () => {
-    const browser = userEvent.setup()
+  it('keeps the ordinary Agent runtime on subscriptions without exposing the compact rail', async () => {
     render(<Shell path="/subscriptions" user={{ id: 'subscription-agent', username: 'sub', role: 'member', enabled: true }} />)
 
     expect(screen.getByRole('heading', { name: '订阅与来源' }).closest('header')).toHaveAttribute('data-page-header-appearance', 'inset')
     expect(screen.queryByRole('button', { name: '展开信息概览' })).not.toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
-    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
-    const statusContainer = document.querySelector('[data-agent-header-status]') as HTMLElement
-    expect(screen.getByText('OpenClaw 对话')).toBeInTheDocument()
-    expect(statusContainer).toHaveClass('items-center', 'self-center')
-    const statusReveal = document.querySelector('[data-loading-reveal="agent-status"]') as HTMLElement
-    expect(statusReveal).toHaveClass(
-      '[&_[data-content-layer]]:items-center',
-      '[&_[data-content-layer]]:justify-center',
-    )
-    expect(statusReveal.querySelector('[data-status-indicator]')).toHaveClass('self-center')
-    expect(statusReveal).toHaveTextContent('未配置')
-    expect(statusContainer.querySelectorAll('[data-status-indicator]')).toHaveLength(1)
-    expect(api.agentDelegations).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '展开 Agent 面板' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
+    expect(api.agentDelegations).not.toHaveBeenCalled()
   })
 
   it('softly dismisses obstructing Insights when the fixed Agent rail leaves insufficient room', async () => {
@@ -549,6 +542,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     const header = screen.getByRole('heading', { name: '信息流' }).closest('header')
     expect(header).not.toBeNull()
     expect(Array.from(header!.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'))).toEqual([
+      '切换工作区，当前为 Inscope',
       '切换到白天模式',
       '展开信息概览',
       '展开 Agent 面板',

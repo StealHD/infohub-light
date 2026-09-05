@@ -9,6 +9,7 @@ import {
   PromptInputBody,
   PromptInputToolbar,
   TextArea,
+  RemovableTag,
   Tooltip,
   TooltipTriggerButton,
 } from '../../../design-system'
@@ -17,6 +18,7 @@ import { OPENCLAW_MAX_IMAGES_PER_TURN } from '../openclawMedia'
 import { OpenClawRuntimeControls } from './OpenClawRuntimeControls'
 import type { OpenClawComposerPort } from './openclawComposerPort'
 import { useOpenClawAttachments } from './useOpenClawAttachments'
+import { useComposerShortcuts } from './useComposerShortcuts'
 
 function DraftAttachmentPreviews({
   attachments,
@@ -40,21 +42,28 @@ function DraftAttachmentPreviews({
   </div>
 }
 
-export function OpenClawComposer({ chat, composer }: {
+export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
   chat: OpenClawChatController
   composer: OpenClawComposerPort
+  variant?: 'compact' | 'workspace'
 }) {
   const composingRef = useRef(false)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const shortcuts = useComposerShortcuts(chat, composer, inputRef)
+  const sendLatch = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const attachmentState = useOpenClawAttachments(chat.imageInputAvailable)
   const attachmentModelBlocked = Boolean(attachmentState.attachments.length && !chat.currentModelSupportsImages)
   const canSend = Boolean(composer.question.trim() || composer.itemCount || composer.snapshot || attachmentState.attachments.length)
     && !attachmentModelBlocked
+    && !(composer.snapshot && composer.selectedSkill)
 
   async function send() {
-    if (!canSend || chat.isRunning) return
-    if (await composer.send(attachmentState.attachments)) attachmentState.markSent()
+    if (!canSend || chat.isRunning || sendLatch.current) return
+    sendLatch.current = true
+    try { if (await composer.send(attachmentState.attachments)) attachmentState.markSent() }
+    finally { sendLatch.current = false }
   }
 
   function onImageInput(event: ChangeEvent<HTMLInputElement>) {
@@ -63,7 +72,8 @@ export function OpenClawComposer({ chat, composer }: {
     void attachmentState.append(files)
   }
 
-  return <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-hidden p-2">
+  return <div data-testid="openclaw-composer-dock" data-composer-variant={variant} className={`min-w-0 shrink-0 overflow-hidden ${variant === 'workspace' ? 'px-3 pb-[calc(12px+env(safe-area-inset-bottom))] pt-2 min-[640px]:px-6' : 'p-2'}`}>
+    <div className={variant === 'workspace' ? 'mx-auto w-full max-w-[var(--inteliscope-width-agent-composer)]' : ''}>
     {chat.status === 'reconnecting' && <div role="status" className="type-meta mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-warning/10 px-2 py-1.5 text-warning">
       <Icons.WifiOff size={14} className="shrink-0" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">连接中断，正在重连{chat.reconnectAttempt > 0 ? ` · 第 ${chat.reconnectAttempt} 次` : ''}</span>
@@ -72,7 +82,7 @@ export function OpenClawComposer({ chat, composer }: {
     {composer.contextSummary}
     <PromptInput
       data-testid="openclaw-composer"
-      className="grid grid-rows-[minmax(80px,auto)_36px] gap-2 p-2"
+      className={`grid gap-2 p-2 ${variant === 'workspace' ? 'grid-rows-[minmax(104px,auto)_36px]' : 'grid-rows-[minmax(80px,auto)_36px]'}`}
       onDragOver={(event: DragEvent<HTMLDivElement>) => {
         if (!chat.imageInputAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return
         event.preventDefault()
@@ -84,8 +94,12 @@ export function OpenClawComposer({ chat, composer }: {
       }}
     >
       <PromptInputBody className="grid gap-2">
+        {composer.selectedSkill && <div><RemovableTag label={`Skill：${composer.selectedSkill.name}`} onRemove={() => composer.selectSkill?.(undefined, composer.question)} /></div>}
+        {composer.snapshot && composer.selectedSkill && <p role="status" className="type-meta text-warning">来源快照禁止调用工具。请移除 Skill 或快照后发送。</p>}
         <DraftAttachmentPreviews attachments={attachmentState.attachments} onOpen={setPreviewIndex} onRemove={attachmentState.remove} />
         <TextArea
+          ref={inputRef}
+          {...shortcuts.aria}
           fullWidth
           variant="secondary"
           data-testid="openclaw-composer-textarea"
@@ -94,8 +108,9 @@ export function OpenClawComposer({ chat, composer }: {
           value={composer.question}
           maxLength={1200}
           rows={2}
-          placeholder="分析文章，或询问来源和任务…"
-          onChange={(event) => composer.setQuestion(event.target.value)}
+          placeholder="输入问题，@ 引用 Skill 或材料，/ 快捷操作…"
+          onChange={(event) => { composer.setQuestion(event.target.value); shortcuts.inputChanged(event.target.selectionStart) }}
+          onSelect={(event) => shortcuts.setCaret(event.currentTarget.selectionStart)}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
             if (!files.length || !chat.imageInputAvailable) return
@@ -105,8 +120,9 @@ export function OpenClawComposer({ chat, composer }: {
           onCompositionStart={() => { composingRef.current = true }}
           onCompositionEnd={() => { composingRef.current = false }}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey) return
             if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+            if (shortcuts.keyDown(event)) return
+            if (event.key !== 'Enter' || event.shiftKey) return
             event.preventDefault()
             void send()
           }}
@@ -127,7 +143,7 @@ export function OpenClawComposer({ chat, composer }: {
               : '添加图片'}</Tooltip.Content>
         </Tooltip>
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" aria-label="选择图片" onChange={onImageInput} />
-        <OpenClawRuntimeControls chat={chat} />
+        <OpenClawRuntimeControls chat={chat} picker={shortcuts.picker} onPickerClose={shortcuts.closePicker} />
         <Tooltip delay={250}>
           <TooltipTriggerButton
             aria-label={chat.isRunning ? '停止生成' : '发送给 OpenClaw'}
@@ -146,6 +162,9 @@ export function OpenClawComposer({ chat, composer }: {
         新建空白对话并切换到 {chat.modelSwitchFallback.modelName}
       </Button>}
     </PromptInput>
+    {shortcuts.issue && <p role="status" className="type-meta text-warning">{shortcuts.issue}</p>}
+    {shortcuts.suggestions}
+    {composer.dialogs}
     <ImageGalleryModal
       isOpen={previewIndex !== null}
       heading="待发送图片"
@@ -154,5 +173,6 @@ export function OpenClawComposer({ chat, composer }: {
       onIndexChange={setPreviewIndex}
       onOpenChange={(open) => { if (!open) setPreviewIndex(null) }}
     />
+    </div>
   </div>
 }

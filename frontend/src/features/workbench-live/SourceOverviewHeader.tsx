@@ -30,11 +30,11 @@ export function SourceHeader({ section, feedWindowDays, expanded, controlsId, on
   return <header data-source-header data-expanded={expanded ? 'true' : 'false'} className="relative flex min-w-0 flex-col sm:flex-row sm:items-stretch">
     <span aria-hidden="true" className={`absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-accent transition-opacity duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'opacity-100' : 'opacity-0'}`} />
     <div className={`group relative flex min-h-[76px] min-w-0 flex-1 flex-col justify-center px-4 py-3.5 transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default/25 motion-reduce:transition-none sm:px-5 ${expanded ? 'bg-default/20' : 'bg-transparent'}`}>
-      <button type="button" id={`source-section-${section.id}`} data-source-section-toggle aria-label={`${expanded ? '收起' : '展开'}专题 ${section.sourceName}`} aria-expanded={expanded} aria-controls={controlsId} className="absolute inset-0 z-0 text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus" onClick={onToggle} />
+      <button type="button" data-source-section-toggle aria-label={`${expanded ? '收起' : '展开'}专题 ${section.sourceName}`} aria-expanded={expanded} aria-controls={controlsId} className="absolute inset-0 z-0 text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus" onClick={onToggle} />
       <span className="pointer-events-none relative z-10 flex min-w-0 items-center gap-3">
         <SourceAvatar name={section.sourceName} avatarUrl={section.sourceAvatar} platform={section.platformLabel} className="size-8 shrink-0" />
         <span className="min-w-0 flex-1">
-          <OverflowValue value={section.sourceName} ariaLabel={`查看 ${section.sourceName} 的完整来源名称`} className="type-page-title text-foreground" />
+          <h3 id={`source-section-${section.id}`} className="min-w-0"><OverflowValue value={section.sourceName} ariaLabel={`查看 ${section.sourceName} 的完整来源名称`} className="type-page-title text-foreground" /></h3>
           <span className="type-meta mt-0.5 block text-muted">近{feedWindowDays}天 · {section.itemCount} 篇内容 · {section.topicCount} 个主题</span>
         </span>
         <span className={`flex size-8 shrink-0 items-center justify-center rounded-full transition-colors duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'bg-accent/10 text-accent' : 'text-muted group-hover:bg-default/80 group-hover:text-foreground'}`}><Icons.ChevronDown size={16} aria-hidden="true" className={`transition-transform duration-[var(--inteliscope-motion-standard)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`} /></span>

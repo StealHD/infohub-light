@@ -88,6 +88,7 @@ async function installHeaderGeometryApi(page: Page, waitForAuthentication: Promi
 }
 
 test('the shared transparent rounded header keeps its geometry through bootstrap takeover', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-26T16:00:00Z'))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   let releaseAuthentication = () => undefined
   let releaseFeed = () => undefined
