@@ -166,7 +166,7 @@ describe('inline command write guards', () => {
     let resolve!: (value: boolean) => void
     const setModel = vi.fn().mockImplementation(() => new Promise<boolean>((done) => { resolve = done }))
     const { input, user, chat } = setup({}, {
-      models: [{ id: 'provider/a', name: 'Model A', provider: 'provider' }, { id: 'provider/b', name: 'Model B', provider: 'provider' }],
+      models: [{ id: 'provider/a', name: 'Model A', provider: 'provider', supportsImages: false }, { id: 'provider/b', name: 'Model B', provider: 'provider', supportsImages: false }],
       runtimeSelection: { modelId: 'provider/a', thinkingLevel: null, defaultModelId: null, defaultThinkingLevel: null }, setModel,
     })
     await user.type(input, '保留草稿 /model'); await user.keyboard('{Enter}')
