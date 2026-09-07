@@ -8,27 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "从 736ed01b 创建独立 codex/agent-workspace-ui worktree，完成授权会话目录分页/搜索/归档、三条单行导航、精确跨 Agent 切换与失败回退、原生自动标题及回退显示；收紧输入框并右置运行控件，共享 Feed 账户菜单和退出清理，新增 examples 路由，移除工作区助手连接入口，统一侧栏动效和焦点恢复。同步 UI/Gateway 合同、D206、手册及更新日志。仅启动本 worktree 的 Vite 5173 并代理现有 8080，保留 Gateway Origin 已有项；未重建 Docker、提交、推送或部署。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-workspace-ui",
-  "unresolved": [],
-  "validation": [
-    "最终 impacted preflight 14/14 通过：受影响后端测试、127 文件 842 项 Vitest、UI/lint/类型/构建、控制合同、代码尺寸均通过；首屏 JavaScript Brotli 244596 bytes，未放宽预算。",
-    "完整生产浏览器门禁最终复跑 172 通过、86 条件跳过，正常退出；覆盖桌面、平板、手机，另有紧凑桌面定向验收。修复动效期间主题/提示采样竞态后先定向复验，再执行唯一完整复跑，未放宽超时或截图容差。",
-    "新增超过 200 会话分页、归档搜索、跨 Agent 刷新恢复、异步标题、可信资源范围隔离、会话切换失败保留原状态、用户/Gateway 目录隔离测试；验证草稿、长输入、账户菜单、Reduced Motion、快速反向开合与焦点恢复。",
-    "真实 5173 页面已连接现有 Gateway，读取并搜索授权历史会话；未发送真实聊天或触发历史 AI 重命名。人工检查桌面和手机截图，保留本地验收标签页与 Vite 进程。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-09-05",
@@ -406,6 +385,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端全量 872 项通过；构建体积失败已修复，生产构建、类型、UI 合同与 Gateway 握手定向复验通过",
     "受控浏览器自动连接通过，1440/1024/390 宽度无 Token 表单及横向溢出",
     "真实 OpenClaw 会话、模型、历史读取通过；Gemini 经代理真实返回 OK；东京服务设备已按 read/write 最小范围批准"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-07",
+  "result": "修复服务端 OpenClaw 中转漏放行 chat.history.maxChars 导致网页认证后断开的缺陷，保留会话归属和未知参数拒绝；准备 v2.6.11。",
+  "status": "partial",
+  "task_id": "2026-09-07-openclaw-relay-history-connect",
+  "unresolved": [
+    "完整 preflight、main Gate、VPS 发布及浏览器连接验收尚未完成。"
+  ],
+  "validation": [
+    "OpenClaw 认证、创建会话及网页使用的历史参数在上游实测通过。",
+    "中转回归 14 项及发布脚本 3 项定向测试通过；uv lock --check 与 git diff --check 通过。"
   ]
 }
 ```

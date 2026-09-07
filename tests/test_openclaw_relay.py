@@ -101,3 +101,15 @@ def test_preview_and_current_send_params(tmp_path):
     assert request_params('sessions.preview', {'keys': ['agent:main:a']}, owner, 'main') == {'keys': ['agent:main:a']}
     params = request_params('chat.send', {'sessionKey': 'agent:main:a', 'agentId': 'other', 'message': 'hello', 'fastMode': True}, owner, 'main')
     assert params['agentId'] == 'main' and params['deliver'] is False
+
+
+def test_browser_history_load_preserves_bounds_and_owner_isolation(tmp_path):
+    owner = Ownership(tmp_path, 'alice')
+    owner.add('agent:main:alice')
+    params = {'sessionKey': 'agent:main:alice', 'agentId': 'main',
+              'limit': 100, 'maxChars': 100_000}
+    assert request_params('chat.history', params, owner, 'main') == params
+    for rejected in [{**params, 'sessionKey': 'agent:main:bob'},
+                     {**params, 'includeAllSessions': True}]:
+        with pytest.raises(PermissionError):
+            request_params('chat.history', rejected, owner, 'main')

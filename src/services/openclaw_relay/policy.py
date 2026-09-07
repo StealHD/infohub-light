@@ -2,7 +2,7 @@
 from .ownership import Ownership
 
 SESSION_METHODS = {
-    'chat.history': {'sessionKey', 'agentId', 'limit'},
+    'chat.history': {'sessionKey', 'agentId', 'limit', 'maxChars'},
     'chat.send': {'sessionKey', 'agentId', 'message', 'idempotencyKey', 'thinking', 'attachments', 'deliver', 'fastMode'},
     'chat.abort': {'sessionKey', 'agentId', 'runId'},
     'sessions.describe': {'key'},
