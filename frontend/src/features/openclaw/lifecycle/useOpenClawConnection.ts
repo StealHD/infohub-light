@@ -1,5 +1,7 @@
+import { managedSession, saveManagedSession } from '../storage/openclawManagedSession'
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability -- lifecycle refs are imperative controller state */
 import { useCallback, useEffect } from 'react'
+import { isManagedGateway, managedGatewayUrl } from '../gateway/openclawManaged'
 
 import { hasInteliscopeTools, isMissingOpenClawSession, MissingOpenClawCredentialError, setupIssue } from '../chat/openclawSetupIssue'
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
@@ -92,11 +94,12 @@ async function performOpenClawConnect(
   connection.manualClose = false
   input.dispatch({ type: 'patch', value: { status: reconnecting ? 'reconnecting' : 'connecting', issue: null } })
   try {
-    const parsed = authInput
+    const managed = isManagedGateway(input.options.defaultGatewayUrl)
+    const parsed = managed ? { gatewayUrl: managedGatewayUrl(), bootstrapToken: '' } : authInput
       ? parseOpenClawConnectionInput(requestedUrl ?? input.getGatewayUrl(), authInput)
       : { gatewayUrl: validateGatewayUrl(requestedUrl ?? input.getGatewayUrl()), bootstrapToken: '' }
     if (parsed.gatewayUrl !== input.getGatewayUrl()) setGatewayUrl(parsed.gatewayUrl)
-    const stored = await input.vault.load(input.options.userId, parsed.gatewayUrl)
+    const stored = managed ? await managedSession(input.options.userId) : await input.vault.load(input.options.userId, parsed.gatewayUrl)
     if (!isCurrent()) return false
     if (!stored && !parsed.bootstrapToken) throw new MissingOpenClawCredentialError()
     const identity = stored?.identity ?? await generateDeviceIdentity()
@@ -139,9 +142,9 @@ async function performOpenClawConnect(
     connection.hello = hello
     input.dispatch({ type: 'patch', value: { imageInputAvailable: Boolean(input.options.imageIoEnabled) } })
     const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
-    if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
-    const credential = { identity, deviceToken, scopes: hello.auth?.scopes ?? stored?.scopes ?? [] }
-    if (!stored) {
+    if (!managed && !deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
+    const credential = { identity, deviceToken: deviceToken || '', scopes: hello.auth?.scopes ?? stored?.scopes ?? [] }
+    if (!managed && !stored) {
       await input.vault.save(input.options.userId, parsed.gatewayUrl, credential, () => isCurrent(client))
       if (!isCurrent(client)) return false
     }
@@ -181,7 +184,8 @@ async function performOpenClawConnect(
       tools = await loadConnectedSession(input, client, sessionKey, agentId)
     }
     if (!isCurrent(client)) return false
-    await input.vault.save(input.options.userId, parsed.gatewayUrl, { ...credential, sessionKey }, () => isCurrent(client))
+    if (managed) saveManagedSession(input.options.userId, sessionKey)
+    else await input.vault.save(input.options.userId, parsed.gatewayUrl, { ...credential, sessionKey }, () => isCurrent(client))
     if (!isCurrent(client)) return false
     connection.reconnectDelay = 1_000
     connection.reconnectAttempt = 0
@@ -279,7 +283,7 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
     if (input.refs.connection.automaticConnectKey === key) return
     input.refs.connection.automaticConnectKey = key
     let active = true
-    void input.vault.load(input.options.userId, input.state.gatewayUrl).then((stored) => {
+    void (isManagedGateway(input.state.gatewayUrl) ? managedSession(input.options.userId) : input.vault.load(input.options.userId, input.state.gatewayUrl)).then((stored) => {
       if (active && stored) void connectInternal(undefined, false, input.state.gatewayUrl)
     }).catch(() => undefined)
     return () => { active = false }
@@ -294,5 +298,5 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
 }
 
 export function initialOpenClawGatewayUrl(userId: string, defaultGatewayUrl: string): string {
-  return readSavedGatewayUrl(userId, defaultGatewayUrl)
+  return isManagedGateway(defaultGatewayUrl) ? managedGatewayUrl() : readSavedGatewayUrl(userId, defaultGatewayUrl)
 }

@@ -1,4 +1,16 @@
-## 5C. Browser OpenClaw Gateway 合同
+## 5C. OpenClaw Gateway 合同
+
+### 服务端模式（2026-09-07 用户授权新增）
+
+启用 `HORIZON_OPENCLAW_SERVER_ENABLED=true` 后，Service 返回同源 `/api/me/openclaw/socket`，浏览器以 InfoHub 登录 Cookie 连接 API；API 以固定 WSS 地址和服务端 Token 连接 Gateway。此模式替代下文浏览器直连的认证/传输边界，直连模式仍为兼容默认。
+
+- 仅 owner/admin 可用；检查精确 Origin/Host、有效登录，每 15 秒重新验证登录；每账号最多三条连接，每分钟 120 个 RPC，最多 32 个待处理 RPC。
+- Gateway Token 来自 `HORIZON_OPENCLAW_SERVER_TOKEN`，设备私钥保存于 `data/openclaw-relay/device.key`（0600），浏览器不接收任何上游令牌或配对私钥。
+- `data/openclaw-relay/ownership.sqlite3` 仅记录用户与新建 Gateway session key 的归属，不保存对话正文，也不改变 Service DB schema。所有会话 RPC 和事件必须检查归属；未列入许可的方法拒绝转发，禁止配置/设备管理/任意工具调用 RPC，强制 chat.send deliver=false。
+- 初始服务端设备需管理员部署时配对；Token 失效、未配对或协议不兼容时安全失败。连接具有 TLS 校验、20 秒 ping、断连回收及浏览器重连；不自动重发 chat.send。
+- 本次不为普通成员开放共享服务端 Agent，避免共享工具权限跨账号扩大。MCP 接入是独立能力，不自动安装或启用。
+
+### 浏览器直连兼容模式
 
 ### Composer 显式 Skill 引用
 

@@ -1,3 +1,4 @@
+import { isManagedGateway } from '../openclaw/gateway/openclawManaged'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
@@ -113,6 +114,8 @@ export function OpenClawBrowserSettings({
       setForgetPending(false)
     }
   }
+
+  if (isManagedGateway(defaultUrl)) return <AdminSection title="OpenClaw 对话连接" description="通过 Inscope 服务端连接线上 OpenClaw。Gateway Token 由管理员保存在服务端，浏览器无需填写。"><a className="type-control text-accent" href="/agent">打开 OpenClaw</a></AdminSection>
 
   return <>
     <AdminSection

@@ -1,6 +1,10 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/contracts/architecture/openclaw-module-boundaries.md -->
 # OpenClaw 模块所有权与依赖边界
 
+## 服务端连接扩展
+
+用户授权的服务端模式由 `src/api/openclaw_relay_routes.py` 负责同源登录鉴权，`src/services/openclaw_relay/` 负责设备认证、RPC 白名单、会话归属与有界双向转发。浏览器通过同源 API 连接，服务端保管 Gateway 凭据；其安全合同以 `docs/contracts/api/openclaw-gateway.md` 服务端模式为准，优先于历史 browser-only 描述。
+
 ## 1. 适用范围
 
 本合同只定义 Browser OpenClaw、Remote MCP 与本地安装入口的代码所有权和依赖方向。部署、认证、scope、凭据、网络、事务和业务安全语义继续以 [Agent、可观测性与 ActorOps](agent-observability-actorops.md#36f-local-agent--remote-mcp-boundary) 为唯一真源；17 个 Remote MCP 工具的输入输出合同继续以 `docs/contracts/api/` 为准。

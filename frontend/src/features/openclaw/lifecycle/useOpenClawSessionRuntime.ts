@@ -1,3 +1,5 @@
+import { saveManagedSession } from '../storage/openclawManagedSession'
+import { isManagedGateway } from '../gateway/openclawManaged'
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability -- lifecycle refs are imperative controller state */
 import { useCallback } from 'react'
 
@@ -164,7 +166,8 @@ export function useOpenClawSessionRuntime(input: SessionRuntimeInput): OpenClawS
     const gatewayUrl = input.getGatewayUrl()
     const previousKey = input.refs.session.sessionKey
     const visibleMessages = input.refs.transcript.messages
-    await input.vault.updateSession(input.userId, gatewayUrl, sessionKey, isCurrent)
+    if (isManagedGateway(gatewayUrl) && isCurrent()) saveManagedSession(input.userId, sessionKey)
+    else await input.vault.updateSession(input.userId, gatewayUrl, sessionKey, isCurrent)
     if (!isCurrent() || input.refs.connection.client !== client) return
     if (clearMessages) {
       if (previousKey) writeOpenClawTranscript(input.userId, gatewayUrl, previousKey, visibleMessages)

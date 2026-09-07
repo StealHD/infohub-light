@@ -119,7 +119,7 @@ describe('HeroChangelogPage', () => {
     expect(within(entries[12] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
     const currentTimeline = screen.getByRole('list', { name: '2026 年 9 月更新记录' })
     const currentEntries = currentTimeline.querySelectorAll(':scope > [data-timeline-item]')
-    expect(currentEntries).toHaveLength(2)
+    expect(currentEntries).toHaveLength(changelogMonths.find((month) => month.id === 'month-2026-09')?.entries.length ?? 0)
     expect(currentEntries[0]).toHaveAttribute('aria-current', 'true')
     expect(within(currentTimeline).getByText('OpenClaw 成为与 Inscope 平级的工作区')).toBeVisible()
     expect(within(currentTimeline).getByText('两个产品工作区清楚切换')).toBeVisible()

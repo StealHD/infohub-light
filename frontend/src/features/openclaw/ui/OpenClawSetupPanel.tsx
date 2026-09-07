@@ -1,3 +1,5 @@
+import { isManagedGateway } from '../gateway/openclawManaged'
+import { OpenClawManagedSetup } from './OpenClawManagedSetup'
 import { useMemo, useState } from 'react'
 
 import { Button, Card, Form, Icons, Input, Label, StableAsyncButton, TextField } from '../../../design-system'
@@ -29,6 +31,7 @@ export function OpenClawSetupPanel({ chat, variant = 'compact' }: {
     }
   }
 
+  if (isManagedGateway(chat.gatewayUrl)) return <OpenClawManagedSetup chat={chat} />
   const form = <>
     <h2 className="type-section-title">连接你的 OpenClaw</h2>
     <p className="type-body mt-1 text-muted">本地地址已经填好。首次连接粘贴 Gateway token，或直接粘贴 dashboard 完整地址。</p>

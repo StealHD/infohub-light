@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .context import ApiContext
+from .openclaw_relay_routes import register_openclaw_relay_routes
 from .responses import ApiError, ok
 from .system_auth import api_context, current_user
 from ..storage.service_store import (
@@ -187,6 +188,7 @@ async def agent_delegations_record_delete(
 
 def register_agent_delegation_routes(app: FastAPI) -> None:
     """Register delegation routes in their compatibility-sensitive order."""
+    register_openclaw_relay_routes(app)
 
     app.add_api_route(
         "/api/me/agent-delegations", agent_delegations_list, methods=["GET"]

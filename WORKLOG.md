@@ -7,23 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-09-05",
-  "result": "完成 Agent @ / 快捷输入的门禁收尾并通过标准脚本更新本地 8080。修正表单校验后立即重提的测试竞态、过时订阅/移动导航断言和预览页生产样式串入；额外 900px 项目限定为 Agent 用例。按现有工作区与 44px 触控合同人工核对并同步两平台移动视觉基线，固定页头截图时间；未改变超时或图片容差，未向生产 Gateway 写入或改动连接配置，未 fetch、合并、推送或部署 VPS。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-shortcuts-gate-completion",
-  "unresolved": [],
-  "validation": [
-    "原快捷输入任务 snapshot 的最终 impacted preflight 16/16 命令通过：后端全量测试、123 文件 826 项 Vitest、代码尺寸、UI、lint、类型、构建及控制检查均通过；首屏 JavaScript Brotli 243450 bytes，预算 245760 bytes 未放宽。",
-    "Agent 与快捷输入四尺寸浏览器批次 51 通过、21 条件跳过并正常退出；现有页面的桌面、平板、移动端回归分批补齐，失败项均定向复验通过。串行执行重型门禁，不把中断或未运行用例计作通过。",
-    "Mac 固定时间页头桌面/平板普通比较 2 项通过；Linux 关闭外网的生产构建上，ActorOps 触控、页头、订阅深浅主题、登录深浅主题 4 项普通视觉比较通过；保留焦点、Axe、无溢出与交互断言。",
-    "up-latest.sh 从任务 worktree 构建并更新本地 API/Worker，保留旧镜像。健康检查确认 revision 3e9524f9a7d4-dirty-6df2f716e765、双容器 healthy、前端资源 index-wwJRK93U.js 已提供；生产 Gateway 未参与测试。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "decisions",
     "interface",
@@ -400,6 +383,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "unresolved": [],
   "validation": [
     "版本差异审查：仅两处项目版本由 2.6.8 更新为 2.6.9；git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-09-07",
+  "result": "按用户授权新增同源服务端 OpenClaw 连接；管理员登录鉴权、部署设备签名、会话归属与 RPC 白名单，浏览器不再需要 Gateway Token。已合入 2.6.9 主线，准备 2.6.10 发布。",
+  "status": "partial",
+  "task_id": "openclaw-server-relay-20260907",
+  "unresolved": [
+    "精确 main CI 与东京切换待发布流程完成；三处版本及上线结果另存部署验收单，避免证据更新改变已发布源码提交"
+  ],
+  "validation": [
+    "后端全量测试通过，SQLite ResourceWarning 为零；最新 13 项 relay 鉴权/隔离测试复验通过",
+    "前端全量 872 项通过；构建体积失败已修复，生产构建、类型、UI 合同与 Gateway 握手定向复验通过",
+    "受控浏览器自动连接通过，1440/1024/390 宽度无 Token 表单及横向溢出",
+    "真实 OpenClaw 会话、模型、历史读取通过；Gemini 经代理真实返回 OK；东京服务设备已按 read/write 最小范围批准"
   ]
 }
 ```

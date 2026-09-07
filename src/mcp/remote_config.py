@@ -159,7 +159,7 @@ class OpenClawChatSettings:
     def public_config(self) -> dict[str, bool | int | str | list[str]]:
         return {
             "enabled": self.enabled,
-            "default_gateway_url": self.default_gateway_url,
+            "default_gateway_url": ("/api/me/openclaw/socket" if os.getenv("HORIZON_OPENCLAW_SERVER_ENABLED") == "true" else self.default_gateway_url),
             "image_io_enabled": self.image_io_enabled,
             "media_origins": list(self.media_origins),
             "protocol_version": self.protocol_version,

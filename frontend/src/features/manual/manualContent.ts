@@ -15,7 +15,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-25',
-  change: '新增无需登录的中英文项目官网并明确 /login 工作台入口；ActorOps 现将 Route 管理和运行日志分为可分享的同页 Tab：待处理事件会给出原因、影响、下一步和安全入口；未知启动只核对既有运行，不会重复启动。侧栏只在导航真实溢出时显示滚动槽，展开状态下的账户底线保持固定。',
+  change: 'OpenClaw 可由管理员启用服务端连接模式：登录 Inscope 后直接连接，无需浏览器输入 Token；Gateway 白名单只需放行服务器出口。新增无需登录的中英文项目官网并明确 /login 工作台入口；ActorOps 现将 Route 管理和运行日志分为可分享的同页 Tab：待处理事件会给出原因、影响、下一步和安全入口；未知启动只核对既有运行，不会重复启动。侧栏只在导航真实溢出时显示滚动槽，展开状态下的账户底线保持固定。',
 } as const
 
 export const manualSections: ManualSection[] = [

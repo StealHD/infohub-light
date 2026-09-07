@@ -2,8 +2,8 @@ import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry
 import { codeHealthMaintenanceEntry, existingSourceSubscriptionReuseChangelogEntry, feedSourceLabelChangelogEntry, instagramSourceAvatarChangelogEntry, pageHeaderChangelogEntry, publicSourceContentSharingChangelogEntry, publicSourceNotificationFixChangelogEntry, socialChannelDedupChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, sourceFetchPreflightChangelogEntry, subscriptionCommandBarChangelogEntry, systemSettingsChangelogEntry, youtubeSourceLabelChangelogEntry } from './maintenanceChangelogEntries'
 import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
 import { actorOpsV2SourceBindingChangelogEntries } from './actorOpsV2SourceBindingChangelogEntry'
-import { stableAsyncButtonChangelogEntry } from './stableAsyncButtonChangelogEntry'; import { agentWorkspaceChangelogEntry } from './agentWorkspaceChangelogEntry'
-export const changelogMonths: import('./changelogTypes').ChangelogMonth[] = [{ id: 'month-2026-09', label: '2026 年 9 月', entries: [agentWorkspaceChangelogEntry, stableAsyncButtonChangelogEntry] }, {
+import { openclawServerEntry } from './openclawServerEntry'; import { stableAsyncButtonChangelogEntry } from './stableAsyncButtonChangelogEntry'; import { agentWorkspaceChangelogEntry } from './agentWorkspaceChangelogEntry'
+export const changelogMonths: import('./changelogTypes').ChangelogMonth[] = [{ id: 'month-2026-09', label: '2026 年 9 月', entries: [openclawServerEntry, agentWorkspaceChangelogEntry, stableAsyncButtonChangelogEntry] }, {
     id: 'month-2026-08',
     label: '2026 年 8 月',
     entries: [publicSourceNotificationFixChangelogEntry, publicSourceContentSharingChangelogEntry, existingSourceSubscriptionReuseChangelogEntry, socialChannelDedupChangelogEntry, youtubeSourceLabelChangelogEntry, sourceFetchPreflightChangelogEntry, feedSourceLabelChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, instagramSourceAvatarChangelogEntry, systemSettingsChangelogEntry,

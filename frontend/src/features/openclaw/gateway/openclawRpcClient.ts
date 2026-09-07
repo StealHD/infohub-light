@@ -1,8 +1,7 @@
-import { signDevicePayload } from './openclawDeviceIdentity'
+import { isManagedGateway } from './openclawManaged'
 import {
   OPENCLAW_CURRENT_SCOPES,
   GatewayRequestError,
-  buildDeviceAuthPayloadV3,
   type GatewayErrorShape,
   validateNegotiatedScopes,
   validateAdminOpenClawScopes,
@@ -16,9 +15,6 @@ import type {
 } from './openclawGatewayTypes'
 import { validateGatewayUrl } from './openclawGatewayUrl'
 
-const CLIENT_ID = 'webchat-ui'
-const CLIENT_MODE = 'webchat'
-const CLIENT_VERSION = '1.0.0'
 const ROLE = 'operator'
 const OPEN = 1
 
@@ -121,60 +117,20 @@ export class OpenClawGatewayClient {
     this.connectSent = true
     this.clearConnectTimer()
     try {
-      const signedAtMs = (this.options.now ?? Date.now)()
-      const scopes = [...(this.options.requestedScopes ?? OPENCLAW_CURRENT_SCOPES)]
-      const signatureToken = this.options.bootstrapToken || this.options.deviceToken || ''
-      const payload = buildDeviceAuthPayloadV3({
-        deviceId: this.options.deviceIdentity.deviceId,
-        clientId: CLIENT_ID,
-        clientMode: CLIENT_MODE,
-        role: ROLE,
-        scopes,
-        signedAtMs,
-        token: signatureToken,
-        nonce,
-        platform: this.options.platform,
-        deviceFamily: this.options.deviceFamily,
-      })
-      const signature = await (this.options.signer ?? signDevicePayload)(
-        this.options.deviceIdentity.privateKey,
-        payload,
-      )
-      const auth = this.options.bootstrapToken
-        ? { token: this.options.bootstrapToken }
-        : this.options.deviceToken
-          ? { deviceToken: this.options.deviceToken }
-          : undefined
-      const hello = await this.requestOnSocket('connect', {
-        minProtocol: 4,
-        maxProtocol: 4,
-        client: {
-          id: CLIENT_ID,
-          version: CLIENT_VERSION,
-          platform: this.options.platform || navigator.platform || 'web',
-          deviceFamily: this.options.deviceFamily || 'browser',
-          mode: CLIENT_MODE,
-        },
-        caps: ['tool-events'],
-        auth,
-        role: ROLE,
-        scopes,
-        device: {
-          id: this.options.deviceIdentity.deviceId,
-          publicKey: this.options.deviceIdentity.publicKey,
-          signature,
-          signedAt: signedAtMs,
-          nonce,
-        },
-        userAgent: navigator.userAgent,
-        locale: navigator.language,
-      }) as GatewayHello
+      const managed = isManagedGateway(this.options.url)
+      const scopes = managed ? ['operator.read', 'operator.write'] : [...(this.options.requestedScopes ?? OPENCLAW_CURRENT_SCOPES)]
+      let params: Record<string, unknown> = {}
+      if (!managed) {
+        const { browserConnectParams } = await import('./openclawBrowserConnect')
+        params = await browserConnectParams(this.options, nonce, scopes)
+      }
+      const hello = await this.requestOnSocket('connect', params) as GatewayHello
       if (hello.protocol !== undefined && hello.protocol !== 4) {
         throw new Error('OpenClaw Gateway 协议版本不兼容。')
       }
       if (hello.auth?.role !== ROLE) throw new Error('OpenClaw 返回了非 operator 的浏览器角色。')
       validateNegotiatedScopes(hello.auth.scopes ?? [], scopes)
-      if (hello.auth.deviceToken) {
+      if (!managed && hello.auth.deviceToken) {
         this.options = { ...this.options, bootstrapToken: undefined, deviceToken: hello.auth.deviceToken }
       }
       this.hello = hello
