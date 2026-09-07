@@ -1,23 +1,10 @@
-# Token Budget Notes
+# Token 与上下文参考入口
 
-## Development Context
-- Read targeted files only. Avoid generated `data/site/**`, historical snapshots, logs, and cached media unless debugging those outputs.
-- Use `rg` to locate code paths before opening files.
-- Prefer targeted pytest/Vitest, lint, typecheck, and React build checks over full Docker fetch runs.
+本页仅提供索引，不定义独立的读取范围、测试流程或运行配置。
 
-## Runtime Model Usage
-- First-pass analysis is the main per-item token cost.
-- Enrichment and summary are second-stage costs and should run only for high-scoring items or explicit daily jobs.
-- `analysis_mode=personal_only` skips model scoring for preference-only sources such as personal Instagram accounts.
-- Analysis cache lives at `data/cache/analysis-cache.jsonl` and is keyed by content hash, model, and prompt version.
+- 开发上下文与按需读取：[AGENTS](../../AGENTS.md#4-agent-默认读取范围与任务读取路由)。
+- 定向测试、impacted preflight 与限长日志：[验证流程](test-gate.md)。
+- AI 输入边界、用户隔离缓存与缓存版本：[架构合同](../contracts/architecture/README.md#33-ai-boundary)；当前 Service 缓存实现为 `src/services/user_analysis_cache.py`。
+- 能力与参数词汇：[project-defaults.yaml](../../project-defaults.yaml)；目标环境的实际配置仍需从相关 Service 配置/设置实现核对。
 
-## Config Knobs
-- `ai.analysis_content_chars`: max content chars sent to scoring.
-- `ai.analysis_comments_chars`: max comment chars sent to scoring.
-- `ai.enrichment_content_chars`: max content chars sent to enrichment.
-- `sources.apify_social.subscriptions[].analysis_mode`: `full` or `personal_only`.
-
-## Interpreting Usage
-- Runtime output prints total tokens by provider and by stage: `analysis`, `dedupe`, `enrichment`, `summary`, or `uncategorized`.
-- If analysis dominates, reduce fetch limits, enable `personal_only` for preference feeds, or rely on cache.
-- If enrichment dominates, run incremental polling with enrichment disabled and keep enrichment for daily runs.
+旧笔记中的文件型分析缓存、二阶段 enrichment 和每日任务说明不再作为当前 Service 的运行依据；需要解释旧行为时使用本文件的 Git 历史。
