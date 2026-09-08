@@ -103,7 +103,8 @@ def _stage_preferred_notifications(
         connection.execute("RELEASE preferred_source_notification_stage")
         logger.warning(
             "preferred-source notification staging failed job_id=%s",
-            job.get("id"),
+            job.get("id"), exc_info=True,
+            extra={"stage": "notification_stage", "error_code": "notification_stage_failed"},
         )
     else:
         connection.execute("RELEASE preferred_source_notification_stage")

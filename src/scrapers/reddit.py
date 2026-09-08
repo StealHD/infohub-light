@@ -3,6 +3,7 @@
 import asyncio
 import calendar
 import logging
+from ..logging_diagnostics import log_exception
 import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -68,10 +69,7 @@ class RedditScraper(BaseScraper):
         items = []
         for result in results:
             if isinstance(result, Exception):
-                logger.warning(
-                    "Reddit source fetch failed error_code=%s",
-                    type(result).__name__,
-                )
+                log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=result)
                 if self.strict_errors:
                     raise result
             elif isinstance(result, list):
@@ -128,10 +126,7 @@ class RedditScraper(BaseScraper):
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
-            logger.warning(
-                "Reddit RSS fallback failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
             return []
@@ -394,10 +389,7 @@ class RedditScraper(BaseScraper):
         except RedditBlockedError:
             raise
         except httpx.HTTPError as e:
-            logger.warning(
-                "Reddit request failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
             return None

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..observability_context import update_observability_context
+from ..logging_utils import error_fingerprint
+from .operation_failures import record_operation_failure
 from ..storage.service_store import ServiceStore
 from .apify_actor_alerts import ApifyActorAlertService
 from .preferred_source_notifications import PreferredSourceNotificationService
@@ -37,7 +39,7 @@ def _dispatch_preferred_notifications(
             store.connect().rollback()
         logger.warning(
             "preferred-source notification dispatch failed job_id=%s",
-            job.get("id"),
+            job.get("id"), exc_info=True,
         )
         ports.emit_operation_event(
             category="notification",
@@ -50,6 +52,7 @@ def _dispatch_preferred_notifications(
             source_id=job.get("source_id"),
             subscription_id=job.get("subscription_id"),
             error_code=ports.exception_code(exc),
+            error_fingerprint=error_fingerprint(),
         )
         return
     if int(summary.get("claimed") or 0) <= 0:
@@ -95,9 +98,11 @@ def _dispatch_actor_alerts(
     except Exception:
         if store.connect().in_transaction:
             store.connect().rollback()
-        logger.warning(
-            "Apify Actor alert dispatch failed job_id=%s",
-            job.get("id"),
+        record_operation_failure(
+            logger, category="notification", action="actor_alert_dispatch",
+            stage="notification_dispatch", error_code="actor_alert_dispatch_failed",
+            job_id=str(job["id"]), workspace_id=str(job["workspace_id"]),
+            subject_user_id=str(job["user_id"]),
         )
 
 

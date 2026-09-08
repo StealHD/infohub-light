@@ -18,10 +18,13 @@ from ..logging_utils import (
     new_operation_write_acknowledgement,
     operation_write_acknowledged,
 )
+from ..logging_health import mark_failure
+from ..logging_metadata import build_metadata
 from ..observability_context import (
     ObservabilityContext,
     begin_observability_context,
     current_observability_context,
+    resolve_observability_field,
     optional_observability_value,
     reset_observability_context,
     safe_observability_stage,
@@ -185,24 +188,15 @@ def emit_operation_event(
         raise ValueError("operation level is invalid")
     if not _SAFE_ACTION_RE.fullmatch(action):
         raise ValueError("operation action is invalid")
-    context = current_observability_context()
-    resolved_workspace = workspace_id or context.workspace_id
-    resolved_actor = actor_user_id or context.actor_user_id
-    resolved_request = request_id or context.request_id
-    event: dict[str, Any] = {
-        "schema_version": 1,
-        "event_id": f"evt_{uuid.uuid4().hex}",
-        "timestamp": _utc_iso(),
-        "level": level,
-        "category": category,
-        "action": action,
-        "outcome": outcome,
-    }
+    event: dict[str, Any] = dict(
+        build_metadata(), schema_version=1, event_id=f"evt_{uuid.uuid4().hex}",
+        timestamp=_utc_iso(), level=level, category=category, action=action, outcome=outcome,
+    )
     optional_ids = {
-        "workspace_id": resolved_workspace,
-        "actor_user_id": resolved_actor,
+        "workspace_id": workspace_id,
+        "actor_user_id": actor_user_id,
         "subject_user_id": subject_user_id,
-        "request_id": resolved_request,
+        "request_id": request_id,
         "job_id": job_id,
         "source_id": source_id,
         "subscription_id": subscription_id,
@@ -210,10 +204,11 @@ def emit_operation_event(
         "error_fingerprint": error_fingerprint,
     }
     for field, value in optional_ids.items():
-        safe = _optional_safe_value(value, field)
+        safe = (_optional_safe_value(value, field) if field in {"subject_user_id", "error_fingerprint"}
+                else resolve_observability_field(field, value))
         if safe is not None:
             event[field] = safe
-    resolved_stage = stage or context.stage
+    resolved_stage = resolve_observability_field("stage", stage)
     if resolved_stage is not None:
         event["stage"] = safe_observability_stage(resolved_stage)
     if duration_ms is not None:
@@ -271,6 +266,8 @@ def emit_operation_event(
         },
     )
     if not operation_write_acknowledged(acknowledgement):
+        if not acknowledgement.attempted:
+            mark_failure("operations", "write")
         raise OSError("structured operation event was not durably written")
     return event
 
@@ -280,7 +277,9 @@ def safe_emit_operation_event(**kwargs: Any) -> bool:
 
     try:
         emit_operation_event(**kwargs)
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, (ValueError, TypeError)):
+            mark_failure("operations", "validation")
         try:
             _RUNTIME_LOGGER.error("structured operation event rejected")
         except Exception:

@@ -326,10 +326,8 @@ def _stage_catalog_publication(
             publication.execute("RELEASE actor_ops_avatar_cache")
             avatar_cleanup.discard()
             avatar_refreshes = []
-            logger.warning(
-                "source avatar cache failed job_id=%s; feed finalization will continue",
-                job.get("id"),
-            )
+            logger.warning("source avatar cache failed", exc_info=True,
+                           extra={"stage": "avatar_cache", "error_code": "avatar_cache_failed"})
         for refresh in avatar_refreshes:
             safe_emit_operation_event(
                 category="source",

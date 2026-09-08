@@ -923,6 +923,11 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     for relative in (
         *PROTECTED_RUNTIME_FILES,
         "scripts/check_observability_contract.py",
+        "scripts/observability_worker_contract.py",
+        "src/services/worker_job_policy.py",
+        "src/services/worker_actorops_v2_jobs.py",
+        "src/logging_health.py",
+        "src/logging_metadata.py",
         "scripts/check_markdown_controls.py",
         "scripts/check_code_size.py",
         "scripts/code_size_policy.py",
@@ -1023,8 +1028,8 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     )
 
     assert planned.returncode == 0, planned.stderr
-    assert run.returncode == 0, run.stderr
-    assert preflight.returncode == 0, preflight.stderr
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     assert len(planned.stdout.encode("utf-8")) <= 2048
     assert len(run.stdout.encode("utf-8")) <= 2048
     plan = json.loads(plan_output.read_text(encoding="utf-8"))

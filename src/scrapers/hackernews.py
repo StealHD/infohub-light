@@ -1,6 +1,7 @@
 """Hacker News scraper implementation."""
 
 import logging
+from ..logging_diagnostics import log_exception
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -80,10 +81,7 @@ class HackerNewsScraper(BaseScraper):
             return items
 
         except httpx.HTTPError as e:
-            logger.warning(
-                "Hacker News fetch failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
             return []

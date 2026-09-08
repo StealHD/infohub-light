@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+try:
+    from .observability_worker_contract import check_worker_registry
+except ImportError:
+    from observability_worker_contract import check_worker_registry
+
 
 PROTECTED_RUNTIME_FILES = (
     "src/api/actor_alert_routes.py",
@@ -56,6 +61,7 @@ DISALLOWED_LOGGING_CALLS = {
     "addHandler",
     "basicConfig",
     "dictConfig",
+    "fileConfig",
     "FileHandler",
     "RotatingFileHandler",
     "TimedRotatingFileHandler",
@@ -240,7 +246,7 @@ def _dispatched_worker_job_types(tree: ast.Module) -> set[str]:
     for node in ast.walk(tree):
         if (
             not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            or node.name != "_run_job"
+            or node.name not in {"_run_job", "run_job"}
         ):
             continue
         for candidate in ast.walk(node):
@@ -283,11 +289,29 @@ def source_violations(
             )
         ]
     violations: list[Violation] = []
+    aliases = {
+        alias.asname or alias.name: alias.name
+        for item in ast.walk(tree) if isinstance(item, ast.ImportFrom)
+        and item.module in {"logging", "logging.config", "logging.handlers", "builtins", "rich"}
+        for alias in item.names
+    }
+    hash_output = {
+        id(call) for function in tree.body
+        if relative == "src/auth.py" and isinstance(function, ast.FunctionDef) and function.name == "main"
+        for call in ast.walk(function) if isinstance(call, ast.Call) and _call_name(call) == "print"
+        and len(call.args) == 1 and isinstance(call.args[0], ast.Call)
+        and _call_name(call.args[0]) == "hash_password"
+    }
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        name = _call_name(node)
-        if name == "print":
+        name = aliases.get(_call_name(node), _call_name(node))
+        direct_stream = (isinstance(node.func, ast.Attribute) and node.func.attr == "write"
+                         and isinstance(node.func.value, ast.Attribute)
+                         and node.func.value.attr in {"stdout", "stderr"})
+        console_output = (isinstance(node.func, ast.Attribute) and node.func.attr == "log"
+                          and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "console")
+        if (name == "print" or direct_stream or console_output) and id(node) not in hash_output:
             violations.append(
                 Violation(
                     relative,
@@ -395,7 +419,11 @@ def check_repository(root: Path) -> list[Violation]:
         for path in (root / "src" / "api").rglob("*.py")
         if "__pycache__" not in path.parts
     }
-    relatives = sorted({*PROTECTED_RUNTIME_FILES, *api_files})
+    runtime_files = {
+        path.relative_to(root).as_posix() for path in (root / "src").rglob("*.py")
+        if "__pycache__" not in path.parts
+    }
+    relatives = sorted({*PROTECTED_RUNTIME_FILES, *runtime_files})
     server_path = root / "src" / "api" / "server.py"
     mapped_mutations = set().union(
         *(
@@ -456,6 +484,10 @@ def check_repository(root: Path) -> list[Violation]:
                 ),
             )
         )
+    violations.extend(
+        Violation("src/services/worker.py", 1, "OBS009", message)
+        for message in check_worker_registry(root)
+    )
     return sorted(
         violations,
         key=lambda item: (item.path, item.line, item.code, item.message),

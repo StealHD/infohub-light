@@ -1,6 +1,7 @@
 """Main orchestrator coordinating the entire workflow."""
 
 import asyncio
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Dict
@@ -9,6 +10,7 @@ import httpx
 from rich.console import Console
 
 from .models import Config, ContentItem
+from .logging_diagnostics import log_exception, source_diagnostics
 from .storage.manager import StorageManager
 from .services.daily_push import select_daily_push_items
 from .services.feed_run import (
@@ -40,6 +42,8 @@ from .tag_policy import (
     normalize_tags,
 )
 
+
+logger = logging.getLogger(__name__)
 
 def _is_retryable_source_exception(exc: BaseException) -> bool:
     explicit = getattr(exc, "retryable", None)
@@ -260,6 +264,7 @@ class HorizonOrchestrator:
             for item in result_items:
                 normalize_item_summary(item, self.config.ai.summary_max_chars)
         except Exception as exc:
+            log_exception(logger, stage="pipeline", error_code="pipeline_failed", exception=exc)
             issue = RunIssue(
                 stage="pipeline",
                 code=type(exc).__name__,
@@ -522,6 +527,7 @@ class HorizonOrchestrator:
             )
         return items, tuple(outcomes)
 
+    @source_diagnostics
     async def _fetch_service_source(
         self,
         label: str,
@@ -577,17 +583,9 @@ class HorizonOrchestrator:
         Returns:
             List[ContentItem]: Fetched items
         """
-        self.console.print(f"🔍 Fetching from {name}...")
+        logger.info("source fetch started")
         items = await scraper.fetch(since)
-        self.console.print(f"   Found {len(items)} items from {name}")
-
-        # Show per-sub-source breakdown when there are multiple sub-sources
-        sub_counts: Dict[str, int] = defaultdict(int)
-        for item in items:
-            sub_counts[self._sub_source_label(item)] += 1
-        if len(sub_counts) > 1:
-            for sub, count in sorted(sub_counts.items()):
-                self.console.print(f"      • {sub}: {count}")
+        logger.info("source fetch completed items=%d", len(items))
 
         return items
 
@@ -739,12 +737,12 @@ class HorizonOrchestrator:
                 )
             result = parse_json_response(response)
             if result is None:
-                self.console.print("[yellow]  dedup: could not parse AI response, skipping[/yellow]")
+                logger.warning("dedup response invalid", extra={"stage": "dedupe", "error_code": "invalid_response"})
                 return items
 
             duplicate_groups = result.get("duplicates", [])
         except Exception as e:
-            self.console.print(f"[yellow]  dedup: AI call failed ({e}), skipping[/yellow]")
+            logger.warning("dedup failed", exc_info=True, extra={"stage": "dedupe", "error_code": "dedupe_failed"})
             return items
 
         if not duplicate_groups:
@@ -770,10 +768,6 @@ class HorizonOrchestrator:
                     if not primary.content or dup.content not in primary.content:
                         label = dup.source_type.value
                         primary.content = (primary.content or "") + f"\n\n--- From {label} ---\n{dup.content}"
-                self.console.print(
-                    f"   [dim]dedup: keep [{primary_idx}] {primary.title}[/dim]\n"
-                    f"   [dim]       drop [{dup_idx}] {dup.title}[/dim]"
-                )
                 drop_indices.add(dup_idx)
 
         return [item for i, item in enumerate(items) if i not in drop_indices]
@@ -798,9 +792,7 @@ class HorizonOrchestrator:
         if not twitter_items:
             return
 
-        self.console.print(
-            f"💬 Fetching reply text for {len(twitter_items)} Twitter items..."
-        )
+        logger.info("reply fetch started items=%d", len(twitter_items))
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             scraper = TwitterScraper(tw_cfg, client)
@@ -810,20 +802,14 @@ class HorizonOrchestrator:
                     reply_lines = await scraper.fetch_replies_for_item(item)
                     if TwitterScraper.append_discussion_content(item, reply_lines):
                         expanded.append(item)
-                        self.console.print(
-                            f"   💬 {len(reply_lines)} replies added to: {item.title[:60]}"
-                        )
+                        logger.info("reply fetch completed replies=%d", len(reply_lines))
                 except Exception as exc:
-                    self.console.print(
-                        f"   [yellow]⚠️  Reply fetch failed for {item.id}: {exc}[/yellow]"
-                    )
+                    logger.warning("reply fetch failed", exc_info=True, extra={"stage": "acquisition", "error_code": "reply_fetch_failed"})
 
         if not expanded:
             return
 
-        self.console.print(
-            f"   Re-analyzing {len(expanded)} Twitter items with reply context...\n"
-        )
+        logger.info("reply analysis started items=%d", len(expanded))
         ai_client = create_ai_client(self.config.ai)
         analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache(), topic_library=self.config.tags)
         await analyzer.analyze_batch(expanded)
@@ -840,12 +826,12 @@ class HorizonOrchestrator:
         if not items:
             return
 
-        self.console.print("📚 Enriching with background knowledge...")
+        logger.info("content enrichment started")
         ai_client = create_ai_client(self.config.ai)
         enricher = ContentEnricher(ai_client)
         with token_stage("enrichment"):
             await enricher.enrich_batch(items)
-        self.console.print(f"   Enriched {len(items)} items\n")
+        logger.info("content enrichment completed items=%d", len(items))
 
     @staticmethod
     def _source_topics(item: ContentItem) -> list[str]:
@@ -954,7 +940,7 @@ class HorizonOrchestrator:
         """
         if not items:
             return []
-        self.console.print("🤖 Analyzing content with AI...")
+        logger.info("content analysis started")
 
         ai_client = create_ai_client(self.config.ai)
         analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache(), topic_library=self.config.tags)

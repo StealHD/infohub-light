@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from ..logging_diagnostics import log_exception
 from datetime import datetime, timezone
 from typing import Any, Iterable, List, Optional
 
@@ -98,10 +99,7 @@ class OpenBBScraper(BaseScraper):
             try:
                 fetched = await self._fetch_watchlist(watchlist, since_utc)
             except Exception as exc:
-                logger.warning(
-                    "OpenBB watchlist failed error_code=%s",
-                    type(exc).__name__,
-                )
+                log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=exc)
                 continue
             for item in fetched:
                 url_key = str(item.url)

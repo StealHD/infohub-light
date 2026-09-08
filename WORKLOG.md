@@ -8,59 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-06",
-  "result": "已提交 UI 分支 d481eb17，并在该分支整合本地 main@f5476b02；保留对话内命令、配对修复与 UI 会话目录、主题输入区、Fast 交互，解决冲突并保留全部工作记录，UI 决策编号调整为 D208。",
-  "status": "completed",
-  "task_id": "2026-09-06-merge-agent-workspace-ui-local-main",
-  "unresolved": [],
-  "validation": [
-    "UI 提交前 staged preflight 14/14 通过",
-    "合并后重点浏览器 18/18 通过；相关单元测试复验通过，类型与控制结构校验通过",
-    "最终合并版本 preflight 14/14 通过；完整浏览器门禁 218 passed、91 skipped",
-    "合并提交 25e55799 已快进至本地 main，保留两侧代码与历史；未推送远端、未重建 Docker"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-06",
-  "result": "修复 Docker 全新 TypeScript 编译发现的模型测试夹具缺字段：为两个 OpenClawModelOption 明确提供 supportsImages=false，不改变产品运行行为。",
-  "status": "completed",
-  "task_id": "2026-09-06-docker-main-model-fixture",
-  "unresolved": [],
-  "validation": [
-    "强制 tsc -b --force 通过；OpenClawShortcuts 15/15 通过",
-    "本地生产构建与资源检查通过；初始 JavaScript Brotli 245551 bytes"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-07",
-  "result": "准备本地 main 的 v2.6.9 发布身份；同步 pyproject.toml 与 uv.lock 的项目版本，GitHub main Gate 通过后方可创建并推送版本标签。",
-  "status": "completed",
-  "task_id": "2026-09-07-prepare-release-v269",
-  "unresolved": [],
-  "validation": [
-    "版本差异审查：仅两处项目版本由 2.6.8 更新为 2.6.9；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "phase"
@@ -325,6 +272,43 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
+    "decisions",
+    "observability"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "从本地 main b6f42227 建立独立 worktree codex/logging-completeness；统一日志关联字段继承、清空和校验，增加构建身份、安全代码位置与独立 sink 失败/恢复证据；补齐来源并发上下文、捕获异常与 Worker 通知/lease 诊断，移除编排器直接输出；修复实际 Worker registry 门禁并覆盖全部生产 Python，更新唯一日志合同与 D210。",
+  "status": "completed",
+  "task_id": "2026-09-08-logging-completeness",
+  "unresolved": [],
+  "validation": [
+    "日志、API、Worker 核心定向 81 项通过；来源适配器与编排定向回归通过。",
+    "两次 impacted preflight 分别发现旧文件复制夹具和 Worker 内部阶段测试上下文泄漏，均已修复；失败用例先复验通过，门禁测试整份通过，Worker 全部 54 项及剩余后端 47 项通过。",
+    "被中断后的 9 项检查独立补验全部通过，包含 Python 语法、JSON、前端规模/合同/lint/类型/Vitest/build；无 ResourceWarning。",
+    "任务 diff 审查、代码规模冻结约束、日志合同及控制面结构校验通过。未重建容器，未提交、合并或部署。",
+    "用户要求消除验收保留后，完整 impacted preflight 单轮 16/16 通过，0 失败、0 ResourceWarning；结果 .test-results/20260908T073524Z-53887/result.json。随后仅更新重跑流程文档及完成证据，复验控制面与 diff。"
+  ]
+}
+```
+```json
+{
+  "control_topics": [
+    "decisions",
+    "verification"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "按用户要求将完整 Gate 重跑预算由一次调整为五次（不含首次），继续要求每轮先修复并通过直接相关测试；更新唯一验证流程与 D211 理由。",
+  "status": "completed",
+  "task_id": "2026-09-08-gate-rerun-budget",
+  "unresolved": [],
+  "validation": [
+    "Markdown 控制检查与 git diff --check 通过；仅修改验证流程约束，无业务代码或容器变更。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
     "architecture",
     "decisions",
     "interface",
@@ -414,6 +398,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "真实预览 iapreview_3788a5a4fcf6485f9a23e94c3d3c20a7 首次领取后约 8 秒完成，引用 1 条通过校验；未发送通知。",
     "独立 Agent 最小调用 HTTP 200；临时诊断代码已恢复原文件并安全重启加载。VPS 仅只读检查，未配置或切换，未重建容器。",
     "沿用上一修复已通过的 24 项后端、7 项前端和 16 项 preflight；本轮仅运行环境恢复，无产品代码变更。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-08",
+  "result": "将 Automations 统一分析及本地测试修复与本地 main 日志更新合并，保留双方工作记录，Automations 决策编号调整为 D212。",
+  "status": "completed",
+  "task_id": "2026-09-08-automations-local-main-merge",
+  "unresolved": [],
+  "validation": [
+    "合并后 automations-local-main-merge impacted preflight 16/16 通过，包含后端/前端全量测试、lint、类型及构建检查。",
+    "Markdown、控制面结构、工作记录与 diff 校验通过；本地 main 工作区干净，原主目录其他未提交工作未触碰。",
+    "仅合并本地代码，不推送远端、不重建容器、不迁移运行库；运行凭据和 data/openclaw-relay 未纳入提交。"
   ]
 }
 ```

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextvars import copy_context
+
 from datetime import datetime, timedelta, timezone
 
 from src.services.job_queue import JobQueue
@@ -184,7 +186,8 @@ def test_worker_claim_path_runs_with_historical_v1_tables_denied(tmp_path) -> No
     job = _job(JobQueue(store), owner, job_type="source_test")
     uninstall = install_actorops_v1_deny_authorizer(store.connect())
     try:
-        prepared = prepare_worker_cycle(
+        prepared = copy_context().run(
+            prepare_worker_cycle,
             store,
             data_dir=str(tmp_path),
             worker_id="v1-deny-worker",
