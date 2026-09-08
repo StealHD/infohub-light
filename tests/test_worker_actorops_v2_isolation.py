@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextvars import copy_context
+
 from src.services.job_queue import JobQueue
 from src.services.worker import run_worker_once
 from src.services.worker_cycle import (
@@ -115,7 +117,8 @@ def test_idle_cycle_claims_only_new_v2_control_work(tmp_path, monkeypatch) -> No
         emit_operation_event=lambda **_kwargs: True,
     )
 
-    prepared = prepare_worker_cycle(
+    prepared = copy_context().run(
+        prepare_worker_cycle,
         store,
         data_dir=str(tmp_path),
         worker_id="idle-isolation-worker",

@@ -3,6 +3,7 @@
 import calendar
 import hashlib
 import logging
+from ..logging_diagnostics import log_exception
 import os
 import re
 from datetime import datetime, timezone
@@ -196,17 +197,11 @@ class RSSScraper(BaseScraper):
                 items.append(item)
 
         except httpx.HTTPError as e:
-            logger.warning(
-                "RSS feed fetch failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
         except Exception as e:
-            logger.warning(
-                "RSS feed parse failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
 

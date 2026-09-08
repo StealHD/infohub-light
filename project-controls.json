@@ -105,7 +105,12 @@
         "src/observability_context.py",
         "src/services/operation_log.py",
         "scripts/check_observability_contract.py",
-        "scripts/test_gate_log.py"
+        "scripts/test_gate_log.py",
+        "src/logging_diagnostics.py",
+        "src/logging_health.py",
+        "src/logging_metadata.py",
+        "src/services/operation_failures.py",
+        "scripts/observability_worker_contract.py"
       ]
     },
     "phase": {

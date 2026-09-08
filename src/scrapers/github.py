@@ -1,6 +1,7 @@
 """GitHub scraper implementation."""
 
 import logging
+from ..logging_diagnostics import log_exception
 import os
 from datetime import datetime
 from typing import List, Optional
@@ -120,10 +121,7 @@ class GitHubScraper(BaseScraper):
                     break
 
         except httpx.HTTPError as e:
-            logger.warning(
-                "GitHub events fetch failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
 
@@ -246,10 +244,7 @@ class GitHubScraper(BaseScraper):
                     break
 
         except httpx.HTTPError as e:
-            logger.warning(
-                "GitHub releases fetch failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
 

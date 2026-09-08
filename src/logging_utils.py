@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import sys
-import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -18,7 +17,12 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from .observability_context import current_observability_context
+from .observability_context import resolve_observability_field
+from .logging_metadata import build_metadata, exception_frames
+from .logging_health import (
+    CHANNELS, logging_health_status, mark_failure, mark_success,
+    recovery_evidence, reset_health as _reset_log_write_health,
+)
 
 
 OPERATION_LOGGER_NAME = "inteliscope.operations"
@@ -84,21 +88,8 @@ _OPERATION_ALLOWED_FIELDS = _OPERATION_REQUIRED_FIELDS | {
     "route",
     "method",
     "status_code",
-}
-_LOG_WRITE_LOCK = threading.Lock()
-_LOG_WRITE_STATE: dict[str, dict[str, Any]] = {
-    "runtime": {
-        "configured": False,
-        "healthy": False,
-        "last_success": None,
-        "last_failure": None,
-    },
-    "operations": {
-        "configured": False,
-        "healthy": False,
-        "last_success": None,
-        "last_failure": None,
-    },
+    "version",
+    "revision",
 }
 _LAST_FALLBACK_AT = 0.0
 
@@ -140,54 +131,6 @@ def error_fingerprint(
         ]
     )
     return f"err_{hashlib.sha256(material.encode('utf-8')).hexdigest()[:20]}"
-
-
-def _mark_log_write(channel: str, *, healthy: bool) -> None:
-    timestamp = _utc_iso()
-    with _LOG_WRITE_LOCK:
-        state = _LOG_WRITE_STATE[channel]
-        state["configured"] = True
-        state["healthy"] = healthy
-        state["last_success" if healthy else "last_failure"] = timestamp
-
-
-def _reset_log_write_health() -> None:
-    with _LOG_WRITE_LOCK:
-        for state in _LOG_WRITE_STATE.values():
-            state.update(
-                {
-                    "configured": False,
-                    "healthy": False,
-                    "last_success": None,
-                    "last_failure": None,
-                }
-            )
-
-
-def logging_health_status() -> dict[str, Any]:
-    """Return bounded logging sink health without exposing paths or errors."""
-
-    with _LOG_WRITE_LOCK:
-        channels = {
-            channel: {
-                "status": (
-                    "ready"
-                    if state["configured"] and state["healthy"]
-                    else "degraded"
-                ),
-                "last_success": state["last_success"],
-                "last_failure": state["last_failure"],
-            }
-            for channel, state in _LOG_WRITE_STATE.items()
-        }
-    return {
-        "status": (
-            "ready"
-            if all(channel["status"] == "ready" for channel in channels.values())
-            else "degraded"
-        ),
-        "channels": channels,
-    }
 
 
 def operation_write_acknowledged(acknowledgement: Any) -> bool:
@@ -339,7 +282,7 @@ class _PrivateTimedRotatingFileHandler(TimedRotatingFileHandler):
         retention_days: int,
         channel: str,
     ) -> None:
-        if channel not in _LOG_WRITE_STATE:
+        if channel not in CHANNELS:
             raise ValueError("managed log channel is invalid")
         self.channel = channel
         self.retention_days = log_retention_days(retention_days)
@@ -389,30 +332,37 @@ class _PrivateTimedRotatingFileHandler(TimedRotatingFileHandler):
             and acknowledgement.channel == self.channel
         ):
             acknowledgement.attempted = True
+            acknowledgement.succeeded = False
+        try:
+            message = self.format(record)
+        except Exception:
+            mark_failure(self.channel, "validation")
+            _emit_safe_fallback(self.channel)
+            return
+        invalid = getattr(record, "_inteliscope_validation_failed", False)
         try:
             if self.shouldRollover(record):
                 self.doRollover()
-            message = self.format(record)
+            recovery = recovery_evidence(self.channel) if not invalid else None
+            if recovery:
+                payload = json.loads(message)
+                payload["logging_recovery"] = recovery
+                message = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             stream = self.stream
             if stream is None:
                 stream = self.stream = self._open()
             stream.write(message + self.terminator)
             self.flush()
         except Exception:
-            _mark_log_write(self.channel, healthy=False)
-            if (
-                isinstance(acknowledgement, _WriteAcknowledgement)
-                and acknowledgement.channel == self.channel
-            ):
-                acknowledgement.succeeded = False
+            mark_failure(self.channel, "write")
             _emit_safe_fallback(self.channel)
         else:
-            _mark_log_write(self.channel, healthy=True)
-            if (
-                isinstance(acknowledgement, _WriteAcknowledgement)
-                and acknowledgement.channel == self.channel
-            ):
-                acknowledgement.succeeded = True
+            if invalid:
+                mark_failure(self.channel, "validation")
+            else:
+                mark_success(self.channel)
+            if isinstance(acknowledgement, _WriteAcknowledgement) and acknowledgement.channel == self.channel:
+                acknowledgement.succeeded = not invalid
 
 
 class _RedactingTextFormatter(logging.Formatter):
@@ -437,15 +387,17 @@ class _RuntimeJsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         message = redact_log_text(record.getMessage())
-        context = current_observability_context()
         payload: dict[str, Any] = {
+            **build_metadata(),
             "schema_version": 1,
             "timestamp": _utc_iso(record.created),
             "level": record.levelname.lower(),
             "service": self.service,
-            "logger": record.name,
+            "logger": redact_log_text(record.name),
             "message": message,
         }
+        invalid_fields = []
+        operation = getattr(record, "operation_event", None)
         for field in (
             "request_id",
             "job_id",
@@ -454,23 +406,26 @@ class _RuntimeJsonFormatter(logging.Formatter):
             "stage",
             "error_code",
         ):
-            value = getattr(record, field, None) or getattr(context, field)
+            try:
+                raw = operation.get(field, "") if isinstance(operation, dict) else getattr(record, field, None)
+                value = resolve_observability_field(field, raw)
+            except (ValueError, TypeError):
+                record._inteliscope_validation_failed = True
+                invalid_fields.append(field)
+                continue
             if value is not None:
                 payload[field] = value
+        if invalid_fields:
+            payload["logging_validation"] = {"omitted_fields": invalid_fields}
         if record.exc_info:
             exception_type, _exception, tb = record.exc_info
-            frames = traceback.extract_tb(tb)[-32:]
             payload["exception"] = {
                 "type": redact_log_text(
                     getattr(exception_type, "__name__", "Exception")
                 ),
                 "frames": [
-                    {
-                        "file": redact_log_text(Path(frame.filename).name),
-                        "function": redact_log_text(frame.name),
-                        "line": int(frame.lineno),
-                    }
-                    for frame in frames
+                    {key: redact_log_text(value) if isinstance(value, str) else value
+                     for key, value in frame.items()} for frame in exception_frames(tb)
                 ],
             }
             payload["error_fingerprint"] = error_fingerprint(record.exc_info)
@@ -503,6 +458,7 @@ class _OperationJsonFormatter(logging.Formatter):
                 if field in raw
             },
             "service": self.service,
+            **build_metadata(),
         }
         return json.dumps(
             payload,
@@ -578,8 +534,8 @@ def configure_logging(
     operation_handler.setLevel(logging.INFO)
     operation_handler.setFormatter(_OperationJsonFormatter(service=service))
     operation_logger.addHandler(operation_handler)
-    _mark_log_write("runtime", healthy=True)
-    _mark_log_write("operations", healthy=True)
+    mark_success("runtime")
+    mark_success("operations")
 
     return {
         "directory": directory,

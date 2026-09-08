@@ -147,3 +147,45 @@ WORKER_JOB_TRACE_POLICY = {}
     )
 
     assert not any(violation.code == "OBS007" for violation in violations)
+
+
+def test_contract_checks_new_service_and_adapter_files(tmp_path):
+    import shutil
+
+    shutil.copytree(ROOT / "src", tmp_path / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    new_file = tmp_path / "src/services/new_feature.py"
+    new_file.write_text('from logging import basicConfig as setup\nsetup()\nprint("unsafe")\n')
+    violations = check_repository(tmp_path)
+    assert {"OBS001", "OBS002"} <= {v.code for v in violations if v.path == "src/services/new_feature.py"}
+
+
+def test_contract_detects_split_registry_drift(tmp_path):
+    import shutil
+    from scripts.observability_worker_contract import check_worker_registry
+
+    shutil.copytree(ROOT / "src", tmp_path / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    assert check_worker_registry(tmp_path) == []
+    handlers = tmp_path / "src/services/worker_actorops_v2_jobs.py"
+    handlers.write_text(handlers.read_text().replace(
+        '"actorops_v2_repair": run_actorops_v2_repair,',
+        '"actorops_v2_repair": run_actorops_v2_repair, "untraced_job": run_actorops_v2_repair,',
+    ))
+    assert check_worker_registry(tmp_path)
+    assert any(v.code == "OBS009" for v in check_repository(tmp_path))
+
+
+def test_contract_detects_regular_worker_dispatch_drift(tmp_path):
+    import shutil
+    from scripts.observability_worker_contract import check_worker_registry
+
+    shutil.copytree(ROOT / "src", tmp_path / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    handlers = tmp_path / "src/services/worker_handlers.py"
+    handlers.write_text(handlers.read_text().replace(
+        'if job_type == "content_repair":', 'if job_type in {"content_repair", "untraced_job"}:',
+    ))
+    assert check_worker_registry(tmp_path)
+
+
+def test_contract_rejects_unmanaged_stream_and_rich_output():
+    source = 'sys.stdout.write("private")\nself.console.log("private")\n'
+    assert sum(v.code == "OBS001" for v in source_violations("src/services/new.py", source)) == 2

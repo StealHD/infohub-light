@@ -7,7 +7,7 @@
 1. 改动前创建任务独享 snapshot（示例路径可替换）。snapshot schema 2 保存 `base_sha`，冻结单体按任务开始的版本比较；新文件/函数及既有例外的硬限制只由 `tests/code_size_policy.json` 定义，缩小冻结文件不修改策略。
 2. 按逻辑切片运行直接受影响的 Pytest、Vitest 或 Playwright spec，先定位首个失败；不以全量抓取、AI 或真实推送代替测试。
 3. 提交、最终 main 验证或部署前主动审查任务范围 diff，修复所有已知或高置信缺陷，并复验直接受影响的 spec。不得把已知缺陷留给 CI、Docker 或 VPS 发现。
-4. 运行一次 impacted `preflight`。完整 Gate 失败后先复验失败 spec，修复后最多再完整运行一次。
+4. 运行一次 impacted `preflight`。完整 Gate 失败后先修复并复验失败 spec；同一任务的完整 Gate 最多重跑 5 次（不含首次执行），每次重跑前都必须修复已知问题并通过直接相关测试。
 
 ```bash
 python scripts/test_gate.py snapshot --output /tmp/infohub-task-impact.json

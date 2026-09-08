@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ import httpx
 
 from ..storage.service_store import ServiceStore
 from .job_queue import JobQueue
+from .operation_failures import record_operation_failure
+from ..observability_context import begin_observability_context, reset_observability_context
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +143,18 @@ class LeaseHeartbeat:
             except Exception as exc:
                 self.last_error_code = self.exception_code(exc)
                 self.stop_event.set()
+                token = begin_observability_context(
+                    job_id=str(self.job["id"]), workspace_id=str(self.job["workspace_id"]),
+                    source_id=self.job.get("source_id"), subscription_id=self.job.get("subscription_id"),
+                )
+                try:
+                    record_operation_failure(
+                        logging.getLogger(__name__), category="job", action="lease_extend",
+                        stage="lease_heartbeat", error_code="lease_extend_failed",
+                        subject_user_id=self.job.get("user_id"),
+                    )
+                finally:
+                    reset_observability_context(token)
 
     def __exit__(self, exc_type, exc, _traceback) -> None:
         self.stop_event.set()

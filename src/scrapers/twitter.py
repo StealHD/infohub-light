@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from ..logging_diagnostics import log_exception
 import os
 from datetime import datetime, timezone
 from html import unescape
@@ -82,10 +83,7 @@ class TwitterScraper(BaseScraper):
             logger.debug("Started Twitter Apify run")
             return run_id, dataset_id
         except Exception as exc:
-            logger.error(
-                "Failed to start Twitter Apify run error_code=%s",
-                type(exc).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=exc, level=logging.ERROR)
             return None, None
 
     async def _wait_for_run(self, token: str, run_id: str) -> bool:
@@ -102,10 +100,7 @@ class TwitterScraper(BaseScraper):
                     logger.error("Twitter Apify run ended status=%s", status)
                     return False
             except Exception as exc:
-                logger.warning(
-                    "Twitter Apify run poll failed error_code=%s",
-                    type(exc).__name__,
-                )
+                log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=exc)
             await asyncio.sleep(_POLL_INTERVAL)
             elapsed += _POLL_INTERVAL
         logger.warning("Twitter Apify run timed out seconds=%d", _MAX_WAIT)
@@ -118,10 +113,7 @@ class TwitterScraper(BaseScraper):
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
-            logger.error(
-                "Failed to fetch Twitter Apify dataset error_code=%s",
-                type(exc).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=exc, level=logging.ERROR)
             return []
 
     async def fetch_replies_for_item(self, item: ContentItem) -> List[str]:
@@ -157,10 +149,7 @@ class TwitterScraper(BaseScraper):
             run_id = data["id"]
             dataset_id = data["defaultDatasetId"]
         except Exception as exc:
-            logger.warning(
-                "Failed to start Twitter reply run error_code=%s",
-                type(exc).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=exc)
             return []
 
         if not await self._wait_for_run(token, run_id):

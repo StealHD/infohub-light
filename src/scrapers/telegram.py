@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from ..logging_diagnostics import log_exception
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -41,10 +42,7 @@ class TelegramScraper(BaseScraper):
         items = []
         for result in results:
             if isinstance(result, Exception):
-                logger.warning(
-                    "Telegram channel fetch failed error_code=%s",
-                    type(result).__name__,
-                )
+                log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=result)
                 if self.strict_errors:
                     raise result
             elif isinstance(result, list):
@@ -66,10 +64,7 @@ class TelegramScraper(BaseScraper):
                 response = await self.client.get(url, headers=headers, follow_redirects=True, timeout=120.0)
             response.raise_for_status()
         except Exception as e:
-            logger.warning(
-                "Telegram request failed error_code=%s",
-                type(e).__name__,
-            )
+            log_exception(logger, stage="acquisition", error_code="source_fetch_failed", exception=e)
             if self.strict_errors:
                 raise
             return []

@@ -190,10 +190,18 @@
         "tests/test_api_operation_logging.py",
         "tests/test_logging_utils.py",
         "tests/test_observability_contract.py",
-        "tests/test_operation_log.py"
+        "tests/test_operation_log.py",
+        "src/logging_diagnostics.py",
+        "src/logging_health.py",
+        "src/logging_metadata.py",
+        "src/services/operation_failures.py",
+        "scripts/observability_worker_contract.py",
+        "tests/test_logging_completeness.py",
+        "tests/test_worker_logging_completeness.py"
       ],
       "groups": [
-        "python_api_store"
+        "python_api_store",
+        "python_queue_worker"
       ]
     },
     {
@@ -715,7 +723,8 @@
       "tests/test_secret_quota.py",
       "tests/test_source_summary.py",
       "tests/test_storage_governance.py",
-      "tests/test_youtube_channel.py"
+      "tests/test_youtube_channel.py",
+      "tests/test_logging_completeness.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",
@@ -735,7 +744,8 @@
       "tests/test_notification_webhook_transport.py",
       "tests/test_secret_quota.py",
       "tests/test_workspace_telegram_transport.py",
-      "tests/test_preferred_source_notifications.py"
+      "tests/test_preferred_source_notifications.py",
+      "tests/test_worker_logging_completeness.py"
     ],
     "python_feed": [
       "tests/test_content_presentation.py",

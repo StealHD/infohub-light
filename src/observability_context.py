@@ -47,7 +47,7 @@ def safe_observability_value(value: Any, field: str) -> str:
 def optional_observability_value(value: Any, field: str) -> str | None:
     return (
         None
-        if value in {None, ""}
+        if value is None or value == ""
         else safe_observability_value(value, field)
     )
 
@@ -129,3 +129,21 @@ def update_observability_context(
 
 def reset_observability_context(token: Token[ObservabilityContext]) -> None:
     _CONTEXT.reset(token)
+
+
+def resolve_observability_field(field: str, value: Any = None) -> str | None:
+    """None inherits; an empty string explicitly clears a correlation field."""
+    resolved = getattr(current_observability_context(), field) if value is None else value
+    if resolved is None or resolved == "":
+        return None
+    if not isinstance(resolved, str):
+        raise ValueError("observability field must be a string")
+    if field == "stage":
+        return safe_observability_stage(resolved)
+    return safe_observability_value(resolved, field)
+
+
+def begin_child_observability_context(**fields: Any) -> Token[ObservabilityContext]:
+    """Create a resettable child scope while retaining the request/Job identity."""
+    values = {field: resolve_observability_field(field, value) for field, value in fields.items()}
+    return _CONTEXT.set(replace(_CONTEXT.get(), **values))

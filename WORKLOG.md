@@ -11,25 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-06",
-  "result": "完成本轮 Agent 输入区细节：Fast 默认透明，仅精细指针悬停显示底色，开启时底部模型名前增加主题色闪电并播报状态；箭头旋转仅作用于尾部 chevron。发送按钮恢复共享主题色及禁用透明度；输入框移除静态描边，保留主题表面与非布局焦点提示。/ 与 @ 候选改为输入框上方同宽浮层，语义图标、名称、说明横排，圆角选中态，窄屏换行并保留滚动、键盘及草稿行为。同步设计系统参数与更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-06-agent-composer-polish",
-  "unresolved": [],
-  "validation": [
-    "直接控件单测 3 文件 22 项通过；构建版思考控件 18 项通过；快捷候选 18 passed / 6 skipped，覆盖同宽对齐、图标、200% 等效缩放、窄 Feed 栏、IME、撤销 Skill、草稿与不自动发送。已检查深浅主题及桌面/手机截图。",
-    "修正构建版颜色百分比/小数序列化造成的测试误报；收窄动态图标依赖后首屏 JavaScript Brotli 245311 bytes，低于 245760 bytes 门槛，构建复验通过。",
-    "agent-composer-polish-final impacted preflight 14/14 通过，含 129 文件 853 项 Vitest、受影响 Python、类型、lint、构建、代码体积和 UI 合同检查。最终完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-composer-polish-release-final。",
-    "控制文件、JSON 和 diff 校验通过；5173 API 代理健康状态 ready，保留本地前后端。未重建 Docker、调用真实 AI、提交或推送。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-06",
   "result": "纠正把用户的无黑边仅处理成静态无描边：删除 Agent 输入框聚焦外圈及其 2px 偏移，所有状态使用零 border、outline、outline-offset 和 box-shadow，保留主题表面与可见光标。Fast 提示复用向上 Tooltip 参数，以 13/12px 常规字重显示 Fast / 用量更多，避免覆盖模型区域；同步组件参数与更新日志。",
   "status": "completed",
   "task_id": "2026-09-06-agent-composer-edge-tooltip",
@@ -61,28 +42,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "按用户要求将 / 命令结果放入对话时间线：Skills、状态与帮助直接输出，模型/推理选项和新建/Worktree 确认行内展示；移除 Skills 子菜单及命令触发的设置弹窗，保留 @ 引用、草稿和既有写入保护，同步 UI 合同、D207 与产品说明。",
-  "status": "completed",
-  "task_id": "2026-09-05-inline-slash-commands",
-  "unresolved": [],
-  "validation": [
-    "任务 snapshot /tmp/infohub-inline-commands-impact.json 已建立；审查任务范围源码、回归与合同 diff。",
-    "定向组件测试通过，覆盖命令发现、技能选择、精确命令 Send/Enter、草稿保留、模型防重入与失败、上下文隔离、命令结果排除模型请求，以及行内 Worktree 创建和原 Session 重试。",
-    "受控 Gateway 浏览器验收 43 项通过、14 项按视口或场景跳过，覆盖桌面/平板/手机、320px Feed 侧栏、浅色缩放、Reduced Motion 与 Axe；未执行真实 Gateway 写入。",
-    "最终 impacted preflight 14/14 通过（356.064 秒），前端 125 个文件、837 项测试通过，SQLite 连接警告 0；UI 静态、ESLint、Markdown 与 init-pro policy check 通过。",
-    "最终 Skills 输出与 Worktree 确认浏览器复验 6/6 通过；额外只读命令发送和行内表单锁定定向测试通过。",
-    "8081 进程仍来自 codex/agent-workspace-pr；/agent、live、ready 均 HTTP 200，对话脚本与本次构建逐字节一致且包含行内命令输出。内置浏览器尚未配对，真实连接未代验；未重建 Docker，未切换 UI 分支。"
-  ]
-}
-```
 
 ```json
 {
@@ -423,6 +382,43 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "暂存差异检查、私钥/常见token模式检查、工作日志及控制结构校验通过。",
     "agent-local-main-merge impacted preflight 16/16通过（508.8秒），含完整后端Pytest、136文件886项Vitest、类型/lint/UI合同/构建。",
     "功能提交70db8260；合并采用fast-forward，最终文档记录随同合入。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "observability"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "从本地 main b6f42227 建立独立 worktree codex/logging-completeness；统一日志关联字段继承、清空和校验，增加构建身份、安全代码位置与独立 sink 失败/恢复证据；补齐来源并发上下文、捕获异常与 Worker 通知/lease 诊断，移除编排器直接输出；修复实际 Worker registry 门禁并覆盖全部生产 Python，更新唯一日志合同与 D210。",
+  "status": "completed",
+  "task_id": "2026-09-08-logging-completeness",
+  "unresolved": [],
+  "validation": [
+    "日志、API、Worker 核心定向 81 项通过；来源适配器与编排定向回归通过。",
+    "两次 impacted preflight 分别发现旧文件复制夹具和 Worker 内部阶段测试上下文泄漏，均已修复；失败用例先复验通过，门禁测试整份通过，Worker 全部 54 项及剩余后端 47 项通过。",
+    "被中断后的 9 项检查独立补验全部通过，包含 Python 语法、JSON、前端规模/合同/lint/类型/Vitest/build；无 ResourceWarning。",
+    "任务 diff 审查、代码规模冻结约束、日志合同及控制面结构校验通过。未重建容器，未提交、合并或部署。",
+    "用户要求消除验收保留后，完整 impacted preflight 单轮 16/16 通过，0 失败、0 ResourceWarning；结果 .test-results/20260908T073524Z-53887/result.json。随后仅更新重跑流程文档及完成证据，复验控制面与 diff。"
+  ]
+}
+```
+```json
+{
+  "control_topics": [
+    "decisions",
+    "verification"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "按用户要求将完整 Gate 重跑预算由一次调整为五次（不含首次），继续要求每轮先修复并通过直接相关测试；更新唯一验证流程与 D211 理由。",
+  "status": "completed",
+  "task_id": "2026-09-08-gate-rerun-budget",
+  "unresolved": [],
+  "validation": [
+    "Markdown 控制检查与 git diff --check 通过；仅修改验证流程约束，无业务代码或容器变更。"
   ]
 }
 ```

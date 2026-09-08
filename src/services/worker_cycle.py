@@ -23,6 +23,7 @@ from .worker_housekeeping import WorkerCyclePorts, run_worker_housekeeping
 from .worker_job_policy import WORKER_CLAIMABLE_JOB_TYPES
 from .worker_retired_actorops_jobs import retire_queued_actorops_v1_jobs
 from .system_settings import resolve_system_setting
+from .operation_failures import record_operation_failure
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +81,8 @@ def _reconcile_apify_key_pools(
     try:
         outcomes = reconcile_all_apify_pools_sync(store, data_dir=data_dir)
     except Exception:
-        logger.warning("Apify Key pool pre-claim reconciliation failed", exc_info=True)
+        record_operation_failure(logger, category="job", action="pool_reconcile",
+                                 stage="apify_pool_reconcile", error_code="pool_reconcile_failed")
         return
     for outcome in outcomes:
         if not outcome.get("ok"):
@@ -167,13 +169,15 @@ def _dispatch_notification_backlog(
     except Exception:
         if store.connect().in_transaction:
             store.connect().rollback()
-        logger.warning("preferred-source notification backlog dispatch failed")
+        record_operation_failure(logger, category="notification", action="backlog_dispatch",
+                                 stage="notification_backlog", error_code="notification_backlog_failed")
     try:
         actor_alerts.dispatch_pending(limit=20)
     except Exception:
         if store.connect().in_transaction:
             store.connect().rollback()
-        logger.warning("Apify Actor alert backlog dispatch failed")
+        record_operation_failure(logger, category="notification", action="actor_alert_backlog",
+                                 stage="notification_backlog", error_code="actor_alert_backlog_failed")
 
 
 def prepare_worker_cycle(
