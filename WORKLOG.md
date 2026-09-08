@@ -390,6 +390,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "df37a95585a75fd374639cf9febeee7e0eec6609",
   "control_topics": [
     "architecture",
     "interface",
@@ -397,15 +398,17 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-08",
   "result": "完成阶段 1 个人 Agent/独立 read MCP delegation 绑定、显式 global 37 空表迁移、运维配置与核验工具、按登录身份的 relay 路由；保留旧会话本人只读历史并支持 Viewer 只读。更新合同、操作手册与 changelog；只在本地受控环境实施，下一阶段需用户继续指令。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "agent-experience-stage-1",
   "unresolved": [
-    "阶段 1 的最终门禁与本地服务更新待完成；真实网页体验在阶段 2，正式生产发布在阶段 6。"
+    "阶段 2–6 尚未执行；本地两个测试账号尚未绑定真实 Gateway，下一阶段先完成受控部署再验证网页连接、历史与账号切换。正式生产迁移/发布集中在阶段 6。"
   ],
   "validation": [
-    "65 项绑定、迁移、API、MCP、relay 和既有 delegation 相关测试通过，覆盖双账号数据/会话/工具权限、吊销、过期、账号停用、scope 改变、旧历史和晚到响应。",
-    "OpenClaw 2026.9.2 真实 config validate 和上游工具策略管线验证通过；未调用模型或发送通知。",
-    "任务差异审查、代码体积与 Markdown 控制检查通过；最终 impacted preflight 和本地服务更新待完成。"
+    "73 项绑定、迁移、API、MCP、relay、既有 delegation 与审计定向测试通过；覆盖双账号数据/会话/工具权限、Viewer、吊销、过期、停用、scope 改变、旧历史、原生命令和晚到响应。",
+    "OpenClaw 2026.9.2 真实 config validate 和上游工具策略管线验证通过；MCP 走真实 ASGI 协议，Gateway relay 走受控 fixture，未调用模型或发送通知。",
+    "首轮 preflight 发现新增 DELETE 缺少审计映射，补齐并先复验；唯一完整重跑 16/16 通过（含全后端/前端代码域）。存储路径边界补充后 18 项直接相关测试以及最终体积、观测性、Markdown/diff 检查通过。",
+    "init-pro 结构、policy/索引、429 条 WORKLOG 与控制 JSON 验证通过；审查 architecture/interface/phase 语义，UI 只改手册与 changelog，D209 已涵盖本阶段边界。",
+    "从任务 Worktree 运行标准 up-latest 并使用独立本地 runtime；代码提交 df37a95585a7 的 API/Worker 均 healthy、readiness ready、React 资源通过。两个测试账号登录和本人未绑定状态 HTTP 核验通过，未回退共享 Agent；线上未变。"
   ]
 }
 ```

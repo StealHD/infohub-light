@@ -5,7 +5,7 @@
 
 2026-09-08 用户批准 Agent 分阶段优化：**每轮仅完成一个阶段，验收、记录、提交后结束，不自动进入下一阶段。** 原因与旧范围说明的替代关系见 [D209](docs/decisions/records/D201-D225.md#d209)。
 
-- 当前：阶段 1 用户身份与授权已实现；验收结果与提交前检查证据见 WORKLOG 的 `agent-experience-stage-1`。
+- 当前：阶段 1 用户身份与授权已完成；验收结果与提交前检查证据见 WORKLOG 的 `agent-experience-stage-1`。
 - 下一轮：阶段 2 连接与日常使用体验，需用户继续指令后开始。阶段 2–6 尚未开始；正式生产发布集中在阶段 6。
 - 分支 `codex/agent-experience`；独立 Worktree 为主检出同级目录 `infohub-light-agent-experience`。
 - 起点为本地 main 的 `7f7be166adfa2f2961d8a71ec1494f0e9aaded51`，不携带原 `codex/0903` 或其他任务的改动。
@@ -23,9 +23,9 @@
 
 2026-09-08 只读核验：线上 API/Worker 均为 `2.6.11 / 5b5916454b55`、running/healthy；公开 `/api/health/live` 版本一致，`/api/health/ready` 的服务与 Worker 均 ready。OpenClaw VPS 安装 `2026.9.2`，仅 `main` Agent，默认模型 `google/gemini-3.7-flash`，`llm-task` 未启用。本轮未执行模型、通知、服务器配置写入或数据库迁移；此证据只描述核验时状态。
 
-阶段 0 snapshot：`/tmp/inteliscope-agent-experience-stage0-impact.json`，schema 2，base_sha 为上述 main 起点。文件丢失可用 `preflight --base 7f7be166adfa2f2961d8a71ec1494f0e9aaded51` 复核起点以来差异；下一阶段重新建立自己的 snapshot。snapshot 只是差异基线，不是测试通过证据。
+阶段 0 snapshot：`/tmp/inteliscope-agent-experience-stage0-impact.json`，schema 2，base_sha 为上述 main 起点。文件丢失可用 `preflight --base 7f7be166adfa2f2961d8a71ec1494f0e9aaded51 --head HEAD` 复核起点以来已提交差异；下一阶段重新建立自己的 snapshot。snapshot 只是差异基线，不是测试通过证据。
 
-本分支个人 relay 按登录身份选择绑定，Owner/Admin/Member 可聊天、Viewer 只读；global 37 与部署工具已实现，现有生产仍使用阶段 0 的共享 Agent 版本。接口与存储见 [Gateway](docs/contracts/api/openclaw-gateway.md)、[Remote MCP](docs/contracts/api/remote-mcp.md)，运维见 [OpenClaw 部署](docs/operations/openclaw-server.md)。阶段 1 snapshot 为 `/tmp/inteliscope-agent-experience-stage1-impact.json`，base 为阶段 0 提交 `28ab3e35`。其他现役维护包括 ActorOps global 36、系统参数 global 32；代码存在不证明环境已迁移。入口：[ActorOps](docs/contracts/api/actorops-v2-planned.md)、[运行时/迁移](docs/contracts/architecture/jobs-notifications-runtime-migrations.md)、[OpenClaw 边界](docs/contracts/architecture/openclaw-module-boundaries.md)、[Agent UI](docs/contracts/ui/agent-workspace.md)。
+本分支个人 relay 按登录身份选择绑定，Owner/Admin/Member 可聊天、Viewer 只读；global 37 与部署工具已实现，现有生产仍使用阶段 0 的共享 Agent 版本。接口与存储见 [Gateway](docs/contracts/api/openclaw-gateway.md)、[Remote MCP](docs/contracts/api/remote-mcp.md)，运维见 [OpenClaw 部署](docs/operations/openclaw-server.md)。阶段 1 snapshot 为 `/tmp/inteliscope-agent-experience-stage1-impact.json`，base 为阶段 0 提交 `28ab3e35`。阶段 1 功能提交 `df37a955`，本地 API/Worker 已构建并通过双健康、React 资源与双账号登录/未绑定检查；独立测试数据不含来源、模型或通知目标。阶段 2 接续先完成受控 Gateway 与测试账号部署，再进行真实网页验收。本地 runtime 为 `/tmp/inteliscope-agent-experience-runtime`，页面 `http://127.0.0.1:8080`，测试凭据仅在该目录 `LOGIN.txt`；临时目录丢失时重建测试数据，不使用主检出运行数据。其他现役维护包括 ActorOps global 36、系统参数 global 32；代码存在不证明环境已迁移。入口：[ActorOps](docs/contracts/api/actorops-v2-planned.md)、[运行时/迁移](docs/contracts/architecture/jobs-notifications-runtime-migrations.md)、[OpenClaw 边界](docs/contracts/architecture/openclaw-module-boundaries.md)、[Agent UI](docs/contracts/ui/agent-workspace.md)。
 
 ## 阶段顺序与退出条件
 
