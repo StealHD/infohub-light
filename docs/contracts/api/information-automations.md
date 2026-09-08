@@ -2,60 +2,69 @@
 
 ## 当前实现与待验收边界
 
-阶段 3 提供个人关键词规则、Feed 新增事件、Worker 判断与投递。所有代码仍为本地未提交改动；原测试库 global 38 尚未应用，生产未部署。阶段 4 已提供聊天确认卡与独立 MCP 草稿工具；阶段 5 提供独立 connector，验证就绪前禁止启用语义规则。用户要求先不发送，真实关键词与语义通知回执均待验收。
+Automations 配置 v2 统一使用完整自然语言要求，关键词、语义、排除要求同时参与模型判断。触发与模型配置、批次分析及 global 40 为本地实现；不代表运行库已迁移、connector 已升级或真实通知已验收。
 
-## HTTP 接口
+## HTTP 接口与规则
 
-全部接口使用当前登录用户、统一 envelope 和 `Cache-Control: no-store`。不接受用户或 Agent 选择参数；Owner/Admin/Member 需要有效个人绑定才能保存或启用，Viewer 只读。跨账号规则/运行返回 404。
+接口使用当前登录用户、统一 envelope 和 `Cache-Control: no-store`。Owner/Admin/Member 需要有效个人绑定；Viewer 只读。跨账号规则、运行与预览返回 404；不接受用户或 Agent 选择参数。
 
-| 路径 | 方法与行为 |
+| 路径（前缀 `/api/me/information-automations`） | 行为 |
 | --- | --- |
-| `/api/me/information-automations` | GET：`limit=1..100`、非负 `offset`，返回 `items/has_more/next_offset`；POST：保存草稿 |
-| `/{rule_id}` | GET 读取；PUT 接收 `version/config`，校验当前版本后创建不可变新版本 |
-| `/{rule_id}/transition` | POST 接收严格整数 `version` 与 `action=enable|pause|archive` |
-| `/{rule_id}/test` | POST 接收 `version/article_ids`（1–20 条本人内容），不投递、不创建正式运行、不推进水位 |
-| `/{rule_id}/runs` | GET 同样分页，返回判断、通知、依据、可验证回执与安全错误原因；不返回模型完整输入或领取凭证 |
+| GET / POST 根路径 | 分页查询／保存草稿；分页为 limit 1–100、offset 非负 |
+| GET / PUT `/{rule_id}` | 读取／接收 version、config，CAS 创建不可变新版本 |
+| POST `/{rule_id}/transition` | 严格整数 version；action 为 enable、pause、archive |
+| POST `/{rule_id}/test` | version、1–1000 个本人 article_ids；创建独立预览 |
+| GET `/{rule_id}/test/{preview_id}` | 读取预览进度、综合结论和依据 |
+| GET `/{rule_id}/runs` | 分页返回分析、通知、进度、模型、依据和安全回执 |
+| GET `/models` / POST `/models/refresh` | 本人模型目录／请求刷新并解除显式刷新前的模型失败阻断 |
 
-规则 `config` 包含 `name`、`mode=keyword|semantic`、本人已启用订阅的 `source_ids`、可见通知服务 `target_id`、`conditions{all,any,exclude}` 和语义 `requirement`。草稿允许缺少来源/目标/条件；启用要求补齐并验证。字面关键词按 NFKC、casefold、空白折叠规范化，不执行正则。输入不完整时返回 `insufficient`，不能把截断内容当成完整的不命中证据。
+`config` 包含 `schema_version=2`、name（1–100 字）、requirement（最多 24,000 字）、本人已启用订阅 source_ids（最多 50）、可见 target_id、trigger 和 model。model 为 `{id, thinking:null|string}`，必须选择主机目录允许的模型；缺省推理沿用模型默认。草稿可以不完整，启用须补齐并验证。新 wire 不含 mode、conditions；旧输入只转换成草稿描述，没有旧执行器。
 
-确认启用授权该版本持续投递。确认时固定个人 binding、目标 config/activation generation 和 Transport generation，水位取当前最大事件 ID；重复确认已 active 的同一版本不重置水位。修改任意 config 会新增版本、暂停、取消尚未开始的旧任务；重新启用生成新的确认标识并从当前水位开始，不补发暂停期间历史；运行引用当时的确认事实，旧确认下的结果不能用于新授权。归档不可再次启用。服务端每次投递前重新检查账号、个人绑定、订阅、规则版本、目标权限与当前 generation；失效时暂停并记录 `issue`。
+trigger.kind 为 each、count、interval、calendar。count 默认 5，范围 2–10,000；max_wait_seconds 默认 3600，可为 null 或 60–604800。interval_seconds 默认 3600，范围 60–604800。calendar 使用 time（HH:mm，默认 08:00）、timezone（有效 IANA，默认 Asia/Shanghai）及 weekdays（0 为周一，空列表每天；不得重复）。模型只接收完整要求与本批内容，不使用个人标签。
 
-## 存储和执行
+保存配置会暂停既有规则、取消未开始的旧任务，启用时确认当前版本、个人 binding、目标 config/activation generation 和 Transport generation。重复启用同一 active 版本不重置水位；其他配置变化后从当前事件水位开始，不补发暂停期间内容。仅模型变化保留已经排队的输入，在新版本确认事务内重新建批；旧判断结果不复用。归档不可恢复。
 
-global 38 新增 `information_rules`、不可变 `information_rule_versions`、确认事实 `information_rule_approvals`、`information_source_baselines`、`information_seen_items`、`information_seen_identities`、`information_events`、`information_runs`。Service 保留规则、有限判断证据与投递关联；正文复用 `user_content_items`，不复制 Gateway 会话和产物。
+## 新内容、触发和批次
 
-事件在 `FeedProductionService` 的原提交事务内写入，覆盖全量刷新和单源/共享来源发布，不依赖普通新内容通知开关。每用户按稳定 article ID 和规范 URL 身份双重去重；URL 身份仅保存 SHA-256，保留 query 对文章身份的区分。换来源 ID、离开 Feed 窗口后再次出现同一 URL 也不重放；首次成功采集（含空集合）建立来源基线，修订、重复采集、旧数据迁移和重启不生成新事件。首次来源的已有内容只加入 seen ledger。完整来源 provenance 决定可匹配的订阅，其他用户分发使用独立 ledger。
+事件仍随 FeedProductionService 原提交事务持久化，覆盖全量、单源和共享来源分发，与普通新内容通知开关独立。每用户按稳定 article ID 与规范 URL 指纹双重去重；首次成功采集（包括空集合）建立基线。修订、重复采集、历史迁移与重启不生成新增事件；完整 provenance 决定订阅归属。
 
-Worker 每批合并窗口 60 秒、最多 20 篇，判断输入上限 32,000 字符。规则 cursor 与新 run 同事务提交；并发 Worker 不重复创建批次。关键词不调用模型。每日通知最多 20 次（上海自然日，已开始但未知的尝试也计数）；达到上限为 `quota_wait/daily_notification_limit`，保留队列，次日继续检查授权后领取。达到额度的规则不阻塞其他规则。
+每条到达建立一批。条数跨所选来源累计，最长等待从最早待处理事件计算，达到 N 条或等待到期即建批。间隔以确认时间为锚点，不随 Worker 延迟漂移。calendar 使用明确时区，DST 缺失时刻跳过、重复时刻只执行一次。定期冻结到最近已到期时点的新增范围，后续到达留下一批；停机错过周期合并恢复，不逐个补跑空周期。没有内容只推进时钟，不调用模型。cursor 与批次创建同事务提交。
 
-判断状态：`pending/judging/matched/not_matched/insufficient/failed/cancelled/quota_wait`。通知状态独立：`not_required/pending/sending/sent/failed/unknown/cancelled/quota_wait`。先持久化 sending，再调用既有 Email/Telegram/Webhook transport；只有 SMTP 接受、匹配 Telegram message ID 或 Webhook 的已校验 ACK 可标记 sent。发送返回未知、无可验证回执或 Worker 在 sending 后中断，不自动重发；超过五分钟的遗留 sending 标记 unknown。公开回执只含渠道、验证类型与允许的消息标识，不含秘密或目的地。
+批次以全量稳定内容作为证据，来源、发布时间和文章标识进入有界输入。单次调用最多 20 个单元、32,000 字符（包含要求与安全余量）；大正文分段，大批量按 extract → 必要的 reduce → final 分层。模型必须返回完整 covered_ids 和有界 summary、reason、evidence；阶段结论不能投递。引用必须同时存在于原始输入及本步骤收到的正文或证据。所有步骤完成后才产生 matched、not_matched 或 insufficient；整批至多一次通知。
 
-## 显式迁移
+原始内容不完整、被截断、缺失或 personal_only 时保留 insufficient，不把缺失当作否定证据，不将该批输入送入模型。每次领取、提交和投递重新检查当前隐私和权限。进度与中间结果持久化，重启仅恢复未完成步骤。配额耗尽为 quota_wait，保留进度至上海自然日次日；每用户并发 1、每日最多 100 次领取（包括预览、分段、汇总、重试）。
 
-`scripts/migrate_information_automations_v38.py --data-dir ABSOLUTE_PATH` 预览，`--apply` 执行。要求 global 37 完整，停止 API/Worker 并跨过心跳安全窗；先创建 0600 SQLite backup，再事务安装、建立旧内容 seen 基线、检查 schema/integrity/foreign keys。失败恢复备份，重复 apply 幂等。不创建规则或历史事件、不扩充 delegation、不读取目标凭据、不发送。既有数据库普通 initialize 不升级；只有全新数据库引导安装空表。缺 global 38 只阻断信息提醒 API/执行，已安装但损坏的事件 schema 阻止 Feed 事务提交，避免静默丢事件。
+## Connector 与模型目录
 
-## 聊天草稿与独立 MCP 授权
+机器接口前缀 `/api/connector/information-automations`，只接受独立 Bearer 机器凭据，Cookie 无效，JSON 请求上限 65,536 bytes。global 40 不扩充或重建凭据。
 
-`information_automations_read` profile 增加 `inteliscope:information-automations:read`；`information_automations_draft` 同时增加 `inteliscope:information-automations:draft`。既有 delegation 不自动扩权；Viewer 不能创建 draft profile。工具列表按当前有效授权过滤，调用时再次读取授权及用户角色。
+- GET `/configuration` 返回绑定、独立 completion Agent 及协议版本 2。
+- POST `/capabilities` 接收 `{protocol_version:2,models:[{id,name,thinking_levels}]}`，按 binding 与凭据 generation 保存纯模型元数据。
+- POST `/claim` 要求 `{isolated_completion:true,protocol_version:2}`；旧协议返回 connector_upgrade_required。每次领取一个持久化步骤，包含 stage、完整 requirement、明确 model、有界 input。
+- POST `/claims/{id}/result` 接收 claim_token 与 `{model,output}`；实际模型必须与所选模型一致。output 有 status、summary、reason、covered_ids、evidence（article_id、quote、note）。拒绝未知引用、漏单元、畸形输出及工具形状。
 
-`list_my_information_automations(offset)` 只查询本人；`prepare_information_automation(config)` 只保存新草稿，返回 `draft_ref`、版本与 `[[information-automation:iar_<32hex>]]` 确认卡引用。工具不包含启用、任意投递或通知目的地读取。前端以当前登录身份重新 GET 规则，模型文本中的配置不可信；启用仍由 HTTP 版本校验及用户独立确认完成。
+connector 在 Gateway 主机读取配置目录（models.list configured，指定 completion Agent）并与主机 llm-task 模型覆盖策略求交，每 30 秒同步；Service 目录超过 300 秒为 stale。默认 connector 安装只为未设置的 allowModelOverride 提供 true，保留已有明确 false 与 allowedCompletionModels。凭据和原始配置不进入 Service 或浏览器。目录配置可用不等于真实模型调用已验收；不支持独立 completion 的运行时失败关闭。
 
-管理员用 `scripts/manage_reminder_delegation.py export --data-dir PATH --user-id ID --bundle-dir NEW_PRIVATE_DIR` 显式导出独立授权，随后在 Gateway 主机执行 `install --root ROOT --bundle-dir DIR --openclaw EXECUTABLE`。工具使用新的 MCP 名称和 SecretStore 引用，保留原个人 read delegation，仅向本人的 Agent 添加两个提醒工具，其余 Agent 显式 deny 此命名空间。安装校验配置但不重启、不调用模型、不发送通知；运行验证需单独完成。新增 Skill 位于本人工作目录。已扩展配置重新执行基础 Agent 安装时会因差异停止，维护时应使用提醒安装工具。
+每次领取保存 token 摘要、binding、凭据代次、180 秒租约。过期最多三次领取，提交超时的 0600 journal 先重交同一结果，不重复调用模型。相同结果重复提交幂等，旧租约、旧版本、旧确认或换绑结果不覆盖。模型调用失败将该模型标记不可用并保留队列；后台同步不会自动清除此阻断，用户刷新目录后可重试，或仅更换模型后重新确认。
 
-## 语义 connector 与测试预览
+`llm-task` 使用显式 model 及可选 thinking；独立 prompt、空工具、无会话复用、无渠道投递、不回退普通 Agent。机器 connector 不持有通知目的地或发送权限。
 
-global 39 显式新增 `information_connectors`、`information_claims`、`information_previews`。先运行 `migrate_information_automations_v38.py`，再用 `migrate_information_connector_v39.py` 预览并备份迁移；不自动创建机器凭据。机器 SecretStore 引用与 MCP delegation 完全独立，token 只绑定一个有效个人 binding。吊销 connector 会暂停本人语义规则并取消未开始投递；账号、个人绑定失效同样拒绝领取与提交。
+## 通知与回执
 
-机器接口前缀 `/api/connector/information-automations`：GET `/configuration` 返回本人绑定与独立 completion Agent；POST `/claim` 接受 `{isolated_completion:true}`；POST `/claims/{id}/result` 接受领取令牌与判断结果。仅 Bearer 机器凭据可用，登录 Cookie 无效；JSON 请求上限 65,536 bytes。空队列返回 null，不调用模型。每用户并发 1、每日最多 100 次领取（含预览与重试），按 Asia/Shanghai 日界线计数；超额保留队列至次日。
+沿用 Email、Telegram、Webhook transport；发送综合摘要、理由与服务端输入中的原文链接。未命中无需通知，证据不足和失败保留原因。判断与通知状态独立；正式发送前再次验证账号、binding、订阅、版本、确认、目标与 Transport generation。
 
-每次领取持久化独立 token 摘要、binding、凭据代次和 180 秒租约。Worker 或下一次领取回收失效租约，最多尝试 3 次；相同结果重复提交幂等，结果变更、旧租约、换绑或旧规则版本不可覆盖。提交前与投递前分别检查规则、账号和授权。connector 提交只形成判断及待投递状态，不持有通知目的地、不直接发送。
+每日每规则最多 20 次通知，上海自然日，已开始但未知的尝试也计数。先持久化 sending 再发送；仅 SMTP 接受、Telegram message ID 或已验证 Webhook ACK 为 sent。未知发送不自动重发；遗留 sending 五分钟后为 unknown。公开回执不含目的地或秘密。
 
-OpenClaw `llm-task` 使用已安装 2026.9.2 的 isolated completion 接口：独立 prompt、空工具面、无会话复用、无渠道投递、不回退普通 Agent turn。每人独立 `ic-<binding>` entry 只允许 `llm-task`，禁止其他 MCP/运行时/通知工具；聊天 Agent 显式禁止 `llm-task`。Gateway operator 凭据只供主机 connector 使用，单独从 Gateway SecretStore 读取，不导出至用户 MCP 授权。
+## 迁移与操作
 
-输入仅含完整判断要求与本次文章 ID、标题、正文。`personal_only` 和不完整文章不进入模型，当前订阅改为 personal_only 也立即阻断后续推理。输出必须逐篇给出 matched/not_matched/insufficient、理由；matched 必须引用该文章实际存在的文字。未知/重复/缺失文章、伪造引用、工具形状、超限和畸形输出失败关闭，不产生通知授权。判断详情只保存必要证据及状态。
+global 38/39 原表与校验保持原样；global 40 新增触发状态、模型目录、批次步骤和模型变更待恢复引用。非归档旧规则追加新版本，关键词条件转换完整描述，旧语义描述保留，active 改 paused；旧版本、确认、回执不改写。没有历史事件或模型／通知调用。
 
-语义 POST `/{rule}/test` 返回独立 preview_id、status、results；GET `/{rule}/test/{preview_id}` 按本人分页之外的单条引用读取进度。预览可为 pending/judging/quota_wait/completed/failed；不写正式运行、确认事实或正式水位，不发送。每用户最多 5 个待执行预览，使用相同领取并发与日额度。前端在查看当前预览时刷新进度，修改规则后旧测试不能代表新版本。
+依次使用 `migrate_information_automations_v38.py`、`migrate_information_connector_v39.py`、`migrate_information_unified_v40.py --data-dir PATH` 预览，再显式 `--apply`。要求停 API/Worker、心跳窗安全、0600 备份、marker/shape/integrity/foreign-key 校验；失败恢复备份，重复 apply 幂等。已有数据库 initialize 不自动升级，缺 global 40 仅阻断自动化接口与执行。正常 Feed 继续遵循 global 38 事件 schema 校验。
 
-运维：`manage_information_connector.py export --data-dir PATH --user-id ID --bundle-dir NEW_DIR` 导出私有机器凭据；`install --root GATEWAY_ROOT --bundle-dir DIR` 验证并配置独立 Agent，不重启或调用模型。`run_information_connector.py` 使用显式 Service/Gateway URL、各自 SecretStore 目录与引用、`ic-<binding>` Agent 和独立私有 journal；`--once` 只处理一次。结果提交超时保留 0600 journal，重启先重交相同结果，不重复模型调用。`manage_information_connector.py revoke --data-dir PATH --user-id ID` 吊销并暂停语义规则。真实模型/通知回执仍按用户要求待验收。
+`manage_information_connector.py` 配置机器凭据与独立 Agent；`run_information_connector.py` 沿用原 Service/Gateway SecretStore 参数并增加必填 `--gateway-config`（Gateway 主机的配置文件）。metadata 设备位于 journal 同目录的 catalog-device，须完成 Gateway 配对；自定义 CA 同时用于 HTTP 与模型目录 WebSocket。安装和目录读取不调用模型，运行测试及真实通知需独立验收。
 
-本地原库操作：先停止 API/Worker，沿用 runtime 的 `HORIZON_SQLITE_JOURNAL_MODE`（当前本地 Docker 为 `DELETE`），再依次运行 global 38、39 的预览和 `--apply`。不要在容器运行时用默认 WAL 的宿主配置工具打开原库。两次迁移均有独立 0600 备份；重建仅从任务 Worktree 运行 `./scripts/up-latest.sh`。恢复迁移前版本必须使用 global 38 前备份并按 runtime_health 核验。用户验收前不执行 Git、CI 发布、生产切换或真实通知。
+聊天 MCP 仍只提供 list_my_information_automations 与 prepare_information_automation，授权保持本人 read/draft profile；既有 delegation 不自动扩权。聊天引用只触发当前账号重新读取可信确认卡，模型文本不能启用规则。高级 Gateway Cron 保留独立授权及入口。
+
+仅更换模型时，同时保留已形成批次与尚未达到触发条件的事件；重新确认后继续累计，暂停期间新增内容仍跳过。超长旧关键词条件完整转换，描述上限为 24,000 字符；长描述的中间步骤使用更紧凑的证据 schema，为分层汇总保留输入空间。
+
+统一分析 connector 将输出 schema 同时写入模型提示词和 Gateway 校验参数；请求绑定独立 Agent 的 sessionKey。格式错误、调用超时与通用调用失败分别返回 invalid_model_output、analysis_timeout、analysis_call_failed，结束当前测试或运行，不将此类错误计作模型下架。旧 connector 的 isolated_completion_failed 兼容处理保持不变。

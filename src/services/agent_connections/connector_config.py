@@ -30,5 +30,7 @@ def configure(config, base, root):
             if 'llm-task' not in deny:
                 deny.append('llm-task')
     agents[agent_id] = entry
-    result.setdefault('plugins', {}).setdefault('entries', {}).setdefault('llm-task', {})['enabled'] = True
+    plugin = result.setdefault('plugins', {}).setdefault('entries', {}).setdefault('llm-task', {})
+    plugin['enabled'] = True
+    plugin.setdefault('llm', {}).setdefault('allowModelOverride', True)
     return result, agent_id

@@ -5,11 +5,13 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 import httpx
-from .semantic_validation import ModelResult, SYSTEM_INSTRUCTION
+from .batches import SYSTEM, output_schema
+from .completion_errors import completion_error
+import time
 
 
 class InformationConnector:
-    def __init__(self, *, service_url, service_token, gateway_url, gateway_token, agent_id, journal, client=None):
+    def __init__(self, *, service_url, service_token, gateway_url, gateway_token, agent_id, journal, client=None, discover_models=None):
         for value in (service_url, gateway_url):
             url = urlsplit(value)
             if not url.hostname or url.username or url.password or url.query or url.fragment or not (
@@ -20,6 +22,7 @@ class InformationConnector:
         self.agent_id, self.journal = agent_id, Path(journal)
         if self.journal.is_symlink() or self.journal.parent.resolve() != self.journal.parent:
             raise ValueError('Regular private journal path required')
+        self.discover_models, self.catalog_at = discover_models, 0
         self.client = client or httpx.Client(timeout=75, follow_redirects=False)
 
     def close(self):
@@ -62,7 +65,11 @@ class InformationConnector:
         pending = self.flush()
         if pending is not None:
             return pending
-        claim = self.service('claim', {'isolated_completion': True})
+        if self.discover_models and time.monotonic() - self.catalog_at >= 30:
+            models = self.discover_models()
+            self.service('capabilities', {'protocol_version': 2, 'models': models})
+            self.catalog_at = time.monotonic()
+        claim = self.service('claim', {'isolated_completion': True, 'protocol_version': 2})
         task = claim.get('task')
         if not task:
             return {'status': claim.get('reason', 'empty'), 'retry_after': claim.get('retry_after', 15)}
@@ -71,16 +78,20 @@ class InformationConnector:
                 raise ValueError('Connector Agent binding mismatch')
             response = self.client.post(self.gateway_url + '/tools/invoke',
                 headers={'Authorization': 'Bearer ' + self.gateway_token}, json={
-                    'tool': 'llm-task', 'action': 'json', 'agentId': self.agent_id,
-                    'idempotencyKey': task['claim_id'], 'args': {'prompt': SYSTEM_INSTRUCTION,
-                    'input': {'requirement': task['requirement'], 'articles': task['articles']},
-                    'schema': ModelResult.model_json_schema(), 'maxTokens': 4096, 'timeoutMs': 60000}})
+                    'tool': 'llm-task', 'action': 'json', 'agentId': self.agent_id, 'sessionKey': 'agent:' + self.agent_id + ':information-analysis',
+                    'idempotencyKey': task['claim_id'], 'args': {'prompt': SYSTEM + '\nOUTPUT_SCHEMA:\n' + json.dumps(output_schema(task['requirement'], task['stage']), separators=(',', ':')), 'model': task['model']['id'],
+                    **({'thinking': task['model']['thinking']} if task['model'].get('thinking') else {}),
+                    'input': {'requirement': task['requirement'], 'stage': task['stage'], 'units': task['input']},
+                    'schema': output_schema(task['requirement'], task['stage']), 'maxTokens': 4096, 'timeoutMs': 60000}})
             response.raise_for_status()
             raw = response.json()
-            result = raw['result']['details']['json']
+            details = raw['result']['details']
+            actual = details.get('model', '')
+            actual = actual if actual.startswith(details.get('provider', '') + '/') else details.get('provider', '') + '/' + actual
+            result = {'output': details['json'], 'model': actual}
             if not raw.get('ok') or not isinstance(result, dict):
                 raise ValueError('Invalid isolated completion')
-        except (httpx.HTTPError, ValueError, KeyError, TypeError):
-            result = {'error': 'isolated_completion_failed'}
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            result = {'error': completion_error(error)}
         self.persist({'claim_id': task['claim_id'], 'body': {'claim_token': task['claim_token'], 'result': result}})
         return self.flush()

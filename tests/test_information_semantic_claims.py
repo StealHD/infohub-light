@@ -18,7 +18,7 @@ def setup(ctx):
     assert claim_work(store, rules.targets, token)['task'] is None
     now = datetime.now(timezone.utc)
     acquire(ctx, ['old'], now)
-    semantic = config.model_copy(update={'mode': 'semantic', 'requirement': 'Find new AI research backed by evidence.'})
+    semantic = config.model_copy(update={'requirement': 'Find new AI research backed by evidence.'})
     draft = rules.save(alice['id'], semantic)
     rules.transition(alice['id'], draft['id'], 1, 'enable')
     acquire(ctx, ['new'], now)
@@ -27,8 +27,11 @@ def setup(ctx):
 
 
 def answer(task, status='matched', quote='AI research'):
-    return {'decisions': [{'article_id': item['article_id'], 'status': status, 'reason': 'Controlled evidence', 'quote': quote}
-                          for item in task['articles']]}
+    first = task['input'][0]
+    identity = first.get('article_id') or first['evidence'][0]['article_id']
+    return {'model':task['model']['id'],'output':{'status':status,'reason':'Controlled evidence','summary':'Combined conclusion',
+            'covered_ids':[item['unit_id'] for item in task['input']],
+            'evidence':[{'article_id':identity,'quote':quote,'note':'Evidence'}]}}
 
 
 @pytest.mark.parametrize('status', ['matched', 'not_matched', 'insufficient'])
@@ -53,11 +56,11 @@ def test_malformed_model_outputs_cannot_authorize_a_notification(context, kind):
     store, rules, token, now, draft, alice = setup(context)
     task = claim_work(store, rules.targets, token, now=now)['task']
     result = answer(task)
-    if kind == 'foreign_id': result['decisions'][0]['article_id'] = 'foreign'
-    elif kind == 'duplicate': result['decisions'] *= 2
-    elif kind == 'quote': result['decisions'][0]['quote'] = 'invented evidence'
+    if kind == 'foreign_id': result['output']['evidence'][0]['article_id'] = 'foreign'
+    elif kind == 'duplicate': result['output']['covered_ids'] *= 2
+    elif kind == 'quote': result['output']['evidence'][0]['quote'] = 'invented evidence'
     elif kind == 'tools': result['tools'] = ['send_message']
-    else: result['decisions'] = []
+    else: result['output']['covered_ids'] = []
     assert submit_result(store, rules.targets, token, task['claim_id'], task['claim_token'], result, now=now)['status'] == 'failed'
     assert rules.runs(alice['id'], draft['id'])['items'][0]['notification_status'] == 'not_required'
 
@@ -80,8 +83,7 @@ def test_pause_and_cross_user_credentials_reject_result(context):
     with pytest.raises(RuleError):
         submit_result(store, rules.targets, other, task['claim_id'], task['claim_token'], answer(task), now=now)
     rules.transition(alice['id'], draft['id'], 1, 'pause')
-    with pytest.raises(RuleError):
-        submit_result(store, rules.targets, token, task['claim_id'], task['claim_token'], answer(task), now=now)
+    assert submit_result(store, rules.targets, token, task['claim_id'], task['claim_token'], answer(task), now=now)['accepted'] is False
     context[2].revoke(alice['id'])
     with pytest.raises(RuleError): authenticate(store, token)
 

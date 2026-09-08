@@ -69,7 +69,7 @@ def revoke(store, user_id):
     now = datetime.now(timezone.utc).isoformat()
     with transaction(store) as conn:
         conn.execute('UPDATE information_connectors SET enabled=0,verified_at=NULL,updated_at=? WHERE user_id=?', (now, user_id))
-        rows = conn.execute("SELECT id FROM information_rules WHERE user_id=? AND state='active' AND json_extract(config_json,'$.mode')='semantic'", (user_id,)).fetchall()
+        rows = conn.execute("SELECT id FROM information_rules WHERE user_id=? AND state='active'", (user_id,)).fetchall()
         for row in rows:
             conn.execute("UPDATE information_rules SET state='paused',issue='connector_revoked',updated_at=? WHERE id=?", (now, row['id']))
             cancel_unsent(conn, row['id'], 'connector_revoked')

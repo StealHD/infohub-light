@@ -2,35 +2,12 @@
 import json
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Annotated, Literal
+from datetime import datetime, timedelta, timezone
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-
-from ...storage.information_automation_schema import ready
+from ...storage.information_unified_schema import ready
 from ..agent_connections.service import AgentConnections
-from ..user_content_store import UserContentStore
-from .matching import keyword_match
-from .content import evidence_input
 
-Term = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
-
-
-class Conditions(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    all: list[Term] = Field(default_factory=list, max_length=30)
-    any: list[Term] = Field(default_factory=list, max_length=30)
-    exclude: list[Term] = Field(default_factory=list, max_length=30)
-
-
-class RuleConfig(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-    mode: Literal['keyword', 'semantic'] = 'keyword'
-    source_ids: list[Term] = Field(default_factory=list, max_length=50)
-    target_id: Term | None = None
-    conditions: Conditions = Field(default_factory=Conditions)
-    requirement: str = Field(default='', max_length=16000)
+from .config import RuleConfig
 
 
 class RuleError(ValueError):
@@ -65,9 +42,24 @@ def transaction(store):
         raise
 
 
-def public_rule(row):
-    return {**{key: row[key] for key in ('id', 'version', 'state', 'issue', 'created_at', 'updated_at', 'confirmed_at')},
-            'config': json.loads(row['config_json'])}
+def public_rule(row, conn=None):
+    result = {**{key: row[key] for key in ('id','version','state','issue','created_at','updated_at','confirmed_at')},
+              'config': RuleConfig.model_validate_json(row['config_json']).model_dump()}
+    if conn is not None:
+        from .execution import matching_events
+        from .batches import progress
+        config = RuleConfig.model_validate_json(row['config_json'])
+        events = matching_events(conn,row,config,datetime.now(timezone.utc)) if row['state']=='active' else []
+        due = conn.execute('SELECT next_due FROM information_trigger_state WHERE rule_id=?',(row['id'],)).fetchone()
+        result.update(pending_count=len(events),next_due=due['next_due'] if due else None)
+        if events and config.trigger.kind == 'count' and config.trigger.max_wait_seconds:
+            result['next_due'] = (datetime.fromisoformat(events[0]['created_at']) + timedelta(seconds=config.trigger.max_wait_seconds)).isoformat()
+        result['source_names'] = [source['display_name'] for identity in config.source_ids
+            if (source := conn.execute('SELECT display_name FROM source_catalog WHERE id=? AND workspace_id=?', (identity,row['workspace_id'])).fetchone())]
+
+        latest = conn.execute('SELECT id,status,notification_status FROM information_runs WHERE rule_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(row['id'],)).fetchone()
+        result['latest_run'] = {**dict(latest),**progress(conn,run_id=latest['id'])} if latest else None
+    return result
 
 
 def cancel_unsent(conn, rule_id, reason):
@@ -128,11 +120,11 @@ class InformationRules:
             raise RuleError('invalid_pagination', '分页参数无效。', 400)
         rows = self.store.connect().execute('''SELECT * FROM information_rules WHERE user_id=?
             ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?''', (user['id'], limit + 1, offset)).fetchall()
-        return {'items': [public_rule(row) for row in rows[:limit]], 'has_more': len(rows) > limit,
+        return {'items': [public_rule(row, self.store.connect()) for row in rows[:limit]], 'has_more': len(rows) > limit,
                 'next_offset': offset + limit if len(rows) > limit else None}
 
     def get(self, user_id, rule_id):
-        return public_rule(self.row(self.actor(user_id), rule_id))
+        return public_rule(self.row(self.actor(user_id), rule_id), self.store.connect())
 
     def runs(self, user_id, rule_id, *, limit=50, offset=0):
         user = self.actor(user_id)
@@ -147,6 +139,8 @@ class InformationRules:
             item = dict(row)
             item['evidence'] = json.loads(item.pop('evidence_json'))
             item['receipt'] = json.loads(item.pop('receipt_json') or 'null')
+            from .batches import progress
+            item.update(progress(self.store.connect(), run_id=row['id']))
             items.append(item)
         return {'items': items, 'has_more': len(rows) > limit,
                 'next_offset': offset + limit if len(rows) > limit else None}
@@ -162,6 +156,8 @@ class InformationRules:
                 row = self.row(user, rule_id)
                 if row['version'] != expected_version or row['state'] == 'archived':
                     raise RuleError('rule_version_conflict', '提醒已变化，请刷新后重新编辑。')
+                from .model_change import preserve_waiting
+                preserve_waiting(conn,row,config)
                 version = row['version'] + 1
                 state = 'draft' if row['state'] == 'draft' else 'paused'
                 conn.execute('''UPDATE information_rules SET version=?,config_json=?,state=?,
@@ -173,7 +169,7 @@ class InformationRules:
                     (id,workspace_id,user_id,version,state,config_json,created_at,updated_at)
                     VALUES(?,?,?,1,'draft',?,?,?)''', (rule_id, user['workspace_id'], user_id, encoded, now, now))
             conn.execute('INSERT INTO information_rule_versions VALUES(?,?,?,?)', (rule_id, version, encoded, now))
-            return public_rule(self.row(user, rule_id))
+            return public_rule(self.row(user, rule_id), conn)
 
     def transition(self, user_id, rule_id, version, action):
         if action not in {'enable', 'pause', 'archive'}:
@@ -187,20 +183,17 @@ class InformationRules:
             if action == 'enable':
                 config = RuleConfig.model_validate_json(row['config_json'])
                 binding = self.binding(user)
-                if config.mode == 'semantic':
-                    from .connector_auth import is_verified
-                    if not is_verified(self.store, binding['binding_id']):
-                        raise RuleError('semantic_connector_required', '语义提醒需要先配置并验证独立判断服务。')
                 self.validate_sources(user, config)
                 target = self.target(user, config, require_ready=True)
-                valid = bool(config.conditions.all or config.conditions.any) if config.mode == 'keyword' else bool(config.requirement.strip())
-                if not config.source_ids or not target or not valid:
-                    raise RuleError('incomplete_rule', '请补齐来源、判断条件和通知服务。')
+                if not config.source_ids or not target or not config.requirement.strip() or not config.model:
+                    raise RuleError('incomplete_rule', '请补齐来源、完整要求、模型和通知服务。')
+                from .model_catalog import require_model
+                require_model(self.store, binding['binding_id'], config.model)
                 if row['state'] == 'active':
                     if (row['binding_id'], row['target_generation'], row['target_activation'], row['transport_generation']) != (
                             binding['binding_id'], target['config_generation'], target['activation_generation'], transport_generation(self.store, user, target)):
                         raise RuleError('rule_authorization_changed', '授权已变化，请暂停后重新确认。')
-                    return public_rule(row)
+                    return public_rule(row, conn)
                 cursor = conn.execute('SELECT COALESCE(MAX(id),0) FROM information_events WHERE user_id=?', (user_id,)).fetchone()[0]
                 confirmation_id = 'iaapproval_' + uuid.uuid4().hex
                 approval = {'binding_id': binding['binding_id'], 'target_id': target['id'],
@@ -212,34 +205,26 @@ class InformationRules:
                     target_activation=?,transport_generation=?,confirmed_at=?,confirmation_id=?,cursor=?,updated_at=? WHERE id=?''',
                              (binding['binding_id'], target['config_generation'], target['activation_generation'],
                               transport_generation(self.store, user, target), now, confirmation_id, cursor, now, rule_id))
+                from .scheduling import next_due
+                due = next_due(config.trigger, datetime.fromisoformat(now))
+                conn.execute('INSERT OR REPLACE INTO information_trigger_state VALUES(?,?)', (rule_id, due.isoformat() if due else None))
+                from .model_change import resume_waiting
+                resume_waiting(conn,self.row(user,rule_id),config,now)
             else:
                 conn.execute('UPDATE information_rules SET state=?,updated_at=? WHERE id=?',
                              ('paused' if action == 'pause' else 'archived', now, rule_id))
                 cancel_unsent(conn, rule_id, 'rule_' + action)
-            return public_rule(self.row(user, rule_id))
+                conn.execute('DELETE FROM information_rule_carry WHERE rule_id=?',(rule_id,))
+                conn.execute('DELETE FROM information_event_carry WHERE rule_id=?',(rule_id,))
+            return public_rule(self.row(user, rule_id), conn)
 
     def test(self, user_id, rule_id, version, article_ids):
         user = self.actor(user_id)
         row = self.row(user, rule_id)
         if row['version'] != version:
             raise RuleError('rule_version_conflict', '提醒已变化，请重新测试。')
-        if not 1 <= len(article_ids) <= 20:
-            raise RuleError('invalid_test_items', '请选择 1–20 篇本人文章。', 400)
+        if not 1 <= len(article_ids) <= 1000:
+            raise RuleError('invalid_test_items', '请选择 1–1000 篇本人文章。', 400)
         config = RuleConfig.model_validate_json(row['config_json'])
-        if config.mode != 'keyword':
-            from .semantic_previews import create_preview
-            return create_preview(self, user, row, config, article_ids)
-        results = []
-        remaining = 32000
-        for article_id in dict.fromkeys(article_ids):
-            item = UserContentStore(self.store).get_item(workspace_id=user['workspace_id'], user_id=user_id, article_id=article_id)
-            if not item:
-                raise RuleError('not_found', '测试文章不存在。', 404)
-            evidence = evidence_input(item, remaining)
-            remaining -= len(evidence['text'])
-            matched = keyword_match(evidence['text'], config.conditions.model_dump())
-            status = 'insufficient' if evidence['truncated'] else 'matched' if matched else 'not_matched'
-            if not set(config.source_ids) & set(evidence['source_ids']):
-                status = 'not_matched'
-            results.append({'article_id': article_id, 'status': status})
-        return {'version': version, 'results': results, 'sends_notification': False, 'advances_cursor': False}
+        from .semantic_previews import create_preview
+        return create_preview(self, user, row, config, article_ids)

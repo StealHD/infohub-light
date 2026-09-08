@@ -83,3 +83,5 @@ def bootstrap_actor_schemas(
     install_agent_connections(connection)
     install_information_automations(connection)
     install_information_connector(connection)
+    from .information_unified_schema import apply_migration as install_unified
+    install_unified(connection)

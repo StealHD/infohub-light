@@ -1,5 +1,7 @@
 """Stable reminder mutation audit names; never log rules, evidence or credentials."""
 MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
+    ('POST', '/api/me/information-automations/models/refresh'): ('agent', 'information_models_refresh'),
+    ('POST', '/api/connector/information-automations/capabilities'): ('agent', 'information_capabilities'),
     ('POST', '/api/me/information-automations'): ('agent', 'information_draft_create'),
     ('PUT', '/api/me/information-automations/{rule_id}'): ('agent', 'information_draft_update'),
     ('POST', '/api/me/information-automations/{rule_id}/transition'): ('agent', 'information_rule_transition'),

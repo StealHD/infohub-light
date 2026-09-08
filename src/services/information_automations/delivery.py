@@ -13,11 +13,33 @@ from .rules import InformationRules, RuleError, transaction
 from .limits import RULE_DAILY_NOTIFICATIONS
 
 
-def notification_payload(run, config):
-    matched = {row['article_id'] for row in json.loads(run['evidence_json']) if row['status'] == 'matched'}
-    items = [{'id': item['article_id'], 'title': item['title'], 'summary': item['text'][:1000],
-              'source_name': config.name} for item in json.loads(run['input_json']) if item['article_id'] in matched]
-    return {'kind': 'information_reminder', 'rule_name': config.name, 'run_id': run['id'], 'items': items}
+def notification_payload(run, config, conn):
+    from .batches import progress
+    from .content import original_url
+    result = progress(conn,run_id=run['id']).get('result')
+    if not result or result['status'] != 'matched':
+        return {'items': []}
+    source = {item['article_id']:item for item in json.loads(run['input_json'])}
+    items = []
+    for identity in dict.fromkeys(item['article_id'] for item in result['evidence']):
+        item = source[identity]
+        url = original_url(item.get('url'))
+        quotes = [entry['quote'] for entry in result['evidence'] if entry['article_id']==identity]
+        items.append({'id':identity,'title':item['title'],'summary':'；'.join(quotes),
+                      'source_name':item.get('source_name') or config.name,'url':url})
+    return {'kind':'information_reminder','rule_name':config.name,'run_id':run['id'],
+            'summary':result['summary'],'reason':result['reason'],'items':items}
+
+
+def notification_text(payload):
+    links = [item['title'][:100] + '\n' + item['url'] for item in payload['items'] if item['url'] and len(item['url']) <= 3500]
+    first = links[0] if links else ''
+    heading = payload['rule_name'] + '\n' + payload['summary'] + '\n' + payload['reason']
+    text = heading[:4000 - len(first) - 2] + '\n\n' + first
+    for block in links[1:]:
+        if len(text) + len(block) + 2 <= 4000:
+            text += '\n\n' + block
+    return text
 
 
 class ReminderTransport:
@@ -30,8 +52,7 @@ class ReminderTransport:
         settings = self.targets.delivery_settings(target, user_id=user['id'])
         destination = settings['_resolved_destination']
         channel = target['channel']
-        text = (payload['rule_name'] + '\n' + '\n\n'.join(
-            item['title'] + '\n' + item['summary'] for item in payload['items']))[:4000]
+        text = notification_text(payload)
         if channel == 'email':
             self.email.send_notification(workspace_id=user['workspace_id'], recipient_email=destination, payload=payload)
             return {'channel': channel, 'verification': 'smtp_accepted'}
@@ -85,8 +106,12 @@ def claim_delivery(rules, run_id, now, daily_limit):
             conn.execute("UPDATE information_runs SET notification_status='quota_wait',reason='daily_notification_limit',ready_at=?,updated_at=? WHERE id=?",
                          (tomorrow, now.isoformat(), run_id))
             return None
-        payload = notification_payload(run, config)
-        if not payload['items']:
+        from .semantic_validation import apply_current_privacy, eligible
+        if any(not eligible(item) for item in apply_current_privacy(rules.store,row['user_id'],json.loads(run['input_json']))):
+            conn.execute("UPDATE information_runs SET notification_status='cancelled',reason='input_incomplete' WHERE id=?", (run_id,))
+            return None
+        payload = notification_payload(run, config, conn)
+        if not payload['items'] or not any(item['url'] for item in payload['items']):
             conn.execute("UPDATE information_runs SET notification_status='failed',reason='missing_evidence' WHERE id=?", (run_id,))
             return None
         conn.execute("UPDATE information_runs SET notification_status='sending',reason=NULL,delivery_started_at=?,updated_at=? WHERE id=?",

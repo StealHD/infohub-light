@@ -19,6 +19,7 @@ from .system_auth import (
     visible_source_or_404,
 )
 from ..services.subscription_mutation import SubscriptionActor
+from ..services.subscription_presentation import subscription_platforms
 from ..services.actorops.binding_service import ActorOpsBindingError
 
 
@@ -57,6 +58,7 @@ async def subscriptions_list(
     context: ApiContext = Depends(api_context),
 ) -> dict[str, Any]:
     subscriptions = context.store.list_user_subscriptions(user["id"])
+    platforms = subscription_platforms(context.store, user)
     schedules = context.source_schedules.list_user_subscription_schedules(
         workspace_id=user["workspace_id"],
         user_id=user["id"],
@@ -74,6 +76,7 @@ async def subscriptions_list(
             "subscriptions": [
                 {
                     **subscription,
+                    "source_platform": platforms.get(subscription["source_id"], subscription.get("source_type")),
                     "schedule": source_schedule_payload(
                         schedules[str(subscription["id"])],
                         worker_status=str(availability["worker_status"]),

@@ -8,111 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-06",
-  "result": "完成本轮 Agent 输入区细节：Fast 默认透明，仅精细指针悬停显示底色，开启时底部模型名前增加主题色闪电并播报状态；箭头旋转仅作用于尾部 chevron。发送按钮恢复共享主题色及禁用透明度；输入框移除静态描边，保留主题表面与非布局焦点提示。/ 与 @ 候选改为输入框上方同宽浮层，语义图标、名称、说明横排，圆角选中态，窄屏换行并保留滚动、键盘及草稿行为。同步设计系统参数与更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-06-agent-composer-polish",
-  "unresolved": [],
-  "validation": [
-    "直接控件单测 3 文件 22 项通过；构建版思考控件 18 项通过；快捷候选 18 passed / 6 skipped，覆盖同宽对齐、图标、200% 等效缩放、窄 Feed 栏、IME、撤销 Skill、草稿与不自动发送。已检查深浅主题及桌面/手机截图。",
-    "修正构建版颜色百分比/小数序列化造成的测试误报；收窄动态图标依赖后首屏 JavaScript Brotli 245311 bytes，低于 245760 bytes 门槛，构建复验通过。",
-    "agent-composer-polish-final impacted preflight 14/14 通过，含 129 文件 853 项 Vitest、受影响 Python、类型、lint、构建、代码体积和 UI 合同检查。最终完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-composer-polish-release-final。",
-    "控制文件、JSON 和 diff 校验通过；5173 API 代理健康状态 ready，保留本地前后端。未重建 Docker、调用真实 AI、提交或推送。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-06",
-  "result": "纠正把用户的无黑边仅处理成静态无描边：删除 Agent 输入框聚焦外圈及其 2px 偏移，所有状态使用零 border、outline、outline-offset 和 box-shadow，保留主题表面与可见光标。Fast 提示复用向上 Tooltip 参数，以 13/12px 常规字重显示 Fast / 用量更多，避免覆盖模型区域；同步组件参数与更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-06-agent-composer-edge-tooltip",
-  "unresolved": [],
-  "validation": [
-    "构建版定向 9 项通过，覆盖桌面/平板/手机深浅主题、鼠标与键盘聚焦的零外圈，以及 Fast 提示顶部位置和 400 字重。",
-    "已直接查看聚焦输入框截图；提示截图在父浮层和 Tooltip 进入动效完成后采样，单项视觉复验通过，确认上方间距与简短文本。",
-    "agent-composer-edge-tooltip-final impacted preflight 14/14 通过，含 853 项前端单测、受影响 Python、类型、lint、构建、UI/体积检查；完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-composer-edge-tooltip-release。",
-    "控制文件、JSON 与 diff 校验通过；本地 5173 前端及 API 代理保持运行，未重建 Docker、提交或推送。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-06",
-  "result": "移除聊天滚动区与输入框之间的 8px 顶部间隔，输入框加高并增加文字顶部留白；Fast 粒子持续循环且 Reduced Motion 静止，工作区品牌图标恢复并跟随主题色。",
-  "status": "completed",
-  "task_id": "2026-09-06-agent-composer-seam-brand",
-  "unresolved": [],
-  "validation": [
-    "有内容聊天回归先复现 8px 接缝，修复后深浅主题/四视口通过；直接浏览器 40 passed、9 skipped，相关 Vitest 16 passed",
-    "最终 impacted preflight 14/14 通过；完整浏览器门禁 212 passed、91 skipped；UI/类型/构建/控制文件校验通过",
-    "5173 已提供更新样式，API readiness 正常，保持本地运行且未重建 Docker"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "按用户要求将 / 命令结果放入对话时间线：Skills、状态与帮助直接输出，模型/推理选项和新建/Worktree 确认行内展示；移除 Skills 子菜单及命令触发的设置弹窗，保留 @ 引用、草稿和既有写入保护，同步 UI 合同、D207 与产品说明。",
-  "status": "completed",
-  "task_id": "2026-09-05-inline-slash-commands",
-  "unresolved": [],
-  "validation": [
-    "任务 snapshot /tmp/infohub-inline-commands-impact.json 已建立；审查任务范围源码、回归与合同 diff。",
-    "定向组件测试通过，覆盖命令发现、技能选择、精确命令 Send/Enter、草稿保留、模型防重入与失败、上下文隔离、命令结果排除模型请求，以及行内 Worktree 创建和原 Session 重试。",
-    "受控 Gateway 浏览器验收 43 项通过、14 项按视口或场景跳过，覆盖桌面/平板/手机、320px Feed 侧栏、浅色缩放、Reduced Motion 与 Axe；未执行真实 Gateway 写入。",
-    "最终 impacted preflight 14/14 通过（356.064 秒），前端 125 个文件、837 项测试通过，SQLite 连接警告 0；UI 静态、ESLint、Markdown 与 init-pro policy check 通过。",
-    "最终 Skills 输出与 Worktree 确认浏览器复验 6/6 通过；额外只读命令发送和行内表单锁定定向测试通过。",
-    "8081 进程仍来自 codex/agent-workspace-pr；/agent、live、ready 均 HTTP 200，对话脚本与本次构建逐字节一致且包含行内命令输出。内置浏览器尚未配对，真实连接未代验；未重建 Docker，未切换 UI 分支。"
-  ]
-}
-```
-
-```json
-{
-  "commit": "93b96fcba36b06667169962fa011e9076dfa1e6f",
-  "control_topics": [
-    "instructions",
-    "interface",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-06",
-  "result": "将 codex/agent-workspace-pr 的 Agent Workspace 基础、项目约束维护、斜杠命令内联结果与配对修复整合至本地 main；不纳入独立 UI 分支改动。",
-  "status": "completed",
-  "task_id": "2026-09-06-merge-agent-workspace-pr-local-main",
-  "unresolved": [
-    "共享 Gateway 用户隔离尚未实现；本次未纳入 codex/agent-workspace-ui 独立改动。"
-  ],
-  "validation": [
-    "审查 main 3e9524f9 至来源 736ed01b 及暂存改动；修复一次执行 Automation 编辑的 UTC/本地时区偏移，上海和纽约回归各 5 项通过。",
-    "init-pro audit/check/context、Markdown 结构与 6 项控制测试、JSON、WORKLOG、git diff --check 通过；默认上下文 26697→10172 字节，审计候选另经任务范围语义审查。",
-    "定向 Vitest 46 项通过；preflight merge-agent-workspace-pr-20260906 的 control/full 全部 16 项通过，含后端全量、前端 125 文件 840 测试、lint、类型检查及构建。",
-    "相关 Playwright 复跑 59 项通过、21 项条件跳过；首轮工作进程退出超时，独立 tablet 用例通过后单进程复跑正常退出。",
-    "来源由 736ed01b 提交至 93b96fcba36b06667169962fa011e9076dfa1e6f；本地 main 从 3e9524f9a7d4221c2a31c78d531847b145cbb419 快进至同一来源提交。未推送、未重建 Docker。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -423,6 +318,102 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "暂存差异检查、私钥/常见token模式检查、工作日志及控制结构校验通过。",
     "agent-local-main-merge impacted preflight 16/16通过（508.8秒），含完整后端Pytest、136文件886项Vitest、类型/lint/UI合同/构建。",
     "功能提交70db8260；合并采用fast-forward，最终文档记录随同合入。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "从本地 main b6f42227 创建 codex/automations-unified Worktree，实现统一自然语言分析、四种触发、OpenClaw 模型目录、持久化分段汇总和一次综合通知；更新任务编辑、预览、运行记录、平台展示及 global 40 显式迁移工具与合同。",
+  "status": "completed",
+  "task_id": "2026-09-08-automations-unified",
+  "unresolved": [],
+  "validation": [
+    "定向后端 67 项、可信确认卡 4 项通过；新增审计接口与审计合同 11 项复验通过。",
+    "Playwright 明暗主题 × 桌面/平板/手机共 6 项通过，覆盖四种触发、键盘确认、测试不投递、编辑及新建草稿刷新保留；检查三视口截图。",
+    "修复首屏加载边界、定时截止点、跨来源累计与模型变更队列保留、输入分段及引用验证；global 40 备份、幂等和失败恢复均受控验证。",
+    "最终 impacted preflight 16/16 通过，含后端/前端全域测试、lint、类型、构建、代码体积、UI 与审计合同；无未关闭 SQLite 连接告警。",
+    "控制面结构、Markdown、JSON 和 diff 校验通过。按用户要求未重建容器；未迁移运行库、调用真实模型/通知、提交或发布。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-08",
+  "result": "按用户要求切换 A 模式到 codex/automations-unified Worktree，停止旧前端/API/Worker，备份并显式迁移原测试库 global 40，启动新前端 5173、API 8080 和 Worker。",
+  "status": "completed",
+  "task_id": "2026-09-08-automations-a-runtime",
+  "unresolved": [
+    "当前模型目录尚未同步，新版独立分析 connector 接通前只能测试页面和草稿流程，启用及真实分析待验收。"
+  ],
+  "validation": [
+    "global 40 升级 14 条规则，备份权限 0600，integrity_check=ok、外键零违规；迁移前后 3 个账号、13 个来源、12 条订阅、28 个用户 Feed 快照和 207 个来源快照数量一致。",
+    "API /api/health/live 标识新 Worktree；直连及前端代理 readiness 通过，Worker 从启动过渡到 ready；开发服务提供新版触发配置模块。",
+    "未重建容器、提交或发布。备份为 service-information-unified-v40-20260908T080449228632Z.db。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-08",
+  "result": "在 codex/automations-unified 同分支修复模型选择：接通本地独立分析 connector 并持续同步 12 个真实模型，界面区分加载、未接入、过期及无授权状态。",
+  "status": "completed",
+  "task_id": "2026-09-08-automations-model-selector",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 6/6 通过；覆盖无目录到刷新就绪及空授权目录禁用。",
+    "impacted preflight automations-model-fix 11/11 通过，控制面结构、Markdown、JSON 与 diff 校验通过。",
+    "当前浏览器实际展开 12 个模型；数据库目录持续更新，15 条规则仍为草稿。配置安装已备份并通过 OpenClaw 校验；未重建容器、调用真实分析或发送通知。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "同分支修复独立分析 schema 未进入提示词、通用错误误封模型及测试无限等待；增加显式独立 Agent sessionKey，重启 A 模式 API 与 connector 加载修复。",
+  "status": "partial",
+  "task_id": "2026-09-08-automation-preview-errors",
+  "unresolved": [
+    "OpenClaw 独立 Agent 的真实模型调用仍失败，业务格式修复已完成，但真实综合分析验收未通过；不能视为整体修复完成。"
+  ],
+  "validation": [
+    "定向后端 24 项与 Vitest 7 项通过，覆盖 schema 提示、会话绑定、错误分类及终态；impacted preflight 16/16 全部通过。",
+    "控制面结构、Markdown、JSON、diff 检查通过。当前失败测试记录为 failed/analysis_call_failed，未发送通知或重建容器。",
+    "真实恢复及最小独立推理检查均返回 OpenClaw HTTP 500 通用工具错误；重启独立 Agent native 进程后仍失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-08",
+  "result": "依据实时进程确认本地 5173→8080→13789 测试链路。安全完整重启本地 OpenClaw 后独立分析恢复，同规则版本与原文章的真实预览 completed/matched，解除此前真实验收阻塞。",
+  "status": "completed",
+  "task_id": "2026-09-08-automation-local-inference-recovery",
+  "unresolved": [
+    "先前 Gateway 内部失败的底层异常未暴露；重启后无法复现，不归因为额度不足。"
+  ],
+  "validation": [
+    "真实预览 iapreview_3788a5a4fcf6485f9a23e94c3d3c20a7 首次领取后约 8 秒完成，引用 1 条通过校验；未发送通知。",
+    "独立 Agent 最小调用 HTTP 200；临时诊断代码已恢复原文件并安全重启加载。VPS 仅只读检查，未配置或切换，未重建容器。",
+    "沿用上一修复已通过的 24 项后端、7 项前端和 16 项 preflight；本轮仅运行环境恢复，无产品代码变更。"
   ]
 }
 ```

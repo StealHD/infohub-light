@@ -1,9 +1,16 @@
 import type { InformationRuleConfig } from '../../api/informationAutomationService'
 
-export const emptyInformationRule = (mode: 'keyword' | 'semantic' = 'keyword'): InformationRuleConfig => ({
-  name: mode === 'keyword' ? '新的关键词提醒' : '新的语义提醒', mode, source_ids: [], target_id: null,
-  conditions: { all: [], any: [], exclude: [] }, requirement: '',
+export const emptyInformationRule = (): InformationRuleConfig => ({
+  schema_version: 2, name: '新的自动化', source_ids: [], target_id: null, requirement: '', model: null,
+  trigger: { kind: 'each', count: 5, max_wait_seconds: 3600, interval_seconds: 3600,
+    time: '08:00', weekdays: [], timezone: 'Asia/Shanghai' },
 })
+export function triggerLabel(trigger: InformationRuleConfig['trigger']): string {
+  if (trigger.kind === 'each') return '每条到达时分析'
+  if (trigger.kind === 'count') return `累计 ${trigger.count} 条${trigger.max_wait_seconds ? `，最长等待 ${trigger.max_wait_seconds / 60} 分钟` : ''}`
+  if (trigger.kind === 'interval') return `每 ${trigger.interval_seconds / 60} 分钟`
+  return `${trigger.weekdays.length ? '每周' + trigger.weekdays.map((day) => '一二三四五六日'[day]).join('、') : '每天'} ${trigger.time} · ${trigger.timezone}`
+}
 export const ruleStateLabels = { draft: '草稿', active: '已启用', paused: '已暂停', archived: '已归档' }
 export const judgmentLabels = {
   pending: '等待判断', judging: '正在判断', matched: '命中', not_matched: '未命中',
@@ -14,6 +21,9 @@ export const notificationLabels = {
   failed: '发送失败', unknown: '发送结果未知 · 不自动重发', cancelled: '已取消发送', quota_wait: '等待通知额度',
 }
 export const reminderReasonLabels: Record<string, string> = {
+  analysis_model_unavailable: '所选 OpenClaw 模型暂不可用，队列已保留。请刷新模型目录。',
+  analysis_thinking_unavailable: '所选模型不支持当前推理强度，请重新选择。',
+  configuration_upgraded: '已升级为统一分析，请选择模型并重新确认。',
   semantic_model_unavailable: '独立模型服务不可用，本次未通知。请检查 connector 配置。',
   semantic_lease_expired: '判断连接中断，正在按重试上限恢复；超过上限将停止本次判断。',
   invalid_model_output: '模型返回不符合要求或文章依据无效，本次未通知。',
@@ -32,8 +42,7 @@ export const reminderReasonLabels: Record<string, string> = {
   literal_keywords: '根据已保存的关键词条件判断。',
 }
 export function completeRule(config: InformationRuleConfig): boolean {
-  return Boolean(config.name.trim() && config.source_ids.length && config.target_id &&
-    (config.mode === 'keyword' ? config.conditions.all.length || config.conditions.any.length : config.requirement.trim()))
+  return Boolean(config.name.trim() && config.source_ids.length && config.target_id && config.requirement.trim() && config.model)
 }
 export function linesToTerms(value: string): string[] {
   return value.split('\n').map((line) => line.trim()).filter(Boolean)

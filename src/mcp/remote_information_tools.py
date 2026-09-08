@@ -58,6 +58,9 @@ def register_information_tools(server, context):
 
     @server.tool(annotations=PREPARE_ANNOTATIONS, structured_output=True)
     def prepare_information_automation(config: RuleConfig) -> dict[str, Any]:
-        """Save a personal draft. Show confirmation_card verbatim; only the user can enable it in the web UI."""
+        """Save a v2 draft: one complete requirement, sources, trigger and optional explicit model.
+        Keywords, meaning and exclusions belong together in requirement. Show confirmation_card verbatim;
+        only the user can choose an authorized model and enable the draft in the web UI.
+        """
         return context.calls.run_tool('prepare_information_automation', service.prepare,
                                       actor_operation=True, config=config)

@@ -167,7 +167,8 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '个人信息提醒',
-        description: '关键词规则先保存草稿，再测试并明确确认启用。修改来源、条件或通知服务后需重新确认；测试不会发送或推进水位，未知投递结果不会自动重发。管理员需先停止 API/Worker 并运行 scripts/migrate_information_automations_v38.py 的预览和备份迁移。在 Agent 的 Automations 入口编辑个人提醒，聊天返回的确认卡会重新读取本人规则。独立提醒授权由管理员使用 manage_reminder_delegation.py 配置，原连接不自动扩权。语义模式需完成 global 39 备份迁移并配置独立 connector，使用 manage_information_connector.py 和 run_information_connector.py；预览不进入正式运行。高级 Gateway Cron 保留独立入口；真实通知回执仍待验收。',
+        description: '在 Automations 新建任务，用一段完整描述填写关注内容、关键词与排除要求，绑定订阅源并选择 OpenClaw 模型。可按每条到达、累计条数、固定间隔、每天或每周固定时间触发；累计模式可设置最长等待。保存草稿后测试并确认启用，测试只预览综合结论与依据。大批量分段分析后发送一条批次通知；模型失效保留队列，刷新模型或仅更换模型并重新确认后恢复。修改其他条件需重新确认，不补发暂停期间历史。原订阅全量通知独立生效。管理员依次完成 global 38、39、40 的离线预览与备份迁移，升级 connector 并为 run_information_connector.py 指定 --gateway-config。模型目录需要持续运行独立分析 connector、已配对设备及主机允许 llm-task 模型覆盖；页面会提示未接入、过期或无授权原因，connector 恢复后自动更新。既有明确禁用策略保持不变。未知发送结果不自动重发，高级 Gateway Cron 保留独立入口。',
+
       },
       {
         title: '通过 OpenClaw 订阅全部支持来源',

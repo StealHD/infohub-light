@@ -25,7 +25,7 @@ class TransitionRule(BaseModel):
 class TestRule(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: StrictInt = Field(ge=1)
-    article_ids: list[str] = Field(min_length=1, max_length=20)
+    article_ids: list[str] = Field(min_length=1, max_length=1000)
 
 
 def service(response: Response, context: ApiContext):
@@ -87,6 +87,8 @@ async def get_test(rule_id: str, preview_id: str, response: Response, user=Depen
 def register_information_automation_routes(app: FastAPI):
     from .information_connector_routes import register_information_connector_routes
     register_information_connector_routes(app)
+    from .information_model_routes import register
+    register(app)
     base = '/api/me/information-automations'
     for path, endpoint, method in [('', list_rules, 'GET'), ('', create_rule, 'POST'),
                                    ('/{rule_id}', get_rule, 'GET'), ('/{rule_id}', update_rule, 'PUT'),

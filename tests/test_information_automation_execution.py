@@ -1,4 +1,4 @@
-"""Controlled end-to-end keyword dispatch; no network or real notification target."""
+"""Controlled end-to-end unified dispatch; no network or real notification target."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,12 +16,23 @@ def acquire(ctx, ids, now):
     store, _, _, alice, _, _, config, _ = ctx
     conn = store.connect()
     conn.execute('BEGIN IMMEDIATE')
-    items = [{'id': name, 'title': 'AI ' + name, 'source_id': config.source_ids[0], 'content': 'AI research'} for name in ids]
+    items = [{'id': name, 'title': 'AI ' + name, 'source_id': config.source_ids[0], 'content': 'AI research', 'url': 'https://example.com/' + name} for name in ids]
     UserContentStore(store).upsert_items(workspace_id=alice['workspace_id'], user_id=alice['id'], items=items, seen_at=now.isoformat())
     record_events(conn, workspace_id=alice['workspace_id'], user_id=alice['id'], items=items,
                   successful_sources=config.source_ids, now=now.isoformat())
     conn.commit()
 
+
+def judge_all(ctx, now):
+    from src.services.information_automations.semantic_claims import claim_work, submit_result
+    from test_information_semantic_claims import answer
+    store, rules = ctx[:2]
+    for _ in range(100):
+        task = claim_work(store,rules.targets,store.test_machine_token,now=now)['task']
+        if not task:
+            return
+        assert submit_result(store,rules.targets,store.test_machine_token,task['claim_id'],task['claim_token'],answer(task),now=now)['accepted']
+    raise AssertionError('batch did not converge')
 
 def active(ctx):
     store, rules, _, alice, _, _, config, _ = ctx
@@ -32,13 +43,14 @@ def active(ctx):
     return store, rules, alice, draft, now
 
 
-def test_keyword_pipeline_batch_replay_and_verified_receipt(context):
+def test_unified_pipeline_batch_replay_and_verified_receipt(context):
     store, rules, alice, draft, now = active(context)
     acquire(context, ['old', 'new'], now)
     assert evaluate_pending(store, rules.targets, now=now) == []
     runs = evaluate_pending(store, rules.targets, now=now + timedelta(seconds=61))
     assert len(runs) == 1
     assert evaluate_pending(store, rules.targets, now=now + timedelta(seconds=61)) == []
+    judge_all(context, now + timedelta(seconds=62))
     calls = []
     def send(user, target, payload):
         calls.append(payload)
@@ -56,6 +68,7 @@ def test_unknown_or_interrupted_send_never_retries(context, interruption):
     store, rules, alice, draft, now = active(context)
     acquire(context, ['new'], now)
     evaluate_pending(store, rules.targets, now=now + timedelta(seconds=61))
+    judge_all(context, now + timedelta(seconds=62))
     calls = []
     def send(*_):
         calls.append(1)
@@ -79,6 +92,7 @@ def test_authority_rechecked_before_delivery(context, change):
     store, rules, alice, draft, now = active(context)
     acquire(context, ['new'], now)
     evaluate_pending(store, rules.targets, now=now + timedelta(seconds=61))
+    judge_all(context, now + timedelta(seconds=62))
     if change == 'pause':
         rules.transition(alice['id'], draft['id'], 1, 'pause')
     elif change == 'binding':
@@ -98,7 +112,11 @@ def test_batch_and_daily_notification_limit_keep_queue(context):
     acquire(context, [str(index) for index in range(21)], now)
     when = now + timedelta(seconds=61)
     assert len(evaluate_pending(store, rules.targets, now=when)) == 1
-    assert len(evaluate_pending(store, rules.targets, now=when)) == 1
+    assert len(evaluate_pending(store, rules.targets, now=when)) == 0
+    judge_all(context, when)
+    acquire(context, ['later'], when)
+    evaluate_pending(store,rules.targets,now=when+timedelta(seconds=61))
+    judge_all(context,when+timedelta(seconds=62))
     assert dispatch_pending(store, rules.targets, lambda *_: ACK, now=when, daily_limit=1) == ['sent']
     statuses = {run['notification_status'] for run in rules.runs(alice['id'], draft['id'])['items']}
     assert statuses == {'sent', 'quota_wait'}

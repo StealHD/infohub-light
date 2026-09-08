@@ -73,6 +73,6 @@ Opening a current session from Skills/Automations/examples returns to `/agent` w
 
 ## 个人信息提醒
 
-`/agent/automations` 默认呈现 Service 的个人提醒列表；旧 Gateway Cron 保留在 `?advanced=cron`，使用原临时管理授权。提醒卡沿用 Card，编辑字段沿用 TextField、FormSelect、Checkbox；确认使用 sm Modal。列表、卡片、运行查询按 userId 隔离。刷新与保存保留编辑器 DOM；未保存规则配置按 userId、ruleId、version 存入 sessionStorage，旧版本不自动覆盖新版本。
+`/agent/automations` 默认呈现 Service 的个人提醒列表；旧 Gateway Cron 保留在 `?advanced=cron`，使用原临时管理授权。提醒卡沿用 Card，编辑字段沿用 TextField、FormSelect、Checkbox；确认使用 sm Modal。统一自然语言描述不区分关键词与语义模式；详情分组为来源、OpenClaw 模型、触发和通知。四种触发的参数逐项展开，模型及推理选项来自本人目录，失败保留原选择。列表展示来源名称、待处理数与下次处理时间；运行与测试展示批次进度、综合结论、原文依据和通知回执。新建先编辑再保存，保存不启用。列表、卡片、运行查询按 userId 隔离。刷新与保存保留编辑器 DOM；未保存规则配置按 userId、ruleId、version 存入 sessionStorage，旧版本不自动覆盖新版本。
 
 聊天中仅 assistant 的规则引用可触发可信卡读取，最多三张；当前账号无权读取时不展示可操作内容。新建与示例仅保存草稿；测试展示版本及不发送说明；启用必须保存后再单独确认。判断与通知分别展示，未知投递不得显示已发送或提供自动重发。真实通知回执仍按本轮用户要求保留待验收。

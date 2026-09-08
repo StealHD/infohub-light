@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--agent-id', required=True)
     parser.add_argument('--journal', type=Path, required=True)
     parser.add_argument('--gateway-ca', type=Path)
+    parser.add_argument('--gateway-config', type=Path, required=True)
     parser.add_argument('--once', action='store_true')
     args = parser.parse_args()
     values = SecretStore(args.secret_dir).read()
@@ -33,9 +34,13 @@ def main():
     tls = ssl.create_default_context()
     if args.gateway_ca:
         tls.load_verify_locations(cafile=str(args.gateway_ca))
+    from src.services.information_automations.model_discovery import discover
+    def models():
+        return discover(args.gateway_url, gateway_values[args.gateway_secret_ref], args.agent_id,
+                        args.journal.resolve().parent / 'catalog-device', args.gateway_config, tls)
     connector = InformationConnector(service_url=args.service_url, gateway_url=args.gateway_url,
         service_token=values[args.service_secret_ref], gateway_token=gateway_values[args.gateway_secret_ref],
-        agent_id=args.agent_id, journal=args.journal.resolve(), client=httpx.Client(timeout=75, follow_redirects=False, verify=tls))
+        agent_id=args.agent_id, journal=args.journal.resolve(), client=httpx.Client(timeout=75, follow_redirects=False, verify=tls), discover_models=models)
     try:
         while True:
             try:

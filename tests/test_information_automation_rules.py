@@ -36,7 +36,13 @@ def context(tmp_path, monkeypatch):
                               target_is_available=lambda _: True)
     monkeypatch.setattr(store, 'get_notification_target', lambda **_: target)
     rules = InformationRules(store, targets)
-    config = RuleConfig(name='AI 提醒', source_ids=[source], target_id='test-target', conditions={'all': ['AI']})
+    from src.services.information_automations.connector_auth import provision, authenticate
+    from src.services.information_automations.model_catalog import Capabilities, sync_catalog
+    _, token = provision(store, SecretStore(tmp_path), alice['id'])
+    store.test_machine_token = token
+    sync_catalog(store, authenticate(store, token), Capabilities(protocol_version=2, models=[{'id':'test/model','name':'Test','thinking_levels':['low']}]))
+    config = RuleConfig(name='AI 提醒', source_ids=[source], target_id='test-target', requirement='Find AI research; exclude advertising.',
+                        model={'id':'test/model'}, trigger={'kind':'interval','interval_seconds':60})
     yield store, rules, bindings, alice, bob, viewer, config, target
     store.close()
 
@@ -87,7 +93,7 @@ def test_test_is_readonly_no_cursor_or_delivery_and_user_content_only(context):
     draft = rules.save(alice['id'], config)
     before = rules.row(alice, draft['id'])
     result = rules.test(alice['id'], draft['id'], 1, ['article'])
-    assert result['results'] == [{'article_id': 'article', 'status': 'matched'}]
+    assert result['status'] == 'pending' and result['results'] == []
     assert not result['sends_notification'] and not result['advances_cursor']
     assert rules.row(alice, draft['id']) == before
     assert store.connect().execute('SELECT count(*) FROM information_runs').fetchone()[0] == 0

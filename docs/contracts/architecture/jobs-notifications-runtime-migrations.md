@@ -53,7 +53,7 @@ Webhook egress 只接受 SecretStore 当前保存并与所选 Provider 精确匹
 
 ### 3.8C1 个人信息提醒
 
-个人信息提醒独立归 `services/information_automations/`；`FeedProductionService` 同事务发布新增事件，当前 Worker housekeeping 管批次、关键词判断和持久化投递。它复用 `NotificationTargetService` 与既有三类 transport，不修改普通来源通知开关、不由 Gateway Cron 调度。global 38 显式迁移及接口/未知结果语义见[信息提醒合同](../api/information-automations.md)。
+个人信息提醒独立归 `services/information_automations/`；`FeedProductionService` 同事务发布新增事件，当前 Worker housekeeping 管触发、批次编排和持久化投递；connector 领取有界步骤执行统一独立分析。它复用 `NotificationTargetService` 与既有三类 transport，不修改普通来源通知开关、不由 Gateway Cron 调度。配置、调度、批次、模型目录分别归 information_automations 下的 config、scheduling、batches、model_catalog/model_discovery；global 40 只增加附属表，保留 global 38/39 定义。显式迁移及接口/未知结果语义见[信息提醒合同](../api/information-automations.md)。
 
 ### 3.8D Apify Operational Alert Boundary
 

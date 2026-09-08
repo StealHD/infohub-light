@@ -6,7 +6,7 @@ export function useInformationDraft(userId: string, rule: InformationRule) {
   const [config, setConfig] = useState<InformationRuleConfig>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(key) || 'null')
-      if (saved?.version === rule.version && saved.config?.name && Array.isArray(saved.config.source_ids)) return saved.config
+      if (saved?.version === rule.version && saved.config?.schema_version === 2 && saved.config?.trigger && saved.config?.name && Array.isArray(saved.config.source_ids)) return saved.config
     } catch { /* Storage is optional. */ }
     return rule.config
   })

@@ -5,7 +5,7 @@ import pytest
 from src.storage.service_store import ServiceStore
 from src.storage.information_automation_schema import apply_migration, ready
 from src.services.information_automations.events import record_events
-from src.services.information_automations.matching import keyword_match
+from src.services.information_automations.config import RuleConfig
 
 
 @pytest.fixture
@@ -83,12 +83,8 @@ def test_durable_url_identity_deduplicates_changed_source_id_without_losing_quer
     assert publish(store, user, [{**item('new-source-id'), 'url': 'https://example.com/changed'}]) == 0
 
 
-@pytest.mark.parametrize('text,conditions,expected', [
-    ('ＡＩ \n Agent update', {'all': ['ai', 'AGENT'], 'exclude': ['ad']}, True),
-    ('agent [a.*] update', {'any': ['a.*']}, True),
-    ('agent anything update', {'all': ['a.*']}, False),
-    ('AI advert', {'any': ['ai'], 'exclude': ['advert']}, False),
-    ('new research', {'all': ['AI'], 'any': ['research']}, False),
-])
-def test_literal_normalized_matching(text, conditions, expected):
-    assert keyword_match(text, conditions) is expected
+def test_legacy_keyword_conditions_become_one_requirement():
+    value = RuleConfig(name='legacy', mode='keyword', conditions={'all':['AI'],'any':['research'],'exclude':['ad']})
+    assert value.schema_version == 2
+    assert 'AI' in value.requirement and 'research' in value.requirement and 'ad' in value.requirement
+    assert 'conditions' not in value.model_dump() and 'mode' not in value.model_dump()

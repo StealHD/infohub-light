@@ -1,7 +1,8 @@
+import { lazy, Suspense } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, RefreshButton } from '../../design-system'
 import { useInformationContext } from './useInformationContext'
-import { InformationRuleEditor } from './InformationRuleEditor'
+const InformationRuleEditor = lazy(() => import('./InformationRuleEditor').then((module) => ({ default: module.InformationRuleEditor })))
 
 export default function InformationDraftCard({ ruleId }: { ruleId: string }) {
   const { api, userId } = useInformationContext()
@@ -15,7 +16,7 @@ export default function InformationDraftCard({ ruleId }: { ruleId: string }) {
     <RefreshButton pending={query.isFetching} aria-label="刷新确认卡" onPress={() => query.refetch()} />
     {query.isPending && <p role="status">正在读取可信规则…</p>}
     {query.isError && <p role="alert">当前账号无法读取此草稿，请从个人提醒列表检查。</p>}
-    {query.data && <InformationRuleEditor key={`${userId}:${ruleId}`} rule={query.data} canMutate={Boolean(access.data?.can_chat) && !query.isError}
-      onSaved={async (saved) => { cache.setQueryData(key, saved); await cache.invalidateQueries({ queryKey: ['information-rules', userId] }) }} />}
+    {query.data && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><InformationRuleEditor key={`${userId}:${ruleId}`} rule={query.data} canMutate={Boolean(access.data?.can_chat) && !query.isError}
+      onSaved={async (saved) => { cache.setQueryData(key, saved); await cache.invalidateQueries({ queryKey: ['information-rules', userId] }) }} /></Suspense>}
   </Card>
 }

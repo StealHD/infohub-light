@@ -12,6 +12,7 @@ from ..services.information_automations.semantic_claims import claim_work, submi
 class ClaimRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     isolated_completion: bool
+    protocol_version: int = 1
 
 
 class ResultRequest(BaseModel):
@@ -35,7 +36,7 @@ async def claim(body: ClaimRequest, response: Response, request: Request, author
             raise RuleError('isolated_completion_required', '必须使用无工具独立推理。', 400)
         from .information_operation_routes import machine_audit
         machine_audit(request, context.store, token)
-        result = claim_work(context.store, context.notification_targets, token)
+        result = claim_work(context.store, context.notification_targets, token, protocol_version=body.protocol_version)
         if not result.get('task'):
             request.state.operation_logged = True
         return result
@@ -59,7 +60,7 @@ async def configuration(response: Response, authorization: Annotated[str | None,
     def operation():
         machine = authenticate(context.store, bearer(authorization))
         return {'binding_id': machine['binding_id'], 'agent_id': machine['agent_id'],
-                'completion_agent_id': 'ic-' + machine['binding_id'], 'isolated_completion_required': True}
+                'completion_agent_id': 'ic-' + machine['binding_id'], 'isolated_completion_required': True, 'protocol_version': 2}
     return invoke(operation)
 
 

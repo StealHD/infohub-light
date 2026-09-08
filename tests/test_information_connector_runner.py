@@ -22,13 +22,16 @@ def test_submission_timeout_persists_and_retries_same_result_without_model(tmp_p
     def request(req):
         calls.append(req.url.path)
         if req.url.path.endswith('/claim'):
-            return httpx.Response(200, json={'data': {'task': {'claim_id': 'claim', 'claim_token': 'token', 'agent_id': 'ih-test', 'requirement': 'test', 'articles': []}}})
+            return httpx.Response(200, json={'data': {'task': {'claim_id': 'claim', 'claim_token': 'token', 'agent_id': 'ih-test', 'requirement': 'test', 'stage':'final','input':[],'model':{'id':'test/model'}}}})
         if req.url.path == '/tools/invoke':
             import json
             payload = json.loads(req.content)
             assert payload['tool'] == 'llm-task' and payload['agentId'] == 'ic-test'
             assert 'tools' not in payload['args']
-            return httpx.Response(200, json={'ok': True, 'result': {'details': {'json': {'decisions': []}}}})
+            assert payload['sessionKey'] == 'agent:ic-test:information-analysis'
+            assert 'OUTPUT_SCHEMA:' in payload['args']['prompt']
+            assert '"status"' in payload['args']['prompt']
+            return httpx.Response(200, json={'ok': True, 'result': {'details': {'json': {}, 'provider':'test','model':'model'}}})
         attempts.append(req.content)
         if len(attempts) == 1:
             raise httpx.ReadTimeout('controlled timeout')
@@ -44,3 +47,11 @@ def test_submission_timeout_persists_and_retries_same_result_without_model(tmp_p
         assert attempts[0] == attempts[1] and calls.count('/tools/invoke') == 1
         assert not connector.journal.exists()
     finally: connector.close()
+
+def test_completion_errors_do_not_misclassify_schema_or_timeout_as_missing_model():
+    from src.services.information_automations.completion_errors import completion_error
+    request = httpx.Request('POST', 'http://localhost/tools/invoke')
+    response = httpx.Response(500, request=request, text='LLM JSON did not match schema: private output')
+    assert completion_error(httpx.HTTPStatusError('private', request=request, response=response)) == 'invalid_model_output'
+    assert completion_error(httpx.ReadTimeout('private')) == 'analysis_timeout'
+    assert completion_error(KeyError('private')) == 'invalid_model_output'

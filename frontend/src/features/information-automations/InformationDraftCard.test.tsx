@@ -11,10 +11,12 @@ import InformationDraftCard from './InformationDraftCard'
 import { emptyInformationRule, informationDraftReferences } from './informationRuleModel'
 
 const rule: InformationRule = { id: 'iar_' + 'a'.repeat(32), version: 1, state: 'draft', issue: null,
-  config: { ...emptyInformationRule(), name: '可信服务端规则', source_ids: ['source'], target_id: 'target', conditions: { all: ['AI'], any: [], exclude: [] } },
+  config: { ...emptyInformationRule(), name: '可信服务端规则', source_ids: ['source'], target_id: 'target', requirement: 'Find research', model: { id: 'test/model', thinking: null } },
   created_at: '', updated_at: '', confirmed_at: null }
-function setup(failure = false) {
+function setup(failure = false, modelStatus = 'ready') {
   const api = { informationRule: failure ? vi.fn().mockRejectedValue(new Error('private detail')) : vi.fn().mockResolvedValue(rule),
+    informationModels: vi.fn().mockResolvedValue({ status: modelStatus, models: modelStatus === 'ready' ? [{ id: 'test/model', name: 'Test', thinking_levels: [] }] : [] }),
+    refreshInformationModels: vi.fn().mockResolvedValue({ accepted: true }),
     agentConnection: vi.fn().mockResolvedValue({ can_chat: true }),
     subscriptions: vi.fn().mockResolvedValue({ subscriptions: [{ source_id: 'source', enabled: true, source_display_name: '研究动态' }] }),
     notificationServices: vi.fn().mockResolvedValue({ services: [{ id: 'target', name: '测试目标', available: true }] }),
@@ -49,7 +51,7 @@ it('tests the saved version without activating and retains an unsaved draft acro
   await user.click(screen.getByRole('button', { name: '测试已保存规则' }))
   expect(await screen.findByText(/版本 1 测试结果/)).toBeVisible()
   expect(first.api.transitionInformationRule).not.toHaveBeenCalled()
-  await user.clear(screen.getByLabelText('提醒名称')); await user.type(screen.getByLabelText('提醒名称'), '未保存标题')
+  await user.clear(screen.getByLabelText('任务名称')); await user.type(screen.getByLabelText('任务名称'), '未保存标题')
   expect(screen.getByRole('button', { name: '确认启用' })).toBeDisabled()
   first.unmount(); setup()
   expect(await screen.findByDisplayValue('未保存标题')).toBeVisible()
@@ -73,4 +75,33 @@ it('polls a semantic preview without enabling the rule', async () => {
   expect(await screen.findByText('AI 研究：证据不足')).toBeVisible()
   expect(api.informationTestPreview).toHaveBeenCalledOnce()
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
+})
+
+it('explains missing connector metadata and enables model selection after refresh', async () => {
+  const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
+  expect(await screen.findByText(/尚未收到独立分析 connector/)).toBeVisible()
+  expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
+  api.informationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] })
+  await user.click(screen.getByRole('button', { name: '刷新模型目录' }))
+  expect(await screen.findByText('已加载 1 个模型，请选择分析模型。')).toBeVisible()
+  await user.click(screen.getByRole('button', { name: /分析模型/ }))
+  expect(await screen.findByRole('option', { name: 'Test' })).toBeVisible()
+  expect(api.refreshInformationModels).toHaveBeenCalledOnce()
+  expect(api.transitionInformationRule).not.toHaveBeenCalled()
+})
+
+it('keeps an empty authorized catalog disabled with a specific explanation', async () => {
+  const { api } = setup(false, 'unavailable')
+  api.informationModels.mockResolvedValue({ status: 'ready', models: [] })
+  expect(await screen.findByText(/暂无获准用于独立分析的模型/)).toBeVisible()
+  expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
+})
+
+
+it('explains blocked and failed previews rather than showing indefinite analysis', async () => {
+  const { previewStatus } = await import('./previewStatus')
+  const base = { version: 2, results: [], sends_notification: false as const, advances_cursor: false as const }
+  expect(previewStatus({ ...base, status: 'pending', reason: 'analysis_model_unavailable' })).toContain('分析已暂停')
+  expect(previewStatus({ ...base, status: 'failed', reason: 'invalid_model_output' })).toContain('格式或引用')
+  expect(previewStatus({ ...base, status: 'judging' })).toBe('模型正在分析…')
 })

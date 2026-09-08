@@ -1,5 +1,5 @@
 """Information reminder work owned by the existing Worker lifecycle."""
-from ...storage.information_automation_schema import ready
+from ...storage.information_unified_schema import ready
 from ..notification_targets import NotificationTargetService
 from ..notification_email_transport import WorkspaceEmailTransportService
 from ..workspace_telegram_transport import WorkspaceTelegramTransportService
