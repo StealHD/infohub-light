@@ -65,27 +65,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "修复新地址未配对时被误报为 Gateway token 失效的问题，并同步本地配套服务与首次连接说明；Gateway 保留已有来源并允许 8081/5173，本地前端固定代理目标 worktree 的 8081 后端，未重建 Docker。",
-  "status": "partial",
-  "task_id": "2026-09-05-local-gateway-first-pairing",
-  "unresolved": [
-    "等待用户在新地址用本机 Gateway token 完成首次配对并确认真实连接；代码与本地运行环境验证已完成。"
-  ],
-  "validation": [
-    "任务 snapshot 范围 diff 已审查；新增配对 Vitest 4 项、Playwright 三种视口 3 项通过，未发送真实聊天。",
-    "impacted preflight 14/14 通过，覆盖 control、frontend_full、python_api_store，耗时 454.647 秒，SQLite 连接警告 0。",
-    "8081 与 5173 的 /agent、live、ready 均 HTTP 200；8081 提供的脚本与目标 worktree 构建一致且含新提示。",
-    "Gateway RPC 健康、精确来源已生效；浏览器实测无凭据重连显示首次配对说明。未读取或轮换 token，未迁移其他来源凭据。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -425,6 +404,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "原实例鉴权与个人Agent验证通过；provision verify含MCP只读检查通过；models.list成功返回13模型。",
     "API数据库/Worker readiness通过。网页排查确认同账号3个现有连接占满名额，新连接在握手前拒绝；已关闭本任务额外浏览器，等待用户减少测试页后验收。临时诊断代码已恢复，无业务代码变更。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-08",
+  "result": "依据用户最新授权，将阶段2–6及后续连接UI修复整理为本地提交，合入本地main；main为任务分支祖先、目标worktree干净，可快进合并，不包含其他工作区改动、运行数据库和私密配置。PLAN同步本地合并授权、原Gateway接入及剩余验收。",
+  "status": "completed",
+  "task_id": "2026-09-08-agent-local-main-merge",
+  "unresolved": [
+    "同账号三连接硬限制与笼统提示、网页真实模型对话及关键词/语义通知回执仍待修复或验收。",
+    "本轮只授权本地Git合并，不推送、不发布、不启动Docker、不执行真实模型或通知；其他账号及connector迁入原Gateway尚待验收。"
+  ],
+  "validation": [
+    "暂存差异检查、私钥/常见token模式检查、工作日志及控制结构校验通过。",
+    "agent-local-main-merge impacted preflight 16/16通过（508.8秒），含完整后端Pytest、136文件886项Vitest、类型/lint/UI合同/构建。",
+    "功能提交70db8260；合并采用fast-forward，最终文档记录随同合入。"
   ]
 }
 ```
