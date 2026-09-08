@@ -11,26 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-05",
-  "result": "按用户截图复刻 Agent 输入区和思考选择：局部石墨/粉色外观、右侧胶囊、向上浮层、模型列表、分档滑杆与白色圆形滑块。仅使用 Gateway 已提供档位，松开后应用本地思考设置，支持恢复自动、并发排除、失败回退、键盘和触控；保留附件、草稿和快捷命令。同步组件参数、路由合同、验收、手册和更新日志；未新增语音或审批能力，未重建 Docker、提交或推送。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-effort-reference",
-  "unresolved": [
-    "当前真实 Gateway 的已配对设备重连仍返回连接失败；已确认 Gateway 端口及开发 Origin 存在，未更改令牌或设备权限。此运行问题不影响已通过的隔离 UI 验收。"
-  ],
-  "validation": [
-    "最终 impacted preflight 14/14 通过，128 文件 845 项 Vitest 全部通过，类型、lint、UI 合同、代码尺寸与构建通过；首屏 JavaScript Brotli 244877 bytes，预算未放宽。",
-    "完整生产 Playwright 门禁 178 通过、86 条件跳过，正常退出；定向三个尺寸浮层/快捷命令测试 20 通过、4 条件跳过。涵盖深浅主题、可访问性、自动重置、模型列表焦点/Escape、中文草稿与无横向溢出。人工核对实际页面裁剪截图。",
-    "5173 Vite 继续代理本分支 8082 API，二者健康检查通过；现有 8080 未重建。本次所有聊天交互验收使用隔离 Gateway fixture，未发送真实聊天。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
   "result": "按 Codex 参考细化思考面板：档位标题与模型名组成统一入口，滑块和填色切档平滑过渡、拖动直接跟手、胶囊箭头随开合旋转；Ultra/Max 自动播放一次渐变粒子后静止，Reduced Motion 立即静态。修正手机浏览器门禁把已隐藏的省略文本计作横向溢出的误判，保留信息流八条紧凑上下文布局。同步组件参数、验收与更新日志，未添加加速、语音或审批能力，未重建 Docker。",
   "status": "completed",
   "task_id": "2026-09-05-agent-effort-motion",
@@ -403,6 +383,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "精确提交 5b591645 的发布 preflight 16/16、main Gate（34110678199）和 Tag API smoke（34123647964）全部通过。",
     "v2.6.11 已以本机构建的 linux/amd64 镜像部署，API/Worker、双容器健康、public revision 和 React asset 均通过；分片上传恢复后整包校验通过。",
     "生产 relay 的连接、建会话、历史 maxChars、模型目录和上下文等 9 项真实 RPC 验证通过，模型调用为 0；用户选择自行刷新网页并点击连接，未宣称目视确认网页已连接。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "phase"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "完成 Agent 优化阶段 0 的独立分支与 Worktree、阶段计划和基线记录；从本地 main 7f7be166 起步，下一轮只进入阶段 1。",
+  "status": "completed",
+  "task_id": "agent-experience-stage-0",
+  "unresolved": [],
+  "validation": [
+    "schema 2 测试 snapshot 绑定 main 7f7be166；改动仅选中 control 域，无业务代码变化。",
+    "只读核验线上 v2.6.11 / 5b5916454b55，API/Worker 双健康且公开 readiness 通过；OpenClaw 2026.9.2、仅 main、llm-task 未启用。",
+    "Markdown 控制检查通过；未执行模型、通知、迁移或发布。",
+    "控制结构、显式 policy/索引与 JSON 校验通过；已审查 phase/context/decisions 候选，现役与 planned 能力明确分开。",
+    "阶段 0 impacted preflight 5/5 通过，仅 control 域；后续阶段需新建基线，本轮不继续阶段 1。"
   ]
 }
 ```
