@@ -10,106 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "ui"
   ],
-  "recorded_on": "2026-09-05",
-  "result": "按用户纠正：闪电只代表独立 Fast 状态，移除随 Ultra/Max 档位高亮的假象；当前前端未接入 Fast，通过可聚焦的不可用控件给出说明且不执行操作。输入框恢复原 surface-secondary，浮层、控件与文字边框复用项目深浅主题；思考控件局部采用系统圆润字体和较柔和字重。保留已验证的分档滑块和有限粒子动效，同步组件参数、路由合同及更新日志。未重建 Docker、提交或推送。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-effort-fast-style",
-  "unresolved": [
-    "Fast 的实际设置写入尚未接入当前前端，本次只纠正语义和外观。",
-    "现有开发标签仍显示 Gateway 重连失败，UI 使用隔离 Gateway fixture 验证；未改动连接配置。"
-  ],
-  "validation": [
-    "impacted preflight 14/14 通过，128 文件 845 项 Vitest、lint、UI、类型、冻结文件体积、构建及控制检查通过。",
-    "完整浏览器门禁首轮 181 通过、86 条件跳过；三视口定向9项通过，最终44px Fast触控列调整后三项手机用例通过。核对深浅主题、圆润控件、背景恢复、Fast与最高思考档位隔离、键盘说明和无横向溢出。",
-    "本地5173代理8082健康检查ready；保持前后端运行，未发送真实聊天或写入Fast设置。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "接入独立 Fast 开关，使用原生 chat.send.fastMode 按请求覆盖；读取精确会话默认，未选择时省略，明确关闭发送 false，原失败重试保留原设置，新会话和用户切换清除本地覆盖。只有 Fast 开启才有粒子，添加短暂使用额度提醒；白球去黑边、悬停微放大与拖动微缩，面板、文字和图标进一步缩小，保留项目背景及 Reduced Motion。同步 Gateway/UI 合同、D206 补充、手册和更新日志；不发送 /fast 文本或 admin patch，不承诺固定倍速，未重建 Docker、提交或推送。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-fast-live",
-  "unresolved": [],
-  "validation": [
-    "直接影响 Vitest 3 文件 13 项、production-agent-effort 浏览器 12 项通过；含真实 hook 的 Fast 参数、失败重试、隔离和动效 fixture 验证，无实际 AI 请求。",
-    "完整浏览器门禁 184 passed / 86 skipped；impacted preflight agent-fast-live-final 14/14 通过，其中 Vitest 129 文件 849 项通过，UI 合同、类型、lint、构建及 Python 受影响检查通过。",
-    "5173 经本地 8082 后端代理 /api/health/ready 返回 ready；本地前后端保持运行，未重建 Docker。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "修复滑杆两端刻度及滑块圆心对齐和填充接缝、模型名称裁切；模型名称/思考档位/上下文用量集中至发送按钮左侧，强调色跟随主题。连接表单操作等宽等高，工作区小于 640px 时纵向铺满，错误改用语义正文。Fast 和成功切入 Ultra 复用短暂用量提醒；Ultra 说明额外 Token，失败不提示，粒子仍仅随 Fast。保留 Gateway 全部支持档位与自动，未擅自精简。同步 UI 合同、手册和更新日志；保留本地前后端，不重建 Docker、不提交或推送。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-effort-alignment",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 2 文件 26 项通过；浏览器 production-agent-effort 18 项通过，覆盖主题、圆心几何、右对齐、624/320px 重排、Ultra 成功/失败及 Reduced Motion。",
-    "impacted preflight agent-effort-alignment-final 14/14 通过；Vitest 129 文件 850 项、UI 合同、类型、lint、构建和受影响 Python 检查通过。",
-    "完整浏览器门禁 190 passed / 86 skipped（7.7m），产物 .test-results/agent-effort-alignment-release；复核截图并通过控制文件校验与 diff 检查。",
-    "5173 代理 /api/health/ready 返回 ready，本地前后端保持运行；无真实 AI 请求、Docker 重建、提交或推送。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "工作区思考去除 off/none/auto；只显示可信已选/默认档位，未知默认不猜测或自动写入。OpenClaw 侧栏复用信息流 232px token；切换菜单收至栏内、减小语义字体并移除多余前导图标。共享 FormSelect 为长值和箭头分配独立区域，完整值通过可操作列表换行展示；Artifacts 窄检查器上下排版。修复 Skills 等页会话点击不跳转：当前会话可直接返回，历史切换成功才跳转，失败保留路由/会话，新对话成功后返回。新增 UI-LAYOUT-04 控件内部防重叠约束和截图级矩形回归，更新组件/路由合同、决策补充、手册和更新日志；保留隔离 worktree 与本地运行，不提交、推送或重建 Docker。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-ui-containment",
-  "unresolved": [],
-  "validation": [
-    "直接 Vitest 3 文件 14 项通过；定向浏览器 28 passed / 2 skipped，覆盖关/自动过滤与未知默认、长 Session 内部矩形/完整值展开、侧栏同宽、Skills 当前/历史会话返回、草稿及失败回退。",
-    "完整浏览器门禁 200 passed / 88 skipped（9.3m），产物 .test-results/agent-ui-containment-release；已人工检查长 Session 和紧凑工作区菜单截图。",
-    "preflight 首次发现新 CSS 末尾空行，修正并单独复验失败检查；agent-ui-containment-final-fixed 14/14 通过，含 Vitest 129 文件 852 项、类型、lint、构建、UI/代码体积/受影响 Python 检查。",
-    "Markdown、schema-v3 控制文件与 diff 校验通过；5173 代理健康检查 ready，本地前后端保留，未调用真实 AI 或重建 Docker。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "修复 OpenClaw 左栏点击抖动：切换等待提示原先挤入文档流让导航下移 48 px，现改用非布局状态播报；新建按钮仅跟踪自身动作的 pending。会话按实际活动排序，选中已显示会话不再置顶；列表外当前会话保留可见。资源路由共享稳定的 error-boundary key，Skills、Automations、Examples 切换不再重建整个左栏。UI-INT-01 补充固定导航待处理/终态几何与节点稳定要求，更新路由合同、决策和更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-sidebar-stability",
-  "unresolved": [],
-  "validation": [
-    "先用浏览器复现并测得导航下移 48 px；修复后按压、键盘资源导航、延迟会话切换、成功/失败及 Reduced Motion 的矩形和 DOM 身份检查通过，已查看等待态截图。",
-    "直接 Vitest 4 文件 123 项通过；受影响导航浏览器 19 passed / 9 skipped，最终稳定性专项 6 passed / 6 skipped。",
-    "agent-sidebar-stability-final impacted preflight 12/12 通过，含 129 文件 853 项 Vitest、类型、lint、构建、UI 合同及代码体积检查。",
-    "完整浏览器门禁 206 passed / 91 skipped，产物 .test-results/agent-sidebar-stability-release；控制文件与 diff 检查通过。5173 API 代理健康状态 ready，保留本地服务，未重建 Docker、提交或推送。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
   "recorded_on": "2026-09-06",
   "result": "完成本轮 Agent 输入区细节：Fast 默认透明，仅精细指针悬停显示底色，开启时底部模型名前增加主题色闪电并播报状态；箭头旋转仅作用于尾部 chevron。发送按钮恢复共享主题色及禁用透明度；输入框移除静态描边，保留主题表面与非布局焦点提示。/ 与 @ 候选改为输入框上方同宽浮层，语义图标、名称、说明横排，圆角选中态，窄屏换行并保留滚动、键盘及草稿行为。同步设计系统参数与更新日志。",
   "status": "completed",
@@ -161,48 +61,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-```json
-{
-  "control_topics": [
-    "architecture",
-    "context",
-    "decisions",
-    "instructions",
-    "phase",
-    "verification"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "采用 init-pro 0.4 增量维护：按需 PLAN、10 主题 watch 和显式索引 policy；统一验证真源，旧计划原文归档，默认入口字节减少 62.1%。",
-  "status": "completed",
-  "task_id": "2026-09-05-init-pro-04-controls",
-  "unresolved": [],
-  "validation": [
-    "init-pro 0.4 audit/check、兼容结构/WORKLOG/JSON 校验通过；Markdown 控制测试 6 项通过。",
-    "8 组模拟 diff 路由、10 主题 watch 覆盖及历史排除通过；243 个文档链接与 4 项索引负向夹具通过。",
-    "旧 PLAN 与任务基线逐字节一致；轮转涉及的既有 22 条 WORKLOG 记录完整保留，整个 compact namespace 共 407 条且结构有效。",
-    "基于 736ed01b 任务 snapshot 的最终 impacted preflight 16/16 通过，覆盖完整后端/前端代码域；SQLite 连接警告为 0，用时约 432 秒。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
-  "result": "修复 / Skills 子菜单无法返回：提供返回/关闭入口、空搜索退格返回并清除过期模式；恢复草稿光标时避免延迟竞态，同步手册与更新日志。按用户要求用本地后端运行，不重建 Docker。",
-  "status": "completed",
-  "task_id": "2026-09-05-composer-skills-return",
-  "unresolved": [],
-  "validation": [
-    "任务 snapshot 范围 diff 已审查；保留此前控制面修改，修复限于快捷菜单、直接回归与产品说明。",
-    "快捷输入 Vitest 12 项通过；最终快捷菜单 Playwright 17 项通过、4 项按视口跳过，覆盖三种视口、320px 侧栏、浅色缩放、焦点、Axe 与无真实 Gateway 写入。",
-    "最终 impacted preflight 14/14 通过（control、frontend_full、python_api_store），耗时约 311 秒，SQLite 连接警告 0；policy check 与 Markdown/WORKLOG 结构校验通过。",
-    "原生后端在 127.0.0.1:8081 运行目标 Worktree，共用既有运行目录并匹配 SQLite DELETE 模式；live、ready、/agent 均 HTTP 200，已提供修复的静态资源且与构建逐字节一致；未重建 Docker。"
-  ]
-}
-```
 
 ```json
 {
@@ -409,6 +267,164 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "首轮 preflight 发现新增 DELETE 缺少审计映射，补齐并先复验；唯一完整重跑 16/16 通过（含全后端/前端代码域）。存储路径边界补充后 18 项直接相关测试以及最终体积、观测性、Markdown/diff 检查通过。",
     "init-pro 结构、policy/索引、429 条 WORKLOG 与控制 JSON 验证通过；审查 architecture/interface/phase 语义，UI 只改手册与 changelog，D209 已涵盖本阶段边界。",
     "从任务 Worktree 运行标准 up-latest 并使用独立本地 runtime；代码提交 df37a95585a7 的 API/Worker 均 healthy、readiness ready、React 资源通过。两个测试账号登录和本人未绑定状态 HTTP 核验通过，未回退共享 Agent；线上未变。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "阶段 2 本地完善个人接入状态、本人会话目录与当前 Agent Skills；按用户更新后的 goal 继续阶段 2–6，全部新改动保持未提交。",
+  "status": "partial",
+  "task_id": "agent-experience-stage-2",
+  "unresolved": [
+    "真实模型生成中的网页跨页验收仍待模型配置；未用受控生命周期测试冒充实际模型调用。",
+    "阶段 3–5 最终 preflight 各 16/16 已通过；阶段 6 复核与原库版本见本阶段 WORKLOG。",
+    "真实通知回执、Git 提交、精确 main CI 和生产发布按用户要求保留待验收。"
+  ],
+  "validation": [
+    "个人目录/relay/绑定 40 项与真实 API/MCP relay 5 项定向测试通过；前端接入卡和 managed setup 6 项、TypeScript、UI 合同与冻结体积检查通过。",
+    "隔离 OpenClaw 2026.9.2 真实 TLS 握手、个人 Agent 存在、两账号 MCP 只读验证与绑定激活通过；真实 Gateway 返回各自空会话目录及 Skills。测试 Gateway 关闭 cron/heartbeat/discovery，不配置模型或通知。",
+    "阶段 2 续验：个人目录后端 16 项、Skills/managed 9 项、个人接入卡 2 项通过；TypeScript 与 git diff --check 通过。",
+    "桌面/手机会话目录 Playwright 5 项通过、3 项按视口跳过，覆盖分页恢复、跨页草稿、焦点和 Axe；受控 Gateway fixture，不替代真实双账号验收。",
+    "标准 up-latest 从任务 Worktree 构建，原测试库 API/Worker healthy、前端资源与 revision 9e11bf89f0bf-dirty-b504916228d6 一致。真实 admin 网页连接、53 项 Skills 只读列表、跨页草稿、历史会话选择和刷新恢复均通过；未调用模型或发送通知。",
+    "阶段 6 原库续验：admin 原密码登录 200；原 admin/Member 各自真实 Gateway 连接，浏览器切换身份不显示他人提醒、越权读取 404；admin 54 项 Skills、真实关键词预览、跨 Skills 页面草稿及历史目录恢复通过。运行中跨页由 App.lifecycle 测试覆盖。"
+  ]
+}
+```
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "阶段 3 本地实现个人关键词提醒：版本化草稿与显式确认、同事务新增事件、Worker 判断与持久化投递；原测试库尚未应用 global 38，全部改动未提交。",
+  "status": "completed",
+  "task_id": "agent-experience-stage-3",
+  "unresolved": [
+    "原测试库 global 38 尚未应用；统一待本地后续阶段稳定后按备份迁移流程切入，当前运行仍为阶段 2 revision 9e11bf89f0bf-dirty-b504916228d6。",
+    "下一阶段 4：MCP 草稿、可信确认卡、测试预览与提醒列表/运行详情；真实通知回执、Git 提交与生产发布仍待用户验收。"
+  ],
+  "validation": [
+    "24 项定向测试通过，覆盖用户隔离、版本冲突、首次/空采集、历史去重、回滚、重启、未知/中断发送、暂停/吊销/目标变化、批次与配额、HTTP 和备份迁移。所有发送均为受控替身，无真实通知。",
+    "相关 Agent/Feed 定向回归 47 项通过；后端冻结体积检查及 Markdown 控制检查通过。",
+    "第一次 impacted preflight agent-stage3-local 16/16 全部通过，包含完整后端/前端检查，SQLite 未关闭警告 0，耗时 454 秒。",
+    "随后补齐跨来源 ID/跨 Feed 窗口的规范 URL 身份去重；共用纯身份函数，ledger 只保存摘要。新增回归与 Feed/事件/迁移定向 50 项通过。",
+    "最终 URL 身份修正后 preflight agent-stage3-identity-recheck 再次 16/16 通过，SQLite 未关闭警告 0，耗时 471 秒；该证据覆盖阶段 3 当前本地实现。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "阶段 4 本地新增独立提醒 MCP 草稿权限、服务端可信确认卡、编辑与测试预览、个人提醒和运行记录，以及独立授权部署工具；不自动启用或发送，改动未提交。",
+  "status": "completed",
+  "task_id": "agent-experience-stage-4",
+  "unresolved": [
+    "下一阶段 5：独立无工具语义判断、机器凭据、领取与结果校验、配额及故障恢复。原测试库仍运行阶段 2，global 38 和提醒授权待统一切入。",
+    "真实通知回执按用户要求不发送，保留待验收；Git 提交和生产发布等待用户决定。"
+  ],
+  "validation": [
+    "53 项 delegation/API/MCP 定向检查通过；新增独立提醒服务、幂等部署配置及相关目录/执行回归通过，旧授权不扩权。",
+    "确认卡 Vitest 3 项通过；桌面、平板、手机浏览器 3 项通过，手机浅色另 1 项通过；覆盖草稿保留、键盘、确认与测试分离、Axe，并查看深浅色手机截图。",
+    "最终 impacted preflight agent-stage4-final 16/16 通过，完整后端通过、前端 135 文件 879 测试通过，SQLite 未关闭警告 0，耗时 441 秒；首屏 Brotli 245744 bytes 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "阶段 5 本地实现独立机器凭据、OpenClaw llm-task 无工具推理 connector、持久化领取与结果校验、语义测试预览、额度及恢复；未调用真实模型或发送真实通知，改动未提交。",
+  "status": "completed",
+  "task_id": "agent-experience-stage-5",
+  "unresolved": [
+    "原测试库 global 38/39 和新代码尚未切入；阶段 6 做本地兼容收尾、备份迁移与验收环境更新。",
+    "真实模型/通知回执保留待验收；Git 提交、精确 main CI、生产发布等待用户决定。"
+  ],
+  "validation": [
+    "30 项后端定向检查通过，覆盖三类判断、畸形与伪造输出、用户隔离、暂停/吊销、租约/重启、每日额度、预览无水位影响、原订阅 personal_only、显式迁移和配置。",
+    "确认卡 Vitest 4 项、桌面浏览器 1 项通过；Lint、类型检查及前端构建体积通过。",
+    "最终 impacted preflight agent-stage5-final 16/16 通过；完整后端通过、前端 135 文件 880 测试通过，SQLite 未关闭警告 0，耗时 460 秒。机器操作审计登记和相关 6 项审计测试通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "阶段 6 本地完成旧 Cron 长提示词/分页/显式 Agent 兼容、按需加载、原测试库 global 38/39 备份迁移与双账号网页验收；所有改动未提交，生产未变更。",
+  "status": "partial",
+  "task_id": "agent-experience-stage-6",
+  "unresolved": [
+    "真实模型生成中的跨页、关键词/语义实际通知回执按用户要求待验收；本机 connector 未后台运行，不把空队列领取当模型验证。",
+    "Git 提交、精确 main CI、版本标签和生产发布需用户验收后决定；基点仍为 9e11bf89，分支 codex/agent-experience。"
+  ],
+  "validation": [
+    "Cron/可信卡定向 13 项及桌面 Cron、桌面/手机提醒 E2E 3 项通过；原库 admin/Member 各自真实 Gateway 连接，admin 原密码登录 200、同浏览器身份切换隔离、跨账号规则读取 404、保存刷新恢复、关键词预览命中且未发送、54 项 Skills、跨页草稿与历史恢复通过。",
+    "阶段 6 综合检查两轮：首轮长度限制、第二轮类型引用环失败均已修复；最终完整执行后端与 882 项前端测试通过，失败的引用环及相关 16 项定向复核通过，剩余构建补验通过（首屏 Brotli 245613 字节）。遵守最多一次完整重跑；不宣称最终精确修订获得一次完整全绿。",
+    "原库迁移备份 service-information-automations-v38-20260908T052137556991Z.db、service-information-connector-v39-20260908T052200304502Z.db 均 0600，完整性/外键通过；原 3 账号/12 订阅/13 来源/28 Feed 快照保留。宿主配置工具默认 WAL 与容器 DELETE 冲突已停机统一恢复，原密码未改。",
+    "原 admin 独立提醒 MCP 两工具与本人规则读取通过，connector 空队列返回 empty、零模型调用；仅保留一条无目标未启用验收草稿，正式运行 0、活动提醒 0。控制验证及 diff check 通过。",
+    "最终固定代码从任务 Worktree 标准重建，版本 2.6.11 / 9e11bf89f0bf-dirty-b82d74b2515e，API/Worker readiness、双方 Docker health、React 资源及 source digest 核验通过。后续只追加验收记录，业务代码未变。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "修复托管连接页固定头部遮挡、StrictMode 自动恢复与首次手动成功后按用户/浏览器自动连接；增加未连接页面入口和仅清除本地会话选择的恢复操作。修复 /agents 在托管地址上执行直连 URL 校验导致崩溃。A 模式启动任务 Worktree 前端5173、API8080和Worker，沿用主checkout原测试数据库及账号，Vite支持WebSocket代理。",
+  "status": "completed",
+  "task_id": "2026-09-08-agent-connection-ui-a-mode",
+  "unresolved": [
+    "本地测试Gateway未配置模型provider及默认模型，真实对话与模型选择待接入；真实通知验收继续保留。",
+    "A模式SecretStore本地Gateway URL与证书路径已切换宿主机；旧Docker路径备份于/tmp/inteliscope-agent-a-runtime/docker-paths.json，运行日志/PID同目录。"
+  ],
+  "validation": [
+    "实际浏览器验证首次手动连接、刷新自动连接及保留提醒路由；桌面和手机标题不被头部遮挡；/agents 修复后实际打开正常。",
+    "管理页20项、托管连接9项及StrictMode复验2项通过；类型和定向lint通过。两轮impacted preflight各13/14，仅首屏构建预算失败；最终定向构建复验通过，Brotli245729 bytes，未重复第三轮完整门禁。",
+    "API代理readiness返回数据库/Worker/logging ready；未启动Docker、未提交或推送、未执行模型调用和真实通知。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-08",
+  "result": "纠正将项目接入另建18791无模型测试实例的错误。依据用户TUI截图、监听进程和原配置确认13789；在原~/.openclaw备份配置并安装admin现有个人Agent及只读MCP，保留main与模型。项目SecretStore指向本地TLS转发18792→原13789并使用原实例认证，A模式API继续运行，原测试数据库/密码不变。",
+  "status": "partial",
+  "task_id": "2026-09-08-restore-original-openclaw",
+  "unresolved": [
+    "网页模型选择和真实对话尚未验收；未调用模型、未发送通知、未启动Docker、未提交Git。",
+    "TLS转发与API脚本/PID位于/tmp/inteliscope-agent-a-runtime；本轮切换前URL及认证私有备份before-original-gateway.env。原OpenClaw备份为~/.openclaw/openclaw.pre-agent-*.json。其他账号与提醒connector尚未迁入原实例。"
+  ],
+  "validation": [
+    "原实例鉴权与个人Agent验证通过；provision verify含MCP只读检查通过；models.list成功返回13模型。",
+    "API数据库/Worker readiness通过。网页排查确认同账号3个现有连接占满名额，新连接在握手前拒绝；已关闭本任务额外浏览器，等待用户减少测试页后验收。临时诊断代码已恢复，无业务代码变更。"
   ]
 }
 ```

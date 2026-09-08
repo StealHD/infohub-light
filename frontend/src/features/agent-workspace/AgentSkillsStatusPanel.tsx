@@ -8,7 +8,8 @@ function skillState(skill: OpenClawSkill) {
   return skill.eligible ? { label: '可使用', tone: 'success' as const } : { label: '条件不足', tone: 'warning' as const }
 }
 
-export function AgentSkillsStatusPanel({ status, busy, canUpdate, onToggle }: {
+export function AgentSkillsStatusPanel({ status, busy, canUpdate, onToggle, readOnly = false }: {
+  readOnly?: boolean
   status: OpenClawSkillsStatus
   busy: string
   canUpdate: boolean
@@ -29,7 +30,7 @@ export function AgentSkillsStatusPanel({ status, busy, canUpdate, onToggle }: {
           </div>
           <StatusIndicator {...skillState(skill)} />
           <Button size="sm" variant="ghost" aria-label={`查看 ${skill.name} 详情`} onPress={() => setDetail(skill)}>详情</Button>
-          <Button size="sm" variant="secondary" isDisabled={Boolean(busy) || !canUpdate} onPress={() => onToggle(skill.key, !skill.enabled)}>{skill.enabled ? '停用' : '启用'}</Button>
+          {!readOnly && <Button size="sm" variant="secondary" isDisabled={Boolean(busy) || !canUpdate} onPress={() => onToggle(skill.key, !skill.enabled)}>{skill.enabled ? '停用' : '启用'}</Button>}
         </div>)}
       </div> : <EmptyState title="没有 Skills" description="Gateway 尚未发现 Skill。安装后刷新此列表即可查看。" />}
     </section>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 
 import type { User } from '../../api/types'
@@ -21,6 +21,8 @@ import {
   type OpenClawInspector,
 } from './agentWorkspaceModel'
 import { useAgentWorkspaceSessions } from './useAgentWorkspaceSessions'
+
+const InformationAutomationsView = lazy(() => import('../information-automations/InformationAutomationsView'))
 
 const fallbackUser: User = {
   id: 'agent-workspace',
@@ -57,7 +59,7 @@ export function AgentWorkspacePage() {
     : location.pathname === '/agent/skills'
     ? <AgentSkillsView chat={chat} />
     : location.pathname === '/agent/automations'
-      ? <AgentAutomationsView chat={chat} />
+      ? new URLSearchParams(location.search).get('advanced') === 'cron' ? <AgentAutomationsView chat={chat} /> : <Suspense fallback={<p role="status">正在加载提醒…</p>}><InformationAutomationsView key={user.id} canMutate={user.role !== 'viewer'} /></Suspense>
       : <AgentConversationView chat={chat} context={context} />
 
   function navigateInspector(route: string) {

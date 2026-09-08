@@ -33,7 +33,7 @@ async def authenticate(upstream, root, token):
     agent = hello.get('snapshot', {}).get('sessionDefaults', {}).get('defaultAgentId')
     if hello.get('protocol') != 4 or not isinstance(agent, str) or not agent:
         raise RelayFailure('Server OpenClaw protocol incompatible')
-    return agent
+    return hello
 
 
 def error_reply(request_id, message):
@@ -64,7 +64,7 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         except PermissionError:
             await browser.send_json(error_reply(request_id, '当前账号无权执行该操作或访问该会话。'))
             continue
-        pending[request_id] = method
+        pending[request_id] = (method, safe)
         await upstream.send(json.dumps({'type': 'req', 'id': request_id, 'method': method, 'params': safe}))
 
 
@@ -74,11 +74,12 @@ async def gateway_events(browser, upstream, owner, agent, pending, valid_session
             raise RelayFailure('Binding or session expired')
         frame = json.loads(raw)
         if frame.get('type') == 'res':
-            method = pending.pop(frame.get('id'), None)
-            if method is None:
+            entry = pending.pop(frame.get('id'), None)
+            if entry is None:
                 continue
+            method, params = entry
             if frame.get('ok'):
-                frame['payload'] = response_payload(method, frame.get('payload', {}), owner, agent)
+                frame['payload'] = response_payload(method, frame.get('payload', {}), owner, agent, params)
             else:
                 frame = error_reply(frame.get('id'), 'OpenClaw 未能完成请求，请重试或联系管理员。')
             await browser.send_json(frame)
@@ -99,7 +100,7 @@ async def relay(browser, user_id, valid_session, agent, *, readonly=False):
     owner = Ownership(root, user_id)
     async with connect(url, proxy=None, open_timeout=15, ping_interval=20, ping_timeout=20,
                        max_size=MAX_FRAME, max_queue=16, close_timeout=5) as upstream:
-        await authenticate(upstream, root, token)
+        hello = await authenticate(upstream, root, token)
         await verify_agent(upstream, agent)
         if not valid_session():
             raise RelayFailure('Binding or session expired')
@@ -108,7 +109,8 @@ async def relay(browser, user_id, valid_session, agent, *, readonly=False):
         if request.get('method') != 'connect' or request.get('type') != 'req':
             raise RelayFailure('Connect required')
         await browser.send_json({'type': 'res', 'id': request.get('id'), 'ok': True, 'payload': {
-            'features': {'methods': ['sessions.preview']},
+            'features': {'methods': [method for method in ('sessions.preview', 'sessions.list', 'skills.status')
+                                     if method in hello.get('features', {}).get('methods', [])]},
             'protocol': 4, 'auth': {'role': 'operator', 'scopes': SCOPES},
             'snapshot': {'sessionDefaults': {'defaultAgentId': agent}},
         }})

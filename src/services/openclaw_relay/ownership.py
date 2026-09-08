@@ -29,4 +29,7 @@ class Ownership:
 
     def add(self, key: str):
         with self.connect() as db:
-            db.execute('INSERT INTO sessions(key, owner) VALUES (?, ?)', (key, self.user))
+            db.execute('INSERT OR IGNORE INTO sessions(key, owner) VALUES (?, ?)', (key, self.user))
+            row = db.execute('SELECT owner FROM sessions WHERE key=?', (key,)).fetchone()
+            if row[0] != self.user:
+                raise PermissionError('Session already belongs to another user')

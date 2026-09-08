@@ -48,6 +48,7 @@ export const queryKeys = {
   feedSchedule: (userId: string) => [...userKey(userId), 'feed-schedule'] as const,
   notificationSettings: (userId: string) => [...userKey(userId), 'notification-settings'] as const,
   notificationServices: (userId: string) => [...userKey(userId), 'notification-services'] as const,
+  agentConnection: (userId: string) => [...userKey(userId), 'agent-connection'] as const,
   agentDelegations: (userId: string) => [...userKey(userId), 'agent-delegations'] as const,
   systemSettings: (userId: string) => [...userKey(userId), 'system-settings'] as const,
   config: (userId: string) => [...userKey(userId), 'config'] as const,

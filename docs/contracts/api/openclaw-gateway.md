@@ -10,10 +10,16 @@
 - `data/openclaw-relay/ownership.sqlite3` 继续仅保存 workspace/user 与 Gateway session key 归属，不保存对话。新会话在服务端所选 Agent 下创建，fork 和写操作限定当前 Agent 的本人会话。已归属的旧 main/退役 Agent 会话只读，不迁移、不重新归属；读取历史时不强制改写原 Agent。
 - 未许可 RPC、跨账号会话、跨 Agent 指定、原生 `/` 或 `!` Gateway 聊天命令均拒绝；聊天强制 `deliver:false`。不转发配置、设备管理或任意工具调用。TLS 校验、20 秒 ping、断连清理和不自动重发 chat.send 保持有效。
 
+### 个人目录与 Skills（阶段 2）
+
+- Relay hello 只声明上游也声明的 `sessions.preview/list` 与 `skills.status`，不伪造能力。`sessions.list` 强制当前独占 `ih-<32 hex>` Agent，允许 limit 1–100、非负 offset、至多 512 字符 search、archived false/true/all 和 updatedAt 排序；拒绝浏览器 owner/其他 Agent 参数。
+- 当前个人 Agent 下的返回 key 经前缀检查后登记本人归属，冲突失败关闭；其他 Agent 返回导致请求失败，不泄露目录。只投影公开会话元数据及 totalCount/hasMore/nextOffset，不返回存储路径。旧 Agent 仅允许精确已归属 key 的查询和历史读取，不批量认领共享 main。
+- `skills.status` 强制当前 Agent，可选 sessionKey 必须归属本人且属于当前 Agent；仅投影公开 Skill 状态，不返回路径、令牌或环境变量值。共享服务端模式禁用上传、安装和修改 Skills。
+
 ### 个人绑定 API 与存储（global 37）
 
 - `GET /api/me/agent-connection` 使用当前 Cookie，返回 `ok.data`：`state` 为 `migration_required|unconfigured|pending_verification|ready|invalid|revoked`，另含 `agent_id`、`delegation_id`、`verified_at`、`can_connect`、`can_chat`、`verification`。响应 `Cache-Control: no-store`，无 SecretStore 引用、配置路径或令牌。
-- `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关限制，`own_content` 受 Remote MCP 开关限制。
+- `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关及 WSS URL/凭据配置有效性限制（不发起网络探测），`own_content` 受 Remote MCP 开关限制。
 - `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。浏览器没有准备、激活、指定身份或导出凭据接口。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
 - `agent_connections` 保存 user/workspace、随机 binding/Agent/MCP 名称、SecretStore env 引用、专用 delegation ID、secret-free manifest、状态和部署核验时间。每用户一条、每 Agent/namespace/delegation/secret_ref 唯一；删除 delegation 后绑定失效。正文、Gateway 对话/Tasks/Artifacts 不复制进 Service DB。
 - 准备绑定只创建新的 `inteliscope:read` / self delegation，沿用 90 日过期和最多五条有效连接限制；不复用或扩权旧 delegation。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。

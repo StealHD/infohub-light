@@ -1,3 +1,4 @@
+import { AgentConnectionProvider } from '../features/agent-connection/AgentConnectionContext'
 import { logoutOpenClawWorkspace } from '../features/openclaw/openclawLogout'
 import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -165,7 +166,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
     </Suspense>
   </AppErrorBoundary>
 
-  return <ActionFeedbackProvider key={user.id} userId={user.id}><OpenClawWorkspaceRuntimeProvider chat={openClawRuntime.chat}>
+  return <AgentConnectionProvider key={user.id} value={{ api, userId: user.id }}><ActionFeedbackProvider key={user.id} userId={user.id}><OpenClawWorkspaceRuntimeProvider chat={openClawRuntime.chat}>
     {settingsWorkspaceRoute ? <Suspense fallback={<RouteLoadingState />}><SettingsLayout user={user}>{outlet}</SettingsLayout></Suspense> : <HeroWorkbenchShell
       api={api}
       user={user}
@@ -180,7 +181,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
       openclawChat={openClawRuntime.chat}
       openclawConfigLoading={openClawRuntime.configLoading}
     >{outlet}</HeroWorkbenchShell>}
-  </OpenClawWorkspaceRuntimeProvider></ActionFeedbackProvider>
+  </OpenClawWorkspaceRuntimeProvider></ActionFeedbackProvider></AgentConnectionProvider>
 }
 
 function BootstrapShellRelease({ user, clearSnapshot = false, children }: {

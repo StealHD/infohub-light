@@ -145,3 +145,4 @@ class RemoteMCPToolContext:
     diagnostics: RemoteMCPDiagnostics
     principals: RemoteMCPPrincipalContext
     calls: RemoteMCPCallPort
+    information_service: Any = None

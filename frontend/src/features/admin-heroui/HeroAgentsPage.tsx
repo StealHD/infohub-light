@@ -28,7 +28,7 @@ import {
   oneTimeTokenWriteCommand,
 } from '../openclaw/openclawAgentConfiguration'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
-import { AgentConnectionsSection } from './AgentConnectionsSection'
+import { AgentConnectionsSection } from './AgentConnectionsSection'; import { PersonalAgentConnection } from '../agent-connection/PersonalAgentConnection'
 import {
   DialogFrame,
   OneTimeCopyAction,
@@ -211,7 +211,7 @@ export function HeroAgentsPage() {
         <RefreshButton size="sm" variant="ghost" isIconOnly iconSize={16} pending={query.isFetching} aria-label="刷新最近使用时间" pendingLabel="正在刷新最近使用时间" onPress={() => query.refetch()} />
         <Button size="sm" isDisabled={creationDisabled} onPress={openCreateDialog}><Icons.Bot size={16} />创建连接</Button>
       </>} />
-      {query.isLoading
+      {query.data?.openclaw_chat?.default_gateway_url?.endsWith('/api/me/openclaw/socket') && <PersonalAgentConnection />}{query.isLoading
         ? <AdminSection title="我的连接" description="读取当前账户的 OpenClaw 数据连接。"><LoadingState label="正在读取助手连接" rows={1} /></AdminSection>
         : query.isError || !query.data
           ? <AdminSection title="我的连接" description="读取当前账户的 OpenClaw 数据连接。"><HeroNotice title="连接列表读取失败。"><RefreshButton size="sm" variant="ghost" pending={query.isFetching} label="重试" onPress={() => query.refetch()} /></HeroNotice></AdminSection>

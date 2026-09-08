@@ -12,6 +12,7 @@ from .feed_run import FeedRunResult, safe_issue, safe_run_diagnostics
 from .canonical_content import merge_feed_items
 from .user_feed_store import UserFeedSnapshotInput, UserFeedStore
 from .user_content_store import UserContentStore
+from .information_automations.events import record_feed_publication
 
 
 class FeedRunFailed(RuntimeError):
@@ -414,9 +415,5 @@ class FeedProductionService:
             snapshot=snapshot_input,
             commit=commit,
         )
-        UserContentStore(self.store).upsert_captured_items(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            items=list(result.items),
-        )
+        record_feed_publication(self.store, workspace_id, user_id, result, snapshot)
         return {**snapshot, "new_item_count": new_item_count}

@@ -54,6 +54,8 @@ def configure(config, manifest, root):
         extra_denies = prior.get('tools', {}).get('deny', [])
         prior.setdefault('tools', {})['deny'] = list(DENIED)
         permitted = set(DENIED) | {_safe_server(name) + '__*' for name in servers if name != namespace}
+        if 'llm-task' in extra_denies:
+            permitted.add('llm-task')
         if prior != expected_agent or set(extra_denies) != permitted:
             raise ValueError('Existing managed Agent differs; review config drift before reinstalling')
         expected_agent['tools']['deny'] = extra_denies

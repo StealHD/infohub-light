@@ -12,3 +12,10 @@ export async function managedSession(userId: string): Promise<ManagedSession> {
 export function saveManagedSession(userId: string, sessionKey: string): void {
   try { sessionStorage.setItem(key(userId), sessionKey) } catch { /* active session remains usable */ }
 }
+
+export function canAutoConnectManaged(userId: string): boolean {
+  try { return localStorage.getItem(key(userId)) === 'auto' } catch { return false }
+}
+export function rememberManagedConnection(userId: string): void {
+  try { localStorage.setItem(key(userId), 'auto') } catch { /* Manual connection remains usable. */ }
+}

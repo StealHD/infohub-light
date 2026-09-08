@@ -30,6 +30,7 @@ from .remote_tool_annotations import (
     READ_ANNOTATIONS,
     finalize_tool_schemas,
 )
+from .remote_information_tools import RemoteInformationService
 from .remote_tool_context import RemoteMCPPrincipalContext, RemoteMCPToolContext
 
 
@@ -74,7 +75,6 @@ def _create_server(
         ),
     )
 
-
 def _create_tool_context(
     store: ServiceStore,
     settings: RemoteMCPSettings,
@@ -106,7 +106,7 @@ def _create_tool_context(
             secret_is_set=secret_is_set,
         ),
         principals=principals,
-        calls=RemoteMCPCallRuntime(principals),
+        calls=RemoteMCPCallRuntime(principals), information_service=RemoteInformationService(store),
     )
 
 

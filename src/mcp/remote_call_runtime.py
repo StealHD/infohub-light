@@ -52,6 +52,14 @@ class SafeRemoteMCP(FastMCP):
         self._delegation_limiter = limiter
         self._principal_resolver = principal_resolver
 
+    async def list_tools(self):
+        from .remote_information_tools import TOOL_SCOPES
+        access = get_access_token()
+        principal = self._principal_resolver(access.token) if access is not None else None
+        scopes = principal.get("scopes", []) if principal else []
+        return [tool for tool in await super().list_tools()
+                if tool.name not in TOOL_SCOPES or TOOL_SCOPES[tool.name] in scopes]
+
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         request_id = f"mcp_{uuid.uuid4().hex}"
         started = time.perf_counter()

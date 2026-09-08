@@ -23,7 +23,7 @@ class AgentDelegationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=80)
-    access: Literal["read", "subscriptions_write", "system_settings_write"] = "read"
+    access: Literal["read", "subscriptions_write", "system_settings_write", "information_automations_read", "information_automations_draft"] = "read"
     diagnostics_scope: Literal["self", "workspace"] = "self"
 
     @field_validator("name")
@@ -191,6 +191,8 @@ def register_agent_delegation_routes(app: FastAPI) -> None:
     """Register delegation routes in their compatibility-sensitive order."""
     register_openclaw_relay_routes(app)
     register_agent_connection_routes(app)
+    from .information_automation_routes import register_information_automation_routes
+    register_information_automation_routes(app)
 
     app.add_api_route(
         "/api/me/agent-delegations", agent_delegations_list, methods=["GET"]

@@ -149,7 +149,7 @@ export const manualSections: ManualSection[] = [
     steps: [
       {
         title: '创建数据连接',
-        description: '在“助手连接”创建只读或订阅管理连接。令牌只显示一次；创建流程的令牌、环境写入命令和 OpenClaw 配置命令都用紧凑图标复制。令牌只显示一行，末尾省略但复制内容完整，不会撑出横向滚动。复制环境写入命令后，在本机终端粘贴运行即可安全更新 ~/.openclaw/.env 中的 Inteliscope 令牌，保留其他环境变量并设置目录 0700、文件 0600；网页不会直接执行本机命令。订阅管理仍需 prepare、确认和 apply，不能直接改写数据。现有连接的复制、重命名、吊销或删除集中在中性“更多”菜单；吊销只出现在有效连接，删除只出现在已吊销记录，红色实心动作只会出现在最后一步确认。',
+        description: '管理员先为账号配置个人 Agent；用户在每个浏览器首次手动连接，成功后下次登录或刷新自动连接。旧会话恢复失败时可选择“新建个人会话并连接”，原历史不会删除。本机 A 方式使用前端 5173、API 8080 和本机 Worker，开发代理支持 WebSocket。服务端模式先查看“我的 Agent 接入”：未绑定或授权失效需管理员配置，部署验证不代表聊天或通知验收。连接后可在个人会话目录分页读取历史及查看当前 Agent 的 Skills。在“助手连接”创建只读或订阅管理连接。令牌只显示一次；创建流程的令牌、环境写入命令和 OpenClaw 配置命令都用紧凑图标复制。令牌只显示一行，末尾省略但复制内容完整，不会撑出横向滚动。复制环境写入命令后，在本机终端粘贴运行即可安全更新 ~/.openclaw/.env 中的 Inteliscope 令牌，保留其他环境变量并设置目录 0700、文件 0600；网页不会直接执行本机命令。订阅管理仍需 prepare、确认和 apply，不能直接改写数据。现有连接的复制、重命名、吊销或删除集中在中性“更多”菜单；吊销只出现在有效连接，删除只出现在已吊销记录，红色实心动作只会出现在最后一步确认。',
         href: '/agents',
         linkLabel: '打开助手连接',
       },
@@ -164,6 +164,10 @@ export const manualSections: ManualSection[] = [
       {
         title: '按名称订阅 YouTube 频道',
         description: '直接说“订阅 YouTube 的老高和小茉”即可；OpenClaw 会先搜索最多 5 个官方频道主页，再由 Inscope 验证频道页面与公开 Feed 是否属于同一频道，不再要求你手工提供频道 ID 或 RSS。只有一个结果时进入订阅预览；多个结果会先显示频道名称与官方主页供你选择。搜索结果属于不可信公开元数据，视频、播放列表、第三方网址和带凭据地址不会进入解析。最终仍须核对预览并另发服务端给出的准确确认短语。',
+      },
+      {
+        title: '个人信息提醒',
+        description: '关键词规则先保存草稿，再测试并明确确认启用。修改来源、条件或通知服务后需重新确认；测试不会发送或推进水位，未知投递结果不会自动重发。管理员需先停止 API/Worker 并运行 scripts/migrate_information_automations_v38.py 的预览和备份迁移。在 Agent 的 Automations 入口编辑个人提醒，聊天返回的确认卡会重新读取本人规则。独立提醒授权由管理员使用 manage_reminder_delegation.py 配置，原连接不自动扩权。语义模式需完成 global 39 备份迁移并配置独立 connector，使用 manage_information_connector.py 和 run_information_connector.py；预览不进入正式运行。高级 Gateway Cron 保留独立入口；真实通知回执仍待验收。',
       },
       {
         title: '通过 OpenClaw 订阅全部支持来源',
@@ -189,7 +193,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '管理 Skills 与 Automations',
-        description: 'Skills 只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传，大小不超过 Gateway 上限与 20 MiB 中的较小值；页面只显示缺失环境变量名称，不读取值。Automations 只支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，新建默认停用，关闭 Inscope 后仍由 Gateway 执行。点击写操作时才会弹出独立的临时 operator.admin 授权；授权只解锁操作，不会自动执行刚才的写入。只应在自己的独立 Gateway 或信任域中授权，Token 不会保存。',
+        description: 'Skills 只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传，大小不超过 Gateway 上限与 20 MiB 中的较小值；页面只显示缺失环境变量名称，不读取值。Automations 只支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，新建默认停用并明确绑定当前 Agent，修改保留原 Agent 和完整提示词；列表与记录支持分页。未绑定的旧计划仅可查看、停用或删除。共享服务端接入不开放 Gateway 管理授权，关闭 Inscope 后仍由 Gateway 执行。点击写操作时才会弹出独立的临时 operator.admin 授权；授权只解锁操作，不会自动执行刚才的写入。只应在自己的独立 Gateway 或信任域中授权，Token 不会保存。',
       },
       {
         title: '查看使用示例与 Skill 详情',

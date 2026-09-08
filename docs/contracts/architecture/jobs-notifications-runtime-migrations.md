@@ -51,6 +51,10 @@ React UI 低频读取当前用户 schedule，并在发现 active job 后复用�
 
 Webhook egress 只接受 SecretStore 当前保存并与所选 Provider 精确匹配的 HTTPS，复用 `src/services/network_policy.py` 的公网解析和 IP pinning；它禁用环境代理、拒绝 redirect，以 bounded DNS、单地址单次 POST、5 秒 transport timeout 和 6 秒总 deadline 发送。G1/G2 采用 URL-only，不接收 Bearer 或自定义 header，正文在网络层直接丢弃且只校验 2xx；P1-P5 只接受 identity 响应并最多读取 4096 bytes 交给共享 transport 校验业务 ACK。超限、畸形、压缩或已开始发送后的 transport 错误一律投影为 unknown 且不自动重放，上游正文永不持久化或进入日志/错误。Telegram 在同一 pinning 层拥有唯一的 exact-host synthetic DNS 例外：仅 `api.telegram.org` 可接受 `198.18.0.0/15`，连接仍固定原 Host/SNI、HTTPS、零 redirect、`trust_env=false` 和单次 POST；Webhook、来源及其他 host 继续拒绝 fake/private IP，代码不得修改 Clash 配置。Service Email 只使用 schema v10 workspace transport 与其 SecretStore 凭据，不读取 `data/config.json.email` 或进程环境兜底；Telegram 只使用 schema v15 workspace transport。三种 transport 的响应正文、目的地和凭据均不得进入公开错误或日志。
 
+### 3.8C1 个人信息提醒
+
+个人信息提醒独立归 `services/information_automations/`；`FeedProductionService` 同事务发布新增事件，当前 Worker housekeeping 管批次、关键词判断和持久化投递。它复用 `NotificationTargetService` 与既有三类 transport，不修改普通来源通知开关、不由 Gateway Cron 调度。global 38 显式迁移及接口/未知结果语义见[信息提醒合同](../api/information-automations.md)。
+
 ### 3.8D Apify Operational Alert Boundary
 
 `src/services/apify_actor_alerts.py::ApifyActorAlertService` 独占工作区 Actor 告警总开关、共享目标绑定、incident、delivery outbox、首报/升级/恢复去重和提交后投递；`src/services/apify_actor_monitoring.py::ApifyActorAlertBridge` 只把已提交的路由、费用与额度状态转换成安全事件。告警与 3.8C 的个人新内容通知拥有独立业务绑定，但必须复用同一 `NotificationTargetService`、工作区 Email/Telegram Transport 和 Webhook Registry；系统告警不得读取或绑定私有目标。

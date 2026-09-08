@@ -5,28 +5,10 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Iterable
-from urllib.parse import urlsplit
+from ..content_identity import canonical_url_key, feed_item_identity
 
 
 INTERNAL_SOURCE_NATIVE_TITLE_KEY = "_source_native_title"
-
-
-def canonical_url_key(url: Any) -> str:
-    """Normalize URL identity while preserving the complete query string."""
-
-    parsed = urlsplit(str(url or ""))
-    hostname = (parsed.hostname or "").lower()
-    if hostname.startswith("www."):
-        hostname = hostname[4:]
-    port = f":{parsed.port}" if parsed.port else ""
-    path = parsed.path.rstrip("/")
-    query = f"?{parsed.query}" if parsed.query else ""
-    return f"{hostname}{port}{path}{query}"
-
-
-def feed_item_identity(item: dict[str, Any]) -> str:
-    url = item.get("url")
-    return f"url:{canonical_url_key(url)}" if url else f"id:{item.get('id') or ''}"
 
 
 def _values(item: dict[str, Any], plural: str, singular: str) -> list[str]:

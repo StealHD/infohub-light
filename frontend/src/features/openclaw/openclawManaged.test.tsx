@@ -1,3 +1,7 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import { AgentConnectionProvider } from '../agent-connection/AgentConnectionContext'
+import type { ServiceApi } from '../../api/service'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { isManagedGateway, managedGatewayUrl } from './gateway/openclawManaged'
@@ -5,6 +9,7 @@ import { initialOpenClawGatewayUrl } from './lifecycle/useOpenClawConnection'
 import { OpenClawGatewayClient, type GatewaySocket } from './openclawGateway'
 import { OpenClawManagedSetup } from './ui/OpenClawManagedSetup'
 import { setupIssue, MissingOpenClawCredentialError } from './chat/openclawSetupIssue'
+import { hasInteliscopeTools } from './chat/openclawToolAvailability'
 import type { OpenClawChatController } from './openclawContracts'
 
 class Socket implements GatewaySocket {
@@ -38,10 +43,20 @@ describe('managed OpenClaw', () => {
     await ready
     client.close()
   })
-  it('shows a server connect action without a credential field', () => {
-    render(<OpenClawManagedSetup chat={{status:'idle',connect:vi.fn()} as unknown as OpenClawChatController} />)
+  it.each(['compact', 'workspace'] as const)('keeps %s connection content clear of its header', (variant) => {
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter>
+      <AgentConnectionProvider value={{ userId: 'alice', api: { agentConnection: vi.fn().mockResolvedValue({ state: 'unconfigured', can_connect: false, verification: {} }) } as unknown as ServiceApi }}>
+        <OpenClawManagedSetup variant={variant} chat={{status:'idle',connect:vi.fn()} as unknown as OpenClawChatController} />
+      </AgentConnectionProvider></MemoryRouter></QueryClientProvider>)
     expect(screen.getByRole('button',{name:'连接'})).toBeVisible()
     expect(screen.queryByLabelText('OpenClaw Gateway token')).toBeNull()
+    expect(screen.getByTestId('agent-scroll-region').hasAttribute('data-page-scroll-region')).toBe(variant === 'workspace')
+  })
+  it('recognizes only the bound personal MCP namespace', () => {
+    const agent = 'ih-' + 'a'.repeat(32)
+    const tools = { groups: [{ tools: [{ id: 'ih_' + 'a'.repeat(24) + '__get_my_feed', source: 'mcp' }] }] }
+    expect(hasInteliscopeTools(tools, agent)).toBe(true)
+    expect(hasInteliscopeTools(tools, 'ih-' + 'b'.repeat(32))).toBe(false)
   })
   it('does not call a missing input an invalid token', () => {
     expect(setupIssue(new MissingOpenClawCredentialError()).message).toContain('尚未配对')

@@ -3,16 +3,25 @@ from fastapi import Depends, FastAPI, Response
 from .context import ApiContext
 from .responses import ok
 from .system_auth import api_context, current_user
+from ..storage.information_automation_schema import ready as reminders_ready
 from ..services.agent_connections.service import AgentConnections
-from ..services.openclaw_relay.settings import enabled
+from ..services.openclaw_relay.settings import enabled, configuration
 
 
 async def connection_status(response: Response, user=Depends(current_user), context: ApiContext = Depends(api_context)):
     response.headers['Cache-Control'] = 'no-store'
     status = AgentConnections(context.store, context.secret_values).status(user)
     status['can_connect'] &= enabled() and context.openclaw_chat_settings.enabled
+    try:
+        configuration()
+    except ValueError:
+        status['can_connect'] = False
     status['can_chat'] &= status['can_connect']
     status['verification']['own_content'] &= context.remote_mcp_settings.enabled
+    status['verification']['information_automations'] = bool(status['verification']['deployment']
+        and user['role'] != 'viewer' and reminders_ready(context.store.connect()))
+    targets = context.notification_targets.list_public_targets(workspace_id=user['workspace_id'], user_id=user['id'])
+    status['verification']['notifications'] = any(target.get('available') for target in targets['targets'])
     return ok(status)
 
 

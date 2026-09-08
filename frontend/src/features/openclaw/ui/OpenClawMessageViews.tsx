@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
+const InformationDraftCards = lazy(() => import('../../information-automations/InformationDraftCards'))
 
 import { Icons, RefreshButton, Tooltip, TooltipTriggerButton } from '../../../design-system'
 import type { OpenClawContextUsage } from '../openclawContracts'
@@ -185,8 +186,9 @@ export function ConversationTurn({
           data-chat-message-body
           className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
         >
-          <OpenClawMessageText text={text} />
+          <OpenClawMessageText text={role === 'assistant' ? text.replace(/\[\[information-automation:iar_[a-f0-9]{32}\]\]/gu, '') : text} />
         </div>}
+      {role === 'assistant' && text.includes('[[information-automation:') && <Suspense fallback={<p role="status">正在加载确认卡…</p>}><InformationDraftCards text={text} /></Suspense>}
       {children}
     </article>
   </>

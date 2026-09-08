@@ -48,6 +48,7 @@
 | Remote MCP delegation、工具和权限 | [Remote MCP](remote-mcp.md) |
 | Browser OpenClaw Gateway 与图片媒体票据 | [Browser OpenClaw Gateway](openclaw-gateway.md) |
 | Feed/Source 周期、通知、Source Health | [Schedule、Job 与通知](schedules-jobs-notifications.md) |
+| 个人提醒、规则确认、事件与投递记录 | [信息提醒](information-automations.md) |
 | 密钥、AI、source catalog 与 Job 细则 | [Service 配置与任务](service-secrets-source-jobs.md) |
 | Feed、历史、Presentation、媒体与存储 | [Feed、历史、Presentation 与存储](feed-history-presentation-storage.md) |
 | 后台任务、迁移、DeepSeek 与 ActorOps | [Job、迁移与 ActorOps](jobs-migrations-actorops.md) |

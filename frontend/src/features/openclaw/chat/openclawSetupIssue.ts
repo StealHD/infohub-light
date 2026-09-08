@@ -56,22 +56,3 @@ export function setupIssue(error: unknown): OpenClawSetupIssue {
   if (fingerprint.includes('unavailable') || (!gatewayError && (fingerprint.includes('websocket') || fingerprint.includes('network') || fingerprint.includes('连接')))) return { kind: 'network', message: '无法连接 OpenClaw Gateway；浏览器可能还在等待本地网络权限。' }
   return { kind: 'unknown', message: 'OpenClaw 连接失败，请检查 Gateway 后重试。' }
 }
-
-export function hasInteliscopeTools(value: unknown): boolean {
-  try {
-    if (JSON.stringify(value).toLowerCase().includes('inteliscope')) return true
-  } catch {
-    return false
-  }
-  const groups = value && typeof value === 'object' && Array.isArray((value as { groups?: unknown }).groups)
-    ? (value as { groups: unknown[] }).groups
-    : []
-  return groups.some((group) => {
-    if (!group || typeof group !== 'object' || !Array.isArray((group as { tools?: unknown }).tools)) return false
-    return (group as { tools: unknown[] }).tools.some((tool) => {
-      if (!tool || typeof tool !== 'object') return false
-      const entry = tool as { id?: unknown; label?: unknown; source?: unknown }
-      return entry.source === 'mcp' && `${String(entry.id || '')} ${String(entry.label || '')}`.toLowerCase().includes('inteliscope')
-    })
-  })
-}

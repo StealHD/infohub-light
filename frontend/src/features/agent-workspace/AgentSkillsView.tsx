@@ -14,6 +14,7 @@ import {
   TextField,
   actionToast,
 } from '../../design-system'
+import { isManagedGateway } from '../openclaw/gateway/openclawManaged'
 import type { OpenClawChatController, OpenClawSkillsStatus } from '../openclaw'
 import { AdminAuthorizationDialog, AdminConnectedNotice } from './OpenClawAdminAuthorization'
 import { useOpenClawAdminSession } from './useOpenClawAdminSession'
@@ -139,6 +140,7 @@ function useSkillsStatus(chat: OpenClawChatController) {
 }
 
 export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
+  const readOnly = isManagedGateway(chat.gatewayUrl)
   const authorization = useOpenClawAdminSession(chat.gatewayUrl)
   const fileInput = useRef<HTMLInputElement>(null)
   const { status, loading, error, setError, refresh } = useSkillsStatus(chat)
@@ -228,18 +230,19 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
           <h2 className="type-section-title">Skills</h2>
           <p className="type-body mt-1 text-muted">查看 Agent 能做什么、哪些 Skill 可使用，以及还缺少什么条件。查看列表和详情无需管理授权。</p>
         </div>
-        {authorization.admin
+        {!readOnly && (authorization.admin
           ? status?.uploadedArchivesAllowed && <Button onPress={requestUpload}><Icons.Archive size={16} aria-hidden="true" />上传 ZIP</Button>
-          : <Button isDisabled={!connected || unsupported} onPress={() => setAuthorizationOpen(true)}><Icons.LockKeyhole size={16} aria-hidden="true" />临时授权</Button>}
+          : <Button isDisabled={!connected || unsupported} onPress={() => setAuthorizationOpen(true)}><Icons.LockKeyhole size={16} aria-hidden="true" />临时授权</Button>)}
         <RefreshButton variant="ghost" label="刷新 Skills" isDisabled={!connected || unsupported} pending={loading} onPress={refresh} />
       </div>
 
+      {readOnly && <StatusNotice title="个人接入 · 只读" status="default">此处查看当前 Agent 的 Skills；安装与启停由管理员配置。</StatusNotice>}
       {authorization.admin && <AdminConnectedNotice onClose={authorization.close} />}
       {authorization.state === 'expired' && <StatusNotice title="临时管理连接已过期" status="warning">请在需要写操作时重新授权。</StatusNotice>}
       {!connected ? <StatusNotice title="连接 Gateway 后查看 Skills" status="default" />
         : unsupported ? <StatusNotice title="当前 Gateway 不支持 Skills 状态" status="warning" />
         : loading && !status ? <LoadingState label="正在读取 Skills" rows={3} />
-          : status ? <AgentSkillsStatusPanel status={status} busy={busy} canUpdate={connected && (!authorization.admin || authorization.admin.capabilities()['skills.update'])} onToggle={(key, enabled) => void toggleSkill(key, enabled)} /> : null}
+          : status ? <AgentSkillsStatusPanel readOnly={readOnly} status={status} busy={busy} canUpdate={!readOnly && connected && (!authorization.admin || authorization.admin.capabilities()['skills.update'])} onToggle={(key, enabled) => void toggleSkill(key, enabled)} /> : null}
       {status && !status.uploadedArchivesAllowed && <p className="type-meta text-muted">当前 Gateway 未提供 ZIP 上传许可；已安装的 Skills 仍可查看和使用。</p>}
       {error && <StatusNotice title="Skills 操作失败" status="danger">{error}</StatusNotice>}
     </div>

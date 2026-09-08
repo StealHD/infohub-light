@@ -149,7 +149,12 @@ def run_worker_housekeeping(
     include_maintenance: bool,
 ) -> None:
     """Run bounded v2 control work after a Job or while idle, never before claim."""
-
+    from .information_automations.runtime import run_information_automations
+    try:
+        run_information_automations(store, data_dir=data_dir)
+    except Exception:
+        _rollback(store)
+        logger.warning('Information reminder cycle failed')
     update_observability_context(stage="actorops_v2_reconcile")
     _reconcile_actorops_v2(store, data_dir=data_dir, logger=logger)
     if not include_maintenance:

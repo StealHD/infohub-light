@@ -1,0 +1,46 @@
+"""An empty queue or an unknown submission never repeats model inference."""
+import httpx
+from src.services.information_automations.connector_runner import InformationConnector
+
+
+def test_empty_queue_never_calls_gateway(tmp_path):
+    calls = []
+    def request(req):
+        calls.append(req.url.path)
+        return httpx.Response(200, json={'data': {'task': None, 'reason': 'empty', 'retry_after': 15}})
+    connector = InformationConnector(service_url='http://localhost:8080', gateway_url='http://localhost:18789',
+        service_token='controlled', gateway_token='controlled', agent_id='ic-test', journal=tmp_path / 'result.json',
+        client=httpx.Client(transport=httpx.MockTransport(request)))
+    try:
+        assert connector.run_once()['status'] == 'empty'
+        assert calls == ['/api/connector/information-automations/claim']
+    finally: connector.close()
+
+
+def test_submission_timeout_persists_and_retries_same_result_without_model(tmp_path):
+    calls, attempts = [], []
+    def request(req):
+        calls.append(req.url.path)
+        if req.url.path.endswith('/claim'):
+            return httpx.Response(200, json={'data': {'task': {'claim_id': 'claim', 'claim_token': 'token', 'agent_id': 'ih-test', 'requirement': 'test', 'articles': []}}})
+        if req.url.path == '/tools/invoke':
+            import json
+            payload = json.loads(req.content)
+            assert payload['tool'] == 'llm-task' and payload['agentId'] == 'ic-test'
+            assert 'tools' not in payload['args']
+            return httpx.Response(200, json={'ok': True, 'result': {'details': {'json': {'decisions': []}}}})
+        attempts.append(req.content)
+        if len(attempts) == 1:
+            raise httpx.ReadTimeout('controlled timeout')
+        return httpx.Response(200, json={'data': {'accepted': True}})
+    connector = InformationConnector(service_url='http://localhost:8080', gateway_url='http://localhost:18789',
+        service_token='controlled', gateway_token='controlled', agent_id='ic-test', journal=tmp_path / 'result.json',
+        client=httpx.Client(transport=httpx.MockTransport(request)))
+    try:
+        import pytest
+        with pytest.raises(httpx.ReadTimeout): connector.run_once()
+        assert connector.journal.stat().st_mode & 0o077 == 0
+        assert connector.run_once()['status'] == 'result_recorded'
+        assert attempts[0] == attempts[1] and calls.count('/tools/invoke') == 1
+        assert not connector.journal.exists()
+    finally: connector.close()

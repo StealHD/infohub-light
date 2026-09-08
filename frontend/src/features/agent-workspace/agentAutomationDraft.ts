@@ -34,9 +34,10 @@ function validTimezone(value: string): boolean {
 export function projectAutomationDraft(values: AutomationFormValues, now = Date.now()): AutomationFormResult {
   const errors: AutomationFormResult['errors'] = {}
   const name = values.name.trim()
-  const message = values.message.trim()
+  const message = values.message
   if (!name) errors.name = '请输入名称。'
-  if (!message) errors.message = '请输入 Agent 提示词。'
+  if (!message.trim()) errors.message = '请输入 Agent 提示词。'
+  if (message.length > 400000) errors.message = '提示词不能超过 400000 字符，不会自动截断。'
   let schedule: OpenClawAutomationSchedule | null = null
 
   if (values.scheduleKind === 'at') {

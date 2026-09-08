@@ -108,7 +108,7 @@ export function AgentWorkspaceSidebar({
         <Button variant="ghost" className="justify-start text-muted" onPress={() => setHistoryOpen(true)}>全部会话</Button>
       </div> : chat.status === 'connected'
         ? <EmptyState title="等待 Session" description="Gateway 已连接，正在等待当前 Session。" />
-        : <EmptyState title="连接 OpenClaw" description="在对话区完成 Gateway 连接后，会话会显示在这里。" />}
+        : <EmptyState title="连接 OpenClaw" description="在对话区完成 Gateway 连接后，会话会显示在这里。" actions={<Button variant="secondary" onPress={() => { navigate('/agent'); onNavigate() }}>前往连接</Button>} />}
       {directory.loading && !sessions.current && <LoadingState label="正在读取会话" rows={2} />}
       {directory.error && <div className="mt-2"><StatusNotice title="会话暂不可用" status="warning">{directory.error}</StatusNotice></div>}
       <p role="status" className="sr-only">{chat.runtimeUpdating ? '正在更新会话，请稍候。' : chat.isRunning ? '当前生成完成或取消后才可切换会话。' : ''}</p>

@@ -24,7 +24,7 @@ export async function installGatewayFixture(page: Page, directory = false) {
     let skillEnabled = false
     let createdWorktree = false
     let taskCancelled = false
-    const automation = { id: 'cron-1', name: '每天阅读摘要', enabled: false, schedule: { kind: 'every', everyMs: 3600000 }, sessionTarget: 'isolated', payload: { kind: 'agentTurn', message: '整理今日阅读要点' }, delivery: { mode: 'none' } }
+    const automation = { agentId: 'main', id: 'cron-1', name: '每天阅读摘要', enabled: false, schedule: { kind: 'every', everyMs: 3600000 }, sessionTarget: 'isolated', payload: { kind: 'agentTurn', message: '整理今日阅读要点' }, delivery: { mode: 'none' } }
     ;(window as unknown as { __gatewayRequests: typeof requests }).__gatewayRequests = requests
     class FixtureWebSocket {
       readyState = 1

@@ -86,12 +86,27 @@
     },
     {
       "id": "Shared Agent composer draft",
-      "globs": ["frontend/src/features/workbench-live/HeroWorkbenchShell.tsx", "frontend/src/features/workbench-live/createWorkbenchAgentValue.ts", "frontend/src/features/workbench-live/agentContext.ts", "frontend/src/features/workbench-live/workbenchAgentContext.ts"],
-      "specs": ["e2e/production-agent-workspace.spec.ts", "e2e/production-agent-shortcuts.spec.ts", "e2e/production-workbench.spec.ts"]
+      "globs": [
+        "frontend/src/features/workbench-live/HeroWorkbenchShell.tsx",
+        "frontend/src/features/workbench-live/createWorkbenchAgentValue.ts",
+        "frontend/src/features/workbench-live/agentContext.ts",
+        "frontend/src/features/workbench-live/workbenchAgentContext.ts"
+      ],
+      "specs": [
+        "e2e/production-agent-workspace.spec.ts",
+        "e2e/production-agent-shortcuts.spec.ts",
+        "e2e/production-workbench.spec.ts"
+      ]
     },
     {
       "id": "OpenClaw",
-      "globs": ["frontend/src/features/openclaw/**", "frontend/src/features/agent-workspace/**", "frontend/e2e/production-agent-workspace.spec.ts", "frontend/e2e/production-agent-shortcuts.spec.ts", "frontend/e2e/fixtures/agent-shortcuts.ts"],
+      "globs": [
+        "frontend/src/features/openclaw/**",
+        "frontend/src/features/agent-workspace/**",
+        "frontend/e2e/production-agent-workspace.spec.ts",
+        "frontend/e2e/production-agent-shortcuts.spec.ts",
+        "frontend/e2e/fixtures/agent-shortcuts.ts"
+      ],
       "specs": [
         "e2e/production-agent-workspace.spec.ts",
         "e2e/production-agent-shortcuts.spec.ts",
@@ -108,7 +123,9 @@
         "frontend/e2e/production-admin.spec.ts",
         "frontend/e2e/production-admin.spec.ts-snapshots/**"
       ],
-      "specs": ["e2e/production-admin.spec.ts"]
+      "specs": [
+        "e2e/production-admin.spec.ts"
+      ]
     },
     {
       "id": "RSSHub settings key",
@@ -120,7 +137,9 @@
         "frontend/e2e/rsshub-settings.spec.ts",
         "tests/test_rsshub_access_key_api.py"
       ],
-      "specs": ["e2e/rsshub-settings.spec.ts"]
+      "specs": [
+        "e2e/rsshub-settings.spec.ts"
+      ]
     },
     {
       "id": "Design system visual",
@@ -128,13 +147,29 @@
         "frontend/e2e/design-system-contract.spec.ts",
         "frontend/e2e/design-system-contract.spec.ts-snapshots/**"
       ],
-      "specs": ["e2e/design-system-contract.spec.ts"]
+      "specs": [
+        "e2e/design-system-contract.spec.ts"
+      ]
+    },
+    {
+      "id": "InformationReminders",
+      "globs": [
+        "frontend/src/features/information-automations/**",
+        "frontend/src/api/informationAutomationService.ts",
+        "frontend/src/api/deferredInformationApi.ts",
+        "frontend/e2e/production-information-reminders.spec.ts"
+      ],
+      "specs": [
+        "e2e/production-information-reminders.spec.ts"
+      ]
     }
   ],
   "rules": [
     {
       "id": "code-size policy data",
-      "globs": ["tests/code_size_policy.json"],
+      "globs": [
+        "tests/code_size_policy.json"
+      ],
       "groups": []
     },
     {
@@ -157,7 +192,9 @@
         "tests/test_observability_contract.py",
         "tests/test_operation_log.py"
       ],
-      "groups": ["python_api_store"]
+      "groups": [
+        "python_api_store"
+      ]
     },
     {
       "id": "API/store",
@@ -201,7 +238,9 @@
         "tests/test_source_resolution.py",
         "tests/test_youtube_channel.py"
       ],
-      "groups": ["python_api_store"]
+      "groups": [
+        "python_api_store"
+      ]
     },
     {
       "id": "ActorOps v15 control plane",
@@ -278,8 +317,13 @@
     },
     {
       "id": "ActorOps manifest DSL",
-      "globs": ["src/services/apify_actor_manifest.py"],
-      "groups": ["python_queue_worker", "python_source_acquisition"]
+      "globs": [
+        "src/services/apify_actor_manifest.py"
+      ],
+      "groups": [
+        "python_queue_worker",
+        "python_source_acquisition"
+      ]
     },
     {
       "id": "ActorOps discovery metadata",
@@ -319,8 +363,12 @@
     },
     {
       "id": "ActorOps native fallback",
-      "globs": ["src/services/apify_native_fallback.py"],
-      "groups": ["python_source_acquisition"]
+      "globs": [
+        "src/services/apify_native_fallback.py"
+      ],
+      "groups": [
+        "python_source_acquisition"
+      ]
     },
     {
       "id": "ActorOps resilience v21 migration",
@@ -328,7 +376,10 @@
         "scripts/migrate_apify_actor_resilience_v21.py",
         "tests/test_migrate_apify_actor_resilience_v21.py"
       ],
-      "groups": ["python_api_store", "python_scripts"]
+      "groups": [
+        "python_api_store",
+        "python_scripts"
+      ]
     },
     {
       "id": "ActorOps validation-cap v27 migration",
@@ -337,7 +388,10 @@
         "scripts/migrate_apify_actor_validation_cap_v27.py",
         "tests/test_migrate_apify_actor_validation_cap_v27.py"
       ],
-      "groups": ["python_api_store", "python_scripts"]
+      "groups": [
+        "python_api_store",
+        "python_scripts"
+      ]
     },
     {
       "id": "Remote MCP/OpenClaw",
@@ -369,7 +423,9 @@
         "deploy/nginx/inteliscope-rate-limit.conf",
         "deploy/nginx-rsshub-location.conf"
       ],
-      "groups": ["python_api_store"]
+      "groups": [
+        "python_api_store"
+      ]
     },
     {
       "id": "queue/worker",
@@ -405,7 +461,9 @@
         "src/services/worker_post_commit.py",
         "tests/test_worker_migration_gate.py"
       ],
-      "groups": ["python_queue_worker"]
+      "groups": [
+        "python_queue_worker"
+      ]
     },
     {
       "id": "Feed",
@@ -430,7 +488,9 @@
         "tests/test_feed_end_messages.py",
         "tests/test_shared_source_content_reuse.py"
       ],
-      "groups": ["python_feed"]
+      "groups": [
+        "python_feed"
+      ]
     },
     {
       "id": "Store/Feed import boundary",
@@ -464,7 +524,9 @@
         "src/api/subscription_routes.py",
         "src/services/worker_handlers.py"
       ],
-      "groups": ["python_source_acquisition"]
+      "groups": [
+        "python_source_acquisition"
+      ]
     },
     {
       "id": "AI/orchestrator",
@@ -476,17 +538,28 @@
         "src/services/source_summary.py",
         "src/tag_policy.py"
       ],
-      "groups": ["python_ai_orchestrator"]
+      "groups": [
+        "python_ai_orchestrator"
+      ]
     },
     {
       "id": "retired related-search surface",
-      "globs": ["src/search.py"],
-      "groups": ["python_ai_orchestrator"]
+      "globs": [
+        "src/search.py"
+      ],
+      "groups": [
+        "python_ai_orchestrator"
+      ]
     },
     {
       "id": "scrapers",
-      "globs": ["src/scrapers/**/*.py", "src/scrapers/*.py"],
-      "groups": ["python_scrapers"]
+      "globs": [
+        "src/scrapers/**/*.py",
+        "src/scrapers/*.py"
+      ],
+      "groups": [
+        "python_scrapers"
+      ]
     },
     {
       "id": "scripts",
@@ -498,7 +571,9 @@
         "tests/test_migrate_notification_targets_v16.py",
         "tests/test_migrate_rsshub_sources.py"
       ],
-      "groups": ["python_scripts"]
+      "groups": [
+        "python_scripts"
+      ]
     },
     {
       "id": "React related",
@@ -510,7 +585,10 @@
         "frontend/src/**/*.ts",
         "frontend/src/**/*.tsx"
       ],
-      "groups": ["frontend_checks", "frontend_related"]
+      "groups": [
+        "frontend_checks",
+        "frontend_related"
+      ]
     },
     {
       "id": "React global Shell",
@@ -525,7 +603,9 @@
         "frontend/src/styles/**",
         "frontend/src/test/setup.ts"
       ],
-      "groups": ["frontend_full"]
+      "groups": [
+        "frontend_full"
+      ]
     },
     {
       "id": "React UI contract directory authority",
@@ -536,7 +616,9 @@
         "frontend/scripts/check-ui-contract.mjs",
         "frontend/src/design-system/**"
       ],
-      "groups": ["frontend_full"]
+      "groups": [
+        "frontend_full"
+      ]
     },
     {
       "id": "React global configuration",
@@ -550,7 +632,9 @@
         "frontend/vite.config.*",
         "frontend/vitest.config.*"
       ],
-      "groups": ["frontend_full"]
+      "groups": [
+        "frontend_full"
+      ]
     },
     {
       "id": "React E2E",
@@ -559,7 +643,9 @@
         "frontend/e2e/**/*.ts",
         "frontend/e2e/*.ts"
       ],
-      "groups": ["frontend_full"]
+      "groups": [
+        "frontend_full"
+      ]
     }
   ],
   "group_tests": {

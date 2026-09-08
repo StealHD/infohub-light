@@ -71,7 +71,7 @@ test('[connected] Skills can be read and explained before authorization, with an
 test('[connected] Automation authorization does not run a job; run and records remain explicit', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'desktop exercises the separate admin connection')
   await installGatewayFixture(page)
-  await page.goto('/agent/automations')
+  await page.goto('/agent/automations?advanced=cron')
   await page.getByRole('button', { name: '临时授权' }).click()
   await page.getByRole('checkbox').focus()
   await page.getByRole('checkbox').press('Space')

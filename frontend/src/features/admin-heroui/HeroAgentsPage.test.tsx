@@ -157,6 +157,14 @@ function pairedBrowserVault() {
 }
 
 describe('OpenClaw browser pairing settings', () => {
+  it('renders managed connection without validating a direct URL or loading browser credentials', () => {
+    const vault = pairedBrowserVault()
+    render(<MemoryRouter><DesignSystemProvider><OpenClawBrowserSettings userId="member-1" enabled defaultUrl="/api/me/openclaw/socket" targetVersion="2026.9.2" vault={vault} /></DesignSystemProvider></MemoryRouter>)
+    expect(screen.getByRole('link', { name: '打开 OpenClaw' })).toHaveAttribute('href', '/agent')
+    expect(screen.queryByRole('textbox', { name: 'OpenClaw Gateway URL' })).not.toBeInTheDocument()
+    expect(vault.load).not.toHaveBeenCalled()
+  })
+
   it('requires confirmation and locks server removal before showing local deletion', async () => {
     const browser = userEvent.setup()
     const vault = pairedBrowserVault()

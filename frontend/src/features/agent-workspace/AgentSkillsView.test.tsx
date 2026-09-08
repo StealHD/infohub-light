@@ -13,8 +13,9 @@ const status = projectSkillsStatus({ skills: [
   { skillKey: 'pdf', name: 'PDF 提取', disabled: true, eligible: false, missing: { env: ['PDF_TOKEN'], bins: ['pdftotext'] } },
 ] })
 
-function setup(skillsStatus = vi.fn().mockResolvedValue(status), supported = true) {
+function setup(skillsStatus = vi.fn().mockResolvedValue(status), supported = true, managed = false) {
   const chat = chatController({ status: 'connected', sessionKey: 'root' }) as unknown as OpenClawChatController
+  if (managed) chat.gatewayUrl = '/api/me/openclaw/socket'
   chat.workspace = { ...chat.workspace, capabilities: () => ({ 'skills.status': supported }) as ReturnType<typeof chat.workspace.capabilities>,
     subscribe: () => () => undefined, skillsStatus }
   render(<MemoryRouter><DesignSystemProvider><AgentSkillsView chat={chat} /></DesignSystemProvider></MemoryRouter>)
@@ -51,6 +52,16 @@ describe('Skills user scenarios', () => {
     await user.click(screen.getByRole('button', { name: '刷新 Skills' }))
     await waitFor(() => expect(read).toHaveBeenCalledTimes(3))
     await waitFor(() => expect(screen.queryByText(/无法读取 Skills/)).not.toBeInTheDocument())
+  })
+
+  it('offers only reading in server-managed mode', async () => {
+    setup(vi.fn().mockResolvedValue(status), true, true)
+    await screen.findByText('阅读报告')
+    expect(screen.getByText('个人接入 · 只读')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '临时授权' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '启用' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '停用' })).toBeNull()
+    expect(screen.getByRole('button', { name: '查看 PDF 提取 详情' })).toBeEnabled()
   })
 
   it('explains unsupported status without issuing a request or presenting an empty list', () => {

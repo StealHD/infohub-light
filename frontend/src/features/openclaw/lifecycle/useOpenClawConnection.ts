@@ -1,9 +1,9 @@
-import { managedSession, saveManagedSession } from '../storage/openclawManagedSession'
+import { canAutoConnectManaged, rememberManagedConnection, managedSession, saveManagedSession } from '../storage/openclawManagedSession'
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability -- lifecycle refs are imperative controller state */
 import { useCallback, useEffect } from 'react'
 import { isManagedGateway, managedGatewayUrl } from '../gateway/openclawManaged'
 
-import { hasInteliscopeTools, isMissingOpenClawSession, MissingOpenClawCredentialError, setupIssue } from '../chat/openclawSetupIssue'
+import { isMissingOpenClawSession, MissingOpenClawCredentialError, setupIssue } from '../chat/openclawSetupIssue'
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
 import type { OpenClawCredentialVault } from '../openclawCredentialVault'
 import type { OpenClawChatOptions, OpenClawClientPort } from '../openclawContracts'
@@ -187,12 +187,14 @@ async function performOpenClawConnect(
     if (managed) saveManagedSession(input.options.userId, sessionKey)
     else await input.vault.save(input.options.userId, parsed.gatewayUrl, { ...credential, sessionKey }, () => isCurrent(client))
     if (!isCurrent(client)) return false
+    const { hasInteliscopeTools } = await import('../chat/openclawToolAvailability')
+    if (!isCurrent(client)) return false
     connection.reconnectDelay = 1_000
     connection.reconnectAttempt = 0
     input.dispatch({
       type: 'patch',
       value: {
-        toolsStatus: hasInteliscopeTools(tools) ? 'available' : 'missing',
+        toolsStatus: hasInteliscopeTools(tools, agentId) ? 'available' : managed ? 'unknown' : 'missing',
         reconnectAttempt: 0,
         status: 'connected',
       },
@@ -281,17 +283,23 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
     if (!input.options.enabled || effectiveStatus !== 'idle') return
     const key = `${input.options.userId}\n${input.state.gatewayUrl}`
     if (input.refs.connection.automaticConnectKey === key) return
-    input.refs.connection.automaticConnectKey = key
     let active = true
-    void (isManagedGateway(input.state.gatewayUrl) ? managedSession(input.options.userId) : input.vault.load(input.options.userId, input.state.gatewayUrl)).then((stored) => {
-      if (active && stored) void connectInternal(undefined, false, input.state.gatewayUrl)
+    void (isManagedGateway(input.state.gatewayUrl) ? (canAutoConnectManaged(input.options.userId) ? managedSession(input.options.userId) : Promise.resolve(null)) : input.vault.load(input.options.userId, input.state.gatewayUrl)).then((stored) => {
+      if (active && stored && input.refs.connection.automaticConnectKey !== key) {
+        input.refs.connection.automaticConnectKey = key
+        void connectInternal(undefined, false, input.state.gatewayUrl)
+      }
     }).catch(() => undefined)
     return () => { active = false }
   }, [input.options.enabled, input.options.userId, input.refs, input.state.gatewayUrl, input.state.status, input.vault])
 
   return {
     setGatewayUrl,
-    connect: (authInput?: string, requestedUrl?: string) => connectInternal(authInput, false, requestedUrl),
+    connect: async (authInput?: string, requestedUrl?: string) => {
+      const connected = await connectInternal(authInput, false, requestedUrl)
+      if (connected && isManagedGateway(input.state.gatewayUrl)) rememberManagedConnection(input.options.userId)
+      return connected
+    },
     retryConnection,
     disconnect,
   }

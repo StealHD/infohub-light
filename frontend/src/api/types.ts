@@ -229,7 +229,7 @@ export type NotificationTestResult = {
   verification?: 'http_accepted' | 'provider_accepted'
 }
 
-export type AgentDelegationAccess = 'read' | 'subscriptions_write' | 'system_settings_write'
+export type AgentDelegationAccess = 'read' | 'subscriptions_write' | 'system_settings_write' | 'information_automations_read' | 'information_automations_draft'
 
 export type AgentDelegationDiagnosticsScope = 'self' | 'workspace'
 

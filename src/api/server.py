@@ -348,7 +348,6 @@ SOURCE_DELETE_ACTIONS = {
     "delete_telegram_channel",
     "delete_apify_social_subscription",
 }
-
 SOURCE_META_KEYS = {
     "source_id",
     "subscription_id",
@@ -357,8 +356,9 @@ SOURCE_META_KEYS = {
     "subscription_enabled",
     "source_display_name",
 }
-
+from .information_operation_routes import MUTATION_OPERATION_ROUTES as INFORMATION_OPERATION_ROUTES
 MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
+    **INFORMATION_OPERATION_ROUTES,
     ("POST", "/api/admin/system-settings/proposals"): (
         "system_settings", "proposal_prepare",
     ),

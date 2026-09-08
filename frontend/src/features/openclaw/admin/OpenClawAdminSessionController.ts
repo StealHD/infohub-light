@@ -1,3 +1,4 @@
+import { parseAutomation, parseRunPage, nextOffset, type AutomationPage } from './automationPaging'
 import type { OpenClawClientPort } from '../openclawContracts'
 import { gatewaySupportsMethod, generateDeviceIdentity, GatewayRequestError, OPENCLAW_ADMIN_SCOPES, OpenClawGatewayClient, type GatewayHello, type OpenClawGatewayClientOptions } from '../openclawGateway'
 import { OPENCLAW_ADMIN_METHODS, OpenClawWorkspaceError, type OpenClawAdminMethod } from '../workspace/openclawWorkspaceContracts'
@@ -7,10 +8,8 @@ const UPLOAD_CHUNK_SIZE = 512 * 1024
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000
 type UnknownRecord = Record<string, unknown>
 export type OpenClawAdminSessionState = 'connecting' | 'authorized' | 'expired' | 'disconnected' | 'failed'
-export type OpenClawAutomationSchedule = { kind: 'at'; at: string } | { kind: 'every'; everyMs: number } | { kind: 'cron'; expr: string; tz: string }
-export type OpenClawAutomationDraft = { name: string; message: string; schedule: OpenClawAutomationSchedule }
-export type OpenClawAutomation = OpenClawAutomationDraft & { id: string; enabled: boolean; nextRunAtMs?: number; lastRunAtMs?: number; lastRunStatus?: 'ok' | 'error' | 'skipped' }
-export type OpenClawAutomationRun = { runId?: string; jobId: string; status?: 'ok' | 'error' | 'skipped'; completionStatus?: 'succeeded' | 'failed' | 'unknown'; summary?: string; error?: string; ts: number }
+import type { OpenClawAutomation, OpenClawAutomationDraft, OpenClawAutomationRun } from './automationTypes'
+export type { OpenClawAutomation, OpenClawAutomationDraft, OpenClawAutomationRun, OpenClawAutomationSchedule } from './automationTypes'
 
 function recordOf(value: unknown, label: string): UnknownRecord { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} 返回格式无效。`); return value as UnknownRecord }
 function stringOf(value: unknown, maxLength = 4_096): string | undefined {
@@ -19,20 +18,6 @@ function stringOf(value: unknown, maxLength = 4_096): string | undefined {
   return normalized ? normalized.slice(0, maxLength) : undefined
 }
 function positiveNumber(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined }
-function parseSchedule(value: unknown): OpenClawAutomationSchedule | null {
-  const row = value && typeof value === 'object' ? value as UnknownRecord : null
-  if (row?.kind === 'at' && stringOf(row.at)) return { kind: 'at', at: stringOf(row.at)! }
-  if (row?.kind === 'every' && positiveNumber(row.everyMs)) return { kind: 'every', everyMs: positiveNumber(row.everyMs)! }
-  if (row?.kind === 'cron' && stringOf(row.expr)) return { kind: 'cron', expr: stringOf(row.expr)!, tz: stringOf(row.tz) ?? 'UTC' }
-  return null
-}
-function parseAutomation(value: unknown): OpenClawAutomation | null {
-  const row = value && typeof value === 'object' ? value as UnknownRecord : null; const payload = row?.payload && typeof row.payload === 'object' ? row.payload as UnknownRecord : null; const state = row?.state && typeof row.state === 'object' ? row.state as UnknownRecord : null; const delivery = row?.delivery && typeof row.delivery === 'object' ? row.delivery as UnknownRecord : null
-  const id = stringOf(row?.id); const name = stringOf(row?.name); const message = payload?.kind === 'agentTurn' ? stringOf(payload.message) : undefined; const schedule = parseSchedule(row?.schedule)
-  if (!id || !name || !message || !schedule || row?.sessionTarget !== 'isolated' || delivery?.mode !== 'none') return null
-  const lastRunStatus = state?.lastRunStatus
-  return { id, name, message, schedule, enabled: row?.enabled === true, ...(positiveNumber(state?.nextRunAtMs) !== undefined ? { nextRunAtMs: positiveNumber(state?.nextRunAtMs) } : {}), ...(positiveNumber(state?.lastRunAtMs) !== undefined ? { lastRunAtMs: positiveNumber(state?.lastRunAtMs) } : {}), ...(lastRunStatus === 'ok' || lastRunStatus === 'error' || lastRunStatus === 'skipped' ? { lastRunStatus } : {}) }
-}
 function bytesToBase64(bytes: Uint8Array): string { let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary) }
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> { const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)); return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('') }
 function requireAcknowledgement(value: unknown, label: string): void { const row = recordOf(value, label); if (row.ok !== true && row.acknowledged !== true) throw new Error(`${label} 未返回有效回执。`) }
@@ -93,16 +78,26 @@ export class OpenClawAdminSessionController {
     requireAcknowledgement(await this.request('skills.install', { source: 'upload', uploadId, slug, force: input.force, sha256 }), 'skills.install')
   }
   async updateSkillEnabled(skillKey: string, enabled: boolean): Promise<void> { requireAcknowledgement(await this.request('skills.update', { skillKey: skillKey.trim(), enabled }), 'skills.update') }
-  async listAutomations(): Promise<OpenClawAutomation[]> { const root = recordOf(await this.request('cron.list', { includeDisabled: true, limit: 100, offset: 0, sortBy: 'updatedAtMs', sortDir: 'desc' }), 'cron.list'); if (!Array.isArray(root.jobs)) throw new Error('cron.list 返回格式无效。'); return root.jobs.flatMap((job) => parseAutomation(job) ?? []) }
+  async listAutomationsPage(offset = 0): Promise<AutomationPage<OpenClawAutomation>> {
+    const root = recordOf(await this.request('cron.list', { includeDisabled: true, limit: 100, offset, sortBy: 'updatedAtMs', sortDir: 'desc' }), 'cron.list')
+    if (!Array.isArray(root.jobs)) throw new Error('cron.list 返回格式无效。')
+    return { items: root.jobs.flatMap((job) => parseAutomation(job) ?? []), nextOffset: nextOffset(root, offset, root.jobs.length) }
+  }
+  async listAutomations(): Promise<OpenClawAutomation[]> { return (await this.listAutomationsPage()).items }
+  defaultAgentId(): string | undefined {
+    const snapshot = this.hello?.snapshot as { sessionDefaults?: { defaultAgentId?: string } } | undefined
+    return stringOf(snapshot?.sessionDefaults?.defaultAgentId)
+  }
   async getAutomation(id: string): Promise<OpenClawAutomation> { const root = recordOf(await this.request('cron.get', { id: id.trim() }), 'cron.get'); const projected = parseAutomation(root.job ?? root); if (!projected) throw new Error('cron.get 没有返回可验证的 Automation。'); return projected }
   async schedulerStatus(): Promise<{ enabled: boolean }> { const result = recordOf(await this.request('cron.status', {}), 'cron.status'); return { enabled: result.enabled === true } }
-  async createAutomation(draft: OpenClawAutomationDraft): Promise<OpenClawAutomation> { const root = recordOf(await this.request('cron.add', { name: draft.name.trim(), enabled: false, schedule: draft.schedule, sessionTarget: 'isolated', wakeMode: 'now', payload: { kind: 'agentTurn', message: draft.message.trim() }, delivery: { mode: 'none' } }), 'cron.add'); const projected = parseAutomation(root.job ?? root); if (!projected) throw new Error('cron.add 没有返回可验证的 Automation。'); return projected }
-  async updateAutomation(id: string, draft: OpenClawAutomationDraft): Promise<void> { await this.getAutomation(id); requireAcknowledgement(await this.request('cron.update', { id, patch: { name: draft.name.trim(), schedule: draft.schedule, payload: { kind: 'agentTurn', message: draft.message.trim() }, sessionTarget: 'isolated', delivery: { mode: 'none' } } }), 'cron.update') }
-  async setAutomationEnabled(id: string, enabled: boolean): Promise<void> { await this.getAutomation(id); requireAcknowledgement(await this.request('cron.update', { id, patch: { enabled } }), 'cron.update') }
+  async createAutomation(draft: OpenClawAutomationDraft): Promise<OpenClawAutomation> { const agentId = draft.agentId || this.defaultAgentId(); if (!agentId) throw new Error('请先明确当前 Agent，再创建 Cron。'); const root = recordOf(await this.request('cron.add', { agentId, name: draft.name.trim(), enabled: false, schedule: draft.schedule, sessionTarget: 'isolated', wakeMode: 'now', payload: { kind: 'agentTurn', message: draft.message }, delivery: { mode: 'none' } }), 'cron.add'); const projected = parseAutomation(root.job ?? root); if (!projected) throw new Error('cron.add 没有返回可验证的 Automation。'); return projected }
+  async updateAutomation(id: string, draft: OpenClawAutomationDraft): Promise<void> { const current = await this.getAutomation(id); if (!current.agentId) throw new Error('旧 Cron 未明确绑定 Agent，请先在 Gateway 核验归属。'); requireAcknowledgement(await this.request('cron.update', { id, patch: { agentId: current.agentId, name: draft.name.trim(), schedule: draft.schedule, payload: { kind: 'agentTurn', message: draft.message }, sessionTarget: 'isolated', delivery: { mode: 'none' } } }), 'cron.update') }
+  async setAutomationEnabled(id: string, enabled: boolean): Promise<void> { const current = await this.getAutomation(id); if (enabled && !current.agentId) throw new Error('旧 Cron 未明确绑定 Agent，请先在 Gateway 核验归属。'); requireAcknowledgement(await this.request('cron.update', { id, patch: { enabled } }), 'cron.update') }
   async removeAutomation(id: string): Promise<void> { await this.getAutomation(id); requireAcknowledgement(await this.request('cron.remove', { id }), 'cron.remove') }
-  async runAutomation(id: string): Promise<{ runId: string }> { await this.getAutomation(id); const result = recordOf(await this.request('cron.run', { id }), 'cron.run'); const runId = stringOf(result.runId); if (!runId) throw new Error('cron.run 未返回有效运行回执。'); return { runId } }
-  async automationRuns(id: string): Promise<OpenClawAutomationRun[]> {
-    const root = recordOf(await this.request('cron.runs', { scope: 'job', id, limit: 50, offset: 0, sortDir: 'desc' }), 'cron.runs'); const entries = Array.isArray(root.entries) ? root.entries : Array.isArray(root.runs) ? root.runs : []
-    return entries.flatMap((value) => { const row = value && typeof value === 'object' ? value as UnknownRecord : null; const jobId = stringOf(row?.jobId); const ts = positiveNumber(row?.ts); if (!jobId || ts === undefined) return []; return [{ jobId, ts, ...(stringOf(row?.runId) ? { runId: stringOf(row?.runId) } : {}), ...(row?.status === 'ok' || row?.status === 'error' || row?.status === 'skipped' ? { status: row.status } : {}), ...(row?.completionStatus === 'succeeded' || row?.completionStatus === 'failed' || row?.completionStatus === 'unknown' ? { completionStatus: row.completionStatus } : {}), ...(stringOf(row?.summary, 2_000) ? { summary: stringOf(row?.summary, 2_000) } : {}), ...(stringOf(row?.error) ? { error: 'Gateway 报告 Automation 执行失败。' } : {}) }] })
+  async runAutomation(id: string): Promise<{ runId: string }> { const current = await this.getAutomation(id); if (!current.agentId) throw new Error('旧 Cron 未明确绑定 Agent，请先在 Gateway 核验归属。'); const result = recordOf(await this.request('cron.run', { id }), 'cron.run'); const runId = stringOf(result.runId); if (!runId) throw new Error('cron.run 未返回有效运行回执。'); return { runId } }
+  async automationRunsPage(id: string, offset = 0): Promise<AutomationPage<OpenClawAutomationRun>> {
+    await this.getAutomation(id)
+    return parseRunPage(await this.request('cron.runs', { scope: 'job', id, limit: 50, offset, sortDir: 'desc' }), id, offset)
   }
+  async automationRuns(id: string): Promise<OpenClawAutomationRun[]> { return (await this.automationRunsPage(id)).items }
 }

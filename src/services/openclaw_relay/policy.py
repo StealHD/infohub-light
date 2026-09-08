@@ -1,6 +1,7 @@
 """Explicit RPC boundary: the browser cannot control arbitrary Gateway methods."""
 import re
 from .ownership import Ownership
+from .directory import directory_params, directory_payload, skills_params, skills_payload
 
 SESSION_METHODS = {
     'chat.history': {'sessionKey', 'agentId', 'limit', 'maxChars'},
@@ -20,7 +21,7 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
                 and owner.owns(key)):
             raise PermissionError('Agent is not bound to this user')
     if readonly and method not in {'models.list', 'agents.list', 'sessions.subscribe', 'sessions.preview',
-                                   'sessions.list', 'sessions.describe', 'chat.history', 'tools.effective'}:
+                                   'sessions.list', 'sessions.describe', 'chat.history', 'tools.effective', 'skills.status'}:
         raise PermissionError('Viewer is read-only')
     if method == 'models.list':
         return {'view': 'configured'}
@@ -43,9 +44,9 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
             raise PermissionError('Owned sessions are required')
         return {'keys': keys}
     if method == 'sessions.list':
-        if not owner.owns(params.get('search')):
-            raise PermissionError('An owned session is required')
-        return {'search': params['search'], 'limit': 100}
+        return directory_params(params, owner, agent)
+    if method == 'skills.status':
+        return skills_params(params, owner, agent)
     allowed = SESSION_METHODS.get(method)
     if allowed is None or set(params) - allowed:
         raise PermissionError('RPC is not available through InfoHub')
@@ -67,15 +68,16 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
     return result
 
 
-def response_payload(method: str, payload: dict, owner: Ownership, agent: str) -> dict:
+def response_payload(method: str, payload: dict, owner: Ownership, agent: str, params: dict | None = None) -> dict:
     if method == 'sessions.create':
         key = payload.get('key')
         if not isinstance(key, str) or not key.startswith('agent:' + agent + ':'):
             raise ValueError('Invalid upstream session')
         owner.add(key)
     if method == 'sessions.list':
-        sessions = [s for s in payload.get('sessions', []) if owner.owns(s.get('key'))]
-        return {'sessions': sessions, 'count': len(sessions)}
+        return directory_payload(payload, owner, agent, params)
+    if method == 'skills.status':
+        return skills_payload(payload)
     if method == 'sessions.preview':
         return {'previews': [p for p in payload.get('previews', []) if owner.owns(p.get('key'))]}
     if method == 'agents.list':

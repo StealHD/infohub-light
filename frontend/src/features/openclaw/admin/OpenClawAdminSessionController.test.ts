@@ -95,7 +95,7 @@ describe('OpenClaw ephemeral admin controller', () => {
   it('creates only disabled isolated agentTurn automations with no delivery', async () => {
     const fake = adminClient((method, params) => method === 'cron.add' ? { job: { id: 'cron-1', ...params } } : method === 'cron.get' ? { job: { id: 'cron-1', name: 'Daily review', enabled: false, schedule: { kind: 'cron', expr: '0 9 * * *', tz: 'Asia/Shanghai' }, sessionTarget: 'isolated', payload: { kind: 'agentTurn', message: 'Review tasks' }, delivery: { mode: 'none' } } } : {})
     const session = await OpenClawAdminSessionController.connect({ gatewayUrl: 'ws://127.0.0.1:18789', token: 'temporary-admin', clientFactory: fake.clientFactory })
-    await expect(session.createAutomation({ name: 'Daily review', message: 'Review tasks', schedule: { kind: 'cron', expr: '0 9 * * *', tz: 'Asia/Shanghai' } })).resolves.toMatchObject({ id: 'cron-1', enabled: false })
+    await expect(session.createAutomation({ agentId: 'main', name: 'Daily review', message: 'Review tasks', schedule: { kind: 'cron', expr: '0 9 * * *', tz: 'Asia/Shanghai' } })).resolves.toMatchObject({ id: 'cron-1', enabled: false })
     expect(fake.request).toHaveBeenCalledWith('cron.add', expect.objectContaining({ enabled: false, sessionTarget: 'isolated', payload: { kind: 'agentTurn', message: 'Review tasks' }, delivery: { mode: 'none' } }))
     await expect(session.getAutomation('cron-1')).resolves.toMatchObject({ id: 'cron-1', message: 'Review tasks' })
     expect(fake.request).toHaveBeenCalledWith('cron.get', { id: 'cron-1' })

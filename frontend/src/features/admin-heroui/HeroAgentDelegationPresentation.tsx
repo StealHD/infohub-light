@@ -13,6 +13,8 @@ export function delegationStatus(connection: AgentDelegation) {
 }
 
 export function delegationAccessLabel(access: AgentDelegationAccess) {
+  if (access === 'information_automations_read') return '查看本人提醒'
+  if (access === 'information_automations_draft') return '准备本人提醒草稿'
   if (access === 'subscriptions_write') return '可管理订阅'
   return access === 'system_settings_write' ? '系统管理' : '只读'
 }

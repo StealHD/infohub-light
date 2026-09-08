@@ -36,21 +36,21 @@ function DialogFrame({ title, children, footer, dismissable = true }: {
   </Modal.Backdrop>
 }
 
-export function OpenClawBrowserSettings({
-  userId,
-  enabled,
-  defaultUrl,
-  targetVersion,
-  vault: providedVault,
-  forgetBrowser = forgetOpenClawBrowser,
-}: {
+type BrowserSettingsProps = {
   userId: string
   enabled: boolean
   defaultUrl: string
   targetVersion: string
   vault?: OpenClawCredentialVault
   forgetBrowser?: typeof forgetOpenClawBrowser
-}) {
+}
+
+export function OpenClawBrowserSettings(props: BrowserSettingsProps) {
+  if (isManagedGateway(props.defaultUrl)) return <AdminSection title="OpenClaw 对话连接" description="通过 Inscope 服务端连接线上 OpenClaw。Gateway Token 由管理员保存在服务端，浏览器无需填写。"><a className="type-control text-accent" href="/agent">打开 OpenClaw</a></AdminSection>
+  return <DirectBrowserSettings {...props} />
+}
+
+function DirectBrowserSettings({ userId, enabled, defaultUrl, targetVersion, vault: providedVault, forgetBrowser = forgetOpenClawBrowser }: BrowserSettingsProps) {
   const [url, setUrl] = useState(() => readSavedGatewayUrl(userId, defaultUrl))
   const [paired, setPaired] = useState<boolean | null>(null)
   const [urlError, setUrlError] = useState('')
@@ -114,8 +114,6 @@ export function OpenClawBrowserSettings({
       setForgetPending(false)
     }
   }
-
-  if (isManagedGateway(defaultUrl)) return <AdminSection title="OpenClaw 对话连接" description="通过 Inscope 服务端连接线上 OpenClaw。Gateway Token 由管理员保存在服务端，浏览器无需填写。"><a className="type-control text-accent" href="/agent">打开 OpenClaw</a></AdminSection>
 
   return <>
     <AdminSection

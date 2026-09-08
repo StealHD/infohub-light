@@ -80,10 +80,12 @@ SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
 WORKER_STATES = {"starting", "idle", "running", "stopping"}
 SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
-AGENT_DELEGATION_READ_SCOPE = "inteliscope:read"
-AGENT_DELEGATION_WRITE_SCOPE = "inteliscope:subscriptions:write"
-AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE = "inteliscope:diagnostics:read"
-AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE = "inteliscope:system-settings:write"
+from .agent_delegation_scopes import (
+    AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE,
+    AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
+    INFORMATION_DRAFT_SCOPE, SCOPE_ORDER, scopes_for_access as _scopes_for_access,
+    access_for_scopes as _access_for_scopes,
+)
 AGENT_DELEGATION_TTL_DAYS = 90
 AGENT_DELEGATION_MAX_ACTIVE = 5
 AGENT_DELEGATION_USAGE_TOUCH_MINUTES = 15
@@ -775,24 +777,6 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
         return fallback
 
 
-def _scopes_for_access(
-    access: str,
-    *,
-    diagnostics_scope: str = "self",
-) -> list[str]:
-    if access == "read":
-        scopes = [AGENT_DELEGATION_READ_SCOPE]
-    elif access in {"subscriptions_write", "system_settings_write"}:
-        scopes = [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE if access == "subscriptions_write" else AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE]
-    else:
-        raise ValueError("access must be read, subscriptions_write, or system_settings_write")
-    if diagnostics_scope == "workspace":
-        scopes.append(AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE)
-    elif diagnostics_scope != "self":
-        raise ValueError("diagnostics_scope must be self or workspace")
-    return scopes
-
-
 def _bounded_agent_delegation_scopes_json(value: Any) -> list[str] | None:
     """Parse delegation scope storage without accepting SQLite dynamic values."""
 
@@ -838,30 +822,13 @@ def _safe_agent_delegation_scopes(scopes_json: Any) -> list[str]:
     ):
         return []
     scopes = set(raw_scopes)
-    allowed = {
-        AGENT_DELEGATION_READ_SCOPE,
-        AGENT_DELEGATION_WRITE_SCOPE,
-        AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
-    }
+    allowed = set(SCOPE_ORDER)
     if (
         AGENT_DELEGATION_READ_SCOPE not in scopes
         or not scopes.issubset(allowed)
     ):
         return []
-    return [
-        scope
-        for scope in (
-            AGENT_DELEGATION_READ_SCOPE,
-            AGENT_DELEGATION_WRITE_SCOPE,
-            AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
-        )
-        if scope in scopes
-    ]
-
-
-def _access_for_scopes(scopes: list[str]) -> str:
-    return ("system_settings_write" if AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE in scopes
-            else "subscriptions_write" if AGENT_DELEGATION_WRITE_SCOPE in scopes else "read")
+    return [scope for scope in SCOPE_ORDER if scope in scopes]
 
 
 def _diagnostics_scope_for_scopes(scopes: list[str]) -> str:
@@ -7317,6 +7284,8 @@ class ServiceStore:
                 raise PermissionError(
                     "delegation access requires owner or admin role"
                 )
+            if access == 'information_automations_draft' and user['role'] == 'viewer':
+                raise PermissionError('viewer cannot prepare reminder drafts')
             active_count = conn.execute(
                 """
                 SELECT COUNT(*)
