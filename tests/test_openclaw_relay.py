@@ -26,7 +26,8 @@ def test_owner_isolation_and_rpc_allowlist(tmp_path):
     assert safe['deliver'] is False
     with pytest.raises(PermissionError):
         request_params('chat.send', {**safe, 'to': 'external-recipient'}, alice, 'main')
-    assert request_params('sessions.create', {'agentId': 'other'}, alice, 'main')['agentId'] == 'main'
+    with pytest.raises(PermissionError):
+        request_params('sessions.create', {'agentId': 'other'}, alice, 'main')
 
 
 def test_response_and_event_ownership(tmp_path):
@@ -57,12 +58,12 @@ def test_origin_rejected(origin, host):
 def socket_app(user):
     app = FastAPI()
     store = SimpleNamespace(get_session_user=lambda cookie: user if cookie == 'valid' else None)
-    app.state.api_context = SimpleNamespace(store=store, openclaw_chat_settings=SimpleNamespace(enabled=True))
+    app.state.api_context = SimpleNamespace(store=store, secret_values=None, openclaw_chat_settings=SimpleNamespace(enabled=True))
     register_openclaw_relay_routes(app)
     return app
 
 
-@pytest.mark.parametrize('role,cookie,origin', [('owner', '', 'https://testserver'), ('viewer', 'valid', 'https://testserver'), ('owner', 'valid', 'https://evil.test')])
+@pytest.mark.parametrize('role,cookie,origin', [('owner', '', 'https://testserver'), ('owner', 'valid', 'https://evil.test')])
 def test_socket_requires_login_origin_and_admin(monkeypatch, role, cookie, origin):
     monkeypatch.setenv('HORIZON_OPENCLAW_SERVER_ENABLED', 'true')
     app = socket_app({'id': 'a', 'workspace_id': 'w', 'role': role})
@@ -75,7 +76,9 @@ def test_socket_requires_login_origin_and_admin(monkeypatch, role, cookie, origi
 def test_socket_uses_server_identity_not_browser_token(monkeypatch):
     monkeypatch.setenv('HORIZON_OPENCLAW_SERVER_ENABLED', 'true')
     observed = []
-    async def stub(socket, owner, valid):
+    monkeypatch.setattr('src.api.openclaw_relay_routes.AgentConnections.live',
+                        lambda self, user: {'agent_id': 'ih-test', 'binding_id': 'test'})
+    async def stub(socket, owner, valid, agent, *, readonly=False):
         observed.append((owner, bool(valid())))
         await socket.send_json({'ready': True})
         await socket.close()
@@ -99,7 +102,7 @@ def test_preview_and_current_send_params(tmp_path):
     owner = Ownership(tmp_path, 'a')
     owner.add('agent:main:a')
     assert request_params('sessions.preview', {'keys': ['agent:main:a']}, owner, 'main') == {'keys': ['agent:main:a']}
-    params = request_params('chat.send', {'sessionKey': 'agent:main:a', 'agentId': 'other', 'message': 'hello', 'fastMode': True}, owner, 'main')
+    params = request_params('chat.send', {'sessionKey': 'agent:main:a', 'agentId': 'main', 'message': 'hello', 'fastMode': True}, owner, 'main')
     assert params['agentId'] == 'main' and params['deliver'] is False
 
 

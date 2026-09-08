@@ -1,4 +1,5 @@
 """Explicit RPC boundary: the browser cannot control arbitrary Gateway methods."""
+import re
 from .ownership import Ownership
 
 SESSION_METHODS = {
@@ -11,7 +12,16 @@ SESSION_METHODS = {
 }
 
 
-def request_params(method: str, params: dict, owner: Ownership, agent: str) -> dict:
+def request_params(method: str, params: dict, owner: Ownership, agent: str, *, readonly: bool = False) -> dict:
+    if 'agentId' in params and params['agentId'] != agent:
+        # An earlier Agent is addressable only for already-owned history.
+        key = params.get('sessionKey')
+        if not (method == 'chat.history' and isinstance(key, str) and key.startswith('agent:' + str(params['agentId']) + ':')
+                and owner.owns(key)):
+            raise PermissionError('Agent is not bound to this user')
+    if readonly and method not in {'models.list', 'agents.list', 'sessions.subscribe', 'sessions.preview',
+                                   'sessions.list', 'sessions.describe', 'chat.history', 'tools.effective'}:
+        raise PermissionError('Viewer is read-only')
     if method == 'models.list':
         return {'view': 'configured'}
     if method in {'agents.list', 'sessions.subscribe'}:
@@ -21,7 +31,7 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str) -> d
             raise PermissionError('Unsupported session options')
         result = {'agentId': agent}
         if params.get('parentSessionKey'):
-            if not owner.owns(params['parentSessionKey']):
+            if not owner.owns(params['parentSessionKey']) or not params['parentSessionKey'].startswith('agent:' + agent + ':'):
                 raise PermissionError('Session is not owned by this user')
             result.update(parentSessionKey=params['parentSessionKey'], fork=True)
         if params.get('model'):
@@ -42,10 +52,17 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str) -> d
     key = params.get('sessionKey', params.get('key'))
     if not owner.owns(key):
         raise PermissionError('Session is not owned by this user')
+    if not key.startswith('agent:' + agent + ':'):
+        if method not in {'chat.history', 'sessions.describe'}:
+            raise PermissionError('Retired sessions are read-only')
     result = dict(params)
-    if 'agentId' in result:
-        result['agentId'] = agent
+    if method == 'chat.history' and not key.startswith('agent:' + agent + ':'):
+        # Let the exact legacy key select its original Agent; never rewrite history routing.
+        result.pop('agentId', None)
     if method == 'chat.send':
+        message = result.get('message')
+        if not isinstance(message, str) or re.match(r'^[\s\ufeff]*[/!]', message):
+            raise PermissionError('Native Gateway commands are unavailable through personal chat')
         result['deliver'] = False
     return result
 
@@ -62,7 +79,7 @@ def response_payload(method: str, payload: dict, owner: Ownership, agent: str) -
     if method == 'sessions.preview':
         return {'previews': [p for p in payload.get('previews', []) if owner.owns(p.get('key'))]}
     if method == 'agents.list':
-        return {**payload, 'agents': [a for a in payload.get('agents', []) if a.get('id') == agent]}
+        return {'defaultId': agent, 'agents': [a for a in payload.get('agents', []) if a.get('id') == agent]}
     return payload
 
 

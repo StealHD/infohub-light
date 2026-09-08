@@ -171,7 +171,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '连接本地 Gateway',
-        description: '浏览器直接连接用户自己的 OpenClaw Gateway。切换本地端口或浏览器后，需要为当前地址完成首次配对：运行 openclaw gateway auth-token --show，在本机终端查看当前 token，再填写到连接表单。只有当前地址已经配对，才能使用“使用已配对设备重连”。多套本地环境各自固定前端端口和对应 API 代理目标，并将实际页面来源加入 Gateway 允许来源；不要依赖默认端口。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
+        description: '浏览器直接连接用户自己的 OpenClaw Gateway。切换本地端口或浏览器后，需要为当前地址完成首次配对：运行 openclaw gateway auth-token --show，在本机终端查看当前 token，再填写到连接表单。只有当前地址已经配对，才能使用“使用已配对设备重连”。多套本地环境各自固定前端端口和对应 API 代理目标，并将实际页面来源加入 Gateway 允许来源；不要依赖默认端口。服务端模式由管理员为每个账号部署独立 Agent 和 MCP 授权，Owner/Admin/Member 绑定就绪后可聊天，Viewer 只读。绑定未配置、过期或吊销时需要修复个人接入；旧 main 会话保留本人只读历史。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },
       {
         title: '快捷输入 @ 与 /',

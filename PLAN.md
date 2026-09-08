@@ -5,8 +5,8 @@
 
 2026-09-08 用户批准 Agent 分阶段优化：**每轮仅完成一个阶段，验收、记录、提交后结束，不自动进入下一阶段。** 原因与旧范围说明的替代关系见 [D209](docs/decisions/records/D201-D225.md#d209)。
 
-- 当前：阶段 0 建立任务基线；业务功能未修改。完成和检查证据见 WORKLOG 的 `agent-experience-stage-0`。
-- 下一轮：阶段 1 用户身份与授权。阶段 1–6 均未开始；正式生产发布集中在阶段 6。
+- 当前：阶段 1 用户身份与授权已实现；验收结果与提交前检查证据见 WORKLOG 的 `agent-experience-stage-1`。
+- 下一轮：阶段 2 连接与日常使用体验，需用户继续指令后开始。阶段 2–6 尚未开始；正式生产发布集中在阶段 6。
 - 分支 `codex/agent-experience`；独立 Worktree 为主检出同级目录 `infohub-light-agent-experience`。
 - 起点为本地 main 的 `7f7be166adfa2f2961d8a71ec1494f0e9aaded51`，不携带原 `codex/0903` 或其他任务的改动。
 - 接续只读适用 AGENTS、本节、当前阶段相关合同/代码及上一阶段记录；用 `worklogctl.py show` 按 `agent-experience-stage-N` 精确读取，不默认展开完整聊天、全部合同或历史。
@@ -19,13 +19,13 @@
 | core | 小团体账号与角色、来源订阅、共享获取、用户 Feed/History、Worker、React/HeroUI、受保护媒体、可观测性、OpenClaw 工作区 |
 | compatibility | 旧设置 URL、Service DB snapshot 双读、ActorOps v2 alias、离线迁移读路径、首库引导、OpenClaw 浏览器直连 |
 | disabled | Remote MCP、OpenClaw chat、图片 I/O、付费 Actor/AI、通知和生产 MCP 写入默认关闭；目标环境启用需独立证据 |
-| planned | 本计划的个人 Agent 绑定、信息提醒、connector 和统一体验；计划不代表实现、迁移或部署完成 |
+| planned | 信息提醒、connector 和统一体验；个人绑定本地实现不代表生产迁移或部署完成 |
 
 2026-09-08 只读核验：线上 API/Worker 均为 `2.6.11 / 5b5916454b55`、running/healthy；公开 `/api/health/live` 版本一致，`/api/health/ready` 的服务与 Worker 均 ready。OpenClaw VPS 安装 `2026.9.2`，仅 `main` Agent，默认模型 `google/gemini-3.7-flash`，`llm-task` 未启用。本轮未执行模型、通知、服务器配置写入或数据库迁移；此证据只描述核验时状态。
 
 阶段 0 snapshot：`/tmp/inteliscope-agent-experience-stage0-impact.json`，schema 2，base_sha 为上述 main 起点。文件丢失可用 `preflight --base 7f7be166adfa2f2961d8a71ec1494f0e9aaded51` 复核起点以来差异；下一阶段重新建立自己的 snapshot。snapshot 只是差异基线，不是测试通过证据。
 
-现役 relay 由 API 持有 Gateway 凭据，校验站内会话归属，仅 owner/admin 可连接；上游 Agent/MCP 仍共享，尚无个人数据授权绑定。接口真源：[Gateway](docs/contracts/api/openclaw-gateway.md)、[Remote MCP](docs/contracts/api/remote-mcp.md)。其他现役维护包括 ActorOps global 36、系统参数 global 32；代码存在不证明环境已迁移。入口：[ActorOps](docs/contracts/api/actorops-v2-planned.md)、[运行时/迁移](docs/contracts/architecture/jobs-notifications-runtime-migrations.md)、[OpenClaw 边界](docs/contracts/architecture/openclaw-module-boundaries.md)、[Agent UI](docs/contracts/ui/agent-workspace.md)。
+本分支个人 relay 按登录身份选择绑定，Owner/Admin/Member 可聊天、Viewer 只读；global 37 与部署工具已实现，现有生产仍使用阶段 0 的共享 Agent 版本。接口与存储见 [Gateway](docs/contracts/api/openclaw-gateway.md)、[Remote MCP](docs/contracts/api/remote-mcp.md)，运维见 [OpenClaw 部署](docs/operations/openclaw-server.md)。阶段 1 snapshot 为 `/tmp/inteliscope-agent-experience-stage1-impact.json`，base 为阶段 0 提交 `28ab3e35`。其他现役维护包括 ActorOps global 36、系统参数 global 32；代码存在不证明环境已迁移。入口：[ActorOps](docs/contracts/api/actorops-v2-planned.md)、[运行时/迁移](docs/contracts/architecture/jobs-notifications-runtime-migrations.md)、[OpenClaw 边界](docs/contracts/architecture/openclaw-module-boundaries.md)、[Agent UI](docs/contracts/ui/agent-workspace.md)。
 
 ## 阶段顺序与退出条件
 
@@ -49,9 +49,8 @@
 
 ### 身份与使用
 
-- 可信小团队每账号独立 Agent、工作目录、会话存储、MCP delegation，共用 Gateway/模型；不承诺独立主机级隔离。
-- MCP 独立名称和 SecretStore 引用，工具许可限本人命名空间及必要能力，禁止继承其他用户数据授权、跨 Agent 会话和主机执行权限。服务端按登录身份选绑定，拒绝浏览器指定他人/其他 Agent；缺失、吊销、验证失败不回退 main。
-- Owner/Admin/Member 完成绑定后可建提醒；Viewer 保持只读。已有 main 会话按现有归属保留历史读取，不自动迁移或重新归属。
+- 已落实的个人绑定、MCP 隔离和旧会话只读边界以 [Gateway 合同](docs/contracts/api/openclaw-gateway.md#个人绑定-api-与存储global-37) 与 [OpenClaw 架构](docs/contracts/architecture/openclaw-module-boundaries.md) 为准；本计划不重复实现细节。
+- Owner/Admin/Member 完成绑定后可在后续阶段建提醒，Viewer 只读；提醒权限尚未实现，现有 delegation 不扩权。
 - /agents 管接入，工作区复用状态；聊天、读取本人内容、建立提醒、通知可用分别验证，区分未配置/待验证/就绪/失效。Feed 小窗和完整工作区继续共用连接、草稿和运行生命周期。
 
 ### 规则与确认
@@ -73,7 +72,7 @@
 
 ### 接口与兼容
 
-- 计划接口：/api/me/agent-connection 管绑定/验证；/api/me/information-automations 管草稿、测试、确认启用、暂停/归档；规则下 /runs 分页展示执行和投递。wire shape 随实现进入 API 合同。
+- 计划接口：/api/me/information-automations 管草稿、测试、确认启用、暂停/归档；规则下 /runs 分页展示执行和投递。wire shape 随实现进入 API 合同。
 - connector 接口采用独立机器凭据，仅领取授权绑定配置/任务并提交回执；MCP 增加本人规则查询和草稿准备的独立权限，既有 delegation 不扩权，不提供模型直接启用/发送工具。
 - Service 保存绑定、规则版本、事件、必要输入/判断证据及投递关联，正文复用内容存储，不复制 Gateway 对话/Tasks/Artifacts 数据库。
 - /agent/automations 默认展示信息提醒，原 Gateway Cron 留作高级兼容，不把全局 Cron 当本人规则；阶段 6 修复长 Prompt 编辑截断、分页与执行 Agent。模板只填草稿，Worktree 保留在有权限的高级入口。

@@ -5,6 +5,10 @@
 
 用户授权的服务端模式由 `src/api/openclaw_relay_routes.py` 负责同源登录鉴权，`src/services/openclaw_relay/` 负责设备认证、RPC 白名单、会话归属与有界双向转发。浏览器通过同源 API 连接，服务端保管 Gateway 凭据；其安全合同以 `docs/contracts/api/openclaw-gateway.md` 服务端模式为准，优先于历史 browser-only 描述。
 
+`src/services/agent_connections/` 管个人身份、SecretStore 引用、部署 manifest/回执与纯配置编译；`src/storage/agent_connection_schema.py` 管 global 37。API 只提供当前账号查询/吊销，relay 从登录身份查绑定。`scripts/manage_agent_connection.py` 只在 Service 主机准备/导出/激活；`scripts/provision_openclaw_agent.py` 只在 Gateway 主机安装/验证，不启动模型或重启服务。现有首库 bootstrap 链在全新库安装空表，旧库仅由显式迁移脚本安装。
+
+可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的工具 allowlist 只含自己的 13 个只读 MCP 工具；其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。禁止 host/filesystem、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
+
 ## 1. 适用范围
 
 本合同只定义 Browser OpenClaw、Remote MCP 与本地安装入口的代码所有权和依赖方向。部署、认证、scope、凭据、网络、事务和业务安全语义继续以 [Agent、可观测性与 ActorOps](agent-observability-actorops.md#36f-local-agent--remote-mcp-boundary) 为唯一真源；17 个 Remote MCP 工具的输入输出合同继续以 `docs/contracts/api/` 为准。

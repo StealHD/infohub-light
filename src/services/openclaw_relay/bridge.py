@@ -40,7 +40,7 @@ def error_reply(request_id, message):
     return {'type': 'res', 'id': request_id, 'ok': False, 'error': {'code': 'RELAY_UNAVAILABLE', 'message': message}}
 
 
-async def browser_requests(browser, upstream, owner, agent, pending, valid_session):
+async def browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly=False):
     arrivals = deque()
     while True:
         raw = await browser.receive_text()
@@ -60,7 +60,7 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         if not isinstance(params, dict) or len(pending) >= 32 or request_id in pending:
             raise RelayFailure('Invalid or excessive requests')
         try:
-            safe = request_params(method, params, owner, agent)
+            safe = request_params(method, params, owner, agent, readonly=readonly)
         except PermissionError:
             await browser.send_json(error_reply(request_id, '当前账号无权执行该操作或访问该会话。'))
             continue
@@ -68,8 +68,10 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         await upstream.send(json.dumps({'type': 'req', 'id': request_id, 'method': method, 'params': safe}))
 
 
-async def gateway_events(browser, upstream, owner, agent, pending):
+async def gateway_events(browser, upstream, owner, agent, pending, valid_session):
     async for raw in upstream:
+        if not valid_session():
+            raise RelayFailure('Binding or session expired')
         frame = json.loads(raw)
         if frame.get('type') == 'res':
             method = pending.pop(frame.get('id'), None)
@@ -92,12 +94,15 @@ async def session_watch(valid_session):
             raise RelayFailure('InfoHub login expired')
 
 
-async def relay(browser, user_id, valid_session):
+async def relay(browser, user_id, valid_session, agent, *, readonly=False):
     url, token, root = settings()
     owner = Ownership(root, user_id)
     async with connect(url, proxy=None, open_timeout=15, ping_interval=20, ping_timeout=20,
                        max_size=MAX_FRAME, max_queue=16, close_timeout=5) as upstream:
-        agent = await authenticate(upstream, root, token)
+        await authenticate(upstream, root, token)
+        await verify_agent(upstream, agent)
+        if not valid_session():
+            raise RelayFailure('Binding or session expired')
         await browser.send_json({'type': 'event', 'event': 'connect.challenge', 'payload': {'nonce': 'infohub-session'}})
         request = json.loads(await asyncio.wait_for(browser.receive_text(), 15))
         if request.get('method') != 'connect' or request.get('type') != 'req':
@@ -108,8 +113,8 @@ async def relay(browser, user_id, valid_session):
             'snapshot': {'sessionDefaults': {'defaultAgentId': agent}},
         }})
         pending = {}
-        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session)),
-                 asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending)),
+        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly)),
+                 asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending, valid_session)),
                  asyncio.create_task(session_watch(valid_session))]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -119,3 +124,19 @@ async def relay(browser, user_id, valid_session):
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def verify_agent(upstream, agent):
+    """Require the explicit bound Agent; never use the Gateway default as fallback."""
+    await upstream.send(json.dumps({'type': 'req', 'id': 'binding-agent', 'method': 'agents.list', 'params': {}}))
+    async def receive():
+        for _ in range(32):
+            frame = json.loads(await upstream.recv())
+            if frame.get('id') != 'binding-agent' or frame.get('type') != 'res':
+                continue
+            agents = frame.get('payload', {}).get('agents', [])
+            if frame.get('ok') and sum(item.get('id') == agent for item in agents) == 1:
+                return
+            raise RelayFailure('Bound Agent unavailable; provisioning verification required')
+        raise RelayFailure('Bound Agent verification unavailable')
+    await asyncio.wait_for(receive(), 15)

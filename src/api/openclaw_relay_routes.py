@@ -5,6 +5,7 @@ from collections import Counter
 from urllib.parse import urlsplit
 from fastapi import FastAPI, WebSocket
 from ..auth import COOKIE_NAME
+from ..services.agent_connections.service import AgentConnections
 from ..services.openclaw_relay.bridge import RelayFailure, relay
 from ..services.openclaw_relay.settings import RELAY_PATH, enabled
 
@@ -23,9 +24,9 @@ async def openclaw_socket(socket: WebSocket):
     if not enabled() or not context.openclaw_chat_settings.enabled or not user or not valid_origin(socket.headers.get('origin', ''), socket.headers.get('host', '')):
         await socket.close(code=1008)
         return
-    # The shared upstream Agent can use privileged tools. Only workspace administrators
-    # may use this server-managed mode; browser-direct mode retains its existing policy.
-    if user.get('role') not in {'owner', 'admin'}:
+    connections = AgentConnections(context.store, context.secret_values)
+    binding = connections.live(user)
+    if not binding or user.get('role') not in {'owner', 'admin', 'member', 'viewer'}:
         await socket.close(code=1008)
         return
     owner = str(user['workspace_id']) + ':' + str(user['id'])
@@ -34,11 +35,14 @@ async def openclaw_socket(socket: WebSocket):
         return
     def valid_session():
         current = context.store.get_session_user(cookie)
-        return current and current['id'] == user['id'] and current['workspace_id'] == user['workspace_id'] and current.get('role') in {'owner', 'admin'}
+        live = connections.live(current) if current else None
+        return bool(current and current['id'] == user['id'] and current['workspace_id'] == user['workspace_id']
+                    and current.get('role') == user.get('role') and live
+                    and live['binding_id'] == binding['binding_id'])
     _connections[owner] += 1
     try:
         await socket.accept()
-        await asyncio.wait_for(relay(socket, owner, valid_session), 3600)
+        await asyncio.wait_for(relay(socket, owner, valid_session, binding['agent_id'], readonly=user['role'] == 'viewer'), 3600)
     except Exception as exc:
         logging.getLogger(__name__).warning("OpenClaw relay closed: %s", str(exc) if isinstance(exc, RelayFailure) else type(exc).__name__)
         # Never log raw upstream frames, URLs, tokens, or provider error bodies.

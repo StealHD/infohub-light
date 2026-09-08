@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from .agent_connection_schema import apply_migration as install_agent_connections
 from .actorops_v2_schema import (
     install_schema as install_actorops_v2_schema,
     mark_migrated as mark_actorops_v2_migrated,
@@ -76,3 +77,5 @@ def bootstrap_actor_schemas(
     bootstrap_verified_replacement_schema(
         connection, existing_schema=existing_schema
     )
+
+    install_agent_connections(connection)

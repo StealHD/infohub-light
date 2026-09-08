@@ -4,11 +4,19 @@
 
 启用 `HORIZON_OPENCLAW_SERVER_ENABLED=true` 后，Service 返回同源 `/api/me/openclaw/socket`，浏览器以 InfoHub 登录 Cookie 连接 API；API 以固定 WSS 地址和服务端 Token 连接 Gateway。此模式替代下文浏览器直连的认证/传输边界，直连模式仍为兼容默认。
 
-- 仅 owner/admin 可用；检查精确 Origin/Host、有效登录，每 15 秒重新验证登录；每账号最多三条连接，每分钟 120 个 RPC，最多 32 个待处理 RPC。
-- Gateway Token 来自 `HORIZON_OPENCLAW_SERVER_TOKEN`，设备私钥保存于 `data/openclaw-relay/device.key`（0600），浏览器不接收任何上游令牌或配对私钥。
-- `data/openclaw-relay/ownership.sqlite3` 仅记录用户与新建 Gateway session key 的归属，不保存对话正文，也不改变 Service DB schema。所有会话 RPC 和事件必须检查归属；未列入许可的方法拒绝转发，禁止配置/设备管理/任意工具调用 RPC，强制 chat.send deliver=false。
-- 初始服务端设备需管理员部署时配对；Token 失效、未配对或协议不兼容时安全失败。连接具有 TLS 校验、20 秒 ping、断连回收及浏览器重连；不自动重发 chat.send。
-- 本次不为普通成员开放共享服务端 Agent，避免共享工具权限跨账号扩大。MCP 接入是独立能力，不自动安装或启用。
+- 每个站内用户必须具有有效的个人 Agent/MCP delegation 绑定。Owner/Admin/Member 可聊天，Viewer 仅可读取已归属历史；浏览器不能指定其他用户或 Agent。缺绑定、过期、吊销、账号停用、scope 改变或上游 Agent 不存在均失败关闭，不采用 Gateway 的 default Agent。
+- 检查精确 Origin/Host、登录身份、角色及当前绑定；每个请求与上游响应/事件转发前重验，空闲每 15 秒重验。每账号最多三条连接，每分钟 120 个 RPC，最多 32 个待处理 RPC。
+- Gateway Token 来自 `HORIZON_OPENCLAW_SERVER_TOKEN`，设备私钥保存在 `data/openclaw-relay/device.key`（0600）。浏览器不接收上游令牌或配对私钥；初始服务端设备仍由管理员配对。
+- `data/openclaw-relay/ownership.sqlite3` 继续仅保存 workspace/user 与 Gateway session key 归属，不保存对话。新会话在服务端所选 Agent 下创建，fork 和写操作限定当前 Agent 的本人会话。已归属的旧 main/退役 Agent 会话只读，不迁移、不重新归属；读取历史时不强制改写原 Agent。
+- 未许可 RPC、跨账号会话、跨 Agent 指定、原生 `/` 或 `!` Gateway 聊天命令均拒绝；聊天强制 `deliver:false`。不转发配置、设备管理或任意工具调用。TLS 校验、20 秒 ping、断连清理和不自动重发 chat.send 保持有效。
+
+### 个人绑定 API 与存储（global 37）
+
+- `GET /api/me/agent-connection` 使用当前 Cookie，返回 `ok.data`：`state` 为 `migration_required|unconfigured|pending_verification|ready|invalid|revoked`，另含 `agent_id`、`delegation_id`、`verified_at`、`can_connect`、`can_chat`、`verification`。响应 `Cache-Control: no-store`，无 SecretStore 引用、配置路径或令牌。
+- `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关限制，`own_content` 受 Remote MCP 开关限制。
+- `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。浏览器没有准备、激活、指定身份或导出凭据接口。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
+- `agent_connections` 保存 user/workspace、随机 binding/Agent/MCP 名称、SecretStore env 引用、专用 delegation ID、secret-free manifest、状态和部署核验时间。每用户一条、每 Agent/namespace/delegation/secret_ref 唯一；删除 delegation 后绑定失效。正文、Gateway 对话/Tasks/Artifacts 不复制进 Service DB。
+- 准备绑定只创建新的 `inteliscope:read` / self delegation，沿用 90 日过期和最多五条有效连接限制；不复用或扩权旧 delegation。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。
 
 ### 浏览器直连兼容模式
 

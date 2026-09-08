@@ -11,26 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-05",
-  "result": "按 Codex 参考细化思考面板：档位标题与模型名组成统一入口，滑块和填色切档平滑过渡、拖动直接跟手、胶囊箭头随开合旋转；Ultra/Max 自动播放一次渐变粒子后静止，Reduced Motion 立即静态。修正手机浏览器门禁把已隐藏的省略文本计作横向溢出的误判，保留信息流八条紧凑上下文布局。同步组件参数、验收与更新日志，未添加加速、语音或审批能力，未重建 Docker。",
-  "status": "completed",
-  "task_id": "2026-09-05-agent-effort-motion",
-  "unresolved": [
-    "真实开发页面仍显示此前的 Gateway 重连失败；本次 UI 使用隔离 Gateway fixture 验证，未更改连接配置。"
-  ],
-  "validation": [
-    "最终 impacted preflight 14/14 通过；128 文件 845 项 Vitest、UI 合同、lint、类型、代码体积、构建和控制检查通过。",
-    "思考面板三视口定向浏览器测试 9/9 通过；完整浏览器首轮发现一处省略文本误判，按失败复验和唯一完整重跑流程执行，重跑 181 通过、86 条件跳过。随后恢复紧凑行并修正断言，最终相关 34 项单测和原手机用例通过，未再运行第三次完整浏览器门禁。",
-    "人工核对深浅主题及手机截图；验证有限动效、Reduced Motion 静态、键盘和焦点、恢复自动、无真实 chat.send。5173 代理 8082 健康检查 ready，保持本地服务运行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-05",
   "result": "按用户纠正：闪电只代表独立 Fast 状态，移除随 Ultra/Max 档位高亮的假象；当前前端未接入 Fast，通过可聚焦的不可用控件给出说明且不执行操作。输入框恢复原 surface-secondary，浮层、控件与文字边框复用项目深浅主题；思考控件局部采用系统圆润字体和较柔和字重。保留已验证的分档滑块和有限粒子动效，同步组件参数、路由合同及更新日志。未重建 Docker、提交或推送。",
   "status": "completed",
   "task_id": "2026-09-05-agent-effort-fast-style",
@@ -404,6 +384,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Markdown 控制检查通过；未执行模型、通知、迁移或发布。",
     "控制结构、显式 policy/索引与 JSON 校验通过；已审查 phase/context/decisions 候选，现役与 planned 能力明确分开。",
     "阶段 0 impacted preflight 5/5 通过，仅 control 域；后续阶段需新建基线，本轮不继续阶段 1。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-09-08",
+  "result": "完成阶段 1 个人 Agent/独立 read MCP delegation 绑定、显式 global 37 空表迁移、运维配置与核验工具、按登录身份的 relay 路由；保留旧会话本人只读历史并支持 Viewer 只读。更新合同、操作手册与 changelog；只在本地受控环境实施，下一阶段需用户继续指令。",
+  "status": "partial",
+  "task_id": "agent-experience-stage-1",
+  "unresolved": [
+    "阶段 1 的最终门禁与本地服务更新待完成；真实网页体验在阶段 2，正式生产发布在阶段 6。"
+  ],
+  "validation": [
+    "65 项绑定、迁移、API、MCP、relay 和既有 delegation 相关测试通过，覆盖双账号数据/会话/工具权限、吊销、过期、账号停用、scope 改变、旧历史和晚到响应。",
+    "OpenClaw 2026.9.2 真实 config validate 和上游工具策略管线验证通过；未调用模型或发送通知。",
+    "任务差异审查、代码体积与 Markdown 控制检查通过；最终 impacted preflight 和本地服务更新待完成。"
   ]
 }
 ```

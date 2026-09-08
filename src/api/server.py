@@ -502,18 +502,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "delete",
     ),
     ("POST", "/api/me/agent-delegations"): ("agent", "delegation_create"),
-    ("PATCH", "/api/me/agent-delegations/{delegation_id}"): (
-        "agent",
-        "delegation_rename",
-    ),
-    ("DELETE", "/api/me/agent-delegations/{delegation_id}"): (
-        "agent",
-        "delegation_revoke",
-    ),
-    ("DELETE", "/api/me/agent-delegations/{delegation_id}/record"): (
-        "agent",
-        "delegation_delete",
-    ),
+    ("PATCH", "/api/me/agent-delegations/{delegation_id}"): ("agent", "delegation_rename"),
+    ("DELETE", "/api/me/agent-delegations/{delegation_id}"): ("agent", "delegation_revoke"),
+    ("DELETE", "/api/me/agent-delegations/{delegation_id}/record"): ("agent", "delegation_delete"),
+    ("DELETE", "/api/me/agent-connection"): ("agent", "binding_revoke"),
     ("PATCH", "/api/me/feed-schedule"): ("schedule", "feed_update"),
     ("POST", "/api/me/subscriptions"): ("subscription", "create"),
     ("PATCH", "/api/me/subscriptions/{subscription_id}"): (
