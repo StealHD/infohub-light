@@ -19,7 +19,7 @@ class UpdateRule(BaseModel):
 class TransitionRule(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: StrictInt = Field(ge=1)
-    action: Literal['enable', 'pause', 'archive']
+    action: Literal['enable', 'pause', 'archive', 'restore']
 
 
 class TestRule(BaseModel):

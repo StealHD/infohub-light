@@ -120,12 +120,15 @@ for (const theme of ['dark', 'light'] as const) test(`reference effort picker su
     height: Math.min(page.viewportSize()!.height, composer!.y + composer!.height + 8) - y,
   } })
   await dialog.getByRole('button', { name: /选择模型：/u }).click()
+  const modelList = dialog.getByRole('listbox', { name: 'OpenClaw 模型' })
   await expect(dialog.getByRole('option', { name: /GPT Fixture/u })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '返回思考程度' })).toHaveCSS('width', '32px')
+  await expect(modelList).toHaveCSS('scrollbar-width', 'none')
   await page.keyboard.press('Escape'); await expect(trigger).toBeFocused()
   expect((await shortcutRequests(page)).filter((request) => request.method === 'chat.send')).toHaveLength(0)
 })
 
-test('only Fast decorates the slider and respects reduced motion', async ({ page }, testInfo) => {
+test('Ultra floats and Fast streams while respecting reduced motion', async ({ page }, testInfo) => {
   await installShortcutFixture(page, true)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.goto('/agent')
@@ -134,12 +137,41 @@ test('only Fast decorates the slider and respects reduced motion', async ({ page
   const trigger = page.getByRole('button', { name: /OpenClaw 模型：/u })
   await trigger.click()
   const slider = page.getByRole('slider', { name: '思考程度' })
+  const beforeDrag = (await shortcutRequests(page)).filter((request) => request.method === 'sessions.patch').length
+  await expect(page.locator('.effort-picker-surface')).not.toHaveAttribute('data-entering', 'true')
+  await expect(page.locator('.effort-picker-surface')).toHaveCSS('opacity', '1')
+  const thumb = (await page.locator('.effort-slider-thumb').boundingBox())!
+  const track = (await page.locator('.effort-slider-track').boundingBox())!
+  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2)
+  await page.mouse.down()
+  // React Aria maps thumb drag delta to the full measured track width (including end caps).
+  await page.mouse.move(thumb.x + thumb.width / 2 + track.width, track.y + track.height / 2)
+  await expect(page.locator('.effort-slider')).toHaveAttribute('data-effect', 'ultra')
+  await expect(page.locator('.effort-slider-sparks')).toHaveCSS('opacity', '1')
+  const capTransition = await page.locator('.effort-slider-track').evaluate((track) => {
+    const cap = getComputedStyle(track)
+    const fill = getComputedStyle(track.querySelector('.effort-slider-fill')!, '::before')
+    return { property: cap.transitionProperty, duration: cap.transitionDuration, fillDuration: fill.transitionDuration, easing: cap.transitionTimingFunction, fillEasing: fill.transitionTimingFunction, joined: fill.backgroundImage.includes(cap.borderLeftColor) }
+  })
+  expect(capTransition.property).toBe('border-color')
+  expect(capTransition.duration).toBe(capTransition.fillDuration)
+  expect(capTransition.easing).toBe(capTransition.fillEasing)
+  expect(capTransition.joined).toBe(true)
+  await expect(page.locator('.effort-slider-sparks')).toHaveCSS('opacity', '1')
+  await page.mouse.move(track.x + track.width / 2, track.y + track.height / 2)
+  await expect(page.locator('.effort-slider')).toHaveAttribute('data-effect', 'none')
+  await expect(page.locator('.effort-slider-sparks')).toHaveCSS('opacity', '0')
+  expect((await shortcutRequests(page)).filter((request) => request.method === 'sessions.patch')).toHaveLength(beforeDrag)
+  await page.mouse.up()
+  await expect(slider).toBeEnabled()
   await slider.focus()
   await page.keyboard.press('End')
   await expect(slider).toHaveAttribute('aria-valuetext', 'Ultra')
   const fast = page.getByRole('button', { name: 'Fast 快速模式' })
   await expect(fast).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.locator('.effort-slider-sparks')).toHaveCount(0)
+  const spark = page.locator('.effort-slider-sparks i').first()
+  await expect(spark).toHaveCSS('animation-name', 'effort-spark-float')
+  await expect(page.locator('.effort-slider')).toHaveAttribute('data-effect', 'ultra')
   await expect(page.locator('.effort-picker-surface')).not.toHaveAttribute('data-entering', 'true')
   await fast.focus()
   const fastTooltip = page.getByRole('tooltip')
@@ -160,21 +192,38 @@ test('only Fast decorates the slider and respects reduced motion', async ({ page
   await expect(dialogFastReminder(page)).toBeVisible()
   await expect(dialogFastReminder(page)).toBeHidden()
   await slider.focus()
-  const spark = page.locator('.effort-slider-sparks i').first()
-  await expect(spark).toHaveCSS('animation-name', 'effort-spark-drift')
+  await expect(spark).toHaveCSS('animation-name', 'effort-spark-speed')
+  const particles = await page.locator('.effort-slider-sparks i').evaluateAll((items) => items.map((item) => {
+    const style = getComputedStyle(item, '::before')
+    return { size: `${style.width}/${style.height}`, brightness: style.opacity }
+  }))
+  expect(new Set(particles.map((item) => item.size)).size).toBeGreaterThan(1)
+  expect(new Set(particles.map((item) => item.brightness)).size).toBeGreaterThan(1)
+  await expect(page.locator('.effort-slider')).toHaveAttribute('data-effect', 'fast')
   await expect(spark).toHaveCSS('animation-iteration-count', 'infinite')
   // Seek beyond the first cycle: Fast keeps moving without a wall-clock wait.
   const frames = await spark.evaluate((node) => {
     const animation = node.getAnimations()[0]
     animation.pause()
-    return [5000, 6000, 9400].map((time) => {
+    const duration = Number(animation.effect!.getTiming().duration)
+    return [duration * 5.25, duration * 5.75, duration * 6.25].map((time) => {
       animation.currentTime = time
       const style = getComputedStyle(node)
-      return { transform: style.transform, opacity: style.opacity }
+      return { transform: style.transform, x: new DOMMatrixReadOnly(style.transform).m41, opacity: style.opacity }
     })
   })
   expect(frames[0]).not.toEqual(frames[1])
   expect(frames[0]).toEqual(frames[2])
+  // The first particle has an -800 ms phase; compare within one unwrapped cycle.
+  const direction = await spark.evaluate((node) => {
+    const animation = node.getAnimations()[0]
+    const timing = animation.effect!.getTiming()
+    return [0.2, 0.7].map((phase) => {
+      animation.currentTime = Number(timing.duration) * (5 + phase) + Number(timing.delay)
+      return new DOMMatrixReadOnly(getComputedStyle(node).transform).m41
+    })
+  })
+  expect(direction[1]).toBeLessThan(direction[0])
   await expect(slider).toHaveAttribute('aria-valuetext', 'Ultra')
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(spark).toHaveCSS('animation-name', 'none')
@@ -189,10 +238,11 @@ test('only Fast decorates the slider and respects reduced motion', async ({ page
   await expect(spark).toHaveCSS('animation-name', 'none')
   await fast.click()
   await expect(slider).toHaveAttribute('aria-valuetext', 'Ultra')
+  await expect(page.locator('.effort-slider')).toHaveAttribute('data-effect', 'ultra')
   await slider.focus()
   await page.keyboard.press('Home')
   await expect(slider).toHaveAttribute('aria-valuetext', '低')
-  await expect(page.locator('.effort-slider-sparks')).toHaveCount(0)
+  await expect(page.locator('.effort-slider-sparks')).toHaveCSS('opacity', '0')
   expect((await shortcutRequests(page)).filter((request) => request.method === 'chat.send')).toHaveLength(0)
 })
 
@@ -217,8 +267,14 @@ test('Fast switches the real send option independently and the thumb responds to
   const thumb = dialog.locator('.effort-slider-thumb')
   await expect(thumb).toHaveCSS('box-shadow', 'none')
   if (testInfo.project.name !== 'mobile') {
+    await page.mouse.move(0, 0)
+    await expect(thumb).toHaveCSS('scale', 'none')
+    const before = (await thumb.boundingBox())!
     await thumb.hover()
     await expect(thumb).toHaveCSS('scale', '1.08')
+    const after = (await thumb.boundingBox())!
+    expect(Math.abs(before.x + before.width / 2 - after.x - after.width / 2)).toBeLessThan(.5)
+    expect(Math.abs(before.y + before.height / 2 - after.y - after.height / 2)).toBeLessThan(.5)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(thumb).toHaveCSS('scale', '1')
   }
@@ -278,7 +334,7 @@ test('entering Ultra reminds about tokens independently of Fast', async ({ page 
   await expect(notice).toBeVisible()
   await expect(notice).toHaveCSS('animation-name', 'effort-usage-reminder')
   await expect(page.getByRole('button', { name: 'Fast 快速模式' })).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.locator('.effort-slider-sparks')).toHaveCount(0)
+  await expect(page.locator('.effort-slider-sparks i').first()).toHaveCSS('animation-name', 'effort-spark-float')
   await expect(notice).toBeHidden()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.keyboard.press('Home'); await expect(slider).toHaveAttribute('aria-valuetext', '低')

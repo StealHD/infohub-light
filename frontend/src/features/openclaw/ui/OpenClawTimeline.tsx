@@ -44,9 +44,8 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
   const followRef = useRef(true)
   const [newOutputBelow, setNewOutputBelow] = useState(false)
   const [viewer, setViewer] = useState<OpenClawImageViewerState | null>(null)
-  const commandEntries = composer.commandEntries ?? []
   const runTrace = chat.runTrace
-  const outputVersion = `${commandEntries.map((entry) => entry.id).join(',')}:${chat.messages.length}:${chat.streamText.length}:${runTrace?.phase ?? ''}:${runTrace?.activities.map((activity) => activity.status).join(',') ?? ''}`
+  const outputVersion = `${chat.messages.length}:${chat.streamText.length}:${runTrace?.phase ?? ''}:${runTrace?.activities.map((activity) => activity.status).join(',') ?? ''}`
   const attachTerminalTrace = Boolean(runTrace && !chat.isRunning && !chat.streamText && chat.messages.at(-1)?.role === 'assistant')
   const showStandaloneTrace = Boolean(runTrace && !chat.streamText && !attachTerminalTrace)
 
@@ -108,7 +107,7 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
         <Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description>
         <a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a>
       </Card>}
-      {!chat.messages.length && !chat.streamText && !runTrace && !commandEntries.length && <PromptSuggestion className={`${variant === 'workspace' ? 'max-w-[var(--inteliscope-width-agent-conversation)] py-12' : 'max-w-sm py-3'} mx-auto text-center`}>
+      {!chat.messages.length && !chat.streamText && !runTrace && <PromptSuggestion className={`${variant === 'workspace' ? 'max-w-[var(--inteliscope-width-agent-conversation)] py-12' : 'max-w-sm py-3'} mx-auto text-center`}>
         <PromptSuggestion.Header>
           <PromptSuggestion.Title>从哪里开始？</PromptSuggestion.Title>
           <PromptSuggestion.Description className="mt-1">可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</PromptSuggestion.Description>
@@ -125,7 +124,6 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
         </PromptSuggestion.Items>
       </PromptSuggestion>}
       <div data-testid="openclaw-timeline" data-conversation-variant={variant} className={`${variant === 'workspace' ? 'mx-auto w-full max-w-[var(--inteliscope-width-agent-conversation)] grid-cols-1 gap-x-0' : 'grid-cols-[12px_minmax(0,1fr)] gap-x-[9px]'} grid min-w-0 overflow-x-hidden`}>
-        {commandEntries.filter((entry) => !chat.messages.some((message) => message.id === entry.afterMessageId)).map((entry) => <Fragment key={entry.id}>{entry.content}</Fragment>)}
         {chat.messages.map((message, index) => {
           const traceAttached = attachTerminalTrace && index === chat.messages.length - 1
           const contextSources = message.contextSources ?? []
@@ -156,7 +154,6 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
             </div>}
             {traceAttached && runTrace && <OpenClawActivityTrace trace={runTrace} running={false} />}
           </ConversationTurn>
-            {commandEntries.filter((entry) => entry.afterMessageId === message.id).map((entry) => <Fragment key={entry.id}>{entry.content}</Fragment>)}
           </Fragment>
         })}
         {chat.streamText && <ConversationTurn role="assistant" text={chat.streamText} createdAt={chat.streamCreatedAt} hasNext={false} variant={variant}>

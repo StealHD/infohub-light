@@ -35,6 +35,10 @@ def test_http_draft_confirmation_and_identity_injection(context, client):
     route = base + '/' + draft['id']
     assert http.post(route + '/transition', json={'version': True, 'action': 'enable'}).status_code == 422
     assert http.post(route + '/transition', json={'version': 1, 'action': 'enable'}).json()['data']['state'] == 'active'
+    assert http.post(route + '/transition', json={'version': 1, 'action': 'archive'}).json()['data']['state'] == 'archived'
+    restored = http.post(route + '/transition', json={'version': 1, 'action': 'restore'})
+    assert restored.status_code == 200 and restored.json()['data']['state'] == 'draft'
+    assert restored.json()['data']['confirmed_at'] is None
     app.dependency_overrides[current_user] = lambda: context[4]
     assert http.get(route).status_code == 404
     assert http.get(route + '/runs').status_code == 404

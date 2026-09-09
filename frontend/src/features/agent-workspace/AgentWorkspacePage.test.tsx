@@ -37,6 +37,7 @@ describe('Agent Workspace page', () => {
     expect(screen.getByRole('navigation', { name: 'OpenClaw 工作区' })).toBeInTheDocument()
     expect(screen.queryByRole('complementary', { name: /检查器/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('separator', { name: /调整/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '在新 Worktree 中执行' })).not.toBeInTheDocument()
     expect(await screen.findByText('站内 OpenClaw 对话尚未启用；仍可复制交接提示词到自己的 OpenClaw。')).toBeInTheDocument()
     expect(context.draft.question).toBe('保留中的 Feed 草稿')
     expect(screen.getByRole('heading', { name: 'OpenClaw 对话' }).closest('header')).toHaveAttribute('data-page-header-appearance', 'inset')
@@ -46,7 +47,7 @@ describe('Agent Workspace page', () => {
     const browser = userEvent.setup()
     const { chat, context } = renderPage('/agent')
     await browser.click(screen.getByRole('link', { name: '使用示例' }))
-    for (const feature of ['对话', '上下文', 'Worktree', 'Tasks', 'Artifacts', 'Skills', 'Automations']) {
+    for (const feature of ['对话', '上下文', 'Tasks', 'Artifacts', 'Skills', 'Automations']) {
       expect(screen.getByRole('heading', { name: new RegExp(`^${feature}：`) })).toBeInTheDocument()
     }
     expect(chat.openSession).not.toHaveBeenCalled()

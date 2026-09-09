@@ -4,15 +4,15 @@ import type { InformationRuleConfig } from '../../api/informationAutomationServi
 import { FormSelect, RefreshButton } from '../../design-system'
 import { useInformationContext } from './useInformationContext'
 
-export function InformationModelFields({ value, onChange, disabled }: {
-  value: InformationRuleConfig; onChange: (value: InformationRuleConfig) => void; disabled: boolean
+export function InformationModelFields({ value, onChange, disabled, compactHeading = false }: {
+  value: InformationRuleConfig; onChange: (value: InformationRuleConfig) => void; disabled: boolean; compactHeading?: boolean
 }) {
   const { api, userId } = useInformationContext()
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const models = useQuery({ queryKey: ['information-models', userId], queryFn: ({ signal }) => api.informationModels(signal), refetchInterval: 15000 })
   const selectedModel = models.data?.models.find((model) => model.id === value.model?.id)
-  return <fieldset className="grid gap-3"><legend className="type-section-title">模型</legend>
+  return <fieldset className="grid gap-3">{!compactHeading && <legend className="type-section-title">模型</legend>}
       <div className="flex flex-wrap items-center gap-2"><p className="type-meta text-muted">自动读取 OpenClaw 允许用于独立分析的模型。</p>
         <RefreshButton pending={refreshing || models.isFetching} aria-label="刷新模型目录" onPress={async () => {
           setRefreshing(true); setError('')

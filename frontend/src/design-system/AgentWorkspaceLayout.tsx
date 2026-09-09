@@ -1,11 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { Drawer } from '@heroui/react'
 import { Button } from './Button'
 import { DisclosurePanel } from './DisclosurePanel'
 import { X } from './icons'
+import { useViewportWidth } from './useViewportWidth'
 
-function AgentInspectorFrame({ title, onClose, mobile = false, children }: { title: string; onClose: () => void; mobile?: boolean; children: ReactNode }) {
+export function AgentInspectorFrame({ title, onClose, mobile = false, children }: { title: string; onClose: () => void; mobile?: boolean; children: ReactNode }) {
   return <div className="flex h-full min-h-0 flex-col" data-agent-inspector-frame>
     <header className="shrink-0 border-b border-separator px-4 py-3">
       {mobile && <span className="mx-auto mb-2 block h-1 w-10 rounded-full bg-separator" aria-hidden="true" />}
@@ -18,19 +19,7 @@ function AgentInspectorFrame({ title, onClose, mobile = false, children }: { tit
   </div>
 }
 
-function useViewportWidth(): number {
-  const [width, setWidth] = useState(() => typeof window === 'undefined' ? 1440 : window.innerWidth)
-
-  useEffect(() => {
-    const update = () => setWidth(window.innerWidth)
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
-
-  return width
-}
-
-function WorkspaceDrawer({
+export function WorkspaceDrawer({
   open,
   onOpenChange,
   title,

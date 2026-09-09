@@ -172,14 +172,23 @@ class InformationRules:
             return public_rule(self.row(user, rule_id), conn)
 
     def transition(self, user_id, rule_id, version, action):
-        if action not in {'enable', 'pause', 'archive'}:
+        if action not in {'enable', 'pause', 'archive', 'restore'}:
             raise RuleError('invalid_action', '操作无效。', 400)
         with transaction(self.store) as conn:
             user = self.actor(user_id, write=True)
             row = self.row(user, rule_id)
-            if row['version'] != version or row['state'] == 'archived':
+            if row['version'] != version:
                 raise RuleError('rule_version_conflict', '提醒已变化，请刷新后重新确认。')
             now = now_iso()
+            if action == 'restore':
+                if row['state'] != 'archived':
+                    raise RuleError('invalid_rule_transition', '只有已归档提醒可以恢复。')
+                conn.execute('''UPDATE information_rules SET state='draft',issue=NULL,binding_id=NULL,
+                    target_generation=NULL,target_activation=NULL,transport_generation=NULL,checked_at=NULL,
+                    confirmed_at=NULL,confirmation_id=NULL,updated_at=? WHERE id=?''', (now, rule_id))
+                return public_rule(self.row(user, rule_id), conn)
+            if row['state'] == 'archived':
+                raise RuleError('rule_version_conflict', '提醒已变化，请刷新后重新确认。')
             if action == 'enable':
                 config = RuleConfig.model_validate_json(row['config_json'])
                 binding = self.binding(user)

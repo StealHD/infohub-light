@@ -29,7 +29,7 @@ export default function OpenClawWorkspaceRuntimeControls({ chat, picker, onPicke
   const modelView = picker === 'model' || view === 'model'
   const isOpen = Boolean(picker) || open
   const fastEnabled = chat.runtimeSelection.fastMode ?? chat.runtimeSelection.defaultFastMode ?? false
-  const energized = fastEnabled
+  const effect = unavailable ? 'none' : fastEnabled ? 'fast' : options[preview ?? selected]?.id === 'ultra' ? 'ultra' : 'none'
 
   async function apply(action: () => Promise<boolean>) {
     if (latch.current || disabled) return
@@ -61,7 +61,7 @@ export default function OpenClawWorkspaceRuntimeControls({ chat, picker, onPicke
           requestAnimationFrame(() => triggerRef.current?.focus())
         }}>
           {modelView ? <>
-            <Button variant="ghost" className="type-control justify-start" onPress={() => { setView('effort'); setOpen(true); onPickerClose?.(); requestAnimationFrame(() => modelRef.current?.focus()) }}><Icons.ChevronLeft size={15} aria-hidden="true" />思考程度</Button>
+            <Button isIconOnly size="sm" variant="ghost" className="effort-model-back" aria-label="返回思考程度" onPress={() => { setView('effort'); setOpen(true); onPickerClose?.(); requestAnimationFrame(() => modelRef.current?.focus()) }}><Icons.ChevronLeft size={15} aria-hidden="true" /></Button>
             <ListBox autoFocus="first" aria-label="OpenClaw 模型" className="effort-model-list" selectionMode="single" selectedKeys={chat.runtimeSelection.modelId ? [chat.runtimeSelection.modelId] : []} disabledKeys={disabled ? chat.models.map((entry) => entry.id) : []} onSelectionChange={(keys) => {
               if (keys === 'all') return
               const key = Array.from(keys)[0]
@@ -83,7 +83,7 @@ export default function OpenClawWorkspaceRuntimeControls({ chat, picker, onPicke
             </div>
             <Tooltip><TooltipTriggerButton aria-label="恢复默认思考" disabled={disabled || Boolean(unavailable) || defaultIndex < 0 || selected === defaultIndex} onClick={() => commit(defaultIndex)} className="effort-reset-button"><Icons.RotateCcw size={15} aria-hidden="true" /></TooltipTriggerButton><Tooltip.Content {...anchoredTooltipProps}>恢复 Gateway 默认档位</Tooltip.Content></Tooltip>
           </div>
-          <EffortSlider energized={energized} labels={options.map((entry) => entry.label)} valueLabel={preview === null && selected < 0 ? '未选择思考档位' : undefined} value={value} disabled={disabled || Boolean(unavailable)} onChange={setPreview} onCommit={commit} />
+          <EffortSlider effect={effect} labels={options.map((entry) => entry.label)} valueLabel={preview === null && selected < 0 ? '未选择思考档位' : undefined} value={value} disabled={disabled || Boolean(unavailable)} onChange={setPreview} onCommit={commit} />
           {unavailable && <p className="type-meta text-muted">{unavailable}</p>}</> }
           {(issue || chat.runtimeIssue) && <p role="status" className="type-meta text-warning">{chat.runtimeIssue || issue}</p>}
           <Button variant="ghost" size="sm" className="sr-only focus:not-sr-only" onPress={() => { setOpen(false); setView('effort'); onPickerClose?.() }}>关闭模型与思考设置</Button>

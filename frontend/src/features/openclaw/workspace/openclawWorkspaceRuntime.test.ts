@@ -6,8 +6,6 @@ import { OPENCLAW_WORKSPACE_METHODS } from './openclawWorkspaceContracts'
 import { createOpenClawWorkspaceRuntime } from './openclawWorkspaceRuntime'
 
 const project = { id: 'project-1', displayName: 'InfoHub', repoRoot: '/srv/infohub', source: 'configured' }
-const projectsFixture = { projects: [project] }
-const branchesFixture = { branches: [{ name: 'main', kind: 'local' }], defaultBranch: 'main' }
 
 function runtimeWith(request: OpenClawClientPort['request']) {
   const refs = createOpenClawLifecycleRefs()
@@ -29,45 +27,12 @@ describe('OpenClaw Agent Workspace runtime', () => {
     expect(controller.createWorktreeSession({ title: 'Task', prompt: 'Do it', projectId: project.id, projectRepoRoot: project.repoRoot, baseRef: 'main', idempotencyKey: 'create-1' })).rejects.toMatchObject({ state: 'unsupported' })
   })
 
-  it('creates a child worktree session from a registered project and server branch', async () => {
-    const request = vi.fn(async (method: string) => {
-      if (method === 'projects.list') return projectsFixture
-      if (method === 'worktrees.branches') return branchesFixture
-      if (method === 'sessions.create') return { ok: true, key: 'child-session', runStarted: true, runId: 'run-1', worktree: { id: 'wt-1', path: '/tmp/wt-1', branch: 'openclaw/agent-ui' } }
-      throw new Error(`unexpected ${method}`)
-    }) as OpenClawClientPort['request']
+  it('blocks Worktree creation and retry even when the Gateway supports them', async () => {
+    const request = vi.fn()
     const { controller } = runtimeWith(request)
-
-    await expect(controller.createWorktreeSession({ title: 'Agent UI', prompt: 'Implement the UI', projectId: project.id, projectRepoRoot: project.repoRoot, baseRef: 'main', worktreeName: 'agent-ui', idempotencyKey: 'create-2' })).resolves.toMatchObject({ sessionKey: 'child-session', runStarted: true })
-    expect(request).toHaveBeenLastCalledWith('sessions.create', expect.objectContaining({
-      task: 'Implement the UI', projectId: project.id, worktree: true, worktreeBaseRef: 'main', worktreeName: 'agent-ui',
-      parentSessionKey: 'parent-session', emitCommandHooks: true, succeedsParent: false,
-      idempotencyKey: 'create-2',
-    }))
-  })
-
-  it('rejects unregistered paths and base refs before sessions.create', async () => {
-    const request = vi.fn(async (method: string) => method === 'projects.list' ? projectsFixture : branchesFixture) as OpenClawClientPort['request']
-    const { controller } = runtimeWith(request)
-    await expect(controller.createWorktreeSession({ title: 'Task', prompt: 'Do it', projectId: project.id, projectRepoRoot: '/untrusted/path', baseRef: 'main', idempotencyKey: 'create-3' })).rejects.toMatchObject({ state: 'forbidden' })
-    await expect(controller.createWorktreeSession({ title: 'Task', prompt: 'Do it', projectId: project.id, projectRepoRoot: project.repoRoot, baseRef: 'unknown', idempotencyKey: 'create-4' })).rejects.toMatchObject({ state: 'forbidden' })
-    expect(request).not.toHaveBeenCalledWith('sessions.create', expect.anything())
-  })
-
-  it('preserves a created session when runStarted is false and retries inside it', async () => {
-    const requestMock = vi.fn(async (method: string) => {
-      if (method === 'projects.list') return projectsFixture
-      if (method === 'worktrees.branches') return branchesFixture
-      if (method === 'sessions.create') return { ok: true, key: 'child-session', runStarted: false, runError: { message: 'checkout failed' }, worktree: { id: 'wt-1', path: '/tmp/wt-1', branch: 'openclaw/retry' } }
-      if (method === 'sessions.send') return { runId: 'retry-run' }
-      throw new Error(`unexpected ${method}`)
-    })
-    const { controller } = runtimeWith(requestMock as OpenClawClientPort['request'])
-    const created = await controller.createWorktreeSession({ title: 'Retry', prompt: 'Keep this prompt', projectId: project.id, projectRepoRoot: project.repoRoot, baseRef: 'main', idempotencyKey: 'create-5' })
-    expect(created).toMatchObject({ sessionKey: 'child-session', runStarted: false, runError: 'Worktree 已创建，但 Gateway 未能启动任务。' })
-    await expect(controller.retryWorktreeRun(created.sessionKey, 'Keep this prompt', 'retry-1')).resolves.toEqual({ runId: 'retry-run' })
-    expect(requestMock).toHaveBeenLastCalledWith('sessions.send', expect.objectContaining({ key: 'child-session', message: 'Keep this prompt', idempotencyKey: 'retry-1' }))
-    expect(requestMock.mock.calls.filter(([method]) => method === 'sessions.create')).toHaveLength(1)
+    await expect(controller.createWorktreeSession({ title: 'Task', prompt: 'Do it', projectId: project.id, projectRepoRoot: project.repoRoot, baseRef: 'main', idempotencyKey: 'create-2' })).rejects.toMatchObject({ state: 'unsupported' })
+    await expect(controller.retryWorktreeRun('existing-child', 'Do it', 'retry-1')).rejects.toMatchObject({ state: 'unsupported' })
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('requires one explicit artifact provenance and routes only public workspace events', async () => {

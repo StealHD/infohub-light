@@ -22,6 +22,20 @@ function setup(initial: Partial<AgentContextDraftV6> = {}, overrides: Partial<Op
   return { chat, skillsStatus, input: screen.getByRole('textbox', { name: '发送给 OpenClaw 的问题' }) as HTMLTextAreaElement, user: userEvent.setup() }
 }
 describe('shared Composer shortcuts', () => {
+  it('shows readable actions and rejects the retired Worktree command locally', async () => {
+    const { input, user, chat } = setup()
+    await user.type(input, '/')
+    expect(await screen.findByRole('option', { name: /选择技能/ })).toBeVisible()
+    expect(screen.queryByRole('option', { name: /worktree/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /\/skills/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /\/help/ })).toBeVisible()
+    expect(screen.queryByText('快捷选择')).not.toBeInTheDocument()
+    expect(screen.getByRole('listbox')).toHaveAccessibleDescription('↑↓ 选择 · Enter 确认 · Esc 关闭')
+    await user.clear(input); await user.type(input, '/worktree'); await user.keyboard('{Escape}{Enter}')
+    expect(await screen.findByText('此工作区用于聊天与 Skill 调用，不提供 Worktree 任务。')).toBeVisible()
+    expect(chat.send).not.toHaveBeenCalled()
+    expect(chat.newConversation).not.toHaveBeenCalled()
+  })
   it('selects a Skill without sending and retains focus, then sends one explicit reference', async () => {
     const { chat, input, user, skillsStatus } = setup()
     expect(skillsStatus).not.toHaveBeenCalled()
@@ -44,6 +58,30 @@ describe('shared Composer shortcuts', () => {
     expect(input).toHaveValue('总结 「阅读材料」')
     expect(chat.send).not.toHaveBeenCalled()
     expect(screen.getByLabelText('已附带 1 条信息')).toBeInTheDocument()
+  })
+  it('groups Skills and attached materials only when both are present', async () => {
+    const { input, user, chat } = setup({ items: [{ articleId: 'one', title: '阅读材料', sourceName: '测试' }] })
+    await user.type(input, '总结 @')
+    await screen.findByRole('option', { name: /weather/u })
+    expect(screen.getByText('Skills', { selector: 'p' })).not.toHaveClass('sr-only')
+    expect(screen.getByText('已附带材料', { selector: 'p' })).not.toHaveClass('sr-only')
+    await user.keyboard('{Escape}')
+    expect(input).toHaveFocus()
+    expect(input).toHaveValue('总结 @')
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+  it('dismisses slash and at-sign suggestions when pressing outside', async () => {
+    const { input, user, chat } = setup()
+    await user.type(input, '/')
+    expect(await screen.findByRole('listbox', { name: 'Agent 快捷候选' })).toBeVisible()
+    await user.click(document.body)
+    expect(screen.queryByRole('listbox', { name: 'Agent 快捷候选' })).not.toBeInTheDocument()
+    expect(input).toHaveValue('/')
+    expect(chat.send).not.toHaveBeenCalled()
+    await user.click(input); await user.clear(input); await user.type(input, '@')
+    expect(await screen.findByRole('listbox', { name: 'Agent 快捷候选' })).toBeVisible()
+    await user.click(document.body)
+    expect(screen.queryByRole('listbox', { name: 'Agent 快捷候选' })).not.toBeInTheDocument()
   })
   it('does not intercept IME Enter, closes with Escape, preserves Tab, and sends unknown text ordinarily', async () => {
     const { input, user, chat } = setup()
@@ -82,11 +120,19 @@ describe('shared Composer shortcuts', () => {
     expect(await screen.findByRole('region', { name: '/help 命令结果' })).toHaveTextContent('快捷输入')
     expect(chat.newConversation).not.toHaveBeenCalled()
   })
+  it('dismisses a command panel when pressing outside without sending', async () => {
+    const { input, user, chat } = setup()
+    await user.type(input, '/help'); await user.keyboard('{Enter}')
+    expect(await screen.findByRole('region', { name: '/help 命令结果' })).toBeVisible()
+    await user.click(document.body)
+    expect(screen.queryByRole('region', { name: '/help 命令结果' })).not.toBeInTheDocument()
+    expect(chat.send).not.toHaveBeenCalled()
+  })
   it('reopens the same command after dismissing and retyping it', async () => {
     const { input, user } = setup()
     await user.type(input, '/status'); await user.keyboard('{Escape}')
     await user.clear(input); await user.type(input, '/status')
-    await expect(screen.findByRole('option', { name: /\/status/u })).resolves.toBeInTheDocument()
+    await expect(screen.findByRole('option', { name: /查看状态/u })).resolves.toBeInTheDocument()
     await user.keyboard('{Enter}')
     expect(await screen.findByRole('region', { name: '/status 命令结果' })).toHaveTextContent('当前对话状态')
   })
@@ -111,8 +157,8 @@ describe('shared Composer shortcuts', () => {
   })
 })
 
-describe('inline slash command results', () => {
-  it('outputs Skills in the timeline and leaves slash in command mode with the surrounding draft intact', async () => {
+describe('temporary slash command panels', () => {
+  it('opens Skills above the composer and leaves slash in command mode with the surrounding draft intact', async () => {
     const { input, user, chat } = setup({ question: '前文 /skills 后文' })
     input.focus(); input.setSelectionRange(10, 10); fireEvent.select(input)
     await user.keyboard('{Enter}')
@@ -122,7 +168,7 @@ describe('inline slash command results', () => {
     expect(input).toHaveFocus()
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     await user.keyboard('/')
-    expect(screen.getByRole('option', { name: /\/status/u })).toBeVisible()
+    expect(screen.getByRole('option', { name: /查看状态/u })).toBeVisible()
     expect(screen.queryByRole('option', { name: /weather/u })).not.toBeInTheDocument()
     expect(chat.send).not.toHaveBeenCalled()
   })
@@ -135,7 +181,7 @@ describe('inline slash command results', () => {
     await screen.findByRole('button', { name: '使用 weather' })
     await user.type(input, '/status'); await user.keyboard('{Enter}')
     expect(await screen.findByRole('region', { name: '/status 命令结果' })).toBeVisible()
-    expect(screen.getByRole('region', { name: '/skills 命令结果' })).toBeVisible()
+    expect(screen.queryByRole('region', { name: '/skills 命令结果' })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(chat.send).not.toHaveBeenCalled()
   })

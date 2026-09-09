@@ -58,3 +58,13 @@ PY
 吊销可在站内 DELETE 当前绑定，或运维执行 `revoke`。账号停用、delegation 过期/吊销/删除、scope 改变都会阻断新请求及晚到响应。修复时先 `retire` 吊销并移除 Service 绑定，再从 prepare 重建新身份；旧 Agent/session 目录由运维保留，不能复用给其他账号。旧会话仍按已有归属只读。已有其他 delegation 不被修改。
 
 Gateway 主机属于可信运维边界；部署后变更任何 Agent、工具或全局插件必须重新检查隔离。Service 的部署回执不代表运行中配置不会被主机管理员修改，也不代表聊天、提醒或通知已验收。
+
+## Codex 独立分析的模型目录超时（本地修复记录）
+
+2026-09-09 本机 `@openclaw/codex 2026.8.1` 的独立分析在调用模型前失败。实际异常是 `CodexAppServerLocalRequestCancellationError: model/list timed out`，外层包装为 `LLM_COMPLETION_FAILED`，Service 因此显示 `analysis_call_failed`。插件目录已可读取不代表新建独立执行客户端能在 5 秒内完成目录准备。
+
+已在实际加载的独立 Codex 插件包应用[版本限定补丁](patches/codex-2026.8.1-model-list-timeout.patch)：仅 `isolated completion` 的 `model/list` 等待上限改为 30 秒，其他 bounded turn 仍为 5 秒；等待继续受调用方总超时和 AbortSignal 限制，不新增重试或模型回退。未调整模型权限、工具隔离、通知和 Service API。
+
+维护时先确认运行进程加载的 `@openclaw/codex` 包路径及 package 版本，不能只修改 OpenClaw 安装目录中的同名内置文件。对目标包先执行补丁 dry-run，成功后应用并按现有服务管理方式重载；以实际加载源包含 `modelListTimeoutMs` 确认生效。回滚使用同一补丁的反向 dry-run/apply 后重载。插件升级或 generation 更换后必须重新核对，不自动向未知版本套用此补丁；本记录不代表 VPS 已部署。
+
+验证证据：修复前捕获到准备阶段 5 秒超时；修复后同一条规则、同一篇文章通过独立调用，14.7 秒返回 HTTP 200，实际模型为 `openai/gpt-5.6-terra`，结果 `matched`，单篇覆盖与原文引用通过 Service 的 `batches.validate`。受控检查覆盖慢目录、其他调用的原上限、总时限、30 秒上限及无自动重试。诊断没有写回历史失败记录，也未发送通知；页面再次提交被审批拦截，未宣称页面端到端测试通过。

@@ -46,6 +46,13 @@ export { DesignSystemProvider } from './DesignSystemProvider'
 export { FormSelect } from './FormSelect'
 export type { FormSelectOption } from './FormSelect'
 export { AgentWorkspaceLayout } from './AgentWorkspaceLayout'
+export { ResourceDetailsPanel } from './ResourceDetailsPanel'
+export {
+  RESOURCE_DETAILS_DEFAULT_WIDTH,
+  RESOURCE_DETAILS_MAX_WIDTH,
+  RESOURCE_DETAILS_MIN_WIDTH,
+  RESOURCE_LIST_MIN_WIDTH,
+} from './resourceDetailsPreference'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
 export { actionToast } from './actionToast'
 export { PAGE_HEADER_SIZE_PX } from './layoutMetrics'
@@ -112,4 +119,5 @@ export {
 export type { ThemeColorMode, ThemeName, ThemePreference } from './themePreference'
 export * as Icons from './icons'
 export { ComposerSuggestions } from './ComposerSuggestions'
+export { ComposerPanel } from './ComposerPanel'
 export type { ComposerSuggestion } from './ComposerSuggestions'

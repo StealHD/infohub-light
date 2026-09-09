@@ -2,8 +2,8 @@ import { projectSessionPage, sessionPageParams } from './openclawSessionDirector
 import { gatewaySupportsMethod, GatewayRequestError, type GatewayEvent } from '../openclawGateway'
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
 import type { OpenClawLifecycleRefs } from '../lifecycle/openclawLifecycleRefs'
-import { OPENCLAW_WORKSPACE_METHODS, OpenClawWorkspaceError, type OpenClawArtifactScope, type OpenClawTaskStatus, type OpenClawWorkspaceController, type OpenClawWorkspaceMethod, type OpenClawWorkspaceProject, type OpenClawWorktreeRequest } from './openclawWorkspaceContracts'
-import { projectArtifactDetail, projectArtifactDownload, projectArtifacts, projectSkillsStatus, projectTaskDetail, projectTaskPage, projectWorkspaceBranches, projectWorkspaceProjects, projectWorkspaceSessions, projectWorktreeResult } from './openclawWorkspaceProjection'
+import { OPENCLAW_WORKSPACE_METHODS, OpenClawWorkspaceError, type OpenClawArtifactScope, type OpenClawTaskStatus, type OpenClawWorkspaceController, type OpenClawWorkspaceMethod, type OpenClawWorkspaceProject } from './openclawWorkspaceContracts'
+import { projectArtifactDetail, projectArtifactDownload, projectArtifacts, projectSkillsStatus, projectTaskDetail, projectTaskPage, projectWorkspaceBranches, projectWorkspaceProjects, projectWorkspaceSessions } from './openclawWorkspaceProjection'
 
 function stateOf(error: unknown): OpenClawWorkspaceError['state'] { return error instanceof GatewayRequestError && (error.code === 'FORBIDDEN' || error.code === 'MISSING_SCOPE') ? 'forbidden' : 'failed' }
 function publicRequestMessage(state: OpenClawWorkspaceError['state']): string {
@@ -60,24 +60,11 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
       if (!trusted) throw new OpenClawWorkspaceError('forbidden', '所选项目不在 Gateway 注册项目中。')
       return projectWorkspaceBranches(await request('worktrees.branches', { repoRoot: trusted.repoRoot, includeRepositoryStatus: true }))
     },
-    async createWorktreeSession(input: OpenClawWorktreeRequest) {
-      const title = requireText(input.title, '任务标题'); const prompt = requireText(input.prompt, '完整提示词')
-      const operationClient = refs.connection.client; const operationGeneration = refs.connection.generation; const operationSession = refs.session.sessionKey
-      const operationCurrent = () => refs.connection.client === operationClient && refs.connection.generation === operationGeneration && refs.session.sessionKey === operationSession
-      const project = (await controller.listProjects()).find((candidate) => candidate.id === input.projectId && candidate.repoRoot === input.projectRepoRoot)
-      if (!operationCurrent()) throw new OpenClawWorkspaceError('unavailable', '当前 Session 已变化，请重新确认任务。')
-      if (!project) throw new OpenClawWorkspaceError('forbidden', '所选项目不在 Gateway 注册项目中。')
-      const baseRef = requireText(input.baseRef, '基础分支'); const branches = await controller.listBranches(project)
-      if (!operationCurrent()) throw new OpenClawWorkspaceError('unavailable', '当前 Session 已变化，请重新确认任务。')
-      if (!branches.branches.some((branch) => branch.name === baseRef)) throw new OpenClawWorkspaceError('forbidden', '基础分支必须来自 Gateway 返回的分支列表。')
-      const parentSessionKey = operationSession
-      if (!parentSessionKey) throw new OpenClawWorkspaceError('unavailable', '当前对话尚未建立。')
-      return projectWorktreeResult(await request('sessions.create', { agentId: refs.session.agentId ?? undefined, idempotencyKey: requireText(input.idempotencyKey, '幂等标识'), label: title, task: prompt, projectId: project.id, worktree: true, worktreeBaseRef: baseRef, ...(input.worktreeName?.trim() ? { worktreeName: input.worktreeName.trim() } : {}), parentSessionKey, emitCommandHooks: true, succeedsParent: false }))
+    async createWorktreeSession() {
+      throw new OpenClawWorkspaceError('unsupported', '此工作区不提供 Worktree 任务。')
     },
-    async retryWorktreeRun(sessionKey, prompt, idempotencyKey) {
-      const result = await request<Record<string, unknown>>('sessions.send', { key: requireText(sessionKey, 'Session'), agentId: refs.session.agentId ?? undefined, message: requireText(prompt, '完整提示词'), idempotencyKey: requireText(idempotencyKey, '幂等标识') })
-      if (typeof result.runId !== 'string' || !result.runId.trim()) throw new OpenClawWorkspaceError('failed', 'Gateway 未返回可信的 Run 回执。')
-      return { runId: result.runId.trim() }
+    async retryWorktreeRun() {
+      throw new OpenClawWorkspaceError('unsupported', '此工作区不提供 Worktree 任务。')
     },
     async listTasks(input = {}) { const params = { limit: 50, ...(input.status ? { status: input.status satisfies OpenClawTaskStatus } : {}), ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}), ...(input.cursor ? { cursor: input.cursor } : {}) }; return projectTaskPage(await request('tasks.list', params), input.sessionKey) },
     async getTask(taskId, sessionKey) { const id = requireText(taskId, 'Task'); const scope = requireText(sessionKey, 'Session'); return projectTaskDetail(await request('tasks.get', { taskId: id, sessionKey: scope }), id, scope) },

@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
-import { ComposerSuggestions, type ComposerSuggestion } from '../../../design-system'
+import { ComposerPanel, ComposerSuggestions, type ComposerSuggestion } from '../../../design-system'
 import type { OpenClawChatController } from '../openclawContracts'
 import { skillInvocationIssue } from '../chat/openclawSkillInvocation'
 import { composerCommands, findComposerTrigger, replaceComposerTrigger, type ComposerCommand } from './openclawShortcuts'
@@ -20,7 +20,7 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
   const needle = trigger?.query.toLocaleLowerCase() ?? ''
   const items: ComposerSuggestion[] = []
   if (trigger?.prefix === '/') for (const command of composerCommands) {
-    if (!`${command.title} ${command.description}`.toLocaleLowerCase().includes(needle)) continue
+    if (!`${command.id} ${command.title} ${command.description}`.toLocaleLowerCase().includes(needle)) continue
     items.push({ ...command, icon: ({ skills: 'Sparkles', new: 'Plus', model: 'Bot', reasoning: 'Brain', worktree: 'GitCompareArrows', status: 'Activity', help: 'BookOpen' } as const)[command.id], id: `command:${command.id}`, group: '命令' })
   }
   if (trigger?.prefix === '@') for (const skill of directory.items) {
@@ -53,7 +53,11 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
   function moveCaret(position: number) { setCaret(position) }
   function close() { setDismissed(signature) }
   function submitCommand() {
-    const command = composerCommands.find((item) => item.title === composer.question.trim())
+    if (composer.question.trim() === '/worktree') {
+      if (composer.command?.('worktree', '') === false) return true
+      composer.setQuestion(''); close(); restore(0); return true
+    }
+    const command = composerCommands.find((item) => `/${item.id}` === composer.question.trim())
     if (!command || !composer.command) return false
     if (!composer.command(command.id, '')) return true
     composer.setQuestion(''); close(); restore(0)
@@ -73,6 +77,7 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
     restore(next.caret)
   }
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!trigger && event.key === 'Escape' && composer.commandPanel) { event.preventDefault(); event.stopPropagation(); composer.closeCommand?.(); return true }
     if (!trigger) return false
     if (event.key === 'Tab') { close(); return false }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return true }
@@ -83,13 +88,13 @@ export function useComposerShortcuts(chat: OpenClawChatController, composer: Ope
       setActive(enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]?.id ?? '')
       return true
     }
-    if (event.key === 'Enter') { event.preventDefault(); if (activeId) choose(activeId); else close(); return true }
+    if (event.key === 'Enter') { event.preventDefault(); if (activeId) choose(activeId); else if (!submitCommand()) close(); return true }
     return false
   }
   return {
     setCaret: moveCaret, inputChanged: (position: number) => { moveCaret(position); setDismissed(''); setActive('') }, keyDown, issue, submitCommand,
-    hasExactCommand: composerCommands.some((command) => command.title === composer.question.trim()),
+    hasExactCommand: composer.question.trim() === '/worktree' || composerCommands.some((command) => `/${command.id}` === composer.question.trim()),
     aria: { 'aria-autocomplete': 'list' as const, 'aria-controls': trigger ? id : undefined, 'aria-activedescendant': trigger && activeIndex >= 0 ? `${id}-${activeIndex}` : undefined },
-    suggestions: trigger ? <ComposerSuggestions anchor={inputRef} id={id} items={items} activeId={activeId} loading={trigger.prefix === '@' && directory.loading} error={trigger.prefix === '@' ? directory.error : undefined} onChoose={choose} onHighlight={setActive} onClose={close} onRetry={directory.retry} /> : null,
+    suggestions: trigger ? <ComposerSuggestions anchor={inputRef} id={id} items={items} activeId={activeId} loading={trigger.prefix === '@' && directory.loading} error={trigger.prefix === '@' ? directory.error : undefined} onChoose={choose} onHighlight={setActive} onClose={close} onRetry={directory.retry} /> : composer.commandPanel ? <ComposerPanel anchor={inputRef} onClose={() => composer.closeCommand?.()}>{composer.commandPanel}</ComposerPanel> : null,
   }
 }

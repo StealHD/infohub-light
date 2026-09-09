@@ -7,6 +7,20 @@ function controller(overrides = {}) {
 }
 
 describe('workspace effort picker', () => {
+  it.each([
+    ['high', false, 'none'], ['ultra', false, 'ultra'], ['high', true, 'fast'], ['ultra', true, 'fast'],
+  ])('uses %s / Fast %s to select the %s decoration without writing settings', async (thinkingLevel, fastMode, effect) => {
+    const user = userEvent.setup()
+    const chat = controller({ thinkingOptions: [{ id: 'high', label: '高' }, { id: 'ultra', label: 'Ultra' }], runtimeSelection: { modelId: 'openai/gpt', thinkingLevel, fastMode } })
+    render(<OpenClawWorkspaceRuntimeControls chat={chat as never} />)
+    await user.click(screen.getByRole('button', { name: /OpenClaw 模型/u }))
+    const slider = screen.getByRole('slider').closest('.effort-slider')!
+    expect(slider).toHaveAttribute('data-effect', effect)
+    expect(slider.querySelectorAll('.effort-slider-sparks i')).toHaveLength(12)
+    expect(slider.querySelector('.effort-slider-sparks')).toHaveAttribute('aria-hidden', 'true')
+    expect(chat.setThinking).not.toHaveBeenCalled()
+    expect(chat.setFastMode).not.toHaveBeenCalled()
+  })
   it('resets through one pending operation and preserves the confirmed level on failure', async () => {
     const user = userEvent.setup()
     let finish!: (success: boolean) => void
@@ -36,6 +50,19 @@ describe('workspace effort picker', () => {
     await waitFor(() => expect(chat.setThinking).toHaveBeenCalledWith('low'))
     await user.keyboard('{Escape}')
     await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('uses a compact model back action and keeps the scrollable list scrollbar hidden', async () => {
+    const user = userEvent.setup()
+    render(<OpenClawWorkspaceRuntimeControls chat={controller() as never} />)
+    await user.click(screen.getByRole('button', { name: /OpenClaw 模型/u }))
+    await user.click(screen.getByRole('button', { name: /选择模型：/u }))
+    expect(screen.getByRole('button', { name: '返回思考程度' })).toBeVisible()
+    expect(screen.queryByText('思考程度', { selector: 'button' })).not.toBeInTheDocument()
+    const list = screen.getByRole('listbox', { name: 'OpenClaw 模型' })
+    expect(list).toHaveClass('effort-model-list')
+    await user.click(screen.getByRole('button', { name: '返回思考程度' }))
+    expect(screen.getByRole('slider', { name: '思考程度' })).toBeVisible()
   })
 
   it('explains unsupported reasoning without inventing available levels', async () => {

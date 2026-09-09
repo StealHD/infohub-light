@@ -101,11 +101,17 @@ def test_test_is_readonly_no_cursor_or_delivery_and_user_content_only(context):
         rules.test(bob['id'], draft['id'], 1, ['article'])
 
 
-def test_archived_rule_and_incomplete_draft_cannot_enable(context):
+def test_archived_rule_can_restore_to_unconfirmed_draft(context):
     _, rules, _, alice, _, _, _, _ = context
     draft = rules.save(alice['id'], RuleConfig(name='未完成草稿'))
     with pytest.raises(RuleError, match='补齐'):
         rules.transition(alice['id'], draft['id'], 1, 'enable')
-    rules.transition(alice['id'], draft['id'], 1, 'archive')
+    archived = rules.transition(alice['id'], draft['id'], 1, 'archive')
+    assert archived['state'] == 'archived'
     with pytest.raises(RuleError):
         rules.transition(alice['id'], draft['id'], 1, 'enable')
+    restored = rules.transition(alice['id'], draft['id'], 1, 'restore')
+    assert restored['state'] == 'draft'
+    assert restored['confirmed_at'] is None
+    with pytest.raises(RuleError, match='已归档'):
+        rules.transition(alice['id'], draft['id'], 1, 'restore')

@@ -18,7 +18,6 @@ import { WorkspaceAccountMenu } from '../workbench-live/WorkspaceAccountMenu'
 import { AgentSessionRow } from './AgentSessionRow'
 import { AgentSessionHistory } from './AgentSessionHistory'
 import { recentSessionRows, useAgentSessionDirectory } from './useAgentSessionDirectory'
-import { AgentWorktreeDialog } from './AgentWorktreeDialog'
 import type { AgentWorkspaceSessionState } from './useAgentWorkspaceSessions'
 
 const workspaceLinks = [
@@ -33,8 +32,6 @@ export function AgentWorkspaceSidebar({
   user,
   onNavigate,
   onLogout,
-  writeTrusted,
-  onRequireWriteTrust,
 }: {
   chat: OpenClawChatController
   sessions: AgentWorkspaceSessionState
@@ -45,16 +42,12 @@ export function AgentWorkspaceSidebar({
   onRequireWriteTrust: () => void
 }) {
   const navigate = useNavigate()
-  const [worktreeOpen, setWorktreeOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const opening = useRef(false)
   const directory = useAgentSessionDirectory(chat, user.id)
   const rows = recentSessionRows(directory.page?.sessions ?? [], sessions.current)
   const firstQuestion = chat.messages.find((message) => message.role === 'user')?.text
   const switchingDisabled = chat.isRunning || chat.runtimeUpdating
-  const canCreate = chat.status === 'connected'
-    && !switchingDisabled
-    && chat.workspace.capabilities()['sessions.create']
 
   async function openSession(session: OpenClawWorkspaceSession): Promise<boolean> {
     if (opening.current || chat.runtimeUpdating) return false
@@ -77,7 +70,7 @@ export function AgentWorkspaceSidebar({
     </div>
 
     <div className="quiet-scroll-region min-h-0 flex-1 overflow-y-auto px-3 py-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_40px] gap-2">
+      <div className="grid gap-2">
         <StableAsyncButton
           variant="secondary"
           pending={false}
@@ -88,13 +81,6 @@ export function AgentWorkspaceSidebar({
         >
           <Icons.Plus size={16} aria-hidden="true" />新对话
         </StableAsyncButton>
-        <Button
-          variant="secondary"
-          isIconOnly
-          aria-label="在新 Worktree 中执行"
-          isDisabled={!canCreate}
-          onPress={() => writeTrusted ? setWorktreeOpen(true) : onRequireWriteTrust()}
-        ><Icons.GitCompareArrows size={16} aria-hidden="true" /></Button>
       </div>
 
       <p className="type-label mt-5 px-2 pb-2 text-muted">会话</p>
@@ -131,11 +117,5 @@ export function AgentWorkspaceSidebar({
     </div>
     <AgentSessionHistory open={historyOpen} onOpenChange={setHistoryOpen} chat={chat} userId={user.id} onOpen={openSession} />
 
-    <AgentWorktreeDialog
-      open={worktreeOpen}
-      onOpenChange={setWorktreeOpen}
-      workspace={chat.workspace}
-      onCreated={() => { sessions.refresh(); directory.refresh() }}
-    />
   </div>
 }

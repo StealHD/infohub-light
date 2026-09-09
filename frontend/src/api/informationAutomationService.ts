@@ -61,7 +61,7 @@ export const informationAutomationApi = (client: ApiClient) => ({
   informationRule: (id: string, signal?: AbortSignal) => client.get<InformationRule>(path(id), signal),
   createInformationRule: (config: InformationRuleConfig) => client.post<InformationRule>(base, config),
   updateInformationRule: (id: string, version: number, config: InformationRuleConfig) => client.put<InformationRule>(path(id), { version, config }),
-  transitionInformationRule: (id: string, version: number, action: 'enable' | 'pause' | 'archive') => client.post<InformationRule>(`${path(id)}/transition`, { version, action }),
+  transitionInformationRule: (id: string, version: number, action: 'enable' | 'pause' | 'archive' | 'restore') => client.post<InformationRule>(`${path(id)}/transition`, { version, action }),
   testInformationRule: (id: string, version: number, article_ids: string[]) => client.post<InformationTest>(`${path(id)}/test`, { version, article_ids }),
   informationTestPreview: (id: string, previewId: string, signal?: AbortSignal) => client.get<InformationTest>(`${path(id)}/test/${encodeURIComponent(previewId)}`, signal),
   informationRuns: (id: string, offset = 0, signal?: AbortSignal) => client.get<InformationPage<InformationRun>>(`${path(id)}/runs?limit=50&offset=${offset}`, signal),

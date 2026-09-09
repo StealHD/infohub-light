@@ -1,13 +1,12 @@
 export type ComposerTrigger = { start: number; end: number; prefix: '@' | '/'; query: string }
 export type ComposerCommand = 'skills' | 'new' | 'model' | 'reasoning' | 'worktree' | 'status' | 'help'
 export const composerCommands: { id: ComposerCommand; title: string; description: string }[] = [
-  { id: 'skills', title: '/skills', description: '在对话中列出 Skills' },
-  { id: 'new', title: '/new', description: '确认新建对话，保留草稿' },
-  { id: 'model', title: '/model', description: '选择当前对话模型' },
-  { id: 'reasoning', title: '/reasoning', description: '选择推理档位' },
-  { id: 'worktree', title: '/worktree', description: '填写独立 Worktree 任务' },
-  { id: 'status', title: '/status', description: '查看连接、模型与运行状态' },
-  { id: 'help', title: '/help', description: '在对话中查看命令帮助' },
+  { id: 'skills', title: '选择技能', description: '查看和选择可用 Skills' },
+  { id: 'new', title: '新建对话', description: '开启新对话，保留草稿' },
+  { id: 'model', title: '选择模型', description: '切换当前对话模型' },
+  { id: 'reasoning', title: '推理强度', description: '调整思考深度' },
+  { id: 'status', title: '查看状态', description: '连接、模型与运行状态' },
+  { id: 'help', title: '帮助', description: '/help · 查看快捷操作说明' },
 ]
 export function findComposerTrigger(text: string, caret: number): ComposerTrigger | null {
   const prefix = text.slice(0, caret)
