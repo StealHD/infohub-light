@@ -347,6 +347,7 @@ def test_mapping_group_tests_reference_existing_files():
             "frontend/src/features/openclaw/ui/OpenClawComposer.tsx",
             {
                 "e2e/production-agent-workspace.spec.ts",
+                "e2e/production-agent-skill-access.spec.ts",
                 "e2e/production-agent-shortcuts.spec.ts",
                 "e2e/production-workbench.spec.ts",
                 "e2e/production-admin.spec.ts",

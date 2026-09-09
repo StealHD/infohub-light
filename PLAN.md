@@ -3,10 +3,10 @@
 
 ## 当前阶段与接续入口
 
-2026-09-08 当前任务：在本地 main 的独立 Worktree 实现 Automations 统一分析方案。分支为 `codex/automations-unified`，目录为同级 `infohub-light-automations-unified`，起点 `b6f42227`。
+2026-09-09 当前任务：在本地 main 的独立 Worktree 实现 Skills 管理员开放控制。分支为 `codex/skill-access-control`，目录为同级 `infohub-light-skill-access-control`，起点 `dac81e2c`；不带入主工作区未提交修改。
 
-- 实施范围：统一描述、四种触发、模型发现、持久化批次综合、UI 和 global 40 显式迁移工具；合同见[信息提醒](docs/contracts/api/information-automations.md)。
-- 用户明确不重建容器。本阶段只交付代码和受控验证，运行库迁移、真实模型／通知、提交合并及生产发布未执行。
+- 实施范围：全站统一空默认开放清单、Owner/Admin 管理目录、普通目录与调用过滤、Service 到个人 Agent 的版本化同步、UI 和 global 41 显式迁移工具；合同见 [Gateway](docs/contracts/api/openclaw-gateway.md) 与 [Agent UI](docs/contracts/ui/agent-workspace.md)。
+- 本阶段只交付独立 Worktree 的代码和受控验证，运行库迁移、容器重建、Gateway 真实写入、提交合并及生产发布未执行。
 - 前期 Agent 阶段 1–6 的本地实现已落地；原库 global 38/39、个人 Gateway 接入与真实验收的历史证据见 WORKLOG。阶段 4、5 的真实通知仍待验收，不能以本次受控测试替代。
 - 按 snapshot、定向测试、diff 审查、impacted preflight 和控制面校验收尾，追加一条任务记录。后续运行验收和发布另行安排。
 

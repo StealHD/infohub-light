@@ -34,7 +34,7 @@ const fallbackUser: User = {
 export function AgentWorkspacePage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const outlet = useOutletContext<{ user?: User; onLogout?: () => void } | null>()
+  const outlet = useOutletContext<{ api?: import('../../api/service').ServiceApi; user?: User; onLogout?: () => void } | null>()
   const user = outlet?.user ?? fallbackUser
   const chat = useOpenClawWorkspaceRuntime()
   const context = useWorkbenchAgentContext()
@@ -57,7 +57,7 @@ export function AgentWorkspacePage() {
   const content = location.pathname === '/agent/examples'
     ? <AgentExamplesView />
     : location.pathname === '/agent/skills'
-    ? <AgentSkillsView chat={chat} />
+    ? outlet?.api ? <AgentSkillsView chat={chat} api={outlet.api} user={user} /> : null
     : location.pathname === '/agent/automations'
       ? new URLSearchParams(location.search).get('advanced') === 'cron' ? <AgentAutomationsView chat={chat} /> : <Suspense fallback={<p role="status">正在加载提醒…</p>}><InformationAutomationsView key={user.id} canMutate={user.role !== 'viewer'} /></Suspense>
       : <AgentConversationView chat={chat} context={context} />

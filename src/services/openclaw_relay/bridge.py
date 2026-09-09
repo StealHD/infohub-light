@@ -40,7 +40,8 @@ def error_reply(request_id, message):
     return {'type': 'res', 'id': request_id, 'ok': False, 'error': {'code': 'RELAY_UNAVAILABLE', 'message': message}}
 
 
-async def browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly=False):
+async def browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly=False,
+                           chat_ready=lambda: True):
     arrivals = deque()
     while True:
         raw = await browser.receive_text()
@@ -60,6 +61,8 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         if not isinstance(params, dict) or len(pending) >= 32 or request_id in pending:
             raise RelayFailure('Invalid or excessive requests')
         try:
+            if method == 'chat.send' and not chat_ready():
+                raise PermissionError('Skill policy synchronization is pending')
             safe = request_params(method, params, owner, agent, readonly=readonly)
         except PermissionError:
             await browser.send_json(error_reply(request_id, '当前账号无权执行该操作或访问该会话。'))
@@ -68,7 +71,8 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         await upstream.send(json.dumps({'type': 'req', 'id': request_id, 'method': method, 'params': safe}))
 
 
-async def gateway_events(browser, upstream, owner, agent, pending, valid_session):
+async def gateway_events(browser, upstream, owner, agent, pending, valid_session,
+                         allowed_skill_keys=lambda: None):
     async for raw in upstream:
         if not valid_session():
             raise RelayFailure('Binding or session expired')
@@ -79,7 +83,10 @@ async def gateway_events(browser, upstream, owner, agent, pending, valid_session
                 continue
             method, params = entry
             if frame.get('ok'):
-                frame['payload'] = response_payload(method, frame.get('payload', {}), owner, agent, params)
+                frame['payload'] = response_payload(
+                    method, frame.get('payload', {}), owner, agent, params,
+                    allowed_skill_keys=allowed_skill_keys() if method == 'skills.status' else None,
+                )
             else:
                 frame = error_reply(frame.get('id'), 'OpenClaw 未能完成请求，请重试或联系管理员。')
             await browser.send_json(frame)
@@ -95,7 +102,8 @@ async def session_watch(valid_session):
             raise RelayFailure('InfoHub login expired')
 
 
-async def relay(browser, user_id, valid_session, agent, *, readonly=False):
+async def relay(browser, user_id, valid_session, agent, *, readonly=False,
+                allowed_skill_keys=lambda: None, chat_ready=lambda: True):
     url, token, root = settings()
     owner = Ownership(root, user_id)
     async with connect(url, proxy=None, open_timeout=15, ping_interval=20, ping_timeout=20,
@@ -115,8 +123,8 @@ async def relay(browser, user_id, valid_session, agent, *, readonly=False):
             'snapshot': {'sessionDefaults': {'defaultAgentId': agent}},
         }})
         pending = {}
-        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly)),
-                 asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending, valid_session)),
+        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly, chat_ready)),
+                 asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending, valid_session, allowed_skill_keys)),
                  asyncio.create_task(session_watch(valid_session))]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

@@ -10,6 +10,13 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-09', title: 'Skills 管理员开放范围',
+  summary: '共享 OpenClaw 由管理员统一开放 Skills，成员只看到获准且满足使用条件的项目。',
+  items: [
+    { title: '默认关闭与统一清单', description: '首次和新发现 Skill 默认不开放；Owner/Admin 搜索、筛选、勾选并确认后统一生效，普通用户无法读取完整目录。' },
+    { title: '同步失败安全恢复', description: '保存会校验版本并核对每个个人 Agent；失败保留待重试状态并暂停新聊天，已开始的对话和历史读取继续有效。' },
+  ],
+}, {
   date: '2026-09-08', title: '高级 Cron 兼容修复',
   summary: '完整保留长提示词，支持计划和运行记录分页，显式保留执行 Agent。',
   items: [{ title: '旧计划边界', description: '未绑定 Agent 的旧计划仍可查看、停用或删除；共享接入不开放 Gateway 管理授权。' }],

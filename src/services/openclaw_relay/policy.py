@@ -68,7 +68,8 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
     return result
 
 
-def response_payload(method: str, payload: dict, owner: Ownership, agent: str, params: dict | None = None) -> dict:
+def response_payload(method: str, payload: dict, owner: Ownership, agent: str, params: dict | None = None,
+                     allowed_skill_keys=None) -> dict:
     if method == 'sessions.create':
         key = payload.get('key')
         if not isinstance(key, str) or not key.startswith('agent:' + agent + ':'):
@@ -77,7 +78,7 @@ def response_payload(method: str, payload: dict, owner: Ownership, agent: str, p
     if method == 'sessions.list':
         return directory_payload(payload, owner, agent, params)
     if method == 'skills.status':
-        return skills_payload(payload)
+        return skills_payload(payload, allowed_skill_keys)
     if method == 'sessions.preview':
         return {'previews': [p for p in payload.get('previews', []) if owner.owns(p.get('key'))]}
     if method == 'agents.list':

@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from ...storage.agent_connection_schema import migration_marker_exists, schema_shapes_valid
 from .manifest import READ_TOOLS, canonical, validate_manifest, validate_receipt
+from ..agent_skill_access import AgentSkillAccess, AgentSkillPolicyError
 
 
 class BindingError(ValueError):
@@ -38,6 +39,9 @@ class AgentConnections:
     def status(self, user):
         row = self.row(user['id'])
         active = self.live(user) if row else None
+        skill_policy_ready = bool(active and AgentSkillAccess(self.store).chat_ready(
+            user['workspace_id'], active['binding_id']
+        ))
         state = ('migration_required' if not self.schema_ready() else 'unconfigured' if not row
                  else 'revoked' if row['state'] == 'revoked' else 'ready' if active
                  else 'pending_verification' if row['state'] == 'pending' else 'invalid')
@@ -46,7 +50,7 @@ class AgentConnections:
                 'verified_at': row['verified_at'] if row else None,
                 'verification': {'deployment': bool(active), 'chat': False, 'own_content': bool(active),
                                  'information_automations': False, 'notifications': False},
-                'can_connect': bool(active), 'can_chat': bool(active and user['role'] != 'viewer')}
+                'can_connect': bool(active), 'can_chat': bool(active and skill_policy_ready and user['role'] != 'viewer')}
 
     def prepare(self, user_id, mcp_url):
         if not self.schema_ready():
@@ -62,18 +66,26 @@ class AgentConnections:
             binding_id = uuid.uuid4().hex
             delegation, token = self.store.create_agent_delegation(
                 workspace_id=user['workspace_id'], user_id=user_id, name='Personal Agent ' + binding_id[:8])
+            try:
+                skill_policy = AgentSkillAccess(self.store).policy(user['workspace_id'])
+            except AgentSkillPolicyError as error:
+                raise BindingError('Run the explicit global 41 migration first') from error
             manifest = validate_manifest({
-                'version': 1, 'binding_id': binding_id, 'user_id': user_id, 'workspace_id': user['workspace_id'],
+                'version': 2, 'binding_id': binding_id, 'user_id': user_id, 'workspace_id': user['workspace_id'],
                 'agent_id': 'ih-' + binding_id, 'mcp_server': 'ih_' + binding_id[:24],
                 'secret_ref': 'INTELISCOPE_MCP_' + binding_id.upper(), 'mcp_url': mcp_url,
                 'delegation_id': delegation['id'], 'token_sha256': hashlib.sha256(token.encode()).hexdigest(),
                 'tools': list(READ_TOOLS),
+                'skills': list(skill_policy['allowed_skill_keys']),
             })
             self.secrets.set(manifest['secret_ref'], token)
             conn.execute('''INSERT INTO agent_connections VALUES(?,?,?,?,?,?,?,?, 'pending',NULL,?)''',
                          (user_id, user['workspace_id'], binding_id, manifest['agent_id'], manifest['mcp_server'],
                           manifest['secret_ref'], delegation['id'], canonical(manifest),
                           datetime.now(timezone.utc).isoformat()))
+            conn.execute('''INSERT INTO agent_skill_policy_syncs(binding_id,workspace_id,policy_revision,state,updated_at)
+                            VALUES(?,?,?,'pending',?)''',
+                         (binding_id, user['workspace_id'], skill_policy['revision'], datetime.now(timezone.utc).isoformat()))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -97,11 +109,22 @@ class AgentConnections:
         principal = self.store.get_active_agent_delegation_principal(manifest['delegation_id'])
         if not principal or principal['user_id'] != user_id or principal['scopes'] != ['inteliscope:read']:
             raise BindingError('Delegation invalid')
-        changed = self.store.connect().execute("UPDATE agent_connections SET state='active',verified_at=? WHERE user_id=? AND binding_id=? AND state!='revoked'",
-                                     (proof['verified_at'], user_id, manifest['binding_id'])).rowcount
-        self.store.connect().commit()
-        if changed != 1:
-            raise BindingError('Binding changed or was revoked during activation')
+        connection = self.store.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE agent_connections SET state='active',verified_at=? WHERE user_id=? AND binding_id=? AND state!='revoked'",
+                (proof['verified_at'], user_id, manifest['binding_id']),
+            ).rowcount
+            if changed != 1:
+                raise BindingError('Binding changed or was revoked during activation')
+            AgentSkillAccess(self.store).mark_binding_synced(
+                manifest['workspace_id'], manifest['binding_id'], manifest.get('skills', []), commit=False
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
     def revoke(self, user_id):
         row = self.row(user_id)

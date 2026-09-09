@@ -51,7 +51,7 @@ export async function installGatewayFixture(page: Page, directory = false) {
           'skills.update', 'cron.list', 'cron.get', 'cron.status', 'cron.add', 'cron.update', 'cron.run', 'cron.runs', 'cron.remove',
         ]
         let payload: unknown = { ok: true }
-        if (frame.method === 'connect') payload = { protocol: 4, auth: { role: 'operator', scopes: frame.params.scopes, deviceToken: 'fixture-device-token' }, snapshot: { sessionDefaults: { defaultAgentId: 'main' } }, features: { methods } }
+        if (frame.method === 'connect') payload = { protocol: 4, auth: { role: 'operator', scopes: frame.params.scopes ?? ['operator.read', 'operator.write'], deviceToken: 'fixture-device-token' }, snapshot: { sessionDefaults: { defaultAgentId: 'main' } }, features: { methods } }
         else if (frame.method === 'sessions.create') {
           if (frame.params.worktree) createdWorktree = true
           payload = frame.params.worktree ? { ok: true, key: 'child', runStarted: true, runId: 'run-1', worktree: { id: 'wt-1', path: '/tmp/wt-1', branch: 'openclaw/ui' } } : { key: 'root' }
@@ -77,7 +77,16 @@ export async function installGatewayFixture(page: Page, directory = false) {
         else if (frame.method === 'tasks.cancel') { taskCancelled = true; payload = { found: true, cancelled: true } }
         else if (frame.method === 'artifacts.list') payload = { artifacts: [{ id: 'artifact-1', title: 'result.md', type: 'text', mimeType: 'text/markdown', sizeBytes: 14, sessionKey: String(frame.params.sessionKey), download: { mode: 'bytes' } }] }
         else if (frame.method === 'artifacts.get' || frame.method === 'artifacts.download') payload = { artifact: { id: 'artifact-1', title: 'result.md', type: 'text', mimeType: 'text/markdown', sizeBytes: 14, sessionKey: frame.params.sessionKey, download: { mode: 'bytes' } }, encoding: 'base64', data: btoa('Example report') }
-        else if (frame.method === 'skills.status') payload = { skills: [{ skillKey: 'report', name: '阅读报告', description: '把文章整理成阅读报告', disabled: !skillEnabled, eligible: skillEnabled, missing: { bins: [], env: [] }, install: [] }] }
+        else if (frame.method === 'skills.status') {
+          const managedAllowed = (window as unknown as { __managedAllowedSkills?: string[] }).__managedAllowedSkills
+          const managedCatalog = [
+            { skillKey: 'report', name: '阅读报告', description: '把文章整理成阅读报告', disabled: false, eligible: true, missing: { bins: [], env: [] }, install: [] },
+            { skillKey: 'pdf', name: 'PDF 提取', description: '提取 PDF 内容', disabled: false, eligible: false, missing: { bins: ['pdftotext'], env: [] }, install: [] },
+          ]
+          payload = { skills: managedAllowed === undefined
+            ? [{ ...managedCatalog[0], disabled: !skillEnabled, eligible: skillEnabled }]
+            : managedCatalog.filter((skill) => managedAllowed.includes(skill.skillKey)) }
+        }
         else if (frame.method === 'skills.update') { skillEnabled = frame.params.enabled === true; payload = { ok: true } }
         else if (frame.method === 'cron.list') payload = { jobs: [automation] }
         else if (frame.method === 'cron.status') payload = { enabled: true }

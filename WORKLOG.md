@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-09-07",
-  "result": "按用户授权新增同源服务端 OpenClaw 连接；管理员登录鉴权、部署设备签名、会话归属与 RPC 白名单，浏览器不再需要 Gateway Token。已合入 2.6.9 主线，准备 2.6.10 发布。",
-  "status": "partial",
-  "task_id": "openclaw-server-relay-20260907",
-  "unresolved": [
-    "精确 main CI 与东京切换待发布流程完成；三处版本及上线结果另存部署验收单，避免证据更新改变已发布源码提交"
-  ],
-  "validation": [
-    "后端全量测试通过，SQLite ResourceWarning 为零；最新 13 项 relay 鉴权/隔离测试复验通过",
-    "前端全量 872 项通过；构建体积失败已修复，生产构建、类型、UI 合同与 Gateway 握手定向复验通过",
-    "受控浏览器自动连接通过，1440/1024/390 宽度无 Token 表单及横向溢出",
-    "真实 OpenClaw 会话、模型、历史读取通过；Gemini 经代理真实返回 OK；东京服务设备已按 read/write 最小范围批准"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-09-07",
   "result": "修复服务端 OpenClaw 中转漏放行 chat.history.maxChars 导致网页认证后断开的缺陷，保留会话归属和未知参数拒绝；准备 v2.6.11。",
@@ -414,6 +391,32 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并后 automations-local-main-merge impacted preflight 16/16 通过，包含后端/前端全量测试、lint、类型及构建检查。",
     "Markdown、控制面结构、工作记录与 diff 校验通过；本地 main 工作区干净，原主目录其他未提交工作未触碰。",
     "仅合并本地代码，不推送远端、不重建容器、不迁移运行库；运行凭据和 data/openclaw-relay 未纳入提交。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "observability",
+    "phase",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-09",
+  "result": "在 codex/skill-access-control 实现共享服务端 Skills 全站统一开放清单：global 41 空默认策略、Owner/Admin 目录与 revision CAS、独立 Gateway 管理连接、绑定/聊天/目录强制校验，以及成员只读页面与三视口管理流程。",
+  "status": "partial",
+  "task_id": "2026-09-09-skill-access-control",
+  "unresolved": [
+    "两次允许的 impacted preflight 分别在冻结文件增量和新增写接口观测映射处提前停止；两项均已修复并精确复验，门禁计划其余命令已逐项通过，但按完整门禁重跑上限未生成一份最终绿色 preflight 结果。"
+  ],
+  "validation": [
+    "后端定向 45 项通过；全量 Pytest 首轮执行至 91% 后发现并修正 impact-map 期望，随后失败文件 62 项及其后 159 项全部通过，覆盖完整测试集合。",
+    "前端 Vitest 136 文件/891 项、Playwright Skills 管理三视口 6 项、lint、类型、UI/E2E 合同和生产构建均通过；代码大小、观测合同、Markdown、JSON、控制面结构与 diff 检查通过。",
+    "实现基于 dac81e2c 的独立 worktree；未迁移真实数据库、重建容器、写入真实 Gateway、提交或发布。"
   ]
 }
 ```

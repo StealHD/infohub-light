@@ -14,7 +14,16 @@
 
 - Relay hello 只声明上游也声明的 `sessions.preview/list` 与 `skills.status`，不伪造能力。`sessions.list` 强制当前独占 `ih-<32 hex>` Agent，允许 limit 1–100、非负 offset、至多 512 字符 search、archived false/true/all 和 updatedAt 排序；拒绝浏览器 owner/其他 Agent 参数。
 - 当前个人 Agent 下的返回 key 经前缀检查后登记本人归属，冲突失败关闭；其他 Agent 返回导致请求失败，不泄露目录。只投影公开会话元数据及 totalCount/hasMore/nextOffset，不返回存储路径。旧 Agent 仅允许精确已归属 key 的查询和历史读取，不批量认领共享 main。
-- `skills.status` 强制当前 Agent，可选 sessionKey 必须归属本人且属于当前 Agent；仅投影公开 Skill 状态，不返回路径、令牌或环境变量值。共享服务端模式禁用上传、安装和修改 Skills。
+- `skills.status` 强制当前 Agent，可选 sessionKey 必须归属本人且属于当前 Agent；仅投影工作区已开放 Skill 的公开状态，不返回完整目录、未开放数量、路径、令牌、环境变量值或内部配置。共享服务端模式禁用浏览器直接上传、安装和修改 Skills。
+
+### Skills 管理员开放范围（global 41）
+
+- `workspace_agent_skill_policies` 为工作区统一清单真源，保存单调 `revision`、排序后的 `allowed_skill_keys`、`pending|synced|failed` 同步状态和安全错误码；`agent_skill_policy_syncs` 保存每个个人绑定已核验的策略版本。global 41 显式迁移为每个工作区建立 revision 1 的空清单，首次及以后新发现 Skill 均不自动开放。
+- `GET /api/admin/agent-skills` 只允许实时 Owner/Admin，返回完整安全目录以及 `revision`、开放清单、同步状态和公开布尔 `sync_in_progress`；内部 attempt ID 不下发。`PUT /api/admin/agent-skills/policy` 只接受 `expected_revision` 与最多 256 个唯一安全 `allowed_skill_keys`，拒绝当前安全目录以外的键，避免伪造请求预先开放以后新发现的 Skill。版本不一致或已有同步进行中返回 `agent_skill_policy_conflict`，浏览器必须刷新后重新确认，不能覆盖另一位管理员的修改。Member/Viewer 不得读取管理目录、未开放项数量或修改策略。
+- 保存先在 Service DB 持久化待同步版本并暂停该工作区所有个人绑定的新 `chat.send`，再使用独立服务端设备请求且只请求 `operator.admin`，对绑定 Agent 的 `agents.entries.<id>.skills` 做 `config.get → config.patch(baseHash, replacePaths) → config.get` 精确读回核验。凭据只从 SecretStore 的 `HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN` 取得；浏览器不能提交或读取 Token、Gateway 配置、绑定明细或管理回执。同步只替换受管个人 Agent 的 `skills` 字段。
+- 全部活跃绑定核验一致后状态变为 `synced` 并恢复新聊天；失败保留同一 revision 和清单为 `failed`，返回可重试错误，不能显示保存成功或回退为全部开放。历史读取、停止操作和同步前已经开始的 run 继续有效；每次新调用及发送前按当前版本复验，旧草稿、旧页面或伪造请求不能调用已收回 Skill。
+- 新绑定 manifest 携带当前清单并在部署配置中写入该个人 Agent；激活回执同时把该绑定标为当前版本已同步，未完成这一步不能开始首个聊天。普通目录、详情、`@` 和 `/skills` 缓存按用户、绑定与策略版本隔离，版本变化使旧结果失效。
+- “已开放”与“可使用”分开判断。清单内 Skill 若被停用、缺依赖、受 OS、配置、工具或 Agent 条件限制，仍可显示具体公开条件，但不能选择或调用。开放不会安装依赖、写环境变量或扩大工具权限。浏览器直连个人 Gateway 继续使用其原生管理机制，不读取 Service 的工作区策略。
 
 ### 个人绑定 API 与存储（global 37）
 

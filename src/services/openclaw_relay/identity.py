@@ -25,15 +25,16 @@ def load_key(path: Path) -> Ed25519PrivateKey:
     return key
 
 
-def connect_params(path: Path, token: str, nonce: str) -> dict:
+def connect_params(path: Path, token: str, nonce: str, *, scopes: list[str] | None = None) -> dict:
+    requested_scopes = scopes or SCOPES
     key = load_key(path)
     public = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     device_id = hashlib.sha256(public).hexdigest()
     now = int(time.time() * 1000)
-    payload = '|'.join(['v3', device_id, 'gateway-client', 'backend', 'operator', ','.join(SCOPES), str(now), token, nonce, 'linux', 'server'])
+    payload = '|'.join(['v3', device_id, 'gateway-client', 'backend', 'operator', ','.join(requested_scopes), str(now), token, nonce, 'linux', 'server'])
     return {
         'minProtocol': 4, 'maxProtocol': 4,
         'client': {'id': 'gateway-client', 'version': 'infohub-relay-1', 'platform': 'linux', 'deviceFamily': 'server', 'mode': 'backend'},
-        'role': 'operator', 'scopes': SCOPES, 'caps': ['tool-events'], 'auth': {'token': token},
+        'role': 'operator', 'scopes': requested_scopes, 'caps': ['tool-events'], 'auth': {'token': token},
         'device': {'id': device_id, 'publicKey': b64(public), 'signature': b64(key.sign(payload.encode())), 'signedAt': now, 'nonce': nonce},
     }

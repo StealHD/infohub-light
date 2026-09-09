@@ -7,6 +7,8 @@
 
 `src/services/agent_connections/` 管个人身份、SecretStore 引用、部署 manifest/回执与纯配置编译；`src/storage/agent_connection_schema.py` 管 global 37。API 只提供当前账号查询/吊销，relay 从登录身份查绑定。`scripts/manage_agent_connection.py` 只在 Service 主机准备/导出/激活；`scripts/provision_openclaw_agent.py` 只在 Gateway 主机安装/验证，不启动模型或重启服务。现有首库 bootstrap 链在全新库安装空表，旧库仅由显式迁移脚本安装。
 
+`src/services/agent_skill_access.py` 独占工作区 Skill 策略、revision CAS、绑定同步状态和聊天就绪判断；`src/storage/agent_skill_policy_schema.py` 独占 global 41。`src/api/agent_skill_routes.py` 只做 Owner/Admin 鉴权、公开投影与同步编排。`src/services/agent_skill_gateway.py` 是唯一可读取完整目录并修改受管 Agent `skills` 字段的服务端管理连接，凭据只来自 SecretStore，固定 exact `operator.admin`，不得导入浏览器 admin controller。`src/services/openclaw_relay/` 只消费当前允许键与聊天就绪布尔值，不能读取管理目录或修改策略。
+
 可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的工具 allowlist 只含自己的 13 个只读 MCP 工具；其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。禁止 host/filesystem、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
 
 ## 1. 适用范围
@@ -62,11 +64,16 @@ Gateway hello.features.methods
 Temporary operator.admin device
   → admin/ fixed Skill + Cron allowlist
   → Skills / Automations confirmation UI
+
+Service Skill admin credential
+  → agent_skill_gateway exact config synchronization
+  → agent_skill_access revision/readiness
+  → relay filtered skills.status + chat.send gate
 ```
 
 Event Router 必须先校验当前 connection generation，再对 session 事件执行 exact session 校验，对 chat/run 事件继续执行 exact run 校验。生命周期子 Controller 不互相导入，也不分别消费同一个原始 Gateway event。OpenClaw core 不导入 `workbench-live`；只有 `adapters/` 可导入 Workbench Context。UI 不直接访问 Gateway Client、原始 frame、IndexedDB、`sessionStorage` 或 `localStorage`。
 
-`frontend/src/features/workbench-live/LazyOpenClawConversation.tsx` 只延迟加载 Adapter；`HeroWorkbenchShell.tsx` 只持有显式 Controller 类型并完成组件接线。它在 Feed 类路由与 `/agent/**` 之间保持同一个普通 Hook、session、run、transcript 和 draft，完整工作台不得自行创建第二个普通 client。Handoff 的 V8–V3/legacy 显示协议归 `chat/openclawHandoffProtocol.ts`，Workbench `agentContext.ts` 只保留兼容委托与自身 Context 状态。Admin controller 是唯一第二 WebSocket 例外：生命周期短、内存-only、无重连、无 chat event route，且不能读取 transcript 或普通 client。
+`frontend/src/features/workbench-live/LazyOpenClawConversation.tsx` 只延迟加载 Adapter；`HeroWorkbenchShell.tsx` 只持有显式 Controller 类型并完成组件接线。它在 Feed 类路由与 `/agent/**` 之间保持同一个普通 Hook、session、run、transcript 和 draft，完整工作台不得自行创建第二个普通 client。Handoff 的 V8–V3/legacy 显示协议归 `chat/openclawHandoffProtocol.ts`，Workbench `agentContext.ts` 只保留兼容委托与自身 Context 状态。浏览器直连的 Admin controller 是该模式唯一第二 WebSocket 例外：生命周期短、内存-only、无重连、无 chat event route，且不能读取 transcript 或普通 client。共享服务端模式另由后端 `agent_skill_gateway` 建立一次性管理连接；两者不共享凭据、状态或代码路径。
 
 ## 4. Remote MCP 所有权
 

@@ -67,6 +67,7 @@ export type OpenClawSkillsStatus = { skills: OpenClawSkill[]; uploadedArchivesAl
 
 export interface OpenClawWorkspaceController {
   skillScope?(): { agentId: string; generation: number } | null
+  invalidateSkills?(): void
   capabilities(): OpenClawWorkspaceCapabilityMap
   subscribe(listener: (eventName: string) => void): () => void
   listSessions(): Promise<OpenClawWorkspaceSession[]>

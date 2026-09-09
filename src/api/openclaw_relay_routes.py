@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, WebSocket
 from ..auth import COOKIE_NAME
 from ..services.agent_connections.service import AgentConnections
+from ..services.agent_skill_access import AgentSkillAccess, AgentSkillPolicyError
 from ..services.openclaw_relay.bridge import RelayFailure, relay
 from ..services.openclaw_relay.settings import RELAY_PATH, enabled
 
@@ -30,6 +31,14 @@ async def openclaw_socket(socket: WebSocket):
         await socket.close(code=1008)
         return
     owner = str(user['workspace_id']) + ':' + str(user['id'])
+    skill_access = AgentSkillAccess(context.store)
+    def allowed_skill_keys():
+        try:
+            return set(skill_access.policy(str(user['workspace_id']))['allowed_skill_keys'])
+        except AgentSkillPolicyError:
+            return set()
+    def skill_policy_ready():
+        return skill_access.chat_ready(str(user['workspace_id']), str(binding['binding_id']))
     if _connections[owner] >= 3:
         await socket.close(code=1013)
         return
@@ -42,7 +51,10 @@ async def openclaw_socket(socket: WebSocket):
     _connections[owner] += 1
     try:
         await socket.accept()
-        await asyncio.wait_for(relay(socket, owner, valid_session, binding['agent_id'], readonly=user['role'] == 'viewer'), 3600)
+        await asyncio.wait_for(relay(
+            socket, owner, valid_session, binding['agent_id'], readonly=user['role'] == 'viewer',
+            allowed_skill_keys=allowed_skill_keys, chat_ready=skill_policy_ready,
+        ), 3600)
     except Exception as exc:
         logging.getLogger(__name__).warning("OpenClaw relay closed: %s", str(exc) if isinstance(exc, RelayFailure) else type(exc).__name__)
         # Never log raw upstream frames, URLs, tokens, or provider error bodies.

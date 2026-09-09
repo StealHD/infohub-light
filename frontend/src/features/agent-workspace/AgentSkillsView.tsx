@@ -14,11 +14,14 @@ import {
   TextField,
   actionToast,
 } from '../../design-system'
+import type { ServiceApi } from '../../api/service'
+import type { User } from '../../api/types'
 import { isManagedGateway } from '../openclaw/gateway/openclawManaged'
 import type { OpenClawChatController, OpenClawSkillsStatus } from '../openclaw'
 import { AdminAuthorizationDialog, AdminConnectedNotice } from './OpenClawAdminAuthorization'
 import { useOpenClawAdminSession } from './useOpenClawAdminSession'
 import { AgentSkillsStatusPanel } from './AgentSkillsStatusPanel'
+import { AgentSkillPolicyDialog } from './AgentSkillPolicyDialog'
 
 type SkillConfirmation = { kind: 'toggle'; skillKey: string; enabled: boolean } | { kind: 'upload' }
 
@@ -139,8 +142,19 @@ function useSkillsStatus(chat: OpenClawChatController) {
   return { status, loading, error, setError, refresh }
 }
 
-export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
-  const readOnly = isManagedGateway(chat.gatewayUrl)
+function ManagedSkillPolicyDialog({ open, api, chat, onOpenChange, onSaved }: {
+  open: boolean; api: ServiceApi; chat: OpenClawChatController
+  onOpenChange: (open: boolean) => void; onSaved: () => void
+}) {
+  return <AgentSkillPolicyDialog open={open} api={api} onOpenChange={onOpenChange} onSaved={() => {
+    chat.workspace.invalidateSkills?.()
+    onSaved()
+  }} />
+}
+
+export function AgentSkillsView({ chat, api, user }: { chat: OpenClawChatController; api: ServiceApi; user: User }) {
+  const managed = isManagedGateway(chat.gatewayUrl)
+  const canAdminister = user.role === 'owner' || user.role === 'admin'
   const authorization = useOpenClawAdminSession(chat.gatewayUrl)
   const fileInput = useRef<HTMLInputElement>(null)
   const { status, loading, error, setError, refresh } = useSkillsStatus(chat)
@@ -152,7 +166,7 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
   const [authorizationOpen, setAuthorizationOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [confirming, setConfirming] = useState<SkillConfirmation | null>(null)
-
+  const [policyOpen, setPolicyOpen] = useState(false)
   function requestUpload() {
     if (!authorization.admin) {
       setAuthorizationOpen(true)
@@ -160,12 +174,10 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
     }
     setUploadOpen(true)
   }
-
   async function toggleSkill(skillKey: string, enabled: boolean) {
     if (!authorization.admin) { setAuthorizationOpen(true); return }
     setConfirming({ kind: 'toggle', skillKey, enabled })
   }
-
   async function executeToggle(skillKey: string, enabled: boolean) {
     if (!authorization.admin) return
     setBusy(skillKey)
@@ -181,7 +193,6 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
       setBusy('')
     }
   }
-
   async function upload() {
     if (!authorization.admin || !file || !status) return
     setBusy('upload')
@@ -209,7 +220,6 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
       setBusy('')
     }
   }
-
   function requestUploadConfirmation() {
     if (authorization.admin && file && status) setConfirming({ kind: 'upload' })
   }
@@ -222,28 +232,35 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
 
   const connected = chat.status === 'connected'
   const unsupported = connected && !chat.workspace.capabilities()['skills.status']
-
   return <div className="quiet-scroll-region h-full overflow-y-auto p-4 min-[768px]:p-6" data-agent-skills-view data-page-scroll-region>
     <div className="mx-auto grid max-w-5xl gap-4">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="type-section-title">Skills</h2>
-          <p className="type-body mt-1 text-muted">查看 Agent 能做什么、哪些 Skill 可使用，以及还缺少什么条件。查看列表和详情无需管理授权。</p>
+          <p className="type-body mt-1 text-muted">{managed ? '查看管理员已开放的 Skill、当前可用状态和缺少的条件。' : '查看 Agent 能做什么、哪些 Skill 可使用，以及还缺少什么条件。'}</p>
         </div>
-        {!readOnly && (authorization.admin
+        {managed && canAdminister && <Button onPress={() => setPolicyOpen(true)}><Icons.Settings size={16} aria-hidden="true" />管理开放范围</Button>}
+        {!managed && (authorization.admin
           ? status?.uploadedArchivesAllowed && <Button onPress={requestUpload}><Icons.Archive size={16} aria-hidden="true" />上传 ZIP</Button>
           : <Button isDisabled={!connected || unsupported} onPress={() => setAuthorizationOpen(true)}><Icons.LockKeyhole size={16} aria-hidden="true" />临时授权</Button>)}
         <RefreshButton variant="ghost" label="刷新 Skills" isDisabled={!connected || unsupported} pending={loading} onPress={refresh} />
       </div>
 
-      {readOnly && <StatusNotice title="个人接入 · 只读" status="default">此处查看当前 Agent 的 Skills；安装与启停由管理员配置。</StatusNotice>}
+      {managed && <StatusNotice title="管理员统一开放" status="default">列表只显示管理员已开放的 Skills；开放不代表依赖条件已经满足。</StatusNotice>}
       {authorization.admin && <AdminConnectedNotice onClose={authorization.close} />}
       {authorization.state === 'expired' && <StatusNotice title="临时管理连接已过期" status="warning">请在需要写操作时重新授权。</StatusNotice>}
       {!connected ? <StatusNotice title="连接 Gateway 后查看 Skills" status="default" />
         : unsupported ? <StatusNotice title="当前 Gateway 不支持 Skills 状态" status="warning" />
         : loading && !status ? <LoadingState label="正在读取 Skills" rows={3} />
-          : status ? <AgentSkillsStatusPanel readOnly={readOnly} status={status} busy={busy} canUpdate={!readOnly && connected && (!authorization.admin || authorization.admin.capabilities()['skills.update'])} onToggle={(key, enabled) => void toggleSkill(key, enabled)} /> : null}
-      {status && !status.uploadedArchivesAllowed && <p className="type-meta text-muted">当前 Gateway 未提供 ZIP 上传许可；已安装的 Skills 仍可查看和使用。</p>}
+          : status ? <AgentSkillsStatusPanel
+            readOnly={managed} status={status} busy={busy}
+            title={managed ? '已开放 Skills' : '已发现 Skills'}
+            emptyTitle={managed ? '管理员尚未开放 Skills' : '没有 Skills'}
+            emptyDescription={managed ? '管理员开放后，这里才会显示可查看和使用的 Skill。' : undefined}
+            canUpdate={!managed && connected && (!authorization.admin || authorization.admin.capabilities()['skills.update'])}
+            onToggle={(key, enabled) => void toggleSkill(key, enabled)}
+          /> : null}
+      {!managed && status && !status.uploadedArchivesAllowed && <p className="type-meta text-muted">当前 Gateway 未提供 ZIP 上传许可；已安装的 Skills 仍可查看和使用。</p>}
       {error && <StatusNotice title="Skills 操作失败" status="danger">{error}</StatusNotice>}
     </div>
 
@@ -281,5 +298,6 @@ export function AgentSkillsView({ chat }: { chat: OpenClawChatController }) {
       error={authorization.error}
       onConnect={authorization.connect}
     />
+    {managed && canAdminister && <ManagedSkillPolicyDialog open={policyOpen} api={api} chat={chat} onOpenChange={setPolicyOpen} onSaved={refresh} />}
   </div>
 }

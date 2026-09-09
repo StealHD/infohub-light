@@ -22,20 +22,27 @@ def digest(value):
 
 
 def validate_manifest(manifest):
-    if not isinstance(manifest, dict) or set(manifest) != {
+    base_fields = {
         'version', 'binding_id', 'user_id', 'workspace_id', 'agent_id', 'mcp_server',
         'secret_ref', 'mcp_url', 'delegation_id', 'token_sha256', 'tools',
-    }:
+    }
+    if not isinstance(manifest, dict) or set(manifest) not in {frozenset(base_fields), frozenset(base_fields | {'skills'})}:
         raise ValueError('Invalid binding manifest')
     identifier = manifest['binding_id']
     if not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9]{32}', identifier):
         raise ValueError('Invalid binding identity')
-    if (manifest['version'] != 1 or manifest['agent_id'] != 'ih-' + identifier
+    if (manifest['version'] not in {1, 2} or manifest['agent_id'] != 'ih-' + identifier
             or manifest['mcp_server'] != 'ih_' + identifier[:24]
             or manifest['secret_ref'] != 'INTELISCOPE_MCP_' + identifier.upper()
             or manifest['tools'] != list(READ_TOOLS)
             or not re.fullmatch(r'[a-f0-9]{64}', str(manifest['token_sha256']))):
         raise ValueError('Invalid binding policy')
+    skills = manifest.get('skills')
+    if ((manifest['version'] == 1) != (skills is None)
+            or skills is not None and (not isinstance(skills, list) or len(skills) > 256
+            or any(not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', key) for key in skills)
+            or len(set(skills)) != len(skills))):
+        raise ValueError('Invalid binding Skill policy')
     url = urlsplit(manifest['mcp_url'])
     if (not url.hostname or url.username or url.password or url.query or url.fragment
             or not (url.scheme == 'https' or url.scheme == 'http' and url.hostname in {'127.0.0.1', 'localhost', '::1'})

@@ -194,11 +194,11 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '管理 Skills 与 Automations',
-        description: 'Skills 只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传，大小不超过 Gateway 上限与 20 MiB 中的较小值；页面只显示缺失环境变量名称，不读取值。Automations 只支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，新建默认停用并明确绑定当前 Agent，修改保留原 Agent 和完整提示词；列表与记录支持分页。未绑定的旧计划仅可查看、停用或删除。共享服务端接入不开放 Gateway 管理授权，关闭 Inscope 后仍由 Gateway 执行。点击写操作时才会弹出独立的临时 operator.admin 授权；授权只解锁操作，不会自动执行刚才的写入。只应在自己的独立 Gateway 或信任域中授权，Token 不会保存。',
+        description: '共享服务端接入由 Owner/Admin 在 Skills 页维护全站统一开放清单；初始和新发现 Skill 默认不开放，确认保存并同步成功后才供成员选择。开放不会安装依赖或扩大工具权限，收回后下一次调用即失效，已经开始的对话可继续完成。个人 Gateway 直连仍只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传；点击写操作时才会弹出独立临时 operator.admin 授权。Automations 继续支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，关闭 Inscope 后仍由 Gateway 执行。',
       },
       {
         title: '查看使用示例与 Skill 详情',
-        description: '在 OpenClaw 左侧工作区点击“使用示例”，手机先打开会话侧栏进入，可查看对话、上下文、Worktree、Tasks、Artifacts、Skills 和 Automations 的操作示例及预期结果。示例只作说明，不会创建任务或发送消息。Skills 列表和详情使用普通连接读取，无需管理授权；详情解释用途、缺失工具、环境变量名称、配置和系统条件。读取失败可以“刷新 Skills”，已有可信内容保留。停用与条件不足分别显示，修改启用状态仍需授权和确认。',
+        description: '在 OpenClaw 左侧工作区点击“使用示例”，手机先打开会话侧栏进入，可查看对话、上下文、Worktree、Tasks、Artifacts、Skills 和 Automations 的操作示例及预期结果。示例只作说明，不会创建任务或发送消息。共享接入的 Skills 列表、详情、输入框 @ 和 /skills 只显示管理员已开放项；未开放任何项时显示“管理员尚未开放 Skills”。详情解释用途和公开的缺失条件；已开放但停用、缺依赖或受工具权限限制的 Skill 不能选择。读取失败可刷新并保留当前版本的可信内容。',
       },
       {
         title: '发送和查看图片',

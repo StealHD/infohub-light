@@ -11,6 +11,18 @@ HORIZON_OPENCLAW_SERVER_TOKEN=<通过安全通道写入当前 Gateway Token>
 
 Token 不写入 Git，不从浏览器下发。API 上线前将部署用设备私钥放入 `data/openclaw-relay/device.key`（目录0700、文件0600），并在 Gateway 批准这一个设备的 operator.read/operator.write。不可批准未知设备或关闭鉴权。
 
+Skills 开放范围使用另一条后端管理连接。把专用 Gateway Token 通过 SecretStore 写入 `HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN`，不要加入 `.env`、JSON、浏览器表单或命令参数：
+
+```bash
+python - <<'PY'
+from getpass import getpass
+from src.services.secret_store import SecretStore
+SecretStore('/absolute/service/data').set('HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN', getpass('Skill admin token: '))
+PY
+```
+
+首次同步会在 `data/openclaw-relay/skill-admin/` 建立独立设备身份；只批准该设备的 exact `operator.admin`，不得给普通 relay 设备增加 admin scope。管理员保存清单时，Service 只修改已绑定个人 Agent 的 `agents.entries.<id>.skills`，并读回核验；删除或轮换此 Secret 会让策略保持待重试/失败且暂停新聊天，不会回退为全部开放。
+
 此模式要求个人绑定，Owner/Admin/Member 可聊天，Viewer 只读。API 的 `/api/me/openclaw/socket` 需由同源 Nginx 转发 WebSocket Upgrade/Connection，read timeout 至少60秒；公网不需要增加浏览器到 Gateway 的 IP 白名单。Gateway 白名单只放行 API 服务器出口。
 
 浏览器刷新后会显示服务端连接说明；以前保存的直连地址不会覆盖服务端模式。会话恢复索引只存在当前用户 sessionStorage；Gateway 凭据不在浏览器保存。不同用户的会话由独立归属表强制隔离。当前模式提供普通对话、历史恢复和模型选择；尚未开放工作区管理、自动化、产物和全局会话目录 RPC。上线验证应覆盖匿名/Origin/角色拒绝、跨账号会话拒绝、Cookie过期断开、模型列表、无外发 chat.send、API/Worker readiness。
@@ -26,7 +38,11 @@ Token 不写入 Git，不从浏览器下发。API 上线前将部署用设备私
    ```bash
    python scripts/migrate_agent_connections_v37.py --data-dir /absolute/service/data
    python scripts/migrate_agent_connections_v37.py --data-dir /absolute/service/data --apply
+   python scripts/migrate_agent_skill_policy_v41.py --data-dir /absolute/service/data
+   python scripts/migrate_agent_skill_policy_v41.py --data-dir /absolute/service/data --apply
    ```
+
+   global 41 依赖 global 40 且初始化为空清单，不从 Gateway 现有目录推断授权。完成迁移和管理设备配对后，Owner/Admin 在 Skills 页明确选择并同步；在此之前新的 `chat.send` 失败关闭。回滚镜像前保留 global 41 表和备份，不删除策略或把空清单解释为全部开放。
 
 2. Service 主机上为一个启用账号准备绑定，再导出到尚不存在的目录。账号 ID 从该环境的成员记录取得；MCP 地址必须为同一 Service 的 HTTPS `/mcp`，本地测试允许 HTTP loopback。
 
