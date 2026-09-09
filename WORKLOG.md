@@ -372,13 +372,13 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-09",
   "result": "按用户授权从干净本地 main 准备 v2.6.12，复用精确提交 CI 与 Tag smoke，在本地构建 amd64 镜像并上传 VPS；升级包含停服、独立备份、global 37–41 显式迁移、标准健康验证及失败回滚。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "release-v2612-vps-20260909",
-  "unresolved": [
-    "精确 release CI、镜像与迁移切换尚待完成；不把发布视为个人绑定、Skills 权限或真实模型/通知验收。"
-  ],
+  "unresolved": [],
   "validation": [
-    "发布前 VPS 为 2.6.11 / 5b5916454b55，API/Worker healthy，数据库 global 36；main 7668b9e5 已完成整合门禁。"
+    "发布提交 71f067092d8090dbf50d97dc074c59c1dab1cc74；主干 CI 34334520614、Tag smoke 34335939019 均通过。修正过期 UI 断言及预览完成竞争，定向浏览器 12/12、6/6 通过并正常退出，临时预览端口已清理；最终 impacted preflight 12/12 通过。",
+    "本机构建 linux/amd64 镜像，上传源码和镜像 SHA-256 校验通过；停服备份后显式应用 global 37–41，完整性/外键及原表记录数量校验通过。",
+    "VPS current=2.6.12-20260909T092436Z-71f067092d80；API/Worker 均 healthy，runtime_health 已验证目标版本、revision、source digest、前端资源及公网健康；Release v2.6.12 已发布，临时上传目录已清理。"
   ]
 }
 ```
