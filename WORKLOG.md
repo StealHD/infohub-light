@@ -375,14 +375,16 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [],
   "recorded_on": "2026-09-09",
   "result": "按用户授权将个人 Agent 网页接入修复整合到本地 main，准备发布 v2.6.13 并部署 vps-tokyo；发布单元为同版 API/Worker，不含迁移、真实模型测试或个人绑定自动配置。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "agent-setup-release-v2613-20260909",
-  "unresolved": [
-    "精确 main CI、Tag smoke 与 VPS 健康验收待完成。"
-  ],
+  "unresolved": [],
   "validation": [
     "任务 diff 已审查；接入修复上轮最终 preflight 16/16 通过，接口与浏览器验收完成。",
-    "发布版本由 2.6.12 更新为 2.6.13；后续复用精确 main CI，经标准 release_vps.sh 本地 amd64 构建、上传和健康检查。"
+    "054cdef5 已 fast-forward 合入本地 main 并推送；发布 preflight .test-results/20260909T184309Z-57928 为 16/16，通过精确 main CI 34371850692 与 Tag smoke 34393116483，GitHub Release v2.6.13 已发布。",
+    "容量预检曾阻断；2026-09-10 经用户授权，将 VPS 2.6.0 至 2.6.8 的 9 个备份目录（21 文件）转存本地 项目同级 vps-backups-20260910.xkFV36，双端 SHA-256 全部一致后删除对应远端副本，释放约 3 GiB。当前与上一版备份及运行数据保留；本地副本可恢复。",
+    "为避免普通发布回滚误恢复旧 schema，先将 .env 备份至 /opt/inteliscope/backups/v2613-env-marker-20260910/env.before，再仅清除过期 INTELISCOPE_PRE_MIGRATION_BACKUP 标记；原迁移前数据库备份保留，本轮未迁移。",
+    "标准 release_vps.sh 在本地构建 revision-locked linux/amd64 镜像并上传，VPS 只 docker load。已部署 2.6.13-20260909T185125Z-054cdef5fb6f；runtime_health 验证 API/Worker healthy、ready、source digest、React index-CjXFmbjd.js 及公网 revision=054cdef5fb6f。发布进程 exit 0，本地与远端临时发布目录已清理；部署后磁盘可用 7.8 GiB、使用率 80%。",
+    "未调用真实模型或发测试通知，未自动创建个人 Agent 绑定，未修改既有 fsj 连接；网页配置入口上线不代表个人 Gateway 已完成安装激活。"
   ]
 }
 ```
