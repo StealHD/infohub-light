@@ -7,29 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-09-07",
-  "result": "按用户授权新增同源服务端 OpenClaw 连接；管理员登录鉴权、部署设备签名、会话归属与 RPC 白名单，浏览器不再需要 Gateway Token。已合入 2.6.9 主线，准备 2.6.10 发布。",
-  "status": "partial",
-  "task_id": "openclaw-server-relay-20260907",
-  "unresolved": [
-    "精确 main CI 与东京切换待发布流程完成；三处版本及上线结果另存部署验收单，避免证据更新改变已发布源码提交"
-  ],
-  "validation": [
-    "后端全量测试通过，SQLite ResourceWarning 为零；最新 13 项 relay 鉴权/隔离测试复验通过",
-    "前端全量 872 项通过；构建体积失败已修复，生产构建、类型、UI 合同与 Gateway 握手定向复验通过",
-    "受控浏览器自动连接通过，1440/1024/390 宽度无 Token 表单及横向溢出",
-    "真实 OpenClaw 会话、模型、历史读取通过；Gemini 经代理真实返回 OK；东京服务设备已按 read/write 最小范围批准"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-09-07",
   "result": "修复服务端 OpenClaw 中转漏放行 chat.history.maxChars 导致网页认证后断开的缺陷，保留会话归属和未知参数拒绝；准备 v2.6.11。",
@@ -414,6 +391,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并后 automations-local-main-merge impacted preflight 16/16 通过，包含后端/前端全量测试、lint、类型及构建检查。",
     "Markdown、控制面结构、工作记录与 diff 校验通过；本地 main 工作区干净，原主目录其他未提交工作未触碰。",
     "仅合并本地代码，不推送远端、不重建容器、不迁移运行库；运行凭据和 data/openclaw-relay 未纳入提交。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-09",
+  "result": "优化原 inteliscope-ui skill，增加目标项目识别、工作模式、按需读取、规则冲突与分层验证；将该改动单独纳入本地 main，读取指引服从 main 现役 AGENTS，不新增 skill 或修改生产 UI。",
+  "status": "completed",
+  "task_id": "2026-09-09-inteliscope-ui-skill-refinement",
+  "unresolved": [],
+  "validation": [
+    "原开发工作区 impacted preflight 12/12 通过；8 类场景完成指令路径审阅，非浏览器实测。",
+    "main 工作区 skill 格式与 8 个项目入口检查通过，未覆盖原开发工作区其他未提交改动。",
+    "main 任务 snapshot preflight 12/12 通过（ui-skill-main-20260909），包含前端合同、ESLint、TypeScript、Vitest 与构建；仅集成 skill 与该任务工作记录，未推送或部署。"
   ]
 }
 ```
