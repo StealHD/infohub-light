@@ -1,8 +1,9 @@
-"""Read/revoke only: provisioning and activation require local operator access."""
+"""Personal status and trusted-administrator setup entry points."""
 from fastapi import Depends, FastAPI, Response
 from .context import ApiContext
 from .responses import ok
 from .system_auth import api_context, current_user
+from .agent_setup_routes import register_agent_setup_routes
 from ..storage.information_automation_schema import ready as reminders_ready
 from ..services.agent_connections.service import AgentConnections
 from ..services.openclaw_relay.settings import enabled, configuration
@@ -11,6 +12,7 @@ from ..services.openclaw_relay.settings import enabled, configuration
 async def connection_status(response: Response, user=Depends(current_user), context: ApiContext = Depends(api_context)):
     response.headers['Cache-Control'] = 'no-store'
     status = AgentConnections(context.store, context.secret_values).status(user)
+    status['can_manage_setup'] = user['role'] in {'owner', 'admin'}
     status['can_connect'] &= enabled() and context.openclaw_chat_settings.enabled
     try:
         configuration()
@@ -33,5 +35,6 @@ async def connection_revoke(response: Response, user=Depends(current_user), cont
 
 
 def register_agent_connection_routes(app: FastAPI):
+    register_agent_setup_routes(app)
     app.add_api_route('/api/me/agent-connection', connection_status, methods=['GET'])
     app.add_api_route('/api/me/agent-connection', connection_revoke, methods=['DELETE'])

@@ -207,7 +207,7 @@ export function HeroAgentsPage() {
 
   return <div data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
-      <AdminPageHeader description="管理 OpenClaw 对当前账户的数据权限，以及浏览器到本地 Gateway 的对话连接。" actions={<>
+      <AdminPageHeader description="配置个人 Agent 接入并管理数据授权；创建数据连接不会自动绑定 Agent。" actions={<>
         <RefreshButton size="sm" variant="ghost" isIconOnly iconSize={16} pending={query.isFetching} aria-label="刷新最近使用时间" pendingLabel="正在刷新最近使用时间" onPress={() => query.refetch()} />
         <Button size="sm" isDisabled={creationDisabled} onPress={openCreateDialog}><Icons.Bot size={16} />创建连接</Button>
       </>} />

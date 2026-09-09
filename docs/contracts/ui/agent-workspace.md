@@ -70,6 +70,8 @@ Opening a current session from Skills/Automations/examples returns to `/agent` w
 
 ### 个人接入状态（阶段 2）
 
+Owner/Admin 的未绑定卡提供“配置个人 Agent”，待验证提供“继续配置”；复用 Modal、Checkbox 和 StableAsyncButton 完成确认、准备、私密下载和回执上传。打开不写入，关闭后可继续同一待验证绑定；进行中的操作禁止重复提交，切换账号丢弃迟到下载和文件读取。普通成员只展示管理员接入说明。准备不等于激活，激活不等于模型或通知验收；已可连接的管理卡提供“进入 OpenClaw”。权限与凭据边界以 Gateway API 合同为准。
+
 `/agents` 与服务端聊天设置复用个人接入卡；查询按登录 userId 隔离，刷新保留已加载内容。绑定验证、聊天实际连接、本人内容授权、提醒和通知分别展示，未验收不显示已完成。未绑定或服务端配置不可用时禁用连接并说明管理员修复入口；连接失败保留当前草稿。
 
 ## 个人信息提醒

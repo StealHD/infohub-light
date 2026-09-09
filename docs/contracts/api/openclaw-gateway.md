@@ -29,7 +29,9 @@
 
 - `GET /api/me/agent-connection` 使用当前 Cookie，返回 `ok.data`：`state` 为 `migration_required|unconfigured|pending_verification|ready|invalid|revoked`，另含 `agent_id`、`delegation_id`、`verified_at`、`can_connect`、`can_chat`、`verification`。响应 `Cache-Control: no-store`，无 SecretStore 引用、配置路径或令牌。
 - `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关及 WSS URL/凭据配置有效性限制（不发起网络探测），`own_content` 受 Remote MCP 开关限制。
-- `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。浏览器没有准备、激活、指定身份或导出凭据接口。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
+- `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
+- 受信任 Owner/Admin 可为当前账号使用三个 POST：`/api/me/agent-connection/setup` 准备或恢复同一绑定、`…/setup/bundle` 下载待验证绑定的配置、`…/setup/activate` 提交回执。全部要求严格布尔 `confirmed: true`，激活另要求最多 8192 字符的 `receipt_json`；拒绝额外身份、Agent 和 URL 字段。Member/Viewer 禁止这些操作，GET 状态通过 `can_manage_setup` 表示角色资格。MCP 地址只取服务端配置，既有 delegation 不复用或扩权。
+- 配置下载为 `ok.data.archive_base64`（gzip tar，目录 `personal-agent` 0700，`manifest.json`/`token` 0600），响应 no-store；仅包含本人专用只读令牌，不含 Gateway Token 或模型密钥。前端仅在明确下载时保留内存 Blob，不写查询缓存或浏览器持久存储。主机安装仍由既有运维工具执行，网页不执行 shell 或重启 Gateway。激活沿用 HMAC/版本/一小时有效期检查；能取得配置包的管理员属于受信任运维边界，回执是运维声明而非对不可信管理员的防伪证明。已激活绑定不允许网页再次导出，失效/撤销的身份仍由运维恢复。
 - `agent_connections` 保存 user/workspace、随机 binding/Agent/MCP 名称、SecretStore env 引用、专用 delegation ID、secret-free manifest、状态和部署核验时间。每用户一条、每 Agent/namespace/delegation/secret_ref 唯一；删除 delegation 后绑定失效。正文、Gateway 对话/Tasks/Artifacts 不复制进 Service DB。
 - 准备绑定只创建新的 `inteliscope:read` / self delegation，沿用 90 日过期和最多五条有效连接限制；不复用或扩权旧 delegation。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。
 

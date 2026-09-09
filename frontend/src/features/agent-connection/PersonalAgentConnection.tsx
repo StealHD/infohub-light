@@ -1,10 +1,11 @@
-import { useContext } from 'react'
+import { useContext, useState } from 'react'
 import { OpenClawWorkspaceRuntimeContext } from '../openclaw/workspace/openClawWorkspaceRuntimeContext'
 import { queryKeys } from '../../api/queryKeys'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAgentConnectionContext } from './AgentConnectionContext'
-import { Card, RefreshButton, StableAsyncButton } from '../../design-system'
+import { Button, Card, RefreshButton, StableAsyncButton } from '../../design-system'
+import { AgentSetupDialog } from './AgentSetupDialog'
 import type { AgentConnection } from '../../api/agentConnectionService'
 import type { OpenClawChatController } from '../openclaw/openclawContracts'
 
@@ -18,6 +19,7 @@ const descriptions: Record<AgentConnection['state'], string> = {
 }
 
 export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatController }) {
+  const [setupOpen, setSetupOpen] = useState(false)
   const runtime = useContext(OpenClawWorkspaceRuntimeContext)
   const connected = (chat ?? runtime)?.status === 'connected'
   const { api, userId } = useAgentConnectionContext()
@@ -26,7 +28,8 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
   const state = query.data
   return <Card variant="secondary" className="p-4" aria-busy={query.isFetching}>
     <Card.Title>我的 Agent 接入</Card.Title>
-    <Card.Description>{state ? descriptions[state.state] : query.isError
+    <Card.Description>{state ? state.can_manage_setup && state.state === 'unconfigured'
+      ? '尚未绑定个人 Agent。点击配置个人 Agent 开始；数据连接不等于 Agent 接入。' : descriptions[state.state] : query.isError
       ? '无法读取个人接入状态，请重试。' : '正在读取个人接入状态…'}</Card.Description>
     {state && <div className="mt-3 grid gap-2 type-body">
       {state.agent_id && <p className="break-all">当前 Agent：{state.agent_id}</p>}
@@ -38,10 +41,15 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
     </div>}
     {query.isError && state && <p role="alert" className="mt-3 type-body">刷新失败，显示上次状态；请重试。</p>}
     <div className="mt-4 flex flex-wrap items-center gap-2">
+      {state?.can_manage_setup && ['unconfigured', 'pending_verification'].includes(state.state) &&
+        <Button onPress={() => setSetupOpen(true)}>{state.state === 'unconfigured' ? '配置个人 Agent' : '继续配置'}</Button>}
+      {!chat && state?.can_connect && <Link to="/agent" className="type-body underline">进入 OpenClaw</Link>}
       {chat && <StableAsyncButton pending={chat.status === 'connecting'} pendingContent="正在连接…"
         isDisabled={!state?.can_connect || query.isError} onPress={() => void chat.connect()}>连接</StableAsyncButton>}
       <RefreshButton pending={query.isFetching} aria-label="刷新个人接入状态" onPress={() => query.refetch()} />
       {chat && <Link to="/agents" className="type-body underline">管理个人接入</Link>}
     </div>
+    {setupOpen && state?.can_manage_setup && <AgentSetupDialog key={userId} state={state}
+      onClose={() => setSetupOpen(false)} onRefresh={() => query.refetch()} />}
   </Card>
 }

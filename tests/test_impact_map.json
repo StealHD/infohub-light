@@ -101,6 +101,8 @@
     {
       "id": "OpenClaw",
       "globs": [
+        "frontend/src/features/agent-connection/**",
+        "frontend/src/api/agentConnectionService.ts",
         "frontend/src/features/openclaw/**",
         "frontend/src/features/agent-workspace/**",
         "frontend/e2e/production-agent-workspace.spec.ts",
@@ -252,6 +254,7 @@
         "tests/test_youtube_channel.py",
         "tests/test_agent_skill*.py",
         "tests/test_agent_connections.py",
+        "tests/test_agent_setup_api.py",
         "tests/test_openclaw_personal_directory.py"
       ],
       "groups": [
@@ -412,6 +415,9 @@
     {
       "id": "Remote MCP/OpenClaw",
       "globs": [
+        "src/api/agent_setup_routes.py",
+        "src/api/agent_connection_routes.py",
+        "tests/test_agent_setup_api.py",
         "src/api/agent_delegation_routes.py",
         "src/mcp/remote_*.py",
         "src/mcp/__init__.py",

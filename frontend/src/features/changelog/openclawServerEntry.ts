@@ -10,6 +10,10 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-09', title: '个人 Agent 网页接入入口',
+  summary: '修复未绑定账号只有说明和刷新、无法开始配置的问题。',
+  items: [{ title: '配置与继续接入', description: 'Owner/Admin 可为本人准备独立绑定、下载私密配置并提交主机验证回执；保留已有数据连接，模型和通知不自动执行。' }],
+}, {
   date: '2026-09-09', title: 'Skills 管理员开放范围',
   summary: '共享 OpenClaw 由管理员统一开放 Skills，成员只看到获准且满足使用条件的项目。',
   items: [

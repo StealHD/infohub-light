@@ -247,7 +247,7 @@ describe('HeroAgentsPage delegation access', () => {
     renderPage(listing, member, { agentDelegations: vi.fn().mockRejectedValue(new Error('offline')) })
 
     expect(await screen.findByText('连接列表读取失败。')).toBeInTheDocument()
-    expect(screen.getByText('管理 OpenClaw 对当前账户的数据权限，以及浏览器到本地 Gateway 的对话连接。')).toBeInTheDocument()
+    expect(screen.getByText('配置个人 Agent 接入并管理数据授权；创建数据连接不会自动绑定 Agent。')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '我的连接' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
   })

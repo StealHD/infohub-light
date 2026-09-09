@@ -7,40 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-09-08",
-  "result": "按用户要求切换 A 模式到 codex/automations-unified Worktree，停止旧前端/API/Worker，备份并显式迁移原测试库 global 40，启动新前端 5173、API 8080 和 Worker。",
-  "status": "completed",
-  "task_id": "2026-09-08-automations-a-runtime",
-  "unresolved": [
-    "当前模型目录尚未同步，新版独立分析 connector 接通前只能测试页面和草稿流程，启用及真实分析待验收。"
-  ],
-  "validation": [
-    "global 40 升级 14 条规则，备份权限 0600，integrity_check=ok、外键零违规；迁移前后 3 个账号、13 个来源、12 条订阅、28 个用户 Feed 快照和 207 个来源快照数量一致。",
-    "API /api/health/live 标识新 Worktree；直连及前端代理 readiness 通过，Worker 从启动过渡到 ready；开发服务提供新版触发配置模块。",
-    "未重建容器、提交或发布。备份为 service-information-unified-v40-20260908T080449228632Z.db。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-08",
-  "result": "在 codex/automations-unified 同分支修复模型选择：接通本地独立分析 connector 并持续同步 12 个真实模型，界面区分加载、未接入、过期及无授权状态。",
-  "status": "completed",
-  "task_id": "2026-09-08-automations-model-selector",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 6/6 通过；覆盖无目录到刷新就绪及空授权目录禁用。",
-    "impacted preflight automations-model-fix 11/11 通过，控制面结构、Markdown、JSON 与 diff 校验通过。",
-    "当前浏览器实际展开 12 个模型；数据库目录持续更新，15 条规则仍为草稿。配置安装已备份并通过 OpenClaw 校验；未重建容器、调用真实分析或发送通知。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "interface"
   ],
@@ -379,6 +345,44 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "发布提交 71f067092d8090dbf50d97dc074c59c1dab1cc74；主干 CI 34334520614、Tag smoke 34335939019 均通过。修正过期 UI 断言及预览完成竞争，定向浏览器 12/12、6/6 通过并正常退出，临时预览端口已清理；最终 impacted preflight 12/12 通过。",
     "本机构建 linux/amd64 镜像，上传源码和镜像 SHA-256 校验通过；停服备份后显式应用 global 37–41，完整性/外键及原表记录数量校验通过。",
     "VPS current=2.6.12-20260909T092436Z-71f067092d80；API/Worker 均 healthy，runtime_health 已验证目标版本、revision、source digest、前端资源及公网健康；Release v2.6.12 已发布，临时上传目录已清理。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-09",
+  "result": "在 codex/agent-setup-ui 补齐个人 Agent 网页接入入口：受信任 Owner/Admin 可为本人准备独立绑定、下载私密配置并提交主机验证回执；未绑定及待验证状态分别提供配置和继续入口，保留既有数据连接。同步 API/UI 合同、操作手册、更新记录及 D216。",
+  "status": "completed",
+  "task_id": "agent-web-setup-20260909",
+  "unresolved": [
+    "未提交、发布或部署；当前真实账号的个人 Agent 绑定未自动创建，fsj 未修改，未调用真实模型或发送通知。"
+  ],
+  "validation": [
+    "定向 API 9 项通过；个人接入组件 6 项及原连接页 20 项通过。覆盖确认、角色拒绝、身份参数拒绝、重复准备、私密归档权限、回执激活、迟到下载丢弃和安全错误提示。",
+    "真实浏览器使用模拟 API 验证 1440/1024/390/720 CSS px、明暗主题、Reduced Motion、键盘确认、配置下载、继续配置、关闭焦点恢复、回执提交与横向边界；Axe 严重/关键问题为零。验收进程退出 0，浏览器已关闭，临时 Vite PID 32800 已结束且端口释放。CLI 缓存权限不可用，未修改系统权限，改用项目浏览器库。",
+    "修正旧文案测试后最终 impacted preflight 20260909T152912Z-41062 16/16 通过，含后端检查、前端测试、类型检查、构建与控制面验证；无 SQLite 未关闭警告。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-09",
+  "result": "按用户授权将个人 Agent 网页接入修复整合到本地 main，准备发布 v2.6.13 并部署 vps-tokyo；发布单元为同版 API/Worker，不含迁移、真实模型测试或个人绑定自动配置。",
+  "status": "partial",
+  "task_id": "agent-setup-release-v2613-20260909",
+  "unresolved": [
+    "精确 main CI、Tag smoke 与 VPS 健康验收待完成。"
+  ],
+  "validation": [
+    "任务 diff 已审查；接入修复上轮最终 preflight 16/16 通过，接口与浏览器验收完成。",
+    "发布版本由 2.6.12 更新为 2.6.13；后续复用精确 main CI，经标准 release_vps.sh 本地 amd64 构建、上传和健康检查。"
   ]
 }
 ```

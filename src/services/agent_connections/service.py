@@ -1,4 +1,4 @@
-"""Service-owned identities. Browser callers cannot provision or choose an Agent."""
+"""Service-owned identities; trusted operators provision without choosing an Agent ID."""
 import hashlib
 import json
 import uuid

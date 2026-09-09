@@ -4,11 +4,11 @@
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
 | D001 | 初始化控制面 | 2026-07-08 | [查看](records/D001-D025.md#d001) |
-| D002 | Light Runtime 默认不启动 scheduler | 2026-07-08 | [查看](records/D001-D025.md#d002) |
+| D002 | 禁用 scheduler | 2026-07-08 | [查看](records/D001-D025.md#d002) |
 | D003 | Hub taxonomy 取代单层 AI 标签 | 2026-07-08 | [查看](records/D001-D025.md#d003) |
 | D004 | personal_tags 不进入 AI scoring | 2026-07-08 | [查看](records/D001-D025.md#d004) |
-| D005 | Service Feed 使用结构化结果和用户 finalizer | 2026-07-10 | [查看](records/D001-D025.md#d005) |
-| D006 | SQLite Queue 使用 claim token 和 heartbeat | 2026-07-10 | [查看](records/D001-D025.md#d006) |
+| D005 | Feed 结果与 finalizer | 2026-07-10 | [查看](records/D001-D025.md#d005) |
+| D006 | Queue 领取与心跳 | 2026-07-10 | [查看](records/D001-D025.md#d006) |
 | D007 | Feed v2 采用显式备份后重建迁移 | 2026-07-10 | [查看](records/D001-D025.md#d007) |
 | D008 | 当前产品收口为信息获取与 Feed 留存 | 2026-07-11 | [查看](records/D001-D025.md#d008) |
 | D009 | 每用户 opt-in 周期由现有 Worker 调度 | 2026-07-11 | [查看](records/D001-D025.md#d009) |
@@ -218,3 +218,4 @@
 | D213 | Skills 清单 | 2026-09-09 | [查看](records/D201-D225.md#d213) |
 | D214 | 命令浮层 | 2026-09-08 | [查看](records/D201-D225.md#d214) |
 | D215 | 自动化布局 | 2026-09-08 | [查看](records/D201-D225.md#d215) |
+| D216 | 管理员接入 | 2026-09-09 | [查看](records/D201-D225.md#d216) |

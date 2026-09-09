@@ -24,9 +24,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
-
 from .agent_delegation_routes import register_agent_delegation_routes
 from .agent_skill_routes import MUTATION_OPERATION_ROUTES as AGENT_SKILL_OPERATION_ROUTES, register_agent_skill_routes
+from .agent_setup_routes import MUTATION_OPERATION_ROUTES as AGENT_SETUP_OPERATION_ROUTES
 from .actor_alert_routes import register_actor_alert_routes
 from .actorops_admin_routes import register_actorops_admin_routes
 from .actorops_retired_routes import register_actorops_retired_routes
@@ -360,7 +360,7 @@ SOURCE_META_KEYS = {
 from .information_operation_routes import MUTATION_OPERATION_ROUTES as INFORMATION_OPERATION_ROUTES
 MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     **INFORMATION_OPERATION_ROUTES,
-    **AGENT_SKILL_OPERATION_ROUTES,
+    **AGENT_SKILL_OPERATION_ROUTES, **AGENT_SETUP_OPERATION_ROUTES,
     ("POST", "/api/admin/system-settings/proposals"): (
         "system_settings", "proposal_prepare",
     ),
