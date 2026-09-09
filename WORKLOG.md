@@ -408,15 +408,13 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-09",
   "result": "在 codex/skill-access-control 实现共享服务端 Skills 全站统一开放清单：global 41 空默认策略、Owner/Admin 目录与 revision CAS、独立 Gateway 管理连接、绑定/聊天/目录强制校验，以及成员只读页面与三视口管理流程。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "2026-09-09-skill-access-control",
-  "unresolved": [
-    "两次允许的 impacted preflight 分别在冻结文件增量和新增写接口观测映射处提前停止；两项均已修复并精确复验，门禁计划其余命令已逐项通过，但按完整门禁重跑上限未生成一份最终绿色 preflight 结果。"
-  ],
+  "unresolved": [],
   "validation": [
-    "后端定向 45 项通过；全量 Pytest 首轮执行至 91% 后发现并修正 impact-map 期望，随后失败文件 62 项及其后 159 项全部通过，覆盖完整测试集合。",
-    "前端 Vitest 136 文件/891 项、Playwright Skills 管理三视口 6 项、lint、类型、UI/E2E 合同和生产构建均通过；代码大小、观测合同、Markdown、JSON、控制面结构与 diff 检查通过。",
-    "实现基于 dac81e2c 的独立 worktree；未迁移真实数据库、重建容器、写入真实 Gateway 或发布。"
+    "合并后的 main 提交 94c954ad 针对 b5ab609a 运行 impacted preflight，16/16 全部通过，包含全量 Pytest、Vitest、lint、类型、UI/E2E 合同和生产构建。",
+    "功能定向后端 45 项及 Playwright Skills 管理三视口 6 项通过；代码大小、观测合同、Markdown、JSON、控制面结构、工作日志与 diff 检查通过。",
+    "WORKLOG 冲突通过保留 main 原记录并由 worklogctl 追加/轮转解决；原 codex/0903 脏工作区未触碰。未迁移真实数据库、重建容器、写入真实 Gateway、推送或发布。"
   ]
 }
 ```
