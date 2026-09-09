@@ -91,3 +91,5 @@ Source catalog 规则：
 36. 冷却依次为 1/3/6/24 小时；到期只转 half-open 并等待自然任务，禁止额外健康检查。全候选不可用时只延后 X 调度到最近 retry time，Feed 保留历史 X 内容并标记 partial，非 X 来源继续。
 37. 费用 admission 只在 active/standby/draining 全部可用 Key 都具有不超过 60 秒的完整额度快照时计算：X 可用额为总剩余减 `max($1, 20%)`。未知、缺失、过旧或异常未来快照全部 fail closed，Worker 启动先刷新所有此类 Key。滚动六小时 Actor failure 的最终实际费用达到 `$0.08` 立即 `budget_blocked`；准入还必须原子满足 `failed_spend + outstanding_reservations + $0.02 <= $0.08`，仅在途预留占满时只暂拒新 Run，不误触发六小时熔断。额度低于 20% 或预计不足 48 小时只产生运行告警而不重复付费探测。
 38. Actor route generation 必须进入 shared acquisition fingerprint；同次合法 failover 的成功值只有携带 route 服务签发、等于发布时最终 generation 的证明才可迁移原 acquisition claim，Key generation 同时变化或无证明则拒绝。管理员禁用、排序或其他 generation 变化后到达的旧结果只能结算已发生费用，不能增加候选成功数、写 target health、缓存或 Feed；路由服务自身的 reconcile/恢复变化必须把 attempt 采纳到最终 generation 后才可 GET-only 重放。
+
+订阅列表增加只读 `source_platform` 展示字段：由本人订阅的来源及同 workspace ActorOps route 推导平台，用于自动化来源选择。该字段不暴露来源配置或改变 `source_type` 的适配器含义。

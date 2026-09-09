@@ -1,0 +1,7 @@
+--- a/dist/bounded-turn-rq5tiSXk.js
++++ b/dist/bounded-turn-rq5tiSXk.js
+@@ -119,0 +120 @@
++			modelListTimeoutMs: params.taskLabel === "isolated completion" ? 30e3 : 5e3,
+@@ -250 +251 @@
+-		timeoutMs: Math.min(params.timeoutMs, 5e3),
++		timeoutMs: Math.min(params.timeoutMs, params.modelListTimeoutMs ?? 5e3),

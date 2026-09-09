@@ -4,11 +4,34 @@
 
 启用 `HORIZON_OPENCLAW_SERVER_ENABLED=true` 后，Service 返回同源 `/api/me/openclaw/socket`，浏览器以 InfoHub 登录 Cookie 连接 API；API 以固定 WSS 地址和服务端 Token 连接 Gateway。此模式替代下文浏览器直连的认证/传输边界，直连模式仍为兼容默认。
 
-- 仅 owner/admin 可用；检查精确 Origin/Host、有效登录，每 15 秒重新验证登录；每账号最多三条连接，每分钟 120 个 RPC，最多 32 个待处理 RPC。
-- Gateway Token 来自 `HORIZON_OPENCLAW_SERVER_TOKEN`，设备私钥保存于 `data/openclaw-relay/device.key`（0600），浏览器不接收任何上游令牌或配对私钥。
-- `data/openclaw-relay/ownership.sqlite3` 仅记录用户与新建 Gateway session key 的归属，不保存对话正文，也不改变 Service DB schema。所有会话 RPC 和事件必须检查归属；未列入许可的方法拒绝转发，禁止配置/设备管理/任意工具调用 RPC，强制 chat.send deliver=false。
-- 初始服务端设备需管理员部署时配对；Token 失效、未配对或协议不兼容时安全失败。连接具有 TLS 校验、20 秒 ping、断连回收及浏览器重连；不自动重发 chat.send。
-- 本次不为普通成员开放共享服务端 Agent，避免共享工具权限跨账号扩大。MCP 接入是独立能力，不自动安装或启用。
+- 每个站内用户必须具有有效的个人 Agent/MCP delegation 绑定。Owner/Admin/Member 可聊天，Viewer 仅可读取已归属历史；浏览器不能指定其他用户或 Agent。缺绑定、过期、吊销、账号停用、scope 改变或上游 Agent 不存在均失败关闭，不采用 Gateway 的 default Agent。
+- 检查精确 Origin/Host、登录身份、角色及当前绑定；每个请求与上游响应/事件转发前重验，空闲每 15 秒重验。每账号最多三条连接，每分钟 120 个 RPC，最多 32 个待处理 RPC。
+- Gateway Token 来自 `HORIZON_OPENCLAW_SERVER_TOKEN`，设备私钥保存在 `data/openclaw-relay/device.key`（0600）。浏览器不接收上游令牌或配对私钥；初始服务端设备仍由管理员配对。
+- `data/openclaw-relay/ownership.sqlite3` 继续仅保存 workspace/user 与 Gateway session key 归属，不保存对话。新会话在服务端所选 Agent 下创建，fork 和写操作限定当前 Agent 的本人会话。已归属的旧 main/退役 Agent 会话只读，不迁移、不重新归属；读取历史时不强制改写原 Agent。
+- 未许可 RPC、跨账号会话、跨 Agent 指定、原生 `/` 或 `!` Gateway 聊天命令均拒绝；聊天强制 `deliver:false`。不转发配置、设备管理或任意工具调用。TLS 校验、20 秒 ping、断连清理和不自动重发 chat.send 保持有效。
+
+### 个人目录与 Skills（阶段 2）
+
+- Relay hello 只声明上游也声明的 `sessions.preview/list` 与 `skills.status`，不伪造能力。`sessions.list` 强制当前独占 `ih-<32 hex>` Agent，允许 limit 1–100、非负 offset、至多 512 字符 search、archived false/true/all 和 updatedAt 排序；拒绝浏览器 owner/其他 Agent 参数。
+- 当前个人 Agent 下的返回 key 经前缀检查后登记本人归属，冲突失败关闭；其他 Agent 返回导致请求失败，不泄露目录。只投影公开会话元数据及 totalCount/hasMore/nextOffset，不返回存储路径。旧 Agent 仅允许精确已归属 key 的查询和历史读取，不批量认领共享 main。
+- `skills.status` 强制当前 Agent，可选 sessionKey 必须归属本人且属于当前 Agent；仅投影工作区已开放 Skill 的公开状态，不返回完整目录、未开放数量、路径、令牌、环境变量值或内部配置。共享服务端模式禁用浏览器直接上传、安装和修改 Skills。
+
+### Skills 管理员开放范围（global 41）
+
+- `workspace_agent_skill_policies` 为工作区统一清单真源，保存单调 `revision`、排序后的 `allowed_skill_keys`、`pending|synced|failed` 同步状态和安全错误码；`agent_skill_policy_syncs` 保存每个个人绑定已核验的策略版本。global 41 显式迁移为每个工作区建立 revision 1 的空清单，首次及以后新发现 Skill 均不自动开放。
+- `GET /api/admin/agent-skills` 只允许实时 Owner/Admin，返回完整安全目录以及 `revision`、开放清单、同步状态和公开布尔 `sync_in_progress`；内部 attempt ID 不下发。`PUT /api/admin/agent-skills/policy` 只接受 `expected_revision` 与最多 256 个唯一安全 `allowed_skill_keys`，拒绝当前安全目录以外的键，避免伪造请求预先开放以后新发现的 Skill。版本不一致或已有同步进行中返回 `agent_skill_policy_conflict`，浏览器必须刷新后重新确认，不能覆盖另一位管理员的修改。Member/Viewer 不得读取管理目录、未开放项数量或修改策略。
+- 保存先在 Service DB 持久化待同步版本并暂停该工作区所有个人绑定的新 `chat.send`，再使用独立服务端设备请求且只请求 `operator.admin`，对绑定 Agent 的 `agents.entries.<id>.skills` 做 `config.get → config.patch(baseHash, replacePaths) → config.get` 精确读回核验。凭据只从 SecretStore 的 `HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN` 取得；浏览器不能提交或读取 Token、Gateway 配置、绑定明细或管理回执。同步只替换受管个人 Agent 的 `skills` 字段。
+- 全部活跃绑定核验一致后状态变为 `synced` 并恢复新聊天；失败保留同一 revision 和清单为 `failed`，返回可重试错误，不能显示保存成功或回退为全部开放。历史读取、停止操作和同步前已经开始的 run 继续有效；每次新调用及发送前按当前版本复验，旧草稿、旧页面或伪造请求不能调用已收回 Skill。
+- 新绑定 manifest 携带当前清单并在部署配置中写入该个人 Agent；激活回执同时把该绑定标为当前版本已同步，未完成这一步不能开始首个聊天。普通目录、详情、`@` 和 `/skills` 缓存按用户、绑定与策略版本隔离，版本变化使旧结果失效。
+- “已开放”与“可使用”分开判断。清单内 Skill 若被停用、缺依赖、受 OS、配置、工具或 Agent 条件限制，仍可显示具体公开条件，但不能选择或调用。开放不会安装依赖、写环境变量或扩大工具权限。浏览器直连个人 Gateway 继续使用其原生管理机制，不读取 Service 的工作区策略。
+
+### 个人绑定 API 与存储（global 37）
+
+- `GET /api/me/agent-connection` 使用当前 Cookie，返回 `ok.data`：`state` 为 `migration_required|unconfigured|pending_verification|ready|invalid|revoked`，另含 `agent_id`、`delegation_id`、`verified_at`、`can_connect`、`can_chat`、`verification`。响应 `Cache-Control: no-store`，无 SecretStore 引用、配置路径或令牌。
+- `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关及 WSS URL/凭据配置有效性限制（不发起网络探测），`own_content` 受 Remote MCP 开关限制。
+- `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。浏览器没有准备、激活、指定身份或导出凭据接口。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
+- `agent_connections` 保存 user/workspace、随机 binding/Agent/MCP 名称、SecretStore env 引用、专用 delegation ID、secret-free manifest、状态和部署核验时间。每用户一条、每 Agent/namespace/delegation/secret_ref 唯一；删除 delegation 后绑定失效。正文、Gateway 对话/Tasks/Artifacts 不复制进 Service DB。
+- 准备绑定只创建新的 `inteliscope:read` / self delegation，沿用 90 日过期和最多五条有效连接限制；不复用或扩权旧 delegation。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。
 
 ### 浏览器直连兼容模式
 
@@ -25,7 +48,7 @@
 5. Browser Agent 上下文通常最多包含八条有序安全记录。Feed 记录只含 `articleId/title/sourceName?/publishedAt?/sourceUrl?`；运行记录可附带安全显示状态，但内部 `job_id`、UI detail/error 不得成为可见历史。可选 `sourceUrl` 只允许无凭据 HTTP(S)，在草稿、transcript 和 handoff 前移除 fragment、跟踪参数与敏感 query 并限制 2,048 字符。V8 handoff 保留既有 `context_readonly` 与 `direct`，并新增 `source_snapshot_readonly`：专题入口一次替换旧附件、保留未发送问题，把当前过滤结果中最多 100 篇的来源名、窗口、标题、已有摘要和时间压缩为不超过 32,000 字符的 V6 浏览器草稿；标题/摘要中的网址会被移除，快照不包含 URL、媒体、metadata 或正文。该模式只把快照作为不可信只读证据发给 Gateway，禁止 `get_item`、`web_fetch`、其他补充工具与任何写操作，证据不足时明确未知；Viewer 可继续使用该只读 Agent 能力。浏览器投影继续兼容 V7、V6、V5、V4、V3 和旧无版本 handoff，且不得显示内部指令或 ID。其他上下文模式、图片边界、订阅 proposal 流程、失败重试和 Remote MCP 正文读取规则保持不变。
 6. Gateway 可选的 `agent/lifecycle/tool/thinking` 运行事件只可投影到当前标签页、当前 exact session key 和当前 run ID。浏览器按单调序号及 tool-call ID 去重，且只把事件映射为前端固定阶段和中文白名单动作；`thinking` 永远只显示通用的“正在思考”，未知工具只显示“正在使用工具”。浏览器不得渲染、写入 transcript、sessionStorage、IndexedDB 或 Service 的原始思维、工具参数、工具结果、meta、原始错误、URL、令牌或确认短语。运行轨迹只在当前页面会话内存中存在，完成后折叠；Gateway 未协商该能力时，`chat.send` 仍必须立即生成本地可信的处理中状态，不得回退为首段回复前空白。
 7. 图片输入只在 `image_io_enabled=true` 且当前 `models.list.input` 显式含 `image` 时启用；它使用既有 `chat.send.attachments`，不依赖 `chat.media.ticket`。浏览器把 JPEG/PNG/WebP 在内存中规范化为最多四张、单张 5 MiB、总计 12 MiB、40 MP 输入及最长边 2048 px 的 Base64 attachment；浏览器以 `chat.send.attachments` 直送 Gateway，Service 不接收图片。图片输出和历史只保存 `messageId + partIndex` 媒体引用；只有 Gateway capability 含 `chat.media.ticket` 且返回路径属于 `media_origins` allowlist 时，浏览器才为每张图片调用 `chat.media.ticket{sessionKey,messageId,partIndex}` 并渲染返回的短期票据。票据不得持久化，刷新、重连或加载失败后重新申请；任意正文外链、`file:`、协议相对 URL、非法路径或 MIME 都不得渲染。缺少票据 RPC 时继续支持文本和图片输入，但不显示 Gateway 输出/历史图片。
-8. Agent Workspace 以 OpenClaw 2026.8.1 fixture 为协议基线，但 capability 只取握手 `hello.features.methods`。普通连接的 typed allowlist 为 `projects.list`、`sessions.create/list/preview/send`、`worktrees.branches`、`tasks.list/get/cancel`、`artifacts.list/get/download`、`skills.status`；请求和响应必须逐方法严格投影。`sessions.preview` 必须发送 `{keys:[exactSessionKey]}`，并只把同 key 的 `ok|empty` 视为存在、`missing` 视为已删除；`error`、缺项、重复项或畸形响应不得清除设备凭据。方法缺失为 `unsupported`，权限拒绝为 `forbidden`，不得尝试裸 RPC 或按版本号猜测。会话导航目录读取当前 Gateway 授权可访问的记录，`sessions.list` 支持 limit/offset/search/archived、updatedAt 排序和 derivedTitle/lastMessagePreview 投影，分页返回 hasMore/nextOffset/totalCount。目录展示与可信资源树分离，Tasks/Artifacts 仍只信任 exact key 与 `parentSessionKey`。显式会话切换校验 preview、目录 exact key、目标 Agent 与 describe identity 后才激活；Worktree 项目与 base ref 必须分别再次匹配 `projects.list` 与 `worktrees.branches`。新任务只用 `sessions.create`，不存在 `tasks.create`。
+8. Agent Workspace 以 OpenClaw 2026.8.1 fixture 为协议基线，但 capability 只取握手 `hello.features.methods`。普通连接的 typed allowlist 为 `projects.list`、`sessions.create/list/preview/send`、`worktrees.branches`、`tasks.list/get/cancel`、`artifacts.list/get/download`、`skills.status`；请求和响应必须逐方法严格投影。`sessions.preview` 必须发送 `{keys:[exactSessionKey]}`，并只把同 key 的 `ok|empty` 视为存在、`missing` 视为已删除；`error`、缺项、重复项或畸形响应不得清除设备凭据。方法缺失为 `unsupported`，权限拒绝为 `forbidden`，不得尝试裸 RPC 或按版本号猜测。会话导航目录读取当前 Gateway 授权可访问的记录，`sessions.list` 支持 limit/offset/search/archived、updatedAt 排序和 derivedTitle/lastMessagePreview 投影，分页返回 hasMore/nextOffset/totalCount。目录展示与可信资源树分离，Tasks/Artifacts 仍只信任 exact key 与 `parentSessionKey`。显式会话切换校验 preview、目录 exact key、目标 Agent 与 describe identity 后才激活；当前产品仅提供聊天与 Skill 调用，Worktree 创建及重试在浏览器 controller 层直接返回 unsupported，不发出 RPC；既有会话读取不变，普通新对话仍可使用 `sessions.create`。
 9. Artifact list/get/download 需要且只允许一个显式 `sessionKey|runId|taskId` provenance。内联预览只允许 ≤2 MiB 的安全图片或严格 UTF-8 文本/Markdown/代码；HTML、SVG、未知 MIME 仅下载。Base64 浏览器内存下载 ≤50 MiB；临时 URL 必须为当前 Gateway 映射 HTTP(S) origin 且 `expiresAt` 尚未到期。内容、URL 和 object URL 不得进入 Service、transcript 或浏览器持久缓存。
 10. Skill/Cron 写入只允许独立临时 admin WebSocket：请求 exact `operator.admin`，不持久化 device credential，不自动重连，不接收普通聊天事件，并只暴露 `skills.upload.begin/chunk/commit/install/update` 与 `cron.get/list/status/add/update/remove/run/runs`。ZIP Skill 使用 Gateway 限制和 20 MiB 中较小者、SHA-256、512 KiB 顺序块及连续 offset；commit RPC 成功后才 install。Cron payload 固定 `agentTurn + isolated session + delivery none`，新建默认 disabled。所有写操作须有明确确认；共享 Gateway 不开放此临时管理入口。
 11. `skills.status` 的 2026.8.1 状态投影接受 exact `skillKey`、显式 `disabled` 和 `eligible`；启用状态取 `!disabled`，不以 `eligible` 代替。兼容已有显式 `key + enabled` 状态响应，但双字段冲突必须拒绝。`missing.bins/anyBins/env/config/os`、允许列表和 Agent 过滤状态只投影公开条件；文件路径、环境变量值、原始配置均不得进入页面。未返回 ZIP 上传许可时保持上传不可用，不影响列表和详情读取。
