@@ -11,6 +11,7 @@ for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draf
     config: { ...emptyInformationRule(), name: '研究提醒', source_ids: ['source'], target_id: 'target', requirement: 'Find research', model: { id: 'test/model', thinking: null } }, created_at: '2026-09-08', updated_at: '2026-09-08', confirmed_at: null }
   let activations = 0
   let tests = 0
+  let completePreview = false
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     let data: unknown
@@ -18,7 +19,7 @@ for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draf
     else if (path.endsWith('/models')) data = { status: 'ready', updated_at: '2026-09-08', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] }
     else if (path.endsWith('/transition')) { activations += 1; rule.state = 'active'; data = rule }
     else if (path.endsWith('/test')) { tests += 1; data = { version: 1, preview_id: 'preview', status: 'pending', results: [], sends_notification: false, advances_cursor: false } }
-    else if (path.endsWith('/test/preview')) data = { version: 1, preview_id: 'preview', status: 'completed', results: [{ article_id: 'article', status: 'matched' }], sends_notification: false, advances_cursor: false }
+    else if (path.endsWith('/test/preview')) data = { version: 1, preview_id: 'preview', status: completePreview ? 'completed' : 'pending', results: completePreview ? [{ article_id: 'article', status: 'matched' }] : [], sends_notification: false, advances_cursor: false }
     else if (path.endsWith('/' + rule.id) && route.request().method() === 'PUT') {
       const payload = route.request().postDataJSON(); rule.config = payload.config; rule.version += 1; data = rule
     } else if (path === '/api/me/subscriptions') data = { subscriptions: [{ source_id: 'source', source_display_name: '研究来源', source_type: 'X', enabled: true }] }
@@ -42,6 +43,7 @@ for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draf
   await page.getByRole('button', { name: /关闭研究提醒/ }).click()
   const taskRow = page.getByRole('button', { name: '查看与编辑 研究提醒' })
   await expect(taskRow.getByText('测试排队中')).toBeVisible()
+  completePreview = true
   await expect(taskRow.getByText('测试已完成')).toBeVisible({ timeout: 5000 })
   await page.getByRole('button', { name: '查看与编辑 研究提醒' }).click()
   await page.getByRole('tab', { name: '测试' }).click()
