@@ -44,7 +44,7 @@ PY
 
    global 41 依赖 global 40 且初始化为空清单，不从 Gateway 现有目录推断授权。完成迁移和管理设备配对后，Owner/Admin 在 Skills 页明确选择并同步；在此之前新的 `chat.send` 失败关闭。回滚镜像前保留 global 41 表和备份，不删除策略或把空清单解释为全部开放。
 
-2. Service 主机上为一个启用账号准备绑定，再导出到尚不存在的目录。账号 ID 从该环境的成员记录取得；MCP 地址必须为同一 Service 的 HTTPS `/mcp`，本地测试允许 HTTP loopback。
+2. Service 主机上为一个启用账号准备绑定，再导出到尚不存在的目录。账号 ID 从该环境的成员记录取得；MCP 地址必须为同一 Service 的 HTTPS `/mcp`，本地测试允许 HTTP loopback。受信任 Owner/Admin 为本人配置时，也可在 `/agents` 的“配置个人 Agent”确认准备并下载配置包，解压后用于下列主机安装步骤；网页不会修改已有数据连接或启动模型。普通成员仍使用本节 CLI。
 
    ```bash
    python scripts/manage_agent_connection.py prepare --data-dir /absolute/service/data --user-id USER_ID --mcp-url https://service.example/mcp
@@ -53,7 +53,7 @@ PY
 
 3. 经已有 SSH 安全传送 bundle 到 Gateway 主机，保持目录 0700、token 0600。Gateway 上执行 `python scripts/provision_openclaw_agent.py install --root /absolute/.openclaw --bundle-dir /private/new-bundle`。工具校验配置后原子安装，备份原配置，Token 写入该根目录 `.env` 的独立 SecretStore 引用。重复安装必须符合原策略；同名 MCP、目录重用、符号链接、配置漂移会失败。现有 main/其他 Agent 会增加该个人 MCP 的禁止规则；无显式 ownership/default 的旧配置增加 main 兼容默认标记，保留原默认路由。不自动迁移 include、legacy agents.list 或自定义 session.store；会话存储必须沿用 Gateway 按 Agent 分目录的默认路径，拒绝目录符号链接。自定义根目录启动 Gateway 时，OPENCLAW_STATE_DIR 必须指向同一根目录。
 4. 按目标环境已有服务管理方式加载配置/重启 Gateway，然后执行 `python scripts/provision_openclaw_agent.py verify --root /absolute/.openclaw --bundle-dir /private/new-bundle --receipt /private/receipt.json`。检查只包括真实配置验证、个人工具许可及 MCP initialize/tools.list/list_subscriptions，不调用模型。回执包含完整配置指纹，配置内容和凭据不写 stdout；失败只输出错误类型。
-5. 将 receipt 安全传回 Service 主机，一小时内执行 `python scripts/manage_agent_connection.py activate --data-dir /absolute/service/data --user-id USER_ID --receipt /private/receipt.json`。`status` 子命令及登录后的 `GET /api/me/agent-connection` 可查结果。relay 每次连接另核验上游确有该 Agent；真实聊天仍需单独验收。删除临时导出 Token 由运维完成，勿纳入 Git、聊天或共享附件。
+5. 将 receipt 安全传回 Service 主机，一小时内执行 `python scripts/manage_agent_connection.py activate --data-dir /absolute/service/data --user-id USER_ID --receipt /private/receipt.json`，或由准备本人绑定的 Owner/Admin 在“继续配置”上传回执激活。`status` 子命令及登录后的 `GET /api/me/agent-connection` 可查结果。relay 每次连接另核验上游确有该 Agent；真实聊天仍需单独验收。删除临时导出 Token 由运维完成，勿纳入 Git、聊天或共享附件。
 
 吊销可在站内 DELETE 当前绑定，或运维执行 `revoke`。账号停用、delegation 过期/吊销/删除、scope 改变都会阻断新请求及晚到响应。修复时先 `retire` 吊销并移除 Service 绑定，再从 prepare 重建新身份；旧 Agent/session 目录由运维保留，不能复用给其他账号。旧会话仍按已有归属只读。已有其他 delegation 不被修改。
 
