@@ -7,30 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-09-08",
-  "result": "从本地 main b6f42227 创建 codex/automations-unified Worktree，实现统一自然语言分析、四种触发、OpenClaw 模型目录、持久化分段汇总和一次综合通知；更新任务编辑、预览、运行记录、平台展示及 global 40 显式迁移工具与合同。",
-  "status": "completed",
-  "task_id": "2026-09-08-automations-unified",
-  "unresolved": [],
-  "validation": [
-    "定向后端 67 项、可信确认卡 4 项通过；新增审计接口与审计合同 11 项复验通过。",
-    "Playwright 明暗主题 × 桌面/平板/手机共 6 项通过，覆盖四种触发、键盘确认、测试不投递、编辑及新建草稿刷新保留；检查三视口截图。",
-    "修复首屏加载边界、定时截止点、跨来源累计与模型变更队列保留、输入分段及引用验证；global 40 备份、幂等和失败恢复均受控验证。",
-    "最终 impacted preflight 16/16 通过，含后端/前端全域测试、lint、类型、构建、代码体积、UI 与审计合同；无未关闭 SQLite 连接告警。",
-    "控制面结构、Markdown、JSON 和 diff 校验通过。按用户要求未重建容器；未迁移运行库、调用真实模型/通知、提交或发布。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-09-08",
   "result": "按用户要求切换 A 模式到 codex/automations-unified Worktree，停止旧前端/API/Worker，备份并显式迁移原测试库 global 40，启动新前端 5173、API 8080 和 Worker。",
@@ -385,6 +361,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并后的 main 提交 94c954ad 针对 b5ab609a 运行 impacted preflight，16/16 全部通过，包含全量 Pytest、Vitest、lint、类型、UI/E2E 合同和生产构建。",
     "功能定向后端 45 项及 Playwright Skills 管理三视口 6 项通过；代码大小、观测合同、Markdown、JSON、控制面结构、工作日志与 diff 检查通过。",
     "WORKLOG 冲突通过保留 main 原记录并由 worklogctl 追加/轮转解决；原 codex/0903 脏工作区未触碰。未迁移真实数据库、重建容器、写入真实 Gateway、推送或发布。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "phase"
+  ],
+  "recorded_on": "2026-09-09",
+  "result": "按用户授权从干净本地 main 准备 v2.6.12，复用精确提交 CI 与 Tag smoke，在本地构建 amd64 镜像并上传 VPS；升级包含停服、独立备份、global 37–41 显式迁移、标准健康验证及失败回滚。",
+  "status": "partial",
+  "task_id": "release-v2612-vps-20260909",
+  "unresolved": [
+    "精确 release CI、镜像与迁移切换尚待完成；不把发布视为个人绑定、Skills 权限或真实模型/通知验收。"
+  ],
+  "validation": [
+    "发布前 VPS 为 2.6.11 / 5b5916454b55，API/Worker healthy，数据库 global 36；main 7668b9e5 已完成整合门禁。"
   ]
 }
 ```

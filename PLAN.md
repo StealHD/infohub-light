@@ -3,6 +3,8 @@
 
 ## 当前阶段与接续入口
 
+2026-09-09 发布任务：用户授权将已整合的本地 main 发布为 v2.6.12 并部署 vps-tokyo。按精确 main CI、Tag smoke、本地 amd64 镜像、VPS 停服备份及 global 37–41 显式迁移、健康检查和失败回滚推进；本节是发布执行授权与范围，不代表已经上线。个人绑定、Skills 开放及真实模型/通知验收不隐式启用。
+
 2026-09-09 当前任务：在本地 main 的独立 Worktree 实现 Skills 管理员开放控制。分支为 `codex/skill-access-control`，目录为同级 `infohub-light-skill-access-control`，起点 `dac81e2c`；不带入主工作区未提交修改。
 
 - 实施范围：全站统一空默认开放清单、Owner/Admin 管理目录、普通目录与调用过滤、Service 到个人 Agent 的版本化同步、UI 和 global 41 显式迁移工具；合同见 [Gateway](docs/contracts/api/openclaw-gateway.md) 与 [Agent UI](docs/contracts/ui/agent-workspace.md)。
