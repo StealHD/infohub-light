@@ -7,24 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-09-07",
-  "result": "修复服务端 OpenClaw 中转漏放行 chat.history.maxChars 导致网页认证后断开的缺陷，保留会话归属和未知参数拒绝；准备 v2.6.11。",
-  "status": "completed",
-  "task_id": "2026-09-07-openclaw-relay-history-connect",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw 认证、创建会话及网页使用的历史参数在上游实测通过。",
-    "中转回归 14 项及发布脚本 3 项定向测试通过；uv lock --check 与 git diff --check 通过。",
-    "精确提交 5b591645 的发布 preflight 16/16、main Gate（34110678199）和 Tag API smoke（34123647964）全部通过。",
-    "v2.6.11 已以本机构建的 linux/amd64 镜像部署，API/Worker、双容器健康、public revision 和 React asset 均通过；分片上传恢复后整包校验通过。",
-    "生产 relay 的连接、建会话、历史 maxChars、模型目录和上下文等 9 项真实 RPC 验证通过，模型调用为 0；用户选择自行刷新网页并点击连接，未宣称目视确认网页已连接。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "decisions",
     "phase"
@@ -409,6 +391,32 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "原开发工作区 impacted preflight 12/12 通过；8 类场景完成指令路径审阅，非浏览器实测。",
     "main 工作区 skill 格式与 8 个项目入口检查通过，未覆盖原开发工作区其他未提交改动。",
     "main 任务 snapshot preflight 12/12 通过（ui-skill-main-20260909），包含前端合同、ESLint、TypeScript、Vitest 与构建；仅集成 skill 与该任务工作记录，未推送或部署。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "observability",
+    "phase",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-09",
+  "result": "在 codex/skill-access-control 实现共享服务端 Skills 全站统一开放清单：global 41 空默认策略、Owner/Admin 目录与 revision CAS、独立 Gateway 管理连接、绑定/聊天/目录强制校验，以及成员只读页面与三视口管理流程。",
+  "status": "partial",
+  "task_id": "2026-09-09-skill-access-control",
+  "unresolved": [
+    "两次允许的 impacted preflight 分别在冻结文件增量和新增写接口观测映射处提前停止；两项均已修复并精确复验，门禁计划其余命令已逐项通过，但按完整门禁重跑上限未生成一份最终绿色 preflight 结果。"
+  ],
+  "validation": [
+    "后端定向 45 项通过；全量 Pytest 首轮执行至 91% 后发现并修正 impact-map 期望，随后失败文件 62 项及其后 159 项全部通过，覆盖完整测试集合。",
+    "前端 Vitest 136 文件/891 项、Playwright Skills 管理三视口 6 项、lint、类型、UI/E2E 合同和生产构建均通过；代码大小、观测合同、Markdown、JSON、控制面结构与 diff 检查通过。",
+    "实现基于 dac81e2c 的独立 worktree；未迁移真实数据库、重建容器、写入真实 Gateway 或发布。"
   ]
 }
 ```

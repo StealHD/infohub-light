@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
 from .agent_delegation_routes import register_agent_delegation_routes
+from .agent_skill_routes import MUTATION_OPERATION_ROUTES as AGENT_SKILL_OPERATION_ROUTES, register_agent_skill_routes
 from .actor_alert_routes import register_actor_alert_routes
 from .actorops_admin_routes import register_actorops_admin_routes
 from .actorops_retired_routes import register_actorops_retired_routes
@@ -359,6 +360,7 @@ SOURCE_META_KEYS = {
 from .information_operation_routes import MUTATION_OPERATION_ROUTES as INFORMATION_OPERATION_ROUTES
 MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     **INFORMATION_OPERATION_ROUTES,
+    **AGENT_SKILL_OPERATION_ROUTES,
     ("POST", "/api/admin/system-settings/proposals"): (
         "system_settings", "proposal_prepare",
     ),
@@ -2210,14 +2212,11 @@ def create_app(
         return ok(config_response(user))
 
     register_user_routes(app)
-
     register_catalog_list_route(app)
-
     register_storage_routes(app)
     register_system_settings_routes(app)
-
+    register_agent_skill_routes(app)
     register_secret_list_route(app)
-
     register_notification_transport_routes(app)
 
     register_apify_key_pool_routes(app)

@@ -78,15 +78,15 @@ def test_socket_uses_server_identity_not_browser_token(monkeypatch):
     observed = []
     monkeypatch.setattr('src.api.openclaw_relay_routes.AgentConnections.live',
                         lambda self, user: {'agent_id': 'ih-test', 'binding_id': 'test'})
-    async def stub(socket, owner, valid, agent, *, readonly=False):
-        observed.append((owner, bool(valid())))
+    async def stub(socket, owner, valid, agent, *, readonly=False, allowed_skill_keys, chat_ready):
+        observed.append((owner, bool(valid()), callable(allowed_skill_keys), callable(chat_ready)))
         await socket.send_json({'ready': True})
         await socket.close()
     monkeypatch.setattr('src.api.openclaw_relay_routes.relay', stub)
     with TestClient(socket_app({'id': 'a', 'workspace_id': 'w', 'role': 'owner'})) as client:
         with client.websocket_connect('/api/me/openclaw/socket', headers={'origin': 'https://testserver', 'cookie': 'horizon_session=valid'}) as ws:
             assert ws.receive_json() == {'ready': True}
-    assert observed == [('w:a', True)]
+    assert observed == [('w:a', True, True, True)]
 
 
 def test_private_configuration_not_public(monkeypatch):
@@ -104,6 +104,37 @@ def test_preview_and_current_send_params(tmp_path):
     assert request_params('sessions.preview', {'keys': ['agent:main:a']}, owner, 'main') == {'keys': ['agent:main:a']}
     params = request_params('chat.send', {'sessionKey': 'agent:main:a', 'agentId': 'main', 'message': 'hello', 'fastMode': True}, owner, 'main')
     assert params['agentId'] == 'main' and params['deliver'] is False
+
+
+@pytest.mark.anyio
+async def test_pending_skill_policy_blocks_new_send_but_keeps_abort_available(tmp_path):
+    from src.services.openclaw_relay.bridge import RelayFailure, browser_requests
+
+    owner = Ownership(tmp_path, 'alice')
+    owner.add('agent:main:owned')
+    browser = AsyncMock()
+    browser.receive_text.side_effect = [
+        json.dumps({'type': 'req', 'id': 'send', 'method': 'chat.send',
+                    'params': {'sessionKey': 'agent:main:owned', 'message': 'new work'}}),
+        RelayFailure('stop'),
+    ]
+    upstream = AsyncMock()
+    with pytest.raises(RelayFailure):
+        await browser_requests(browser, upstream, owner, 'main', {}, lambda: True,
+                               chat_ready=lambda: False)
+    upstream.send.assert_not_called()
+    assert browser.send_json.call_args.args[0]['ok'] is False
+
+    browser.reset_mock()
+    browser.receive_text.side_effect = [
+        json.dumps({'type': 'req', 'id': 'abort', 'method': 'chat.abort',
+                    'params': {'sessionKey': 'agent:main:owned', 'runId': 'run-1'}}),
+        RelayFailure('stop'),
+    ]
+    with pytest.raises(RelayFailure):
+        await browser_requests(browser, upstream, owner, 'main', {}, lambda: True,
+                               chat_ready=lambda: False)
+    upstream.send.assert_called_once()
 
 
 def test_browser_history_load_preserves_bounds_and_owner_isolation(tmp_path):

@@ -52,6 +52,7 @@
 - 来源、订阅、共享范围、Feed/单来源计划的创建、更新、启停和删除。
 - Secret 引用创建/轮换/删除、Apify 池排序/排空、通知目标创建/更新/测试/启停/归档、业务目标绑定和邮件/Telegram transport 配置/测试。
 - Agent delegation 创建、重命名、吊销、删除及每次 MCP 调用结果。
+- Skills 开放清单保存记录 `agent/skill_policy_update`，只记录结果和稳定错误码，不记录允许键、完整目录、Gateway 配置或管理凭据。
 - Job 排队/去重、计划排队、领取、资格检查、执行、持久化终态、重试、取消、失效取消、stale lease 恢复和终态；claim 前边界失败也必须留下安全事件。
 - 每个 Job 类型必须同时存在于实际 handler registry、claimable 集合和 Worker trace policy；领取/重试/终态使用整数 `counts.attempts`。claim 前系统故障不伪造 workspace、用户或 Job；lease 线程失败显式绑定其 Job 上下文。每个来源获取结果、来源头像缓存和通知投递都要带可关联的 Job/source/subscription 与 stage。
 - 存储治理计划的预演与 apply 结果使用 `category=storage`，只记录 operation、结果、稳定错误码和有界候选/处理计数；不得记录归档路径、确认短语、候选 ID、正文或 manifest。

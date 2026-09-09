@@ -104,11 +104,13 @@
         "frontend/src/features/openclaw/**",
         "frontend/src/features/agent-workspace/**",
         "frontend/e2e/production-agent-workspace.spec.ts",
+        "frontend/e2e/production-agent-skill-access.spec.ts",
         "frontend/e2e/production-agent-shortcuts.spec.ts",
         "frontend/e2e/fixtures/agent-shortcuts.ts"
       ],
       "specs": [
         "e2e/production-agent-workspace.spec.ts",
+        "e2e/production-agent-skill-access.spec.ts",
         "e2e/production-agent-shortcuts.spec.ts",
         "e2e/production-workbench.spec.ts",
         "e2e/production-admin.spec.ts"
@@ -223,6 +225,9 @@
         "src/services/secret_quota.py",
         "src/services/storage_governance.py",
         "src/services/agent_change_proposal.py",
+        "src/services/agent_skill*.py",
+        "src/services/agent_connections/**",
+        "src/services/openclaw_relay/**",
         "src/services/*notification*.py",
         "src/services/workspace_telegram_transport.py",
         "src/rsshub.py",
@@ -244,7 +249,10 @@
         "tests/test_notification_targets.py",
         "tests/test_notification_multichannel_api.py",
         "tests/test_source_resolution.py",
-        "tests/test_youtube_channel.py"
+        "tests/test_youtube_channel.py",
+        "tests/test_agent_skill*.py",
+        "tests/test_agent_connections.py",
+        "tests/test_openclaw_personal_directory.py"
       ],
       "groups": [
         "python_api_store"
@@ -409,7 +417,12 @@
         "src/mcp/__init__.py",
         "src/services/bilibili_user_search.py",
         "src/services/source_resolution.py",
+        "src/api/agent_skill_routes.py",
+        "src/services/agent_skill*.py",
+        "src/services/agent_connections/**",
+        "src/services/openclaw_relay/**",
         "frontend/src/features/openclaw/**",
+        "frontend/src/features/agent-workspace/**",
         "frontend/src/features/admin-heroui/HeroAgentsPage*",
         "scripts/remote_mcp_read_canary.py",
         "scripts/openclaw_setup_*.py",
@@ -423,6 +436,9 @@
         "tests/test_remote_mcp_diagnostics.py",
         "tests/test_bilibili_user_search.py",
         "tests/test_openclaw_skill.py",
+        "tests/test_agent_skill*.py",
+        "tests/test_agent_connections.py",
+        "tests/test_openclaw_personal_directory.py",
         "tests/test_remote_mcp_module_boundaries.py",
         "tests/test_remote_mcp_read_service.py",
         "tests/test_setup_openclaw_local.py",

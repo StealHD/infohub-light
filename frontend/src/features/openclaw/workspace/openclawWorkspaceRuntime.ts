@@ -35,6 +35,7 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
   }
   const controller: OpenClawWorkspaceController = {
     skillScope: () => refs.connection.client && refs.session.agentId ? { agentId: refs.session.agentId, generation: refs.connection.generation } : null,
+    invalidateSkills() { for (const listener of listeners) listener('skills.changed') },
     capabilities: () => Object.fromEntries(OPENCLAW_WORKSPACE_METHODS.map((method) => [method, gatewaySupportsMethod(refs.connection.hello, method)])) as ReturnType<OpenClawWorkspaceController['capabilities']>,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     async listSessions() { return projectWorkspaceSessions(await request('sessions.list', { limit: 200 })) },

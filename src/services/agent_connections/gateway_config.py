@@ -16,6 +16,7 @@ def agent_entry(manifest, root):
     agent_id = manifest['agent_id']
     return {'workspace': str(root / 'managed' / agent_id / 'workspace'),
             'agentDir': str(root / 'managed' / agent_id / 'agent'),
+            'skills': list(manifest.get('skills', [])),
             'tools': {'allow': [manifest['mcp_server'] + '__' + tool for tool in manifest['tools']],
                       'deny': list(DENIED)},
             'subagents': {'allowAgents': []}}

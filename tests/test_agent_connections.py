@@ -7,6 +7,7 @@ import pytest
 from src.storage.service_store import ServiceStore
 from src.services.secret_store import SecretStore
 from src.services.agent_connections.service import AgentConnections, BindingError
+from src.services.agent_skill_access import AgentSkillAccess, AgentSkillPolicyError
 from src.services.agent_connections.manifest import receipt, digest
 from src.services.agent_connections.gateway_config import configure, verify_config
 from scripts.migrate_agent_connections_v37 import migrate
@@ -93,6 +94,18 @@ def test_provisioning_never_adopts_existing_delegation_or_accepts_other_proof(pe
     new, _, _ = bind(connections, alice)
     assert new['agent_id'] != a['agent_id']
     assert store.authenticate_agent_delegation(token) is None
+
+
+def test_activation_rolls_back_when_prepared_skill_policy_is_stale(personal):
+    store, connections, alice, _ = personal
+    manifest = connections.prepare(alice['id'], 'http://127.0.0.1:8080/mcp')
+    _, token = connections.export(alice['id'])
+    proof = receipt(manifest, token, 'a' * 64)
+    AgentSkillAccess(store).prepare(alice['workspace_id'], expected_revision=1, allowed_skill_keys=['reader'])
+
+    with pytest.raises(AgentSkillPolicyError):
+        connections.activate(alice['id'], proof)
+    assert connections.row(alice['id'])['state'] == 'pending'
 
 
 def test_two_agent_config_denies_shared_tools_and_rejects_drift(personal, tmp_path):

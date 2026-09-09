@@ -73,7 +73,7 @@ def skills_params(params, owner, agent):
     return {'agentId': agent, **({'sessionKey': key} if key else {})}
 
 
-def skills_payload(payload):
+def skills_payload(payload, allowed_skill_keys=None):
     fields = {'skillKey', 'name', 'description', 'disabled', 'enabled', 'eligible',
               'blockedByAllowlist', 'blockedByAgentFilter', 'userInvocable', 'commandVisible', 'modelVisible'}
     rows = payload.get('skills')
@@ -82,6 +82,8 @@ def skills_payload(payload):
     skills = []
     for row in rows:
         if not isinstance(row, dict):
+            continue
+        if allowed_skill_keys is not None and row.get('skillKey') not in allowed_skill_keys:
             continue
         public = {k: v for k, v in row.items() if k in fields}
         missing = row.get('missing', {})
