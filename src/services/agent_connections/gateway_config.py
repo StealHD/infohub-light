@@ -17,7 +17,7 @@ def agent_entry(manifest, root):
     return {'workspace': str(root / 'managed' / agent_id / 'workspace'),
             'agentDir': str(root / 'managed' / agent_id / 'agent'),
             'skills': list(manifest.get('skills', [])),
-            'memorySearch': {'enabled': False},
+            'memory': {'search': {'enabled': False}},
             'tools': {'allow': [manifest['mcp_server'] + '__' + tool for tool in manifest['tools']],
                       'deny': list(DENIED)},
             'subagents': {'allowAgents': []}}
@@ -53,7 +53,7 @@ def configure(config, manifest, root):
     # Re-running may preserve denies added when another personal Agent was provisioned.
     if agent_id in agents:
         prior = copy.deepcopy(agents[agent_id])
-        prior.setdefault('memorySearch', {'enabled': False})
+        prior.setdefault('memory', {'search': {'enabled': False}})
         extra_denies = prior.get('tools', {}).get('deny', [])
         prior.setdefault('tools', {})['deny'] = list(DENIED)
         permitted = set(DENIED) | {_safe_server(name) + '__*' for name in servers if name != namespace}

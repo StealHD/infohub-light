@@ -10,6 +10,10 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-10', title: '托管接入配置兼容修复',
+  summary: '修复个人与独立分析 Agent 的记忆配置字段，兼容 OpenClaw 2026.9.2 与 2026.9.3 的原生配置校验。',
+  items: [{ title: '保留原接入并核验真实协议', description: '缺失记忆策略的旧配置可原位补齐，显式策略冲突仍停止处理；不重建身份或替换正常凭据。原生 MCP 验证同时支持旧版合并模块和新版拆分模块，不能用旧连接可用代替新接入验收。' }],
+}, {
   date: '2026-09-10', title: 'OpenClaw 聊天与自动化接入修复',
   summary: '修复个人工具协议与模型切换期间的发送冲突，独立分析纳入同一托管接入。',
   items: [{ title: '参数与失败恢复', description: '发送和重试重新核验会话模型与推理档位；不兼容时保留内容，不自动更换模型或重复调用。失败显示安全原因和恢复方向。' },

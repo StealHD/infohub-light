@@ -9,26 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "快捷菜单及操作面板采用中文名称，仅帮助显示 /help；移除 Worktree 侧栏入口及使用示例，controller 拒绝创建和重试，旧命令本地说明不可用。同步合同、手册、D213 和更新记录。",
-  "status": "completed",
-  "task_id": "chat-skill-shortcuts-retire-worktree-20260909",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 最终 26 项通过（快捷交互 16、工作区页面 5、runtime 5）；类型、UI 静态、定向 ESLint 与 diff check 通过。",
-    "浏览器确认当前侧栏已无 Worktree 按钮；5173 返回 200，未连接 Gateway 或执行真实聊天、Skill、任务。",
-    "按用户要求仅最小定向验证，未运行完整构建、批量 Playwright 或 preflight；继续当前 A 模式，未提交。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
     "ui"
   ],
   "recorded_on": "2026-09-09",
@@ -405,10 +385,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "status": "partial",
   "task_id": "openclaw-runtime-repair-20260910",
   "unresolved": [
-    "精确 main CI、发布部署及项目个人 Agent 的 Flash/Pro/单篇分析真实验收待执行；本轮尚未调用模型或发送通知。"
+    "账号专用分析身份与凭据补齐等待浏览器敏感操作确认，随后继续个人 Agent 的 Flash/Pro/单篇分析真实验收；尚未调用模型或发送通知。"
   ],
   "validation": [
-    "定向后端分析/接入/模型目录组合 36 项通过；原生协议与监督服务受控测试通过；浏览器三视口 15 项通过且进程/4174 临时服务退出；impacted preflight 16/16 通过（全域），前端 902 项通过；生产构建初始 JS Brotli 245639 bytes；差异审查、代码尺寸及控制文件检查通过。"
+    "定向后端分析/接入/模型目录组合 36 项通过；原生协议与监督服务受控测试通过；浏览器三视口 15 项通过且进程/4174 临时服务退出；impacted preflight 16/16 通过（全域），前端 902 项通过；生产构建初始 JS Brotli 245639 bytes；差异审查、代码尺寸及控制文件检查通过。",
+    "main 10e8170974bd103f95c3aa606eae3e68767d9540 CI 全通过，v2.6.16 tag 冒烟/Release/VPS 显式 global 44 迁移与切换完成；API/Worker/公网 revision 与 React asset 核验通过，同 SHA 适配器及 catalog-only 监督服务已上线，项目个人聊天握手通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-10",
+  "result": "修正个人与独立分析 Agent 的 memory.search.enabled 字段；原生 MCP 探测兼容 js/mjs 及新版生命周期模块拆分，补充实际安装包回归和操作说明。仅完成本地修复，未提交、发布或修改生产配置。",
+  "status": "completed",
+  "task_id": "openclaw-native-config-compat-20260910",
+  "unresolved": [
+    "生产仍运行既有项目版本；尚未部署本次修复或完成项目端重新接入与真实模型验收。"
+  ],
+  "validation": [
+    "定向接入、分析、清理、协议与实际安装包组合 46 项通过并正常退出；临时 MCP 服务与线程关闭，无模型或通知调用。",
+    "生产只读核实 CLI/Gateway 均为 OpenClaw 2026.9.2（3928bad），RPC 正常；生产实际安装 Schema 接受修正后个人/分析配置并拒绝旧错误字段。本机 2026.9.3 实际 Schema 与原生 MCP 初始化、目录、只读工具测试通过。",
+    "任务差异审查及 git diff --check 通过；一次 impacted preflight 因新增脚本未映射全域检查，16/16 命令通过，退出码 0，涵盖后端全域测试、前端检查及构建。"
   ]
 }
 ```

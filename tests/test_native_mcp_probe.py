@@ -6,16 +6,26 @@ import subprocess
 import pytest
 
 
-@pytest.fixture
-def package(tmp_path):
+@pytest.fixture(params=['js', 'mjs', 'split'])
+def package(tmp_path, request):
     root = tmp_path / 'openclaw'
     (root / 'dist').mkdir(parents=True)
     (root / 'package.json').write_text('{"type":"module"}')
-    (root / 'dist/mcp-transport-controlled.js').write_text('''
+    (root / f'dist/mcp-transport-controlled.{request.param}').write_text('''
 function resolveMcpTransport(name, config) { return { transportType: config.transport ?? 'sse', transport: {} } }
 async function connectMcpClient() {}
 async function disposeMcpClient() {}
 export { resolveMcpTransport as t, connectMcpClient as c, disposeMcpClient as l };
+''')
+    if request.param == 'split':
+        (root / 'dist/mcp-transport-controlled.mjs').write_text('''
+function resolveMcpTransport(name, config) { return { transportType: config.transport ?? 'sse', transport: {} } }
+export { resolveMcpTransport as t };
+''')
+        (root / 'dist/mcp-client-lifecycle-controlled.mjs').write_text('''
+async function connectMcpClient() {}
+async function disposeMcpClient() {}
+export { connectMcpClient as n, disposeMcpClient as r };
 ''')
     sdk = root / 'node_modules/@modelcontextprotocol/sdk'
     (sdk / 'dist/esm/client').mkdir(parents=True)

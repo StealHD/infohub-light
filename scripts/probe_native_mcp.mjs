@@ -11,19 +11,20 @@ async function main() {
   }
   const { packageRoot, server, config, requiredTools } = JSON.parse(input)
   const dist = join(packageRoot, 'dist')
-  const names = (await readdir(dist)).filter(name => /^mcp-transport-[\w-]+\.js$/.test(name))
-  const candidates = []
+  const names = (await readdir(dist)).filter(name => /^(mcp-transport|mcp-client-lifecycle)-[\w-]+\.m?js$/.test(name))
+  const symbols = ['resolveMcpTransport', 'connectMcpClient', 'disposeMcpClient']
+  const candidates = symbols.map(() => [])
   for (const name of names) {
     const source = await readFile(join(dist, name), 'utf8')
     const exported = source.match(/export \{[^}]+\}/g)?.join(' ') ?? ''
-    const aliases = ['resolveMcpTransport', 'connectMcpClient', 'disposeMcpClient'].map(
-      symbol => exported.match(new RegExp(`\\b${symbol} as (\\w+)\\b`))?.[1])
-    if (aliases.every(Boolean)) candidates.push({ name, aliases })
+    symbols.forEach((symbol, index) => {
+      const alias = exported.match(new RegExp(`\\b${symbol} as (\\w+)\\b`))?.[1]
+      if (alias) candidates[index].push({ name, alias })
+    })
   }
-  if (candidates.length !== 1) throw new Error('Unsupported native module layout')
-  const { name, aliases } = candidates[0]
-  const module = await import(pathToFileURL(join(dist, name)).href)
-  const [resolve, connect, dispose] = aliases.map(alias => module[alias])
+  if (candidates.some(matches => matches.length !== 1)) throw new Error('Unsupported native module layout')
+  const [resolve, connect, dispose] = await Promise.all(candidates.map(async ([{ name, alias }]) =>
+    (await import(pathToFileURL(join(dist, name)).href))[alias]))
   const { Client } = await import(pathToFileURL(join(packageRoot,
     'node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js')).href)
   const resolved = resolve(server, config)
