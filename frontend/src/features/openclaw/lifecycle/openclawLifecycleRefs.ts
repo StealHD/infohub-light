@@ -19,6 +19,7 @@ export type OpenClawLifecycleRefs = {
     hello: GatewayHello | null
   }
   session: {
+    operation?: symbol
     agentId: string | null
     sessionKey: string | null
     thinkingLevel: string | null

@@ -91,7 +91,7 @@ it('polls a semantic preview without enabling the rule', async () => {
 
 it('explains missing connector metadata and enables model selection after refresh', async () => {
   const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
-  expect(await screen.findByText(/尚未收到独立分析 connector/)).toBeVisible()
+  expect(await screen.findByText(/自动化分析尚未配置，由管理员修复接入/)).toBeVisible()
   expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
   api.informationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] })
   await user.click(screen.getByRole('button', { name: '刷新模型目录' }))

@@ -8,9 +8,10 @@ import type { OpenClawChatController } from '../openclaw/openclawContracts'
 import { DisconnectAgent } from './DisconnectAgent'
 import { MemberAccess } from './MemberAccess'
 import { cleanupLabel } from './cleanupLabel'
+import { AgentCapabilityStatus } from './AgentCapabilityStatus'
 
 const phases: Record<string, string> = { checking: '正在检查环境', preparing: '正在准备个人接入',
-  configuring: '正在配置 OpenClaw', verifying: '正在验证连接与数据授权' }
+  configuring: '正在配置 OpenClaw', verifying: '正在验证连接与数据授权', analysis: '正在配置独立分析服务' }
 
 export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatController }) {
   const { api, userId } = useAgentConnectionContext()
@@ -23,10 +24,10 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
   const state = query.data
   const own = request?.userId === userId ? request : null
   const busy = own?.pending || state?.setup?.state === 'running'
-  const canSetup = state?.can_manage_setup && (!state.cleanup || state.cleanup.phase === 'complete') && ['unconfigured', 'pending_verification', 'revoked'].includes(state.state)
+  const canSetup = state?.can_manage_setup && (!state.cleanup || state.cleanup.phase === 'complete') && ['unconfigured', 'pending_verification', 'revoked', 'ready'].includes(state.state)
   const error = own?.error || (state?.setup?.state === 'failed' ? state.setup.error : null)
   const label = busy ? own?.label || '接入 Agent'
-    : state?.state === 'revoked' ? '重新接入' : state?.setup?.state === 'failed' || state?.state === 'pending_verification' ? '重试接入' : '接入 Agent'
+    : state?.state === 'ready' ? '修复接入' : state?.state === 'revoked' ? '重新接入' : state?.setup?.state === 'failed' || state?.state === 'pending_verification' ? '重试接入' : '接入 Agent'
 
   async function setup() {
     const owner = userId
@@ -53,6 +54,7 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
           : state?.can_request ? '申请管理员批准后，系统将配置你的个人 Agent，无需填写连接信息。'
             : state ? '请管理员为当前账号完成个人接入。' : '正在读取接入状态…'}</Card.Description>
     {!chat && state && !state.can_manage_setup && <MemberAccess state={state} refresh={() => query.refetch()} />}
+    {state && <AgentCapabilityStatus state={state} connected={chat?.status === 'connected'} />}
     {busy && <p className="type-meta mt-3 text-muted" role="status">可以离开页面，返回后查看同一次接入进度。</p>}
     {error && <p role="alert" className="type-body mt-3">{error}</p>}
     {query.isError && <p role="alert" className="type-body mt-3">接入状态读取失败，请刷新后重试。</p>}

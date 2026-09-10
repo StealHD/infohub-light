@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from .batches import SYSTEM, output_schema
 from .completion_errors import completion_error
+from . import completion_guard
 import time
 
 
@@ -61,7 +62,13 @@ class InformationConnector:
         self.journal.unlink()
         return {'status': 'result_recorded', 'accepted': result.get('accepted', False), 'retry_after': 0}
 
-    def run_once(self):
+    def run_once(self, *, catalog_only=False):
+        if catalog_only:
+            if not self.discover_models:
+                raise ValueError('Model discovery required for catalog-only operation')
+            self.service('capabilities', {'protocol_version': 2, 'catalog_only': True, 'models': self.discover_models()})
+            self.catalog_at = time.monotonic()
+            return {'status': 'catalog_synced', 'retry_after': 30}
         pending = self.flush()
         if pending is not None:
             return pending
@@ -69,6 +76,8 @@ class InformationConnector:
             models = self.discover_models()
             self.service('capabilities', {'protocol_version': 2, 'models': models})
             self.catalog_at = time.monotonic()
+        if completion_guard.uncertain(self.journal):
+            return {'status': 'inference_unconfirmed', 'retry_after': 30}
         claim = self.service('claim', {'isolated_completion': True, 'protocol_version': 2})
         task = claim.get('task')
         if not task:
@@ -76,6 +85,7 @@ class InformationConnector:
         try:
             if self.agent_id != 'ic-' + task['agent_id'].removeprefix('ih-'):
                 raise ValueError('Connector Agent binding mismatch')
+            completion_guard.record(self.journal, task['claim_id'], self.agent_id, 'inflight')
             response = self.client.post(self.gateway_url + '/tools/invoke',
                 headers={'Authorization': 'Bearer ' + self.gateway_token}, json={
                     'tool': 'llm-task', 'action': 'json', 'agentId': self.agent_id, 'sessionKey': 'agent:' + self.agent_id + ':information-analysis',
@@ -84,6 +94,7 @@ class InformationConnector:
                     'input': {'requirement': task['requirement'], 'stage': task['stage'], 'units': task['input']},
                     'schema': output_schema(task['requirement'], task['stage']), 'maxTokens': 4096, 'timeoutMs': 60000}})
             response.raise_for_status()
+            completion_guard.record(self.journal, task['claim_id'], self.agent_id, 'finished')
             raw = response.json()
             details = raw['result']['details']
             actual = details.get('model', '')
@@ -92,6 +103,8 @@ class InformationConnector:
             if not raw.get('ok') or not isinstance(result, dict):
                 raise ValueError('Invalid isolated completion')
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            if isinstance(error, httpx.HTTPStatusError) and 400 <= error.response.status_code < 500:
+                completion_guard.record(self.journal, task['claim_id'], self.agent_id, 'finished')
             result = {'error': completion_error(error)}
         self.persist({'claim_id': task['claim_id'], 'body': {'claim_token': task['claim_token'], 'result': result}})
         return self.flush()

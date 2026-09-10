@@ -8,6 +8,7 @@ from .identity import connect_params
 from .ownership import Ownership
 from .policy import request_params, response_payload, visible_event
 from .settings import SCOPES, settings
+from .errors import safe_error, safe_chat_failure
 
 MAX_FRAME = 2 * 1024 * 1024
 
@@ -88,10 +89,11 @@ async def gateway_events(browser, upstream, owner, agent, pending, valid_session
                     allowed_skill_keys=allowed_skill_keys() if method == 'skills.status' else None,
                 )
             else:
-                frame = error_reply(frame.get('id'), 'OpenClaw 未能完成请求，请重试或联系管理员。')
+                frame = {'type': 'res', 'id': frame.get('id'), 'ok': False,
+                         'error': safe_error(frame.get('error'))}
             await browser.send_json(frame)
         elif visible_event(frame, owner):
-            await browser.send_json(frame)
+            await browser.send_json(safe_chat_failure(frame))
     raise RelayFailure('OpenClaw disconnected')
 
 

@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--deployment', required=True)
     parser.add_argument('--source-ip', required=True)
     parser.add_argument('--mcp-url', required=True)
+    parser.add_argument('--openclaw-package', required=True)
     args = parser.parse_args()
     from urllib.parse import urlsplit
     url = urlsplit(args.mcp_url)
@@ -27,6 +28,9 @@ def main():
     for path in (root, deployment):
         if not path.is_absolute() or path.resolve() != path or not path.is_dir():
             raise ValueError('Expected existing canonical directories')
+    package = Path(args.openclaw_package)
+    if not package.is_absolute() or package.resolve() != package or not (package / 'openclaw.mjs').is_file():
+        raise ValueError('Expected installed OpenClaw package')
     public = sys.stdin.read(8193).strip()
     if not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]+(?: [A-Za-z0-9_-]+)?', public):
         raise ValueError('Expected dedicated public key')
@@ -49,6 +53,8 @@ def main():
         'HORIZON_OPENCLAW_SERVER_TOKEN': token,
         'HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN': token,
         'INTELISCOPE_MANAGED_MCP_URL': args.mcp_url,
+        'INTELISCOPE_OPENCLAW_PACKAGE': str(package),
+        'INTELISCOPE_ANALYSIS_CATALOG_ONLY': 'true',
     })
     ssh = Path.home() / '.ssh'
     if ssh.is_symlink():

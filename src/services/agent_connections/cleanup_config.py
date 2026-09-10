@@ -5,11 +5,12 @@ import uuid
 from .managed_host import ManagedSetupError
 
 
-def remove_config(root, before, manifest):
+def remove_config(root, before, manifest, *, agent_only=False):
     path = root / 'openclaw.json'
     config = json.loads(before)
     config.get('agents', {}).get('entries', {}).pop(manifest['agent_id'], None)
-    config.get('mcp', {}).get('servers', {}).pop(manifest['mcp_server'], None)
+    if not agent_only:
+        config.get('mcp', {}).get('servers', {}).pop(manifest['mcp_server'], None)
     temporary = root / ('.inteliscope-remove-' + uuid.uuid4().hex)
     try:
         fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)

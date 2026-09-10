@@ -27,9 +27,9 @@ class RemovalHost(Host, CleanupHost):
 
 
 def validate_request(payload, mcp_url):
-    if not isinstance(payload, dict) or payload.get('action') not in {'install', 'remove'}:
+    if not isinstance(payload, dict) or payload.get('action') not in {'install', 'install_analysis', 'remove'}:
         raise ValueError('Invalid action')
-    fields = {'action', 'manifest'} | ({'token'} if payload['action'] == 'install' else set())
+    fields = {'action', 'manifest'} | ({'token'} if payload['action'] != 'remove' else set())
     if set(payload) != fields:
         raise ValueError('Invalid fields')
     manifest = validate_manifest(payload['manifest'])
@@ -41,6 +41,9 @@ def validate_request(payload, mcp_url):
         token = SecretStore.validate_value(payload['token'])
         if hashlib.sha256(token.encode()).hexdigest() != manifest['token_sha256']:
             raise ValueError('Credential mismatch')
+    if payload['action'] == 'install_analysis':
+        from .analysis_manifest import validate_token
+        validate_token(manifest, payload['token'])
     return manifest
 
 
@@ -58,17 +61,21 @@ async def execute(payload, context, emit):
             return {'ready': True}
         return await host.gateway._session(check)
     manifest = validate_request(payload, os.environ['INTELISCOPE_MANAGED_MCP_URL'])
-    host = Host(context) if payload['action'] == 'install' else RemovalHost(context)
+    host = RemovalHost(context) if payload['action'] == 'remove' else Host(context)
     with host_lock(host.root):
         journal = host.root / 'inteliscope-revoked'
         if journal.is_symlink():
             raise ValueError('Unsafe journal')
         journal.mkdir(mode=0o700, exist_ok=True)
         tombstone = journal / manifest['binding_id']
-        if payload['action'] == 'install':
+        if payload['action'] in {'install', 'install_analysis'}:
             if tombstone.exists():
                 raise ValueError('Revoked identity cannot be reinstalled')
+            if payload['action'] == 'install_analysis':
+                return await host.install_analysis(manifest, payload['token'])
             installed = await host.install(manifest, payload['token'])
+            from .native_mcp_probe import check as check_native
+            await check_native(host.root, manifest, payload['token'])
             await check_mcp(manifest, payload['token'])
             return receipt(manifest, payload['token'], digest(installed))
         # Persist the fence before side effects; retries never resurrect the identity.

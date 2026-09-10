@@ -82,6 +82,10 @@ def test_cleanup_fences_reinstall_and_resumes_same_manifest(tmp_path, monkeypatc
     async def check(*args):
         calls.append('mcp')
     monkeypatch.setattr(host_command, 'check_mcp', check)
+    from src.services.agent_connections import native_mcp_probe
+    async def check_native(*args):
+        calls.append('native')
+    monkeypatch.setattr(native_mcp_probe, 'check', check_native)
     install = {'action': 'install', 'manifest': manifest, 'token': 'test-token'}
     remove = {'action': 'remove', 'manifest': manifest}
     run = lambda value: asyncio.run(host_command.execute(value, None, lambda _: None))
@@ -92,7 +96,7 @@ def test_cleanup_fences_reinstall_and_resumes_same_manifest(tmp_path, monkeypatc
         run(install)
     with pytest.raises(ValueError, match='changed'):
         run({**remove, 'manifest': {**manifest, 'user_id': 'another'}})
-    assert calls == ['install', 'mcp', 'remove', 'remove']
+    assert calls == ['install', 'native', 'mcp', 'remove', 'remove']
 
 
 def test_process_progress_exit_status_and_redaction():
@@ -141,13 +145,14 @@ def test_installer_preserves_operator_keys_and_refuses_overwrite(tmp_path, monke
     root.mkdir()
     deployment.mkdir()
     (root / 'openclaw.json').write_text(json.dumps({'gateway': {'auth': {'token': 'fixture-token'}}}))
+    (root / 'openclaw.mjs').write_text('// controlled installation')
     ssh = tmp_path / '.ssh'
     ssh.mkdir()
     authorized = ssh / 'authorized_keys'
     authorized.write_text('# existing operator key stays\n')
     monkeypatch.setattr(Path, 'home', classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(sys, 'argv', ['install', '--root', str(root), '--deployment', str(deployment),
-                                    '--source-ip', '192.0.2.1', '--mcp-url', 'https://service.example/mcp'])
+                                    '--source-ip', '192.0.2.1', '--mcp-url', 'https://service.example/mcp', '--openclaw-package', str(root)])
     monkeypatch.setattr(sys, 'stdin', io.StringIO('ssh-ed25519 AAAAtest dedicated'))
     installer.main()
     result = authorized.read_text()

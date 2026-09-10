@@ -85,6 +85,10 @@ def backup(root):
 
 
 class ManagedHost:
+    async def install_analysis(self, manifest, token):
+        from .analysis_host import install
+        return await install(self, manifest, token)
+
     def __init__(self, context):
         self.root = local_root(context.remote_mcp_settings.public_url)
         self.gateway = AgentSkillGateway(context.secret_values, context.store.data_dir)

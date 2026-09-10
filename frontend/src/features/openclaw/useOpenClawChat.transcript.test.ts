@@ -178,7 +178,7 @@ describe('useOpenClawChat', () => {
     let sendCalls = 0
     const sendResult = new Promise<{ runId: string }>((resolve) => { resolveSend = resolve })
     const lateSendResult = new Promise<{ runId: string }>((resolve) => { resolveLateSend = resolve })
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
       if (method === 'tools.effective') return { groups: [] }
       if (method === 'chat.history') {
         historyCalls += 1
@@ -188,7 +188,7 @@ describe('useOpenClawChat', () => {
       }
       if (method === 'models.list') return models
       if (method === 'agents.list') return agents
-      if (method === 'sessions.describe') return session
+      if (method === 'sessions.describe') return { session: { ...session.session, key: params?.key } }
       if (method === 'chat.send') {
         sendCalls += 1
         return sendCalls === 1 ? sendResult : lateSendResult
@@ -297,12 +297,12 @@ describe('useOpenClawChat', () => {
     const imageModels = {
       models: [{ ...models.models[0], input: ['text', 'image'] }],
     }
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
       if (method === 'tools.effective') return { groups: [] }
       if (method === 'chat.history') return { messages: [] }
       if (method === 'models.list') return imageModels
       if (method === 'agents.list') return agents
-      if (method === 'sessions.describe') return session
+      if (method === 'sessions.describe') return { session: { ...session.session, key: params?.key } }
       if (method === 'chat.send') return { runId: 'run-image' }
       throw new Error(`unexpected method ${method}`)
     })

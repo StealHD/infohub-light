@@ -1,5 +1,13 @@
 # 个人信息提醒
 
+## 托管分析与目录恢复
+
+独立分析由同一 Agent 接入流程安装，每个有效绑定独立身份和机器凭据，共用一个受监督主机进程，仅允许 llm-task，无 MCP、Skills、主机工具或通知工具。模型目录是目标 Agent 配置与主机明确许可的交集，已有禁止策略不可覆盖。部署默认 catalog-only：仅同步目录，不领取积压、不提交旧结果、不调用模型。检查积压和通知风险后才由部署者显式开启领取。
+
+能力上报兼容 protocol_version=2，新增可选 `catalog_only`（缺省 false）。目录 status 保留 ready/stale/unavailable；新增 reason=not_configured/offline/catalog_stale/no_authorized_models 或 null，recovery_action=repair_connection/check_service/refresh_catalog/review_models 或 null。新鲜目录要求同代启用凭据且目录与心跳均不超过 300 秒；刷新不存在的目录返回 requested=false，不冒充配置成功。模型元数据不授予配置或模型权限。
+
+安装阶段见 [Gateway global 44](openclaw-gateway.md)。服务重启仅恢复登记且未撤销的绑定；单绑定执行锁和持久结果日志防止重叠推理。HTTP 完成状态未知时保留独立标记，停止后续领取，由管理员核对真实结束证据；不自动重放推理。撤销先吊销机器授权并隔离在途结果，再同步清理主机配置，不能以本站吊销代替主机停止证明。
+
 ## 当前实现与待验收边界
 
 Automations 配置 v2 统一使用完整自然语言要求，关键词、语义、排除要求同时参与模型判断。触发与模型配置、批次分析及 global 40 为本地实现；不代表运行库已迁移、connector 已升级或真实通知已验收。

@@ -1,6 +1,7 @@
 """Actual API/MCP handlers and WebSocket relay against a deterministic Gateway."""
 import asyncio
 import json
+import threading
 from types import SimpleNamespace
 import httpx
 import pytest
@@ -196,6 +197,13 @@ async def test_revocation_discards_late_upstream_frames(tmp_path):
 def test_connection_revoke_endpoint_is_owned_and_switches_affect_status(site, monkeypatch):
     app, store, connections, alice, bob, a, b, _, _, _ = site
     cookie = {'cookie': 'horizon_session=' + store.create_session(alice['id'])}
+    started = []
+    original_start = threading.Thread.start
+    def track_start(thread):
+        if thread.name == 'agent-cleanup':
+            started.append(thread)
+        original_start(thread)
+    monkeypatch.setattr(threading.Thread, 'start', track_start)
     with TestClient(app) as client:
         monkeypatch.setenv('HORIZON_OPENCLAW_SERVER_ENABLED', 'false')
         status = client.get('/api/me/agent-connection', headers=cookie).json()['data']
@@ -204,3 +212,7 @@ def test_connection_revoke_endpoint_is_owned_and_switches_affect_status(site, mo
         assert response.status_code == 200 and response.headers['cache-control'] == 'no-store'
         assert response.json()['data']['state'] == 'revoked'
         assert connections.live(alice) is None and connections.live(bob)
+        for thread in started:
+            thread.join(timeout=5)
+            assert not thread.is_alive(), 'Cleanup must exit before the test store closes'
+        assert len(started) == 1

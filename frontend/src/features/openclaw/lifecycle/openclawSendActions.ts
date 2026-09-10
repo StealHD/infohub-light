@@ -15,6 +15,8 @@ import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawCha
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { OpenClawSkillValidationError } from '../chat/openclawSkillSelection'
 import { validateOpenClawSkill } from './validateOpenClawSkill'
+import { readOpenClawRuntime } from './openclawSessionOperations'
+import { acquireRuntime, RuntimeSelectionError, validateSendSelection } from './openclawRuntimeGuard'
 
 type TranscriptPort = {
   persist(update: OpenClawChatMessage[] | ((current: OpenClawChatMessage[]) => OpenClawChatMessage[])): OpenClawChatMessage[]
@@ -77,6 +79,8 @@ export function useOpenClawSendActions(input: {
     const generation = input.refs.connection.generation
     const currentScope = () => input.refs.connection.client === client && input.refs.connection.generation === generation && input.refs.session.sessionKey === sessionKey && input.refs.session.agentId === agentId
     if (!client || !sessionKey || !agentId || !snapshot.gatewayPrompt.trim() || input.refs.run.runId || input.refs.run.pendingSend) return false
+    const release = acquireRuntime(input.refs)
+    if (!release) return false
     const sendAttempt = ++input.refs.run.sendAttempt
     input.refs.run.terminalSendAttempts.delete(sendAttempt)
     input.beginRunTrace(snapshot.contextCount ?? snapshot.contextItems.length)
@@ -85,6 +89,9 @@ export function useOpenClawSendActions(input: {
     input.refs.run.streamCreatedAt = null
     input.dispatch({ type: 'patch', value: { streamText: '', streamCreatedAt: null, issue: null, sending: true } })
     try {
+      const projection = await readOpenClawRuntime(client, sessionKey, agentId, true)
+      if (!currentScope()) return false
+      const thinking = validateSendSelection(snapshot, projection)
       if (snapshot.selectedSkill) {
         await validateOpenClawSkill(input.refs, snapshot, input.state.gatewayUrl)
       }
@@ -92,7 +99,7 @@ export function useOpenClawSendActions(input: {
       const result = await client.request<{ runId?: string }>('chat.send', {
         sessionKey, agentId, message: snapshot.gatewayPrompt, deliver: false,
         idempotencyKey: snapshot.idempotencyKey,
-        ...(snapshot.thinkingLevel ? { thinking: snapshot.thinkingLevel } : {}),
+        ...(thinking ? { thinking } : {}),
         ...(typeof snapshot.fastMode === 'boolean' ? { fastMode: snapshot.fastMode } : {}),
         ...(snapshot.attachments?.length ? { attachments: snapshot.attachments.map((attachment) => ({
           type: 'image', mimeType: attachment.mimeType, fileName: attachment.fileName, content: attachment.content,
@@ -123,16 +130,17 @@ export function useOpenClawSendActions(input: {
       input.refs.run.pendingSend = false
       input.refs.run.runId = null
       input.dispatch({ type: 'patch', value: { runId: null, issue: error instanceof OpenClawSkillValidationError
-        ? { kind: 'unknown', message: '无法确认本次 Skill 仍可调用。草稿已保留，请移除 Skill 或重试。' } : setupIssue(error) } })
+        ? { kind: 'unknown', message: '无法确认本次 Skill 仍可调用。草稿已保留，请移除 Skill 或重试。' } : error instanceof RuntimeSelectionError ? { kind: 'unknown', message: error.message } : setupIssue(error) } })
       input.finishRunTrace('failed', failedRunId)
       return false
     } finally {
+      release()
       if (currentScope() && sendAttempt === input.refs.run.sendAttempt) input.dispatch({ type: 'patch', value: { sending: false } })
     }
   }, [input])
 
   const send = useCallback(async (request: OpenClawSendRequest): Promise<boolean> => {
-    if (input.refs.run.runId || input.refs.run.pendingSend || input.state.sending) return false
+    if (input.refs.session.operation || input.state.runtimeLoading || input.state.runtimeUpdating || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending) return false
     const prepared = prepareOpenClawSend(request, input.state)
     if (!prepared) return false
     const { snapshot, message } = prepared
@@ -142,13 +150,12 @@ export function useOpenClawSendActions(input: {
 
   const retry = useCallback(async (messageId: string): Promise<boolean> => {
     const message = input.refs.transcript.messages.find((candidate) => candidate.id === messageId)
-    if (message?.status !== 'failed' || !message.sendSnapshot || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending) return false
+    if (message?.status !== 'failed' || !message.sendSnapshot || input.refs.session.operation || input.state.runtimeLoading || input.state.runtimeUpdating || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending) return false
     input.transcript.persist((current) => current.map((candidate) => candidate.id === messageId ? { ...candidate, status: 'pending' } : candidate))
     if (message.sendSnapshot.modelId && message.sendSnapshot.modelId !== input.state.runtimeSelection.modelId) {
-      if (!await input.setModel(message.sendSnapshot.modelId)) {
-        input.transcript.persist((current) => current.map((candidate) => candidate.id === messageId ? { ...candidate, status: 'failed' } : candidate))
-        return false
-      }
+      input.transcript.persist((current) => current.map((candidate) => candidate.id === messageId ? { ...candidate, status: 'failed' } : candidate))
+      input.dispatch({ type: 'patch', value: { issue: { kind: 'unknown', message: '原请求模型与当前选择不同。请编辑失败消息后重新发送。' } } })
+      return false
     }
     return submit(message.sendSnapshot, messageId)
   }, [input, submit])

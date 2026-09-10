@@ -10,6 +10,7 @@ export type AgentAccessRequest = {
 }
 
 export type AgentConnection = {
+  analysis?: { phase: string; error?: string | null; reason?: string | null }
   state: 'migration_required' | 'unconfigured' | 'pending_verification' | 'ready' | 'invalid' | 'revoked'
   agent_id?: string | null
   can_connect: boolean

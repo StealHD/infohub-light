@@ -16,15 +16,19 @@ class AvailableModel(BaseModel):
 class Capabilities(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     protocol_version: int = Field(ge=2, le=2)
+    catalog_only: bool = False
     models: list[AvailableModel] = Field(max_length=500)
 
 
-def sync_catalog(store, machine, capabilities, now=None):
+def sync_catalog(store, machine, capabilities, now=None, *, runtime_verified=True):
     now = now or datetime.now(timezone.utc)
     models = capabilities.models
     if len({model.id for model in models}) != len(models):
         raise RuleError('invalid_model_catalog', '模型目录包含重复项。', 400)
     with transaction(store) as conn:
+        current = conn.execute('SELECT enabled,generation FROM information_connectors WHERE binding_id=?', (machine['binding_id'],)).fetchone()
+        if not current or not current['enabled'] or current['generation'] != machine['generation']:
+            raise RuleError('connector_revoked', '分析服务授权已变化。', 403)
         encoded = json.dumps([model.model_dump() for model in models])
         previous = conn.execute('SELECT generation,models_json FROM information_model_catalog WHERE binding_id=?',(machine['binding_id'],)).fetchone()
         changed = not previous or previous['generation'] != machine['generation'] or previous['models_json'] != encoded
@@ -32,19 +36,29 @@ def sync_catalog(store, machine, capabilities, now=None):
             ON CONFLICT(binding_id) DO UPDATE SET generation=excluded.generation,models_json=excluded.models_json,
             updated_at=excluded.updated_at,refresh_requested=0''',
             (machine['binding_id'], machine['generation'], encoded, now.isoformat()))
-        conn.execute('UPDATE information_connectors SET verified_at=?,last_seen=? WHERE binding_id=?',
-                     (now.isoformat(), now.isoformat(), machine['binding_id']))
+        if runtime_verified:
+            conn.execute('UPDATE information_connectors SET verified_at=?,last_seen=? WHERE binding_id=?',
+                         (now.isoformat(), now.isoformat(), machine['binding_id']))
+            from ...storage.agent_analysis_schema import ready
+            if ready(conn):
+                conn.execute("UPDATE agent_analysis SET phase=?,error=NULL,updated_at=? WHERE binding_id=? AND phase IN ('configuring','catalog_ready','catalog_only','ready','no_authorized_models','failed')",
+                             ('no_authorized_models' if not models else 'catalog_only' if capabilities.catalog_only else 'ready', now.isoformat(), machine['binding_id']))
     return {'accepted': True, 'changed': bool(changed)}
 
 
 def catalog(store, binding_id, now=None):
     now = now or datetime.now(timezone.utc)
-    row = store.connect().execute('''SELECT m.*,c.enabled,c.generation AS current_generation FROM information_model_catalog m
+    row = store.connect().execute('''SELECT m.*,c.enabled,c.last_seen,c.generation AS current_generation FROM information_model_catalog m
         JOIN information_connectors c USING(binding_id) WHERE binding_id=?''', (binding_id,)).fetchone()
     valid = row and row['enabled'] and row['generation'] == row['current_generation']
-    fresh = valid and 0 <= (now - datetime.fromisoformat(row['updated_at'])).total_seconds() <= 300
-    return {'models': [model for model in json.loads(row['models_json']) if model['id'] not in json.loads(row['blocked_models_json'])] if valid else [], 'updated_at': row['updated_at'] if valid else None,
-            'status': 'ready' if fresh else 'stale' if valid else 'unavailable'}
+    online = valid and row['last_seen'] and 0 <= (now - datetime.fromisoformat(row['last_seen'])).total_seconds() <= 300
+    fresh = online and 0 <= (now - datetime.fromisoformat(row['updated_at'])).total_seconds() <= 300
+    models = [model for model in json.loads(row['models_json']) if model['id'] not in json.loads(row['blocked_models_json'])] if valid else []
+    reason = 'not_configured' if not row else 'offline' if not online else 'catalog_stale' if not fresh else 'no_authorized_models' if not models else None
+    return {'models': models, 'updated_at': row['updated_at'] if valid else None,
+            'status': 'ready' if fresh else 'stale' if valid else 'unavailable', 'reason': reason,
+            'recovery_action': {'not_configured': 'repair_connection', 'offline': 'check_service',
+                                'catalog_stale': 'refresh_catalog', 'no_authorized_models': 'review_models'}.get(reason)}
 
 
 def require_model(store, binding_id, selection, now=None):

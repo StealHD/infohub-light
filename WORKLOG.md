@@ -13,27 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-09",
-  "result": "将自动化模型选择直接显示在编辑表单，并新增归档任务恢复为未确认草稿的真实前后端状态流转；恢复保留配置与历史且不自动启用或发送，同步 API/UI 合同、D214、手册和更新记录。",
-  "status": "completed",
-  "task_id": "automation-direct-model-restore-20260909",
-  "unresolved": [],
-  "validation": [
-    "后端归档恢复规则与 HTTP 定向测试 2 项通过；恢复清除旧确认并拒绝非归档重复恢复。",
-    "自动化确认卡 Vitest 7 项及 TypeScript 检查通过；同时修复测试按钮快速双击的单次提交互斥。",
-    "本地 A 模式页面确认分析模型无需展开、归档任务显示恢复入口；未执行真实恢复、模型或通知。API、Worker 与 5173 前端 ready。",
-    "按用户要求对连续小 UI 优化采用最小定向验证，本轮未重复完整构建、三视口 Playwright 或 impacted preflight，待本轮 UI 调整收敛后统一执行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
   "result": "快捷菜单及操作面板采用中文名称，仅帮助显示 /help；移除 Worktree 侧栏入口及使用示例，controller 拒绝创建和重试，旧命令本地说明不可用。同步合同、手册、D213 和更新记录。",
   "status": "completed",
   "task_id": "chat-skill-shortcuts-retire-worktree-20260909",
@@ -409,6 +388,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Impacted preflight 16/16 正常退出；后续阶段确认保护的定向 SSH/接入/清理测试 22 项及审批/清理 16 项通过。",
     "真实 Tokyo 到既有 OpenClaw 受限 SSH 握手通过，任意命令拒绝；目标专用配置实际加载、本人 MCP 与签名回执核验通过，未调用模型或发送通知。",
     "保留当前/上一版回滚与迁移 42/43 备份；SHA256 与逐字节确认后清理两份重复备份，六份旧数据库压缩校验保留，恢复映射已记录于 VPS。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "实现个人 MCP 明确协议与原生探测、模型操作互斥及发送快照复验、安全错误分类、global 44 托管分析安装/目录/监督服务/撤销边界；同页管理员修复旧绑定，保留账号、历史和正常凭据。",
+  "status": "partial",
+  "task_id": "openclaw-runtime-repair-20260910",
+  "unresolved": [
+    "精确 main CI、发布部署及项目个人 Agent 的 Flash/Pro/单篇分析真实验收待执行；本轮尚未调用模型或发送通知。"
+  ],
+  "validation": [
+    "定向后端分析/接入/模型目录组合 36 项通过；原生协议与监督服务受控测试通过；浏览器三视口 15 项通过且进程/4174 临时服务退出；impacted preflight 16/16 通过（全域），前端 902 项通过；生产构建初始 JS Brotli 245639 bytes；差异审查、代码尺寸及控制文件检查通过。"
   ]
 }
 ```

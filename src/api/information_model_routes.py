@@ -23,8 +23,8 @@ async def refresh_models(response: Response,user=Depends(current_user),context: 
         rules=service(response,context)
         binding=rules.binding(rules.actor(user['id'],write=True))
         with transaction(context.store) as conn:
-            conn.execute("UPDATE information_model_catalog SET refresh_requested=1,blocked_models_json='[]' WHERE binding_id=?",(binding['binding_id'],))
-        return {'requested':True,**catalog(context.store,binding['binding_id'])}
+            changed = conn.execute("UPDATE information_model_catalog SET refresh_requested=1,blocked_models_json='[]' WHERE binding_id=?",(binding['binding_id'],)).rowcount
+        return {'requested': bool(changed), **catalog(context.store,binding['binding_id'])}
     return invoke(operation)
 
 

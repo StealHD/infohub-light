@@ -10,6 +10,11 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-10', title: 'OpenClaw 聊天与自动化接入修复',
+  summary: '修复个人工具协议与模型切换期间的发送冲突，独立分析纳入同一托管接入。',
+  items: [{ title: '参数与失败恢复', description: '发送和重试重新核验会话模型与推理档位；不兼容时保留内容，不自动更换模型或重复调用。失败显示安全原因和恢复方向。' },
+    { title: '分析服务与目录状态', description: '管理员可修复现有接入，补齐独立分析配置与模型目录；目录缺失、离线和过期分别提示，刷新不冒充配置成功。撤销同步关闭分析授权并清理专属配置，未知运行状态保留待清理。' }],
+}, {
   date: '2026-09-10', title: '远端 OpenClaw 自动接入',
   summary: '支持项目与 OpenClaw 分处不同服务器，成员仍在同一入口申请和连接。',
   items: [{ title: '受限配置与同步清理', description: '服务端通过专用受限连接配置个人 Agent，验证真实加载和本人数据访问后才开放聊天；撤销同步清理远端专属授权，旧身份不能重新安装。无需用户下载文件或创建令牌。' }],

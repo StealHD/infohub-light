@@ -218,6 +218,7 @@ describe('useOpenClawChat', () => {
     expect(result.current.streamText).toBe('')
     expect(result.current.messages.at(-1)).toMatchObject({ role: 'assistant', text: '流式回复继续', status: 'aborted' })
     expect(result.current.runTrace).toMatchObject({ status: 'aborted', phase: 'aborted' })
+    await waitFor(() => expect(result.current.runtimeLoading).toBe(false))
 
     await act(async () => {
       await result.current.send({ displayText: '第二个问题', gatewayPrompt: 'second gateway prompt', contextItems: [] })
@@ -343,6 +344,8 @@ describe('useOpenClawChat', () => {
       if (method === 'sessions.describe') return params?.key === 'session-deep'
         ? {
             session: {
+              key: 'session-deep',
+              agentId: 'main',
               modelProvider: 'openai',
               model: 'deep',
               thinkingLevels: agents.agents[0].thinkingLevels,

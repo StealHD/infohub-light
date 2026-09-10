@@ -55,6 +55,8 @@ export function AccessRequestRow({ row, refresh }: { row: AgentAccessRequest; re
         <StableAsyncButton pending={pending} pendingContent="处理中" onPress={() => act('retry')}>
           {row.phase === 'waiting' ? '继续核验' : '重试配置'}</StableAsyncButton>}
       {row.binding_id && ['approved', 'ready'].includes(row.state) && <RevokeAccess row={row} refresh={refresh} />}
+      {row.state === 'ready' && !row.cleanup && <StableAsyncButton variant="ghost" pending={pending} pendingContent="处理中"
+        onPress={() => act('retry')}>修复接入</StableAsyncButton>}
     </div>
   </div>
 }

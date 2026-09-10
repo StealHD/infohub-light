@@ -4,15 +4,24 @@ import { createOpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { createOpenClawChatState } from './openclawChatReducer'
 import { useOpenClawSendActions } from './openclawSendActions'
 import type { OpenClawChatMessage } from '../openclawContracts'
+import { models, agents, session } from '../useOpenClawChat.test.support'
 
 const skill = { key: 'weather', name: 'weather', gatewayUrl: 'ws://localhost:18789', agentId: 'main' }
 const requestInput = { displayText: '查天气', gatewayPrompt: 'private-prompt', contextItems: [], selectedSkill: skill }
 function setup() {
   const refs = createOpenClawLifecycleRefs()
-  const request = vi.fn(async (method: string) => method === 'skills.status'
-    ? { skills: [{ skillKey: 'weather', name: 'weather', disabled: false, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true }] }
-    : { runId: 'run' })
-  refs.connection.client = { request } as never
+  const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+    void params
+    return method === 'skills.status'
+      ? { skills: [{ skillKey: 'weather', name: 'weather', disabled: false, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true }] }
+      : { runId: 'run' }
+  })
+  refs.connection.client = { request: async (method: string, params?: Record<string, unknown>) => {
+    if (method === 'models.list') return models
+    if (method === 'agents.list') return agents
+    if (method === 'sessions.describe') return { session: { ...session.session, key: 'root' } }
+    return request(method, params)
+  } } as never
   refs.connection.hello = { features: { methods: ['skills.status'] } } as never
   refs.session.agentId = 'main'; refs.session.sessionKey = 'root'
   const persist = (update: OpenClawChatMessage[] | ((current: OpenClawChatMessage[]) => OpenClawChatMessage[])) => {
@@ -21,7 +30,8 @@ function setup() {
   }
   const dispatch = vi.fn()
   const { result } = renderHook(() => useOpenClawSendActions({
-    refs, dispatch, state: createOpenClawChatState(skill.gatewayUrl, 'connected'),
+    refs, dispatch, state: { ...createOpenClawChatState(skill.gatewayUrl, 'connected'),
+      runtimeSelection: { modelId: 'openai/gpt-5.4', thinkingLevel: null, defaultModelId: 'openai/gpt-5.4', defaultThinkingLevel: 'low' } },
     transcript: { persist, resolveMedia: vi.fn() }, beginRunTrace: vi.fn(), finishRunTrace: vi.fn(), updateRunTrace: vi.fn(), setModel: vi.fn(),
   }))
   return { result, refs, request, dispatch }

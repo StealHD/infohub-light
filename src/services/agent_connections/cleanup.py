@@ -55,6 +55,11 @@ def run(context, row, key):
         if not current or current['binding_id'] != row['binding_id'] or current['state'] != 'revoked':
             raise AccessError('绑定已变化，未清理其他身份。')
         AgentConnections(context.store, context.secret_values).revoke(row['user_id'])
+        from ...storage.information_connector_schema import ready as connector_ready
+        if connector_ready(context.store.connect()):
+            from ..information_automations.connector_auth import revoke
+            revoke(context.store, row['user_id'])
+            context.secret_values.delete('INTELISCOPE_CONNECTOR_' + row['binding_id'].upper())
         host = CleanupHost(context)
         with host_lock(host.root):
             def advance(value):
@@ -66,6 +71,10 @@ def run(context, row, key):
             asyncio.run(host.remove(manifest, advance))
         if context.store.get_active_agent_delegation_principal(manifest['delegation_id']):
             raise AccessError('数据授权尚未失效。')
+        from ...storage.agent_analysis_schema import ready as analysis_ready
+        if analysis_ready(context.store.connect()):
+            from .analysis_state import record
+            record(context.store, manifest, 'removed')
         journal.phase(context.store, row['binding_id'], 'complete')
     except Exception as error:
         journal.phase(context.store, row['binding_id'], 'failed',

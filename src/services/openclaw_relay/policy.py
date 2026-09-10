@@ -24,7 +24,7 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
                                    'sessions.list', 'sessions.describe', 'chat.history', 'tools.effective', 'skills.status'}:
         raise PermissionError('Viewer is read-only')
     if method == 'models.list':
-        return {'view': 'configured'}
+        return {'view': 'configured', 'agentId': agent}
     if method in {'agents.list', 'sessions.subscribe'}:
         return {}
     if method == 'sessions.create':

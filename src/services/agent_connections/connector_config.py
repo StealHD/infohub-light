@@ -17,9 +17,14 @@ def configure(config, base, root):
     denied = list(DENIED) + [_safe_server(name) + '__*' for name in result.get('mcp', {}).get('servers', {})]
     entry = {'workspace': str(root / 'managed' / agent_id / 'workspace'),
              'agentDir': str(root / 'managed' / agent_id / 'agent'),
+             'memorySearch': {'enabled': False}, 'skills': [],
              'tools': {'allow': ['llm-task'], 'deny': denied}, 'subagents': {'allowAgents': []}}
-    if agent_id in agents and agents[agent_id] != entry:
-        raise ValueError('Connector Agent policy drift')
+    if agent_id in agents:
+        prior = copy.deepcopy(agents[agent_id])
+        prior.setdefault('memorySearch', {'enabled': False})
+        prior.setdefault('skills', [])
+        if prior != entry:
+            raise ValueError('Connector Agent policy drift')
     for identity, other in agents.items():
         if identity == agent_id:
             continue

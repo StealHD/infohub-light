@@ -63,6 +63,7 @@ function resetSessionRuntime(refs: OpenClawLifecycleRefs, dispatch: OpenClawChat
   refs.session.agentId = null
   refs.session.sessionKey = null
   refs.session.thinkingLevel = null
+  delete refs.session.operation
   delete refs.session.fastMode
   dispatch({
     type: 'patch',

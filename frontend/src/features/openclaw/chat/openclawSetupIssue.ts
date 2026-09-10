@@ -1,6 +1,7 @@
 import type { OpenClawSetupIssue } from '../openclawContracts'
 import { GatewayRequestError } from '../openclawGateway'
 import { isOpenClawSessionLabelConflict } from '../openclawSession'
+import { openClawSafeError } from './openclawSafeError'
 
 export class MissingOpenClawCredentialError extends Error {
   constructor() {
@@ -38,6 +39,8 @@ export function setupIssue(error: unknown): OpenClawSetupIssue {
   if (error instanceof MissingOpenClawCredentialError) return { kind: 'auth', message: error.message }
   const gatewayError = error instanceof GatewayRequestError
   const code = gatewayError ? error.code.toUpperCase() : ''
+  const safeMessage = openClawSafeError(code)
+  if (safeMessage) return { kind: 'unknown', message: safeMessage }
   const message = error instanceof Error ? error.message : String(error)
   const details = error instanceof GatewayRequestError && error.details && typeof error.details === 'object'
     ? error.details as Record<string, unknown>

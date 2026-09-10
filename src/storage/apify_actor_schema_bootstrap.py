@@ -91,3 +91,5 @@ def bootstrap_actor_schemas(
     install_agent_access(connection)
     from .agent_cleanup_schema import apply_migration as install_agent_cleanup
     install_agent_cleanup(connection)
+    from .agent_analysis_schema import apply_migration as install_agent_analysis
+    install_agent_analysis(connection)

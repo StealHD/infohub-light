@@ -17,13 +17,14 @@ def agent_entry(manifest, root):
     return {'workspace': str(root / 'managed' / agent_id / 'workspace'),
             'agentDir': str(root / 'managed' / agent_id / 'agent'),
             'skills': list(manifest.get('skills', [])),
+            'memorySearch': {'enabled': False},
             'tools': {'allow': [manifest['mcp_server'] + '__' + tool for tool in manifest['tools']],
                       'deny': list(DENIED)},
             'subagents': {'allowAgents': []}}
 
 
 def mcp_entry(manifest):
-    return {'url': manifest['mcp_url'], 'headers': {
+    return {'url': manifest['mcp_url'], 'transport': 'streamable-http', 'headers': {
         'Authorization': 'Bearer ${' + manifest['secret_ref'] + '}'},
         'toolFilter': {'include': manifest['tools']},
         'connectionTimeoutMs': 15000, 'requestTimeoutMs': 30000}
@@ -52,6 +53,7 @@ def configure(config, manifest, root):
     # Re-running may preserve denies added when another personal Agent was provisioned.
     if agent_id in agents:
         prior = copy.deepcopy(agents[agent_id])
+        prior.setdefault('memorySearch', {'enabled': False})
         extra_denies = prior.get('tools', {}).get('deny', [])
         prior.setdefault('tools', {})['deny'] = list(DENIED)
         permitted = set(DENIED) | {_safe_server(name) + '__*' for name in servers if name != namespace}
@@ -60,7 +62,7 @@ def configure(config, manifest, root):
         if prior != expected_agent or set(extra_denies) != permitted:
             raise ValueError('Existing managed Agent differs; review config drift before reinstalling')
         expected_agent['tools']['deny'] = extra_denies
-    if namespace in servers and servers[namespace] != expected_mcp:
+    if namespace in servers and not compatible_mcp(servers[namespace], manifest):
         raise ValueError('MCP name already occupied or changed')
     # Explicit main prevents an implicit default Agent inheriting new global MCP credentials.
     agents.setdefault('main', {})
@@ -80,6 +82,13 @@ def configure(config, manifest, root):
     agents[agent_id] = expected_agent
     servers[namespace] = expected_mcp
     return result
+
+
+def compatible_mcp(value, manifest):
+    """Only the historical omission is repairable; explicit protocol drift is not."""
+    prior = copy.deepcopy(value)
+    prior.setdefault('transport', 'streamable-http')
+    return prior == mcp_entry(manifest)
 
 
 def verify_config(config, manifest, root):

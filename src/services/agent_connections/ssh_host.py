@@ -94,3 +94,6 @@ class SSHHost:
         result = await self.call({'action': 'remove', 'manifest': manifest}, advance)
         if result != {'binding_id': manifest['binding_id'], 'removed': True}:
             raise ManagedSetupError(ERROR)
+
+    async def install_analysis(self, manifest, token):
+        return await self.call({'action': 'install_analysis', 'manifest': manifest, 'token': token})

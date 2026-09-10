@@ -426,6 +426,15 @@
     {
       "id": "Remote MCP/OpenClaw",
       "globs": [
+        "src/storage/agent_analysis_schema.py",
+        "scripts/migrate_agent_analysis_v44.py",
+        "scripts/run_managed_analysis.py",
+        "scripts/install_analysis_supervisor.py",
+        "scripts/probe_native_mcp.mjs",
+        "tests/test_agent_analysis*.py",
+        "tests/test_native_mcp_probe.py",
+        "tests/test_agent_transport_repair.py",
+        "tests/test_openclaw_safe_errors.py",
         "src/api/agent_setup_routes.py",
         "src/api/agent_managed_setup_routes.py",
         "src/api/agent_access_routes.py",

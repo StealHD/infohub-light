@@ -13,6 +13,7 @@ import type {
 } from '../openclawContracts'
 import { OPENCLAW_MAX_HISTORY_CHARS, mergeOpenClawTranscript } from '../storage/openclawTranscriptStore'
 import { useOpenClawSendActions } from './openclawSendActions'
+import { openClawSafeError } from '../chat/openclawSafeError'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 
@@ -31,6 +32,7 @@ type ConversationTranscriptPort = {
 }
 
 export type OpenClawChatEvent = {
+  errorCode?: string
   state?: 'delta' | 'final' | 'aborted' | 'error'
   sessionKey: string
   runId?: string
@@ -145,7 +147,7 @@ export function useOpenClawConversationRun(input: {
       return
     }
     if (event.state === 'error') {
-      input.dispatch({ type: 'patch', value: { issue: { kind: 'unknown', message: 'OpenClaw 对话失败，请重试。' } } })
+      input.dispatch({ type: 'patch', value: { issue: { kind: 'unknown', message: openClawSafeError(event.errorCode) ?? 'OpenClaw 对话失败，请检查运行状态。' } } })
     }
     if (event.state !== 'final' && event.state !== 'aborted' && event.state !== 'error') return
     const partialText = input.refs.run.streamText.trim()

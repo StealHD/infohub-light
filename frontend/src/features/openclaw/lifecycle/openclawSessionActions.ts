@@ -7,6 +7,7 @@ import type { OpenClawRuntimeProjection } from '../chat/openclawRuntimeProjectio
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { createOpenClawSession, readOpenClawRuntime } from './openclawSessionOperations'
+import { acquireRuntime } from './openclawRuntimeGuard'
 
 export function useOpenClawSessionActions(input: {
   refs: OpenClawLifecycleRefs
@@ -29,8 +30,10 @@ export function useOpenClawSessionActions(input: {
     const agentId = input.refs.session.agentId
     const targetModelId = modelId ?? input.state.runtimeSelection.defaultModelId
     const selected = input.state.models.find((model) => model.id === targetModelId)
-    if (!client || !parentSessionKey || !agentId || !selected || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
+    if (!client || !parentSessionKey || !agentId || !selected || input.refs.session.operation || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
     if (input.state.runtimeSelection.modelId === selected.id) return true
+    const release = acquireRuntime(input.refs)
+    if (!release) return false
     input.dispatch({ type: 'patch', value: { runtimeUpdating: true, runtimeIssue: null, modelSwitchFallback: null } })
     const epoch = ++input.refs.session.navigationEpoch
     const isCurrent = () => input.refs.session.navigationEpoch === epoch && input.refs.connection.client === client
@@ -57,13 +60,14 @@ export function useOpenClawSessionActions(input: {
       })
       return false
     } finally {
+      release()
       if (isCurrent()) input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
     }
   }, [input])
 
   const setThinking = useCallback(async (thinkingLevel: string | null): Promise<boolean> => {
     const currentModel = input.state.models.find((model) => model.id === input.state.runtimeSelection.modelId)
-    if (!input.refs.connection.client || !input.refs.session.sessionKey || !input.refs.session.agentId || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
+    if (!input.refs.connection.client || !input.refs.session.sessionKey || !input.refs.session.agentId || input.refs.session.operation || input.refs.run.pendingSend || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
     if (currentModel?.reasoning === false && thinkingLevel !== null) return false
     if (thinkingLevel !== null && !input.state.thinkingOptions.some((option) => option.id === thinkingLevel)) return false
     input.refs.session.thinkingLevel = thinkingLevel
@@ -73,7 +77,7 @@ export function useOpenClawSessionActions(input: {
 
   const setFastMode = useCallback(async (enabled: boolean): Promise<boolean> => {
     if (!input.refs.connection.client || !input.refs.session.sessionKey || !input.state.runtimeSelection.modelId
-      || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending || input.state.runtimeUpdating || input.state.runtimeLoading) return false
+      || input.refs.session.operation || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending || input.state.runtimeUpdating || input.state.runtimeLoading) return false
     input.refs.session.fastMode = enabled
     input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, fastMode: enabled }, runtimeIssue: null } })
     return true
@@ -83,6 +87,8 @@ export function useOpenClawSessionActions(input: {
     const client = input.refs.connection.client
     const agentId = input.refs.session.agentId
     if (!client || !agentId || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
+    const release = acquireRuntime(input.refs)
+    if (!release) return false
     input.dispatch({ type: 'patch', value: { runtimeUpdating: true, runtimeIssue: null } })
     const epoch = ++input.refs.session.navigationEpoch
     const isCurrent = () => input.refs.session.navigationEpoch === epoch && input.refs.connection.client === client
@@ -106,6 +112,7 @@ export function useOpenClawSessionActions(input: {
       })
       return false
     } finally {
+      release()
       if (isCurrent()) input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
     }
   }, [input])

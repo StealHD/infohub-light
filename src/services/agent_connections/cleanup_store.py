@@ -71,6 +71,14 @@ def begin(context, actor, target, request=None, revision=None):
                      (binding['binding_id'], target['id'], target['workspace_id'], actor['id'],
                       request['id'] if request else None, json.dumps(manifest), 'queued', None, 1, now(), now()))
         conn.execute("UPDATE agent_connections SET state='revoked' WHERE binding_id=?", (binding['binding_id'],))
+        from ...storage.information_connector_schema import ready as connector_ready
+        if connector_ready(conn):
+            conn.execute('UPDATE information_connectors SET enabled=0,verified_at=NULL,updated_at=? WHERE binding_id=?',
+                         (now(), binding['binding_id']))
+        from ...storage.agent_analysis_schema import ready as analysis_ready
+        if analysis_ready(conn):
+            conn.execute("UPDATE agent_analysis SET phase='revoking',revision=revision+1,updated_at=? WHERE binding_id=?",
+                         (now(), binding['binding_id']))
         conn.execute('''UPDATE agent_delegations SET revoked_at=COALESCE(revoked_at,?),
                      revocation_reason=COALESCE(revocation_reason,'agent_binding_revoked'),updated_at=?
                      WHERE id=? AND user_id=? AND workspace_id=?''',

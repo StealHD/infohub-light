@@ -4,7 +4,7 @@ import json
 import hashlib
 import os
 from .managed_host import ManagedHost, ManagedSetupError, backup, wait_loaded
-from .gateway_config import agent_entry, mcp_entry
+from .gateway_config import agent_entry, compatible_mcp
 from ..secret_store import SecretStore
 from .cleanup_config import remove_config
 
@@ -88,7 +88,7 @@ def check_owned(config, manifest, root):
     if entry is not None and any(entry.get(key) != expected[key] for key in ('workspace', 'agentDir')):
         raise ManagedSetupError('目标 Agent 目录已变化，未移除配置。')
     server = config.get('mcp', {}).get('servers', {}).get(manifest['mcp_server'])
-    if server is not None and server != mcp_entry(manifest):
+    if server is not None and not compatible_mcp(server, manifest):
         raise ManagedSetupError('目标 MCP 配置已变化，未移除配置。')
     if config.get('agents', {}).get('defaults', {}).get('authInheritance', {}).get('agentId') == manifest['agent_id']:
         raise ManagedSetupError('目标身份被共享授权引用，需管理员检查。')
@@ -102,6 +102,12 @@ def check_owned(config, manifest, root):
 
 class CleanupHost(ManagedHost):
     async def remove(self, manifest, advance):
+        from .analysis_cleanup import remove as remove_analysis
+        async def stop_personal(socket, hello):
+            check_owned(json.loads((self.root / 'openclaw.json').read_text()), manifest, self.root)
+            await stop_owned(self.gateway, socket, manifest['agent_id'], allow_derived=True)
+        await self.gateway._session(stop_personal)
+        await remove_analysis(self, manifest)
         root = self.root
         environment = SecretStore(root, filename='.env')
         async def operation(socket, hello):

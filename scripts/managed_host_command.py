@@ -23,7 +23,8 @@ def main():
         values = dotenv_values(settings)
         names = {'HORIZON_OPENCLAW_MANAGED_LOCAL_ENABLED', 'HORIZON_OPENCLAW_MANAGED_ROOT',
                  'HORIZON_OPENCLAW_SERVER_URL', 'HORIZON_OPENCLAW_SERVER_TOKEN',
-                 'HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN', 'INTELISCOPE_MANAGED_MCP_URL'}
+                 'HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN', 'INTELISCOPE_MANAGED_MCP_URL', 'INTELISCOPE_ANALYSIS_CATALOG_ONLY',
+                 'INTELISCOPE_OPENCLAW_PACKAGE'}
         if set(values) - names:
             raise ValueError('Unexpected host settings')
         for name in names:

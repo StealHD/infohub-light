@@ -50,9 +50,8 @@ async def provision(context, user, reconnect=False, authorize=None, prepared=Non
             connections.retire(user['id'])
             row = None
         if row and row['state'] != 'pending':
-            if connections.live(current_user):
-                return
-            raise ManagedSetupError('绑定已撤销或失效，不会自动重建，请管理员检查。')
+            if not connections.live(current_user):
+                raise ManagedSetupError('绑定已撤销或失效，不会自动重建，请管理员检查。')
         update(context, user, phase='preparing')
         if not row:
             connections.prepare(user['id'], context.remote_mcp_settings.public_url)
@@ -67,6 +66,9 @@ async def provision(context, user, reconnect=False, authorize=None, prepared=Non
         if not current_user or not current_user['enabled'] or (not authorize and current_user['role'] not in {'owner', 'admin'}):
             raise ManagedSetupError('账号权限已变化，接入未激活。')
         connections.activate(user['id'], receipt(manifest, token, installation_digest(config)))
+        from .analysis_setup import install as install_analysis
+        update(context, user, phase='analysis')
+        await install_analysis(context, user, host, authorize)
 
 
 def run(context, user, reconnect=False):

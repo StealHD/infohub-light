@@ -32,6 +32,8 @@ export const agents = {
 }
 export const session = {
   session: {
+    key: 'session-1',
+    agentId: 'main',
     modelProvider: 'openai',
     model: 'gpt-5.4',
     thinkingLevel: 'high',

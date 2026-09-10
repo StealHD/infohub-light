@@ -17,6 +17,23 @@ def test_empty_queue_never_calls_gateway(tmp_path):
     finally: connector.close()
 
 
+def test_catalog_only_neither_claims_nor_flushes_old_results(tmp_path):
+    calls = []
+    def request(req):
+        calls.append(req.url.path)
+        return httpx.Response(200, json={'data': {'accepted': True}})
+    connector = InformationConnector(service_url='http://localhost:8080', gateway_url='http://localhost:18789',
+        service_token='controlled', gateway_token='controlled', agent_id='ic-test', journal=tmp_path / 'result.json',
+        client=httpx.Client(transport=httpx.MockTransport(request)), discover_models=lambda: [])
+    try:
+        connector.persist({'claim_id': 'old', 'body': {}})
+        assert connector.run_once(catalog_only=True)['status'] == 'catalog_synced'
+        assert connector.journal.exists()
+        assert calls == ['/api/connector/information-automations/capabilities']
+    finally:
+        connector.close()
+
+
 def test_submission_timeout_persists_and_retries_same_result_without_model(tmp_path):
     calls, attempts = [], []
     def request(req):
@@ -55,3 +72,25 @@ def test_completion_errors_do_not_misclassify_schema_or_timeout_as_missing_model
     assert completion_error(httpx.HTTPStatusError('private', request=request, response=response)) == 'invalid_model_output'
     assert completion_error(httpx.ReadTimeout('private')) == 'analysis_timeout'
     assert completion_error(KeyError('private')) == 'invalid_model_output'
+
+
+def test_unknown_inference_timeout_does_not_claim_another_task(tmp_path):
+    calls = []
+    def request(req):
+        calls.append(req.url.path)
+        if req.url.path.endswith('/claim'):
+            return httpx.Response(200, json={'data': {'task': {'claim_id': 'claim', 'claim_token': 'token',
+                'agent_id': 'ih-test', 'requirement': 'test', 'stage': 'final', 'input': [], 'model': {'id': 'test/model'}}}})
+        if req.url.path == '/tools/invoke':
+            raise httpx.ReadTimeout('unknown result')
+        return httpx.Response(200, json={'data': {'accepted': True}})
+    connector = InformationConnector(service_url='http://localhost:8080', gateway_url='http://localhost:18789',
+        service_token='controlled', gateway_token='controlled', agent_id='ic-test', journal=tmp_path / 'result.json',
+        client=httpx.Client(transport=httpx.MockTransport(request)))
+    try:
+        assert connector.run_once()['status'] == 'result_recorded'
+        assert connector.run_once()['status'] == 'inference_unconfirmed'
+        assert calls.count('/tools/invoke') == 1
+        assert calls.count('/api/connector/information-automations/claim') == 1
+    finally:
+        connector.close()

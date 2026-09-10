@@ -34,6 +34,16 @@ def start(context, actor, request_id):
     requests = AccessRequests(context)
     row = requests.get(request_id, actor)
     target = requests.authorize(actor, row)
+    if row['state'] == 'ready':
+        binding = AgentConnections(context.store, context.secret_values).live(target)
+        if not binding or binding['binding_id'] != row['binding_id']:
+            raise AccessError('原接入已失效，不能通过修复恢复旧授权。')
+        changed = requests.conn.execute("UPDATE agent_access_requests SET state='approved',phase='queued',revision=revision+1 WHERE id=? AND state='ready' AND revision=?",
+                                       (request_id, row['revision'])).rowcount
+        requests.conn.commit()
+        if not changed:
+            raise AccessError('申请状态已变化，请刷新。')
+        row = requests.get(request_id, actor)
     if row['state'] != 'approved':
         raise AccessError('申请尚未允许或已完成。')
     key = identity(context, request_id)

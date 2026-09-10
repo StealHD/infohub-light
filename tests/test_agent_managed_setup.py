@@ -26,6 +26,7 @@ def host(api, tmp_path, monkeypatch):
     class Host:
         def __init__(self, context):
             self.root = tmp_path
+            self.context = context
 
         async def install(self, manifest, token):
             entered.set()
@@ -33,6 +34,12 @@ def host(api, tmp_path, monkeypatch):
             return {'test': 'configured'}
         async def remove(self, manifest, advance):
             advance('verifying')
+        async def install_analysis(self, manifest, token):
+            assert token.startswith('ih_ic_v1_' + manifest['binding_id'] + '.')
+            from src.services.information_automations.connector_auth import authenticate
+            from src.services.information_automations.model_catalog import Capabilities, sync_catalog
+            sync_catalog(self.context.store, authenticate(self.context.store, token), Capabilities(protocol_version=2, models=[], catalog_only=True))
+            return {'binding_id': manifest['binding_id'], 'capabilities': {'protocol_version': 2, 'models': []}}
     from src.services.agent_connections import cleanup
     monkeypatch.setattr(cleanup, 'CleanupHost', Host)
     monkeypatch.setattr(managed_setup, 'ManagedHost', Host)

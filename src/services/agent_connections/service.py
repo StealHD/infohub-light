@@ -37,6 +37,7 @@ class AgentConnections:
         return row
 
     def status(self, user):
+        from .analysis_state import public as analysis_status
         row = self.row(user['id'])
         active = self.live(user) if row else None
         skill_policy_ready = bool(active and AgentSkillAccess(self.store).chat_ready(
@@ -46,6 +47,7 @@ class AgentConnections:
                  else 'revoked' if row['state'] == 'revoked' else 'ready' if active
                  else 'pending_verification' if row['state'] == 'pending' else 'invalid')
         return {'state': state, 'agent_id': row['agent_id'] if row else None,
+                'analysis': analysis_status(self.store, row['binding_id']) if row else {'phase': 'not_configured'},
                 'delegation_id': row['delegation_id'] if row else None,
                 'verified_at': row['verified_at'] if row else None,
                 'verification': {'deployment': bool(active), 'chat': False, 'own_content': bool(active),

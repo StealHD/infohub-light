@@ -7,6 +7,9 @@ export type InformationTrigger = {
 }
 export type InformationModel = { id: string; thinking: string | null }
 export type InformationModelCatalog = {
+  requested?: boolean
+  reason?: 'not_configured' | 'offline' | 'no_authorized_models' | 'catalog_stale' | null
+  recovery_action?: 'repair_connection' | 'check_service' | 'review_models' | 'refresh_catalog' | null
   models: { id: string; name: string; thinking_levels: string[] }[]
   status: 'ready' | 'stale' | 'unavailable'; updated_at: string | null
 }
