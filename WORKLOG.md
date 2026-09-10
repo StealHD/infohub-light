@@ -392,6 +392,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "984eea2f",
   "control_topics": [
     "architecture",
     "interface",
@@ -402,11 +403,12 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "status": "partial",
   "task_id": "managed-agent-vps-20260910",
   "unresolved": [
-    "impacted preflight、真实远端接入/清理与最终 main 发布部署待完成。"
+    "最终 main 精确 CI、tag/Release、VPS 新版切换及项目接入激活待完成；未主动撤销生产管理员验证清理。"
   ],
   "validation": [
-    "定向接入、清理与 SSH 边界测试 20 项通过；代码尺寸与差异空白检查通过。",
-    "只读确认 Tokyo 为 2.6.14，现有 Gateway 位于另一台服务器并运行 OpenClaw 2026.9.2，未替换既有服务或模型配置。"
+    "Impacted preflight 16/16 正常退出；后续阶段确认保护的定向 SSH/接入/清理测试 22 项及审批/清理 16 项通过。",
+    "真实 Tokyo 到既有 OpenClaw 受限 SSH 握手通过，任意命令拒绝；目标专用配置实际加载、本人 MCP 与签名回执核验通过，未调用模型或发送通知。",
+    "保留当前/上一版回滚与迁移 42/43 备份；SHA256 与逐字节确认后清理两份重复备份，六份旧数据库压缩校验保留，恢复映射已记录于 VPS。"
   ]
 }
 ```
