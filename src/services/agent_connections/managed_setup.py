@@ -2,8 +2,9 @@
 import asyncio
 import threading
 
-from .managed_host import ManagedHost, ManagedSetupError, host_lock, local_root
-from .manifest import digest, receipt
+from .managed_host import ManagedSetupError, host_lock, local_root
+from .host_dispatch import ManagedHost, installation_digest
+from .manifest import receipt
 from .service import AgentConnections
 from .mcp_verification import check_mcp
 
@@ -18,12 +19,11 @@ def key(context, user):
 def status(context, user):
     available, reason = True, None
     try:
-        local_root(context.remote_mcp_settings.public_url)
         if not context.remote_mcp_settings.enabled:
             raise ManagedSetupError('管理员尚未启用数据接入。')
         ManagedHost(context)
     except Exception:
-        available, reason = False, '本机自动接入暂不可用，请管理员检查本机 Gateway 和管理凭据。'
+        available, reason = False, '自动接入暂不可用，请管理员检查托管连接和管理凭据。'
     with _guard:
         operation = dict(_operations.get(key(context, user), {}))
     return {'available': available, 'state': operation.get('state', 'idle'),
@@ -66,7 +66,7 @@ async def provision(context, user, reconnect=False, authorize=None, prepared=Non
         current_user = authorize() if authorize else context.store.get_user(user['id'])
         if not current_user or not current_user['enabled'] or (not authorize and current_user['role'] not in {'owner', 'admin'}):
             raise ManagedSetupError('账号权限已变化，接入未激活。')
-        connections.activate(user['id'], receipt(manifest, token, digest(config)))
+        connections.activate(user['id'], receipt(manifest, token, installation_digest(config)))
 
 
 def run(context, user, reconnect=False):

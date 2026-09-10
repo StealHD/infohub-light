@@ -52,7 +52,7 @@ def local_root(mcp_url):
             raise ManagedSetupError('配置文件类型不安全，未执行配置。')
     config = json.loads((root / 'openclaw.json').read_text())
     settings = config.get('gateway', {})
-    if settings.get('bind') != 'loopback' or settings.get('port', 18789) != gateway.port:
+    if settings.get('bind', 'loopback') != 'loopback' or settings.get('port', 18789) != gateway.port:
         raise ManagedSetupError('Gateway 与本机配置不一致，未执行配置。')
     return root
 

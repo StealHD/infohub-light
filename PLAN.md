@@ -3,6 +3,8 @@
 
 ## 当前阶段与接续入口
 
+2026-09-10 当前任务：从已发布 v2.6.14 / `6cb9cdbb` 补齐项目与 OpenClaw 分处不同服务器的托管接入。用户已授权访问现有 Gateway 主机及 Tokyo，通过专用受限 SSH 通道完成安装、核验和撤销；不复制通用管理私钥，不替换 Gateway，不调用模型或发送通知。先定向测试和 impacted preflight，再真实远端验证，随后合入 main、精确 CI 通过、tag/Release 与 VPS 部署；任何未完成环节不得视为已发布。本段优先于下列旧阶段范围，运行证据记入本任务 WORKLOG。
+
 2026-09-09 发布任务：用户授权将已整合的本地 main 发布为 v2.6.12 并部署 vps-tokyo。按精确 main CI、Tag smoke、本地 amd64 镜像、VPS 停服备份及 global 37–41 显式迁移、健康检查和失败回滚推进；本节是发布执行授权与范围，不代表已经上线。个人绑定、Skills 开放及真实模型/通知验收不隐式启用。
 
 2026-09-09 当前任务：在本地 main 的独立 Worktree 实现 Skills 管理员开放控制。分支为 `codex/skill-access-control`，目录为同级 `infohub-light-skill-access-control`，起点 `dac81e2c`；不带入主工作区未提交修改。

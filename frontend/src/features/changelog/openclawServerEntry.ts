@@ -10,6 +10,10 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-10', title: '远端 OpenClaw 自动接入',
+  summary: '支持项目与 OpenClaw 分处不同服务器，成员仍在同一入口申请和连接。',
+  items: [{ title: '受限配置与同步清理', description: '服务端通过专用受限连接配置个人 Agent，验证真实加载和本人数据访问后才开放聊天；撤销同步清理远端专属授权，旧身份不能重新安装。无需用户下载文件或创建令牌。' }],
+}, {
   date: '2026-09-10', title: '撤销成员接入与清理状态',
   summary: '管理员可撤销成员接入，本站立即失效，OpenClaw 清理单独核验。',
   items: [{ title: '安全撤销', description: '请求停止专属运行、停用任务并卸载专属配置，保留历史；系统派生审查任务备份后由 Gateway 随 Agent 卸载回收。清理失败可重试，不恢复权限，完成前不能重新申请。' }],

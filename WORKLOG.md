@@ -9,26 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-08",
-  "result": "将自动化详情收敛为概览、测试与运行记录：增加账号独立可拖宽度、按需编辑和来源/文章选择面板，页面级保留按账号/任务/版本隔离的测试进度，并同步 UI 合同、D214、手册和更新记录。",
-  "status": "completed",
-  "task_id": "automation-details-test-ux-20260908",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 14 项通过，覆盖宽度边界与账号偏好、来源和文章确认/取消/分页、重复提交保护、确认卡及列表测试状态；ESLint、UI 静态合同、diff check 和生产构建通过。",
-    "最终 Automations Playwright 9 项正常退出，覆盖 1440/1024/390 px、明暗主题、Reduced Motion、Axe、200% 缩放、键盘调宽、草稿保留和测试切换任务后继续轮询；临时 4173 服务已清理。",
-    "最终 impacted preflight 12/12 通过，选择 control 与 frontend_full，后端未受影响，耗时 107.438 秒。",
-    "沿用 A 模式，本地 5173 前端仍在运行；未启动容器、调用真实模型、发送通知、修改服务端 API/数据库或提交 Git。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
     "interface",
     "ui"
   ],
@@ -406,6 +386,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "2026-09-10 接续：真实本机服务层回收精确 Agent 派生 monitor、专用配置与环境凭据，旧令牌失效；管理员与历史保留，重新审批新身份及握手通过。",
     "最终相关后端36项、配置并发保护5项通过；.test-results/20260910T055035Z-50179 整项 preflight 16/16通过，557秒，退出0。",
     "真实浏览器使用两个隔离的临时登录会话（角色未修改、无接口mock）：取消撤销不改变绑定、确认后成员失权、清理完成后成员按钮申请、管理员按钮允许、新Agent身份、聊天连接通过；脚本退出0，无模型/通知调用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "补齐 Service 与 OpenClaw 分机部署的受限 SSH 托管通道，复用个人配置和清理逻辑，加入远端回执、撤销墓碑与部署说明；生产接入和发布以最终核验为准。",
+  "status": "partial",
+  "task_id": "managed-agent-vps-20260910",
+  "unresolved": [
+    "impacted preflight、真实远端接入/清理与最终 main 发布部署待完成。"
+  ],
+  "validation": [
+    "定向接入、清理与 SSH 边界测试 20 项通过；代码尺寸与差异空白检查通过。",
+    "只读确认 Tokyo 为 2.6.14，现有 Gateway 位于另一台服务器并运行 OpenClaw 2026.9.2，未替换既有服务或模型配置。"
   ]
 }
 ```

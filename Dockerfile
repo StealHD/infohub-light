@@ -22,6 +22,10 @@ ARG INTELISCOPE_BUILT_AT=unknown
 # Set working directory
 WORKDIR /app
 
+# Remote managed Agent access uses a pinned, forced-command SSH identity.
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv for faster dependency management
 COPY --from=ghcr.io/astral-sh/uv@sha256:88bc6eb1ccd4b82efd0e1b530caffabddf50dc2bf612e66c14ea25b8ee8a4d3d /uv /usr/local/bin/uv
 

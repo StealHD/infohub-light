@@ -33,6 +33,7 @@
 
 - 本机托管接入：`POST /api/me/agent-connection/setup/managed` 只接受严格 `confirmed: true`，Owner/Admin 使用登录身份，拒绝任何额外字段。返回 202；GET 状态增加 `setup: {available,state,phase,error}`，操作状态为 idle/running/complete/failed。只读查询、刷新、重连不创建配置。错误不含内部路径、凭据或管理响应。
 - 本机部署显式启用 `HORIZON_OPENCLAW_MANAGED_LOCAL_ENABLED=true` 并提供 `HORIZON_OPENCLAW_MANAGED_ROOT`；Gateway/MCP 均限 loopback，配置端口及 Gateway 实际配置路径必须匹配。该开关仅允许 loopback WS 作为现有 WSS 的本地例外，不接受远程 WS。
+- 远端部署选择 `HORIZON_OPENCLAW_MANAGED_TRANSPORT=ssh`，服务端固定 SSH 主机、用户、端口、私钥和 known_hosts 文件。专用公钥只允许 `inteliscope-managed-v1` forced command，禁止通用 Shell、转发和 PTY；浏览器不能提供这些参数。Gateway 主机固定配置根及该 Service 的精确 HTTPS MCP 地址，拒绝跨部署 manifest。安装返回有签名的配置摘要回执，不传回配置或凭据；清理同步真实阶段，远端不可达不恢复本站授权。远端保留绑定撤销墓碑，旧身份不能通过重放安装复活。本地与远端共用编译、实际加载核验、MCP 本人读取及精确清理逻辑。
 - 同账号只进行一次操作，主机配置通过文件锁串行化；读取哈希与本地内容检查防止覆盖配置漂移。待验证绑定继续使用同一专用凭据，已撤销绑定不复活。备份受保护；仅安装本次 Agent/MCP 与必要隔离规则，不改变其他凭据、模型或授权。Gateway 的实际应用哈希必须匹配，并校验目标 Agent 与本人 MCP 读取，才能内部生成验证回执并激活。
 - 配置应用由 Gateway 的原生安全重载机制处理；未实际加载保持待验证，不强制打断活动运行。结果未知先检查再续接，不盲目重放。只在配置未改变时回滚本次凭据；不以整份旧备份覆盖后续人工修改。网页关闭不取消后台操作；服务重启保留数据库绑定，用户重试后核验续接，不自动重新配置。
 - `/agents` 只保留托管接入流程。以下手动准备、下载和回执接口仅为兼容运维入口，不再从产品页面暴露；同账号不同浏览器复用服务端绑定，浏览器不存配置令牌或回执。

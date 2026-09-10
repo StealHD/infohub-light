@@ -104,6 +104,8 @@ register_diagnostic_tools(server, context)
 
 ## 5. 本地安装入口所有权
 
+自动接入适配器由 `agent_connections/host_dispatch.py` 选择本地或受限 SSH；`ssh_host.py` 只拥有固定传输与安全回执校验，`host_command.py` 在 Gateway 主机处理严格 install/remove/check，主机路径与 MCP 部署固定。远端程序复用 `managed_host.py`、`cleanup_host.py` 的配置编译、锁和核验，不提供任意配置/Shell 接口。撤销墓碑与历史目录留在 Gateway 主机，申请、审批、账号校验和业务撤销状态仍由 Service 所有。
+
 `scripts/setup_openclaw_local.py` 只解析参数、调用 workflow、统一错误输出并显式保留旧导出。实现分别归 `openclaw_setup_validation.py`、`openclaw_setup_process.py`、`openclaw_setup_env.py`、`openclaw_setup_gateway.py`、`openclaw_setup_skill.py`、`openclaw_setup_mcp.py`、`openclaw_setup_compose.py` 和 `openclaw_setup_workflow.py`。
 
 这些模块不得读取或持久化 MCP/Gateway token。测试只能使用 mock 与临时目录，不得对用户真实 `~/.openclaw`、Gateway 或 Docker runtime 执行安装、更新、重启或构建。

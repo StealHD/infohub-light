@@ -2,7 +2,8 @@
 import json
 import threading
 from . import cleanup_store as journal
-from .cleanup_host import CleanupHost, CleanupBlocked
+from .cleanup_host import CleanupBlocked
+from .host_dispatch import CleanupHost
 from .managed_host import host_lock
 from .service import AgentConnections
 from .access_requests import AccessError
