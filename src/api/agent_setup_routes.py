@@ -14,6 +14,13 @@ from ..services.agent_connections.service import AgentConnections, BindingError
 from ..storage.service_store import AgentDelegationLimitError
 
 MUTATION_OPERATION_ROUTES = {
+    ('POST', '/api/admin/agent-access-requests/{request_id}/revoke'): ('agent', 'access_revoke'),
+    ('POST', '/api/admin/agent-access-requests/{request_id}/cleanup-retry'): ('agent', 'cleanup_retry'),
+    ('POST', '/api/me/agent-access-requests'): ('agent', 'access_request'),
+    ('POST', '/api/admin/agent-access-requests/{request_id}/decision'): ('agent', 'access_decision'),
+    ('POST', '/api/admin/agent-access-requests/{request_id}/retry'): ('agent', 'access_retry'),
+    ('POST', '/api/me/agent-connection/setup/reconnect'): ('agent', 'personal_managed_reconnect'),
+    ('POST', '/api/me/agent-connection/setup/managed'): ('agent', 'personal_managed_setup'),
     ('POST', '/api/me/agent-connection/setup'): ('agent', 'personal_setup'),
     ('POST', '/api/me/agent-connection/setup/bundle'): ('agent', 'personal_bundle_export'),
     ('POST', '/api/me/agent-connection/setup/activate'): ('agent', 'personal_setup_activate'),
@@ -88,5 +95,8 @@ async def activate(payload: ActivationRequest, response: Response, user=Depends(
 
 
 def register_agent_setup_routes(app: FastAPI):
+    from .agent_managed_setup_routes import managed_setup_action, managed_reconnect_action
+    app.add_api_route('/api/me/agent-connection/setup/reconnect', managed_reconnect_action, methods=['POST'])
+    app.add_api_route('/api/me/agent-connection/setup/managed', managed_setup_action, methods=['POST'])
     for path, handler in [('', prepare), ('/bundle', bundle), ('/activate', activate)]:
         app.add_api_route('/api/me/agent-connection/setup' + path, handler, methods=['POST'])

@@ -119,6 +119,17 @@
       ]
     },
     {
+      "id": "Managed Agent onboarding",
+      "globs": [
+        "frontend/src/features/agent-connection/**",
+        "frontend/src/api/agentConnectionService.ts",
+        "frontend/src/features/admin-heroui/HeroAgentsPage*",
+        "frontend/e2e/production-agent-managed-setup.spec.ts",
+        "frontend/e2e/production-agent-cleanup.spec.ts"
+      ],
+      "specs": ["e2e/production-agent-managed-setup.spec.ts", "e2e/production-agent-cleanup.spec.ts"]
+    },
+    {
       "id": "Settings",
       "globs": [
         "frontend/src/features/admin-heroui/**",
@@ -416,6 +427,17 @@
       "id": "Remote MCP/OpenClaw",
       "globs": [
         "src/api/agent_setup_routes.py",
+        "src/api/agent_managed_setup_routes.py",
+        "src/api/agent_access_routes.py",
+        "src/api/agent_cleanup_routes.py",
+        "src/storage/agent_cleanup_schema.py",
+        "scripts/migrate_agent_cleanup_v43.py",
+        "tests/test_agent_cleanup*.py",
+        "src/storage/agent_access_schema.py",
+        "scripts/migrate_agent_access_v42.py",
+        "tests/test_agent_access_requests.py",
+        "scripts/provision_openclaw_agent.py",
+        "tests/test_agent_managed*.py",
         "src/api/agent_connection_routes.py",
         "tests/test_agent_setup_api.py",
         "src/api/agent_delegation_routes.py",

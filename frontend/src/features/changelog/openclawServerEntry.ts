@@ -10,6 +10,20 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-10', title: '撤销成员接入与清理状态',
+  summary: '管理员可撤销成员接入，本站立即失效，OpenClaw 清理单独核验。',
+  items: [{ title: '安全撤销', description: '请求停止专属运行、停用任务并卸载专属配置，保留历史；系统派生审查任务备份后由 Gateway 随 Agent 卸载回收。清理失败可重试，不恢复权限，完成前不能重新申请。' }],
+}, {
+  date: '2026-09-10', title: '成员申请与管理员审批',
+  summary: '成员在 Agent 接入页申请，管理员在同页允许或拒绝；结果跨浏览器保存。',
+  items: [{ title: '批准后自动配置', description: '审批通过后配置成员个人 Agent，实际验证完成才能聊天；失败保留绑定供管理员重试。拒绝需填写原因，成员可重新申请。本轮不发送通知。' }],
+}, {
+  date: '2026-09-10', title: '本机 Agent 统一接入',
+  summary: '接入、自动配置和验证收敛为一个入口，不再要求下载配置或手动创建令牌。',
+  items: [{ title: '兼容旧 Agent 归属配置', description: '修复重新接入时旧默认标记在 Gateway 校验中丢失导致的配置拒绝；托管安装显式声明 Agent 归属，保留已有 Agent 和模型设置。' },
+    { title: '主动解除与重新接入', description: '接入卡支持确认解除当前账号授权，再主动重新接入以验证配置流程；旧 Agent 和历史保留，新接入不迁移旧会话。' },
+    { title: '账号绑定与安全恢复', description: '同账号跨浏览器复用个人 Agent；失败先检查原状态再续接，既有授权和会话保留，不自动调用模型或发送通知。' }],
+}, {
   date: '2026-09-09', title: '个人 Agent 网页接入入口',
   summary: '修复未绑定账号只有说明和刷新、无法开始配置的问题。',
   items: [{ title: '配置与继续接入', description: 'Owner/Admin 可为本人准备独立绑定、下载私密配置并提交主机验证回执；保留已有数据连接，模型和通知不自动执行。' }],

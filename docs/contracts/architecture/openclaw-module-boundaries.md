@@ -7,6 +7,8 @@
 
 `src/services/agent_connections/` 管个人身份、SecretStore 引用、部署 manifest/回执与纯配置编译；`src/storage/agent_connection_schema.py` 管 global 37。API 只提供当前账号查询/吊销，relay 从登录身份查绑定。`scripts/manage_agent_connection.py` 只在 Service 主机准备/导出/激活；`scripts/provision_openclaw_agent.py` 只在 Gateway 主机安装/验证，不启动模型或重启服务。现有首库 bootstrap 链在全新库安装空表，旧库仅由显式迁移脚本安装。
 
+本机托管入口由 `agent_managed_setup_routes.py` 做身份与确认校验，`agent_connections/managed_setup.py` 管账号操作生命周期与验证激活，`managed_host.py` 限制本机路径、配置锁、备份、CAS 与 Gateway 安全应用，`mcp_verification.py` 做有界只读核验。主机能力不是通用 Shell/SSH/配置编辑接口；管理连接复用独立 AgentSkillGateway，不给普通聊天连接增加 scope。后台操作展示状态保存在进程内，跨浏览器身份与重启恢复依据仍为数据库绑定及 SecretStore；未知写入不自动重放。
+
 `src/services/agent_skill_access.py` 独占工作区 Skill 策略、revision CAS、绑定同步状态和聊天就绪判断；`src/storage/agent_skill_policy_schema.py` 独占 global 41。`src/api/agent_skill_routes.py` 只做 Owner/Admin 鉴权、公开投影与同步编排。`src/services/agent_skill_gateway.py` 是唯一可读取完整目录并修改受管 Agent `skills` 字段的服务端管理连接，凭据只来自 SecretStore，固定 exact `operator.admin`，不得导入浏览器 admin controller。`src/services/openclaw_relay/` 只消费当前允许键与聊天就绪布尔值，不能读取管理目录或修改策略。
 
 可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的工具 allowlist 只含自己的 13 个只读 MCP 工具；其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。禁止 host/filesystem、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
@@ -105,6 +107,12 @@ register_diagnostic_tools(server, context)
 `scripts/setup_openclaw_local.py` 只解析参数、调用 workflow、统一错误输出并显式保留旧导出。实现分别归 `openclaw_setup_validation.py`、`openclaw_setup_process.py`、`openclaw_setup_env.py`、`openclaw_setup_gateway.py`、`openclaw_setup_skill.py`、`openclaw_setup_mcp.py`、`openclaw_setup_compose.py` 和 `openclaw_setup_workflow.py`。
 
 这些模块不得读取或持久化 MCP/Gateway token。测试只能使用 mock 与临时目录，不得对用户真实 `~/.openclaw`、Gateway 或 Docker runtime 执行安装、更新、重启或构建。
+
+## 成员申请与审批
+
+`agent_access_routes` 只承担登录权限、输入校验和安全响应；`access_requests` 拥有工作区查询、单一开放申请和事务版本审批；`access_setup` 区分操作管理员与目标成员，复用受限 managed host 和 SecretStore。申请表通过 global 42 显式迁移，不承担通知。后台运行状态可丢弃，申请和关联绑定持久化；重启需管理员续接，不盲目重放安装。
+
+`cleanup_store` 在同一事务记录撤销并吊销绑定/专用数据授权；`cleanup` 管理可恢复阶段和操作人复验；`cleanup_host` 只执行绑定清单内的停止和加载核验，`cleanup_config` 在检查原始配置未变化后原子移除专属条目，不调用会清理会话索引的 `agents.delete`。与接入共用主机写锁，授权撤销不等待远程锁，接入激活需再次校验未撤销。global 43 独立迁移，后台线程不自动跨重启重放。远程拒绝或证据不全时保留撤销状态与待清理记录。
 
 ## 6. 可执行门禁
 

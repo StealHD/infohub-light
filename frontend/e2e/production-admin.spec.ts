@@ -1020,39 +1020,16 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expectHeroAdminPage(page, '订阅与来源')
   await expect(page.getByRole('tab')).toHaveCount(3)
 
+  await page.route('**/api/me/agent-connection', (route) => route.fulfill({ json: { ok: true, data: {
+    state: 'unconfigured', can_manage_setup: true, can_connect: false, can_chat: false,
+    verification: {}, setup: { available: true, state: 'idle' },
+  } } }))
   await page.goto('/agents')
   await expectHeroAdminPage(page, '助手连接')
-  await expect(page.getByText('本机 OpenClaw')).toBeVisible()
-  const connectionMore = page.getByRole('button', { name: '更多操作：本机 OpenClaw' })
-  await expect(connectionMore).toBeVisible()
-  await expect(page.getByRole('button', { name: '吊销 本机 OpenClaw' })).toHaveCount(0)
-  await connectionMore.click()
-  const connectionActions = page.getByRole('dialog', { name: '本机 OpenClaw 连接操作' })
-  await expect(connectionActions.getByRole('button', { name: '复制配置' })).toBeVisible()
-  await expect(connectionActions.getByRole('button', { name: '重命名' })).toBeVisible()
-  const revokeAction = connectionActions.getByRole('button', { name: '吊销连接' })
-  await expect(revokeAction).toBeVisible()
-  await expect(revokeAction).not.toHaveClass(/bg-danger/)
-  await revokeAction.click()
-  const revokeDialog = page.getByRole('dialog', { name: '吊销助手连接' })
-  await expect(revokeDialog.getByRole('button', { name: '确认吊销' })).toBeVisible()
-  await revokeDialog.getByRole('button', { name: '取消' }).click()
-  await expect(connectionMore).toBeFocused()
-  const openClawConfigurations = page.locator('pre[aria-label$="OpenClaw 配置命令"]')
-  await expect(openClawConfigurations).toHaveCount(3)
-  const configurationMetrics = await openClawConfigurations.evaluateAll((blocks) => blocks.map((block) => ({
-    top: block.closest('[data-slot="card"]')?.getBoundingClientRect().top ?? 0,
-    clientWidth: block.clientWidth,
-    scrollWidth: block.scrollWidth,
-    overflowX: getComputedStyle(block).overflowX,
-  })))
-  if ((page.viewportSize()?.width ?? 0) >= 900) {
-    expect(configurationMetrics.every(({ top }) => Math.abs(top - configurationMetrics[0].top) <= 1)).toBe(true)
-  } else {
-    expect(configurationMetrics.slice(1).every(({ top }, index) => top > configurationMetrics[index].top)).toBe(true)
-  }
-  expect(configurationMetrics.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true)
-  expect(configurationMetrics.every(({ overflowX }) => overflowX === 'hidden')).toBe(true)
+  await expect(page.getByRole('heading', { name: '我的 Agent' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '接入 Agent', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /创建连接|复制配置|吊销连接/u })).toHaveCount(0)
+  await expect(page.locator('pre[aria-label$="OpenClaw 配置命令"]')).toHaveCount(0)
 
   await page.goto('/settings#settings-notifications')
   await expect(page.getByRole('heading', { name: '通知', exact: true, level: 1 })).toBeVisible()

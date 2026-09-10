@@ -1,6 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
@@ -23,7 +22,8 @@ import {
   type SortDescriptor,
 } from '../../design-system'
 import { canAdministerWorkspace } from '../settings/settingsModel'
-import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
+import { AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
+import { UserAccessHeader } from './UserAccessHeader'
 import { MemberIdentity } from './MemberIdentity'
 
 const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
@@ -380,7 +380,7 @@ export function HeroUsersPage() {
   }
 
   return <div data-page-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
-    <AdminPageHeader description={`当前账户：${user.display_name || user.username}`} />
+    <UserAccessHeader description={`当前账户：${user.display_name || user.username}`} />
     <AccountPasswordSection />
     {admin && <AdminSection title="成员管理" description="创建成员，并管理用户名、角色与账户可用状态。">
       <form className="grid gap-3 min-[760px]:grid-cols-5" onSubmit={createUser}>

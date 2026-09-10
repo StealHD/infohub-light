@@ -1394,9 +1394,9 @@ describe('App routes', () => {
     expect(screen.getByRole('button', { name: '取消订阅 只读来源' })).toBeDisabled()
   })
 
-  it('protects and explicitly clears a live one-time Agent token', async () => {
-    const browser = userEvent.setup()
+  it('uses one personal Agent entry without exposing manual tokens', async () => {
     const api = liveApi({
+      agentConnection: vi.fn().mockResolvedValue({ state: 'unconfigured', can_connect: false, can_manage_setup: false, can_request: true, verification: {} }),
       agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5, connections: [] }),
       createAgentDelegation: vi.fn().mockResolvedValue({
         connection: { id: 'agent-new', name: 'Desk Mac', client_type: 'openclaw', access: 'read', diagnostics_scope: 'self', scopes: ['inteliscope:read'], token_prefix: 'ih_new', created_at: '2026-07-17T00:00:00Z', expires_at: '2026-10-17T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' },
@@ -1410,17 +1410,9 @@ describe('App routes', () => {
     await waitFor(() => expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument())
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
-    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
-    const createDialog = screen.getByRole('dialog', { name: '创建助手连接' })
-    await browser.type(within(createDialog).getByRole('textbox', { name: '连接名称' }), 'Desk Mac')
-    await browser.click(within(createDialog).getByRole('button', { name: '生成一次性令牌' }))
-    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
-    expect(within(tokenDialog).getByText('ih_mcp_one_time_live')).toBeInTheDocument()
-    await browser.keyboard('{Escape}')
-    expect(screen.getByRole('dialog', { name: '保存一次性 MCP token' })).toBeInTheDocument()
-    await browser.click(screen.getByTestId('one-time-token-backdrop'))
-    expect(screen.getByRole('dialog', { name: '保存一次性 MCP token' })).toBeInTheDocument()
-    await browser.click(within(tokenDialog).getByRole('button', { name: '我已保存' }))
+    expect(await screen.findByRole('button', { name: '申请接入' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建连接' })).not.toBeInTheDocument()
+    expect(api.createAgentDelegation).not.toHaveBeenCalled()
     expect(screen.queryByText('ih_mcp_one_time_live')).not.toBeInTheDocument()
     expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain('ih_mcp_one_time_live')
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()

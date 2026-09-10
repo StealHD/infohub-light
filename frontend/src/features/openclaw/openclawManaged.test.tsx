@@ -43,12 +43,13 @@ describe('managed OpenClaw', () => {
     await ready
     client.close()
   })
-  it.each(['compact', 'workspace'] as const)('keeps %s connection content clear of its header', (variant) => {
+  it.each(['compact', 'workspace'] as const)('keeps %s connection content clear of its header', async (variant) => {
     render(<QueryClientProvider client={new QueryClient()}><MemoryRouter>
       <AgentConnectionProvider value={{ userId: 'alice', api: { agentConnection: vi.fn().mockResolvedValue({ state: 'unconfigured', can_connect: false, verification: {} }) } as unknown as ServiceApi }}>
         <OpenClawManagedSetup variant={variant} chat={{status:'idle',connect:vi.fn()} as unknown as OpenClawChatController} />
       </AgentConnectionProvider></MemoryRouter></QueryClientProvider>)
-    expect(screen.getByRole('button',{name:'连接'})).toBeVisible()
+    expect(await screen.findByRole('link',{name:'前往 Agent 接入'})).toBeVisible()
+    expect(screen.queryByRole('button',{name:'连接'})).toBeNull()
     expect(screen.queryByLabelText('OpenClaw Gateway token')).toBeNull()
     expect(screen.getByTestId('agent-scroll-region').hasAttribute('data-page-scroll-region')).toBe(variant === 'workspace')
   })

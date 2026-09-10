@@ -74,17 +74,19 @@ def test_legacy_exact_search_keeps_owned_history_without_adopting_shared_rows(tm
     assert not owner.owns('agent:main:other')
 
 
-def test_status_does_not_claim_connectable_without_gateway_configuration(monkeypatch):
+def test_status_does_not_claim_connectable_without_gateway_configuration(monkeypatch, tmp_path):
     from types import SimpleNamespace
     from fastapi import Response
     from src.api import agent_connection_routes as routes
+    from src.api import agent_access_routes
+    monkeypatch.setattr(agent_access_routes, 'own_status', lambda *_: {'can_request': False, 'access_request': None})
     base = {'can_connect': True, 'can_chat': True, 'verification': {'own_content': True, 'deployment': True}}
     monkeypatch.setattr(routes, 'AgentConnections', lambda *_: SimpleNamespace(status=lambda _: base))
     monkeypatch.setenv('HORIZON_OPENCLAW_SERVER_ENABLED', 'true')
     monkeypatch.delenv('HORIZON_OPENCLAW_SERVER_URL', raising=False)
     monkeypatch.delenv('HORIZON_OPENCLAW_SERVER_TOKEN', raising=False)
     monkeypatch.setattr(routes, 'reminders_ready', lambda _: True)
-    context = SimpleNamespace(store=SimpleNamespace(connect=lambda: None), secret_values=None,
+    context = SimpleNamespace(store=SimpleNamespace(connect=lambda: None, data_dir=tmp_path), secret_values=None,
                               notification_targets=SimpleNamespace(list_public_targets=lambda **_: {'targets': [{'available': True}]}),
                               openclaw_chat_settings=SimpleNamespace(enabled=True),
                               remote_mcp_settings=SimpleNamespace(enabled=True))

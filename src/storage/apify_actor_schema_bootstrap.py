@@ -87,3 +87,7 @@ def bootstrap_actor_schemas(
     install_unified(connection)
     from .agent_skill_policy_schema import apply_migration as install_agent_skill_policy
     install_agent_skill_policy(connection)
+    from .agent_access_schema import apply_migration as install_agent_access
+    install_agent_access(connection)
+    from .agent_cleanup_schema import apply_migration as install_agent_cleanup
+    install_agent_cleanup(connection)

@@ -8,101 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-09-08",
-  "result": "同分支修复独立分析 schema 未进入提示词、通用错误误封模型及测试无限等待；增加显式独立 Agent sessionKey，重启 A 模式 API 与 connector 加载修复。",
-  "status": "partial",
-  "task_id": "2026-09-08-automation-preview-errors",
-  "unresolved": [
-    "OpenClaw 独立 Agent 的真实模型调用仍失败，业务格式修复已完成，但真实综合分析验收未通过；不能视为整体修复完成。"
-  ],
-  "validation": [
-    "定向后端 24 项与 Vitest 7 项通过，覆盖 schema 提示、会话绑定、错误分类及终态；impacted preflight 16/16 全部通过。",
-    "控制面结构、Markdown、JSON、diff 检查通过。当前失败测试记录为 failed/analysis_call_failed，未发送通知或重建容器。",
-    "真实恢复及最小独立推理检查均返回 OpenClaw HTTP 500 通用工具错误；重启独立 Agent native 进程后仍失败。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-08",
-  "result": "依据实时进程确认本地 5173→8080→13789 测试链路。安全完整重启本地 OpenClaw 后独立分析恢复，同规则版本与原文章的真实预览 completed/matched，解除此前真实验收阻塞。",
-  "status": "completed",
-  "task_id": "2026-09-08-automation-local-inference-recovery",
-  "unresolved": [
-    "先前 Gateway 内部失败的底层异常未暴露；重启后无法复现，不归因为额度不足。"
-  ],
-  "validation": [
-    "真实预览 iapreview_3788a5a4fcf6485f9a23e94c3d3c20a7 首次领取后约 8 秒完成，引用 1 条通过校验；未发送通知。",
-    "独立 Agent 最小调用 HTTP 200；临时诊断代码已恢复原文件并安全重启加载。VPS 仅只读检查，未配置或切换，未重建容器。",
-    "沿用上一修复已通过的 24 项后端、7 项前端和 16 项 preflight；本轮仅运行环境恢复，无产品代码变更。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-08",
-  "result": "将 Automations 统一分析及本地测试修复与本地 main 日志更新合并，保留双方工作记录，Automations 决策编号调整为 D212。",
-  "status": "completed",
-  "task_id": "2026-09-08-automations-local-main-merge",
-  "unresolved": [],
-  "validation": [
-    "合并后 automations-local-main-merge impacted preflight 16/16 通过，包含后端/前端全量测试、lint、类型及构建检查。",
-    "Markdown、控制面结构、工作记录与 diff 校验通过；本地 main 工作区干净，原主目录其他未提交工作未触碰。",
-    "仅合并本地代码，不推送远端、不重建容器、不迁移运行库；运行凭据和 data/openclaw-relay 未纳入提交。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-08",
-  "result": "将共享 Composer 的斜杠命令从聊天记录移至输入框锚定临时浮层，保留 @ 选择、草稿、确认与隔离；命令组件按需加载，同步 UI 合同、D213、手册和更新记录。",
-  "status": "completed",
-  "task_id": "composer-command-panels-20260908",
-  "unresolved": [],
-  "validation": [
-    "UI 静态检查、类型检查、ESLint、代码尺寸、后端/API 受影响检查及控制文件校验通过",
-    "最终前端 136 文件、890 项测试通过；生产构建通过，首屏 JavaScript Brotli 245720 bytes",
-    "四种视口快捷交互 22 项通过、6 项按适用范围跳过，包含 Axe、焦点、草稿和浮层几何；桌面/手机截图复核",
-    "preflight 首次缺 pytest，补齐后第二次仅旧堆叠记录断言失败；修正后 15 项快捷单测、完整前端及构建复验通过，未重复已通过后端阶段",
-    "本地 5173 已提供浮层代码；API 与 Worker ready；改动未提交"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-08",
-  "result": "参考 Codex 将自动化页改为状态筛选、搜索、紧凑任务卡与按需右侧详情；窄屏复用 Drawer/Sheet，保留真实状态、草稿、启用确认与写操作单飞，同步 UI 合同、D214、手册和更新记录。",
-  "status": "completed",
-  "task_id": "automation-task-layout-20260908",
-  "unresolved": [
-    "浏览器批跑用例全通过但退出清理触发 180 秒超时；测试进程与 4173 监听均已退出，功能定向复验通过。"
-  ],
-  "validation": [
-    "impacted preflight 12/12 通过：137 文件、892 项前端测试，UI 静态、类型、ESLint、代码尺寸、控制文件及生产构建通过；首屏 JS Brotli 245748 bytes",
-    "浏览器用例 42 passed、15 skipped，覆盖三视口/窄桌面、明暗、Reduced Motion、200% reflow、Axe、草稿/DOM、pending 和焦点；批跑清理阶段超时，不能记为进程退出码通过",
-    "修复筛选后关闭的焦点返回；旧 Cron 首页测试改走高级入口，7 项相关浏览器检查先复验通过；截图等待关闭动画完成",
-    "最终仅浏览器测试增加清理/动画断言，E2E 静态合同 5 项通过；5173 已提供本次 UI，未改任务配置、未使用容器、未提交"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -385,6 +290,122 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "为避免普通发布回滚误恢复旧 schema，先将 .env 备份至 /opt/inteliscope/backups/v2613-env-marker-20260910/env.before，再仅清除过期 INTELISCOPE_PRE_MIGRATION_BACKUP 标记；原迁移前数据库备份保留，本轮未迁移。",
     "标准 release_vps.sh 在本地构建 revision-locked linux/amd64 镜像并上传，VPS 只 docker load。已部署 2.6.13-20260909T185125Z-054cdef5fb6f；runtime_health 验证 API/Worker healthy、ready、source digest、React index-CjXFmbjd.js 及公网 revision=054cdef5fb6f。发布进程 exit 0，本地与远端临时发布目录已清理；部署后磁盘可用 7.8 GiB、使用率 80%。",
     "未调用真实模型或发测试通知，未自动创建个人 Agent 绑定，未修改既有 fsj 连接；网页配置入口上线不代表个人 Gateway 已完成安装激活。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "独立本地分支实现个人 Agent 单入口与本机托管配置，保留手动接口兼容和账号授权；本地 API、前端与 OpenClaw 连接已验证，未启动 Docker、提交或部署。",
+  "status": "partial",
+  "task_id": "2026-09-10-managed-agent-local",
+  "unresolved": [
+    "完整 preflight 未取得全绿结果，不能作为提交或发布验收。",
+    "Worker 未启动：既有活动提醒与后台文案可能调用模型或发通知；当前前端/API 可预览接入，不把它声称为完整 A 运行。",
+    "真实本机验证复用已有有效个人绑定，未为验收额外创建或替换现有账号 Agent。"
+  ],
+  "validation": [
+    "托管主机、账号和个人目录定向测试通过；Vitest 10 项、接入跨浏览器矩阵 4 项、原管理页回归 1 项通过，构建、类型、UI 合同检查通过。",
+    "明暗主题、四种视口、200% 等效窄屏重排及 Axe 已验收；浏览器进程正常退出，临时 4173 服务已清理。",
+    "两次 preflight 均在测试侧失败：旧夹具缺少 data_dir、E2E 映射过宽；已分别修复并定向复测，映射测试 62 项通过，未第三次重跑完整门禁。",
+    "本机 Gateway 管理握手、实际配置加载哈希、本人 MCP 读取及浏览器聊天连接通过；未发送聊天、调用模型或发送通知。",
+    "原测试库已私密备份并通过显式 schema 41 迁移，数据和既有绑定保留。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "本地接入卡新增确认解除与显式重新接入；新授权不复活旧凭据，不删除旧 Agent 或历史。本地 API 已更新，未实际撤销用户绑定，未启动 Docker、提交或部署。",
+  "status": "completed",
+  "task_id": "2026-09-10-agent-disconnect",
+  "unresolved": [
+    "整套 preflight 未取得全绿记录；真实解除与新接入由用户点击验证，未替用户执行。"
+  ],
+  "validation": [
+    "托管接入后端 9 项、页面 Vitest 11 项通过；权限、撤销后新身份、重复接入和取消/确认覆盖。",
+    "浏览器 4 项通过，含明暗、Reduced Motion、窄屏重排、Axe、跨浏览器与确认取消；测试正常退出，临时 4173 服务清理。",
+    "构建、UI 合同、类型检查通过；impacted preflight 后端通过，在前端 lint 发现 ref 写法问题，已修复且 lint、Vitest、类型定向复测通过，未重复整套门禁。",
+    "本地 API health 正常，用户浏览器已显示解除接入按钮。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "修复本机重新接入被 Gateway 多 Agent ownership 校验拒绝：托管补丁显式声明归属并移除旧 default 标记，保留其他 Agent、模型和隔离配置；本地 API 已重启加载修复，原待验证绑定保留供用户重试。",
+  "status": "completed",
+  "task_id": "2026-09-10-agent-ownership-fix",
+  "unresolved": [
+    "真实安装和最终接入结果仍需用户点击重试验证；本次通过的门禁仅覆盖本次后端修复，不代表此前整分支验收全绿。"
+  ],
+  "validation": [
+    "Gateway 定位到 config.patch INVALID_REQUEST ownership 错误；当前待验证 Agent 未安装，纯配置编译通过。",
+    "托管主机 7 项测试通过，覆盖旧默认配置转换、幂等、漂移和未知结果；本机 OpenClaw 原生 Schema 复现旧运行时拒绝并接受显式归属。",
+    "本次后端差异 impacted preflight 8/8 通过并正常退出，无 SQLite ResourceWarning；补充文档检查和 diff check 通过。",
+    "本地 API health 正常；未自动重试真实配置，未调用模型、通知、Docker 或 VPS。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "实现 /agents 成员申请与管理员版本审批、拒绝后重新申请和失败续接；global 42 显式迁移备份原本地测试库，持久化申请与成员绑定，不引入通知。真实本机成员配置、本人 MCP 读取和聊天握手成功，管理员绑定保持不变；非容器前端/API 保留，未提交或部署。",
+  "status": "completed",
+  "task_id": "member-agent-access-approval-20260910",
+  "unresolved": [],
+  "validation": [
+    "申请权限、重复请求、两管理员并发决策、工作区隔离、成员身份、失败恢复、迁移等 9 项定向测试通过；16 项托管安装与配置测试通过",
+    "浏览器 1440/1024/390、双上下文申请审批、拒绝取消、明暗主题、Reduced Motion、200% 重排及 Axe：6 项通过；并行清理挂起后已串行复验退出 0，临时 4173 服务清理",
+    "两次 impacted preflight：后端全量、静态、类型与尺寸通过；旧 API mock 和前端手动令牌/连接断言失败已修正，分别定向 16 项和 119 项通过；按门禁重跑上限未第三次全量重跑。最终构建通过，首屏 JS Brotli 245135 bytes",
+    "真实本机成员 fengshenjie 接入 ready，独立目标 Agent、MCP 本人订阅读取与普通连接握手通过；0 模型调用、0 通知"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-10",
+  "result": "实现成员撤销与本人解除共用的持久化清理流程、global 43 显式迁移、立即吊销绑定和专用令牌、停止/配置清理核验及管理员重试 UI。仅本地非容器环境，未提交、发布或调用模型/通知。",
+  "status": "partial",
+  "task_id": "member-agent-revocation-20260910",
+  "unresolved": [
+    "合入 main、精确 main CI、tag、Release 与 VPS 尚待完成；VPS 空间低于发布8GiB门槛。"
+  ],
+  "validation": [
+    "一次 impacted preflight 12/13 已执行项通过（含后端全量），前端 lint 混合导出失败已拆分修正；随后 lint/typecheck、前端全量 140 文件899测试和最终构建均退出0，未重复后端全量或宣称整次门禁绿灯",
+    "33 项相关后端测试通过，新增配置期间撤销、防重及重启投影后撤销定向 7 项通过；前端定向 11 项通过，构建通过",
+    "模拟双浏览器、确认取消、失败重试、1440/1024/390、Reduced Motion、明暗主题和 Axe：3 项通过并退出 0；已检查截图，临时 4173 服务无监听",
+    "本地 global 43 迁移已备份原测试库且未生成历史撤销；真实空闲成员 fengshenjie 绑定与专用数据令牌失效，管理员 Agent 配置仍存在，前端5173与API health均200",
+    "2026-09-10 接续：真实本机服务层回收精确 Agent 派生 monitor、专用配置与环境凭据，旧令牌失效；管理员与历史保留，重新审批新身份及握手通过。",
+    "最终相关后端36项、配置并发保护5项通过；.test-results/20260910T055035Z-50179 整项 preflight 16/16通过，557秒，退出0。",
+    "真实浏览器使用两个隔离的临时登录会话（角色未修改、无接口mock）：取消撤销不改变绑定、确认后成员失权、清理完成后成员按钮申请、管理员按钮允许、新Agent身份、聊天连接通过；脚本退出0，无模型/通知调用。"
   ]
 }
 ```

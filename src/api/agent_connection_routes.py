@@ -1,7 +1,7 @@
 """Personal status and trusted-administrator setup entry points."""
 from fastapi import Depends, FastAPI, Response
 from .context import ApiContext
-from .responses import ok
+from .responses import ok, ApiError
 from .system_auth import api_context, current_user
 from .agent_setup_routes import register_agent_setup_routes
 from ..storage.information_automation_schema import ready as reminders_ready
@@ -11,8 +11,13 @@ from ..services.openclaw_relay.settings import enabled, configuration
 
 async def connection_status(response: Response, user=Depends(current_user), context: ApiContext = Depends(api_context)):
     response.headers['Cache-Control'] = 'no-store'
+    from ..services.agent_connections.managed_setup import status as setup_status
+    progress = setup_status(context, user)
     status = AgentConnections(context.store, context.secret_values).status(user)
     status['can_manage_setup'] = user['role'] in {'owner', 'admin'}
+    status['setup'] = progress
+    from .agent_access_routes import own_status
+    status.update(own_status(context, user))
     status['can_connect'] &= enabled() and context.openclaw_chat_settings.enabled
     try:
         configuration()
@@ -28,13 +33,23 @@ async def connection_status(response: Response, user=Depends(current_user), cont
 
 
 async def connection_revoke(response: Response, user=Depends(current_user), context: ApiContext = Depends(api_context)):
+    from ..services.agent_connections import cleanup, cleanup_store
+    from ..services.agent_connections.access_requests import AccessError
     connections = AgentConnections(context.store, context.secret_values)
-    connections.revoke(user['id'])
+    try:
+        row = cleanup_store.begin(context, user, user)
+        cleanup.start(context, row, user)
+    except AccessError as error:
+        raise ApiError('agent_cleanup_conflict', str(error), status_code=409) from error
     response.headers['Cache-Control'] = 'no-store'
-    return ok(connections.status(user))
+    return ok({**connections.status(user), 'cleanup': cleanup.public(context, user['id'])})
 
 
 def register_agent_connection_routes(app: FastAPI):
+    from .agent_cleanup_routes import register as cleanup_register
+    cleanup_register(app)
+    from .agent_access_routes import register
+    register(app)
     register_agent_setup_routes(app)
     app.add_api_route('/api/me/agent-connection', connection_status, methods=['GET'])
     app.add_api_route('/api/me/agent-connection', connection_revoke, methods=['DELETE'])

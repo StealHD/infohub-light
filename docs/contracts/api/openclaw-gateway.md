@@ -27,6 +27,16 @@
 
 ### 个人绑定 API 与存储（global 37）
 
+- 托管配置补丁明确提交 `agents.ownership=explicit`，将旧 `default=true` 标记以精确 null 补丁移除；Gateway 运行时会剥离该兼容标记，不能仅依赖旧文件标记通过多 Agent 校验。保留 Agent ID、模型和其他配置，不使用隐式默认身份承接个人请求。
+
+- 主动重新接入：`POST /api/me/agent-connection/setup/reconnect` 仅接受严格 `confirmed: true`，Owner/Admin 使用登录身份；沿用 managed 的串行化与验证。仅该显式操作允许退役已撤销绑定并创建新身份和新凭据。有效绑定复用、待验证绑定续接；普通 managed 请求不恢复撤销授权。旧 Agent、配置及历史不删除、不迁移，不复活旧 delegation。
+
+- 本机托管接入：`POST /api/me/agent-connection/setup/managed` 只接受严格 `confirmed: true`，Owner/Admin 使用登录身份，拒绝任何额外字段。返回 202；GET 状态增加 `setup: {available,state,phase,error}`，操作状态为 idle/running/complete/failed。只读查询、刷新、重连不创建配置。错误不含内部路径、凭据或管理响应。
+- 本机部署显式启用 `HORIZON_OPENCLAW_MANAGED_LOCAL_ENABLED=true` 并提供 `HORIZON_OPENCLAW_MANAGED_ROOT`；Gateway/MCP 均限 loopback，配置端口及 Gateway 实际配置路径必须匹配。该开关仅允许 loopback WS 作为现有 WSS 的本地例外，不接受远程 WS。
+- 同账号只进行一次操作，主机配置通过文件锁串行化；读取哈希与本地内容检查防止覆盖配置漂移。待验证绑定继续使用同一专用凭据，已撤销绑定不复活。备份受保护；仅安装本次 Agent/MCP 与必要隔离规则，不改变其他凭据、模型或授权。Gateway 的实际应用哈希必须匹配，并校验目标 Agent 与本人 MCP 读取，才能内部生成验证回执并激活。
+- 配置应用由 Gateway 的原生安全重载机制处理；未实际加载保持待验证，不强制打断活动运行。结果未知先检查再续接，不盲目重放。只在配置未改变时回滚本次凭据；不以整份旧备份覆盖后续人工修改。网页关闭不取消后台操作；服务重启保留数据库绑定，用户重试后核验续接，不自动重新配置。
+- `/agents` 只保留托管接入流程。以下手动准备、下载和回执接口仅为兼容运维入口，不再从产品页面暴露；同账号不同浏览器复用服务端绑定，浏览器不存配置令牌或回执。
+
 - `GET /api/me/agent-connection` 使用当前 Cookie，返回 `ok.data`：`state` 为 `migration_required|unconfigured|pending_verification|ready|invalid|revoked`，另含 `agent_id`、`delegation_id`、`verified_at`、`can_connect`、`can_chat`、`verification`。响应 `Cache-Control: no-store`，无 SecretStore 引用、配置路径或令牌。
 - `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关及 WSS URL/凭据配置有效性限制（不发起网络探测），`own_content` 受 Remote MCP 开关限制。
 - `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
@@ -34,6 +44,22 @@
 - 配置下载为 `ok.data.archive_base64`（gzip tar，目录 `personal-agent` 0700，`manifest.json`/`token` 0600），响应 no-store；仅包含本人专用只读令牌，不含 Gateway Token 或模型密钥。前端仅在明确下载时保留内存 Blob，不写查询缓存或浏览器持久存储。主机安装仍由既有运维工具执行，网页不执行 shell 或重启 Gateway。激活沿用 HMAC/版本/一小时有效期检查；能取得配置包的管理员属于受信任运维边界，回执是运维声明而非对不可信管理员的防伪证明。已激活绑定不允许网页再次导出，失效/撤销的身份仍由运维恢复。
 - `agent_connections` 保存 user/workspace、随机 binding/Agent/MCP 名称、SecretStore env 引用、专用 delegation ID、secret-free manifest、状态和部署核验时间。每用户一条、每 Agent/namespace/delegation/secret_ref 唯一；删除 delegation 后绑定失效。正文、Gateway 对话/Tasks/Artifacts 不复制进 Service DB。
 - 准备绑定只创建新的 `inteliscope:read` / self delegation，沿用 90 日过期和最多五条有效连接限制；不复用或扩权旧 delegation。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。
+
+### 成员接入申请（global 42）
+
+- 显式运行 `scripts/migrate_agent_access_v42.py --data-dir … --apply`，先停止 API/Worker；迁移备份数据库且不生成历史申请。新库包含最小 `agent_access_requests` 表，现有库不自动升级。
+- `POST /api/me/agent-access-requests` 只接受空对象，仅启用 Member 可申请。身份取登录账号；同账号 pending/approved 申请唯一。个人状态新增 `can_request/request_available/access_request`，不包含秘密或主机路径。
+- Owner/Admin 使用 `GET /api/admin/agent-access-requests?group=pending|processing|processed&search=…&page=1`，每页 20 条，返回 items/total/pending_count，仅同工作区。`POST …/{request_id}/decision` 接受严格整数 revision、approved/rejected 和最多 200 字符 reason；拒绝必须有非空原因。事务 CAS 只允许一个决定生效。`POST …/{request_id}/retry` 接受空对象，只续接已允许申请。
+- 允许提交后台配置，不表示已激活。账号、凭据及工作目录属于申请成员；写入前和激活前重新检查操作管理员和目标成员。实际加载与本人 MCP 读取验证完成才进入 ready。failed/waiting 保留 approved 与同一 binding；进程重启投影为 recovery，由管理员明确重试，不自动重放。已关联的撤销绑定不因重试复活。
+- 不提升角色、开放 Skills/主机工具/模型/通知权限，不发送通知。审批状态由服务端保存，浏览器刷新和换浏览器仅查询。
+
+### 撤销与同步清理（global 43）
+
+- 显式离线执行 `scripts/migrate_agent_cleanup_v43.py --data-dir … --apply`；先备份，不生成历史撤销。`agent_cleanup` 保存绑定快照、操作人、申请、阶段、版本及安全错误，不保存令牌。
+- 同工作区 Owner/Admin 调用 `POST /api/admin/agent-access-requests/{request_id}/revoke`，输入仅 `revision` 与 `confirmed:true`；`…/cleanup-retry` 使用清理版本。身份与对象清单来自服务端申请和绑定，重复撤销幂等。本人 `DELETE /api/me/agent-connection` 复用同一流程。
+- 事务立即撤销绑定和专用 MCP 授权；旧连接每次请求校验，空闲连接沿用最长 15 秒检查。后台阶段 queued/stopping/removing/verifying/complete，失败 failed，重启投影 recovery；未完成不能重新申请或配置。失败不恢复权限，重试核对现状，仅续做未完成清理。
+- 精确 Agent 会话运行使用 `chat.abort` 请求停止，普通专属 cron 停用并确认真实运行结束。仅 agentId 与 declarationKey 都精确匹配的 skillCollectionReview 派生 monitor 可例外：先在 0600 私有备份保存记录，再随目标 Agent 配置移除由 Gateway 回收，最终必须确认列表中不存在；未知系统任务、归属不明或缺少停止证据仍待清理，不直接改 cron 文件。
+- 主机写锁、源文件版本校验及私有备份后，受限适配器只原子移除绑定 Agent/MCP 配置，再等待 Gateway 实际卸载与加载哈希收敛，最后删除专用环境凭据。原生 config.patch 不支持此 roster 删除，而 agents.delete 会清理会话索引，二者均不用于卸载。历史、工作目录、普通禁用任务记录及受保护备份保留；系统派生 monitor 活动记录由 Gateway 回收，备份仅作留存。新审批创建新身份，不继承旧会话；其他账号、共享凭据、模型和历史手动授权不变。
 
 ### 浏览器直连兼容模式
 
