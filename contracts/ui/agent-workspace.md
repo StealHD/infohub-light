@@ -1,6 +1,10 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=docs/contracts/ui/agent-workspace.md -->
 # Agent Workspace UI Contract
 
+## 托管运行修复
+
+保留现有布局和设计系统组件。接入卡分别呈现聊天连接、个人数据授权和自动化分析状态，不把连接成功标成模型/通知已验收；已就绪管理员可显式“修复接入”，成员通过同页申请行由管理员修复。自动化目录缺失说明由管理员修复，不让成员自行启动 connector；刷新未配置目录明确说明无效。轮询保留现有内容与焦点。聊天发送/模型切换/重试互斥，参数不兼容保留失败内容，显示安全原因与恢复操作；不自动切换模型或重放失败请求。无新动效，沿用窄屏、主题、键盘与 Reduced Motion 合同。
+
 ## 1. Routes and runtime continuity
 
 - `/agent` owns the full conversation workspace. `/agent/tasks` and `/agent/artifacts` keep that conversation mounted and open an inspector; `/agent/skills`, `/agent/automations`, and `/agent/examples` retain the session sidebar while replacing the center with a complete resource page. `/agents` remains Inscope assistant-connection management.

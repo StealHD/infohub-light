@@ -3,6 +3,8 @@
 
 ## 服务端连接扩展
 
+托管分析模块 `agent_connections/analysis_{manifest,state,setup,host,supervisor,cleanup}.py` 分别拥有派生身份、global 44 状态、授权编排、受限安装、主机调度和精确撤销。`information_automations/connector_runner.py` 继续独占领取/推理/回执；`completion_guard.py` 持久保存推理结束未知状态，不能把网络超时当作停止证据。主机只有一个受监督进程和有界绑定执行槽，每个绑定单独凭据/目录/锁；不创建每用户 Gateway。`native_mcp_probe.py` 验证安装版本的原生协议和只读调用，不冒充 Gateway 会话缓存；真实会话工具验收仍需项目链路证据。
+
 用户授权的服务端模式由 `src/api/openclaw_relay_routes.py` 负责同源登录鉴权，`src/services/openclaw_relay/` 负责设备认证、RPC 白名单、会话归属与有界双向转发。浏览器通过同源 API 连接，服务端保管 Gateway 凭据；其安全合同以 `docs/contracts/api/openclaw-gateway.md` 服务端模式为准，优先于历史 browser-only 描述。
 
 `src/services/agent_connections/` 管个人身份、SecretStore 引用、部署 manifest/回执与纯配置编译；`src/storage/agent_connection_schema.py` 管 global 37。API 只提供当前账号查询/吊销，relay 从登录身份查绑定。`scripts/manage_agent_connection.py` 只在 Service 主机准备/导出/激活；`scripts/provision_openclaw_agent.py` 只在 Gateway 主机安装/验证，不启动模型或重启服务。现有首库 bootstrap 链在全新库安装空表，旧库仅由显式迁移脚本安装。

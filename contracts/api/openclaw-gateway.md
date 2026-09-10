@@ -1,5 +1,17 @@
 ## 5C. OpenClaw Gateway 合同
 
+### 托管运行修复与独立分析（global 44）
+
+- 个人 MCP 显式 `transport: streamable-http`；只允许修复完全匹配清单但缺少 transport 的旧配置，显式其他协议或归属漂移失败关闭。个人 Agent 关闭 memorySearch；主 Agent 不变。清理兼容旧协议遗漏，不重新生成正常凭据。
+- 同一 managed setup/admin retry 显式修复有效绑定；GET、刷新和登录不安装配置。管理员修复已接入申请复用同一批准记录与绑定，不新增审批或扩大角色。
+- global 44 `agent_analysis` 保存 binding_id/user_id/phase/objects_json/error/revision/updated_at，无历史行回填；保留已退役绑定的安装历史。`scripts/migrate_agent_analysis_v44.py` 在停止 API/Worker、备份后显式执行。
+- 个人状态新增 `analysis`（phase、error、updated_at），阶段含 not_configured/preparing/configuring/catalog_ready/catalog_only/ready/no_authorized_models/failed/revoking/removed/offline。安装配置或主机返回目录不等于服务在线，必须收到机器凭据的实际能力心跳。
+- 受限主机增加固定 `install_analysis` 操作，Agent=`ic-<binding_id>`、环境凭据名及私有目录由清单派生。浏览器不能指定这些目标。全主机写锁、账号授权复验和撤销墓碑共同防止旧身份复活。
+- 撤销同时失效 connector 凭据、禁止领取、请求停止目标运行，清除已登记分析配置与活动环境凭据。HTTP 推理结果未知时保留结束状态标记，停止新领取且清理保持未完成；会话列表为空不能代替该 HTTP 调用结束的证据。历史目录和备份保留。
+- 中继公开错误限定 MODEL_PARAMETER_UNSUPPORTED/PERSONAL_TOOLS_UNAVAILABLE/MODEL_AUTH_FAILED/MODEL_QUOTA_LIMITED/MODEL_CALL_TIMEOUT/RELAY_REQUEST_FAILED 和固定安全文案。失败事件只保留合法运行/会话标识和安全分类，不返回原始响应、路径或凭据。
+- 发送/切换/重试共用同步锁；发送前通过当前会话元数据核验 Agent、模型与合法思考档位。旧快照不兼容时保留内容，不自动更换模型。分叉实际模型不符时保留原会话并提供已有空白对话恢复入口。
+- 安装版本原生协议探测与 Python MCP 直连均不能作为真实 Gateway 会话工具已加载的证明。当前 Gateway `tools.effective` 对默认内嵌运行时只读缓存，首次模型运行前可尚未初始化；项目验收须另查真实会话目录和本人工具调用。多 Agent TUI 继续要求显式 session。
+
 ### 服务端模式（2026-09-07 用户授权新增）
 
 启用 `HORIZON_OPENCLAW_SERVER_ENABLED=true` 后，Service 返回同源 `/api/me/openclaw/socket`，浏览器以 InfoHub 登录 Cookie 连接 API；API 以固定 WSS 地址和服务端 Token 连接 Gateway。此模式替代下文浏览器直连的认证/传输边界，直连模式仍为兼容默认。
