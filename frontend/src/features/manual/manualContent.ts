@@ -169,7 +169,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '跨浏览器使用',
-        description: '同一账号的个人 Agent 绑定由服务端保存；换浏览器只需登录、连接，不重复申请 Agent。浏览器仅保存既有会话选择和连接偏好，不保存 MCP 令牌、Gateway 管理凭据或回执。未接入时，聊天和设置统一前往 Agent 接入页。原会话与授权不会被自动删除，撤销对所有浏览器生效。A 模式使用本机前端 5173、API 8080 和原测试库，不需要 Docker。',
+        description: '同一账号默认允许 12 个页面同时连接；关闭标签页或离开站点会释放连接，浏览器后退恢复时重连，切到后台不主动断开。连接不会因满一小时被强制切断。部署管理员可通过 HORIZON_OPENCLAW_MAX_CONNECTIONS_PER_USER（1–100）调整上限并重启 API。即使共用账号，每人仍共享同一 Agent 身份。同一账号的个人 Agent 绑定由服务端保存；换浏览器只需登录、连接，不重复申请 Agent。浏览器仅保存既有会话选择和连接偏好，不保存 MCP 令牌、Gateway 管理凭据或回执。未接入时，聊天和设置统一前往 Agent 接入页。原会话与授权不会被自动删除，撤销对所有浏览器生效。A 模式使用本机前端 5173、API 8080 和原测试库，不需要 Docker。',
         href: '/agents',
         linkLabel: '打开助手连接',
       },

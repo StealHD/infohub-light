@@ -17,7 +17,7 @@
 启用 `HORIZON_OPENCLAW_SERVER_ENABLED=true` 后，Service 返回同源 `/api/me/openclaw/socket`，浏览器以 InfoHub 登录 Cookie 连接 API；API 以固定 WSS 地址和服务端 Token 连接 Gateway。此模式替代下文浏览器直连的认证/传输边界，直连模式仍为兼容默认。
 
 - 每个站内用户必须具有有效的个人 Agent/MCP delegation 绑定。Owner/Admin/Member 可聊天，Viewer 仅可读取已归属历史；浏览器不能指定其他用户或 Agent。缺绑定、过期、吊销、账号停用、scope 改变或上游 Agent 不存在均失败关闭，不采用 Gateway 的 default Agent。
-- 检查精确 Origin/Host、登录身份、角色及当前绑定；每个请求与上游响应/事件转发前重验，空闲每 15 秒重验。每账号最多三条连接，每分钟 120 个 RPC，最多 32 个待处理 RPC。
+- 检查精确 Origin/Host、登录身份、角色及当前绑定；每个请求与上游响应/事件转发前重验，空闲每 15 秒重验。每账号默认最多 12 条连接，`HORIZON_OPENCLAW_MAX_CONNECTIONS_PER_USER` 可配置 1–100，修改后重启 API；每分钟 120 个 RPC，最多 32 个待处理 RPC。连接不设总时长硬截止，仍保留心跳和身份检查。标签页关闭、离开站点或进入浏览器后退缓存时主动关闭连接并停止重连；缓存恢复后仅恢复原有连接，切换后台不主动断开，也不发送任务取消。客户端正常关闭后释放上游与计数；异常失联由传输心跳回收。
 - Gateway Token 来自 `HORIZON_OPENCLAW_SERVER_TOKEN`，设备私钥保存在 `data/openclaw-relay/device.key`（0600）。浏览器不接收上游令牌或配对私钥；初始服务端设备仍由管理员配对。
 - `data/openclaw-relay/ownership.sqlite3` 继续仅保存 workspace/user 与 Gateway session key 归属，不保存对话。新会话在服务端所选 Agent 下创建，fork 和写操作限定当前 Agent 的本人会话。已归属的旧 main/退役 Agent 会话只读，不迁移、不重新归属；读取历史时不强制改写原 Agent。
 - 未许可 RPC、跨账号会话、跨 Agent 指定、原生 `/` 或 `!` Gateway 聊天命令均拒绝；聊天强制 `deliver:false`。不转发配置、设备管理或任意工具调用。TLS 校验、20 秒 ping、断连清理和不自动重发 chat.send 保持有效。

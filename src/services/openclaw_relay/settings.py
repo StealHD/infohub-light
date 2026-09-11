@@ -31,3 +31,11 @@ def settings() -> tuple[str, str, Path]:
     path = Path(os.environ.get('HORIZON_OPENCLAW_RELAY_STATE', 'data/openclaw-relay'))
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return url, token, path
+
+
+def connection_limit() -> int:
+    """Bound concurrent pages per account; invalid configuration fails closed."""
+    value = int(os.getenv('HORIZON_OPENCLAW_MAX_CONNECTIONS_PER_USER', '12'))
+    if not 1 <= value <= 100:
+        raise ValueError('OpenClaw connection limit must be between 1 and 100')
+    return value

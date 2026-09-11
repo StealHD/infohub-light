@@ -1,6 +1,7 @@
 import { canAutoConnectManaged, rememberManagedConnection, managedSession, saveManagedSession } from '../storage/openclawManagedSession'
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability -- lifecycle refs are imperative controller state */
 import { useCallback, useEffect } from 'react'
+import { useOpenClawPageLifecycle } from './openclawPageLifecycle'
 import { isManagedGateway, managedGatewayUrl } from '../gateway/openclawManaged'
 
 import { isMissingOpenClawSession, MissingOpenClawCredentialError, setupIssue } from '../chat/openclawSetupIssue'
@@ -274,9 +275,7 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
     input.refs.connection.automaticConnectKey = null
   }, [input.refs, input.state.gatewayUrl])
 
-  useEffect(() => {
-    return disconnect
-  }, [disconnect, input.options.defaultGatewayUrl, input.options.enabled, input.options.userId])
+  useOpenClawPageLifecycle(disconnect, input.refs.connection, input.options.defaultGatewayUrl, input.options.enabled, input.options.userId)
 
   useEffect(() => {
     const effectiveStatus = input.state.status === 'disabled' ? 'idle' : input.state.status

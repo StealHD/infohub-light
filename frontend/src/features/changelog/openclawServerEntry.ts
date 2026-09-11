@@ -10,6 +10,10 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-11', title: '多页面 Agent 连接更稳定',
+  summary: '提高同账号连接容量，关闭页面主动释放连接，取消一小时强制断线。',
+  items: [{ title: '退出释放与运行保护', description: '默认支持 12 个页面同时连接，部署时可调整。关闭页面停止重连，浏览器后退恢复时恢复连接；切到后台不主动断开，退出页面不发送任务取消。' }],
+}, {
   date: '2026-09-10', title: '托管接入配置兼容修复',
   summary: '修复个人与独立分析 Agent 的记忆配置字段，兼容 OpenClaw 2026.9.2 与 2026.9.3 的原生配置校验。',
   items: [{ title: '保留原接入并核验真实协议', description: '缺失记忆策略的旧配置可原位补齐，显式策略冲突仍停止处理；不重建身份或替换正常凭据。原生 MCP 验证同时支持旧版合并模块和新版拆分模块，不能用旧连接可用代替新接入验收。' }],

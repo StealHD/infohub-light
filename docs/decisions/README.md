@@ -33,7 +33,7 @@
 | D028 | 生产 UI 单一切换到 HeroUI，并删除双栈回滚 | 2026-07-17 | [查看](records/D026-D050.md#d028) |
 | D029 | Feed 视觉确认先采用单页 Codex 风格微调 | 2026-07-18 | [查看](records/D026-D050.md#d029) |
 | D030 | — Feed adopts the approved Quiet Studio variant | 2026-07-18 | [查看](records/D026-D050.md#d030) |
-| D031 | Quiet Studio 采用分类导航、双向排序和确定性交接编辑器 | 2026-07-18 | [查看](records/D026-D050.md#d031) |
+| D031 | Quiet Studio 导航、排序与交接 | 2026-07-18 | [查看](records/D026-D050.md#d031) |
 | D032 | 生产 UI 采用单一字体栈与可执行语义排版契约 | 2026-07-18 | [查看](records/D026-D050.md#d032) |
 | D033 | Quiet Studio 成为全站自适应视觉与交互语言 | 2026-07-19 | [查看](records/D026-D050.md#d033) |
 | D034 | MCP 订阅 proposal 与显式 delegation | 2026-07-18 | [查看](records/D026-D050.md#d034) |
@@ -95,7 +95,7 @@
 | D091 | 触底文案状态展示完整场景列表 | 2026-07-29 | [查看](records/D076-D100.md#d091) |
 | D092 | X/profile 采用独立三 Actor 路由、费用熔断与工作区告警 | 2026-07-29 | [查看](records/D076-D100.md#d092) |
 | D093 | Service Webhook 对飞书/Lark 自定义机器人采用原生文本消息 | 2026-07-29 | [查看](records/D076-D100.md#d093) |
-| D094 | Service Webhook 采用七类显式 Provider Registry 与业务 ACK | 2026-07-30 | [查看](records/D076-D100.md#d094) |
+| D094 | Webhook Provider 与 ACK | 2026-07-30 | [查看](records/D076-D100.md#d094) |
 | D095 | 高频任务观察与完整运行记录分离 | 2026-07-30 | [查看](records/D076-D100.md#d095) |
 | D096 | 设置查询、内容缓存与静态传输采用显式用途边界 | 2026-07-30 | [查看](records/D076-D100.md#d096) |
 | D097 | 设置分区以相邻滚动意图自然激活 | 2026-07-30 | [查看](records/D076-D100.md#d097) |
@@ -213,9 +213,9 @@
 | D209 | 信息提醒 | 2026-09-08 | [查看](records/D201-D225.md#d209) |
 | D210 | 日志边界 | 2026-09-08 | [查看](records/D201-D225.md#d210) |
 | D211 | 重跑预算 | 2026-09-08 | [查看](records/D201-D225.md#d211) |
-
 | D212 | 统一分析 | 2026-09-08 | [查看](records/D201-D225.md#d212) |
 | D213 | Skills 清单 | 2026-09-09 | [查看](records/D201-D225.md#d213) |
 | D214 | 命令浮层 | 2026-09-08 | [查看](records/D201-D225.md#d214) |
 | D215 | 自动化布局 | 2026-09-08 | [查看](records/D201-D225.md#d215) |
 | D216 | 管理员接入 | 2026-09-09 | [查看](records/D201-D225.md#d216) |
+| D217 | 连接释放 | 2026-09-11 | [查看](records/D201-D225.md#d217) |

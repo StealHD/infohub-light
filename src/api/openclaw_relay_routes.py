@@ -1,5 +1,4 @@
 """Same-origin, session-authenticated server OpenClaw transport."""
-import asyncio
 import logging
 from collections import Counter
 from urllib.parse import urlsplit
@@ -8,7 +7,7 @@ from ..auth import COOKIE_NAME
 from ..services.agent_connections.service import AgentConnections
 from ..services.agent_skill_access import AgentSkillAccess, AgentSkillPolicyError
 from ..services.openclaw_relay.bridge import RelayFailure, relay
-from ..services.openclaw_relay.settings import RELAY_PATH, enabled
+from ..services.openclaw_relay.settings import RELAY_PATH, enabled, connection_limit
 
 _connections = Counter()
 
@@ -39,7 +38,7 @@ async def openclaw_socket(socket: WebSocket):
             return set()
     def skill_policy_ready():
         return skill_access.chat_ready(str(user['workspace_id']), str(binding['binding_id']))
-    if _connections[owner] >= 3:
+    if _connections[owner] >= connection_limit():
         await socket.close(code=1013)
         return
     def valid_session():
@@ -51,10 +50,10 @@ async def openclaw_socket(socket: WebSocket):
     _connections[owner] += 1
     try:
         await socket.accept()
-        await asyncio.wait_for(relay(
+        await relay(
             socket, owner, valid_session, binding['agent_id'], readonly=user['role'] == 'viewer',
             allowed_skill_keys=allowed_skill_keys, chat_ready=skill_policy_ready,
-        ), 3600)
+        )
     except Exception as exc:
         logging.getLogger(__name__).warning("OpenClaw relay closed: %s", str(exc) if isinstance(exc, RelayFailure) else type(exc).__name__)
         # Never log raw upstream frames, URLs, tokens, or provider error bodies.
