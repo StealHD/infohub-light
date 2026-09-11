@@ -79,4 +79,3 @@ export function projectWorkspaceBranches(value: unknown): OpenClawWorkspaceBranc
   const branches = arrayOf(root.branches, 'worktrees.branches').map((candidate) => { const row = recordOf(candidate, 'worktrees.branches'); const name = stringOf(row.name); if (!name || (row.kind !== 'local' && row.kind !== 'remote')) throw new Error('worktrees.branches 包含无效分支。'); return { name, kind: row.kind as 'local' | 'remote' } })
   return { branches, ...(stringOf(root.defaultBranch) ? { defaultBranch: stringOf(root.defaultBranch) } : {}), ...(stringOf(root.headBranch) ? { headBranch: stringOf(root.headBranch) } : {}), ...(stringOf(root.repositoryStatus) ? { repositoryStatus: stringOf(root.repositoryStatus) } : {}) }
 }
-
