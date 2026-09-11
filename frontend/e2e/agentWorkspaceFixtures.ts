@@ -57,8 +57,8 @@ export async function installGatewayFixture(page: Page, directory = false) {
           payload = frame.params.worktree ? { ok: true, key: 'child', runStarted: true, runId: 'run-1', worktree: { id: 'wt-1', path: '/tmp/wt-1', branch: 'openclaw/ui' } } : { key: 'root' }
         }
         else if (frame.method === 'models.list') payload = { models: [{ id: 'gpt', provider: 'openai', name: 'GPT', available: true, input: ['text'] }] }
-        else if (frame.method === 'agents.list') payload = { defaultId: 'main', agents: [{ id: 'main', model: { primary: 'openai/gpt' } }] }
-        else if (frame.method === 'sessions.describe') payload = { session: { key: frame.params.key, agentId: 'main', modelProvider: 'openai', model: 'gpt' } }
+        else if (frame.method === 'agents.list') payload = { defaultId: 'main', agents: ['main', 'research'].map((id) => ({ id, model: { primary: 'openai/gpt' } })) }
+        else if (frame.method === 'sessions.describe') payload = { session: { key: frame.params.key, agentId: history.find((row) => row.key === frame.params.key)?.agentId ?? 'main', modelProvider: 'openai', model: 'gpt' } }
         else if (frame.method === 'tools.effective') payload = { groups: [{ tools: [{ id: 'inteliscope', source: 'mcp' }] }] }
         else if (frame.method === 'chat.history') payload = { messages: [] }
         else if (frame.method === 'sessions.list') {
