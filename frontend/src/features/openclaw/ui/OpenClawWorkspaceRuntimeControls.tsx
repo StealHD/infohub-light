@@ -62,14 +62,10 @@ export default function OpenClawWorkspaceRuntimeControls({ chat, picker, onPicke
         }}>
           {modelView ? <>
             <Button isIconOnly size="sm" variant="ghost" className="effort-model-back" aria-label="返回思考程度" onPress={() => { setView('effort'); setOpen(true); onPickerClose?.(); requestAnimationFrame(() => modelRef.current?.focus()) }}><Icons.ChevronLeft size={15} aria-hidden="true" /></Button>
-            <ListBox autoFocus="first" aria-label="OpenClaw 模型" className="effort-model-list" selectionMode="single" selectedKeys={chat.runtimeSelection.modelId ? [chat.runtimeSelection.modelId] : []} disabledKeys={disabled ? chat.models.map((entry) => entry.id) : []} onSelectionChange={(keys) => {
-              if (keys === 'all') return
-              const key = Array.from(keys)[0]
-              if (key === undefined) return
-              const finish = () => { setView('effort'); setOpen(true); onPickerClose?.(); requestAnimationFrame(() => modelRef.current?.focus()) }
-              if (String(key) === chat.runtimeSelection.modelId) { finish(); return }
-              void apply(async () => { const success = await chat.setModel(String(key)); if (success) finish(); return success })
-            }}>{chat.models.map((entry) => <ListBox.Item id={entry.id} key={entry.id} textValue={`${entry.provider} ${entry.name}`}>
+            <ListBox autoFocus="first" aria-label="OpenClaw 模型" className="effort-model-list" selectionMode="single" selectedKeys={chat.runtimeSelection.modelId ? [chat.runtimeSelection.modelId] : []} disabledKeys={disabled ? chat.models.map((entry) => entry.id) : []}>
+              {chat.models.map((entry) => <ListBox.Item id={entry.id} key={entry.id} textValue={`${entry.provider} ${entry.name}`} onPress={() => {
+                void apply(async () => { const success = await chat.setModel(entry.id); if (success) { setView('effort'); setOpen(false); onPickerClose?.(); requestAnimationFrame(() => triggerRef.current?.focus()) } return success })
+              }}>
               <div className="min-w-0"><span className="type-control block [overflow-wrap:anywhere]">{entry.name}</span><span className="type-meta text-muted">{entry.provider}{entry.supportsImages ? ' · 支持图片' : ''}</span></div><ListBox.ItemIndicator />
             </ListBox.Item>)}</ListBox>
           </> : <><div className="effort-picker-heading">

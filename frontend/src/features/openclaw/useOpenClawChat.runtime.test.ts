@@ -295,7 +295,7 @@ describe('useOpenClawChat', () => {
       if (method === 'models.list') return models
       if (method === 'agents.list') return agents
       if (method === 'sessions.describe') return params?.key === 'session-2'
-        ? { session: { modelProvider: 'local', model: 'quick' } }
+        ? { session: { key: 'session-2', agentId: 'main', parentSessionKey: 'session-1', modelOverrideSource: 'user', modelProvider: 'local', model: 'quick' } }
         : session
       if (method === 'sessions.create') return { key: 'session-2' }
       throw new Error(`unexpected method ${method}`)
@@ -404,6 +404,7 @@ describe('useOpenClawChat', () => {
         described += 1
         return {
           session: {
+            key: described === 1 ? 'session-1' : 'session-fallback', agentId: 'main',
             modelProvider: described === 1 ? 'removed' : 'openai',
             model: described === 1 ? 'unavailable-model' : 'gpt-5.4',
             thinkingLevel: 'medium',

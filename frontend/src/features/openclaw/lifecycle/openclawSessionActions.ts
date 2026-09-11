@@ -8,6 +8,7 @@ import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawCha
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { createOpenClawSession, readOpenClawRuntime } from './openclawSessionOperations'
 import { acquireRuntime } from './openclawRuntimeGuard'
+import { MODEL_RECOVERY_MESSAGE } from '../chat/openclawModelSafety'
 
 export function useOpenClawSessionActions(input: {
   refs: OpenClawLifecycleRefs
@@ -31,7 +32,6 @@ export function useOpenClawSessionActions(input: {
     const targetModelId = modelId ?? input.state.runtimeSelection.defaultModelId
     const selected = input.state.models.find((model) => model.id === targetModelId)
     if (!client || !parentSessionKey || !agentId || !selected || input.refs.session.operation || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
-    if (input.state.runtimeSelection.modelId === selected.id) return true
     const release = acquireRuntime(input.refs)
     if (!release) return false
     input.dispatch({ type: 'patch', value: { runtimeUpdating: true, runtimeIssue: null, modelSwitchFallback: null } })
@@ -39,12 +39,15 @@ export function useOpenClawSessionActions(input: {
     const isCurrent = () => input.refs.session.navigationEpoch === epoch && input.refs.connection.client === client
     let createdKey: string | null = null
     try {
+      const current = await readOpenClawRuntime(client, parentSessionKey, agentId, true)
+      if (!isCurrent()) return false
+      if (current.selection.modelSafety === 'verified' && current.selection.modelId === selected.id) return true
       createdKey = await createOpenClawSession(client, { agentId, parentSessionKey, fork: true, model: selected.id })
       if (!isCurrent()) return false
-      const projection = await readOpenClawRuntime(client, createdKey, agentId)
+      const projection = await readOpenClawRuntime(client, createdKey, agentId, true)
       if (!isCurrent()) return false
-      if (projection.invalidSessionModel || projection.selection.modelId !== selected.id) {
-        throw new Error('OpenClaw 返回的实际模型与选择不一致。')
+      if (projection.invalidSessionModel || projection.selection.modelSafety !== 'verified' || projection.selection.modelId !== selected.id) {
+        throw new Error(MODEL_RECOVERY_MESSAGE)
       }
       await input.activateSession(client, createdKey, agentId, projection, false, true, isCurrent)
       if (!isCurrent()) return false
@@ -54,8 +57,8 @@ export function useOpenClawSessionActions(input: {
       if (isCurrent()) input.dispatch({
         type: 'patch',
         value: {
-          runtimeIssue: `${runtimeFailureMessage(error, 'switch')} 可新建空白对话并切换到 ${selected.name}。`,
-          modelSwitchFallback: { modelId: selected.id, modelName: selected.name },
+          runtimeIssue: `${runtimeFailureMessage(error, 'switch')} 原对话和输入已保留。`,
+          modelSwitchFallback: null,
         },
       })
       return false
@@ -96,7 +99,7 @@ export function useOpenClawSessionActions(input: {
     try {
       createdKey = await createOpenClawSession(client, { agentId, ...(modelId ? { model: modelId } : {}) })
       if (!isCurrent()) return false
-      const projection = await readOpenClawRuntime(client, createdKey, agentId)
+      const projection = await readOpenClawRuntime(client, createdKey, agentId, true, true)
       if (!isCurrent()) return false
       if (modelId && (projection.invalidSessionModel || projection.selection.modelId !== modelId)) {
         throw new Error('OpenClaw 返回的实际模型与选择不一致。')

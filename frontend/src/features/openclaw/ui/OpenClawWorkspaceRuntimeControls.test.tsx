@@ -111,3 +111,15 @@ it('does not claim an unknown or hidden current level is the lowest level', asyn
   await user.keyboard('{Home}')
   await waitFor(() => expect(chat.setThinking).toHaveBeenCalledWith('low'))
 })
+
+it('rechecks an explicitly reselected model without a success notice', async () => {
+  const user = userEvent.setup()
+  const chat = controller({ setModel: vi.fn().mockResolvedValue(true) })
+  render(<OpenClawWorkspaceRuntimeControls chat={chat as never} />)
+  await user.click(screen.getByRole('button', { name: /OpenClaw 模型/u }))
+  await user.click(screen.getByRole('button', { name: /选择模型：/u }))
+  await user.click(screen.getByRole('option', { name: /GPT/ }))
+  expect(chat.setModel).toHaveBeenCalledWith('openai/gpt')
+  expect(chat.setModel).toHaveBeenCalledTimes(1)
+  expect(screen.queryByText(/模型已切换/)).not.toBeInTheDocument()
+})

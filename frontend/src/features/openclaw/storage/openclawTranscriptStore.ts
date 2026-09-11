@@ -1,5 +1,6 @@
 import type { OpenClawChatMessage } from '../openclawContracts'
 import { sanitizeOpenClawSourceReferences } from '../chat/openclawHandoffProtocol'
+import { failureDiagnostic, mergeFailureDiagnostic, failureText } from '../chat/openclawFailureDiagnostic'
 
 export const OPENCLAW_TRANSCRIPT_KEY_PREFIX = 'inteliscope.openclaw.transcript.v1:'
 export const OPENCLAW_MAX_MESSAGES = 100
@@ -87,6 +88,7 @@ function persistedMessage(message: OpenClawChatMessage): OpenClawChatMessage {
     origin: message.origin,
     mergeId: message.mergeId || messageMergeId(message),
     clientTurnId: message.clientTurnId,
+    ...(message.diagnostic ? { diagnostic: failureDiagnostic(message.diagnostic) } : {}),
     ...(images.length ? { images } : {}),
     ...(keepRetrySnapshot ? { sendSnapshot: message.sendSnapshot } : {}),
   }
@@ -98,6 +100,7 @@ export function mergeOpenClawTranscript(
 ): OpenClawChatMessage[] {
   const merged = boundChatMessages(local).map((message) => ({ ...message }))
   const matchedLocalIndexes = new Set<number>()
+  let precedingUserIndex = -1
   for (const remote of boundChatMessages(gateway)) {
     const remoteMergeId = messageMergeId(remote)
     let existingIndex = merged.findIndex((candidate, index) => (
@@ -120,6 +123,15 @@ export function mergeOpenClawTranscript(
       ))
     }
     if (existingIndex < 0) {
+      if (remote.role === 'assistant' && remote.status === 'failed' && precedingUserIndex >= 0) {
+        const nextUser = merged.findIndex((candidate, index) => index > precedingUserIndex && candidate.role === 'user')
+        const failures = merged.map((candidate, index) => ({ candidate, index })).filter(({ candidate, index }) =>
+          index > precedingUserIndex && (nextUser < 0 || index < nextUser) && !matchedLocalIndexes.has(index)
+          && candidate.role === 'assistant' && candidate.status === 'failed')
+        if (failures.length === 1) existingIndex = failures[0].index
+      }
+    }
+    if (existingIndex < 0) {
       const signature = messageSignature(remote)
       const candidates = merged
         .map((candidate, index) => ({ candidate, index }))
@@ -138,10 +150,13 @@ export function mergeOpenClawTranscript(
       const appendedIndex = merged.length
       merged.push({ ...remote, mergeId: remote.mergeId || remoteMergeId })
       matchedLocalIndexes.add(appendedIndex)
+      if (remote.role === 'user') precedingUserIndex = appendedIndex
       continue
     }
     matchedLocalIndexes.add(existingIndex)
     const existing = merged[existingIndex]
+    if (remote.role === 'user') precedingUserIndex = existingIndex
+    const diagnostic = mergeFailureDiagnostic(existing.diagnostic, remote.diagnostic)
     const remoteConfirmsDelivery = remote.status === 'sent'
     const preserveLocalQuestion = existing.role === 'user' && existing.origin === 'local' && remote.role === 'user'
     merged[existingIndex] = {
@@ -149,7 +164,9 @@ export function mergeOpenClawTranscript(
       ...remote,
       id: existing.id,
       role: existing.role,
-      text: preserveLocalQuestion ? existing.text : remote.text,
+      text: preserveLocalQuestion ? existing.text : remote.diagnostic?.code === 'FAILURE_REASON_UNAVAILABLE' && existing.diagnostic
+        ? failureText(existing.text, diagnostic!) : remote.text,
+      ...(diagnostic ? { diagnostic } : {}),
       createdAt: existing.createdAt ?? remote.createdAt,
       contextCount: existing.contextCount ?? remote.contextCount,
       contextSources: existing.contextSources ?? remote.contextSources,

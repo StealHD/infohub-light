@@ -1,6 +1,7 @@
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import type { OpenClawRuntimeProjection } from '../chat/openclawRuntimeProjection'
 import type { OpenClawSendSnapshot } from '../openclawContracts'
+import { MODEL_RECOVERY_MESSAGE } from '../chat/openclawModelSafety'
 
 export function acquireRuntime(refs: OpenClawLifecycleRefs): (() => void) | null {
   if (refs.session.operation || refs.run.pendingSend || refs.run.runId) return null
@@ -12,6 +13,8 @@ export function acquireRuntime(refs: OpenClawLifecycleRefs): (() => void) | null
 export class RuntimeSelectionError extends Error {}
 
 export function validateSendSelection(snapshot: OpenClawSendSnapshot, projection: OpenClawRuntimeProjection): string | null {
+  if (projection.selection.modelSafety === 'unsafe_fork') throw new RuntimeSelectionError(MODEL_RECOVERY_MESSAGE)
+  if (projection.selection.modelSafety === 'unknown') throw new RuntimeSelectionError('无法确认会话模型，内容已保留，请重新连接后核对。')
   if (!snapshot.modelId || projection.invalidSessionModel || snapshot.modelId !== projection.selection.modelId) {
     throw new RuntimeSelectionError('会话模型已变化。内容已保留，请确认模型后重新发送。')
   }

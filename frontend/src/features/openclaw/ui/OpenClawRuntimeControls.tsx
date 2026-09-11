@@ -105,6 +105,7 @@ export function OpenClawRuntimeControls({ chat, variant = 'compact' }: { chat: C
             {group.models.map((model) => <ListBox.Item
               key={model.id}
               id={model.id}
+              onPress={() => { if (model.id === chat.runtimeSelection.modelId) void chat.setModel(model.id) }}
               textValue={`${model.provider} ${model.name}`}
               className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2"
             >

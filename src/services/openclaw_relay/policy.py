@@ -2,6 +2,7 @@
 import re
 from .ownership import Ownership
 from .directory import directory_params, directory_payload, skills_params, skills_payload
+from .errors import safe_history_failures
 
 SESSION_METHODS = {
     'chat.history': {'sessionKey', 'agentId', 'limit', 'maxChars'},
@@ -70,6 +71,8 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
 
 def response_payload(method: str, payload: dict, owner: Ownership, agent: str, params: dict | None = None,
                      allowed_skill_keys=None) -> dict:
+    if method == 'chat.history':
+        return safe_history_failures(payload)
     if method == 'sessions.create':
         key = payload.get('key')
         if not isinstance(key, str) or not key.startswith('agent:' + agent + ':'):

@@ -9,6 +9,7 @@ import type {
 } from './openclawMedia'
 import type { OpenClawWorkspaceController } from './workspace/openclawWorkspaceContracts'
 import type { OpenClawSkillSelection } from './chat/openclawSkillSelection'
+import type { OpenClawFailureDiagnostic } from './chat/openclawFailureDiagnostic'
 
 export type OpenClawConnectionStatus = 'disabled' | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 export type OpenClawToolsStatus = 'unknown' | 'available' | 'missing'
@@ -76,6 +77,7 @@ export type OpenClawSourceReference = {
 }
 
 export type OpenClawChatMessage = {
+  diagnostic?: OpenClawFailureDiagnostic
   id: string
   role: 'user' | 'assistant'
   text: string
@@ -122,6 +124,7 @@ export type OpenClawModelOption = {
 }
 
 export type OpenClawRuntimeSelection = {
+  modelSafety?: 'verified' | 'unsafe_fork' | 'unknown'
   fastMode?: boolean
   defaultFastMode?: boolean
   modelId: string | null

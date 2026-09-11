@@ -22,6 +22,7 @@ import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { openOpenClawSession } from './openClawSessionNavigation'
 import { useOpenClawSessionActions } from './openclawSessionActions'
 import { readOpenClawRuntime } from './openclawSessionOperations'
+import { MODEL_RECOVERY_MESSAGE } from '../chat/openclawModelSafety'
 
 type RuntimeTranscriptPort = {
   replace(messages: OpenClawChatMessage[]): void
@@ -94,6 +95,7 @@ function useRuntimeProjectionState(input: SessionRuntimeInput) {
         : projection.selection.thinkingLevel
     const runtimeSelection = { ...projection.selection, thinkingLevel: preservedThinking, ...(preserveThinking && typeof input.refs.session.fastMode === 'boolean' ? { fastMode: input.refs.session.fastMode } : {}) }
     input.refs.session.thinkingLevel = runtimeSelection.thinkingLevel
+    const unsafeFork = projection.selection.modelSafety === 'unsafe_fork'
     const fallbackModel = projection.invalidSessionModel && projection.selection.defaultModelId
       ? projection.models.find((model) => model.id === projection.selection.defaultModelId)
       : null
@@ -103,7 +105,7 @@ function useRuntimeProjectionState(input: SessionRuntimeInput) {
         models: projection.models,
         thinkingOptions: projection.thinkingOptions,
         runtimeSelection,
-        runtimeIssue: fallbackModel ? '当前对话模型已不可用，可切换到 OpenClaw 默认模型。' : input.state.runtimeIssue,
+        runtimeIssue: unsafeFork ? MODEL_RECOVERY_MESSAGE : fallbackModel ? '当前对话模型已不可用，可切换到 OpenClaw 默认模型。' : projection.selection.modelSafety === 'unknown' ? '无法确认当前会话模型，请重新连接后核对。' : null,
         modelSwitchFallback: fallbackModel ? { modelId: fallbackModel.id, modelName: fallbackModel.name } : null,
       },
     })

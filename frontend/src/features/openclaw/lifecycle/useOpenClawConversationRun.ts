@@ -14,6 +14,7 @@ import type {
 import { OPENCLAW_MAX_HISTORY_CHARS, mergeOpenClawTranscript } from '../storage/openclawTranscriptStore'
 import { useOpenClawSendActions } from './openclawSendActions'
 import { openClawSafeError } from '../chat/openclawSafeError'
+import { failureDiagnostic, failureText } from '../chat/openclawFailureDiagnostic'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 
@@ -33,6 +34,7 @@ type ConversationTranscriptPort = {
 
 export type OpenClawChatEvent = {
   errorCode?: string
+  errorKind?: string
   state?: 'delta' | 'final' | 'aborted' | 'error'
   sessionKey: string
   runId?: string
@@ -147,7 +149,7 @@ export function useOpenClawConversationRun(input: {
       return
     }
     if (event.state === 'error') {
-      input.dispatch({ type: 'patch', value: { issue: { kind: 'unknown', message: openClawSafeError(event.errorCode) ?? 'OpenClaw 对话失败，请检查运行状态。' } } })
+      input.dispatch({ type: 'patch', value: { issue: { kind: 'unknown', message: openClawSafeError(failureDiagnostic(event).code)! } } })
     }
     if (event.state !== 'final' && event.state !== 'aborted' && event.state !== 'error') return
     const partialText = input.refs.run.streamText.trim()
@@ -174,12 +176,14 @@ export function useOpenClawConversationRun(input: {
     const sessionKey = input.refs.session.sessionKey
     const agentId = input.refs.session.agentId
     if (client && sessionKey && agentId) input.reloadRuntime(client, sessionKey, agentId)
+    const diagnostic = event.state === 'error' ? failureDiagnostic({ ...(event.message && typeof event.message === 'object' ? event.message : {}), ...event, runId: completedRunId }) : undefined
     const assistantMessage = projectChatMessage(event.message, {
-      id: `${event.state}-${completedRunId}`, role: 'assistant', text: partialText, createdAt: partialCreatedAt,
+      id: `${event.state}-${completedRunId}`, role: 'assistant', text: diagnostic ? failureText(partialText, diagnostic) : partialText, createdAt: partialCreatedAt,
     })
     if (assistantMessage) {
       assistantMessage.status = event.state === 'aborted' ? 'aborted' : event.state === 'error' ? 'failed' : 'sent'
       assistantMessage.origin = 'local'
+      if (diagnostic) assistantMessage.diagnostic = diagnostic
       input.transcript.persist((current) => mergeOpenClawTranscript(current, [assistantMessage]), sessionKey ?? undefined)
       if (client && sessionKey) void input.transcript.resolveMedia(client, sessionKey, [assistantMessage])
     }

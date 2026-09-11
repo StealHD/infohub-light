@@ -161,7 +161,7 @@ export function OpenClawComposer({ chat, composer, variant = 'compact' }: {
       {attachmentState.issue && <p role="alert" className="type-label max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">{attachmentState.issue}</p>}
       {attachmentModelBlocked && <p role="status" className="type-label max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">当前模型不支持图片，请切换到标有“支持图片”的模型后发送。</p>}
       {chat.runtimeIssue && <p role="status" className="type-label mt-1 max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">{chat.runtimeIssue}</p>}
-      {chat.modelSwitchFallback && <Button size="sm" variant="ghost" className="mt-1 max-w-full" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={() => void chat.switchToBlankConversation()}>
+      {chat.modelSwitchFallback && <Button size="sm" variant="ghost" className="mt-1 max-w-full" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={() => void chat.switchToBlankConversation().then((switched) => { if (switched) inputRef.current?.focus() })}>
         新建空白对话并切换到 {chat.modelSwitchFallback.modelName}
       </Button>}
     </PromptInput>

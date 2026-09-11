@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "Fast 粒子与短尾迹改为右向左；Ultra 根据滑杆本地预览即时切换，粒子/渐变/刻度以共享时长交叉淡化，复用粒子节点避免重建闪烁。普通档位隐藏并暂停粒子，Reduced Motion 即时静态，真实设置仍松手提交。同步现有手册、更新记录与 UI 合同。",
-  "status": "completed",
-  "task_id": "effort-reverse-fast-live-ultra-20260909",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 10 项、TypeScript、UI 静态、定向 ESLint、Markdown/控制结构与 diff check 通过。",
-    "单条受控桌面浏览器用例最终通过（7.7s），确认未松手 Ultra 进入/离开、零提前提交、右向左位移及 Reduced Motion。前两次测试手势未覆盖 React Aria 完整量程，依据本地实现校正后复验；进程退出码 0，临时 4173 服务退出。",
-    "继续当前本地 A 模式，不用子 agent、不启动容器、不执行真实模型或通知、不提交；按小 UI 迭代要求未跑全量构建或 preflight。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-09-09",
@@ -415,6 +396,33 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "production-automation-recovery.spec.ts 桌面/平板/手机 3 项通过（最终 31.3 秒）：真实 HTTP Service、临时 SQLite、真实 connector 与受控 Gateway 串联到页面完成，刷新页面不重复推理，模型实际回传后出现且原选择保留，无变化明确提示，Axe 无 serious/critical；截图已目检。",
     "任务差异审查修复审计路由登记、锁顺序及晚到响应问题。首轮 preflight 因审计登记失败；修复并复验后唯一重跑通过：.test-results/automation-analysis-recovery-final-retry/result.json，16/16 检查成功，522.653 秒，无未关闭 SQLite 连接警告。包含完整后端、前端测试与构建。",
     "Markdown、init-pro 结构、WORKLOG 与 JSON 校验及 git diff --check 通过。模型/Gateway 仅受控验证，没有真实模型调用或通知。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-11",
+  "result": "在 codex/automation-analysis-recovery 的 d999b12d 基础兼容修复默认模型分叉继承错用：恢复、同模型选择和发送前核对来源，显式新建无父会话后再切换；保留草稿与历史，不自动发送。错误转接保留安全分类/运行号/序号，Google 配额、503、认证、超时与未知区分；历史失败与局部回复合并并隔离保存诊断。补齐 D219、合同、手册和更新记录。",
+  "status": "completed",
+  "task_id": "openclaw-model-recovery-20260911",
+  "unresolved": [
+    "完整preflight未全绿；发现的索引及映射问题已定向修复验证，未再次完整重跑。",
+    "未部署、未修改已安装Gateway或生产配置，未调用真实模型；生产需后续明确发布并应用Gateway补丁后验收。三条旧排队测试未执行或删除。"
+  ],
+  "validation": [
+    "用户后续变更覆盖本记录初始方案：在 codex/automation-analysis-recovery 的 d999b12d 基础修复模型分叉错用与错误反馈。按用户后续要求撤销空白会话切换方案：主动切换继续 fork 原上下文，无成功提示；同模型重选执行真实核对，未修补 Gateway 拒绝危险发送。新增版本限定的显式 Gateway 补丁，在分叉事务固定所选模型，保留上下文；没有改写实际安装。错误分类、历史失败、局部回复和安全诊断恢复一并完成，更新合同、D219、手册和更新记录。",
+    "旧代码先复现失败；最终定向后端覆盖配额/503/认证/超时/未知、历史脱敏、Gateway补丁幂等与拒绝未知版本、测试映射。对应spec均通过。",
+    "最终前端模型/运行/诊断/重选/竞争定向用例通过；最终TypeScript、ESLint、代码规模检查通过。模型选择器同选项不触发及菜单晚到重新打开均在浏览器复现后修复。",
+    "真实Service、SQLite、认证与WebSocket转接受控Gateway；最终桌面/手机2项21.3秒通过：危险旧会话零请求，同模型重选创建带上下文分叉，保留旧历史/草稿，只执行一次DeepSeek，刷新保留局部回复/运行号/安全原因，无成功提示，Axe无严重问题。平板在早期方案已验证，最终方案未重复扩展。",
+    "只读核对生产2026.9.2模块及本地2026.9.3模块，补丁dry-run通过；补丁测试仅写临时目录，精确插入JavaScript经Node受控执行，无真实模型调用。",
+    "preflight执行及唯一重跑均有记录：首次决策索引字节超限，第二次388.992秒在后端末段发现新增E2E映射预期未更新。两处均修复并定向复验通过；按用户减少验证及重跑预算，不进行第三次完整运行。不声称完整preflight全绿。"
   ]
 }
 ```

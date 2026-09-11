@@ -5,6 +5,7 @@ import type {
   OpenClawThinkingOption,
 } from '../openclawContracts'
 import { recordOf, stringOf } from './openclawProjectionUtils'
+import { modelSelectionSafety } from './openclawModelSafety'
 
 function contextUsageRecord(value: unknown, expectedSessionKey: string): Record<string, unknown> | null {
   const root = recordOf(value)
@@ -161,6 +162,7 @@ export function projectOpenClawRuntime(
     models,
     thinkingOptions,
     selection: {
+      modelSafety: modelId ? modelSelectionSafety(session, expectedSessionKey) : 'unknown',
       modelId,
       ...((!expectedSessionKey || session?.key === expectedSessionKey) && (typeof session?.effectiveFastMode === 'boolean' || session?.effectiveFastMode === 'auto') ? { defaultFastMode: session.effectiveFastMode !== false } : {}),
       thinkingLevel: sessionThinking && thinkingOptions.some((option) => option.id === sessionThinking)

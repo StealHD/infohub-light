@@ -4,6 +4,7 @@ import { Button, Card, ChatSource, ChatSources, ImageGalleryModal, Icons, Prompt
 import type { OpenClawChatController } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
 import { OpenClawActivityTrace } from './OpenClawActivityTrace'
+import { OpenClawFailureNotice } from './OpenClawFailureNotice'
 import { ConversationTurn, OpenClawImageGrid, type OpenClawImageViewerState } from './OpenClawMessageViews'
 import type { OpenClawComposerPort } from './openclawComposerPort'
 
@@ -148,6 +149,7 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
               onRefresh={(imageId) => chat.refreshMedia(message.id, imageId)}
             />}
             {message.status === 'aborted' && <div className="type-label mt-1.5 text-muted">已停止</div>}
+            {message.diagnostic && <OpenClawFailureNotice diagnostic={message.diagnostic} text={message.text} />}
             {message.status === 'failed' && message.role === 'user' && <div className="mt-1.5 flex flex-wrap gap-1">
               <StableAsyncButton size="sm" variant="ghost" pending={chat.isRunning} pendingContent="重试中…" onPress={() => chat.retry(message.id)}>重试</StableAsyncButton>
               <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => composer.editFailed(message.id)}>重新编辑</Button>

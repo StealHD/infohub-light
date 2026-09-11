@@ -91,6 +91,10 @@ export function useOpenClawSendActions(input: {
     try {
       const projection = await readOpenClawRuntime(client, sessionKey, agentId, true)
       if (!currentScope()) return false
+      if (projection.selection.modelSafety === 'unsafe_fork') {
+        input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, modelSafety: 'unsafe_fork' },
+          modelSwitchFallback: null } })
+      }
       const thinking = validateSendSelection(snapshot, projection)
       if (snapshot.selectedSkill) {
         await validateOpenClawSkill(input.refs, snapshot, input.state.gatewayUrl)

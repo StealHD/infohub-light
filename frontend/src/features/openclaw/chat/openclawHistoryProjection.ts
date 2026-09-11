@@ -11,6 +11,7 @@ import {
 } from '../storage/openclawTranscriptStore'
 import { projectOpenClawHandoffDisplay } from './openclawHandoffProtocol'
 import { recordOf, stringOf } from './openclawProjectionUtils'
+import { failureDiagnostic, failureText } from './openclawFailureDiagnostic'
 
 function messageText(value: unknown): string {
   if (!value || typeof value !== 'object') return ''
@@ -106,7 +107,10 @@ export function projectChatMessage(
   if (!role) return null
   const id = stringOf(source.id) ?? fallback?.id
   if (!id) return null
-  const rawText = (messageText(record).trim() || fallback?.text || '').trim()
+  const failed = role === 'assistant' && source.stopReason === 'error'
+  const diagnostic = failed ? failureDiagnostic(source) : undefined
+  const raw = (messageText(record).trim() || fallback?.text || '').trim()
+  const rawText = diagnostic ? failureText(raw, diagnostic) : raw
   const images = projectMessageImages(source, id)
   if (!rawText && !images.length) return null
   const handoff = role === 'user' && rawText ? projectOpenClawHandoffDisplay(rawText) : null
@@ -115,7 +119,8 @@ export function projectChatMessage(
     id,
     role,
     text: handoff?.displayText ?? rawText,
-    status: 'sent',
+    status: failed ? 'failed' : 'sent',
+    ...(diagnostic ? { diagnostic } : {}),
     origin: 'gateway',
     createdAt: messageCreatedAt(source) ?? fallback?.createdAt,
     ...(clientTurnId ? { clientTurnId } : {}),

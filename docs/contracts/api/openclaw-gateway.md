@@ -9,7 +9,7 @@
 - 受限主机增加固定 `install_analysis` 操作，Agent=`ic-<binding_id>`、环境凭据名及私有目录由清单派生。浏览器不能指定这些目标。全主机写锁、账号授权复验和撤销墓碑共同防止旧身份复活。
 - 撤销同时失效 connector 凭据、禁止领取、请求停止目标运行，清除已登记分析配置与活动环境凭据。HTTP 推理结果未知时保留结束状态标记，停止新领取且清理保持未完成；会话列表为空不能代替该 HTTP 调用结束的证据。历史目录和备份保留。
 - 中继公开错误限定 MODEL_PARAMETER_UNSUPPORTED/PERSONAL_TOOLS_UNAVAILABLE/MODEL_AUTH_FAILED/MODEL_QUOTA_LIMITED/MODEL_CALL_TIMEOUT/RELAY_REQUEST_FAILED 和固定安全文案。失败事件只保留合法运行/会话标识和安全分类，不返回原始响应、路径或凭据。
-- 发送/切换/重试共用同步锁；发送前通过当前会话元数据核验 Agent、模型与合法思考档位。旧快照不兼容时保留内容，不自动更换模型。分叉实际模型不符时保留原会话并提供已有空白对话恢复入口。
+- 发送/切换/重试共用同步锁；发送前通过当前会话元数据核验 Agent、模型与合法思考档位。旧快照不兼容时保留内容，不自动更换模型。分叉实际模型不符时保留原会话并提示管理员修复 Gateway，不以清空上下文替代模型切换。
 - 安装版本原生协议探测与 Python MCP 直连均不能作为真实 Gateway 会话工具已加载的证明。当前 Gateway `tools.effective` 对默认内嵌运行时只读缓存，首次模型运行前可尚未初始化；项目验收须另查真实会话目录和本人工具调用。多 Agent TUI 继续要求显式 session。
 
 ### 服务端模式（2026-09-07 用户授权新增）
@@ -93,6 +93,14 @@
 9. Artifact list/get/download 需要且只允许一个显式 `sessionKey|runId|taskId` provenance。内联预览只允许 ≤2 MiB 的安全图片或严格 UTF-8 文本/Markdown/代码；HTML、SVG、未知 MIME 仅下载。Base64 浏览器内存下载 ≤50 MiB；临时 URL 必须为当前 Gateway 映射 HTTP(S) origin 且 `expiresAt` 尚未到期。内容、URL 和 object URL 不得进入 Service、transcript 或浏览器持久缓存。
 10. Skill/Cron 写入只允许独立临时 admin WebSocket：请求 exact `operator.admin`，不持久化 device credential，不自动重连，不接收普通聊天事件，并只暴露 `skills.upload.begin/chunk/commit/install/update` 与 `cron.get/list/status/add/update/remove/run/runs`。ZIP Skill 使用 Gateway 限制和 20 MiB 中较小者、SHA-256、512 KiB 顺序块及连续 offset；commit RPC 成功后才 install。Cron payload 固定 `agentTurn + isolated session + delivery none`，新建默认 disabled。所有写操作须有明确确认；共享 Gateway 不开放此临时管理入口。
 11. `skills.status` 的 2026.8.1 状态投影接受 exact `skillKey`、显式 `disabled` 和 `eligible`；启用状态取 `!disabled`，不以 `eligible` 代替。兼容已有显式 `key + enabled` 状态响应，但双字段冲突必须拒绝。`missing.bins/anyBins/env/config/os`、允许列表和 Agent 过滤状态只投影公开条件；文件路径、环境变量值、原始配置均不得进入页面。未返回 ZIP 上传许可时保持上传不可用，不影响列表和详情读取。
+
+## 模型继承兼容与安全失败诊断
+
+OpenClaw 2026.9.2/2026.9.3 对默认模型分叉的 describe 与执行继承不一致。所有用户主动模型切换继续使用 fork=true 继承原上下文；Gateway 兼容补丁在分叉事务内将明确选择固定为 user 来源覆盖，保留原 transcript 和父关系，不改变没有显式选择时的继承。新子会话必须核验 Session/Agent/模型及覆盖来源后激活。恢复及发送前投影 parentSessionKey/modelOverrideSource：有父会话但没有 user 来源覆盖时为 unsafe_fork，身份或模型不明为 unknown，二者不能发送；再次选择相同模型也执行核对及必要的带上下文分叉。失败保留原会话，不自动发送或改成空白上下文。不增加 Gateway RPC 权限或模型调用参数。补丁只支持审阅的安装版本，由运维明确执行，Service 不自动改写安装包。
+
+转接 chat error 优先使用受限 errorKind 分类，其次已有安全错误码，再做有界文本分类；包括 Google RESOURCE_EXHAUSTED/429、上游 502/503/504、认证和超时。输出只包含安全 errorCode/errorMessage、有效 seq、所属 Session/run 标识及白名单消息模型身份，不转发原始错误正文、URL 或管理详情。新增 MODEL_UPSTREAM_UNAVAILABLE/MODEL_CONTEXT_LIMIT/MODEL_REFUSED 兼容现有错误码；未知保留通用失败。
+
+历史 stopReason=error 投影为 failed；通用英文错误占位改为固定中文未知原因。客户端诊断只保存安全 code/runId/actualModelId，沿用按 user/Gateway/session 隔离的有界 sessionStorage transcript；实际模型仅来自当前运行或该条历史消息的 provider/model，不从下一轮模型选择推断。远端缺失诊断不会抹去已匹配同一条消息或同一用户轮次的本地诊断；无匹配证据不拼接。无诊断显示具体原因不可用，不自动重试。
 
 ## Fast 请求选项
 
