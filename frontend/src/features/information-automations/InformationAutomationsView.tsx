@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, RefreshButton, StableAsyncButton } from '../../design-system'
@@ -21,6 +21,8 @@ export default function InformationAutomationsView({ canMutate }: { canMutate: b
   const trigger = useRef<HTMLElement | null>(null)
   const rules = query.data?.pages.flatMap((page) => page.items) || []
   const rule = rules.find((item) => item.id === selected)
+  const restore = tests.restore
+  useEffect(() => { if (rule) void restore(rule.id, rule.version) }, [restore, rule])
   const close = () => { if (!busy.current) { setSelected(null); (trigger.current?.isConnected ? trigger.current : document.getElementById(`information-task-${selected}`) || document.getElementById('information-task-search'))?.focus() } }
   const select = (id: string) => { if (!busy.current) { trigger.current = document.activeElement as HTMLElement; setSelected(id) } }
   return <div className="flex h-full min-h-0 min-w-0">

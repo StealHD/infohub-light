@@ -40,7 +40,7 @@ def context(tmp_path, monkeypatch):
     from src.services.information_automations.model_catalog import Capabilities, sync_catalog
     _, token = provision(store, SecretStore(tmp_path), alice['id'])
     store.test_machine_token = token
-    sync_catalog(store, authenticate(store, token), Capabilities(protocol_version=2, models=[{'id':'test/model','name':'Test','thinking_levels':['low']}]))
+    sync_catalog(store, authenticate(store, token), Capabilities(protocol_version=2, execution_mode='full', models=[{'id':'test/model','name':'Test','thinking_levels':['low']}]))
     config = RuleConfig(name='AI 提醒', source_ids=[source], target_id='test-target', requirement='Find AI research; exclude advertising.',
                         model={'id':'test/model'}, trigger={'kind':'interval','interval_seconds':60})
     yield store, rules, bindings, alice, bob, viewer, config, target

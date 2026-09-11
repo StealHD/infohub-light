@@ -20,12 +20,12 @@ def expire_claims(conn, now):
         WHERE c.status='claimed' AND c.expires_at<=?""", (now.isoformat(),)).fetchall()
     for claim in rows:
         batch = conn.execute('SELECT * FROM information_batches WHERE id=?',(claim['batch_id'],)).fetchone()
-        status = 'pending' if claim['step_attempts'] < MAX_ATTEMPTS else 'failed'
+        status = 'failed' if batch['preview_id'] else 'pending' if claim['step_attempts'] < MAX_ATTEMPTS else 'failed'
         conn.execute('UPDATE information_batch_steps SET status=? WHERE id=?', (status,claim['step_id']))
         table, identity = ('information_runs',batch['run_id']) if batch['run_id'] else ('information_previews',batch['preview_id'])
         parent = conn.execute(f'SELECT status,claim_hash FROM {table} WHERE id=?',(identity,)).fetchone()
         if not batch['result_json'] and parent['status']=='judging' and parent['claim_hash']==claim['token_hash']:
-            parent_state(conn,batch,status,'semantic_lease_expired')
+            parent_state(conn,batch,status,'completion_unknown' if batch['preview_id'] else 'semantic_lease_expired')
         conn.execute("UPDATE information_claims SET status='expired',completed_at=? WHERE id=?", (now.isoformat(),claim['id']))
 
 
@@ -56,6 +56,8 @@ def claim_work(store, targets, machine_token, *, now=None, daily_limit=SEMANTIC_
         if protocol_version != 2:
             raise RuleError('connector_upgrade_required','请升级自动化 connector 至协议 2。')
         conn.execute('UPDATE information_connectors SET last_seen=? WHERE binding_id=?',(now.isoformat(),machine['binding_id']))
+        from .execution_capability import require_execution
+        mode = require_execution(store,machine['binding_id'],now)['execution_mode']
         expire_claims(conn,now)
         if conn.execute("SELECT 1 FROM information_claims WHERE user_id=? AND status='claimed' AND expires_at>?",(machine['user_id'],now.isoformat())).fetchone():
             return {'task':None,'reason':'user_concurrency','retry_after':15}
@@ -65,8 +67,10 @@ def claim_work(store, targets, machine_token, *, now=None, daily_limit=SEMANTIC_
             LEFT JOIN information_runs r ON r.id=b.run_id LEFT JOIN information_previews p ON p.id=b.preview_id
             JOIN information_rules q ON q.id=COALESCE(r.rule_id,p.rule_id)
             WHERE q.user_id=? AND s.status='pending' AND b.result_json IS NULL
+            AND (b.run_id IS NOT NULL AND ?='full' OR b.preview_id IN
+                (SELECT preview_id FROM information_preview_confirmations WHERE superseded_by IS NULL))
             AND COALESCE(r.status,p.status) IN ('pending','quota_wait') AND COALESCE(r.ready_at,p.ready_at)<=?
-            ORDER BY b.created_at,s.level,s.ordinal LIMIT 50''',(machine['user_id'],now.isoformat())).fetchall()
+            ORDER BY b.created_at,s.level,s.ordinal LIMIT 50''',(machine['user_id'],mode,now.isoformat())).fetchall()
         waiting = None
         for step in steps:
             batch = conn.execute('SELECT * FROM information_batches WHERE id=?',(step['batch_id'],)).fetchone()
@@ -119,10 +123,11 @@ def submit_result(store,targets,machine_token,claim_id,claim_token,result,*,now=
         if result == {'error': 'isolated_completion_failed'}:
             from .model_catalog import block_model
             block_model(conn,machine['binding_id'],config.model.id)
-            parent_state(conn,batch,'pending','analysis_model_unavailable',(now+timedelta(minutes=5)).isoformat())
-            conn.execute("UPDATE information_batch_steps SET status='pending' WHERE id=?",(step['id'],))
+            state = 'failed' if batch['preview_id'] else 'pending'
+            parent_state(conn,batch,state,'analysis_model_unavailable',(now+timedelta(minutes=5)).isoformat())
+            conn.execute('UPDATE information_batch_steps SET status=? WHERE id=?',(state,step['id']))
             conn.execute("UPDATE information_claims SET status='completed',result_hash=?,completed_at=? WHERE id=?",(digest,now.isoformat(),claim_id))
-            return {'accepted':True,'status':'pending','duplicate':False}
+            return {'accepted':True,'status':state,'duplicate':False}
         try:
             if set(result) != {'output','model'} or result['model'] != config.model.id:
                 raise ValueError('actual_model_mismatch')
@@ -132,7 +137,7 @@ def submit_result(store,targets,machine_token,claim_id,claim_token,result,*,now=
                 parent_state(conn,batch,'pending')
         except (ValueError,TypeError,KeyError):
             state = 'failed'
-            parent_state(conn,batch,'failed',result.get('error') if result in ({'error':'analysis_timeout'},{'error':'analysis_call_failed'}) else 'invalid_model_output')
+            parent_state(conn,batch,'failed',result.get('error') if result in ({'error':'analysis_timeout'},{'error':'analysis_call_failed'},{'error':'completion_unknown'}) else 'invalid_model_output')
             conn.execute("UPDATE information_batch_steps SET status='failed' WHERE id=?",(step['id'],))
         conn.execute("UPDATE information_claims SET status='completed',result_hash=?,completed_at=? WHERE id=?",(digest,now.isoformat(),claim_id))
         return {'accepted':True,'status':state,'duplicate':False}

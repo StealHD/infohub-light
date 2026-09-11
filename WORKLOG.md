@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-09",
-  "result": "收敛 / 与 @ 候选为无重复标题/页脚的紧凑列表，兼顾窄栏分行、混合分组与完整禁用原因。Ultra 使用微浮粒子，Fast 使用快速定向短尾迹，同时开启时 Fast 优先；保留主题、Reduced Motion、草稿和真实发送语义。同步组件合同、验收、手册与更新记录。",
-  "status": "completed",
-  "task_id": "compact-composer-ultra-fast-motion-20260909",
-  "unresolved": [],
-  "validation": [
-    "Vitest 27 项通过；TypeScript、UI 静态、定向 ESLint、控制文档和结构校验通过。",
-    "桌面/手机两条聚焦浏览器用例共 4 项通过（含候选 Axe、焦点、选择不发送、Fast 周期及 Reduced Motion）；退出码 0，临时 4173 服务和测试进程均已退出，截图已目检并收于忽略的 .test-results。",
-    "继续当前本地 A 模式，5173 返回 200；仅受控 Gateway fixtures，无真实模型/Skill/通知、容器或提交。按用户小 UI 迭代要求未运行完整构建、全量 Playwright 或 preflight；子 agent 已按用户指示停止，后续直接完成。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
   "result": "Fast 粒子与短尾迹改为右向左；Ultra 根据滑杆本地预览即时切换，粒子/渐变/刻度以共享时长交叉淡化，复用粒子节点避免重建闪烁。普通档位隐藏并暂停粒子，Reduced Motion 即时静态，真实设置仍松手提交。同步现有手册、更新记录与 UI 合同。",
   "status": "completed",
   "task_id": "effort-reverse-fast-live-ultra-20260909",
@@ -408,6 +389,32 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "定向接入、分析、清理、协议与实际安装包组合 46 项通过并正常退出；临时 MCP 服务与线程关闭，无模型或通知调用。",
     "生产只读核实 CLI/Gateway 均为 OpenClaw 2026.9.2（3928bad），RPC 正常；生产实际安装 Schema 接受修正后个人/分析配置并拒绝旧错误字段。本机 2026.9.3 实际 Schema 与原生 MCP 初始化、目录、只读工具测试通过。",
     "任务差异审查及 git diff --check 通过；一次 impacted preflight 因新增脚本未映射全域检查，16/16 命令通过，退出码 0，涵盖后端全域测试、前端检查及构建。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-11",
+  "result": "从执行时本地 main ddf16006 创建独立 worktree 与 codex/automation-analysis-recovery。统一目录/手动测试/完整执行，新增 global 45 能力、刷新回执、测试确认及幂等侧表；旧预览需重新确认，未知完成不重推理。模型真实同步后确认刷新，仅有归属证据的白名单自动扩展；页面恢复最近测试并区分拒绝、等待、完成、无变化和超时。补齐合同、D218、恢复手册、用户手册及更新记录。",
+  "status": "completed",
+  "task_id": "automation-analysis-recovery-20260911",
+  "unresolved": [
+    "VPS 验收尚未执行：未部署、未迁移运行库，线上三次旧排队测试未删除也未执行；真实 OpenClaw 配置与模型验收按恢复手册留给后续部署。"
+  ],
+  "validation": [
+    "定向后端回归覆盖旧 runner/托管 supervisor 三模式、旧积压隔离、并发标签页幂等、重启、未知领取、显式迁移、刷新失败/并发/旧回执和白名单归属；直接受影响用例通过。",
+    "前端自动化 Vitest 5 文件 17 项通过，包含明确拒绝、网络未知重试沿用请求编号、晚到恢复响应、对应刷新回执及 120 秒超时；TypeScript、ESLint 与 UI 合同通过。",
+    "production-automation-recovery.spec.ts 桌面/平板/手机 3 项通过（最终 31.3 秒）：真实 HTTP Service、临时 SQLite、真实 connector 与受控 Gateway 串联到页面完成，刷新页面不重复推理，模型实际回传后出现且原选择保留，无变化明确提示，Axe 无 serious/critical；截图已目检。",
+    "任务差异审查修复审计路由登记、锁顺序及晚到响应问题。首轮 preflight 因审计登记失败；修复并复验后唯一重跑通过：.test-results/automation-analysis-recovery-final-retry/result.json，16/16 检查成功，522.653 秒，无未关闭 SQLite 连接警告。包含完整后端、前端测试与构建。",
+    "Markdown、init-pro 结构、WORKLOG 与 JSON 校验及 git diff --check 通过。模型/Gateway 仅受控验证，没有真实模型调用或通知。"
   ]
 }
 ```

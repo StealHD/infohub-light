@@ -85,7 +85,8 @@ it('polls a semantic preview without enabling the rule', async () => {
   await user.click(screen.getByRole('button', { name: '开始测试' }))
   await user.click(await screen.findByRole('button', { name: '查看逐篇结果（1）' }))
   expect(await screen.findByText('AI 研究：证据不足')).toBeVisible()
-  expect(api.informationTestPreview).toHaveBeenCalledOnce()
+  expect(api.informationTestPreview).toHaveBeenCalledWith(rule.id, 'latest')
+  expect(api.informationTestPreview).toHaveBeenCalledWith(rule.id, 'preview')
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
 })
 
@@ -93,9 +94,11 @@ it('explains missing connector metadata and enables model selection after refres
   const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
   expect(await screen.findByText(/自动化分析尚未配置，由管理员修复接入/)).toBeVisible()
   expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
-  api.informationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] })
+  const refresh = { id: 'refresh-one', status: 'pending', requested_at: '', completed_at: null, changed: true }
+  api.refreshInformationModels.mockResolvedValue({ requested: true, status: 'unavailable', models: [], refresh } as never)
+  api.informationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }], refresh: { ...refresh, status: 'completed' } } as never)
   await user.click(screen.getByRole('button', { name: '刷新模型目录' }))
-  expect(await screen.findByText('已加载 1 个模型，请选择分析模型。')).toBeVisible()
+  expect(await screen.findByText('已加载 1 个模型，请选择分析模型。', {}, { timeout: 3000 })).toBeVisible()
   await user.click(screen.getByRole('button', { name: /分析模型/ }))
   expect(await screen.findByRole('option', { name: 'Test' })).toBeVisible()
   expect(api.refreshInformationModels).toHaveBeenCalledOnce()

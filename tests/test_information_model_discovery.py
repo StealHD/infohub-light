@@ -31,7 +31,7 @@ def test_metadata_rpc_is_scoped_to_completion_agent(tmp_path, monkeypatch, suppo
         {'id': 'models', 'ok': True, 'payload': {'models': []}},
     ])
     monkeypatch.setattr(discovery, 'connect', lambda *args, **kwargs: socket)
-    monkeypatch.setattr(discovery, 'connect_params', lambda *args: {})
+    monkeypatch.setattr(discovery, 'connect_params', lambda *args, **kwargs: {})
     operation = discovery.rpc_models('http://127.0.0.1:18789', 'fixture-token', 'ic-fixture', tmp_path / 'device')
     if supported:
         assert asyncio.run(operation) == {'models': []}

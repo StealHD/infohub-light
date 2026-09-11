@@ -29,7 +29,7 @@ def test_catalog_only_neither_claims_nor_flushes_old_results(tmp_path):
         connector.persist({'claim_id': 'old', 'body': {}})
         assert connector.run_once(catalog_only=True)['status'] == 'catalog_synced'
         assert connector.journal.exists()
-        assert calls == ['/api/connector/information-automations/capabilities']
+        assert calls == ['/api/connector/information-automations/control', '/api/connector/information-automations/capabilities']
     finally:
         connector.close()
 

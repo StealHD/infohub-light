@@ -227,13 +227,17 @@ class InformationRules:
                 conn.execute('DELETE FROM information_event_carry WHERE rule_id=?',(rule_id,))
             return public_rule(self.row(user, rule_id), conn)
 
-    def test(self, user_id, rule_id, version, article_ids):
+    def test(self, user_id, rule_id, version, article_ids, request_id=None):
         user = self.actor(user_id)
         row = self.row(user, rule_id)
+        from .preview_recovery import request_preview
+        previous = request_preview(self,user_id,rule_id,version,article_ids,request_id)
+        if previous:
+            return previous
         if row['version'] != version:
             raise RuleError('rule_version_conflict', '提醒已变化，请重新测试。')
         if not 1 <= len(article_ids) <= 1000:
             raise RuleError('invalid_test_items', '请选择 1–1000 篇本人文章。', 400)
         config = RuleConfig.model_validate_json(row['config_json'])
         from .semantic_previews import create_preview
-        return create_preview(self, user, row, config, article_ids)
+        return create_preview(self, user, row, config, article_ids, request_id)

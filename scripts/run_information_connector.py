@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--journal', type=Path, required=True)
     parser.add_argument('--gateway-ca', type=Path)
     parser.add_argument('--gateway-config', type=Path, required=True)
+    parser.add_argument('--execution-mode',choices=['catalog_only','previews_only','full'],default='previews_only')
     parser.add_argument('--once', action='store_true')
     args = parser.parse_args()
     values = SecretStore(args.secret_dir).read()
@@ -44,7 +45,7 @@ def main():
     try:
         while True:
             try:
-                result = connector.run_once()
+                result = connector.run_once(execution_mode=args.execution_mode)
             except Exception as error:
                 result = {'status': 'connector_unavailable', 'error_type': type(error).__name__, 'retry_after': 30}
             print(json.dumps(result), flush=True)

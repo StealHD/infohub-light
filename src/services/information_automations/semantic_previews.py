@@ -6,6 +6,8 @@ from .rules import RuleError, transaction
 from .content import evidence_input
 from .batches import create_batch, progress
 from .model_catalog import require_model
+from .execution_capability import require_execution
+from . import preview_recovery as recovery
 from ..user_content_store import UserContentStore
 
 
@@ -16,12 +18,22 @@ def get_preview(rules, user_id, rule_id, preview_id):
     if not row:
         raise RuleError('not_found', '测试不存在。', 404)
     return {'preview_id': row['id'], 'version': row['version'], 'status': row['status'], 'reason': row['reason'],
+            'selection': [{'id':item['article_id'],'title':item.get('title') or item['article_id']} for item in json.loads(row['input_json'])],
             'results': json.loads(row['results_json']), 'sends_notification': False, 'advances_cursor': False,
-            **progress(rules.store.connect(), preview_id=preview_id)}
+            **progress(rules.store.connect(), preview_id=preview_id), **recovery.diagnostics(rules.store,row)}
 
 
-def create_preview(rules, user, row, config, article_ids):
+def create_preview(rules, user, row, config, article_ids, request_id=None):
     binding = rules.binding(user)
+    digest = recovery.fingerprint(user['id'],row['id'],row['version'],article_ids)
+    from ...storage.information_recovery_schema import ready
+    if not ready(rules.store.connect()):
+        raise RuleError('information_migration_required','请先完成 global 45 迁移。',503)
+    with transaction(rules.store) as conn:
+        reused = recovery.existing(conn,user['id'],request_id,digest)
+    if reused:
+        return get_preview(rules,user['id'],row['id'],reused)
+    require_execution(rules.store,binding['binding_id'])
     require_model(rules.store, binding['binding_id'], config.model)
     if not config.requirement.strip():
         raise RuleError('incomplete_rule', '请填写完整判断要求。')
@@ -39,8 +51,15 @@ def create_preview(rules, user, row, config, article_ids):
         current = rules.row(rules.actor(user['id'], write=True), row['id'])
         if current['version'] != row['version'] or current['state'] == 'archived':
             raise RuleError('rule_version_conflict', '请刷新后重新测试。')
+        binding = rules.binding(rules.actor(user["id"],write=True))
+        require_execution(rules.store,binding["binding_id"])
+        require_model(rules.store,binding["binding_id"],config.model)
+        reused = recovery.existing(conn,user["id"],request_id,digest)
+        if reused:
+            return get_preview(rules,user["id"],row["id"],reused)
         rules.validate_sources(user, config)
-        pending = conn.execute("SELECT count(*) FROM information_previews WHERE user_id=? AND status IN ('pending','judging','quota_wait')", (user['id'],)).fetchone()[0]
+        recovery.confirm(conn,user,row,article_ids,identity,digest,now)
+        pending = conn.execute("SELECT count(*) FROM information_previews p JOIN information_preview_confirmations c ON c.preview_id=p.id WHERE p.user_id=? AND c.superseded_by IS NULL AND p.status IN ('pending','judging','quota_wait')", (user['id'],)).fetchone()[0]
         if pending >= 5:
             raise RuleError('preview_limit', '请等待已有测试完成。', 429)
         conn.execute('''INSERT INTO information_previews
@@ -48,4 +67,5 @@ def create_preview(rules, user, row, config, article_ids):
             VALUES(?,?,?,?,?,?,?,'pending',?,?)''',
             (identity,row['id'],user['id'],row['version'],binding['binding_id'],json.dumps(inputs,ensure_ascii=False),config.requirement,now,now))
         create_batch(conn, config, inputs, now, preview_id=identity)
+        recovery.remember(conn,user["id"],request_id,digest,identity)
     return get_preview(rules, user['id'], row['id'], identity)

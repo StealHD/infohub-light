@@ -13,18 +13,18 @@ from .analysis_host import write_registry
 from .managed_host import host_lock
 from ..secret_store import SecretStore
 from ..information_automations.connector_runner import InformationConnector
-from ..information_automations.model_discovery import project_models
 
 
 async def models(host, base):
     async def operation(socket, hello):
-        payload = await host.gateway._request(socket, 'managed-models', 'models.list',
-            {'view': 'configured', 'agentId': objects(base)['agent_id']})
+        from .analysis_model_policy import reconcile, project_discovery
         personal = await host.gateway._request(socket, 'personal-models', 'models.list',
-            {'view': 'configured', 'agentId': base['agent_id']})
-        config = json.loads((host.root / 'openclaw.json').read_text())
-        permitted = {row['id'] for row in project_models(personal, config)}
-        return [row for row in project_models(payload, config) if row['id'] in permitted]
+            {'view':'configured','agentId':base['agent_id']})
+        config = json.loads((host.root/'openclaw.json').read_text())
+        config, reason = await reconcile(host,socket,personal,config)
+        payload = await host.gateway._request(socket,'managed-models','models.list',
+            {'view':'configured','agentId':objects(base)['agent_id']})
+        return project_discovery(personal,payload,config,reason)
     return await host.gateway._session(operation)
 
 
@@ -55,7 +55,8 @@ def cycle(host, path):
             journal=directory / 'result.json', discover_models=lambda: asyncio.run(models(host, base)),
             client=httpx.Client(timeout=75, follow_redirects=False))
         try:
-            result = connector.run_once(catalog_only=record['catalog_only'] or os.getenv('INTELISCOPE_ANALYSIS_CATALOG_ONLY', 'true') != 'false')
+            from ..information_automations.connector_sync import execution_mode
+            result = connector.run_once(execution_mode=execution_mode(record,os.environ))
             write_registry(directory / 'supervisor-status.json',
                 {'binding_id': base['binding_id'], 'state': result['status'], 'checked_at': time.time()})
         finally:

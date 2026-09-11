@@ -8,6 +8,11 @@ export type InformationTrigger = {
 export type InformationModel = { id: string; thinking: string | null }
 export type InformationModelCatalog = {
   requested?: boolean
+  execution_mode?: "catalog_only" | "previews_only" | "full" | null
+  preview_executable?: boolean
+  execution_reason?: string | null
+  filtered_models?: { id: string; reason: string }[]
+  refresh?: { id: string; status: "pending" | "completed" | "failed"; requested_at: string; completed_at: string | null; reason: string | null; changed: boolean | number | null } | null
   reason?: 'not_configured' | 'offline' | 'no_authorized_models' | 'catalog_stale' | null
   recovery_action?: 'repair_connection' | 'check_service' | 'review_models' | 'refresh_catalog' | null
   models: { id: string; name: string; thinking_levels: string[] }[]
@@ -53,19 +58,19 @@ export type InformationRun = InformationBatch & {
   updated_at: string
 }
 export type InformationPage<T> = { items: T[]; has_more: boolean; next_offset: number | null }
-export type InformationTest = InformationBatch & { preview_id?: string; status?: 'pending' | 'judging' | 'completed' | 'failed' | 'quota_wait'; reason?: string | null; version: number; results: InformationEvidence[]; sends_notification: false; advances_cursor: false }
+export type InformationTest = InformationBatch & { preview_id?: string; requires_review?: boolean; selection?: { id: string; title: string }[]; status?: 'pending' | 'judging' | 'completed' | 'failed' | 'quota_wait'; reason?: string | null; version: number; results: InformationEvidence[]; sends_notification: false; advances_cursor: false }
 
 const base = '/api/me/information-automations'
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`
 export const informationAutomationApi = (client: ApiClient) => ({
   informationModels: (signal?: AbortSignal) => client.get<InformationModelCatalog>(`${base}/models`, signal),
-  refreshInformationModels: () => client.post<InformationModelCatalog>(`${base}/models/refresh`, {}),
+  refreshInformationModels: (signal?: AbortSignal) => client.post<InformationModelCatalog>(`${base}/models/refresh`, {}, signal),
   informationRules: (offset = 0, signal?: AbortSignal) => client.get<InformationPage<InformationRule>>(`${base}?limit=50&offset=${offset}`, signal),
   informationRule: (id: string, signal?: AbortSignal) => client.get<InformationRule>(path(id), signal),
   createInformationRule: (config: InformationRuleConfig) => client.post<InformationRule>(base, config),
   updateInformationRule: (id: string, version: number, config: InformationRuleConfig) => client.put<InformationRule>(path(id), { version, config }),
   transitionInformationRule: (id: string, version: number, action: 'enable' | 'pause' | 'archive' | 'restore') => client.post<InformationRule>(`${path(id)}/transition`, { version, action }),
-  testInformationRule: (id: string, version: number, article_ids: string[]) => client.post<InformationTest>(`${path(id)}/test`, { version, article_ids }),
+  testInformationRule: (id: string, version: number, article_ids: string[], request_id?: string) => client.post<InformationTest>(`${path(id)}/test`, { version, article_ids, request_id }),
   informationTestPreview: (id: string, previewId: string, signal?: AbortSignal) => client.get<InformationTest>(`${path(id)}/test/${encodeURIComponent(previewId)}`, signal),
   informationRuns: (id: string, offset = 0, signal?: AbortSignal) => client.get<InformationPage<InformationRun>>(`${path(id)}/runs?limit=50&offset=${offset}`, signal),
 })

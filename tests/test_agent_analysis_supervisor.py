@@ -29,7 +29,7 @@ def test_restart_catalog_only_and_revocation_fence(installation, monkeypatch):
     monkeypatch.delenv('INTELISCOPE_ANALYSIS_CATALOG_ONLY', raising=False)
     supervisor.cycle(host, path)
     supervisor.cycle(host, path)  # A new cycle/process does not install or enable claims.
-    assert calls == [{'catalog_only': True}, {'catalog_only': True}]
+    assert calls == [{'execution_mode': 'previews_only'}, {'execution_mode': 'previews_only'}]
     assert len(host.gateway.writes) == 1
     record = json.loads(path.read_text())
     write_registry(path, {**record, 'state': 'revoked'})

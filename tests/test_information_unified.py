@@ -100,7 +100,7 @@ def test_runtime_model_failure_blocks_repeated_calls_until_refresh(context):
     result=submit_result(store,rules.targets,token,task['claim_id'],task['claim_token'],{'error':'isolated_completion_failed'},now=now)
     assert result['status']=='pending'
     machine=authenticate(store,token)
-    sync_catalog(store,machine,Capabilities(protocol_version=2,models=[{'id':'test/model','name':'Test'}]),now+timedelta(minutes=10))
+    sync_catalog(store,machine,Capabilities(protocol_version=2,execution_mode='full',models=[{'id':'test/model','name':'Test'}]),now+timedelta(minutes=10))
     assert catalog(store,machine['binding_id'],now+timedelta(minutes=10))['models']==[]
     assert claim_work(store,rules.targets,token,now=now+timedelta(minutes=10))['task'] is None
     assert store.connect().execute('SELECT count(*) FROM information_claims').fetchone()[0]==1

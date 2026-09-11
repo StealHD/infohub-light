@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { lazy, Suspense, useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, RefreshButton } from '../../design-system'
@@ -11,12 +12,14 @@ export default function InformationDraftCard({ ruleId }: { ruleId: string }) {
   const { api, userId } = useInformationContext()
   const cache = useQueryClient()
   const tests = useInformationTests()
+  const restore = tests.restore
   const [dirty, setDirty] = useState(false)
   const [showTest, setShowTest] = useState(false)
   const handleDraftChange = useCallback((_config: InformationRuleConfig, changed: boolean) => setDirty(changed), [])
   const key = ['information-rule', userId, ruleId]
   const query = useQuery({ queryKey: key, queryFn: ({ signal }) => api.informationRule(ruleId, signal), retry: false })
   const access = useQuery({ queryKey: ['agent-connection', userId], queryFn: ({ signal }) => api.agentConnection(signal) })
+  useEffect(() => { if (query.data) void restore(query.data.id, query.data.version) }, [restore, query.data])
   return <Card variant="secondary" className="my-4 p-4" aria-label="服务端提醒确认卡">
     <Card.Title>{query.data?.config.name || '提醒草稿'}</Card.Title>
     <Card.Description>规则内容从当前账号的服务端读取。聊天文本不会直接启用提醒。</Card.Description>

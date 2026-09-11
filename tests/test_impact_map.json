@@ -172,10 +172,13 @@
         "frontend/src/features/information-automations/**",
         "frontend/src/api/informationAutomationService.ts",
         "frontend/src/api/deferredInformationApi.ts",
-        "frontend/e2e/production-information-reminders.spec.ts"
+        "frontend/e2e/production-information-reminders.spec.ts",
+        "frontend/e2e/production-automation-recovery.spec.ts",
+        "tests/automation_recovery_server.py"
       ],
       "specs": [
-        "e2e/production-information-reminders.spec.ts"
+        "e2e/production-information-reminders.spec.ts",
+        "e2e/production-automation-recovery.spec.ts"
       ]
     }
   ],

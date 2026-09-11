@@ -31,6 +31,10 @@ def write_registry(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def installation_options(prior):
+    return {key:prior[key] for key in ("catalog_only","execution_mode") if key in prior} if prior else {"execution_mode":"previews_only"}
+
+
 async def install(host, base, token):
     owned = objects(base)
     token_hash = validate_token(base, token)
@@ -55,7 +59,8 @@ async def install(host, base, token):
         models = await host.gateway._request(socket, 'analysis-models', 'models.list', {'view': 'configured', 'agentId': base['agent_id']})
         target, agent_id = configure(config, base, root)
         llm = target['plugins']['entries']['llm-task']['llm']
-        if 'allowedCompletionModels' not in llm:
+        created_policy = 'allowedCompletionModels' not in llm
+        if created_policy:
             llm['allowedCompletionModels'] = [row['id'] for row in project_models(models, target)]
         if not llm['allowedCompletionModels']:
             raise ManagedSetupError('主机没有获准的独立分析模型，未放开全部模型。')
@@ -64,7 +69,7 @@ async def install(host, base, token):
         if target != config or previous != token:
             backup(root)
             write_registry(registry, {'base': base, 'objects': owned, 'token_sha256': token_hash,
-                                     'state': 'installing', 'catalog_only': prior.get('catalog_only', False) if prior else False})
+                                     'state': 'installing', **installation_options(prior)})
             environment.set(owned['secret_ref'], token)
             for field in ('workspace', 'agentDir'):
                 path = Path(target['agents']['entries'][agent_id][field])
@@ -87,10 +92,13 @@ async def install(host, base, token):
         if configure(installed, base, root)[0] != installed:
             raise ManagedSetupError('分析配置未实际加载。')
         available = await host.gateway._request(socket, 'analysis-catalog', 'models.list', {'view': 'configured', 'agentId': agent_id})
+        if created_policy:
+            from .analysis_model_policy import record_policy
+            record_policy(root,llm['allowedCompletionModels'])
         permitted = {row['id'] for row in project_models(models, installed)}
         # The supervisor's host setting defaults to catalog-only during deployment.
         write_registry(registry, {'base': base, 'objects': owned, 'token_sha256': token_hash,
-                                 'state': 'installed', 'catalog_only': prior.get('catalog_only', False) if prior else False})
+                                 'state': 'installed', **installation_options(prior)})
         return {'binding_id': base['binding_id'], 'capabilities': {'protocol_version': 2,
                 'models': [row for row in project_models(available, installed) if row['id'] in permitted]}}
     return await host.gateway._session(operation)

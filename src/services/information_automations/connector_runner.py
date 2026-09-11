@@ -8,7 +8,6 @@ import httpx
 from .batches import SYSTEM, output_schema
 from .completion_errors import completion_error
 from . import completion_guard
-import time
 
 
 class InformationConnector:
@@ -62,20 +61,17 @@ class InformationConnector:
         self.journal.unlink()
         return {'status': 'result_recorded', 'accepted': result.get('accepted', False), 'retry_after': 0}
 
-    def run_once(self, *, catalog_only=False):
-        if catalog_only:
-            if not self.discover_models:
-                raise ValueError('Model discovery required for catalog-only operation')
-            self.service('capabilities', {'protocol_version': 2, 'catalog_only': True, 'models': self.discover_models()})
-            self.catalog_at = time.monotonic()
-            return {'status': 'catalog_synced', 'retry_after': 30}
+    def run_once(self, *, catalog_only=False, execution_mode='previews_only'):
+        from .connector_sync import synchronize
+        mode = 'catalog_only' if catalog_only else execution_mode
+        if mode not in {'catalog_only','previews_only','full'}:
+            raise ValueError('Invalid analysis execution mode')
+        synchronize(self,mode)
+        if mode == 'catalog_only':
+            return {'status':'catalog_synced','retry_after':30}
         pending = self.flush()
         if pending is not None:
             return pending
-        if self.discover_models and time.monotonic() - self.catalog_at >= 30:
-            models = self.discover_models()
-            self.service('capabilities', {'protocol_version': 2, 'models': models})
-            self.catalog_at = time.monotonic()
         if completion_guard.uncertain(self.journal):
             return {'status': 'inference_unconfirmed', 'retry_after': 30}
         claim = self.service('claim', {'isolated_completion': True, 'protocol_version': 2})
@@ -105,6 +101,6 @@ class InformationConnector:
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
             if isinstance(error, httpx.HTTPStatusError) and 400 <= error.response.status_code < 500:
                 completion_guard.record(self.journal, task['claim_id'], self.agent_id, 'finished')
-            result = {'error': completion_error(error)}
+            result = {'error': 'completion_unknown' if completion_guard.uncertain(self.journal) else completion_error(error)}
         self.persist({'claim_id': task['claim_id'], 'body': {'claim_token': task['claim_token'], 'result': result}})
         return self.flush()

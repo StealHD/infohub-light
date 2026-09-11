@@ -26,6 +26,7 @@ class TestRule(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: StrictInt = Field(ge=1)
     article_ids: list[str] = Field(min_length=1, max_length=1000)
+    request_id: str | None = Field(default=None,min_length=1,max_length=128)
 
 
 def service(response: Response, context: ApiContext):
@@ -70,7 +71,7 @@ async def transition_rule(rule_id: str, body: TransitionRule, response: Response
 
 async def test_rule(rule_id: str, body: TestRule, response: Response, user=Depends(current_user),
                     context: ApiContext = Depends(api_context)):
-    return invoke(service(response, context).test, user['id'], rule_id, body.version, body.article_ids)
+    return invoke(service(response, context).test, user['id'], rule_id, body.version, body.article_ids, body.request_id)
 
 
 async def list_runs(rule_id: str, response: Response, limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -80,6 +81,9 @@ async def list_runs(rule_id: str, response: Response, limit: Annotated[int, Quer
 
 
 async def get_test(rule_id: str, preview_id: str, response: Response, user=Depends(current_user), context: ApiContext = Depends(api_context)):
+    if preview_id == "latest":
+        from ..services.information_automations.preview_recovery import latest_preview
+        return invoke(latest_preview,service(response,context),user["id"],rule_id)
     from ..services.information_automations.semantic_previews import get_preview
     return invoke(get_preview, service(response, context), user['id'], rule_id, preview_id)
 
