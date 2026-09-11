@@ -411,19 +411,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "a8651e6bb2ab2e0d0a335821292cba8b89488885",
   "control_topics": [
     "verification"
   ],
   "recorded_on": "2026-09-11",
   "result": "按用户授权将自动化分析恢复与模型继承修复合入本地 main，发布 v2.6.18 并部署 Service/VPS、托管执行器和 Gateway 兼容补丁。原 main 未提交清理工具改动原样保留到独立分支；采用干净 main 发布工作区。显式 global 45 迁移、previews_only 模式及旧预览不自动执行属于本次发布边界。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "release-v2618-20260911",
   "unresolved": [
-    "发布 preflight、精确 main CI、tag smoke、备份迁移与部署健康核验待完成。"
+    "旧分析白名单归属未确认，8 个模型仍以 allowlist_ownership_unknown 过滤，未擅自扩展；当前目录 2 项。",
+    "按用户减少验证的要求，未调用真实模型、发送通知或执行旧积压；提供方额度和真实推理结果不在本次上线验证内。"
   ],
   "validation": [
-    "合并前核对生产 API/Worker 为健康 v2.6.17 / 497d85a52fd3，Gateway/supervisor 运行中；修复分支已快进合入本地 main。",
-    "发布审查补齐 CI 浏览器真实 Service 用例需要的 Python 环境，版本及锁文件同步到 2.6.18。"
+    "本地 main 与修复分支已合并并推送；原 main 未提交清理工具改动保留在 codex/local-main-preserved-20260911。发布 preflight 的循环依赖和会话夹具问题已定向修复，构建 Brotli 245566 bytes 通过。",
+    "首次 main CI 的 8 个历史会话夹具失败已定向 8/8 通过（34 秒）。最终 main CI 34584897644 / a8651e6bb2ab 与 Tag smoke 34586502980 成功，Release v2.6.18 已发布；未重复跑已通过的后端。",
+    "最终提交仅改变 E2E 夹具，生产构建输入与已本地构建的 99923ddf2525 相同；本地复用 14 个完全一致的 amd64 运行层并更新发布标识，归档明文 SHA-256 f50fc0bd402a8ac677b130baaa5009b07264f2ee5c547ad1806913b688b1637f 在 VPS 匹配后 docker load。VPS 未构建项目。",
+    "VPS 显式 global 45 迁移成功，备份 service-information-recovery-v45-20260911T110107375956Z.db；API/Worker/Docker/公开资源通过 runtime_health，线上为 2.6.18 / a8651e6bb2ab。迁移回滚标记已归档到发布目录并从规范环境清除，防止下次升级误用。",
+    "Gateway 2026.9.2 限定补丁已备份应用、语法检查及重启，RPC ready；托管执行器升级到 previews_only，目录与执行能力回传 age=8.1 秒、runtime_block=null。三条旧预览 pending、attempts=0，确认和领取均为 0。"
   ]
 }
 ```
