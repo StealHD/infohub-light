@@ -3,23 +3,23 @@
 
 | ID | 标题 | 日期 | 记录 |
 | --- | --- | --- | --- |
-| D001 | 初始化控制面 | 2026-07-08 | [查看](records/D001-D025.md#d001) |
+| D001 | 控制面 | 2026-07-08 | [查看](records/D001-D025.md#d001) |
 | D002 | 禁用 scheduler | 2026-07-08 | [查看](records/D001-D025.md#d002) |
 | D003 | Hub taxonomy 取代单层 AI 标签 | 2026-07-08 | [查看](records/D001-D025.md#d003) |
 | D004 | personal_tags 不进入 AI scoring | 2026-07-08 | [查看](records/D001-D025.md#d004) |
 | D005 | Feed 结果与 finalizer | 2026-07-10 | [查看](records/D001-D025.md#d005) |
 | D006 | Queue 领取与心跳 | 2026-07-10 | [查看](records/D001-D025.md#d006) |
-| D007 | Feed v2 采用显式备份后重建迁移 | 2026-07-10 | [查看](records/D001-D025.md#d007) |
+| D007 | Feed v2 显式重建迁移 | 2026-07-10 | [查看](records/D001-D025.md#d007) |
 | D008 | 当前产品收口为信息获取与 Feed 留存 | 2026-07-11 | [查看](records/D001-D025.md#d008) |
 | D009 | 每用户 opt-in 周期由现有 Worker 调度 | 2026-07-11 | [查看](records/D001-D025.md#d009) |
 | D010 | RC1 采用不可变镜像和分阶段 VPS 切换 | 2026-07-12 | [查看](records/D001-D025.md#d010) |
 | D011 | 密钥边界与受控概括 | 2026-07-13 | [查看](records/D001-D025.md#d011) |
-| D012 | 订阅级自动抓取复用现有 Worker 与单源 finalizer | 2026-07-13 | [查看](records/D001-D025.md#d012) |
+| D012 | 订阅抓取复用 Worker/finalizer | 2026-07-13 | [查看](records/D001-D025.md#d012) |
 | D013 | Service API 与 SQLite 日志 | 2026-07-13 | [查看](records/D001-D025.md#d013) |
-| D014 | 默认 Service UI 迁移为 React 三栏信息雷达 | 2026-07-13 | [查看](records/D001-D025.md#d014) |
-| D015 | React Shell 与 Feed 采用受控 Material UI 视觉系统 | 2026-07-14 | [查看](records/D001-D025.md#d015) |
+| D014 | React 三栏界面 | 2026-07-13 | [查看](records/D001-D025.md#d014) |
+| D015 | Shell 与 Feed 视觉系统 | 2026-07-14 | [查看](records/D001-D025.md#d015) |
 | D016 | Feed 确定性 Presentation v1 与理由退役 | 2026-07-14 | [查看](records/D001-D025.md#d016) |
-| D017 | Material UI 扩展到订阅控制台并采用更新前 Worker 预检 | 2026-07-14 | [查看](records/D001-D025.md#d017) |
+| D017 | 订阅控制台与 Worker 预检 | 2026-07-14 | [查看](records/D001-D025.md#d017) |
 | D018 | 频道订阅、非破坏主题删除与详情收口 | 2026-07-14 | [查看](records/D001-D025.md#d018) |
 | D019 | 公共来源共享中性获取，用户投影与 Feed 版本继续隔离 | 2026-07-14 | [查看](records/D001-D025.md#d019) |
 | D020 | 收藏与站内阅读使用稳定内容索引和受保护媒体缓存 | 2026-07-14 | [查看](records/D001-D025.md#d020) |
@@ -33,7 +33,7 @@
 | D028 | 生产 UI 单一切换到 HeroUI，并删除双栈回滚 | 2026-07-17 | [查看](records/D026-D050.md#d028) |
 | D029 | Feed 视觉确认先采用单页 Codex 风格微调 | 2026-07-18 | [查看](records/D026-D050.md#d029) |
 | D030 | — Feed adopts the approved Quiet Studio variant | 2026-07-18 | [查看](records/D026-D050.md#d030) |
-| D031 | Quiet Studio 采用分类导航、双向排序和确定性交接编辑器 | 2026-07-18 | [查看](records/D026-D050.md#d031) |
+| D031 | Quiet Studio 导航、排序与交接 | 2026-07-18 | [查看](records/D026-D050.md#d031) |
 | D032 | 生产 UI 采用单一字体栈与可执行语义排版契约 | 2026-07-18 | [查看](records/D026-D050.md#d032) |
 | D033 | Quiet Studio 成为全站自适应视觉与交互语言 | 2026-07-19 | [查看](records/D026-D050.md#d033) |
 | D034 | MCP 订阅 proposal 与显式 delegation | 2026-07-18 | [查看](records/D026-D050.md#d034) |
@@ -95,7 +95,7 @@
 | D091 | 触底文案状态展示完整场景列表 | 2026-07-29 | [查看](records/D076-D100.md#d091) |
 | D092 | X/profile 采用独立三 Actor 路由、费用熔断与工作区告警 | 2026-07-29 | [查看](records/D076-D100.md#d092) |
 | D093 | Service Webhook 对飞书/Lark 自定义机器人采用原生文本消息 | 2026-07-29 | [查看](records/D076-D100.md#d093) |
-| D094 | Service Webhook 采用七类显式 Provider Registry 与业务 ACK | 2026-07-30 | [查看](records/D076-D100.md#d094) |
+| D094 | Webhook Provider 与 ACK | 2026-07-30 | [查看](records/D076-D100.md#d094) |
 | D095 | 高频任务观察与完整运行记录分离 | 2026-07-30 | [查看](records/D076-D100.md#d095) |
 | D096 | 设置查询、内容缓存与静态传输采用显式用途边界 | 2026-07-30 | [查看](records/D076-D100.md#d096) |
 | D097 | 设置分区以相邻滚动意图自然激活 | 2026-07-30 | [查看](records/D076-D100.md#d097) |
@@ -213,9 +213,11 @@
 | D209 | 信息提醒 | 2026-09-08 | [查看](records/D201-D225.md#d209) |
 | D210 | 日志边界 | 2026-09-08 | [查看](records/D201-D225.md#d210) |
 | D211 | 重跑预算 | 2026-09-08 | [查看](records/D201-D225.md#d211) |
-
 | D212 | 统一分析 | 2026-09-08 | [查看](records/D201-D225.md#d212) |
 | D213 | Skills 清单 | 2026-09-09 | [查看](records/D201-D225.md#d213) |
 | D214 | 命令浮层 | 2026-09-08 | [查看](records/D201-D225.md#d214) |
 | D215 | 自动化布局 | 2026-09-08 | [查看](records/D201-D225.md#d215) |
 | D216 | 管理员接入 | 2026-09-09 | [查看](records/D201-D225.md#d216) |
+| D217 | 连接释放 | 2026-09-11 | [查看](records/D201-D225.md#d217) |
+| D218 | 分析恢复 | 2026-09-11 | [查看](records/D201-D225.md#d218) |
+| D219 | 模型恢复 | 2026-09-11 | [查看](records/D201-D225.md#d219) |

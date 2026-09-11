@@ -69,6 +69,9 @@ Webhook egress 只接受 SecretStore 当前保存并与所选 Provider 精确匹
 member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL userinfo；Worker 必须以 catalog row 而非 job payload 为权威。初始请求和每次 redirect 都必须解析并审核全部地址，随后只连接本次审核通过的字面 IP并保留原 Host/SNI；安全请求使用隔离且 `trust_env=False` 的连接、拒绝压缩响应并执行 2 MB 流式上限。受控 RSSHub row 是单独边界：成员只能提供 allowlisted `site/route_key/params`，运行 origin 只来自管理员配置，Worker 禁止跟随 redirect。除此之外，`owner/admin` 拥有的 source 仍是本地/私网任意 RSS URL 的唯一显式信任边界。
 
 ### 3.10 Runtime / Migration Boundary
+
+Global 45 `information_recovery_schema.py` 显式新增执行能力、刷新请求、预览确认与请求幂等四张独立状态表；不改历史迁移，不回填或执行旧预览。新库 bootstrap 安装，既有库必须停 API/Worker 后通过 `scripts/migrate_information_recovery_v45.py --data-dir ABS --apply` 备份、迁移和完整性核验。恢复操作见 [自动化恢复手册](../../dev/automation-analysis-recovery.md)，接口真源见 [信息自动化](../api/information-automations.md)。
+
 本地 Web 重建必须从目标任务 Worktree 执行 `./scripts/up-latest.sh`，构建该 Worktree 的源码，并通过 Git common directory 解析主 checkout 的 `.env`、`data` 与 `logs`。只有明确使用另一运行目录时才传 `--runtime-root ABSOLUTE_PATH`；不得用临时 Compose override、运行数据 symlink 或从主 checkout 构建来代替。命令通过一个 host-local lock 保护共享 Compose project 和容器；构建前后核对源码摘要，源码中途变化即拒绝启动。
 
 部署单元固定为独立 `horizon-api + horizon-worker`；用户 Feed schedule 内嵌在现有 Worker，不形成第三个进程或容器，也不存在 scheduler profile。发布脚本必须在切换前阻断仍在运行的历史 scheduler 容器，避免旧镜像继续写数据或发送通知。旧 snapshot 到 Feed v2 的清空重建只能由 `scripts/migrate_user_feed_v2.py --apply` 在服务停止后显式执行，应用启动不得自动删除用户数据；未完成迁移时 readiness 和 Feed Worker 都必须拒绝继续。迁移工具已存在不表示真实数据库已执行迁移。

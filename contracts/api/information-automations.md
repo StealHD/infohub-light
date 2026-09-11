@@ -2,11 +2,22 @@
 
 ## 托管分析与目录恢复
 
-独立分析由同一 Agent 接入流程安装，每个有效绑定独立身份和机器凭据，共用一个受监督主机进程，仅允许 llm-task，无 MCP、Skills、主机工具或通知工具。模型目录是目标 Agent 配置与主机明确许可的交集，已有禁止策略不可覆盖。部署默认 catalog-only：仅同步目录，不领取积压、不提交旧结果、不调用模型。检查积压和通知风险后才由部署者显式开启领取。
+独立分析由同一 Agent 接入流程安装，每个有效绑定独立身份和机器凭据，共用一个受监督主机进程，仅允许 llm-task，无 MCP、Skills、主机工具或通知工具。模型目录是目标 Agent 配置与主机明确许可的交集，已有禁止策略不可覆盖。新安装默认 previews_only，仅执行明确提交的新测试；既有 catalog-only 配置保留目录模式，恢复时由管理员明确切换。正式任务仍须完整模式和原规则确认。
 
-能力上报兼容 protocol_version=2，新增可选 `catalog_only`（缺省 false）。目录 status 保留 ready/stale/unavailable；新增 reason=not_configured/offline/catalog_stale/no_authorized_models 或 null，recovery_action=repair_connection/check_service/refresh_catalog/review_models 或 null。新鲜目录要求同代启用凭据且目录与心跳均不超过 300 秒；刷新不存在的目录返回 requested=false，不冒充配置成功。模型元数据不授予配置或模型权限。
+能力上报兼容 protocol_version=2，新增可选 `catalog_only`（缺省 false）。目录 status 保留 ready/stale/unavailable；新增 reason=not_configured/offline/catalog_stale/no_authorized_models 或 null，recovery_action=repair_connection/check_service/refresh_catalog/review_models 或 null。新鲜目录要求同代启用凭据且目录与心跳均不超过 300 秒；刷新只表示受理；执行与刷新确认遵循下节 global 45，不冒充配置成功。模型元数据不授予配置或模型权限。
 
 安装阶段见 [Gateway global 44](openclaw-gateway.md)。服务重启仅恢复登记且未撤销的绑定；单绑定执行锁和持久结果日志防止重叠推理。HTTP 完成状态未知时保留独立标记，停止后续领取，由管理员核对真实结束证据；不自动重放推理。撤销先吊销机器授权并隔离在途结果，再同步清理主机配置，不能以本站吊销代替主机停止证明。
+
+## 执行恢复与刷新回执（global 45）
+
+- 独立 runner 与托管 supervisor 共用 `catalog_only`、`previews_only`、`full`。新安装默认 `previews_only`；旧托管记录未声明 execution_mode 时保留原目录模式。显式模式不隐含确认旧预览或启用正式规则。
+- capabilities 增量字段：execution_mode、runtime_block（completion_unknown|null）、refresh_request_id、filtered_models（id 与安全 reason）。catalog 增量字段：execution_mode、preview_executable、execution_reason、filtered_models、refresh。旧协议 2 未上报能力时执行拒绝 connector_upgrade_required；目录 ready 不代表可以测试。
+- 提交前及事务内校验当前绑定、同代能力与 300 秒心跳/目录、所选模型；领取再次校验。previews_only 只领取有独立确认记录的新预览。目录模式不领取也不回传旧结果。正式规则仍需完整模式及原确认。测试不发送通知、不推进正式水位。
+- request_id 按用户持久去重；同规则、版本和去重排序文章集合的有效预览跨标签页复用。同一请求不能换输入。无确认侧表的旧预览不能领取；明确重测时原子保留旧行、标记 preview_superseded 并建新预览。已领取或完成状态未知时禁止自动重新推理；预览领取租约过期以 completion_unknown 终结，不自动重领。
+- GET latest 恢复 selection、进度和结果；requires_review 区分旧预览待确认与未知完成。等待原因包括 offline、execution_disabled、connector_upgrade_required、user_concurrency、daily_semantic_limit、analysis_model_unavailable；HTTP 明确拒绝展示安全原因，只有无法确定提交结果才展示未知。
+- POST models/refresh 返回 requested=true 与 refresh{id,status,requested_at,completed_at,reason,changed}，仅表示受理。120 秒内并发刷新复用同一请求；过期的旧请求保留失败记录，新手动刷新创建新编号。
+- 机器凭据 POST `/api/connector/information-automations/control` 读取 refresh_request_id；执行器重新发现个人和分析 Agent 的有效配置并在 capabilities 回传编号。过时回执不得覆盖较新的目录/请求。POST 同前缀 `/refresh-failure`（request_id）上报固定 model_discovery_failed；不泄露上游原文。
+- 只有匹配请求成功同步才完成刷新和重新评估失败阻断。过滤原因限定 model_unauthorized、agent_model_unavailable、allowlist_ownership_unknown；过期以 catalog_stale 标识。系统创建的白名单有独立主机归属记录；管理员改动后停止自动扩展，归属未知不猜测。目录同步不调用模型或自动改变用户选择。
 
 ## 当前实现与待验收边界
 
@@ -21,10 +32,10 @@ Automations 配置 v2 统一使用完整自然语言要求，关键词、语义�
 | GET / POST 根路径 | 分页查询／保存草稿；分页为 limit 1–100、offset 非负 |
 | GET / PUT `/{rule_id}` | 读取／接收 version、config，CAS 创建不可变新版本 |
 | POST `/{rule_id}/transition` | 严格整数 version；action 为 enable、pause、archive、restore |
-| POST `/{rule_id}/test` | version、1–1000 个本人 article_ids；创建独立预览 |
-| GET `/{rule_id}/test/{preview_id}` | 读取预览进度、综合结论和依据 |
+| POST `/{rule_id}/test` | version、1–1000 个本人 article_ids、可选 request_id（1–128 字）；幂等创建或复用独立预览 |
+| GET `/{rule_id}/test/{preview_id}` | 读取预览进度、综合结论和依据；preview_id=latest 返回最近记录或 null |
 | GET `/{rule_id}/runs` | 分页返回分析、通知、进度、模型、依据和安全回执 |
-| GET `/models` / POST `/models/refresh` | 本人模型目录／请求刷新并解除显式刷新前的模型失败阻断 |
+| GET `/models` / POST `/models/refresh` | 本人模型目录／请求刷新；仅匹配的新同步成功后重新评估模型失败阻断 |
 
 `config` 包含 `schema_version=2`、name（1–100 字）、requirement（最多 24,000 字）、本人已启用订阅 source_ids（最多 50）、可见 target_id、trigger 和 model。model 为 `{id, thinking:null|string}`，必须选择主机目录允许的模型；缺省推理沿用模型默认。草稿可以不完整，启用须补齐并验证。新 wire 不含 mode、conditions；旧输入只转换成草稿描述，没有旧执行器。
 
