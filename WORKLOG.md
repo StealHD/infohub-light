@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-09",
-  "result": "修复白球缩放连带定位偏移：围绕视觉圆心放大，拖动与悬停保持同一放大状态。Ultra 左端圆角改为与水平渐变同色、同时长同缓动过渡，消除立即变色；Fast 尾迹增加确定性的尺寸与亮度差异。同步现有组件规范、手册及更新记录。",
-  "status": "completed",
-  "task_id": "effort-thumb-cap-particle-polish-20260909",
-  "unresolved": [],
-  "validation": [
-    "TypeScript、UI 静态、定向 ESLint、Markdown/控制结构与 diff check 通过。",
-    "两条既有受控桌面浏览器用例分别通过：圆心位移小于 0.5px、Fast 参数不变、粒子尺寸/亮度差异、圆角与渐变一致及 Reduced Motion。首次颜色检查采样在过渡完成前，补齐稳定等待后仅复验失败用例，通过并正常退出。",
-    "5173 页面返回 200；临时 4173 与测试进程已退出。按用户要求仅最小验证，无子 agent、容器、真实模型/通知或自动提交，未重复全量构建/preflight。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
   "result": "模型子列表移除占满整行的“返回思考程度”文字按钮，改为 32px 图标返回操作；隐藏模型列表视觉滚动条，同时保留滚轮、触控、键盘滚动和可访问名称。同步组件规范、手册与更新记录。",
   "status": "completed",
   "task_id": "compact-model-list-navigation-20260909",
@@ -423,6 +405,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "真实Service、SQLite、认证与WebSocket转接受控Gateway；最终桌面/手机2项21.3秒通过：危险旧会话零请求，同模型重选创建带上下文分叉，保留旧历史/草稿，只执行一次DeepSeek，刷新保留局部回复/运行号/安全原因，无成功提示，Axe无严重问题。平板在早期方案已验证，最终方案未重复扩展。",
     "只读核对生产2026.9.2模块及本地2026.9.3模块，补丁dry-run通过；补丁测试仅写临时目录，精确插入JavaScript经Node受控执行，无真实模型调用。",
     "preflight执行及唯一重跑均有记录：首次决策索引字节超限，第二次388.992秒在后端末段发现新增E2E映射预期未更新。两处均修复并定向复验通过；按用户减少验证及重跑预算，不进行第三次完整运行。不声称完整preflight全绿。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-09-11",
+  "result": "按用户授权将自动化分析恢复与模型继承修复合入本地 main，发布 v2.6.18 并部署 Service/VPS、托管执行器和 Gateway 兼容补丁。原 main 未提交清理工具改动原样保留到独立分支；采用干净 main 发布工作区。显式 global 45 迁移、previews_only 模式及旧预览不自动执行属于本次发布边界。",
+  "status": "partial",
+  "task_id": "release-v2618-20260911",
+  "unresolved": [
+    "发布 preflight、精确 main CI、tag smoke、备份迁移与部署健康核验待完成。"
+  ],
+  "validation": [
+    "合并前核对生产 API/Worker 为健康 v2.6.17 / 497d85a52fd3，Gateway/supervisor 运行中；修复分支已快进合入本地 main。",
+    "发布审查补齐 CI 浏览器真实 Service 用例需要的 Python 环境，版本及锁文件同步到 2.6.18。"
   ]
 }
 ```

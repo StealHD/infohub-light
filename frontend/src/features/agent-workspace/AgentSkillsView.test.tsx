@@ -7,7 +7,7 @@ import type { ServiceApi } from '../../api/service'
 import type { User } from '../../api/types'
 import type { OpenClawChatController } from '../openclaw'
 import { chatController } from '../openclaw/OpenClawConversation.test.support'
-import { projectSkillsStatus } from '../openclaw/workspace/openclawWorkspaceProjection'
+import { projectSkillsStatus } from '../openclaw/workspace/openclawWorkspaceDetails'
 import { AgentSkillsView } from './AgentSkillsView'
 
 const status = projectSkillsStatus({ skills: [

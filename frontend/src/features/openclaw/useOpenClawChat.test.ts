@@ -441,12 +441,12 @@ describe('useOpenClawChat', () => {
       identity: { deviceId: 'device-1', publicKey: 'public-1', privateKey: {} as CryptoKey },
       deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'], sessionKey: 'session-1',
     })
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
       if (method === 'tools.effective') return { groups: [] }
       if (method === 'chat.history') return { messages: [] }
       if (method === 'models.list') return models
       if (method === 'agents.list') return agents
-      if (method === 'sessions.describe') return session
+      if (method === 'sessions.describe') return { session: { ...session.session, key: params.key, agentId: 'main' } }
       if (method === 'sessions.create') return { key: 'session-2' }
       throw new Error(`unexpected method ${method}`)
     })

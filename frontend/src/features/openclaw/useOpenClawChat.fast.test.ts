@@ -22,7 +22,7 @@ async function setup(defaultFastMode: boolean | 'auto' = false) {
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
     if (method === 'models.list') return modelResult
     if (method === 'agents.list') return agentResult
-    if (method === 'sessions.describe') return { session: { key: params.key, modelProvider: 'openai', model: 'gpt', thinkingLevel: 'high', effectiveFastMode: defaultFastMode } }
+    if (method === 'sessions.describe') return { session: { key: params.key, agentId: 'main', modelProvider: 'openai', model: 'gpt', thinkingLevel: 'high', effectiveFastMode: defaultFastMode } }
     if (method === 'chat.history') return { messages: [] }
     if (method === 'tools.effective') return { groups: [] }
     if (method === 'sessions.create') return { key: 'session-2' }

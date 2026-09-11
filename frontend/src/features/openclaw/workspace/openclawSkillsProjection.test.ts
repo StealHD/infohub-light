@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projectSkillsStatus } from './openclawWorkspaceProjection'
+import { projectSkillsStatus } from './openclawWorkspaceDetails'
 
 // OpenClaw 2026.8.1 buildWorkspaceSkillStatus wire shape, with synthetic values.
 const skill = { skillKey: 'report-key', name: '报告助手', description: '整理阅读报告', disabled: false, eligible: true,

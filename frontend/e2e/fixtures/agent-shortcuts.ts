@@ -35,7 +35,7 @@ export async function installShortcutFixture(page: Page, effort = false, history
           'sessions.preview': { previews: [{ key: 'root', status: 'empty', items: [] }] },
           'models.list': { models: [{ id: 'gpt', provider: 'openai', name: 'GPT Fixture', available: true, input: ['text'], reasoning: true, ...(effort ? { thinkingDefault: 'low', thinkingLevels: [{ id: 'off', label: '关' }, { id: 'auto', label: '自动' }, { id: 'low', label: '低' }, { id: 'medium', label: '中' }, { id: 'high', label: '高' }, { id: 'xhigh', label: '很高' }, { id: 'max', label: '最高' }, { id: 'ultra', label: 'Ultra' }] } : {}) }] },
           'agents.list': { defaultId: 'main', agents: [{ id: 'main', model: { primary: 'openai/gpt' } }] },
-          'sessions.describe': { session: { key: 'root', modelProvider: 'openai', model: 'gpt' } },
+          'sessions.describe': { session: { key: 'root', agentId: 'main', modelProvider: 'openai', model: 'gpt' } },
           'tools.effective': { groups: [] }, 'chat.history': { messages: history ? [{ role: 'assistant', content: [{ type: 'text', text: Array.from({ length: 50 }, (_, index) => `第 ${index + 1} 段：检查聊天内容和输入框之间的接缝，滚动时不出现额外黑色横带。`).join('\n\n') }] }] : [] },
           'skills.status': { skills: [{ skillKey: 'weather', name: 'weather', description: '无副作用天气示例', disabled: !state.enabled, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true, missing: {}, install: [] }] },
           'projects.list': { projects: [{ id: 'demo', displayName: 'Demo', repoRoot: '/demo', source: 'configured' }] },
