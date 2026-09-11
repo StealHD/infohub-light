@@ -20,7 +20,7 @@ Service 为 `2.6.17 / 497d85a52fd3`，Gateway 为 `2026.9.2`。上海时间 15:1
 
 本轮在 `codex/automation-analysis-recovery` 本地实现；不部署 VPS，不修改已安装 Gateway 包，不处理三条旧自动化预览。没有新增数据库迁移；本分支此前的 global 45 仍须未来发布时显式执行。本地通过不代表生产已恢复，未来上线须按仓库发布流程及明确授权单独完成生产验收。
 
-## Gateway 安装包兼容补丁（未来部署时明确执行）
+## Gateway 安装包兼容补丁（部署时明确执行）
 
 `scripts/patch_openclaw_fork_model.py --package-root <OpenClaw 安装目录>` 默认只检查，不写文件。仅接受 2026.9.2/2026.9.3 和精确匹配的分叉实现。后续已授权发布时加 `--apply`：保存带原始摘要的私密备份，原子替换目标模块；随后按运维流程重启 Gateway。不是 Service 启动或接入安装的自动步骤。升级安装会覆盖补丁，必须重新检查，未知版本拒绝修改。
 
@@ -31,3 +31,16 @@ Service 为 `2.6.17 / 497d85a52fd3`，Gateway 为 `2026.9.2`。上海时间 15:1
 定向后端、前端、类型、ESLint、代码规模及控制文件检查通过。最终桌面/手机真实 Service 转接用例 2 项通过（21.3 秒），包含保留上下文、同模型重选、一次发送和刷新失败诊断；最终方案未重复扩展平板验证。生产 2026.9.2 与本地 2026.9.3 的安装源码只读检查通过，补丁仅在临时目录应用验证。
 
 完整 preflight 未全绿：首次为决策索引字节上限，唯一重跑在后端末段因新增 E2E 映射预期漏更新而失败（388.992 秒）。均已修复并定向复验，通过预算约束不做第三次完整运行；不能将此记录当作正式发布 Gate。
+
+
+## v2.6.18 生产发布（2026-09-11）
+
+用户后续授权发布，已将 `a8651e6bb2ab` 合入 main、发布 [v2.6.18](https://github.com/StealHD/infohub-light/releases/tag/v2.6.18) 并部署。此前“本地阶段未部署”的记录不再描述当前运行状态。精确 [main CI](https://github.com/StealHD/infohub-light/actions/runs/34584897644) 与 [Tag 冒烟](https://github.com/StealHD/infohub-light/actions/runs/34586502980) 通过；API、Worker、Docker 健康状态及公开页面版本/资源检查通过。
+
+Service 已显式迁移到 global 45。迁移前备份为 `/opt/inteliscope/data/backups/service-information-recovery-v45-20260911T110107375956Z.db`；发布目录 `2.6.18-20260911T093455Z-a8651e6bb2ab/pre-migration-backup` 保存该路径。切换成功后清除规范 `.env` 中本轮的 `INTELISCOPE_PRE_MIGRATION_BACKUP`，避免下一次普通升级沿用旧库。若跨 schema 回滚到 v2.6.17，必须先核对该备份并将路径明确写回规范 `.env`，再按发布回滚流程执行；不得直接用旧代码启动 global 45。
+
+Gateway 2026.9.2 已执行上述限定补丁并重启，RPC 就绪。原模块的私密备份位于同目录 `session-create-service-CM4MxLMO.js.inteliscope-6f99bfce1008.bak`。托管执行器保留原凭据与日志，在绑定注册记录中明确设置 `execution_mode=previews_only`，并把 `host.env` 的旧 `INTELISCOPE_ANALYSIS_CATALOG_ONLY` 设为 `false`；未开启正式执行模式。
+
+上线核对：执行能力与目录回传新鲜、无运行阻断；目录为 2 个可用条目、8 个 `allowlist_ownership_unknown` 过滤条目。旧白名单没有归属记录，仍保持原限制，须管理员明确确认后才能接管为系统管理。三条旧预览均为 pending、attempts=0、未领取；确认表和领取表均为 0。本次未调用真实模型或发送通知，不代表提供方额度已恢复。
+
+构建网络不稳定时，核对 `99923ddf2525` 到最终提交仅改动 E2E 测试夹具，生产代码、依赖及构建文件相同，复用先前本地构建的 amd64 运行层并在本地更新发布标识。最终镜像与原镜像的 14 个文件系统层完全一致，保留 `io.inteliscope.runtime.source.revision` 来源标记；未压缩镜像归档 SHA-256 为 `f50fc0bd402a8ac677b130baaa5009b07264f2ee5c547ad1806913b688b1637f`。VPS 仅重组/压缩已校验归档并 `docker load`，没有编译或构建项目。
