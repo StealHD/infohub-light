@@ -29,8 +29,8 @@ def repository(tmp_path):
     return tmp_path
 
 
-def report(root, specs):
-    payload = {"status": "passed", "mapping_miss": False,
+def report(root, specs, *, mapping_miss=False):
+    payload = {"status": "passed", "mapping_miss": mapping_miss,
                "commands": [{"command_id": s.command_id, "exit_code": 0} for s in specs],
                "verification": {"schema": 1, "reusable": True, "inputs": inputs(root),
                                 "environment": environment(),
@@ -91,6 +91,11 @@ def test_old_and_failed_results_cannot_be_reused(repository):
         path.write_text(json.dumps(payload))
         with pytest.raises(GateConfigError):
             read_passed(repository, path)
+
+
+def test_full_fail_closed_gate_evidence_remains_reusable(repository):
+    path = report(repository, [], mapping_miss=True)
+    read_passed(repository, path)
 
 
 def test_ui_requires_separate_browser_coverage(repository):

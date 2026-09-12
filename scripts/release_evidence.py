@@ -34,7 +34,10 @@ def read_passed(root: Path, path: Path) -> tuple[dict, dict[str, list[str]]]:
         raise GateConfigError("missing or malformed local Gate evidence")
     evidence = result.get("verification", {})
     current = inputs(root)
-    if (result.get("status") != "passed" or result.get("mapping_miss")
+    # A mapping miss forces the Gate to full coverage.  Once that complete
+    # Gate has passed, rejecting its evidence here would make fast releases
+    # impossible for safely fail-closed, newly mapped code.
+    if (result.get("status") != "passed"
             or evidence.get("schema") != 1 or not evidence.get("reusable")
             or evidence.get("inputs", {}).get("source") != current["source"]
             or evidence.get("environment") != environment()):
