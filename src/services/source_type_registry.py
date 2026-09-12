@@ -30,6 +30,7 @@ from ..security import (
     public_data_contains_credentials,
     url_contains_credentials,
 )
+from .source_resolution_capabilities import source_resolution_capability
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]{1,127}$")
@@ -206,6 +207,7 @@ class AgentSourceTypeDefinition:
             "self_service": copy["self_service"],
             "requires_web_setup": copy["requires_web_setup"],
             "required_fields": list(self.required_fields),
+            "resolution": source_resolution_capability(self.type),
         }
 
     def guide_detail(self, locale: str) -> dict[str, Any]:
@@ -227,19 +229,6 @@ class AgentSourceTypeDefinition:
                     "how_to_find": field_copy["how_to_find"],
                 }
             )
-        if self.type == "youtube":
-            result["resolution"] = {
-                "supported": True,
-                "strategy": "agent_web",
-                "official_hosts": ["www.youtube.com"],
-                "locator_kinds": [
-                    "handle",
-                    "channel_url",
-                    "channel_id",
-                    "channel_feed",
-                ],
-                "max_candidates": 5,
-            }
         return result
 
 

@@ -11,42 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-09",
-  "result": "模型子列表移除占满整行的“返回思考程度”文字按钮，改为 32px 图标返回操作；隐藏模型列表视觉滚动条，同时保留滚轮、触控、键盘滚动和可访问名称。同步组件规范、手册与更新记录。",
-  "status": "completed",
-  "task_id": "compact-model-list-navigation-20260909",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 11 项、TypeScript、UI 静态、定向 ESLint、Markdown 与 diff check 通过。",
-    "单个受控桌面 Playwright 用例通过（4.7s），确认返回图标宽度 32px、scrollbar-width none、模型列表和 Escape 焦点行为；测试进程退出码 0，临时 4173 服务已退出。",
-    "继续当前本地 A 模式，无子 agent、容器、真实模型/通知或自动提交；按小 UI 迭代要求未运行全量构建/preflight。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "临时命令结果面板支持点击外部立即收起。复用 React Aria 外部交互检测并保持非模态：外部点击的新目标继续接管焦点，关闭按钮和 Escape 仍返回输入框，面板不进入聊天记录或发送模型请求。同步 UI 合同、验收、手册与更新记录。",
-  "status": "completed",
-  "task_id": "composer-panel-outside-dismiss-20260909",
-  "unresolved": [],
-  "validation": [
-    "快捷交互 Vitest 18 项、TypeScript、UI 静态、定向 ESLint、Markdown/控制结构与 diff check 通过。",
-    "单条受控桌面 Playwright 用例最终通过（4.9s），确认点击可见页面标题关闭面板、聊天记录与发送请求不变；首次用例选择零高度空时间线导致点击超时，改用真实可见外部目标后复验。测试进程退出码 0，临时 4173 服务已退出。",
-    "5173 页面返回 200；继续当前本地 A 模式，无子 agent、容器、真实模型/通知或自动提交；按小 UI 迭代要求未跑全量构建/preflight。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
   "result": "`/` 与 `@` 候选列表支持点击外部立即收起；复用 React Aria 外部交互检测并保持非模态，草稿不变、新点击目标不被重新聚焦，内部选择语义与发送边界不变。同步 UI 合同。",
   "status": "completed",
   "task_id": "composer-suggestions-outside-dismiss-20260909",
@@ -429,6 +393,50 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "最终提交仅改变 E2E 夹具，生产构建输入与已本地构建的 99923ddf2525 相同；本地复用 14 个完全一致的 amd64 运行层并更新发布标识，归档明文 SHA-256 f50fc0bd402a8ac677b130baaa5009b07264f2ee5c547ad1806913b688b1637f 在 VPS 匹配后 docker load。VPS 未构建项目。",
     "VPS 显式 global 45 迁移成功，备份 service-information-recovery-v45-20260911T110107375956Z.db；API/Worker/Docker/公开资源通过 runtime_health，线上为 2.6.18 / a8651e6bb2ab。迁移回滚标记已归档到发布目录并从规范环境清除，防止下次升级误用。",
     "Gateway 2026.9.2 限定补丁已备份应用、语法检查及重启，RPC ready；托管执行器升级到 previews_only，目录与执行能力回传 age=8.1 秒、runtime_block=null。三条旧预览 pending、attempts=0，确认和领取均为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "从本地 main 2df85c1a 创建 codex/openclaw-subscription-routing 独立 Worktree，形成全来源 Agent 分流修复 A 与多用户来源身份隔离修复 B 两份计划；未实施代码、迁移或部署。",
+  "status": "completed",
+  "task_id": "openclaw-subscription-routing-plan-20260912",
+  "unresolved": [
+    "A+B 尚未实施；B 拟更改身份唯一性并需显式数据库迁移，运行验收和发布待后续执行。"
+  ],
+  "validation": [
+    "新 Worktree 的来源解析、MCP 订阅、全来源与 Skill 四组基线 61 passed。",
+    "生产只读核对：OpenClaw GitHub key 被另一账号 private 来源占用；最近 source/create 的 owner 请求与已有 source 所有者不同；无生产写入。",
+    "本地临时 API 库复现截图请求，验证现有跨用户 private key 冲突返回 409。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "从本地 main 的隔离分支实施订阅分流与来源身份修复：直接配置来源不再误报 Web setup，global 46 按 private owner/shared 身份约束，REST/MCP 一致门禁与 Web 部分成功恢复。独立审查发现的迁移覆盖并发写入、同身份配置覆盖与停用来源边界已修正。",
+  "status": "completed",
+  "task_id": "openclaw-subscription-routing-implementation-20260912",
+  "unresolved": [],
+  "validation": [
+    "12 类 self-service 来源在 fresh/migrated 两种库各验证一次，24 项组合用例通过，其他用户 private 配置不变且 Job/Actor Attempt 为零；原始 GitHub Release Web/MCP 场景、迁移与并发回归通过。",
+    "独立审查修复迁移自动恢复覆盖并发写入、同身份配置/scope 覆盖、disabled resolver 误判、新 managed 来源订阅阻断及重试输入被忽略；历史 workspace/id 外键索引按精确 SQL 兼容，未知身份索引仍阻断。",
+    "遵循用户减少重复测试要求：两次 preflight 分别停在历史索引兼容与旧迁移 fixture；失败点已定向复验通过，从第二次中断点跳过已过测试续跑剩余后端及尚未执行的代码域命令。没有第三次完整 preflight，也不将原 failed 记录改写为 passed。",
+    "后端分段覆盖完成，SQLite ResourceWarning 为零；前端 Vitest 923 项首次通过，唯一旧 mock 补齐 can_subscribe 后定向复验通过，合计 924 项；22 项定向组件测试与三视口共 6 项 Playwright（Axe/表单保留/单次创建/仅订阅重试/无横溢）通过。类型、lint、UI/E2E 合同、冻结文件限制、JSON、构建与控制结构验证通过。",
+    "证据链：.test-results/20260912T081805Z-33377/result.json → .test-results/openclaw-remaining-20260912/result.json → .test-results/openclaw-final-20260912/result.json；最后 2 项检查通过。初次失败记录 .test-results/20260912T081439Z-32655/result.json 保留。",
+    "仅本地临时数据库与受控上游；生产迁移、部署、Gateway Skill 刷新、真实会话 prepare/apply、真实抓取、模型和通知均未执行。"
   ]
 }
 ```

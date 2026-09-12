@@ -431,10 +431,10 @@ def test_resolution_ref_is_actor_bound_and_same_actor_expiry_is_explicit(
     assert expired.value.code == "source_resolution_expired"
 
 
-def test_hidden_source_key_is_not_projected_and_prepare_conflict_stays_generic(
+def test_hidden_source_key_is_not_projected_and_user_can_create_independently(
     context,
 ):
-    context["store"].create_source(
+    hidden_id = context["store"].create_source(
         workspace_id=context["workspace"]["id"],
         scope="private",
         owner_user_id=context["other"]["id"],
@@ -453,15 +453,22 @@ def test_hidden_source_key_is_not_projected_and_prepare_conflict_stays_generic(
     candidate = _resolve(context)["candidates"][0]
     assert candidate["subscription_state"] == "new"
     assert "Hidden" not in repr(candidate)
-    with pytest.raises(AgentProposalError) as error:
-        context["facade"].prepare_create_subscription(
-            actor=context["member_actor"],
-            source={
-                "mode": "resolved",
-                "resolution_ref": candidate["resolution_ref"],
-            },
-        )
-    assert error.value.code == "source_key_conflict"
+    prepared = context["facade"].prepare_create_subscription(
+        actor=context["member_actor"],
+        source={
+            "mode": "resolved",
+            "resolution_ref": candidate["resolution_ref"],
+        },
+    )
+    applied = context["facade"].apply_subscription_change(
+        actor=context["member_actor"],
+        proposal_id=prepared["proposal_id"],
+        confirmation_text=prepared["confirmation_text"],
+    )
+
+    created = context["store"].get_source(applied["result"]["source_id"])
+    assert created["id"] != hidden_id
+    assert created["owner_user_id"] == context["member"]["id"]
 
 
 def test_resolution_storage_has_v12_marker_and_enforces_active_limit(context):

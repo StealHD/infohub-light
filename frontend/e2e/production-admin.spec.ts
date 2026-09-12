@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { registerSourceCreationRecoveryTest, youtubeSubscriptionResult } from './sourceCreationRecoveryScenario'
 
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
 const managedMember = { id: 'member-1', username: 'member', display_name: '验收成员', role: 'member', enabled: true }
@@ -63,7 +64,7 @@ const privateHistoryItems = [1, 2].map((index) => ({
 async function mockAdminApi(page: Page, authenticated = true, options: {
   includePrivateSource?: boolean
   includeXProfileSource?: boolean
-  historicalTerminalJobs?: number
+  historicalTerminalJobs?: number; youtubeSubscribeFailures?: number
 } = {}) {
   const healthWindowStart = new Date().toISOString()
   const healthFeedStart = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString()
@@ -130,8 +131,8 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   let releaseQuotaRefresh: (() => void) | null = null
   let sourceFetchGate: Promise<void> | null = null
   let releaseSourceFetch: (() => void) | null = null
-  let youtubeCreated = false
-  let youtubeKeepLatest = true
+  let youtubeCreated = false, youtubeSubscribed = false, youtubeKeepLatest = true
+  let youtubeSubscribeFailures = options.youtubeSubscribeFailures ?? 0
   const youtubeCreatePayloads: Array<Record<string, unknown>> = []
   const actorCanaryPayloads: Array<Record<string, unknown>> = []
   const actorOpsSupportProfiles = [
@@ -505,18 +506,13 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       }
     }
     else if (url.pathname === '/api/catalog/sources/source-youtube/subscribe' && route.request().method() === 'POST') {
-      data = {
-        subscription: {
-          id: 'subscription-youtube',
-          user_id: owner.id,
-          source_id: 'source-youtube',
-          source_display_name: 'Google Developers',
-          source_type: 'rss',
-          enabled: true,
-          analysis_mode: 'full',
-          priority: 0,
-        },
+      if (youtubeSubscribeFailures > 0) {
+        youtubeSubscribeFailures -= 1
+        await route.fulfill({ status: 409, json: { ok: false, error: { code: 'source_identity_migration_required', message: 'unsafe database identity detail', retryable: false } } })
+        return
       }
+      youtubeSubscribed = true
+      data = youtubeSubscriptionResult(owner.id)
     }
     else if (url.pathname === '/api/catalog/sources/source-private/share' && route.request().method() === 'POST') {
       privateShared = true
@@ -572,7 +568,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: false, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
       ...(options.includePrivateSource ? [{ id: 'subscription-private', user_id: owner.id, source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 20, notify_on_new_items: false, schedule: { enabled: true, interval_minutes: 60, allowed_intervals: [30, 60, 180, 360, 720, 1440], next_run_at: '2026-07-17T10:30:00Z' } }] : []),
       ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
-      ...(youtubeCreated ? [{ id: 'subscription-youtube', user_id: owner.id, source_id: 'source-youtube', source_display_name: 'Google Developers', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
+      ...(youtubeSubscribed ? [{ id: 'subscription-youtube', user_id: owner.id, source_id: 'source-youtube', source_display_name: 'Google Developers', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
     else if (url.pathname === '/api/me/source-health') {
       sourceHealthRequests += 1
@@ -1794,13 +1790,13 @@ test('YouTube channel creation, errors, filtering and editing work at every acce
   const channelInput = createDialog.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' })
   await channelInput.fill('@Missing')
   await createDialog.getByRole('button', { name: '创建并订阅' }).click()
-  await expect(createDialog.getByText('未找到这个 YouTube 频道，请检查链接或改用频道 ID。')).toBeVisible()
+  await expect(createDialog.getByText('未找到这个 YouTube 频道')).toBeVisible(); await expect(createDialog.getByText('请检查链接或改用频道 ID。')).toBeVisible()
   await expect(createDialog.getByText('unsafe upstream detail')).toHaveCount(0)
 
   await channelInput.fill('@GoogleDevelopers')
   await createDialog.getByRole('button', { name: '创建并订阅' }).click()
   await expect(createDialog).toHaveCount(0)
-  await expect(page.getByText('来源已创建并订阅', { exact: true })).toBeVisible()
+  await expect(page.getByText('来源与订阅已就绪', { exact: true })).toBeVisible()
   expect(apiState.youtubeCreatePayloads()).toHaveLength(2)
   expect(apiState.youtubeCreatePayloads()[1]).toMatchObject({
     type: 'youtube_channel',
@@ -1842,6 +1838,7 @@ test('YouTube channel creation, errors, filtering and editing work at every acce
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
+registerSourceCreationRecoveryTest(mockAdminApi)
 test('public/private subscription views and direct share stay usable at 693, 645 and 320 pixels', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project resizes through the additional acceptance widths.')
   await mockAdminApi(page, true, { includePrivateSource: true })

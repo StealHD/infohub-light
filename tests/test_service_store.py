@@ -446,14 +446,14 @@ def test_service_store_source_key_schema_and_lookup(tmp_path, monkeypatch):
         config={"owner": "OpenAI", "repo": "Codex", "type": "repo_releases"},
         source_key="github_release:openai/codex",
     )
-    found = store.get_source_by_key(workspace_id=workspace["id"], source_key="github_release:openai/codex")
+    found = store.get_source_by_key(workspace_id=workspace["id"], source_key="github_release:openai/codex", scope="public")
     updated = store.update_source(source_id, source_key="github_release:openai/codex-v2")
 
     assert "source_key" in columns
     assert found["id"] == source_id
     assert found["source_key"] == "github_release:openai/codex"
     assert updated["source_key"] == "github_release:openai/codex-v2"
-    assert store.get_source_by_key(workspace_id=workspace["id"], source_key="github_release:openai/codex") is None
+    assert store.get_source_by_key(workspace_id=workspace["id"], source_key="github_release:openai/codex", scope="public") is None
 
 
 def test_service_store_upsert_source_serializes_concurrent_same_key(tmp_path, monkeypatch):
@@ -512,19 +512,14 @@ def test_service_store_upsert_source_does_not_take_over_another_users_private_ke
         source_key=source_key,
     )
 
-    with pytest.raises(ValueError, match="source_key") as caught:
-        store.upsert_source(
-            workspace_id=workspace["id"],
-            scope="private",
-            owner_user_id=bob["id"],
-            source_type="rss",
-            display_name="Bob Private Feed",
-            config={"url": "https://example.com/private-shared-key.xml"},
-            source_key=source_key,
-        )
-
-    assert "source_key" in str(caught.value)
-    assert store.get_source(alice_source["id"])["owner_user_id"] == alice["id"]
+    original = store.get_source(alice_source["id"])
+    bob_source = store.upsert_source(
+        workspace_id=workspace["id"], scope="private", owner_user_id=bob["id"],
+        source_type="rss", display_name="Bob Private Feed",
+        config={"url": "https://example.com/private-shared-key.xml"}, source_key=source_key,
+    )
+    assert bob_source["id"] != alice_source["id"]
+    assert store.get_source(alice_source["id"]) == original
 
 
 def test_service_store_initializes_item_state_without_feedback_table(tmp_path, monkeypatch):

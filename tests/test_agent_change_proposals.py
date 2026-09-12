@@ -716,6 +716,7 @@ def test_versioned_plan_snapshot_matches_real_proposal_row_and_outer_cleanup_con
     assert store.get_source_by_key(
         workspace_id=actor.workspace_id,
         source_key="rss:https://example.com/proposal-seam-commit.xml",
+        scope="private", owner_user_id=actor.user_id,
     ) is not None
 
     rolled_back_row, rolled_back_plan = persist_plan(92, "proposal-seam-rollback")
@@ -743,6 +744,7 @@ def test_versioned_plan_snapshot_matches_real_proposal_row_and_outer_cleanup_con
     assert store.get_source_by_key(
         workspace_id=actor.workspace_id,
         source_key="rss:https://example.com/proposal-seam-rollback.xml",
+        scope="private", owner_user_id=actor.user_id,
     ) is None
 
 

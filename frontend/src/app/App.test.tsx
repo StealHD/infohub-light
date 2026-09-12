@@ -3052,7 +3052,7 @@ describe('App routes', () => {
 
   it('submits only user-facing X fields and never loads a source key selector', async () => {
     const browser = userEvent.setup()
-    const createSource = vi.fn().mockResolvedValue({ id: 'x-new' })
+    const createSource = vi.fn().mockResolvedValue({ id: 'x-new', type: 'apify_social', enabled: false, can_subscribe: true })
     const secrets = vi.fn().mockResolvedValue({ secrets: [] })
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-x', username: 'owner', role: 'owner', enabled: true } }),

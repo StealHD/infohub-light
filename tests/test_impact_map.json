@@ -142,7 +142,8 @@
         "frontend/src/features/settings/**",
         "frontend/src/features/notifications/**",
         "frontend/e2e/production-admin.spec.ts",
-        "frontend/e2e/production-admin.spec.ts-snapshots/**"
+        "frontend/e2e/production-admin.spec.ts-snapshots/**",
+        "frontend/e2e/sourceCreationRecoveryScenario.ts"
       ],
       "specs": [
         "e2e/production-admin.spec.ts"
@@ -716,6 +717,32 @@
       "groups": [
         "frontend_full"
       ]
+    },
+    {
+      "id": "source identity and subscription routing",
+      "globs": [
+        "src/storage/source_identity_schema.py",
+        "src/storage/source_identity_store.py",
+        "src/services/source_identity.py",
+        "src/services/catalog_source_upsert.py",
+        "src/services/source_resolution_capabilities.py",
+        "src/api/source_identity_errors.py",
+        "tests/remote_mcp_subscription_routing_cases.py",
+        "tests/test_subscription_identity_flows.py",
+        "tests/test_source_identity_resolution.py",
+        "tests/test_source_identity_isolation.py",
+        "tests/test_source_resolution_routing.py",
+        "tests/test_remote_mcp_subscription_routing.py",
+        "tests/test_remote_mcp_subscription_routing_http.py",
+        "tests/test_openclaw_subscription_routing_skill.py",
+        "scripts/migrate_source_identity_v46.py",
+        "tests/test_migrate_source_identity_v46.py"
+      ],
+      "groups": [
+        "python_api_store",
+        "python_source_acquisition",
+        "python_scripts"
+      ]
     }
   ],
   "group_tests": {
@@ -786,7 +813,14 @@
       "tests/test_source_summary.py",
       "tests/test_storage_governance.py",
       "tests/test_youtube_channel.py",
-      "tests/test_logging_completeness.py"
+      "tests/test_logging_completeness.py",
+      "tests/test_subscription_identity_flows.py",
+      "tests/test_source_identity_resolution.py",
+      "tests/test_source_identity_isolation.py",
+      "tests/test_source_resolution_routing.py",
+      "tests/test_remote_mcp_subscription_routing.py",
+      "tests/test_remote_mcp_subscription_routing_http.py",
+      "tests/test_openclaw_subscription_routing_skill.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",
@@ -896,7 +930,8 @@
       "tests/test_test_gate.py",
       "tests/test_user_content_v4_migration.py",
       "tests/test_content_repair_v5.py",
-      "tests/test_deepseek_smoke.py"
+      "tests/test_deepseek_smoke.py",
+      "tests/test_migrate_source_identity_v46.py"
     ]
   }
 }

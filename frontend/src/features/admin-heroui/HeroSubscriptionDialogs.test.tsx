@@ -147,6 +147,7 @@ function renderSubscriptionForm(subscription: Subscription, options: {
 
 function renderYouTubeSourceForm(
   onSubmit: (payload: Record<string, unknown>) => Promise<void>,
+  retryOnly = false,
 ) {
   render(<MemoryRouter>
     <DesignSystemProvider>
@@ -158,6 +159,8 @@ function renderYouTubeSourceForm(
           scopes={['private']}
           taxonomy={{ channels: [], topics: [] }}
           submitLabel="创建并订阅"
+          retryOnly={retryOnly}
+          onLeaveRetry={() => undefined}
           onSubmit={onSubmit}
         />
       </ActionFeedbackProvider>
@@ -247,10 +250,45 @@ describe('YouTube SourceForm', () => {
     await waitFor(() => expect(submit).toBeEnabled())
 
     await browser.click(submit)
-    expect(await screen.findByText(
-      '未找到这个 YouTube 频道，请检查链接或改用频道 ID。',
-    )).toBeInTheDocument()
+    expect(await screen.findByText('未找到这个 YouTube 频道')).toBeInTheDocument()
+    expect(screen.getByText('请检查链接或改用频道 ID。')).toBeInTheDocument()
     expect(screen.queryByText('upstream detail')).not.toBeInTheDocument()
+  })
+
+  it('keeps source fields and hides identity details after a conflict', async () => {
+    const browser = userEvent.setup()
+    const onSubmit = vi.fn().mockRejectedValue(new ApiError(409, {
+      code: 'source_key_conflict',
+      message: 'source belongs to hidden-user@example.test',
+      action: 'subscribe hidden-source-id',
+    }))
+    renderYouTubeSourceForm(onSubmit)
+    const name = screen.getByRole('textbox', { name: '来源名称' })
+    const target = screen.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' })
+    await browser.type(name, '已填写名称')
+    await browser.type(target, '@Existing')
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+
+    expect(await screen.findByText('已有相同来源')).toBeInTheDocument()
+    expect(screen.getByText(/请到来源库订阅当前账户可见的现有来源/)).toBeInTheDocument()
+    expect(name).toHaveValue('已填写名称')
+    expect(target).toHaveValue('@Existing')
+    expect(screen.queryByText(/hidden-user|hidden-source-id/)).not.toBeInTheDocument()
+  })
+
+  it('locks preserved fields and submits only a subscription retry', async () => {
+    const browser = userEvent.setup()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderYouTubeSourceForm(onSubmit, true)
+
+    expect(screen.getByText('来源已保存，等待订阅')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '关闭并查看来源库' })).toBeEnabled()
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '保留最新内容' })).toBeDisabled()
+    await browser.click(screen.getByRole('button', { name: '重试订阅' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({}))
   })
 })
 

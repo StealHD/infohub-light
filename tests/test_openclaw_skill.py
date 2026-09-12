@@ -293,6 +293,7 @@ def test_youtube_name_subscription_uses_agent_web_then_bounded_resolver():
         "resolved",
         "ambiguous",
         "discovery_required",
+        "configuration_required",
         "not_found",
         "unavailable",
         "web_setup_required",

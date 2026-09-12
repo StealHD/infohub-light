@@ -54,6 +54,8 @@ from .lifespan import build_service_lifespan
 from .notification_routes import register_notification_routes
 from .notification_transport_routes import register_notification_transport_routes
 from .responses import ApiError, error_response, ok
+from .source_identity_errors import default_source_scope, register_source_identity_errors
+from ..services.source_identity import require_source_identity
 from .schedule_routes import (
     register_feed_schedule_routes,
     register_subscription_schedule_routes,
@@ -997,14 +999,14 @@ def create_app(
         )
 
     def upsert_catalog_source(
-        *, user: dict[str, Any], **values: Any
+        *, user: dict[str, Any], create_only: bool = False, **values: Any
     ) -> dict[str, Any]:
         reject_pool_managed_source_secret(
             str(values.get("source_type") or ""),
             supplied=values.get("secret_env") is not None,
         )
         return subscription_mutations.rest_upsert_source(
-            SubscriptionActor.from_user(user), values=values
+            SubscriptionActor.from_user(user), values=values, create_only=create_only
         )
 
     remote_mcp = (
@@ -1030,6 +1032,7 @@ def create_app(
         ),
     )
     app.add_middleware(NegotiatedGZipMiddleware, minimum_size=1024, compresslevel=5)
+    register_source_identity_errors(app)
     app.state.service_store = store
     app.state.subscription_mutations = subscription_mutations
     app.state.preferred_source_notifications = preferred_source_notifications
@@ -1836,11 +1839,6 @@ def create_app(
             return _is_admin(user)
         return source["owner_user_id"] == user["id"]
 
-    def default_source_scope(user: dict[str, Any]) -> str:
-        if user.get("role") == "viewer":
-            raise ApiError("forbidden", "viewer cannot create sources", status_code=403)
-        return "public" if _is_admin(user) else "private"
-
     def validate_catalog_source_config(source_type: str, config: dict[str, Any]) -> tuple[dict[str, Any], str]:
         try:
             normalized = validate_source_config(source_type, config)
@@ -1977,7 +1975,7 @@ def create_app(
                 continue
             existing = store.get_source_by_key(
                 workspace_id=user["workspace_id"],
-                source_key=candidate["source_key"],
+                source_key=candidate["source_key"], scope="public",
             )
             try:
                 source = upsert_catalog_source(
@@ -2242,6 +2240,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
+        require_source_identity(store)
         reject_pool_managed_source_secret(
             payload.type,
             supplied="secret_env" in payload.model_fields_set,
@@ -2285,22 +2284,14 @@ def create_app(
             catalog_source_setup_type(catalog_type, normalized_config)
             == YOUTUBE_CHANNEL_SETUP_TYPE
         )
-        existing_source = store.get_source_by_key(
-            workspace_id=str(user["workspace_id"]),
-            source_key=key,
-        )
-        source_enabled = bool(
-            existing_source.get("enabled")
-            if managed and existing_source is not None
-            else payload.enabled if not managed else False
-        )
+        source_enabled = payload.enabled if not managed else False
         connection = store.connect()
         owns_transaction = not connection.in_transaction
         try:
             if owns_transaction:
                 connection.execute("BEGIN IMMEDIATE")
             source = upsert_catalog_source(
-                user=user,
+                user=user, create_only=True,
                 workspace_id=user["workspace_id"],
                 scope=scope,
                 owner_user_id=user["id"],
@@ -2315,7 +2306,8 @@ def create_app(
                 enforce_public_network=enforce_public_network,
                 enabled=source_enabled,
             )
-            if managed:
+            reused = source.pop("_catalog_reused", False)
+            if not reused and managed:
                 source = lifecycle.after_create(str(source["id"]))
             if owns_transaction:
                 connection.commit()
@@ -2342,7 +2334,7 @@ def create_app(
             raise
         request.state.operation_source_id = str(source["id"])
         request.state.operation_changed_fields = sorted(payload.model_fields_set)
-        return ok(public_source(source, user))
+        return ok({**public_source(source, user), "can_subscribe": bool(source["enabled"] or (managed and not reused))})
 
     @app.patch("/api/catalog/sources/{source_id}")
     async def catalog_patch(

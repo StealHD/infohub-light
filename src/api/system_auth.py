@@ -125,6 +125,8 @@ async def health_ready(
     store = context.store
     store.connect().execute("SELECT 1").fetchone()
     _require_content_migrations(store)
+    from ..services.source_identity import require_source_identity
+    require_source_identity(store)
     for readiness_check in context.readiness_checks:
         readiness_check()
     if not store.has_enabled_user():

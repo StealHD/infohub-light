@@ -430,6 +430,7 @@ def test_concurrent_apply_has_exactly_one_business_write(context):
     source = context["store"].get_source_by_key(
         workspace_id=actor.workspace_id,
         source_key="rss:https://example.com/concurrent.xml",
+        scope="private", owner_user_id=actor.user_id,
     )
     assert source is not None
     assert len(context["store"].list_user_subscriptions(actor.user_id)) == 1

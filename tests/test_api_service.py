@@ -251,7 +251,7 @@ def test_catalog_source_post_is_idempotent_by_workspace_source_key(tmp_path, mon
     assert second.headers["content-type"].startswith("application/json")
     assert second.json()["ok"] is True
     assert second.json()["data"]["id"] == first.json()["data"]["id"]
-    assert second.json()["data"]["display_name"] == "Updated display name"
+    assert second.json()["data"]["display_name"] == "First display name"
     sources = client.get("/api/catalog/sources").json()["data"]["sources"]
     matching = [source for source in sources if source["source_key"] == "rss:https://example.com/stable.xml"]
     assert len(matching) == 1
@@ -288,11 +288,13 @@ def test_existing_youtube_rss_projects_setup_type_without_migration(
     )
 
     assert existing.status_code == 200
-    assert alias.status_code == 200
-    assert alias.json()["data"]["id"] == existing.json()["data"]["id"]
-    assert alias.json()["data"]["source_key"] == f"rss:{canonical}"
-    assert alias.json()["data"]["type"] == "rss"
-    assert alias.json()["data"]["setup_type"] == "youtube_channel"
+    assert alias.status_code == 409
+    assert alias.json()["error"]["code"] == "source_key_conflict"
+    stored = client.app.state.service_store.get_source(existing.json()["data"]["id"])
+    assert stored["display_name"] == "Existing RSS Row"
+    assert stored["source_key"] == f"rss:{canonical}"
+    assert stored["type"] == "rss"
+    assert existing.json()["data"]["setup_type"] == "youtube_channel"
 
 
 def test_youtube_handle_create_and_patch_use_bounded_resolver(
@@ -1230,7 +1232,7 @@ def test_source_update_rolls_back_when_health_reset_fails(tmp_path, monkeypatch)
     ).fetchone()[0] == 1
 
 
-def test_idempotent_source_post_resets_health_when_fetch_identity_changes(
+def test_source_post_preserves_config_and_health_when_fetch_options_conflict(
     tmp_path, monkeypatch
 ):
     client, data_dir = _client(tmp_path, monkeypatch)
@@ -1272,12 +1274,12 @@ def test_idempotent_source_post_resets_health_when_fetch_identity_changes(
     payload["config"]["fetch_limit"] = 50
     response = client.post("/api/catalog/sources", json=payload)
 
-    assert response.status_code == 200
-    assert response.json()["data"]["id"] == source["id"]
-    assert response.json()["data"]["config"]["fetch_limit"] == 50
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "source_key_conflict"
+    assert store.get_source(source["id"])["config"]["fetch_limit"] == 25
     assert store.connect().execute(
         "SELECT COUNT(*) FROM user_source_health WHERE source_id = ?", (source["id"],)
-    ).fetchone()[0] == 0
+    ).fetchone()[0] == 1
 
 
 def test_catalog_source_concurrent_post_is_idempotent_for_same_actor(tmp_path, monkeypatch):
@@ -1340,9 +1342,8 @@ def test_private_source_key_collision_does_not_expose_or_take_over_another_membe
         },
     )
 
-    assert collision.status_code == 409
-    assert collision.json()["ok"] is False
-    assert collision.json()["error"]["code"] == "source_key_conflict"
+    assert collision.status_code == 200
+    assert collision.json()["data"]["id"] != alice_source["id"]
     assert alice_source["id"] not in collision.text
     bob_sources = client.get("/api/catalog/sources").json()["data"]["sources"]
     assert all(source["id"] != alice_source["id"] for source in bob_sources)
@@ -1951,10 +1952,10 @@ def test_catalog_import_skips_member_private_source_key_collision(tmp_path, monk
 
     assert imported.status_code == 200
     result = imported.json()["data"]
-    assert result["created"] == 0
+    assert result["created"] == 1
     assert result["updated"] == 0
-    assert result["skipped"] == 1
-    assert result["errors"][0]["code"] == "source_key_conflict"
+    assert result["skipped"] == 0
+    assert result["errors"] == []
     store = ServiceStore(data_dir)
     store.initialize()
     preserved = store.get_source(private_source["id"])
@@ -3696,8 +3697,7 @@ def test_member_source_action_keeps_topics_user_scoped_and_conflicts_are_structu
         },
     )
 
-    assert conflict.status_code == 409
-    assert conflict.json()["error"]["code"] == "source_key_conflict"
+    assert conflict.status_code == 200
     after_conflict = json.loads((data_dir / "config.json").read_text(encoding="utf-8"))
     assert after_conflict["tags"] == baseline["tags"]
     assert after_conflict["personal_tags"] == baseline["personal_tags"]

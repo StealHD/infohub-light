@@ -18,6 +18,7 @@ from .agent_change_proposal import DelegatedActor
 from .source_type_registry import (
     SourceConfigError,
     catalog_source_matches_agent_type,
+    get_source_setup_guide,
     normalize_source_setup_input,
     source_key,
     validate_agent_source_type,
@@ -227,17 +228,8 @@ class SourceResolutionService:
         catalog_config = dict(setup["config"])
         key = source_key(catalog_source_type, catalog_config)
         fingerprint = self._fingerprint(f"{source_type}\0{key}")
-        existing = self.store.get_source_by_key(
-            workspace_id=actor.workspace_id,
-            source_key=key,
-        )
-        visible_existing = (
-            existing
-            if existing is not None
-            and self._visible(existing, actor)
-            and catalog_source_matches_agent_type(source_type, existing)
-            else None
-        )
+        from .source_identity import select_visible_source
+        visible_existing = select_visible_source(self.store, actor, source_type, key)
         subscription = (
             self.store.get_user_subscription_for_source(
                 actor.user_id, str(visible_existing["id"])
@@ -245,7 +237,10 @@ class SourceResolutionService:
             if visible_existing is not None
             else None
         )
-        if subscription is not None:
+        if visible_existing is not None and not visible_existing.get("enabled"):
+            state = "disabled"
+            reference = None
+        elif subscription is not None and subscription.get("enabled"):
             state = "subscribed"
             reference = None
         elif visible_existing is not None:
@@ -303,6 +298,23 @@ class SourceResolutionService:
             )
         adapter = self.adapters.get(public_type)
         if adapter is None:
+            guide = get_source_setup_guide(public_type)["source_type"]
+            if guide["resolution"]["supported"]:
+                return self._result("unavailable", public_type)
+            if guide["self_service"]:
+                return self._result("configuration_required", public_type) | {
+                    "reason_code": "resolver_not_supported",
+                    "next_step": {
+                        "tool": "get_source_setup_guide",
+                        "arguments": {"source_type": public_type},
+                    },
+                    "message": (
+                        "This type supports direct subscription configuration. "
+                        "Use the setup guide and the user's supplied fields to "
+                        "prepare the subscription; no Web setup is required for "
+                        "supported public inputs."
+                    ),
+                }
             return self._result("web_setup_required", public_type)
 
         direct = adapter.normalize_direct_input(input_value)

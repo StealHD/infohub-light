@@ -106,7 +106,9 @@ def check_once(
     ready = _data(ready_payload)
     if ready.get("status") == "migration_required" or (
         isinstance(ready_payload.get("error"), dict)
-        and ready_payload["error"].get("code") == "migration_required"
+        and ready_payload["error"].get("code") in {
+            "migration_required", "source_identity_migration_required",
+        }
     ):
         if live.get("revision") == expectation.expected_revision:
             raise MigrationRequired("target revision requires an explicit migration")

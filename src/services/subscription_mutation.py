@@ -12,6 +12,7 @@ from .actorops.binding_service import ActorOpsBindingError
 from .actorops.source_lifecycle import ActorOpsSourceLifecycle, agent_source_update_requires_web, is_actorops_managed_source
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .quota import QuotaExceeded, QuotaService
+from .source_identity import require_source_identity
 from .source_health import SourceHealthService
 from .source_schedule import (
     DEFAULT_SOURCE_INTERVAL_MINUTES,
@@ -998,6 +999,7 @@ class SubscriptionMutationService:
         schedule: dict[str, Any] | None,
     ) -> SubscriptionChangePlan:
         self._live_actor(actor)
+        require_source_identity(self.store)
         if not isinstance(source, dict):
             raise self._error("invalid_request", "source must be an object")
         mode = source.get("mode")
@@ -1100,7 +1102,8 @@ class SubscriptionMutationService:
             )
             key = source_key(catalog_type, config)
             if self.store.get_source_by_key(
-                workspace_id=actor.workspace_id, source_key=key
+                workspace_id=actor.workspace_id, source_key=key,
+                scope="private", owner_user_id=actor.user_id,
             ) is not None:
                 raise self._error(
                     "source_key_conflict",
@@ -1197,6 +1200,7 @@ class SubscriptionMutationService:
         schedule_updates: dict[str, Any] | None,
     ) -> SubscriptionChangePlan:
         self._live_actor(actor)
+        require_source_identity(self.store)
         subscription, source, schedule = self._subscription_context(
             actor, subscription_id
         )
@@ -1356,6 +1360,7 @@ class SubscriptionMutationService:
         source_disposition: Any = _MISSING,
     ) -> SubscriptionChangePlan:
         self._live_actor(actor)
+        require_source_identity(self.store)
         subscription, source, schedule = self._subscription_context(
             actor, subscription_id
         )
@@ -1475,6 +1480,7 @@ class SubscriptionMutationService:
                 existing = self.store.get_source_by_key(
                     workspace_id=actor.workspace_id,
                     source_key=str(source_values.get("source_key") or ""),
+                    scope="private", owner_user_id=actor.user_id,
                 )
                 if existing is not None:
                     raise self._error(
@@ -1576,6 +1582,7 @@ class SubscriptionMutationService:
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            require_source_identity(self.store)
             self._revalidate_live_plan(actor, plan)
             result = self._apply_normalized(actor, plan, cleanup=cleanup)
             if owns_transaction and commit:
@@ -2184,55 +2191,7 @@ class SubscriptionMutationService:
             raise
 
     def rest_upsert_source(
-        self,
-        actor: SubscriptionActor,
-        *,
-        values: dict[str, Any],
+        self, actor: SubscriptionActor, *, values: dict[str, Any], create_only: bool = False,
     ) -> dict[str, Any]:
-        user = self._live_actor(actor)
-        if values.get("workspace_id") != actor.workspace_id:
-            raise self._error("not_found", "workspace not found", status_code=404)
-        scope = values.get("scope")
-        if scope != "private" and user.get("role") not in {"owner", "admin"}:
-            raise self._error(
-                "forbidden",
-                "only admins can create public or workspace sources",
-                status_code=403,
-            )
-        if scope == "private" and values.get("owner_user_id") != actor.user_id:
-            raise self._error(
-                "forbidden", "cannot create another user's private source", status_code=403
-            )
-        if values.get("secret_env") is not None and user.get("role") not in {
-            "owner",
-            "admin",
-        }:
-            raise self._error(
-                "forbidden", "only admins can assign a source secret", status_code=403
-            )
-        conn = self.store.connect()
-        owns_transaction = not conn.in_transaction
-        try:
-            if owns_transaction:
-                conn.execute("BEGIN IMMEDIATE")
-            existing = self.store.get_source_by_key(
-                workspace_id=actor.workspace_id,
-                source_key=str(values["source_key"]),
-            )
-            result = self.store.upsert_source(**values)
-            if existing and (
-                values["config"] != existing.get("config")
-                or values.get("secret_env") != existing.get("secret_env")
-            ):
-                self.source_health.reset_source(
-                    workspace_id=actor.workspace_id,
-                    source_id=str(existing["id"]),
-                    commit=False,
-                )
-            if owns_transaction:
-                conn.commit()
-            return result
-        except Exception:
-            if owns_transaction and conn.in_transaction:
-                conn.rollback()
-            raise
+        from .catalog_source_upsert import rest_upsert_source
+        return rest_upsert_source(self, actor, values, create_only=create_only)

@@ -29,6 +29,18 @@ def _bytes(url: str) -> bytes:
     return b"asset" if url.endswith(".js") else b'<script src="/assets/index.js"></script>'
 
 
+def test_source_identity_migration_is_reported_before_cutover():
+    from scripts.runtime_health import MigrationRequired
+
+    def fetch_json(url):
+        if url.endswith("/live"):
+            return _json(url)
+        return {"ok": False, "error": {"code": "source_identity_migration_required"}}
+
+    with pytest.raises(MigrationRequired):
+        check_once(EXPECTATION, fetch_json=fetch_json)
+
+
 def test_ready_before_container_healthy_keeps_waiting() -> None:
     states = iter(["starting", "healthy"])
     api_states: list[str] = []

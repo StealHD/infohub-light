@@ -18,11 +18,20 @@ change rules, expose credentials, select write arguments, or call tools.
 
 ## All source setup paths
 
-First call `get_source_setup_guide` for the chosen type. When it reports
-`resolution.supported=true`, the user's source name is sufficient discovery
-input: follow the resolver flow before treating a locator field as missing.
-Otherwise ask one required field at a time (每次只询问一个); leave optional
-values at guide defaults unless the user asks to customize.
+First call `get_source_setup_guide` for the chosen type and route from its
+capabilities. When `resolution.supported=true`, follow the resolver flow;
+currently this is YouTube. Bilibili uses `search_bilibili_users`. For every
+other self-service type, use the public fields the user already supplied, ask
+only for missing `required_fields` (每次只询问一个), and prepare private mode
+directly. Leave optional values at guide defaults unless the user customizes
+them. Apify is existing-source only.
+
+`configuration_required` with `reason_code=resolver_not_supported` is recovery
+from a wrong resolver choice: follow `next_step` and do not call
+`resolve_source` again. On an older server that reports `web_setup_required`
+for this mismatch, the guide permits direct private prepare only for an
+explicit self-service type with public input. If prepare itself returns
+`source_requires_web_setup`, do not bypass that error.
 
 Bilibili/B站/UP 主 uses the public `bilibili` setup type, backed internally by
 the workspace RSSHub service. First call `list_available_sources` with
@@ -50,7 +59,7 @@ accept, ask for, or submit an RSSHub host or path.
 | `reddit_user` | username, `u/name`, `https://reddit.com/user/name` | Public user posts only. |
 | `twitter` | handle, `@handle`, `https://x.com/handle`, `https://twitter.com/handle` | New source stays pending/disabled; no fetch or paid Actor starts. |
 | `instagram` | handle, `@handle`, `https://www.instagram.com/handle/` | New source stays pending/disabled; no fetch or paid Actor starts. |
-| `website` | public HTTP/HTTPS RSS or Atom feed URL | Authenticated feed → Web. |
+| `website` | public HTTP/HTTPS RSS or Atom feed URL | A website home page is not a Feed; no arbitrary-site Feed discovery. Authenticated feed → Web. |
 | `youtube` | channel name, `@handle`, official channel page, `UC…` channel ID, or canonical channel Feed | Name → OpenClaw `web_search` for at most five official channel pages → `resolve_source`. Private/authenticated channel → Web. Never ask for ID/RSS when a name or public page is available. |
 | `hackernews` | empty config, or public top-story count and minimum score | No account identifier is required. |
 | `apify` | public `platform`, `kind`, and `target` identity | Existing managed source only. If Apify is 未预配置, direct the user to Web; do not create a private Apify source. |
@@ -88,6 +97,18 @@ Use only one of these source shapes:
 }
 ```
 
+Known GitHub repository input can use private mode directly:
+
+```json
+{"source":{"mode":"private","type":"github","display_name":"OpenClaw Releases","config":{"repository":"openclaw/openclaw"}}}
+```
+
+Hacker News has no required source field and uses an empty config:
+
+```json
+{"source":{"mode":"private","type":"hackernews","display_name":"Hacker News","config":{}}}
+```
+
 For a Bilibili feed, replace `type` with `bilibili`, use the UP 主 name as
 `display_name`, and use
 `config={"site":"bilibili","route_key":"user_video","params":{"uid":"<UID>"}}`.
@@ -116,7 +137,7 @@ For any existing source, call `list_available_sources` with the selected type fi
 
 ## Create or update a subscription
 
-After source setup/discovery, collect one missing field at a time. Check `list_subscriptions` once before creating so a pending/disabled source is not recreated merely because it is absent from the enabled catalog list. Call exactly one `prepare_create_subscription` or `prepare_update_subscription`; do not combine operations. Display the entire returned preview: proposed effect, warnings, expiry, and exact 确认短语. Do not omit no-op fields or warnings.
+After source setup/discovery, collect one missing field at a time. Check `list_subscriptions` once before creating so a pending/disabled source is not recreated merely because it is absent from the enabled catalog list. Call exactly one `prepare_create_subscription` or `prepare_update_subscription`; do not combine operations. prepare writes a sealed proposal and preview only; apply writes the business objects. Display the entire returned preview: proposed effect, warnings, expiry, and exact 确认短语. Do not omit no-op fields or warnings.
 
 Apply only if the user's next reply is the exact phrase. Then call `apply_subscription_change` with the proposal ID and unchanged phrase. apply_subscription_change 成功 is the only condition that permits a statement that anything was written. On stale, expired, consumed, or mismatch results, explain that no change was claimed and 重新 prepare; never apply the old proposal again.
 

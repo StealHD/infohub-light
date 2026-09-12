@@ -2785,8 +2785,8 @@ def test_source_key_conflict_is_rejected_at_prepare_and_rechecked_at_apply(
     store = mutation_context["store"]
     store.create_source(
         workspace_id=mutation_context["workspace"]["id"],
-        scope="workspace",
-        owner_user_id=mutation_context["owner"]["id"],
+        scope="private",
+        owner_user_id=actor.user_id,
         source_type="rss",
         display_name="Conflict",
         config={"url": "https://example.com/conflict.xml"},

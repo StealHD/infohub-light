@@ -94,7 +94,7 @@ def register_read_tools(server: FastMCP, context: RemoteMCPToolContext) -> None:
         | None = None,
         locale: Literal["zh-CN", "en"] = "zh-CN",
     ) -> dict[str, Any]:
-        """Return registry-owned setup guidance without secret fields."""
+        """Return required_fields and resolver capability for source setup."""
         return calls.run_tool(
             "get_source_setup_guide",
             subscription_service.get_source_setup_guide,
@@ -131,7 +131,9 @@ def register_read_tools(server: FastMCP, context: RemoteMCPToolContext) -> None:
         | None = None,
         limit: Annotated[int, Field(ge=1, le=5)] = 5,
     ) -> dict[str, Any]:
-        """Verify public source candidates and mint bounded preparation refs."""
+        """Resolve only when resolution.supported=true (currently YouTube).
+        ``configuration_required`` means follow ``get_source_setup_guide`` and
+        prepare with supplied public fields; it is not a service outage."""
         request = ResolveSourceInput(
             source_type=source_type,
             input=input,
@@ -153,7 +155,8 @@ def register_read_tools(server: FastMCP, context: RemoteMCPToolContext) -> None:
         | None = None,
         unsubscribed_only: bool = False,
     ) -> dict[str, Any]:
-        """List visible source summaries without raw config or secret names."""
+        """List reusable sources without raw configuration. Empty results mean
+        no visible enabled match, not that self-service creation is prohibited."""
         return calls.run_tool(
             "list_available_sources",
             subscription_service.list_available_sources,

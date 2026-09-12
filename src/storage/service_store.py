@@ -31,6 +31,8 @@ from .service_store_subscription_queries import (
 )
 from .actorops_shared_alert_schema import ensure_actorops_shared_alert_schema
 from .service_store_initialization import serialized_store_initialization
+from .source_identity_schema import bootstrap as bootstrap_source_identity, require_ready
+from .source_identity_store import find_identity, visible_identities, validate_identity, is_identity_conflict
 
 
 DEFAULT_WORKSPACE_ID = "default"
@@ -3752,13 +3754,6 @@ class ServiceStore:
         conn.executescript(schema_sql)
         ensure_actorops_shared_alert_schema(conn)
         self._ensure_column("source_catalog", "source_key", "TEXT")
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_source_catalog_workspace_source_key
-                ON source_catalog(workspace_id, source_key)
-                WHERE source_key IS NOT NULL AND source_key != ''
-            """
-        )
         self._ensure_column("fetch_jobs", "max_attempts", "INTEGER NOT NULL DEFAULT 3")
         self._ensure_column(
             "source_catalog",
@@ -4227,6 +4222,7 @@ class ServiceStore:
         from .apify_actor_schema_bootstrap import bootstrap_actor_schemas
         bootstrap_actor_schemas(conn, existing_schema=existing_schema)
         conn.commit()
+        bootstrap_source_identity(conn, existing_schema=existing_schema)
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
         self.connect().execute(
@@ -10547,8 +10543,8 @@ class ServiceStore:
         enabled: bool = True,
         commit: bool = True,
     ) -> str:
-        if scope not in SOURCE_SCOPES:
-            raise ValueError("scope must be public, workspace, or private")
+        validate_identity(scope, owner_user_id)
+        require_ready(self.connect())
         if not source_type:
             raise ValueError("source type is required")
         if not display_name:
@@ -10593,8 +10589,7 @@ class ServiceStore:
         except sqlite3.IntegrityError as exc:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
-            conflict_columns = "source_catalog.workspace_id, source_catalog.source_key"
-            if source_key and conflict_columns in str(exc):
+            if source_key and is_identity_conflict(exc):
                 raise SourceKeyConflictError(source_key) from exc
             raise
         except Exception:
@@ -10621,8 +10616,8 @@ class ServiceStore:
         enabled: bool = True,
     ) -> dict[str, Any]:
         """Atomically create or update one compatible workspace source key."""
-        if scope not in SOURCE_SCOPES:
-            raise ValueError("scope must be public, workspace, or private")
+        validate_identity(scope, owner_user_id)
+        require_ready(self.connect())
         if not source_type:
             raise ValueError("source type is required")
         if not display_name:
@@ -10633,14 +10628,11 @@ class ServiceStore:
 
         conn = self.connect()
         started_transaction = not conn.in_transaction
-        now = _now_iso()
         try:
             if started_transaction:
                 conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT * FROM source_catalog WHERE workspace_id = ? AND source_key = ?",
-                (workspace_id, source_key),
-            ).fetchone()
+            row = find_identity(conn, workspace_id=workspace_id, source_key=source_key,
+                                scope=scope, owner_user_id=owner_user_id)
             existing = self._source(row)
             if existing is not None:
                 compatible = (
@@ -10669,34 +10661,12 @@ class ServiceStore:
                     commit=False,
                 )
             else:
-                source_id = _new_id("src")
-                conn.execute(
-                    """
-                    INSERT INTO source_catalog (
-                        id, workspace_id, scope, owner_user_id, type, display_name,
-                        description, default_channel, default_topics_json, config_json,
-                        source_key, secret_env, enforce_public_network, enabled,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        source_id,
-                        workspace_id,
-                        scope,
-                        owner_user_id,
-                        source_type,
-                        display_name,
-                        description,
-                        default_channel,
-                        _json_dumps(default_topics or []),
-                        _json_dumps(config),
-                        source_key,
-                        secret_env,
-                        1 if enforce_public_network else 0,
-                        1 if enabled else 0,
-                        now,
-                        now,
-                    ),
+                source_id = self.create_source(
+                    workspace_id=workspace_id, scope=scope, owner_user_id=owner_user_id,
+                    source_type=source_type, display_name=display_name, config=config,
+                    source_key=source_key, description=description, default_channel=default_channel,
+                    default_topics=default_topics, secret_env=secret_env,
+                    enforce_public_network=bool(enforce_public_network), enabled=enabled, commit=False,
                 )
             if started_transaction:
                 conn.commit()
@@ -10717,12 +10687,13 @@ class ServiceStore:
         ).fetchone()
         return self._source(row)
 
-    def get_source_by_key(self, *, workspace_id: str, source_key: str) -> dict[str, Any] | None:
-        row = self.connect().execute(
-            "SELECT * FROM source_catalog WHERE workspace_id = ? AND source_key = ?",
-            (workspace_id, source_key),
-        ).fetchone()
-        return self._source(row)
+    def get_source_by_key(self, *, workspace_id: str, source_key: str,
+                          scope: str, owner_user_id: str | None = None) -> dict[str, Any] | None:
+        return self._source(find_identity(self.connect(), workspace_id=workspace_id,
+            source_key=source_key, scope=scope, owner_user_id=owner_user_id))
+
+    def get_visible_sources_by_key(self, user: dict[str, Any], source_key: str) -> list[dict[str, Any]]:
+        return [self._source(row) for row in visible_identities(self.connect(), user, source_key)]
 
     def list_workspace_sources(
         self,
@@ -10782,6 +10753,7 @@ class ServiceStore:
         commit: bool = True,
     ) -> dict[str, Any]:
         conn = self.connect()
+        require_ready(conn)
         owns_transaction = bool(commit and not conn.in_transaction)
         next_source_key: Any = None
         try:
@@ -10809,6 +10781,7 @@ class ServiceStore:
             target_owner_user_id = (
                 current["owner_user_id"] if owner_user_id is _UNSET else owner_user_id
             )
+            validate_identity(target_scope, target_owner_user_id)
             if target_scope != "private":
                 target_owner_user_id = None
             now = _now_iso()
@@ -10931,7 +10904,7 @@ class ServiceStore:
         except sqlite3.IntegrityError as exc:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
-            if next_source_key:
+            if next_source_key and is_identity_conflict(exc):
                 raise SourceKeyConflictError(str(next_source_key)) from exc
             raise
         except Exception:

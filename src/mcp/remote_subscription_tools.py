@@ -43,8 +43,11 @@ def register_subscription_tools(
         Source must be either ``{mode: existing, source_id}`` using an ID from
         ``list_available_sources``, ``{mode: resolved, resolution_ref}`` using
         a reference from ``resolve_source``, or
-        ``{mode: private, type, display_name, config}``. Never use
-        ``mode: create``, ``source_type``, or ``fields``.
+        ``{mode: private, type, display_name, config}``. Known public inputs
+        for self-service types can use private mode directly after consulting
+        the setup guide. ``resolution_ref`` is required only for resolved mode;
+        it is not a universal prerequisite. Never use ``mode: create``,
+        ``source_type``, or ``fields``.
         """
         request = PrepareCreateSubscriptionInput(
             source=source,

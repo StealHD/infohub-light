@@ -2,6 +2,12 @@
 
 This local Skill uses the current caller's Inteliscope MCP connection. Create the connection in Inteliscope Web “助手连接” first. A viewer/read-only connection can read and diagnose but cannot prepare or apply subscription changes; create a subscription-management connection in Web when the caller needs that access.
 
+Subscription setup starts with `get_source_setup_guide`: YouTube uses the
+declared resolver, Bilibili uses its account search, other public self-service
+types prepare their known fields directly, and Apify reuses an existing managed
+source. `configuration_required` is the safe recovery from calling a resolver
+for a direct-config type; it is not a Web-service outage.
+
 Diagnostics default to the connection owner's own safe events. An Owner/Admin may explicitly enable workspace diagnostics only while creating a new connection; existing connections are never upgraded, and a later role downgrade blocks workspace queries immediately. Workspace diagnosis still exposes only bounded sanitized events, requires a request/job/source/subscription ID or warning/error level, and never grants access to another user's business data or permission to repair anything.
 
 ## Install

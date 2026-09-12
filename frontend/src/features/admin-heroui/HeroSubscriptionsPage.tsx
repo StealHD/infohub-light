@@ -61,6 +61,7 @@ import {
   type SubscriptionViewEntry,
 } from './HeroSubscriptionChannelViews'
 import { HeroDialog, SourceForm, SubscriptionForm } from './HeroSubscriptionDialogs'
+import { createAndSubscribeSource, unavailableSourceCopy } from './sourceCreationRecovery'
 
 const adminRole = (role: string) => role === 'owner' || role === 'admin'
 type JobsResponse = { jobs: Job[] }
@@ -81,23 +82,6 @@ const formatCompactTime = (value?: string | null) => {
   return Number.isNaN(parsed.getTime())
     ? '时间未知'
     : parsed.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function unavailableSourceCopy(definition: SourceTypeDefinition) {
-  if (definition.unavailable_reason === 'workspace_credential_unavailable') {
-    return {
-      title: `${definition.label || sourceTypeLabel(definition.type)}暂不可用`,
-      description: '工作区的平台连接当前不可用。现有来源和历史内容不会受到影响。',
-      settingsLabel: '打开工作区密钥设置',
-      settingsHref: '/settings/secrets',
-    }
-  }
-  return {
-    title: `${definition.label || sourceTypeLabel(definition.type)}正在准备中`,
-    description: '管理员完成平台配置后即可新增；现有来源和历史内容不会受到影响。',
-    settingsLabel: '打开平台设置',
-    settingsHref: '/settings/actorops',
-  }
 }
 
 function FeedScheduleControls({ schedule, globalSubscriptionCount, customSubscriptionCount, editable, pending, loading, error, onRetry, onUpdate }: {
@@ -194,6 +178,8 @@ export function HeroSubscriptionsPage() {
   const [editingSource, setEditingSource] = useState<CatalogSource | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createType, setCreateType] = useState('')
+  const pendingCreatedSource = useRef<CatalogSource | null>(null)
+  const [retryCreatedSource, setRetryCreatedSource] = useState(false)
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
   const [toolbarState, setToolbarState] = useState<'expanded' | 'floating'>('expanded')
   const pageScrollerRef = useRef<HTMLDivElement>(null)
@@ -810,9 +796,9 @@ export function HeroSubscriptionsPage() {
             </div>
     )}
   </HeroDialog>
-  <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setCreateType('') }} title="新增来源">
+  <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setCreateType(''); pendingCreatedSource.current = null; setRetryCreatedSource(false) } }} title="新增来源">
     <div className="grid gap-4">
-      <HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type), description: definition.availability === 'temporarily_unavailable' ? '暂不可用' : undefined }))]} />
+      <HeroSelect label="来源类型" value={createType} onChange={(value) => { pendingCreatedSource.current = null; setRetryCreatedSource(false); setCreateType(value) }} isDisabled={retryCreatedSource} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type), description: definition.availability === 'temporarily_unavailable' ? '暂不可用' : undefined }))]} />
       {activeDefinition && (
         activeDefinitionUnavailable
           ? <HeroNotice title={unavailableSourceCopy(activeDefinition).title} status="warning">
@@ -833,16 +819,18 @@ export function HeroSubscriptionsPage() {
                 scopes={sourceScopesForUser(user)}
                 taxonomy={taxonomy}
                 submitLabel="创建并订阅"
+                retryOnly={retryCreatedSource}
+                onLeaveRetry={() => { pendingCreatedSource.current = null; setRetryCreatedSource(false); setCreateOpen(false); setCreateType(''); selectTab('library') }}
                 onSubmit={async (payload) => {
-                  const created = await api.createSource(payload)
-                  try {
-                    const result = await api.subscribe(created.id)
-                    const reused = result.subscription.reused_item_count ?? 0
-                    actionToast.success('来源已创建并订阅', { description: sourceActivationDescription(result.source_activation, reused) })
-                  } catch (caught) {
-                    actionToast.danger('来源已创建，但订阅失败', { description: `${mutationError(caught)} 可在来源库中重试订阅。` })
+                  const result = await createAndSubscribeSource(api, payload, pendingCreatedSource, subscriptions, setRetryCreatedSource).catch(async (caught) => {
+                    await refreshCatalog().catch(() => undefined); throw caught
+                  })
+                  if (result.alreadySubscribed) {
+                    actionToast.success('来源已在“我的订阅”中', { description: '无需重复订阅，现有来源设置保持不变。' })
+                  } else {
+                    actionToast.success('来源与订阅已就绪', { description: sourceActivationDescription(result.sourceActivation, result.reused) })
                   }
-                  await refreshCatalogAndContent()
+                  await refreshCatalogAndContent().catch(() => undefined)
                   setCreateOpen(false)
                   setCreateType('')
                 }}

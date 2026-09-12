@@ -27,6 +27,7 @@ import {
 } from '../../design-system'
 import { formValuesForSource, sourceMutationPayload, sourceScopeLabel } from '../subscriptions/subscriptionModel'
 import { HeroNotice, HeroSelect } from './HeroAdminControls'
+import { sourceCreationRecovery, type SourceCreationRecovery } from './sourceCreationRecovery'
 import { validateRegistryFields } from './sourceFormValidation'
 
 const DialogFooterContext = createContext<HTMLDivElement | null>(null)
@@ -41,23 +42,25 @@ function unique(values: string[]) {
   })
 }
 
-function sourceFormError(caught: unknown, sourceType: string): string {
-  if (caught instanceof SyntaxError) return '高级配置不是有效 JSON。'
-  if (!(caught instanceof ApiError)) return '来源保存失败。'
-  if (sourceType !== 'youtube_channel') return caught.message
+function sourceFormError(caught: unknown, sourceType: string): SourceCreationRecovery {
+  const recovery = sourceCreationRecovery(caught)
+  if (recovery) return recovery
+  if (caught instanceof SyntaxError) return { title: '高级配置不是有效 JSON。', description: '请检查高级配置后重试。' }
+  if (!(caught instanceof ApiError)) return { title: '来源保存失败。', description: '请检查网络后重试。当前表单内容已保留。' }
+  if (sourceType !== 'youtube_channel') return { title: caught.message, description: '请修正来源设置后重试。' }
   if (caught.code === 'youtube_channel_not_found') {
-    return '未找到这个 YouTube 频道，请检查链接或改用频道 ID。'
+    return { title: '未找到这个 YouTube 频道', description: '请检查链接或改用频道 ID。' }
   }
   if (caught.code === 'youtube_channel_resolution_failed') {
-    return '暂时无法解析 YouTube 频道，请稍后重试或改用频道 ID。'
+    return { title: '暂时无法解析 YouTube 频道', description: '请稍后重试或改用频道 ID。' }
   }
   if (caught.code === 'invalid_source_config') {
-    return '请输入公开的 YouTube 频道链接、@handle、频道 ID 或规范 Feed 地址。'
+    return { title: 'YouTube 频道地址无效', description: '请输入公开的频道链接、@handle、频道 ID 或规范 Feed 地址。' }
   }
-  return caught.message
+  return { title: caught.message, description: '请修正频道设置后重试。' }
 }
 
-function TopicCombo({ label, options, values, onChange }: { label: string; options: string[]; values: string[]; onChange: (values: string[]) => void }) {
+function TopicCombo({ label, options, values, disabled = false, onChange }: { label: string; options: string[]; values: string[]; disabled?: boolean; onChange: (values: string[]) => void }) {
   const [input, setInput] = useState('')
   const active = new Set(options.map((topic) => topic.toLocaleLowerCase()))
   function add(value: string) {
@@ -66,7 +69,7 @@ function TopicCombo({ label, options, values, onChange }: { label: string; optio
     setInput('')
   }
   return <div className="grid gap-2">
-    <ComboBox allowsCustomValue inputValue={input} onInputChange={setInput} onSelectionChange={(key: Key | null) => key !== null && add(String(key))}>
+    <ComboBox allowsCustomValue isDisabled={disabled} inputValue={input} onInputChange={setInput} onSelectionChange={(key: Key | null) => key !== null && add(String(key))}>
       <Label>{label}</Label>
       <ComboBox.InputGroup><Input aria-label={label} onKeyDown={(event) => { if (event.key === 'Enter' && input.trim()) { event.preventDefault(); add(input) } }} /><ComboBox.Trigger aria-label={`打开${label}候选`}><Icons.ChevronDown size={15} /></ComboBox.Trigger></ComboBox.InputGroup>
       <ComboBox.Popover><ListBox>{options.filter((option) => !values.includes(option)).map((option) => <ListBox.Item id={option} key={option}>{option}</ListBox.Item>)}</ListBox></ComboBox.Popover>
@@ -74,7 +77,7 @@ function TopicCombo({ label, options, values, onChange }: { label: string; optio
     <div className="flex flex-wrap gap-2">{values.map((topic) => <RemovableTag
       key={topic}
       label={`${topic}${!active.has(topic.toLocaleLowerCase()) ? '（已停用）' : ''}`}
-      onRemove={() => onChange(values.filter((value) => value !== topic))}
+      disabled={disabled} onRemove={() => onChange(values.filter((value) => value !== topic))}
     />)}</div>
   </div>
 }
@@ -108,7 +111,7 @@ function platformConnectionFieldNames(definition: SourceTypeDefinition, configLo
   return definition.fields.filter((field) => field.name === 'target' || field.name === 'url').map((field) => field.name)
 }
 
-export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, configLocked = false, onSubmit }: {
+export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, configLocked = false, retryOnly = false, onLeaveRetry, onSubmit }: {
   definition: SourceTypeDefinition
   source?: CatalogSource
   secrets: SecretRef[]
@@ -117,10 +120,12 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   taxonomy: TaxonomyOptions
   submitLabel: string
   configLocked?: boolean
+  retryOnly?: boolean
+  onLeaveRetry?: () => void
   onSubmit: (payload: Record<string, unknown>) => Promise<void>
 }) {
   const feedback = useActionFeedback()
-  const [error, setError] = useState('')
+  const [error, setError] = useState<SourceCreationRecovery | null>(null)
   const [pending, setPending] = useState(false)
   const [scope, setScope] = useState(source?.scope ?? scopes[0] ?? 'private')
   const [channel, setChannel] = useState(source?.default_channel ?? '')
@@ -137,7 +142,14 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const entity = source?.id ?? 'new'
-    setError(''); setFieldErrors({})
+    setError(null); setFieldErrors({})
+    if (retryOnly) {
+      setPending(true); feedback.begin('source-save', entity)
+      try { await onSubmit({}); feedback.succeed('source-save', entity) }
+      catch (caught) { const recovery = sourceFormError(caught, definition.type); setError(recovery); feedback.fail('source-save', entity, recovery.title) }
+      finally { setPending(false) }
+      return
+    }
     const form = new FormData(event.currentTarget)
     for (const fieldName of lockedFieldNames) form.set(fieldName, String(registryValues[fieldName] ?? ''))
     const nextFieldErrors = validateRegistryFields(definition, form, registryValues)
@@ -170,8 +182,8 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
       } }))
       feedback.succeed('source-save', entity)
     } catch (caught) {
-      const message = sourceFormError(caught, definition.type)
-      setError(message); feedback.fail('source-save', entity, message)
+      const recovery = sourceFormError(caught, definition.type)
+      setError(recovery); feedback.fail('source-save', entity, recovery.title)
     } finally { setPending(false) }
   }
 
@@ -203,28 +215,29 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     })
   }
 
-  const submitAction = <StableAsyncButton type="submit" form={formId} size="sm" pending={pending} pendingContent="保存中…">{submitLabel}</StableAsyncButton>
+  const submitAction = <StableAsyncButton type="submit" form={formId} size="sm" pending={pending} pendingContent={retryOnly ? '正在重试…' : '保存中…'}>{retryOnly ? '重试订阅' : submitLabel}</StableAsyncButton>
 
   return <><form id={formId} className="grid gap-4" noValidate onSubmit={submit} onInvalidCapture={captureInvalid}>
-    <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
-    <TextField fullWidth name="description" defaultValue={source?.description ?? ''}><Label>来源说明</Label><Input /></TextField>
-    {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}
-    <RegistryFields definition={definition} values={registryValues} errors={fieldErrors} lockedFieldNames={lockedFieldNames} onOptionChange={(name, value) => {
+    {retryOnly && <HeroNotice title="来源已保存，等待订阅" status="warning"><p>来源设置已锁定；重试只会恢复订阅。需要修改时，请先打开来源库。</p>{onLeaveRetry && <Button size="sm" variant="ghost" className="mt-2" isDisabled={pending} onPress={onLeaveRetry}>关闭并查看来源库</Button>}</HeroNotice>}
+    <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired={!retryOnly} isDisabled={retryOnly} isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
+    <TextField fullWidth name="description" defaultValue={source?.description ?? ''} isDisabled={retryOnly}><Label>来源说明</Label><Input /></TextField>
+    {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} isDisabled={retryOnly} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}
+    <RegistryFields definition={definition} values={registryValues} errors={fieldErrors} disabled={retryOnly} lockedFieldNames={lockedFieldNames} onOptionChange={(name, value) => {
       setRegistryValues((current) => ({ ...current, [name]: value }))
       clearFieldError(name)
     }} onFieldChange={clearFieldError} />
-    <HeroSelect name="default_channel" label="默认频道" value={channel} onChange={setChannel} options={[{ id: '', label: '未设置' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
-    <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
-    {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
+    <HeroSelect name="default_channel" label="默认频道" value={channel} onChange={setChannel} isDisabled={retryOnly} options={[{ id: '', label: '未设置' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
+    <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} disabled={retryOnly} onChange={setTopics} />
+    {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} isDisabled={retryOnly} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
     {definition.credential_mode === 'workspace_apify_pool' && <HeroNotice title="由工作区 Apify Key 池自动管理" />}
     {platformManaged
       ? <><HeroNotice title={source?.enabled === false ? '来源已停用' : '系统会自动准备并启用来源'} status="info"><p>{source?.enabled === false
         ? '重新启用会恢复 Binding 并只用本地证据核验；不会立即启动 Actor 或抓取。'
         : '订阅保存后，系统只用本地证据核验；通过即启用，不会立即启动 Actor 或抓取。'}</p></HeroNotice>
         {source && !configLocked && <Checkbox name="enabled" defaultSelected={source.enabled}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>}</>
-      : <Checkbox name="enabled" defaultSelected={source?.enabled ?? true} isDisabled={configLocked}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>}
-    {!configLocked && !platformManagedSourceTypes.has(definition.type) && <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>}
-    {error && <HeroNotice title={error} />}
+      : <Checkbox name="enabled" defaultSelected={source?.enabled ?? true} isDisabled={configLocked || retryOnly}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>}
+    {!configLocked && !platformManagedSourceTypes.has(definition.type) && <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} disabled={retryOnly} rows={5} /></Fieldset.Group></Fieldset>}
+    {error && <HeroNotice title={error.title}><p>{error.description}</p></HeroNotice>}
     {!footerSlot && submitAction}
   </form>{footerSlot && createPortal(submitAction, footerSlot)}</>
 }

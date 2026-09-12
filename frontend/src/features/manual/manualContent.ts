@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-25',
-  change: 'OpenClaw 可由管理员启用服务端连接模式：登录 Inscope 后直接连接，无需浏览器输入 Token；Gateway 白名单只需放行服务器出口。新增无需登录的中英文项目官网并明确 /login 工作台入口；ActorOps 现将 Route 管理和运行日志分为可分享的同页 Tab：待处理事件会给出原因、影响、下一步和安全入口；未知启动只核对既有运行，不会重复启动。侧栏只在导航真实溢出时显示滚动槽，展开状态下的账户底线保持固定。',
+  reviewedAt: '2026-09-12',
+  change: '修复 Web 新建来源的部分失败恢复，并修正 OpenClaw 对 11 类来源的类型分流。不同用户现在可以为同一上游目标建立彼此隔离的私人来源；本次仅记录本地实现，不代表已迁移或发布。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -78,7 +78,11 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '公共与私人',
-        description: '公共订阅可被工作区成员发现，私人订阅只对创建者可见。旧的 workspace 来源会作为公共订阅显示。订阅共享来源时，只复用能够确认来源原始标题的历史内容，并按当前账户的频道、主题、个人标签和分析模式重新生成；缺少可信原始标题的旧内容不会预填，也不会继承其他成员的 AI 翻译标题、偏好、分析结果、阅读状态或内容图片。',
+        description: '公共订阅可被工作区成员发现，私人订阅只对创建者可见。不同用户可以为同一上游目标建立各自的私人来源，彼此不能发现、接管或改写对方的来源设置；旧的 workspace 来源会作为公共订阅显示。订阅共享来源时，只复用能够确认来源原始标题的历史内容，并按当前账户的频道、主题、个人标签和分析模式重新生成；缺少可信原始标题的旧内容不会预填，也不会继承其他成员的 AI 翻译标题、偏好、分析结果、阅读状态或内容图片。',
+      },
+      {
+        title: '恢复创建与订阅',
+        description: '“创建并订阅”只有在来源和订阅都就绪后才会显示完成。来源已经创建但订阅请求失败时，弹窗会保留已填内容和该来源，重试只恢复订阅，不会再次创建、覆盖配置、启用已停用来源或改变可见范围。相同的可见来源会引导到来源库；已经订阅时无需重复操作。若提示来源身份升级尚未完成，请联系管理员先执行对应迁移。',
       },
       {
         title: '识别来源头像',
@@ -202,7 +206,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '通过 OpenClaw 订阅全部支持来源',
-        description: '订阅管理连接可以新建 RSS/网站、Bilibili、YouTube、GitHub 仓库发布或用户动态、Reddit 社区或用户、Telegram 频道、Hacker News、X 和 Instagram，也可以订阅来源库中任何当前账户可见的既有来源。只给出 @账号但没有说明 X 或 Instagram 时，OpenClaw 会先询问平台而不会猜测。X/Instagram 应用确认后会建立订阅和待核验的停用 ActorOps Binding，不会立即抓取或产生 Actor 费用；页面管理员在“设置 → ActorOps”核验并启用后，来源才具备采集条件。每个来源仍分别预览、返回准确确认短语并单独 apply。',
+        description: '订阅管理连接可以新建 RSS/网站、Bilibili、YouTube、GitHub 仓库发布或用户动态、Reddit 社区或用户、Telegram 频道、Hacker News、X 和 Instagram，也可以订阅来源库中任何当前账户可见的既有来源。上述 11 类来源会按各自类型进入正确的准备流程；只有确实缺少必须直接填写的配置时才返回 configuration_required，不会误导到 Web 设置流程。只给出 @账号但没有说明 X 或 Instagram 时，OpenClaw 会先询问平台而不会猜测。X/Instagram 应用确认后会建立订阅和待核验的停用 ActorOps Binding，不会立即抓取或产生 Actor 费用；页面管理员在“设置 → ActorOps”核验并启用后，来源才具备采集条件。每个来源仍分别预览、返回准确确认短语并单独 apply。',
       },
       {
         title: '连接本地 Gateway',

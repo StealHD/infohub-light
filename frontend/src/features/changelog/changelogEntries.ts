@@ -1,15 +1,15 @@
-import { openclawModelRecoveryEntry } from './openclawModelRecoveryEntry'; import { automationRecoveryEntry } from './automationRecoveryEntry'; import { automationLayoutEntry } from './automationLayoutEntry'; import { composerPanelEntry } from './composerPanelEntry'; import { automationsUnifiedEntry } from './automationsUnifiedEntry'; import { actorOpsV2AdminChangelogEntries } from './actorOpsV2AdminChangelogEntry'
-import { codeHealthMaintenanceEntry, existingSourceSubscriptionReuseChangelogEntry, feedSourceLabelChangelogEntry, instagramSourceAvatarChangelogEntry, pageHeaderChangelogEntry, publicSourceContentSharingChangelogEntry, publicSourceNotificationFixChangelogEntry, socialChannelDedupChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, sourceFetchPreflightChangelogEntry, subscriptionCommandBarChangelogEntry, systemSettingsChangelogEntry, youtubeSourceLabelChangelogEntry } from './maintenanceChangelogEntries'
-import { actorOpsPoolManagementChangelogEntries } from './actorOpsPoolManagementChangelogEntry'
-import { actorOpsV2SourceBindingChangelogEntries } from './actorOpsV2SourceBindingChangelogEntry'
-import { openclawServerEntries } from './openclawServerEntry'; import { stableAsyncButtonChangelogEntry } from './stableAsyncButtonChangelogEntry'; import { agentWorkspaceChangelogEntry } from './agentWorkspaceChangelogEntry'
-export const changelogMonths: import('./changelogTypes').ChangelogMonth[] = [{ id: 'month-2026-09', label: '2026 年 9 月', entries: [openclawModelRecoveryEntry, automationRecoveryEntry, automationLayoutEntry, composerPanelEntry, automationsUnifiedEntry, ...openclawServerEntries, agentWorkspaceChangelogEntry, stableAsyncButtonChangelogEntry] }, {
-    id: 'month-2026-08',
-    label: '2026 年 8 月',
-    entries: [publicSourceNotificationFixChangelogEntry, publicSourceContentSharingChangelogEntry, existingSourceSubscriptionReuseChangelogEntry, socialChannelDedupChangelogEntry, youtubeSourceLabelChangelogEntry, sourceFetchPreflightChangelogEntry, feedSourceLabelChangelogEntry, sourceAvatarAutoRefreshChangelogEntry, instagramSourceAvatarChangelogEntry, systemSettingsChangelogEntry,
-      ...actorOpsV2AdminChangelogEntries,
-      ...actorOpsV2SourceBindingChangelogEntries,
-      codeHealthMaintenanceEntry, pageHeaderChangelogEntry, subscriptionCommandBarChangelogEntry,
+import {openclawModelRecoveryEntry} from './openclawModelRecoveryEntry';import {automationRecoveryEntry} from './automationRecoveryEntry';import {automationLayoutEntry} from './automationLayoutEntry';import {composerPanelEntry} from './composerPanelEntry';import {automationsUnifiedEntry} from './automationsUnifiedEntry';import {actorOpsV2AdminChangelogEntries} from './actorOpsV2AdminChangelogEntry'
+import {sourceIdentityRecoveryEntry} from './sourceIdentityRecoveryEntry'
+import {codeHealthMaintenanceEntry,existingSourceSubscriptionReuseChangelogEntry,feedSourceLabelChangelogEntry,instagramSourceAvatarChangelogEntry,pageHeaderChangelogEntry,publicSourceContentSharingChangelogEntry,publicSourceNotificationFixChangelogEntry,socialChannelDedupChangelogEntry,sourceAvatarAutoRefreshChangelogEntry,sourceFetchPreflightChangelogEntry,subscriptionCommandBarChangelogEntry,systemSettingsChangelogEntry,youtubeSourceLabelChangelogEntry} from './maintenanceChangelogEntries'
+import {actorOpsPoolManagementChangelogEntries} from './actorOpsPoolManagementChangelogEntry'
+import {actorOpsV2SourceBindingChangelogEntries} from './actorOpsV2SourceBindingChangelogEntry'
+import {openclawServerEntries} from './openclawServerEntry';import {stableAsyncButtonChangelogEntry} from './stableAsyncButtonChangelogEntry';import {agentWorkspaceChangelogEntry} from './agentWorkspaceChangelogEntry'
+export const changelogMonths:import('./changelogTypes').ChangelogMonth[]=[{id:'month-2026-09',label:'2026 年 9 月',entries:[sourceIdentityRecoveryEntry,openclawModelRecoveryEntry,automationRecoveryEntry,automationLayoutEntry,composerPanelEntry,automationsUnifiedEntry,...openclawServerEntries,agentWorkspaceChangelogEntry,stableAsyncButtonChangelogEntry]}, {
+id:'month-2026-08',label:'2026 年 8 月',
+entries:[publicSourceNotificationFixChangelogEntry,publicSourceContentSharingChangelogEntry,existingSourceSubscriptionReuseChangelogEntry,socialChannelDedupChangelogEntry,youtubeSourceLabelChangelogEntry,sourceFetchPreflightChangelogEntry,feedSourceLabelChangelogEntry,sourceAvatarAutoRefreshChangelogEntry,instagramSourceAvatarChangelogEntry,systemSettingsChangelogEntry,
+...actorOpsV2AdminChangelogEntries,
+...actorOpsV2SourceBindingChangelogEntries,
+codeHealthMaintenanceEntry,pageHeaderChangelogEntry,subscriptionCommandBarChangelogEntry,
       ...actorOpsPoolManagementChangelogEntries,
       {
         date: '2026-08-13',

@@ -637,6 +637,7 @@ export type CatalogSource = {
   default_topics?: string[]
   config?: Record<string, unknown>
   enabled: boolean
+  can_subscribe?: boolean
   subscribed?: boolean
   subscription_id?: string | null
   editable?: boolean
@@ -644,7 +645,6 @@ export type CatalogSource = {
   secret_env?: string | null
   avatar_url?: string | null
 }
-
 export type SourceSchedule = {
   schema_version?: number
   enabled: boolean

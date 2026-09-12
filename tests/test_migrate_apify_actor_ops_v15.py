@@ -1288,9 +1288,8 @@ def test_v15_backs_up_preserves_v13_history_and_seeds_x_bindings(
     tmp_path,
 ) -> None:
     data_dir = tmp_path / "data"
-    _downgrade_to_v14(data_dir)
     store = ServiceStore(data_dir)
-    store.initialize()
+    initialize_historical_actorops(store)
     source_id = store.create_source(
         workspace_id=DEFAULT_WORKSPACE_ID,
         scope="workspace",
@@ -1304,6 +1303,7 @@ def test_v15_backs_up_preserves_v13_history_and_seeds_x_bindings(
         },
         source_key="apify_social:x:profile:exampleprofile",
     )
+    _downgrade_to_v14(data_dir)
     candidate = store.connect().execute(
         """
         SELECT id FROM apify_actor_candidates
