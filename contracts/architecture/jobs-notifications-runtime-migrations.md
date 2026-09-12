@@ -70,6 +70,8 @@ member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL us
 
 ### 3.10 Runtime / Migration Boundary
 
+标准与显式快速发布共享 `release_vps.sh` 的上传、备份、切换、健康和回滚。快速路径仅把不可变镜像准备与隔离 API smoke 前移到本地；验证与复用条件统一见[测试流程](../../dev/test-gate.md#显式快速发布)，不降低本节运行时边界。
+
 Global 45 `information_recovery_schema.py` 显式新增执行能力、刷新请求、预览确认与请求幂等四张独立状态表；不改历史迁移，不回填或执行旧预览。新库 bootstrap 安装，既有库必须停 API/Worker 后通过 `scripts/migrate_information_recovery_v45.py --data-dir ABS --apply` 备份、迁移和完整性核验。恢复操作见 [自动化恢复手册](../../dev/automation-analysis-recovery.md)，接口真源见 [信息自动化](../api/information-automations.md)。
 
 本地 Web 重建必须从目标任务 Worktree 执行 `./scripts/up-latest.sh`，构建该 Worktree 的源码，并通过 Git common directory 解析主 checkout 的 `.env`、`data` 与 `logs`。只有明确使用另一运行目录时才传 `--runtime-root ABSOLUTE_PATH`；不得用临时 Compose override、运行数据 symlink 或从主 checkout 构建来代替。命令通过一个 host-local lock 保护共享 Compose project 和容器；构建前后核对源码摘要，源码中途变化即拒绝启动。

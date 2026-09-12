@@ -123,6 +123,17 @@ docker compose logs -f horizon-api horizon-worker
 
 镜像必须在本地构建并验证 `linux/amd64`，VPS 只执行 `docker load`。切换前脚本检查活跃 Job，并在发现残留历史 scheduler 容器时阻断。普通发布失败回滚到上一不可变 API/Worker release；包含数据库迁移的版本必须走独立 runbook。
 
+频繁小改可显式选择快速发布，标准入口不变。在最终发布提交消息末尾加一个 `Release-Mode: fast` trailer；先确定版本并完成本地测试，再准备正式镜像：
+
+```bash
+./scripts/release_vps.sh prepare-fast vX.Y.Z --gate-result .test-results/RUN/result.json
+# UI 改动另传 --e2e-result .test-results/E2E_RUN/result.json
+git push origin main
+./scripts/release_vps.sh release-fast vX.Y.Z
+```
+
+`prepare-fast` 允许本地 main 尚未推送，复用有效 Gate 结果并验证一次 AMD64 镜像；`release-fast` 只发布对应准备产物，等待 GitHub 轻量校验，不再构建或测试。两种模式使用正常版本 Tag，均保留备份、健康与回滚。代码、版本、目标基线或产物变化时须显式重新准备；已有旧格式测试结果不能直接复用。完整范围、模式选择和失败处理以[验证流程](dev/test-gate.md#显式快速发布)为准。
+
 ActorOps global 33 是当前独立停机迁移，并要求有效 global 32。停止 API/Worker 后先只读检查，再显式应用；它只安装本地 circuit、维护来源标记与头像映射 sidecar，不会调用 Actor、AI 或真实来源，也不会创建、结算或删除费用事实。
 
 ```bash

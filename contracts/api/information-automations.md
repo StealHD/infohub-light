@@ -2,7 +2,7 @@
 
 ## 托管分析与目录恢复
 
-独立分析由同一 Agent 接入流程安装，每个有效绑定独立身份和机器凭据，共用一个受监督主机进程，仅允许 llm-task，无 MCP、Skills、主机工具或通知工具。模型目录是目标 Agent 配置与主机明确许可的交集，已有禁止策略不可覆盖。新安装默认 previews_only，仅执行明确提交的新测试；既有 catalog-only 配置保留目录模式，恢复时由管理员明确切换。正式任务仍须完整模式和原规则确认。
+独立分析由同一 Agent 接入流程安装，每个有效绑定独立身份和机器凭据，共用一个受监督主机进程，仅允许 llm-task，无 MCP、Skills、主机工具或通知工具。模型目录取个人 Agent 与隔离分析 Agent 的 `models.list(view=configured)` 可用交集；OpenClaw 未设白名单时返回全部实际可用模型，明确的模型策略始终生效。新安装默认 previews_only，仅执行明确提交的新测试；既有 catalog-only 配置保留目录模式，恢复时由管理员明确切换。正式任务仍须完整模式和原规则确认。
 
 能力上报兼容 protocol_version=2，新增可选 `catalog_only`（缺省 false）。目录 status 保留 ready/stale/unavailable；新增 reason=not_configured/offline/catalog_stale/no_authorized_models 或 null，recovery_action=repair_connection/check_service/refresh_catalog/review_models 或 null。新鲜目录要求同代启用凭据且目录与心跳均不超过 300 秒；刷新只表示受理；执行与刷新确认遵循下节 global 45，不冒充配置成功。模型元数据不授予配置或模型权限。
 
@@ -17,7 +17,7 @@
 - GET latest 恢复 selection、进度和结果；requires_review 区分旧预览待确认与未知完成。等待原因包括 offline、execution_disabled、connector_upgrade_required、user_concurrency、daily_semantic_limit、analysis_model_unavailable；HTTP 明确拒绝展示安全原因，只有无法确定提交结果才展示未知。
 - POST models/refresh 返回 requested=true 与 refresh{id,status,requested_at,completed_at,reason,changed}，仅表示受理。120 秒内并发刷新复用同一请求；过期的旧请求保留失败记录，新手动刷新创建新编号。
 - 机器凭据 POST `/api/connector/information-automations/control` 读取 refresh_request_id；执行器重新发现个人和分析 Agent 的有效配置并在 capabilities 回传编号。过时回执不得覆盖较新的目录/请求。POST 同前缀 `/refresh-failure`（request_id）上报固定 model_discovery_failed；不泄露上游原文。
-- 只有匹配请求成功同步才完成刷新和重新评估失败阻断。过滤原因限定 model_unauthorized、agent_model_unavailable、allowlist_ownership_unknown；过期以 catalog_stale 标识。系统创建的白名单有独立主机归属记录；管理员改动后停止自动扩展，归属未知不猜测。目录同步不调用模型或自动改变用户选择。
+- 只有匹配请求成功同步才完成刷新和重新评估失败阻断。过滤原因使用 model_unauthorized、agent_model_unavailable；兼容读取旧 allowlist_ownership_unknown，但 UI 不再猜测归属。过期以 catalog_stale 标识。仅当独立归属记录证明旧 allowedCompletionModels 为 Inteliscope 创建且列表逐项未变时，按配置 hash 清除该旧快照；管理员修改或未知策略原样保留。目录同步不调用模型或自动改变用户选择。
 
 ## 当前实现与待验收边界
 
@@ -62,7 +62,7 @@ trigger.kind 为 each、count、interval、calendar。count 默认 5，范围 2�
 - POST `/claim` 要求 `{isolated_completion:true,protocol_version:2}`；旧协议返回 connector_upgrade_required。每次领取一个持久化步骤，包含 stage、完整 requirement、明确 model、有界 input。
 - POST `/claims/{id}/result` 接收 claim_token 与 `{model,output}`；实际模型必须与所选模型一致。output 有 status、summary、reason、covered_ids、evidence（article_id、quote、note）。拒绝未知引用、漏单元、畸形输出及工具形状。
 
-connector 在 Gateway 主机读取配置目录（models.list configured，指定 completion Agent）并与主机 llm-task 模型覆盖策略求交，每 30 秒同步；Service 目录超过 300 秒为 stale。默认 connector 安装只为未设置的 allowModelOverride 提供 true，保留已有明确 false 与 allowedCompletionModels。凭据和原始配置不进入 Service 或浏览器。目录配置可用不等于真实模型调用已验收；不支持独立 completion 的运行时失败关闭。
+connector 在 Gateway 主机读取配置目录（models.list configured，指定 completion Agent）并与主机 llm-task 模型覆盖策略求交，每 30 秒同步；Service 目录超过 300 秒为 stale。安装不生成或维护 allowedCompletionModels 快照；只为未设置的 allowModelOverride 提供 true，保留已有明确 false 与管理员模型限制。凭据和原始配置不进入 Service 或浏览器。目录配置可用不等于真实模型调用已验收；不支持独立 completion 的运行时失败关闭。
 
 每次领取保存 token 摘要、binding、凭据代次、180 秒租约。过期最多三次领取，提交超时的 0600 journal 先重交同一结果，不重复调用模型。相同结果重复提交幂等，旧租约、旧版本、旧确认或换绑结果不覆盖。模型调用失败将该模型标记不可用并保留队列；后台同步不会自动清除此阻断，用户刷新目录后可重试，或仅更换模型后重新确认。
 

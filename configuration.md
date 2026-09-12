@@ -152,14 +152,14 @@ HORIZON_OPENCLAW_CHAT_ENABLED=false
 HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 ```
 
-`/mcp` is the only MCP server. It uses delegation tokens and the same ServiceStore boundaries as REST. Subscription management and Owner/Admin system management use separate connections and separate default-off write flags.
+`/mcp` is the only MCP server. It uses delegation tokens and the same ServiceStore boundaries as REST. All user connections follow the current account role: Owner/Admin receive read, subscription write, system settings write and workspace diagnostics; Member receive read and subscription write; Viewer receive read. The two write flags remain default-off in deployment templates. Enable both flags explicitly on an authorized VPS release; proposal confirmation and sensitive-setting restrictions still apply.
 
 ## Workspace system settings
 
 Global schema 32 adds typed workspace overrides for 21 safe capacity, Job,
 retention, storage and shared-acquisition settings. Resolution is database
 override, then the documented environment variable, then the compiled default.
-Owner/Admin may use `/settings/system` or an explicitly created system-management
+Owner/Admin may use `/settings/system` or their role-based
 MCP connection; both require preview, the exact confirmation phrase and a
 generation compare-and-swap. Secrets, endpoints, database paths, Actor cost or
 activation, and arbitrary environment names are excluded.
@@ -277,3 +277,11 @@ python scripts/test_gate.py run --mode release
 ```
 
 The gates do not run real sources, AI, paid Actors, notification sends, or a scheduler.
+
+## OpenClaw connection and model upgrades
+
+Existing user tokens keep their value and expiry; authentication and tool discovery use the current role. Managed active bindings upgrade to manifest v3 and the unified tool filter on service startup, retaining the same token. A failed upgrade remains pending; use **修复接入** after resolving the host error. For manually configured connections, open **Agent 接入 → 外部 MCP → 更新 OpenClaw 配置** and run the generated command once on the OpenClaw host; reuse the existing token file. No token rotation is required.
+
+Automations model choices come from the configured usable intersection of personal and isolated analysis Agents. Refresh the catalog after editing OpenClaw model configuration. Inteliscope no longer creates a static model allowlist; only an unchanged legacy list with system ownership evidence is automatically retired. Unknown or administrator-edited restrictions remain effective. Catalog refresh does not call a model.
+
+To permanently remove an idle non-main session, switch to another session, open its menu in the sidebar or **全部会话**, choose **删除会话** and confirm. Archived sessions can also be removed. Sessions with worktrees require safe worktree cleanup in OpenClaw first: its 2026.9.2 RPC deletes the row before attempting worktree removal, so Inteliscope blocks that non-atomic case to preserve the session. Unsupported or rejected Gateway operations display an error and retain the row until a successful refresh confirms the result. Managed Relay requires the existing server-side privileged Gateway credential; it is never delivered to the browser.

@@ -133,3 +133,5 @@ register_diagnostic_tools(server, context)
 ## 来源身份与分流
 
 `source_resolution_capabilities.py` 拥有通用解析能力的无 I/O 投影；registry guide 和 resolver 共享该定义。`services/source_identity.py` 拥有当前 actor 的可见身份选择与领域迁移错误，`catalog_source_upsert.py` 编排既有 REST upsert。`storage/source_identity_store.py` 独占带 scope/owner 的 key 查询，`source_identity_schema.py` 独占 global 46 索引、校验和显式迁移；ServiceStore 保留事务和按 source ID 的关联。来源权限/身份规则以 [Service catalog](../api/service-core.md) 为准。
+
+个人 MCP 权限由 storage 的角色投影统一计算，MCP 工具发现与 API 接入状态使用同一投影；agent_connections/permission_upgrade 负责保留令牌的托管配置升级。会话删除仍由 Workspace Controller 调用 Gateway RPC；托管 Relay 的 session_delete 模块只在归属、实时绑定和明确 idle 校验后复用服务端管理连接，不向浏览器暴露管理权限或增加 REST 删除接口。

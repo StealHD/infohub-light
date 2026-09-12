@@ -22,12 +22,24 @@ python scripts/test_gate.py preflight --snapshot /tmp/infohub-task-impact.json
 
 ## PR、main 与正式发布
 
+下列 main/Tag 规则默认用于标准发布；显式快速模式见下一节。新 push 不自动取消已启动的 Gate，避免快速提交中断标准验证。
+
 - PR 对受影响后端运行映射 Pytest，前端运行关联 Vitest 与必要静态检查；main 对受影响代码域运行完整检查。公共基础模块、真实依赖/构建改动及未知可执行路径保留保守扩大范围，文档-only revision 仅运行 control。
 - 公共 control 在 CI 的 impact job 执行一次，后端、前端、E2E 和手动 smoke 依赖该 job 成功，再用 `run --skip-control` 执行自己的 scope。独立调用默认仍包含 control；`--skip-control` 不接受 all/control scope。命令已包含生产 build 时不再独立执行 TypeScript，因为 `npm run build` 包含 `tsc`；无 build 的选测保留类型检查。
 - PR Linux UI 运行映射的 E2E spec；ActorOps、Workbench、Agent Workspace 和视觉快照等按现有映射选择。App Shell、设计系统、全局路由和未知 UI fail closed 到全部 E2E。只改 E2E spec/截图不触发完整 Vitest，仍检查 E2E 合同并验证浏览器场景。开始 Playwright 前的静态 E2E 合同拒绝硬编码 preview 端口、瞬态 inert 前计数断言和不确定视觉准备。
 - 有 UI 影响的 main push 为最终 SHA 运行一次权威完整 Playwright Gate。main 的影响范围从最近已成功的、严格早于当前 HEAD 的第一父链 main Gate 起算，包含此前失败或取消后尚未验证的改动；GitHub 查询不可用或无可信基线时执行完整代码与 E2E 验证。CI planner 最多查询 100 个成功的 main push Gate，不新增持久验证缓存。
 - 仅 main 且整个原始 Git diff 只改变 `pyproject.toml` 的项目版本及 `uv.lock` 中本项目 `horizon` 的版本、前后版本分别一致、TOML 其余内容及文件模式不变时，复用已成功基线的代码证据并只执行 control 与版本一致性验证。依赖、哈希、构建配置、其他文件或无可信证据均不走版本轻量路径；本地和 PR 仍按依赖文件映射保守验证。新的 main SHA 仍须完成自己的 CI，之后才能创建 Tag。
 - 标准 `scripts/release_vps.sh release` 只执行发布身份、迁移、容量等条件检查，不自动运行本地代码 preflight；复用精确 main SHA 的成功 Gate，绿灯后才创建并推送版本 Tag。显式 `preflight` 是可选诊断，继续执行本地 impacted preflight。Tag workflow 核验同一 main 结果后跳过重复 control，仅追加隔离 API Docker smoke。release smoke 不得调用真实来源、付费 provider、AI、Worker、通知或退役 scheduler。
+
+## 显式快速发布
+
+标准 `release` 保持完整门禁和 Tag smoke。最终 main 提交末尾只有一个 `Release-Mode: fast` trailer 时，main 仅运行公共 control、版本一致性和改动脚本语法检查；缺省或 `standard` 走标准路径，重复、位置错误或未知值报错。PR 保持选测，手动 workflow dispatch 执行完整代码与 E2E；自动轻量绿灯不能充当完整验证基线，后续标准 Gate 累计期间全部 fast 改动。标准、快速入口均核验模式，不自动切换或改写已推送历史。
+
+先确定版本与最终代码，在本地 Gate 中取得通过结果，再从干净本地 main 运行 `prepare-fast vX.Y.Z --gate-result PATH [--e2e-result PATH]`。允许准备时尚未推送。Gate 结果包含版本化输入指纹、命令范围和 Python/Node/系统环境；准备阶段按实际运行的 API/Worker 一致 revision 计算完整待发布差异，逐项核对覆盖。局部分支结果、失败、输入变化、环境变化、旧格式和缺少必要 E2E 均拒绝；未知生产基线要求完整代码及完整 E2E。普通 UI 按映射选测，全局/未知影响扩大，不增加 ARM/AMD64 双平台全套测试。只有非可执行的普通 Markdown 变化可复用业务结果，准备阶段重新执行轻量校验；版本及锁文件变化仍须最终代码验证。
+
+准备只读取生产 revision，不上传或切换：本地构建一次正式 `linux/amd64` 镜像，保留原有 API/Worker 入口检查，并对同一个不可变 image ID 做隔离 API smoke。测试网络禁止外部访问，数据/日志/凭据和容器独立，不启动 Worker 或真实来源/AI/通知。准备清单、测试引用、源码/镜像包和校验和存于私有 `.test-results/fast-release/<SHA>/`。通过产物保留供复用，过期产物在显式重新准备时移到同级 previous 目录；准备失败清理本次临时产物和容器。
+
+推送该 main 提交后执行 `release-fast vX.Y.Z`。此阶段不构建、不补测：校验清单、源码/版本、镜像、归档、目标与运行基线，上传后复核，等精确 main 轻量绿灯，再创建同样带 `Release-Mode: fast` 的附注 Tag。Tag 核验版本、main 归属和模式一致，快速 Tag 不运行 Docker smoke。后续共用标准容量、迁移阻断、备份、健康与回滚。任何证据不足均输出需补跑的本地命令并退出，不以快速模式绕过已知缺陷。构建与 smoke 前移只缩短 release 阶段；评估总收益须合计本地准备、发布和 GitHub 任务耗时。
 
 ## 输出与失败定位
 

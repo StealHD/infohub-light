@@ -53,10 +53,10 @@
 - `GET /api/me/agent-connection` 使用当前 Cookie，返回 `ok.data`：`state` 为 `migration_required|unconfigured|pending_verification|ready|invalid|revoked`，另含 `agent_id`、`delegation_id`、`verified_at`、`can_connect`、`can_chat`、`verification`。响应 `Cache-Control: no-store`，无 SecretStore 引用、配置路径或令牌。
 - `verification.deployment/own_content` 表示受信任运维工具已校验配置并以此 delegation 成功执行 MCP 只读检查，且绑定仍有效；不是实时聊天证明。`chat/information_automations/notifications` 本阶段保持 false，后续阶段独立验收。Viewer 的 `can_chat=false`。HTTP 状态中的 `can_connect/can_chat` 还受服务端/chat 开关及 WSS URL/凭据配置有效性限制（不发起网络探测），`own_content` 受 Remote MCP 开关限制。
 - `DELETE /api/me/agent-connection` 仅吊销当前账号的绑定与专用 delegation，并删除对应 Service SecretStore 值；重复调用幂等。运维工作流见[服务端操作说明](../../operations/openclaw-server.md)。
-- 受信任 Owner/Admin 可为当前账号使用三个 POST：`/api/me/agent-connection/setup` 准备或恢复同一绑定、`…/setup/bundle` 下载待验证绑定的配置、`…/setup/activate` 提交回执。全部要求严格布尔 `confirmed: true`，激活另要求最多 8192 字符的 `receipt_json`；拒绝额外身份、Agent 和 URL 字段。Member/Viewer 禁止这些操作，GET 状态通过 `can_manage_setup` 表示角色资格。MCP 地址只取服务端配置，既有 delegation 不复用或扩权。
-- 配置下载为 `ok.data.archive_base64`（gzip tar，目录 `personal-agent` 0700，`manifest.json`/`token` 0600），响应 no-store；仅包含本人专用只读令牌，不含 Gateway Token 或模型密钥。前端仅在明确下载时保留内存 Blob，不写查询缓存或浏览器持久存储。主机安装仍由既有运维工具执行，网页不执行 shell 或重启 Gateway。激活沿用 HMAC/版本/一小时有效期检查；能取得配置包的管理员属于受信任运维边界，回执是运维声明而非对不可信管理员的防伪证明。已激活绑定不允许网页再次导出，失效/撤销的身份仍由运维恢复。
+- 受信任 Owner/Admin 可为当前账号使用三个 POST：`/api/me/agent-connection/setup` 准备或恢复同一绑定、`…/setup/bundle` 下载待验证绑定的配置、`…/setup/activate` 提交回执。全部要求严格布尔 `confirmed: true`，激活另要求最多 8192 字符的 `receipt_json`；拒绝额外身份、Agent 和 URL 字段。Member/Viewer 禁止这些操作，GET 状态通过 `can_manage_setup` 表示角色资格。MCP 地址只取服务端配置，专用 delegation 保留身份，用户权限统一按实时角色计算。
+- 配置下载为 `ok.data.archive_base64`（gzip tar，目录 `personal-agent` 0700，`manifest.json`/`token` 0600），响应 no-store；仅包含本人专用角色权限令牌，不含 Gateway Token 或模型密钥。前端仅在明确下载时保留内存 Blob，不写查询缓存或浏览器持久存储。主机安装仍由既有运维工具执行，网页不执行 shell 或重启 Gateway。激活沿用 HMAC/版本/一小时有效期检查；能取得配置包的管理员属于受信任运维边界，回执是运维声明而非对不可信管理员的防伪证明。已激活绑定不允许网页再次导出，失效/撤销的身份仍由运维恢复。
 - `agent_connections` 保存 user/workspace、随机 binding/Agent/MCP 名称、SecretStore env 引用、专用 delegation ID、secret-free manifest、状态和部署核验时间。每用户一条、每 Agent/namespace/delegation/secret_ref 唯一；删除 delegation 后绑定失效。正文、Gateway 对话/Tasks/Artifacts 不复制进 Service DB。
-- 准备绑定只创建新的 `inteliscope:read` / self delegation，沿用 90 日过期和最多五条有效连接限制；不复用或扩权旧 delegation。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。
+- 准备绑定创建新的 `role_default` delegation，沿用 90 日过期和最多五条有效连接限制；既有用户令牌不轮换，认证时按角色生效。manifest 与 token 分文件导出到新建 0700 目录，文件 0600。Gateway 本机工具验证配置和 MCP 只读请求后产生 HMAC 回执；Service 运维 CLI 校验同 binding/manifest、签名及一小时有效期再激活。回执是受信任主机运维证据，不是恶意主机隔离或持续配置漂移检测。
 
 ### 成员接入申请（global 42）
 
@@ -105,3 +105,9 @@ OpenClaw 2026.9.2/2026.9.3 对默认模型分叉的 describe 与执行继承不�
 ## Fast 请求选项
 
 Fast 使用 OpenClaw 2026.8.1 `chat.send.fastMode` 布尔覆盖项，与原生 `/fast` 共用 Gateway Fast 机制但仅作用于该次请求，不发送聊天指令或调用 admin `sessions.patch`。未选择时省略参数，保留 Gateway 默认；明确关闭必须发送 false。默认只从精确 `sessions.describe.session.key` 的 `effectiveFastMode` 接受 boolean/auto（auto 显示开启），畸形或其他会话值不采用。设置按当前用户、Gateway、Session 的 Controller 生命周期隔离，新 Session 清除本地覆盖。pending/failed 重试快照保存原 bool，重试不得采用后来切换的值；成功后沿用既有清除规则。不承诺固定倍率，不自动发送真实 AI 请求验证加速。
+
+### 角色权限配置升级与会话删除
+
+用户绑定 manifest v3 使用统一 20 工具集合；启动时对 active v1/v2 绑定执行主机锁、身份复查和 manifest CAS 的幂等升级。只转换已知旧标准过滤器，保留 token、binding 与 delegation；失败保留待升级状态，不改成成功。成员申请和管理员审批响应均包含 `permission_profile` 与有效 `permissions`，审批不会提升账号角色。内部隔离分析凭据不参加该升级。
+
+`sessions.delete` 仅在 hello 明确协商时可用；Controller 提交严格 `{key,deleteTranscript:true}`，不新增 REST 删除 API。Relay 只允许本人拥有、当前个人 Agent 下的非主会话，Viewer 不可写。托管 Relay 使用服务端独立 admin 连接复查唯一目录记录、显式 idle 状态和实时绑定，携带 Gateway sessionId 作为 expectedSessionId（若上游提供），再调用正式生命周期 RPC。管理凭据、上游文件路径与原始错误永不发往浏览器。成功响应投影为 `{ok:true,deleted:boolean,key?}`，key 若提供必须与请求一致；失败或未知结果不得报告成功。Gateway 负责活动资源回收；OpenClaw 2026.9.2 的工作树回收发生在会话记录删除之后，因此为满足失败时保留会话的要求，当前带工作树会话提前拒绝删除，要求先由 OpenClaw 安全清理工作树。不做本地替代清理。结构化事件使用 category=agent、action=session_delete、outcome=succeeded|skipped|failed 与 deleted 计数；未知结果记录安全错误码 session_delete_unconfirmed。
