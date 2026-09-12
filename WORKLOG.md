@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "优化原 inteliscope-ui skill，增加目标项目识别、工作模式、按需读取、规则冲突与分层验证；将该改动单独纳入本地 main，读取指引服从 main 现役 AGENTS，不新增 skill 或修改生产 UI。",
-  "status": "completed",
-  "task_id": "2026-09-09-inteliscope-ui-skill-refinement",
-  "unresolved": [],
-  "validation": [
-    "原开发工作区 impacted preflight 12/12 通过；8 类场景完成指令路径审阅，非浏览器实测。",
-    "main 工作区 skill 格式与 8 个项目入口检查通过，未覆盖原开发工作区其他未提交改动。",
-    "main 任务 snapshot preflight 12/12 通过（ui-skill-main-20260909），包含前端合同、ESLint、TypeScript、Vitest 与构建；仅集成 skill 与该任务工作记录，未推送或部署。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "decisions",
     "interface",
@@ -440,6 +422,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "门禁去重、CI 调度、发布 preflight、CI 基线与 runtime health 五个定向测试文件通过，退出码 0；复用此前订阅修复分段回归证据，按用户要求不重跑完整业务测试。",
     "Markdown、控制结构、WORKLOG、JSON 与 diff check 通过；自动逐条比较确认两个父分支的工作记录内容均完整保留。发布脚本、CI workflows 及三个 test_gate 模块与原 main 无差异。",
     "仅本地提交及合并；未推送远端、创建版本标签、迁移运行库或部署生产。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "发布 v2.6.19 并部署到 vps-tokyo：精确 main Gate 与 Tag smoke 通过，本地构建并验收 linux/amd64 镜像，显式迁移 global 46 后完成 API/Worker 健康切换；本机 OpenClaw main Skill 已刷新并补齐 resolve_source 白名单。",
+  "status": "completed",
+  "task_id": "release-v2619-source-subscription-routing-20260912",
+  "unresolved": [
+    "本机 OpenClaw main 的旧生产 MCP 连接令牌已失效；需在 Web 重新生成订阅管理连接后，才能执行真实 resolve/prepare/apply 验收。"
+  ],
+  "validation": [
+    "本地最终 impacted preflight 16/16 通过（627.221 秒）；GitHub main Gate 34684481691 的 impact、backend-full、frontend-full 与权威 ui-e2e 全部成功；Tag smoke 34685403689 成功。",
+    "VPS global 46 迁移成功，备份 /opt/inteliscope/data/backups/service-source-identity-v46-20260912T092239076125Z.db 为 0600；数据库 integrity ok、foreign key 0，回滚路径归档到发布目录后从常驻环境清除。",
+    "运行健康检查确认 API/Worker/Docker、公网页面资产和 source digest 一致；内外 health 均为 2.6.19 / 3b95f56b106c，当前发布目录为 2.6.19-20260912T091422Z-3b95f56b106c。",
+    "GitHub Release v2.6.19 已发布；OpenClaw main Skill 安装树与 bundled 内容一致、Gateway connectivity ok，工具过滤包含 resolve_source。只读 MCP probe 发现本机旧 INTELISCOPE_MCP_TOKEN 在生产 agent_delegations 中不存在，未擅自创建新凭据或执行订阅写入。",
+    "为满足 VPS 8 GiB 发布容量阈值，删除未使用的 v2.6.15/v2.6.16 本地运行镜像及已被后续发布取代的 2.6.13/v2.6.14 旧备份目录；保留当前和上一版回滚材料。临时 staging 与本地发布产物已清理。"
   ]
 }
 ```
