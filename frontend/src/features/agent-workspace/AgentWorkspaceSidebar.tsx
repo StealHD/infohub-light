@@ -85,7 +85,7 @@ export function AgentWorkspaceSidebar({
 
       <p className="type-label mt-5 px-2 pb-2 text-muted">会话</p>
       {chat.sessionKey ? <div className="grid gap-1">
-        {rows.map((session) => <AgentSessionRow
+        {rows.map((session) => <AgentSessionRow workspace={chat.workspace}
           key={session.key} session={session}
           current={session.key === chat.sessionKey}
           firstQuestion={session.key === chat.sessionKey ? firstQuestion : undefined}

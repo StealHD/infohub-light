@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.services.agent_connections.manifest import USER_TOOLS
+
 import argparse
 import json
 from pathlib import Path
@@ -293,8 +295,8 @@ def test_main_maps_setup_error_to_stable_exit_code(
 @pytest.mark.parametrize(
     ("legacy", "current"),
     [
-        (LEGACY_READ_TOOL_FILTER, READ_TOOL_FILTER),
-        (LEGACY_FULL_TOOL_FILTER, FULL_TOOL_FILTER),
+        (LEGACY_READ_TOOL_FILTER, USER_TOOLS),
+        (LEGACY_FULL_TOOL_FILTER, USER_TOOLS),
     ],
 )
 def test_standard_tool_filter_upgrade_changes_only_known_legacy_sets(
@@ -329,4 +331,4 @@ def test_standard_tool_filter_upgrade_preserves_custom_filter() -> None:
     )
     assert standard_tool_filter_upgrade(
         {"toolFilter": {"include": list(SYSTEM_SETTINGS_TOOL_FILTER)}}
-    ) == (None, False)
+    ) == (USER_TOOLS, False)

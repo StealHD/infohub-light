@@ -58,8 +58,16 @@ async def provision(context, user, reconnect=False, authorize=None, prepared=Non
         if prepared:
             prepared(connections.row(user['id']))
         manifest, token = connections.export(user['id'])
+        if manifest['version'] != 3:
+            from .manifest import USER_TOOLS, canonical
+            manifest = {**manifest, 'version': 3, 'skills': manifest.get('skills', []), 'tools': list(USER_TOOLS)}
         update(context, user, phase='configuring')
         config = await host.install(manifest, token)
+        if manifest['version'] == 3:
+            from .manifest import canonical
+            connections.store.connect().execute('UPDATE agent_connections SET manifest_json=? WHERE user_id=?',
+                                              (canonical(manifest), user['id']))
+            connections.store.connect().commit()
         update(context, user, phase='verifying')
         await asyncio.wait_for(check_mcp(manifest, token), 45)
         current_user = authorize() if authorize else context.store.get_user(user['id'])

@@ -1,4 +1,4 @@
-"""Explicit delegation profiles. Existing tokens never acquire additional scopes."""
+"""Role-derived user permissions and isolated internal delegation profiles."""
 AGENT_DELEGATION_READ_SCOPE = 'inteliscope:read'
 AGENT_DELEGATION_WRITE_SCOPE = 'inteliscope:subscriptions:write'
 AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE = 'inteliscope:diagnostics:read'
@@ -9,6 +9,7 @@ SCOPE_ORDER = (AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE,
                AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
                INFORMATION_READ_SCOPE, INFORMATION_DRAFT_SCOPE)
 PROFILES = {
+    'role_default': (),
     'read': (),
     'subscriptions_write': (AGENT_DELEGATION_WRITE_SCOPE,),
     'system_settings_write': (AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,),
@@ -29,10 +30,19 @@ def scopes_for_access(access: str, *, diagnostics_scope: str = 'self') -> list[s
 
 
 def access_for_scopes(scopes: list[str]) -> str:
-    for scope, access in ((AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE, 'system_settings_write'),
-                          (AGENT_DELEGATION_WRITE_SCOPE, 'subscriptions_write'),
-                          (INFORMATION_DRAFT_SCOPE, 'information_automations_draft'),
-                          (INFORMATION_READ_SCOPE, 'information_automations_read')):
-        if scope in scopes:
-            return access
-    return 'read'
+    if INFORMATION_DRAFT_SCOPE in scopes:
+        return 'information_automations_draft'
+    if INFORMATION_READ_SCOPE in scopes:
+        return 'information_automations_read'
+    return 'role_default' if scopes else 'read'
+
+
+def effective_scopes(scopes, role):
+    if not scopes or INFORMATION_READ_SCOPE in scopes or INFORMATION_DRAFT_SCOPE in scopes:
+        return scopes
+    allowed = [AGENT_DELEGATION_READ_SCOPE]
+    if role in {'owner', 'admin', 'member'}:
+        allowed.append(AGENT_DELEGATION_WRITE_SCOPE)
+    if role in {'owner', 'admin'}:
+        allowed.extend([AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE])
+    return allowed

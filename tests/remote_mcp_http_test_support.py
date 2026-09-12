@@ -21,14 +21,14 @@ def anyio_backend():
     return "asyncio"
 
 
-def _app(tmp_path, monkeypatch, *, enabled: bool = True):
+def _app(tmp_path, monkeypatch, *, enabled: bool = True, subscription_writes: bool = False):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
     monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "test-session-secret")
     monkeypatch.setenv(
         "HORIZON_REMOTE_MCP_ENABLED", "true" if enabled else "false"
     )
-    monkeypatch.setenv("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false")
+    monkeypatch.setenv("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "true" if subscription_writes else "false")
     monkeypatch.setattr(
         BilibiliUserSearchService,
         "search",

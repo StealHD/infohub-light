@@ -58,12 +58,8 @@ async def install(host, base, token):
             raise ManagedSetupError('Gateway 配置目录不匹配。')
         models = await host.gateway._request(socket, 'analysis-models', 'models.list', {'view': 'configured', 'agentId': base['agent_id']})
         target, agent_id = configure(config, base, root)
-        llm = target['plugins']['entries']['llm-task']['llm']
-        created_policy = 'allowedCompletionModels' not in llm
-        if created_policy:
-            llm['allowedCompletionModels'] = [row['id'] for row in project_models(models, target)]
-        if not llm['allowedCompletionModels']:
-            raise ManagedSetupError('主机没有获准的独立分析模型，未放开全部模型。')
+        if not project_models(models, target):
+            raise ManagedSetupError('主机没有可用的独立分析模型。')
         if (root / 'openclaw.json').read_bytes() != before:
             raise ManagedSetupError('配置同时被修改，未覆盖。')
         if target != config or previous != token:
@@ -92,9 +88,6 @@ async def install(host, base, token):
         if configure(installed, base, root)[0] != installed:
             raise ManagedSetupError('分析配置未实际加载。')
         available = await host.gateway._request(socket, 'analysis-catalog', 'models.list', {'view': 'configured', 'agentId': agent_id})
-        if created_policy:
-            from .analysis_model_policy import record_policy
-            record_policy(root,llm['allowedCompletionModels'])
         permitted = {row['id'] for row in project_models(models, installed)}
         # The supervisor's host setting defaults to catalog-only during deployment.
         write_registry(registry, {'base': base, 'objects': owned, 'token_sha256': token_hash,

@@ -15,6 +15,11 @@ def identity(context, request_id):
 
 
 def project(context, row):
+    if row:
+        from ...mcp.role_permissions import permissions
+        target = context.store.get_user(row['user_id'])
+        row = {**row, 'permission_profile': 'role_default',
+               'permissions': permissions(target['role'], context.remote_mcp_settings)}
     if row and row.get('binding_id'):
         from .cleanup import public
         row = {**row, 'cleanup': public(context, row['user_id'], row['binding_id'])}

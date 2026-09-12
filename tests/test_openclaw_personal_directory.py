@@ -89,7 +89,7 @@ def test_status_does_not_claim_connectable_without_gateway_configuration(monkeyp
     context = SimpleNamespace(store=SimpleNamespace(connect=lambda: None, data_dir=tmp_path), secret_values=None,
                               notification_targets=SimpleNamespace(list_public_targets=lambda **_: {'targets': [{'available': True}]}),
                               openclaw_chat_settings=SimpleNamespace(enabled=True),
-                              remote_mcp_settings=SimpleNamespace(enabled=True))
+                              remote_mcp_settings=SimpleNamespace(enabled=True, subscription_writes_enabled=False, system_settings_writes_enabled=False))
     response = Response()
     import asyncio
     asyncio.run(routes.connection_status(response, {'id': 'alice', 'workspace_id': 'workspace', 'role': 'member'}, context))

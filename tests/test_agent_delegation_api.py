@@ -91,9 +91,9 @@ def test_agent_delegation_api_supports_rename_revoke_and_explicit_record_delete(
     payload = created.json()["data"]
     assert payload["token"].startswith("ih_mcp_v1_")
     assert payload["connection"]["name"] == "My Mac"
-    assert payload["connection"]["access"] == "read"
-    assert payload["connection"]["diagnostics_scope"] == "self"
-    assert payload["connection"]["scopes"] == ["inteliscope:read"]
+    assert payload["connection"]["access"] == "role_default"
+    assert payload["connection"]["diagnostics_scope"] == "workspace"
+    assert len(payload["connection"]["scopes"]) == 4
     connection_id = payload["connection"]["id"]
 
     listing = client.get("/api/me/agent-delegations").json()["data"]
@@ -240,11 +240,8 @@ def test_write_delegation_requires_independent_feature_flag(tmp_path, monkeypatc
         json={"name": "Write Mac", "access": "subscriptions_write"},
     )
 
-    assert rejected.status_code == 409
-    assert rejected.json()["error"]["code"] == "subscription_writes_disabled"
-    assert disabled_client.get("/api/me/agent-delegations").json()["data"][
-        "connections"
-    ] == []
+    assert rejected.status_code == 201
+    assert rejected.json()["data"]["connection"]["permissions"]["subscriptions_write"] is False
 
     enabled_client = _client(
         tmp_path / "enabled",
@@ -260,11 +257,9 @@ def test_write_delegation_requires_independent_feature_flag(tmp_path, monkeypatc
 
     assert created.status_code == 201
     connection = created.json()["data"]["connection"]
-    assert connection["access"] == "subscriptions_write"
-    assert connection["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:subscriptions:write",
-    ]
+    assert connection["access"] == "role_default"
+    assert connection["permissions"]["subscriptions_write"] is True
+    assert len(connection["scopes"]) == 4
     assert enabled_client.get("/api/me/agent-delegations").json()["data"][
         "subscription_writes_enabled"
     ] is True
@@ -305,13 +300,10 @@ def test_workspace_diagnostics_delegation_requires_explicit_admin_choice(
     assert owner_connection.status_code == 201
     connection = owner_connection.json()["data"]["connection"]
     assert connection["diagnostics_scope"] == "workspace"
-    assert connection["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:diagnostics:read",
-    ]
-    assert member_connection.status_code == 403
-    assert member_connection.json()["error"]["code"] == "forbidden"
-    assert store.list_agent_delegations(member["id"]) == []
+    assert connection['permissions']['workspace_diagnostics'] is True
+    assert member_connection.status_code == 201
+    assert member_connection.json()['data']['connection']['permissions']['workspace_diagnostics'] is False
+    assert len(store.list_agent_delegations(member['id'])) == 1
 
 
 @pytest.mark.parametrize("subscription_writes_enabled", [False, True])
@@ -345,10 +337,10 @@ def test_viewer_write_delegation_is_stably_forbidden_but_read_remains_allowed(
         json={"name": "Viewer Read"},
     )
 
-    assert write_response.status_code == 403
-    assert write_response.json()["error"]["code"] == "forbidden"
+    assert write_response.status_code == 201
+    assert write_response.json()["data"]["connection"]["scopes"] == ["inteliscope:read"]
     assert read_response.status_code == 201
-    assert read_response.json()["data"]["connection"]["access"] == "read"
+    assert read_response.json()["data"]["connection"]["access"] == "role_default"
 
 
 def test_rename_payload_cannot_change_delegation_access(tmp_path, monkeypatch):
@@ -374,4 +366,4 @@ def test_rename_payload_cannot_change_delegation_access(tmp_path, monkeypatch):
         "connections"
     ][0]
     assert unchanged["name"] == "Read connection"
-    assert unchanged["access"] == "read"
+    assert unchanged["access"] == "role_default"

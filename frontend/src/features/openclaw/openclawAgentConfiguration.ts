@@ -33,7 +33,7 @@ export const SYSTEM_SETTINGS_TOOL_FILTER = [
   'apply_system_settings_change',
 ] as const
 
-export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess = 'read'): string {
+export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess = 'role_default'): string {
   const config = JSON.stringify({
     url: mcpUrl,
     transport: 'streamable-http',
@@ -41,9 +41,9 @@ export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess
     timeout: 30,
     supportsParallelToolCalls: true,
     headers: { Authorization: `Bearer ${TOKEN_REFERENCE}` },
-    toolFilter: { include: access === 'subscriptions_write' ? SUBSCRIPTION_WRITE_TOOL_FILTER : access === 'system_settings_write' ? SYSTEM_SETTINGS_TOOL_FILTER : READ_TOOL_FILTER },
+    toolFilter: { include: access.startsWith('information_automations_') ? READ_TOOL_FILTER : [...SUBSCRIPTION_WRITE_TOOL_FILTER, ...SYSTEM_SETTINGS_TOOL_FILTER.slice(READ_TOOL_FILTER.length)] },
   })
-  return [`openclaw mcp set inteliscope '${config}'`, 'openclaw mcp doctor inteliscope --probe', 'openclaw mcp status --verbose', 'openclaw dashboard'].join('\n')
+  return [`openclaw mcp set inteliscope ${shellQuote(config)}`, 'openclaw mcp doctor inteliscope --probe', 'openclaw mcp status --verbose', 'openclaw dashboard'].join('\n')
 }
 
 function shellQuote(value: string): string {

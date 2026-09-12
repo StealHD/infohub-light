@@ -85,7 +85,7 @@ SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
 from .agent_delegation_scopes import (
     AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE,
     AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE, AGENT_DELEGATION_SYSTEM_SETTINGS_WRITE_SCOPE,
-    INFORMATION_DRAFT_SCOPE, SCOPE_ORDER, scopes_for_access as _scopes_for_access,
+    INFORMATION_DRAFT_SCOPE, SCOPE_ORDER, effective_scopes, scopes_for_access as _scopes_for_access,
     access_for_scopes as _access_for_scopes,
 )
 AGENT_DELEGATION_TTL_DAYS = 90
@@ -6627,8 +6627,7 @@ class ServiceStore:
             if key not in {"password_hash"}
         }
 
-    @staticmethod
-    def _agent_delegation(row: sqlite3.Row, *, now: str) -> dict[str, Any]:
+    def _agent_delegation(self, row: sqlite3.Row, *, now: str) -> dict[str, Any]:
         revoked_at = row["revoked_at"]
         if revoked_at is not None:
             status = "revoked"
@@ -6636,7 +6635,7 @@ class ServiceStore:
             status = "expired"
         else:
             status = "active"
-        scopes = _safe_agent_delegation_scopes(row["scopes_json"])
+        scopes = effective_scopes(_safe_agent_delegation_scopes(row["scopes_json"]), (self.get_user(row["user_id"]) or {}).get("role"))
         return {
             "id": row["id"],
             "name": row["name"],
@@ -7471,7 +7470,7 @@ class ServiceStore:
             "workspace_id": row["workspace_id"],
             "user_id": row["user_id"],
             "role": row["role"],
-            "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
+            "scopes": effective_scopes(_safe_agent_delegation_scopes(row["scopes_json"]), row["role"]),
             "expires_at": row["expires_at"],
         }
 
@@ -7508,7 +7507,7 @@ class ServiceStore:
             "workspace_id": row["workspace_id"],
             "user_id": row["user_id"],
             "role": row["role"],
-            "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
+            "scopes": effective_scopes(_safe_agent_delegation_scopes(row["scopes_json"]), row["role"]),
             "expires_at": row["expires_at"],
         }
 
@@ -7781,7 +7780,7 @@ class ServiceStore:
                 principal is None
                 or principal["role"] not in {"owner", "admin", "member"}
                 or AGENT_DELEGATION_WRITE_SCOPE
-                not in _safe_agent_delegation_scopes(principal["scopes_json"])
+                not in effective_scopes(_safe_agent_delegation_scopes(principal["scopes_json"]), principal["role"])
             ):
                 raise AgentProposalAuthorizationError(
                     "agent proposal delegation is not authorized"

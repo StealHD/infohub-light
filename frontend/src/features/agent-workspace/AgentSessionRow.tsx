@@ -1,8 +1,11 @@
+import { lazy, Suspense } from 'react'
+const AgentSessionDelete = lazy(() => import('./AgentSessionDelete').then(module => ({ default: module.AgentSessionDelete })))
 import { Button, Icons, Popover, StatusIndicator } from '../../design-system'
-import type { OpenClawWorkspaceSession } from '../openclaw'
+import type { OpenClawWorkspaceController, OpenClawWorkspaceSession } from '../openclaw'
 import { openClawSessionTitle } from '../openclaw/chat/openclawSessionTitle'
 
-export function AgentSessionRow({ session, current, disabled, onOpen, firstQuestion }: {
+export function AgentSessionRow({ session, current, disabled, onOpen, firstQuestion, workspace }: {
+  workspace?: OpenClawWorkspaceController
   session: OpenClawWorkspaceSession; current: boolean; disabled: boolean
   onOpen: (session: OpenClawWorkspaceSession) => void; firstQuestion?: string
 }) {
@@ -19,6 +22,7 @@ export function AgentSessionRow({ session, current, disabled, onOpen, firstQuest
           <p className="type-control [overflow-wrap:anywhere]">{title}</p>
           {session.worktree?.branch && <p className="type-meta text-muted [overflow-wrap:anywhere]">{session.worktree.branch}</p>}
           <Button variant="secondary" isDisabled={disabled} onPress={() => onOpen(session)}>打开会话</Button>
+          {workspace && <Suspense fallback={null}><AgentSessionDelete session={session} current={current} workspace={workspace} disabled={disabled} /></Suspense>}
         </Popover.Dialog>
       </Popover.Content>
     </Popover>

@@ -24,7 +24,7 @@ export function InformationModelFields({ value, onChange, disabled, compactHeadi
         : value.model && !selectedModel ? '所选模型已不可用，请重新选择。'
         : `已加载 ${models.data.models.length} 个模型，请选择分析模型。`}</p>
       {message && <p role="status" className="type-meta text-muted">{message}</p>}
-      {models.data?.filtered_models?.map((item) => <p key={item.id} className="type-meta text-muted">{item.id}：{item.reason === "allowlist_ownership_unknown" ? "旧分析白名单归属不明，请管理员核对后明确管理方式。" : item.reason === "model_unauthorized" ? "管理员未授权此模型。" : "当前分析 Agent 不可用。"}</p>)}
+      {models.data?.filtered_models?.map((item) => <p key={item.id} className="type-meta text-muted">{item.id}：{item.reason === "allowlist_ownership_unknown" ? "OpenClaw 配置限制了此模型。" : item.reason === "model_unauthorized" ? "管理员未授权此模型。" : "当前分析 Agent 不可用。"}</p>)}
       {error && <p role="alert">{error}</p>}
     </fieldset>
 }

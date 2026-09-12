@@ -1,8 +1,11 @@
 import type { ApiClient } from './client'
 
+export type McpPermissions = { read: boolean; subscriptions_write: boolean; system_settings_write: boolean; workspace_diagnostics: boolean }
+
 export type AgentCleanup = { phase: string; error?: string | null; revision: number }
 
 export type AgentAccessRequest = {
+  permission_profile?: 'role_default'; permissions?: McpPermissions
   id: string; state: 'pending' | 'approved' | 'rejected' | 'ready'; revision: number;
   created_at: string; reason?: string | null; phase?: string | null; error?: string | null;
   username?: string; display_name?: string | null; role?: string;
@@ -10,6 +13,7 @@ export type AgentAccessRequest = {
 }
 
 export type AgentConnection = {
+  permission_profile?: 'role_default'; permissions?: McpPermissions
   analysis?: { phase: string; error?: string | null; reason?: string | null }
   state: 'migration_required' | 'unconfigured' | 'pending_verification' | 'ready' | 'invalid' | 'revoked'
   agent_id?: string | null

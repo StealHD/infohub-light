@@ -2,7 +2,7 @@
 import copy
 import re
 from pathlib import Path
-from .manifest import validate_manifest
+from .manifest import validate_manifest, READ_TOOLS, USER_TOOLS
 
 # A fixed restrictive allowlist is authoritative. Denies additionally block host/cross-session paths.
 DENIED = ['group:runtime', 'group:fs', 'group:sessions', 'group:memory', 'group:ui',
@@ -56,6 +56,8 @@ def configure(config, manifest, root):
         prior.setdefault('memory', {'search': {'enabled': False}})
         extra_denies = prior.get('tools', {}).get('deny', [])
         prior.setdefault('tools', {})['deny'] = list(DENIED)
+        if manifest['version'] == 3 and prior['tools'].get('allow') == [namespace + '__' + tool for tool in READ_TOOLS]:
+            prior['tools']['allow'] = expected_agent['tools']['allow']
         permitted = set(DENIED) | {_safe_server(name) + '__*' for name in servers if name != namespace}
         if 'llm-task' in extra_denies:
             permitted.add('llm-task')
@@ -88,6 +90,8 @@ def compatible_mcp(value, manifest):
     """Only the historical omission is repairable; explicit protocol drift is not."""
     prior = copy.deepcopy(value)
     prior.setdefault('transport', 'streamable-http')
+    if manifest['version'] == 3 and prior.get('toolFilter') == {'include': list(READ_TOOLS)}:
+        prior['toolFilter'] = {'include': list(USER_TOOLS)}
     return prior == mcp_entry(manifest)
 
 

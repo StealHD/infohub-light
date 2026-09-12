@@ -42,7 +42,7 @@ def error_reply(request_id, message):
 
 
 async def browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly=False,
-                           chat_ready=lambda: True):
+                           chat_ready=lambda: True, delete_session=None):
     arrivals = deque()
     while True:
         raw = await browser.receive_text()
@@ -67,6 +67,13 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
             safe = request_params(method, params, owner, agent, readonly=readonly)
         except PermissionError:
             await browser.send_json(error_reply(request_id, '当前账号无权执行该操作或访问该会话。'))
+            continue
+        if method == 'sessions.delete' and delete_session is not None:
+            try:
+                payload = await delete_session(owner, agent, safe, valid_session)
+                await browser.send_json({'type': 'res', 'id': request_id, 'ok': True, 'payload': payload})
+            except Exception:
+                await browser.send_json(error_reply(request_id, '无法确认删除，请刷新会话列表核对；生成中或受保护的会话不能删除。'))
             continue
         pending[request_id] = (method, safe)
         await upstream.send(json.dumps({'type': 'req', 'id': request_id, 'method': method, 'params': safe}))
@@ -105,7 +112,7 @@ async def session_watch(valid_session):
 
 
 async def relay(browser, user_id, valid_session, agent, *, readonly=False,
-                allowed_skill_keys=lambda: None, chat_ready=lambda: True):
+                allowed_skill_keys=lambda: None, chat_ready=lambda: True, delete_session=None):
     url, token, root = settings()
     owner = Ownership(root, user_id)
     async with connect(url, proxy=None, open_timeout=15, ping_interval=20, ping_timeout=20,
@@ -119,13 +126,13 @@ async def relay(browser, user_id, valid_session, agent, *, readonly=False,
         if request.get('method') != 'connect' or request.get('type') != 'req':
             raise RelayFailure('Connect required')
         await browser.send_json({'type': 'res', 'id': request.get('id'), 'ok': True, 'payload': {
-            'features': {'methods': [method for method in ('sessions.preview', 'sessions.list', 'skills.status')
+            'features': {'methods': [method for method in ('sessions.preview', 'sessions.list', 'sessions.delete', 'skills.status')
                                      if method in hello.get('features', {}).get('methods', [])]},
             'protocol': 4, 'auth': {'role': 'operator', 'scopes': SCOPES},
             'snapshot': {'sessionDefaults': {'defaultAgentId': agent}},
         }})
         pending = {}
-        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly, chat_ready)),
+        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly, chat_ready, delete_session)),
                  asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending, valid_session, allowed_skill_keys)),
                  asyncio.create_task(session_watch(valid_session))]
         try:

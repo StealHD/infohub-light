@@ -14,6 +14,8 @@ async def connection_status(response: Response, user=Depends(current_user), cont
     from ..services.agent_connections.managed_setup import status as setup_status
     progress = setup_status(context, user)
     status = AgentConnections(context.store, context.secret_values).status(user)
+    from ..mcp.role_permissions import permissions
+    status.update(permission_profile='role_default', permissions=permissions(user['role'], context.remote_mcp_settings))
     status['can_manage_setup'] = user['role'] in {'owner', 'admin'}
     status['setup'] = progress
     from .agent_access_routes import own_status

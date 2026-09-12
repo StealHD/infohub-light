@@ -1,5 +1,5 @@
 export const OPENCLAW_WORKSPACE_METHODS = [
-  'projects.list', 'sessions.create', 'sessions.list', 'sessions.preview', 'sessions.send', 'worktrees.branches',
+  'projects.list', 'sessions.create', 'sessions.list', 'sessions.preview', 'sessions.delete', 'sessions.send', 'worktrees.branches',
   'tasks.list', 'tasks.get', 'tasks.cancel', 'artifacts.list', 'artifacts.get', 'artifacts.download', 'skills.status',
 ] as const
 
@@ -72,6 +72,7 @@ export interface OpenClawWorkspaceController {
   subscribe(listener: (eventName: string) => void): () => void
   listSessions(): Promise<OpenClawWorkspaceSession[]>
   listSessionPage(input?: OpenClawSessionPageRequest): Promise<OpenClawSessionPage>
+  deleteSession(sessionKey: string): Promise<void>
   previewSession(sessionKey: string): Promise<OpenClawWorkspaceSession>
   listProjects(): Promise<OpenClawWorkspaceProject[]>
   listBranches(project: OpenClawWorkspaceProject): Promise<OpenClawWorkspaceBranches>

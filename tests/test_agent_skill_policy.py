@@ -77,7 +77,7 @@ def test_new_binding_manifest_and_gateway_config_use_current_allowlist(skill_pol
     manifest = AgentConnections(store, SecretStore(store.data_dir)).prepare(
         owner["id"], "http://127.0.0.1:8080/mcp"
     )
-    assert manifest["version"] == 2 and manifest["skills"] == ["pdf", "reader"]
+    assert manifest["version"] == 3 and manifest["skills"] == ["pdf", "reader"]
     config = configure({}, manifest, tmp_path)
     assert config["agents"]["entries"][manifest["agent_id"]]["skills"] == ["pdf", "reader"]
 

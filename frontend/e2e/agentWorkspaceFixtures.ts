@@ -19,8 +19,8 @@ export async function installGatewayFixture(page: Page, directory = false) {
   await page.addInitScript((directory) => {
     const requests: Array<{ method: string; params: Record<string, unknown> }> = []
     let title = ''
-    const history = Array.from({ length: 205 }, (_, index) => ({ key: `agent:research:dashboard:${index}`, agentId: 'research', displayName: `历史记录 ${String(index).padStart(3, '0')}`, updatedAt: 1000 - index, archived: false }))
-    history.push({ key: 'agent:research:dashboard:archived', agentId: 'research', displayName: '归档记录', updatedAt: 1001, archived: true })
+    const history = Array.from({ length: 205 }, (_, index) => ({ key: `agent:research:dashboard:${index}`, agentId: 'research', displayName: `历史记录 ${String(index).padStart(3, '0')}`, updatedAt: 1000 - index, archived: false, hasActiveRun: false }))
+    history.push({ key: 'agent:research:dashboard:archived', agentId: 'research', displayName: '归档记录', updatedAt: 1001, archived: true, hasActiveRun: false })
     let skillEnabled = false
     let createdWorktree = false
     let taskCancelled = false
@@ -46,7 +46,7 @@ export async function installGatewayFixture(page: Page, directory = false) {
         const held = window as unknown as { __holdHistory?: boolean; __releaseHistory?: () => void }
         if (frame.method === 'chat.history' && held.__holdHistory) { held.__releaseHistory = () => this.emit('message', { data: JSON.stringify({ type: 'res', id: frame.id, ok: true, payload: { messages: [] } }) }); return }
         const methods = [
-          'projects.list', 'sessions.create', 'sessions.list', 'sessions.preview', 'sessions.send', 'worktrees.branches',
+          'projects.list', 'sessions.create', 'sessions.list', 'sessions.preview', 'sessions.delete', 'sessions.send', 'worktrees.branches',
           'tasks.list', 'tasks.get', 'tasks.cancel', 'artifacts.list', 'artifacts.get', 'artifacts.download', 'skills.status',
           'skills.update', 'cron.list', 'cron.get', 'cron.status', 'cron.add', 'cron.update', 'cron.run', 'cron.runs', 'cron.remove',
         ]
@@ -55,6 +55,11 @@ export async function installGatewayFixture(page: Page, directory = false) {
         else if (frame.method === 'sessions.create') {
           if (frame.params.worktree) createdWorktree = true
           payload = frame.params.worktree ? { ok: true, key: 'child', runStarted: true, runId: 'run-1', worktree: { id: 'wt-1', path: '/tmp/wt-1', branch: 'openclaw/ui' } } : { key: 'root' }
+        }
+        else if (frame.method === 'sessions.delete') {
+          const index = history.findIndex((row) => row.key === frame.params.key)
+          if (index >= 0) history.splice(index, 1)
+          payload = { ok: true, deleted: index >= 0, key: frame.params.key }
         }
         else if (frame.method === 'models.list') payload = { models: [{ id: 'gpt', provider: 'openai', name: 'GPT', available: true, input: ['text'] }] }
         else if (frame.method === 'agents.list') payload = { defaultId: 'main', agents: ['main', 'research'].map((id) => ({ id, model: { primary: 'openai/gpt' } })) }

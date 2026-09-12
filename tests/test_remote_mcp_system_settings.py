@@ -17,7 +17,7 @@ def anyio_backend():
     return "asyncio"
 
 
-def _context(tmp_path, *, writes_enabled: bool = True):
+def _context(tmp_path, *, writes_enabled: bool = True, access: str = "system_settings_write"):
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     owner = store.create_user(
@@ -30,7 +30,7 @@ def _context(tmp_path, *, writes_enabled: bool = True):
         workspace_id=DEFAULT_WORKSPACE_ID,
         user_id=owner["id"],
         name="System management",
-        access="system_settings_write",
+        access=access,
     )
     actor = DelegatedActor(
         workspace_id=DEFAULT_WORKSPACE_ID,
@@ -56,8 +56,9 @@ def test_list_works_with_scope_even_when_write_gate_is_off(tmp_path) -> None:
     assert error.value.code == "system_settings_writes_disabled"
 
 
-def test_mcp_prepare_apply_revalidates_delegation_and_applies_alias(tmp_path) -> None:
-    store, actor, service = _context(tmp_path)
+@pytest.mark.parametrize("access", ["read", "subscriptions_write", "system_settings_write", "role_default"])
+def test_mcp_prepare_apply_revalidates_delegation_and_applies_alias(tmp_path, access) -> None:
+    store, actor, service = _context(tmp_path, access=access)
     prepared = service.prepare_update_system_settings(
         actor=actor,
         expected_generation=1,
@@ -84,7 +85,7 @@ def test_mcp_prepare_apply_revalidates_delegation_and_applies_alias(tmp_path) ->
     assert error.value.code == "system_settings_delegation_invalid"
 
 
-def test_old_read_and_subscription_tokens_are_not_upgraded(tmp_path) -> None:
+def test_old_owner_tokens_receive_system_permissions(tmp_path) -> None:
     store = ServiceStore(tmp_path / "data")
     store.initialize()
     owner = store.create_user(
@@ -107,11 +108,8 @@ def test_old_read_and_subscription_tokens_are_not_upgraded(tmp_path) -> None:
             delegation_id=connection["id"],
             scopes=tuple(connection["scopes"]),
         )
-        with pytest.raises(AgentProposalError) as error:
-            RemoteMCPSystemSettingsService(
-                store, writes_enabled=True
-            ).list_system_settings(actor=actor)
-        assert error.value.code == "system_settings_scope_required"
+        assert RemoteMCPSystemSettingsService(store, writes_enabled=True).list_system_settings(actor=actor)['generation'] == 1
+
 
 
 @pytest.mark.anyio
@@ -128,10 +126,8 @@ async def test_real_mcp_system_connection_lists_prepares_and_applies(
         name="System management",
         access="system_settings_write",
     )
-    assert connection["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:system-settings:write",
-    ]
+    assert set(connection["scopes"]) == {'inteliscope:read', 'inteliscope:subscriptions:write',
+        'inteliscope:diagnostics:read', 'inteliscope:system-settings:write'}
     transport = httpx.ASGITransport(app=app)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(

@@ -120,7 +120,8 @@ async def test_remote_mcp_uses_exact_path_static_bearer_and_transport_security(
 async def test_real_mcp_client_lists_twenty_tools_with_exact_annotations_and_calls_reads(
     tmp_path, monkeypatch
 ):
-    app = _app(tmp_path, monkeypatch)
+    monkeypatch.setenv("HORIZON_REMOTE_MCP_SYSTEM_SETTINGS_WRITES_ENABLED", "true")
+    app = _app(tmp_path, monkeypatch, subscription_writes=True)
     user, _connection, token = _token(app)
     job = _seed_feed(app, user)
     source_id = app.state.service_store.create_source(

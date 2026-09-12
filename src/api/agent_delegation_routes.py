@@ -7,6 +7,7 @@ from typing import Any, Literal
 from fastapi import Depends, FastAPI, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..mcp.role_permissions import project_connection
 from .agent_connection_routes import register_agent_connection_routes
 from .context import ApiContext
 from .openclaw_relay_routes import register_openclaw_relay_routes
@@ -23,7 +24,7 @@ class AgentDelegationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=80)
-    access: Literal["read", "subscriptions_write", "system_settings_write", "information_automations_read", "information_automations_draft"] = "read"
+    access: Literal["read", "subscriptions_write", "system_settings_write", "information_automations_read", "information_automations_draft", "role_default"] = "role_default"
     diagnostics_scope: Literal["self", "workspace"] = "self"
 
     @field_validator("name")
@@ -63,7 +64,7 @@ async def agent_delegations_list(
             "openclaw_chat": context.openclaw_chat_settings.public_config(),
             "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
             "max_active": AGENT_DELEGATION_MAX_ACTIVE,
-            "connections": context.store.list_agent_delegations(user["id"]),
+            "connections": [project_connection(row, user["role"], settings) for row in context.store.list_agent_delegations(user["id"])],
         }
     )
 
@@ -82,50 +83,14 @@ async def agent_delegations_create(
             status_code=409,
             action="Ask an administrator to enable Remote MCP.",
         )
-    if payload.access == "subscriptions_write":
-        if user.get("role") == "viewer":
-            raise ApiError(
-                "forbidden",
-                "viewer users cannot create subscription write connections",
-                status_code=403,
-            )
-        if not settings.subscription_writes_enabled:
-            raise ApiError(
-                "subscription_writes_disabled",
-                "subscription writes are disabled",
-                status_code=409,
-                action="Ask an administrator to enable subscription writes.",
-            )
-    if payload.access == "system_settings_write":
-        if user.get("role") not in {"owner", "admin"}:
-            raise ApiError(
-                "forbidden",
-                "system settings connections require owner or admin role",
-                status_code=403,
-            )
-        if not settings.system_settings_writes_enabled:
-            raise ApiError(
-                "system_settings_writes_disabled",
-                "system settings writes are disabled",
-                status_code=409,
-                action="Ask an administrator to enable system settings writes.",
-            )
-    if (
-        payload.diagnostics_scope == "workspace"
-        and user.get("role") not in {"owner", "admin"}
-    ):
-        raise ApiError(
-            "forbidden",
-            "workspace diagnostics require owner or admin role",
-            status_code=403,
-        )
+    access = payload.access if payload.access.startswith('information_automations_') else 'role_default'
     try:
         connection, token = context.store.create_agent_delegation(
             workspace_id=user["workspace_id"],
             user_id=user["id"],
             name=payload.name,
-            access=payload.access,
-            diagnostics_scope=payload.diagnostics_scope,
+            access=access,
+            diagnostics_scope="self",
         )
     except PermissionError as exc:
         raise ApiError(
@@ -141,7 +106,7 @@ async def agent_delegations_create(
             action="Revoke an unused connection before creating another.",
         ) from exc
     response.headers["Cache-Control"] = "no-store"
-    return ok({"connection": connection, "token": token})
+    return ok({"connection": project_connection(connection, user["role"], settings), "token": token})
 
 
 async def agent_delegations_patch(
@@ -155,7 +120,7 @@ async def agent_delegations_patch(
     )
     if connection is None:
         raise ApiError("not_found", "connection not found", status_code=404)
-    return ok(connection)
+    return ok(project_connection(connection, user["role"], context.remote_mcp_settings))
 
 
 async def agent_delegations_delete(

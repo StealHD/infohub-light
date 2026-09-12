@@ -229,7 +229,7 @@ export type NotificationTestResult = {
   verification?: 'http_accepted' | 'provider_accepted'
 }
 
-export type AgentDelegationAccess = 'read' | 'subscriptions_write' | 'system_settings_write' | 'information_automations_read' | 'information_automations_draft'
+export type AgentDelegationAccess = 'role_default' | 'read' | 'subscriptions_write' | 'system_settings_write' | 'information_automations_read' | 'information_automations_draft'
 
 export type AgentDelegationDiagnosticsScope = 'self' | 'workspace'
 
@@ -242,7 +242,7 @@ export type AgentDelegation = {
   id: string
   name: string
   client_type: 'openclaw'
-  access: AgentDelegationAccess
+  access: AgentDelegationAccess; permission_profile?: 'role_default'; permissions?: import('./agentConnectionService').McpPermissions
   diagnostics_scope: AgentDelegationDiagnosticsScope
   scopes: AgentDelegationScope[]
   token_prefix: string

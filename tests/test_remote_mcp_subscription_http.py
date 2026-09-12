@@ -354,7 +354,7 @@ async def test_real_mcp_client_prepare_apply_is_atomic_and_single_use(
 
 
 @pytest.mark.anyio
-async def test_real_mcp_client_read_delegation_gets_stable_write_scope_error(
+async def test_real_mcp_client_legacy_read_delegation_gains_role_subscription_write(
     tmp_path, monkeypatch
 ):
     app = _app(tmp_path, monkeypatch, writes_enabled=True)
@@ -373,9 +373,8 @@ async def test_real_mcp_client_read_delegation_gets_stable_write_scope_error(
             },
         )
 
-    assert result.isError is True
-    assert result.content[0].text.endswith(": write_scope_required")
-    assert _table_count(app, "agent_change_proposals") == 0
+    assert result.isError is False
+    assert _table_count(app, "agent_change_proposals") == 1
 
 
 @pytest.mark.anyio

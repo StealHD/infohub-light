@@ -1,9 +1,11 @@
 """Same-origin, session-authenticated server OpenClaw transport."""
 import logging
+from functools import partial
 from collections import Counter
 from urllib.parse import urlsplit
 from fastapi import FastAPI, WebSocket
 from ..auth import COOKIE_NAME
+from ..services.openclaw_relay.session_delete import delete_owned_session
 from ..services.agent_connections.service import AgentConnections
 from ..services.agent_skill_access import AgentSkillAccess, AgentSkillPolicyError
 from ..services.openclaw_relay.bridge import RelayFailure, relay
@@ -52,7 +54,7 @@ async def openclaw_socket(socket: WebSocket):
         await socket.accept()
         await relay(
             socket, owner, valid_session, binding['agent_id'], readonly=user['role'] == 'viewer',
-            allowed_skill_keys=allowed_skill_keys, chat_ready=skill_policy_ready,
+            allowed_skill_keys=allowed_skill_keys, chat_ready=skill_policy_ready, delete_session=partial(delete_owned_session, context),
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("OpenClaw relay closed: %s", str(exc) if isinstance(exc, RelayFailure) else type(exc).__name__)

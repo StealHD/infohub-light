@@ -15,12 +15,9 @@ async def check_mcp(manifest, token, *, transport=None):
                     await session.initialize()
                     tools = await session.list_tools()
                     names = {tool.name for tool in tools.tools}
-                    # MCP discovery is global; each invocation enforces delegation scopes.
-                    # The managed Agent independently restricts its tools to this manifest.
-                    if not set(manifest['tools']) <= names or any(
-                            not tool.annotations or tool.annotations.readOnlyHint is not True
-                            for tool in tools.tools if tool.name in manifest['tools']):
-                        raise ValueError('MCP tools differ from personal read-only policy')
+                    from .manifest import READ_TOOLS
+                    if not set(READ_TOOLS) <= names or not names <= set(manifest['tools']):
+                        raise ValueError('MCP tools differ from personal role policy')
                     result = await session.call_tool('list_subscriptions', {})
                     if result.isError:
                         raise ValueError('Personal MCP read failed')

@@ -16,7 +16,7 @@ OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电�
 
 `agent_source_resolutions` 是 schema v12 的短期、actor-bound planner envelope 表；只保存 registry 已验证的 existing/private 输入、安全指纹和到期时间，envelope 内的规范 Feed/config 只供服务端 planner 使用且任何解析工具都不得回传。引用绑定 workspace、user 和 delegation，十分钟到期、每 delegation 最多二十个有效值，并由 maintenance 与 storage governance 清理。`prepare_create_subscription` 只能把同 actor 的有效引用投影回既有 mutation planner；跨 actor、隐藏来源、过期或损坏引用必须 fail closed。
 
-Remote MCP 是唯一 Service MCP，入口固定为 FastAPI `/mcp`；仓库不再提供本地 stdio server、run store 或 legacy adapter。抓取、AI、通知、密钥和任意直接执行型系统写工具不得注册。唯一配置例外是 typed system-settings proposal：独立 `inteliscope:system-settings:write` scope、默认关闭开关、实时 `owner/admin`、严格 allowlist 与精确确认全部满足后才可 CAS 写当前 workspace override；它不调用抓取、Actor、AI 或通知。订阅写、系统写和 workspace 诊断三种授权相互独立，既有连接不升级，角色降级立即失效。
+Remote MCP 是唯一 Service MCP，入口固定为 FastAPI `/mcp`；仓库不再提供本地 stdio server、run store 或 legacy adapter。抓取、AI、通知、密钥和任意直接执行型系统写工具不得注册。唯一配置例外是 typed system-settings proposal：独立 `inteliscope:system-settings:write` scope、默认关闭开关、实时 `owner/admin`、严格 allowlist 与精确确认全部满足后才可 CAS 写当前 workspace override；它不调用抓取、Actor、AI 或通知。用户连接由 `agent_delegation_scopes.effective_scopes` 统一按实时角色投影；认证、工具目录及事务末端复验共用该规则，旧令牌保留。内部 information delegation 独立，角色降级立即收权。
 
 `SystemSettingsService` 与 `system_settings_registry.py` 是 21 项安全运行参数的唯一解析/类型边界，顺序固定为 DB override、环境 alias、内置默认。global 32 只保存 workspace overrides/generation 与短期 proposal；已有数据库必须先处于有效 global 31，再停 API/Worker 显式迁移，fresh DB 自动建立。`SystemSettingProposalService` 由 Web 与 MCP 共用，在一次写事务中重验 actor/delegation/generation 并 CAS；日志只能记录 canonical key 名称与计数，不能记录值、alias 或确认短语。运行时消费者每次 admission、新 Job、失败、维护、快照或采集决定时解析对应值，显式测试构造参数仍优先。
 

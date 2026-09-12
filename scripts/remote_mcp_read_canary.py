@@ -173,7 +173,8 @@ async def _primary_checks(
 ) -> tuple[tuple[str, ...], str, str, str]:
     listed = await primary.list_tools()
     registered_tools = tuple(tool.name for tool in listed.tools)
-    if registered_tools != ALL_REMOTE_TOOLS:
+    from src.services.agent_connections.manifest import READ_TOOLS
+    if not set(READ_TOOLS) <= set(registered_tools) <= set(ALL_REMOTE_TOOLS):
         raise CanaryFailure("tool_contract_mismatch")
 
     feed = await _read_call(

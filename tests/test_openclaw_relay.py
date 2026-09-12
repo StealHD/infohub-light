@@ -78,7 +78,7 @@ def test_socket_uses_server_identity_not_browser_token(monkeypatch):
     observed = []
     monkeypatch.setattr('src.api.openclaw_relay_routes.AgentConnections.live',
                         lambda self, user: {'agent_id': 'ih-test', 'binding_id': 'test'})
-    async def stub(socket, owner, valid, agent, *, readonly=False, allowed_skill_keys, chat_ready):
+    async def stub(socket, owner, valid, agent, *, readonly=False, allowed_skill_keys, chat_ready, delete_session):
         observed.append((owner, bool(valid()), callable(allowed_skill_keys), callable(chat_ready)))
         await socket.send_json({'ready': True})
         await socket.close()

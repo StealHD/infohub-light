@@ -1,3 +1,4 @@
+import { McpPermissions } from './McpPermissions'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -53,6 +54,7 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
         : state?.can_manage_setup ? '由系统自动完成个人配置和验证，无需下载文件或手动创建令牌。'
           : state?.can_request ? '申请管理员批准后，系统将配置你的个人 Agent，无需填写连接信息。'
             : state ? '请管理员为当前账号完成个人接入。' : '正在读取接入状态…'}</Card.Description>
+    <McpPermissions permissions={state?.permissions} />
     {!chat && state && !state.can_manage_setup && <MemberAccess state={state} refresh={() => query.refetch()} />}
     {state && <AgentCapabilityStatus state={state} connected={chat?.status === 'connected'} />}
     {busy && <p className="type-meta mt-3 text-muted" role="status">可以离开页面，返回后查看同一次接入进度。</p>}

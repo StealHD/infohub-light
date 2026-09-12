@@ -7,6 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from src.storage.service_store import AgentDelegationLimitError, ServiceStore
+from src.storage.agent_delegation_scopes import effective_scopes
+
+ADMIN_SCOPES = effective_scopes(["inteliscope:read"], "owner")
 
 
 def test_agent_delegation_schema_and_marker_are_initialized(tmp_path, monkeypatch):
@@ -91,9 +94,9 @@ def test_agent_delegation_secret_is_returned_once_and_only_its_hash_is_stored(
         "id": row["id"],
         "name": "My Mac",
         "client_type": "openclaw",
-        "access": "read",
-        "diagnostics_scope": "self",
-        "scopes": ["inteliscope:read"],
+        "access": "role_default",
+        "diagnostics_scope": "workspace",
+        "scopes": ADMIN_SCOPES,
         "token_prefix": token[:18],
         "created_at": "2026-07-16T00:00:00+00:00",
         "expires_at": "2026-10-14T00:00:00+00:00",
@@ -126,7 +129,7 @@ def test_agent_delegation_authentication_is_bounded_and_usage_touch_is_coalesced
         "workspace_id": user["workspace_id"],
         "user_id": user["id"],
         "role": "owner",
-        "scopes": ["inteliscope:read"],
+        "scopes": ADMIN_SCOPES,
         "expires_at": delegation["expires_at"],
     }
     assert store.list_agent_delegations(user["id"])[0]["last_used_at"] == clock[
@@ -295,7 +298,7 @@ def test_expired_agent_delegation_no_longer_authenticates_or_counts_toward_limit
     assert replacement["status"] == "active"
 
 
-def test_delegation_access_maps_to_canonical_scopes_without_upgrading_old_rows(
+def test_delegation_access_follows_role_without_rewriting_token_rows(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
@@ -317,20 +320,12 @@ def test_delegation_access_maps_to_canonical_scopes_without_upgrading_old_rows(
     )
     store.initialize()
 
-    assert old_connection["access"] == "read"
-    assert old_connection["scopes"] == ["inteliscope:read"]
-    assert store.authenticate_agent_delegation(old_token)["scopes"] == [
-        "inteliscope:read"
-    ]
-    assert write_connection["access"] == "subscriptions_write"
-    assert write_connection["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:subscriptions:write",
-    ]
-    assert store.authenticate_agent_delegation(write_token)["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:subscriptions:write",
-    ]
+    assert old_connection["access"] == "role_default"
+    assert old_connection["scopes"] == ADMIN_SCOPES
+    assert store.authenticate_agent_delegation(old_token)["scopes"] == ADMIN_SCOPES
+    assert write_connection["access"] == "role_default"
+    assert write_connection["scopes"] == ADMIN_SCOPES
+    assert store.authenticate_agent_delegation(write_token)["scopes"] == ADMIN_SCOPES
 
 
 def test_workspace_diagnostics_scope_is_explicit_and_admin_only(
@@ -362,19 +357,11 @@ def test_workspace_diagnostics_scope_is_explicit_and_admin_only(
         diagnostics_scope="workspace",
     )
 
-    assert legacy["diagnostics_scope"] == "self"
-    assert store.authenticate_agent_delegation(legacy_token)["scopes"] == [
-        "inteliscope:read"
-    ]
+    assert legacy["diagnostics_scope"] == "workspace"
+    assert store.authenticate_agent_delegation(legacy_token)["scopes"] == ADMIN_SCOPES
     assert workspace_connection["diagnostics_scope"] == "workspace"
-    assert workspace_connection["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:diagnostics:read",
-    ]
-    assert store.authenticate_agent_delegation(workspace_token)["scopes"] == [
-        "inteliscope:read",
-        "inteliscope:diagnostics:read",
-    ]
+    assert workspace_connection["scopes"] == ADMIN_SCOPES
+    assert store.authenticate_agent_delegation(workspace_token)["scopes"] == ADMIN_SCOPES
     with pytest.raises(PermissionError, match="owner or admin"):
         store.create_agent_delegation(
             workspace_id=workspace["id"],

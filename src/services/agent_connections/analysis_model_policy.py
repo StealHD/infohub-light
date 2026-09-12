@@ -1,4 +1,4 @@
-"""Track only a system-created allowlist; never infer ownership of legacy lists."""
+"""Retire proven system snapshots; configured administrator restrictions remain authoritative."""
 import copy
 import json
 from .managed_host import host_lock, wait_loaded
@@ -38,24 +38,21 @@ async def reconcile(host, socket, personal, config):
         if allowed is None:
             return config, None
         if not policy:
-            return config, 'allowlist_ownership_unknown'
+            return config, 'model_unauthorized'
         if policy['owner'] != 'system' or sorted(allowed) != policy['models']:
             record_policy(host.root,allowed,'administrator')
             return config, 'model_unauthorized'
-        desired = sorted(set(allowed) | {row['id'] for row in unfiltered(personal,config)})
-        if desired == sorted(allowed):
-            return config, None
         current = await host.gateway._request(socket,'refresh-config','config.get',{})
         if current.get('path') != str(host.root/'openclaw.json') or not current.get('hash') or json.loads((host.root/'openclaw.json').read_text()) != config:
             raise ValueError('Analysis configuration changed')
         await host.gateway._request(socket,'refresh-policy','config.patch',{
-            'baseHash':current['hash'],'raw':json.dumps({'plugins':{'entries':{'llm-task':{'llm':{'allowedCompletionModels':desired}}}}}),
-            'replacePaths':['plugins.entries.llm-task.llm.allowedCompletionModels'],'note':'Inteliscope managed model discovery'})
+            'baseHash':current['hash'],'raw':json.dumps({'plugins':{'entries':{'llm-task':{'llm':{'allowedCompletionModels':None}}}}}),
+            'note':'Inteliscope managed model discovery'})
         await wait_loaded(host.gateway,socket)
         updated = json.loads((host.root/'openclaw.json').read_text())
-        if updated.get('plugins',{}).get('entries',{}).get('llm-task',{}).get('llm',{}).get('allowedCompletionModels') != desired:
+        if updated.get('plugins',{}).get('entries',{}).get('llm-task',{}).get('llm',{}).get('allowedCompletionModels') is not None:
             raise ValueError('Analysis policy not loaded')
-        record_policy(host.root,desired)
+        record_policy(host.root, [], 'retired')
         return updated, None
 
 

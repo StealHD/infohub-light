@@ -54,7 +54,7 @@ def test_personal_identity_credentials_and_restart(personal, tmp_path):
     assert ta not in (tmp_path / 'export/manifest.json').read_text()
 
 
-@pytest.mark.parametrize('failure', ['revoke', 'disable', 'expire', 'expand', 'delete', 'wrong_owner'])
+@pytest.mark.parametrize('failure', ['revoke', 'disable', 'expire', 'delete', 'wrong_owner'])
 def test_binding_invalidates_live_authorization_without_fallback(personal, failure):
     store, connections, alice, bob = personal
     a, token, _ = bind(connections, alice)
@@ -83,7 +83,7 @@ def test_provisioning_never_adopts_existing_delegation_or_accepts_other_proof(pe
     a, token, proof = bind(connections, alice)
     b, _, other = bind(connections, bob)
     assert a['delegation_id'] != old['id']
-    assert store.get_active_agent_delegation_principal(old['id'])['scopes'] == ['inteliscope:read']
+    assert 'inteliscope:system-settings:write' in store.get_active_agent_delegation_principal(old['id'])['scopes']
     with pytest.raises(ValueError):
         connections.activate(alice['id'], other)
     with pytest.raises(ValueError):

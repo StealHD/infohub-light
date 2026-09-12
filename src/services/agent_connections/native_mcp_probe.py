@@ -5,6 +5,7 @@ import os
 import shutil
 from pathlib import Path
 from .gateway_config import verify_config
+from .manifest import READ_TOOLS
 from .managed_host import ManagedSetupError
 
 
@@ -18,7 +19,7 @@ async def check(root, manifest, token):
     server = dict(config['mcp']['servers'][manifest['mcp_server']])
     server['headers'] = {'Authorization': 'Bearer ' + token}
     payload = {'packageRoot': str(package), 'server': manifest['mcp_server'],
-               'config': server, 'requiredTools': manifest['tools']}
+               'config': server, 'requiredTools': list(READ_TOOLS)}
     script = Path(__file__).resolve().parents[3] / 'scripts' / 'probe_native_mcp.mjs'
     process = await asyncio.create_subprocess_exec(node, str(script), stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)

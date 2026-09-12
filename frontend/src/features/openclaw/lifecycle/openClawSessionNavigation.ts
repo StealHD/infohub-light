@@ -1,5 +1,4 @@
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
-import { projectWorkspaceSessions } from '../workspace/openclawWorkspaceProjection'
 import type { OpenClawRuntimeProjection } from '../chat/openclawRuntimeProjection'
 import { runtimeFailureMessage } from '../chat/openclawSetupIssue'
 import type { OpenClawCredentialVault } from '../openclawCredentialVault'
@@ -42,7 +41,8 @@ export async function openOpenClawSession(input: OpenSessionInput, sessionKey: s
     const preview = await client.request('sessions.preview', openClawSessionPreviewParams(targetKey))
     if (!isCurrent()) return false
     if (projectOpenClawSessionPreview(preview, targetKey) !== 'present') throw new Error('会话暂不可用。')
-    const listed = projectWorkspaceSessions(await client.request('sessions.list', { search: targetKey, limit: 100, archived: 'all' }))
+    const directory = await client.request('sessions.list', { search: targetKey, limit: 100, archived: 'all' })
+    const listed = (await import('../workspace/openclawWorkspaceProjection')).projectWorkspaceSessions(directory)
     if (!isCurrent()) return false
     const matches = listed.filter((session) => session.key === targetKey)
     if (matches.length !== 1) throw new Error('会话不在授权目录中。')

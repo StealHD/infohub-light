@@ -1,3 +1,4 @@
+import { McpPermissions } from './McpPermissions'
 import { useState } from 'react'
 import { Button, Modal, StableAsyncButton, TextField, TextArea, Label } from '../../design-system'
 import type { AgentAccessRequest } from '../../api/agentConnectionService'
@@ -30,6 +31,7 @@ export function AccessRequestRow({ row, refresh }: { row: AgentAccessRequest; re
     <div className="min-w-0 grid gap-1">
       <p className="type-control break-words">{row.display_name || row.username} · {row.username}</p>
       <p className="type-meta text-muted">{roleNames[row.role || 'member'] || row.role} · {new Date(row.created_at).toLocaleString()} · {status}</p>
+    <McpPermissions permissions={row.permissions} />
       {(row.reason || row.error) && <p className="type-body break-words">{row.reason || row.error}</p>}
       {error && !open && <p role="alert" className="type-body">{error}</p>}
     </div>

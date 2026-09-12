@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from ...storage.agent_connection_schema import migration_marker_exists, schema_shapes_valid
-from .manifest import READ_TOOLS, canonical, validate_manifest, validate_receipt
+from .manifest import USER_TOOLS, canonical, validate_manifest, validate_receipt
 from ..agent_skill_access import AgentSkillAccess, AgentSkillPolicyError
 
 
@@ -32,7 +32,7 @@ class AgentConnections:
         principal = self.store.get_active_agent_delegation_principal(row['delegation_id'])
         if (not principal or principal['user_id'] != user['id']
                 or principal['workspace_id'] != user['workspace_id']
-                or principal['scopes'] != ['inteliscope:read']):
+                or not principal['scopes'] or any(scope.startswith('inteliscope:information-automations:') for scope in principal['scopes'])):
             return None
         return row
 
@@ -73,11 +73,11 @@ class AgentConnections:
             except AgentSkillPolicyError as error:
                 raise BindingError('Run the explicit global 41 migration first') from error
             manifest = validate_manifest({
-                'version': 2, 'binding_id': binding_id, 'user_id': user_id, 'workspace_id': user['workspace_id'],
+                'version': 3, 'binding_id': binding_id, 'user_id': user_id, 'workspace_id': user['workspace_id'],
                 'agent_id': 'ih-' + binding_id, 'mcp_server': 'ih_' + binding_id[:24],
                 'secret_ref': 'INTELISCOPE_MCP_' + binding_id.upper(), 'mcp_url': mcp_url,
                 'delegation_id': delegation['id'], 'token_sha256': hashlib.sha256(token.encode()).hexdigest(),
-                'tools': list(READ_TOOLS),
+                'tools': list(USER_TOOLS),
                 'skills': list(skill_policy['allowed_skill_keys']),
             })
             self.secrets.set(manifest['secret_ref'], token)
@@ -109,7 +109,7 @@ class AgentConnections:
         manifest, token = self.export(user_id)
         validate_receipt(manifest, token, proof)
         principal = self.store.get_active_agent_delegation_principal(manifest['delegation_id'])
-        if not principal or principal['user_id'] != user_id or principal['scopes'] != ['inteliscope:read']:
+        if not principal or principal['user_id'] != user_id or not principal['scopes'] or any(scope.startswith('inteliscope:information-automations:') for scope in principal['scopes']):
             raise BindingError('Delegation invalid')
         connection = self.store.connect()
         try:

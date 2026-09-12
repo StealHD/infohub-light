@@ -110,8 +110,7 @@ async def test_workspace_operation_logs_require_explicit_admin_delegation_and_fi
             {"scope": "workspace", "minimum_level": "warning"},
         )
 
-    assert old_owner.isError is True
-    assert "diagnostics_scope_required" in old_owner.content[0].text
+    assert old_owner.isError is False
     assert member_denied.isError is True
     assert "diagnostics_scope_required" in member_denied.content[0].text
     assert broad_denied.isError is True

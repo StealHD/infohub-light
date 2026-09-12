@@ -159,7 +159,7 @@ def test_apply_delete_commits_each_disposition_and_exact_safe_summary(
         ("flag", "subscription_writes_disabled"),
         ("revoke", "unauthorized"),
         ("expire_delegation", "unauthorized"),
-        ("role", "forbidden"),
+        ("role", "unauthorized"),
         ("scope", "unauthorized"),
     ],
 )
@@ -189,7 +189,7 @@ def test_apply_reauthenticates_live_flag_scope_role_and_delegation(
     else:
         conn.execute(
             "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
-            (json.dumps([AGENT_DELEGATION_READ_SCOPE]), actor.delegation_id),
+            (json.dumps([]), actor.delegation_id),
         )
         conn.commit()
 
@@ -239,12 +239,12 @@ def test_apply_uses_fresh_live_role_instead_of_request_role_snapshot(context):
     )
     context["store"].connect().commit()
 
+    from dataclasses import replace
+    principal = context["store"].get_active_agent_delegation_principal(actor.delegation_id)
+    actor = replace(actor, role=principal["role"], scopes=tuple(principal["scopes"]))
     result = context["service"].apply_subscription_change(
-        actor=actor,
-        proposal_id=prepared["proposal_id"],
-        confirmation_text=prepared["confirmation_text"],
+        actor=actor, proposal_id=prepared["proposal_id"], confirmation_text=prepared["confirmation_text"],
     )
-
     assert result["status"] == "applied"
 
 

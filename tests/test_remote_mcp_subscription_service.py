@@ -364,8 +364,7 @@ def test_unsubscribed_filter_uses_only_the_current_users_subscriptions(context):
     ("flag", "actor_factory", "expected_code"),
     [
         (False, _read_actor, "subscription_writes_disabled"),
-        (True, _read_actor, "write_scope_required"),
-        (True, lambda context: _actor(context, "viewer"), "forbidden"),
+        (True, lambda context: _actor(context, "viewer"), "write_scope_required"),
     ],
 )
 def test_prepare_guard_order_fails_before_object_queries(
@@ -420,14 +419,14 @@ def test_prepare_rejects_forged_actor_binding_before_object_queries(
     assert _proposal_count(context) == 0
 
 
-def test_prepare_rejects_forged_write_scope_on_read_delegation(context):
+def test_prepare_rejects_forged_admin_scope_on_member_delegation(context):
     read = _read_actor(context)
     forged = DelegatedActor(
         workspace_id=read.workspace_id,
         user_id=read.user_id,
         role=read.role,
         delegation_id=read.delegation_id,
-        scopes=(AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE),
+        scopes=(AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE, "inteliscope:system-settings:write"),
     )
 
     with pytest.raises(AgentProposalError) as error:
@@ -466,7 +465,7 @@ def test_prepare_rechecks_revocation_and_live_user_role(context):
             subscription={},
             schedule=None,
         )
-    assert downgraded.value.code == "forbidden"
+    assert downgraded.value.code == "unauthorized"
 
     context["store"].connect().execute(
         "UPDATE users SET role = 'member' WHERE id = ?", (actor.user_id,)

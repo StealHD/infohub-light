@@ -99,17 +99,10 @@ class SystemSettingProposalService:
             raise SystemSettingProposalError(
                 "system_settings_delegation_invalid", "live delegation is required"
             )
-        try:
-            scopes = json.loads(str(delegation["scopes_json"]))
-        except (TypeError, json.JSONDecodeError) as error:
-            raise SystemSettingProposalError(
-                "system_settings_scope_required", "system settings scope is required"
-            ) from error
-        if (
-            not isinstance(scopes, list)
-            or not all(isinstance(scope, str) for scope in scopes)
-            or SYSTEM_SETTINGS_WRITE_SCOPE not in scopes
-        ):
+        from ..storage.service_store import _safe_agent_delegation_scopes
+        from ..storage.agent_delegation_scopes import effective_scopes
+        scopes = effective_scopes(_safe_agent_delegation_scopes(delegation["scopes_json"]), user["role"])
+        if SYSTEM_SETTINGS_WRITE_SCOPE not in scopes:
             raise SystemSettingProposalError(
                 "system_settings_scope_required", "system settings scope is required"
             )

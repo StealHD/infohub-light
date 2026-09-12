@@ -171,7 +171,7 @@ export function createServiceApi(client: ApiClient) {
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
     createAgentDelegation: (
       name: string,
-      access: AgentDelegationAccess = 'read',
+      access: AgentDelegationAccess = 'role_default',
       diagnosticsScope: 'self' | 'workspace' = 'self',
     ) => client.post<AgentDelegationCreated>(
       '/api/me/agent-delegations',

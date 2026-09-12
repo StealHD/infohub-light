@@ -183,7 +183,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '跨浏览器使用',
-        description: '同一账号默认允许 12 个页面同时连接；关闭标签页或离开站点会释放连接，浏览器后退恢复时重连，切到后台不主动断开。连接不会因满一小时被强制切断。部署管理员可通过 HORIZON_OPENCLAW_MAX_CONNECTIONS_PER_USER（1–100）调整上限并重启 API。即使共用账号，每人仍共享同一 Agent 身份。同一账号的个人 Agent 绑定由服务端保存；换浏览器只需登录、连接，不重复申请 Agent。浏览器仅保存既有会话选择和连接偏好，不保存 MCP 令牌、Gateway 管理凭据或回执。未接入时，聊天和设置统一前往 Agent 接入页。原会话与授权不会被自动删除，撤销对所有浏览器生效。A 模式使用本机前端 5173、API 8080 和原测试库，不需要 Docker。',
+        description: '历史或归档会话可在菜单选择“删除会话”，切换到其他会话并确认后由 Gateway 永久清理；主会话和运行中会话不可删。同一账号默认允许 12 个页面同时连接；关闭标签页或离开站点会释放连接，浏览器后退恢复时重连，切到后台不主动断开。连接不会因满一小时被强制切断。部署管理员可通过 HORIZON_OPENCLAW_MAX_CONNECTIONS_PER_USER（1–100）调整上限并重启 API。即使共用账号，每人仍共享同一 Agent 身份。同一账号的个人 Agent 绑定由服务端保存；换浏览器只需登录、连接，不重复申请 Agent。浏览器仅保存既有会话选择和连接偏好，不保存 MCP 令牌、Gateway 管理凭据或回执。未接入时，聊天和设置统一前往 Agent 接入页。原会话与授权不会被自动删除，撤销对所有浏览器生效。A 模式使用本机前端 5173、API 8080 和原测试库，不需要 Docker。',
         href: '/agents',
         linkLabel: '打开助手连接',
       },
@@ -210,7 +210,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '连接本地 Gateway',
-        description: '浏览器直接连接用户自己的 OpenClaw Gateway。切换本地端口或浏览器后，需要为当前地址完成首次配对：运行 openclaw gateway auth-token --show，在本机终端查看当前 token，再填写到连接表单。只有当前地址已经配对，才能使用“使用已配对设备重连”。多套本地环境各自固定前端端口和对应 API 代理目标，并将实际页面来源加入 Gateway 允许来源；不要依赖默认端口。服务端模式由管理员为每个账号部署独立 Agent 和 MCP 授权，Owner/Admin/Member 绑定就绪后可聊天，Viewer 只读。绑定未配置、过期或吊销时需要修复个人接入；旧 main 会话保留本人只读历史。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
+        description: '浏览器直接连接用户自己的 OpenClaw Gateway。切换本地端口或浏览器后，需要为当前地址完成首次配对：运行 openclaw gateway auth-token --show，在本机终端查看当前 token，再填写到连接表单。只有当前地址已经配对，才能使用“使用已配对设备重连”。多套本地环境各自固定前端端口和对应 API 代理目标，并将实际页面来源加入 Gateway 允许来源；不要依赖默认端口。服务端模式由管理员为每个账号部署独立 Agent 和 MCP 授权，Owner/Admin/Member 绑定就绪后可聊天，Viewer 只读。绑定未配置、过期或吊销时需要修复个人接入；旧 main 会话保留本人只读历史。用户 MCP 连接统一跟随账号角色：管理员可管理订阅、系统设置并查询工作区诊断，成员可管理本人订阅，Viewer 只读；两个写开关和准确确认短语仍然生效。托管连接保留旧令牌自动更新配置，外部手动连接在 Agent 接入页执行“更新 OpenClaw 配置”命令一次。分析模型目录跟随个人与隔离分析 Agent 的 OpenClaw 配置交集，刷新不调用模型。Inscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },
       {
         title: '快捷输入 @ 与 /',

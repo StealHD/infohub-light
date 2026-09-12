@@ -9,6 +9,7 @@ SESSION_METHODS = {
     'chat.send': {'sessionKey', 'agentId', 'message', 'idempotencyKey', 'thinking', 'attachments', 'deliver', 'fastMode'},
     'chat.abort': {'sessionKey', 'agentId', 'runId'},
     'sessions.describe': {'key'},
+    'sessions.delete': {'key', 'deleteTranscript'},
     'sessions.patch': {'key', 'agentId', 'archived'},
     'tools.effective': {'sessionKey', 'agentId'},
 }
@@ -57,6 +58,8 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
     if not key.startswith('agent:' + agent + ':'):
         if method not in {'chat.history', 'sessions.describe'}:
             raise PermissionError('Retired sessions are read-only')
+    if method == 'sessions.delete' and (key == 'agent:' + agent + ':main' or params.get('deleteTranscript') is not True):
+        raise PermissionError('Main session deletion or incomplete cleanup is unavailable')
     result = dict(params)
     if method == 'chat.history' and not key.startswith('agent:' + agent + ':'):
         # Let the exact legacy key select its original Agent; never rewrite history routing.
@@ -73,6 +76,12 @@ def response_payload(method: str, payload: dict, owner: Ownership, agent: str, p
                      allowed_skill_keys=None) -> dict:
     if method == 'chat.history':
         return safe_history_failures(payload)
+    if method == 'sessions.delete':
+        if payload.get('ok') is not True or not isinstance(payload.get('deleted'), bool):
+            raise ValueError('Invalid deletion response')
+        if 'key' in payload and payload['key'] != (params or {}).get('key'):
+            raise ValueError('Deletion identity mismatch')
+        return {'ok': True, 'deleted': payload['deleted']}
     if method == 'sessions.create':
         key = payload.get('key')
         if not isinstance(key, str) or not key.startswith('agent:' + agent + ':'):

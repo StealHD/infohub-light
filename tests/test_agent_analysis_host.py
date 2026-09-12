@@ -50,7 +50,7 @@ def test_install_idempotent_catalog_bounded_and_cleanup_preserves_shared_state(i
     assert asyncio.run(install(host, base, token)) == first
     assert len(host.gateway.writes) == 1
     config = json.loads((host.root / 'openclaw.json').read_text())
-    assert config['plugins']['entries']['llm-task']['llm']['allowedCompletionModels'] == ['test/model']
+    assert 'allowedCompletionModels' not in config['plugins']['entries']['llm-task']['llm']
     path = registry_path(host.root, base)
     assert path.stat().st_mode & 0o077 == 0
     assert token not in path.read_text() + json.dumps(config) + json.dumps(host.gateway.writes)

@@ -152,7 +152,7 @@ describe('service api', () => {
     })
     expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {
       name: 'Read Mac',
-      access: 'read',
+      access: 'role_default',
       diagnostics_scope: 'self',
     })
     expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {

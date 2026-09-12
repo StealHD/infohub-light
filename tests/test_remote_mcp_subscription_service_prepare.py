@@ -7,7 +7,7 @@ from tests.remote_mcp_subscription_service_test_support import *  # noqa: F403
     [
         ("revoke", "unauthorized"),
         ("disable", "unauthorized"),
-        ("role", "forbidden"),
+        ("role", "unauthorized"),
         ("scopes", "unauthorized"),
     ],
 )
@@ -50,7 +50,7 @@ def test_prepare_final_guard_is_atomic_with_principal_changes(
         else:
             conn.execute(
                 "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
-                ('["inteliscope:read"]', actor.delegation_id),
+                ('[]', actor.delegation_id),
             )
         conn.commit()
 

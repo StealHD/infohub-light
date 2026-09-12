@@ -177,7 +177,7 @@ def test_proposal_store_rejects_inactive_write_principal_in_locked_create(
     else:
         connection.execute(
             "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
-            ('["inteliscope:read"]', delegation["id"]),
+            ('[]', delegation["id"]),
         )
     connection.commit()
 

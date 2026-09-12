@@ -45,7 +45,7 @@ def test_prepare_download_activate_preserves_existing_connection(api):
     assert manifest['mcp_url'] == 'http://127.0.0.1:8080/mcp'
     assert manifest['delegation_id'] != old['id']
     assert store.get_active_agent_delegation_principal(old['id'])
-    assert store.authenticate_agent_delegation(token)['scopes'] == ['inteliscope:read']
+    assert 'inteliscope:system-settings:write' in store.authenticate_agent_delegation(token)['scopes']
     assert api.get('/api/me/agent-connection').json()['data']['state'] == 'pending_verification'
     proof = receipt(manifest, token, 'a' * 64)
     response = api.post(ROOT + '/activate', json={'confirmed': True, 'receipt_json': json.dumps(proof)})

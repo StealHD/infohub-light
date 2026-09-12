@@ -12,6 +12,12 @@ READ_TOOLS = (
     'diagnose_source', 'diagnose_job', 'query_operation_logs',
 )
 
+USER_TOOLS = READ_TOOLS + (
+    'prepare_create_subscription', 'prepare_update_subscription', 'prepare_delete_subscription',
+    'apply_subscription_change', 'list_system_settings', 'prepare_update_system_settings',
+    'apply_system_settings_change',
+)
+
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
@@ -31,10 +37,10 @@ def validate_manifest(manifest):
     identifier = manifest['binding_id']
     if not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9]{32}', identifier):
         raise ValueError('Invalid binding identity')
-    if (manifest['version'] not in {1, 2} or manifest['agent_id'] != 'ih-' + identifier
+    if (manifest['version'] not in {1, 2, 3} or manifest['agent_id'] != 'ih-' + identifier
             or manifest['mcp_server'] != 'ih_' + identifier[:24]
             or manifest['secret_ref'] != 'INTELISCOPE_MCP_' + identifier.upper()
-            or manifest['tools'] != list(READ_TOOLS)
+            or manifest['tools'] != list(USER_TOOLS if manifest['version'] == 3 else READ_TOOLS)
             or not re.fullmatch(r'[a-f0-9]{64}', str(manifest['token_sha256']))):
         raise ValueError('Invalid binding policy')
     skills = manifest.get('skills')

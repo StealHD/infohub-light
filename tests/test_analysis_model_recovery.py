@@ -14,10 +14,13 @@ from src.services.agent_connections.analysis_model_policy import policy_path
 def test_installed_allowlist_discovers_added_model_only_when_owned(installation,policy):
     host,base,token=prepared(installation)
     asyncio.run(install(host,base,token))
-    if policy=='unknown': policy_path(host.root).unlink()
-    if policy=='administrator':
-        record=json.loads(policy_path(host.root).read_text());record['owner']='administrator'
-        policy_path(host.root).write_text(json.dumps(record))
+    path = host.root / 'openclaw.json'
+    config = json.loads(path.read_text())
+    config['plugins']['entries']['llm-task']['llm']['allowedCompletionModels'] = ['test/model']
+    path.write_text(json.dumps(config))
+    if policy != 'unknown':
+        from src.services.agent_connections.analysis_model_policy import record_policy
+        record_policy(host.root, ['test/model'], policy)
     original=host.gateway._request
     async def request(socket,identity,method,params):
         if method=='models.list':
@@ -27,7 +30,7 @@ def test_installed_allowlist_discovers_added_model_only_when_owned(installation,
     value=asyncio.run(models(host,base))
     assert [row['id'] for row in value['models']]==(['test/model','test/new'] if policy=='system' else ['test/model'])
     if policy!='system':
-        assert value['filtered_models'][0]['reason']==('allowlist_ownership_unknown' if policy=='unknown' else 'model_unauthorized')
+        assert value['filtered_models'][0]['reason']=='model_unauthorized'
     else:
         # Repeated sync is read-only once the configuration matches.
         count=len(host.gateway.writes);asyncio.run(models(host,base));assert len(host.gateway.writes)==count
@@ -41,4 +44,16 @@ def test_admin_edit_after_install_is_not_overwritten(installation):
     path.write_text(json.dumps(config))
     assert asyncio.run(models(host,base))['models']==[]
     assert json.loads(path.read_text())==config
-    assert json.loads(policy_path(host.root).read_text())['owner']=='administrator'
+    assert not policy_path(host.root).exists()
+
+
+@pytest.mark.parametrize('allowed,expected', [(None, ['test/both']), (['test/personal'], []), (['test/both'], ['test/both'])])
+def test_catalog_is_usable_configured_intersection(allowed, expected):
+    from src.services.agent_connections.analysis_model_policy import project_discovery
+    policy = {'allowModelOverride': True}
+    if allowed is not None:
+        policy['allowedCompletionModels'] = allowed
+    config = {'plugins': {'entries': {'llm-task': {'enabled': True, 'llm': policy}}}}
+    personal = {'models': [{'provider': 'test', 'id': 'both'}, {'provider': 'test', 'id': 'personal'}, {'provider': 'test', 'id': 'offline', 'available': False}]}
+    analysis = {'models': [{'provider': 'test', 'id': 'both'}, {'provider': 'test', 'id': 'analysis'}, {'provider': 'test', 'id': 'offline'}]}
+    assert [row['id'] for row in project_discovery(personal, analysis, config)['models']] == expected

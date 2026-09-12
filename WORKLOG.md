@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "phase"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "按用户授权从干净本地 main 准备 v2.6.12，复用精确提交 CI 与 Tag smoke，在本地构建 amd64 镜像并上传 VPS；升级包含停服、独立备份、global 37–41 显式迁移、标准健康验证及失败回滚。",
-  "status": "completed",
-  "task_id": "release-v2612-vps-20260909",
-  "unresolved": [],
-  "validation": [
-    "发布提交 71f067092d8090dbf50d97dc074c59c1dab1cc74；主干 CI 34334520614、Tag smoke 34335939019 均通过。修正过期 UI 断言及预览完成竞争，定向浏览器 12/12、6/6 通过并正常退出，临时预览端口已清理；最终 impacted preflight 12/12 通过。",
-    "本机构建 linux/amd64 镜像，上传源码和镜像 SHA-256 校验通过；停服备份后显式应用 global 37–41，完整性/外键及原表记录数量校验通过。",
-    "VPS current=2.6.12-20260909T092436Z-71f067092d80；API/Worker 均 healthy，runtime_health 已验证目标版本、revision、source digest、前端资源及公网健康；Release v2.6.12 已发布，临时上传目录已清理。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -441,6 +423,31 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "相关模式、CI 历史、覆盖范围、脚本分流、产物一致性和清理测试通过；最终 impacted preflight 16/16 通过（616.772 秒），mapping_miss=false、SQLite ResourceWarning=0，结果可复用。",
     "临时干净检出的源码输入与任务一致；本地真实 AMD64 构建、打包和隔离验收通过（缓存命中下共 53.321 秒）。容器内 loopback API smoke 8/8 通过（4.842 秒），使用 network none，测试容器和镜像已清理。",
     "只读核对生产 revision 后，真实最终 Gate 结果通过快速准备的覆盖与输入校验。控制文档结构、Markdown 预算及 diff 格式检查通过；GitHub workflow 仅本地行为验证，未推送、未创建正式 Tag、未部署。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "从本地 main d853e3bb 建立独立修复工作树与分支；模型目录跟随 OpenClaw 配置交集并退役可证明未修改的系统快照，用户 MCP 统一实时角色权限且补齐事务末端校验，托管过滤器保留令牌幂等升级，会话菜单支持确认后永久删除。发布候选版本 2.6.20。",
+  "status": "partial",
+  "task_id": "openclaw-model-mcp-session-fixes-20260912",
+  "unresolved": [
+    "OpenClaw 主机 ubuntu@124.223.12.170 拒绝现有本机维护密钥，已向用户询问 SSH 别名或密钥文件路径；尚未合并 main、发布 VPS、开启线上系统设置写开关或执行远端托管配置升级。",
+    "OpenClaw 2026.9.2 先删会话再回收工作树；为保证失败时保留会话，带工作树会话提前拒绝删除，需先在 OpenClaw 安全清理工作树。"
+  ],
+  "validation": [
+    "本地 impacted preflight 15/15 通过，包含完整后端、148 个前端测试文件 928 项、类型/静态/构建检查；未关闭 SQLite 连接警告为 0。记录：.test-results/20260912T132300Z-26226/result.json。",
+    "Agent Workspace 与会话目录 Playwright：35 通过，16 按设备条件跳过；首屏 JavaScript Brotli 245218 bytes。全程未调用真实 AI 或删除线上会话。",
+    "读取 OpenClaw 2026.9.2 官方发布包核对 sessions.delete 参数、expectedSessionId 与工作树回收顺序。VPS 只读核对：2.6.19，API/Worker healthy。"
   ]
 }
 ```

@@ -33,7 +33,6 @@ from .remote_tool_annotations import (
 from .remote_information_tools import RemoteInformationService
 from .remote_tool_context import RemoteMCPPrincipalContext, RemoteMCPToolContext
 
-
 __all__ = [
     "APPLY_ANNOTATIONS",
     "AgentDelegationTokenVerifier",
@@ -124,6 +123,7 @@ def create_remote_mcp(
     if not settings.enabled:
         raise ValueError("Remote MCP must be enabled before creating its server")
     server = _create_server(store, settings)
+    server.permission_settings = settings
     context = _create_tool_context(
         store,
         settings,

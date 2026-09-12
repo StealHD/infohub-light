@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from src.services.agent_connections.manifest import USER_TOOLS
 
 
 LEGACY_READ_TOOL_FILTER = (
@@ -80,14 +81,9 @@ def standard_tool_filter_upgrade(
     ):
         return None, True
     current = tuple(include)
-    if current == LEGACY_READ_TOOL_FILTER:
-        return READ_TOOL_FILTER, False
-    if current == LEGACY_FULL_TOOL_FILTER:
-        return FULL_TOOL_FILTER, False
-    if current in {
-        READ_TOOL_FILTER,
-        FULL_TOOL_FILTER,
-        SYSTEM_SETTINGS_TOOL_FILTER,
-    }:
+    if current == USER_TOOLS:
         return None, False
+    if current in {LEGACY_READ_TOOL_FILTER, LEGACY_FULL_TOOL_FILTER,
+                   READ_TOOL_FILTER, FULL_TOOL_FILTER, SYSTEM_SETTINGS_TOOL_FILTER}:
+        return USER_TOOLS, False
     return None, True

@@ -32,7 +32,7 @@
 | D027 | HeroUI 生产迁移采用单一设计系统边界与渐进 bootstrap | 2026-07-17 | [查看](records/D026-D050.md#d027) |
 | D028 | 生产 UI 单一切换到 HeroUI，并删除双栈回滚 | 2026-07-17 | [查看](records/D026-D050.md#d028) |
 | D029 | Feed 视觉确认先采用单页 Codex 风格微调 | 2026-07-18 | [查看](records/D026-D050.md#d029) |
-| D030 | — Feed adopts the approved Quiet Studio variant | 2026-07-18 | [查看](records/D026-D050.md#d030) |
+| D030 | Feed Quiet Studio | 2026-07-18 | [查看](records/D026-D050.md#d030) |
 | D031 | Quiet Studio 导航、排序与交接 | 2026-07-18 | [查看](records/D026-D050.md#d031) |
 | D032 | 生产 UI 采用单一字体栈与可执行语义排版契约 | 2026-07-18 | [查看](records/D026-D050.md#d032) |
 | D033 | Quiet Studio 成为全站自适应视觉与交互语言 | 2026-07-19 | [查看](records/D026-D050.md#d033) |
@@ -117,7 +117,7 @@
 | D113 | YouTube Actor 以精确视频 Schema 覆盖模糊定价事件 | 2026-08-03 | [查看](records/D101-D125.md#d113) |
 | D114 | 未知启动自愈与远端费用稳定 | 2026-08-03 | [查看](records/D101-D125.md#d114) |
 | D115 | Settings 采用独立工作区并按路由渐进迁移 | 2026-08-03 | [查看](records/D101-D125.md#d115) |
-| D116 | 密钥管理按 SecretStore 语义原生迁入 Settings Workspace | 2026-08-04 | [查看](records/D101-D125.md#d116) |
+| D116 | SecretStore 设置迁入 | 2026-08-04 | [查看](records/D101-D125.md#d116) |
 | D117 | 获取与主题按配置域迁入 Settings Workspace | 2026-08-04 | [查看](records/D101-D125.md#d117) |
 | D118 | ActorOps 原生化并采用 Default 实色设置表面 | 2026-08-04 | [查看](records/D101-D125.md#d118) |
 | D119 | Settings Workspace 完成存储归档原生化与通知服务表格化 | 2026-08-04 | [查看](records/D101-D125.md#d119) |
@@ -165,7 +165,7 @@
 | D161 | global 26 只迁移已收敛摘要，不接管 v1 inflight | 2026-08-20 | [查看](records/D151-D175.md#d161) |
 | D162 | ActorOps v2 数据面使用双门切换和无状态 Adapter 合同 | 2026-08-20 | [查看](records/D151-D175.md#d162) |
 | D163 | ActorOps v2 对账只结算既有事实，并与 Worker claim 隔离 | 2026-08-20 | [查看](records/D151-D175.md#d163) |
-| D164 | ActorOps v2 Discovery 以安全 checkpoint 和确定性优先恢复 | 2026-08-20 | [查看](records/D151-D175.md#d164) |
+| D164 | ActorOps Discovery 确定性恢复 | 2026-08-20 | [查看](records/D151-D175.md#d164) |
 | D165 | ActorOps v2 站立维护采用双授权、单 Probe 与最后一路保护 | 2026-08-20 | [查看](records/D151-D175.md#d165) |
 | D166 | ActorOps v2 以离线 Route CAS 和逐平台费用授权切流 | 2026-08-20 | [查看](records/D151-D175.md#d166) |
 | D167 | 历史 Actor 费用以保留最坏暴露的离线证据隔离 | 2026-08-21 | [查看](records/D151-D175.md#d167) |
@@ -224,3 +224,4 @@
 | D220 | 发布验证去重 | 2026-09-12 | [查看](records/D201-D225.md#d220) |
 | D221 | 来源身份与分流 | 2026-09-12 | [查看](records/D201-D225.md#d221) |
 | D222 | 标准与快速发布 | 2026-09-12 | [查看](records/D201-D225.md#d222) |
+| D223 | OpenClaw 目录与角色权限 | 2026-09-12 | [查看](records/D201-D225.md#d223) |
