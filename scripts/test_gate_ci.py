@@ -16,6 +16,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from scripts.test_gate import _write_json_private, format_summary
+from scripts.release_mode import commit_mode
 from scripts.test_gate_changes import (
     SHA_PATTERN,
     GateConfigError,
@@ -74,8 +75,9 @@ def verified_main_base(root: Path, head: str) -> str | None:
             and run["headSha"] != head
         }
         history = _git(root, "rev-list", "--first-parent", head).splitlines()
-        return next((sha for sha in history[1:] if sha in candidates), None)
-    except (OSError, subprocess.TimeoutExpired, ValueError, GateConfigError):
+        return next((sha for sha in history[1:] if sha in candidates
+                     and commit_mode(root, sha) == "standard"), None)
+    except (OSError, subprocess.SubprocessError, ValueError, GateConfigError):
         return None
 
 
@@ -171,7 +173,8 @@ def build_ci_plan(
         raise GateConfigError("unsupported CI event")
     mapping = mapping if mapping is not None else load_mapping(root / "tests/test_impact_map.json")
     head = _resolve_commit(root, head)
-    verified = verified_main_base(root, head) if event == "push" else None
+    mode = commit_mode(root, head) if event == "push" else "standard"
+    verified = verified_main_base(root, head) if event == "push" and mode == "standard" else None
     compare_base, comparison_known = (verified, True) if verified else _comparison_base(root, base, head)
     changed = changed_files_from_git(root, compare_base, head)
     metadata_only = bool(verified and version_metadata_only(root, verified, head))
@@ -181,11 +184,14 @@ def build_ci_plan(
         plan["changed_files"] = changed
         plan["counts"]["changed_files"] = len(changed)
         plan["reasons"] = ["verified main baseline: only consistent root version metadata changed"]
-    elif event == "push" and not verified:
+    elif event == "push" and mode == "standard" and not verified:
         _force_full(plan, "no verified older main success: full code domains and complete E2E required")
     elif not comparison_known or compare_base == head:
         _force_full(plan, "no verified comparison range: full code domains and complete E2E required")
-    plan.update(base_sha=compare_base, head_sha=head, verified_main_base=verified, metadata_only=metadata_only)
+    plan.update(base_sha=compare_base, head_sha=head, verified_main_base=verified,
+                metadata_only=metadata_only, release_mode=mode)
+    if event == "workflow_dispatch":
+        _force_full(plan, "explicit manual regression covers all domains and E2E")
     return plan
 
 

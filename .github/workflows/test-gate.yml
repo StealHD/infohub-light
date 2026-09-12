@@ -17,8 +17,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: test-gate-${{ github.ref }}
-  cancel-in-progress: true
+  group: test-gate-${{ github.ref }}-${{ github.sha }}-${{ github.event_name }}
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -27,6 +27,7 @@ jobs:
   impact:
     runs-on: ubuntu-latest
     outputs:
+      release_mode: ${{ steps.plan.outputs.release_mode }}
       ui_impacted: ${{ steps.plan.outputs.ui_impacted }}
       backend_impacted: ${{ steps.plan.outputs.backend_impacted }}
       frontend_impacted: ${{ steps.plan.outputs.frontend_impacted }}
@@ -54,6 +55,13 @@ jobs:
             --output /tmp/impact-plan.json | tee /tmp/impact-summary.json
           python scripts/test_gate.py run --mode targeted --scope control \
             --impact-plan /tmp/impact-plan.json | tee /tmp/control-summary.json
+          release_mode="$(python -c 'import json; print(json.load(open("/tmp/impact-plan.json"))["release_mode"])')"
+          if [[ "$release_mode" == fast ]]; then
+            python scripts/release_mode.py --require fast --check-version
+            python scripts/release_light_checks.py --base "$BASE_SHA" --head "$HEAD_SHA"
+          fi
+          echo "release_mode=$release_mode" >> "$GITHUB_OUTPUT"
+          echo "Release mode: $release_mode (fast = lightweight checks only)" >> "$GITHUB_STEP_SUMMARY"
           echo "ui_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["ui_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
           echo "backend_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["backend_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
           echo "frontend_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["frontend_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
@@ -73,7 +81,7 @@ jobs:
 
   backend-full:
     needs: impact
-    if: needs.impact.outputs.backend_impacted == 'true' || github.event.inputs.release == 'true'
+    if: needs.impact.outputs.release_mode != 'fast' && (needs.impact.outputs.backend_impacted == 'true' || github.event.inputs.release == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -114,7 +122,7 @@ jobs:
 
   frontend-full:
     needs: impact
-    if: needs.impact.outputs.frontend_impacted == 'true' || github.event.inputs.release == 'true'
+    if: needs.impact.outputs.release_mode != 'fast' && (needs.impact.outputs.frontend_impacted == 'true' || github.event.inputs.release == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -157,7 +165,7 @@ jobs:
 
   ui-e2e:
     needs: impact
-    if: needs.impact.outputs.ui_impacted == 'true' || github.event.inputs.release == 'true'
+    if: needs.impact.outputs.release_mode != 'fast' && (needs.impact.outputs.ui_impacted == 'true' || github.event.inputs.release == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

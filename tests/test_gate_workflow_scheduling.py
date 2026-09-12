@@ -31,7 +31,8 @@ def fake_tools(tmp_path):
             stream.write(json.dumps(args) + '\\n')
         if args[0] == 'scripts/test_gate_ci.py':
             pathlib.Path(args[args.index('--output') + 1]).write_text(json.dumps({
-                'ui_impacted': True, 'backend_impacted': True, 'frontend_impacted': True}))
+                'ui_impacted': True, 'backend_impacted': True, 'frontend_impacted': True,
+                'release_mode': os.environ.get('MODE', 'standard')}))
         print('{}')
         raise SystemExit(int(os.environ.get('FAIL_CONTROL', '0'))
                          if '--scope' in args and args[args.index('--scope') + 1] == 'control' else 0)
@@ -95,3 +96,20 @@ def test_tag_can_skip_controls_only_after_exact_main_verification():
     workflow = (ROOT / '.github/workflows/release-tag.yml').read_text()
     assert workflow.index('head_sha=$GITHUB_SHA&branch=main&event=push&status=success') < workflow.index('--skip-control')
     assert '--scope smoke --skip-control' in workflow
+
+
+def test_fast_control_runs_only_lightweight_commands(tmp_path):
+    env = fake_tools(tmp_path)
+    env['MODE'] = 'fast'
+    result = execute(run_block('Generate impact plan and verify shared controls'), tmp_path, env)
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line) for line in Path(env['CALLS']).read_text().splitlines()]
+    assert [args[0] for args in calls] == [
+        'scripts/test_gate_ci.py', 'scripts/test_gate.py',
+        'scripts/release_mode.py', 'scripts/release_light_checks.py']
+    assert 'release_mode=fast' in Path(env['GITHUB_OUTPUT']).read_text()
+    for job in ('backend-full', 'frontend-full', 'ui-e2e'):
+        section = WORKFLOW.split(f'  {job}:\n', 1)[1].split('    runs-on:', 1)[0]
+        assert "needs.impact.outputs.release_mode != 'fast'" in section
+    tag = (ROOT / '.github/workflows/release-tag.yml').read_text()
+    assert tag.count("if: steps.identity.outputs.release_mode == 'standard'") == 3

@@ -27,6 +27,8 @@ HORIZON_AUTH_SECURE_COOKIE=true
 
 ## 3. 标准发布与 canary
 
+本节保留标准发布；显式快速入口、准备产物和轻量 CI 的操作见[管理员运维](../usage_zh.md#8-管理员运维)，验证依据见[快速发布规则](test-gate.md#显式快速发布)。两条路径共用本节运行时切换、健康和回滚。
+
 从干净、与 `origin/main` 完全一致的本地 `main` 发布：
 
 ```bash

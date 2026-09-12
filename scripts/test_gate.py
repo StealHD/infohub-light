@@ -45,7 +45,7 @@ from scripts.test_gate_changes import (
 
 
 from scripts.test_gate_commands import CommandSpec, _python, build_command_specs
-
+from scripts.test_gate_evidence import record_evidence
 
 def _failure_details(
     spec: CommandSpec,
@@ -97,7 +97,7 @@ def _prepare_release_smoke_data(root: Path, data_dir: Path) -> None:
             target_handle.write(chunk)
     target.chmod(0o600)
 
-
+@record_evidence
 def execute_specs(
     root: Path,
     specs: list[CommandSpec],

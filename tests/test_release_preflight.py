@@ -29,9 +29,13 @@ def record(event):
         stream.write(event + "\n")
 
 if command == "python":
-    if args[:2] == ["scripts/test_gate.py", "preflight"]:
+    if args[:1] == ["scripts/test_gate.py"]:
         record("test_gate " + " ".join(args[1:]))
         sys.exit(1 if failure == "test_gate" else 0)
+    if args[0].endswith("release_mode.py"):
+        sys.exit(1 if failure == "mode" else 0)
+    if args[0].endswith("release_light_checks.py"):
+        sys.exit(0)
     os.execv(sys.executable, [sys.executable, *args])
 
 if command == "git" and args[:1] == ["-C"]:
@@ -84,11 +88,35 @@ deploy_remote_release() {
 '''
 
 
+ARTIFACT_STUBS += r'''
+build_package() {
+  echo build >> "$FAKE_EVENT_LOG"
+  [[ "$FAKE_FAILURE" != artifact ]]
+}
+upload_package() {
+  echo upload >> "$FAKE_EVENT_LOG"
+}
+fast_helper() {
+  echo "fast $1" >> "$FAKE_EVENT_LOG"
+  [[ "$FAKE_FAILURE" != "$1" ]] || return 1
+  case "$1" in
+    baseline) echo 1111111111111111111111111111111111111111 ;;
+    verify)
+      mkdir -p "$3"
+      echo '{"baseline":"1111111111111111111111111111111111111111"}' > "$3/manifest.json"
+      echo '99.99.99-fast inteliscope-service:99.99.99-fast 99.99.99 2026-09-12T00:00:00Z'
+      ;;
+  esac
+}
+'''
+
+
 @pytest.fixture
 def run_release_command(tmp_path):
     fixture_root = tmp_path / "checkout"
     scripts = fixture_root / "scripts"
     scripts.mkdir(parents=True)
+    (scripts / "release_fast.sh").write_text((ROOT / "scripts/release_fast.sh").read_text())
     (fixture_root / "pyproject.toml").write_text(
         '[project]\nversion = "99.99.99"\n', encoding="utf-8"
     )
@@ -114,7 +142,7 @@ def run_release_command(tmp_path):
         executable.chmod(0o755)
     event_log = tmp_path / "events.log"
 
-    def run(command, failure="", tag=RELEASE_TAG):
+    def run(command, failure="", tag=RELEASE_TAG, extra=()):
         environment = {
             key: value for key, value in os.environ.items()
             if not key.startswith(("HORIZON_", "INTELISCOPE_"))
@@ -126,7 +154,7 @@ def run_release_command(tmp_path):
             FAKE_FAILURE=failure,
         )
         result = subprocess.run(
-            ["bash", str(script), command, tag], env=environment,
+            ["bash", str(script), command, tag, *extra], env=environment,
             capture_output=True, text=True, timeout=15,
         )
         return result, event_log.read_text(encoding="utf-8").splitlines()
@@ -164,7 +192,7 @@ def test_explicit_preflight_runs_local_tests_without_tagging_or_cutover(run_rele
 
 
 @pytest.mark.parametrize("failure", [
-    "dirty", "branch", "remote_sha", "local_tag", "remote_tag", "migration", "schema", "capacity",
+    "dirty", "branch", "remote_sha", "local_tag", "remote_tag", "migration", "schema", "capacity", "mode",
 ])
 def test_release_prerequisite_failures_block_artifacts_tag_and_cutover(run_release_command, failure):
     result, events = run_release_command("release", failure=failure)
@@ -192,3 +220,32 @@ def test_release_evidence_failures_block_cutover(run_release_command, failure):
     assert any(event.startswith("git tag -a") for event in events) == (failure == "tag_ci")
     assert any(event.startswith("git push") for event in events) == (failure == "tag_ci")
     assert "cutover" not in events
+
+
+def test_fast_publication_never_builds_or_runs_tests(run_release_command):
+    result, events = run_release_command("release-fast")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "build" not in events
+    assert not any(e.startswith("test_gate ") for e in events)
+    assert "fast smoke" not in events and "fast evidence" not in events
+    assert events.index("fast verify") < events.index("upload") < events.index("cutover")
+    assert any("Release-Mode: fast" in e for e in events if e.startswith("git tag"))
+
+
+@pytest.mark.parametrize("failure", ["verify", "main_ci", "tag_ci", "mode"])
+def test_fast_publication_failure_does_not_fallback(run_release_command, failure):
+    result, events = run_release_command("release-fast", failure=failure)
+    assert result.returncode != 0
+    assert "cutover" not in events and "build" not in events
+    assert not any(e.startswith("test_gate ") for e in events)
+
+
+@pytest.mark.parametrize("failure", ["", "evidence", "smoke", "artifact"])
+def test_fast_preparation_is_local_and_builds_once(run_release_command, failure):
+    result, events = run_release_command("prepare-fast", failure=failure,
+                                         extra=("--gate-result", "/tmp/example-result.json"))
+    assert result.returncode == (0 if not failure else 1), result.stdout + result.stderr
+    assert events.count("build") == (0 if failure == "evidence" else 1)
+    assert not any(e.startswith(("git push", "git tag -a", "gh ")) for e in events)
+    assert "upload" not in events and "cutover" not in events
+    assert all("--scope control" in e for e in events if e.startswith("test_gate "))

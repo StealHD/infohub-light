@@ -8,30 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "observability",
-    "phase",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "在 codex/skill-access-control 实现共享服务端 Skills 全站统一开放清单：global 41 空默认策略、Owner/Admin 目录与 revision CAS、独立 Gateway 管理连接、绑定/聊天/目录强制校验，以及成员只读页面与三视口管理流程。",
-  "status": "completed",
-  "task_id": "2026-09-09-skill-access-control",
-  "unresolved": [],
-  "validation": [
-    "合并后的 main 提交 94c954ad 针对 b5ab609a 运行 impacted preflight，16/16 全部通过，包含全量 Pytest、Vitest、lint、类型、UI/E2E 合同和生产构建。",
-    "功能定向后端 45 项及 Playwright Skills 管理三视口 6 项通过；代码大小、观测合同、Markdown、JSON、控制面结构、工作日志与 diff 检查通过。",
-    "WORKLOG 冲突通过保留 main 原记录并由 worklogctl 追加/轮转解决；原 codex/0903 脏工作区未触碰。未迁移真实数据库、重建容器、写入真实 Gateway、推送或发布。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "phase"
   ],
   "recorded_on": "2026-09-09",
@@ -445,6 +421,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "运行健康检查确认 API/Worker/Docker、公网页面资产和 source digest 一致；内外 health 均为 2.6.19 / 3b95f56b106c，当前发布目录为 2.6.19-20260912T091422Z-3b95f56b106c。",
     "GitHub Release v2.6.19 已发布；OpenClaw main Skill 安装树与 bundled 内容一致、Gateway connectivity ok，工具过滤包含 resolve_source。只读 MCP probe 发现本机旧 INTELISCOPE_MCP_TOKEN 在生产 agent_delegations 中不存在，未擅自创建新凭据或执行订阅写入。",
     "为满足 VPS 8 GiB 发布容量阈值，删除未使用的 v2.6.15/v2.6.16 本地运行镜像及已被后续发布取代的 2.6.13/v2.6.14 旧备份目录；保留当前和上一版回滚材料。临时 staging 与本地发布产物已清理。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "verification"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "保留标准发布，新增显式 prepare-fast/release-fast；GitHub 按提交与 Tag 模式分流，快速路径复用本地测试覆盖和正式 AMD64 镜像，共用上传、切换、健康与回滚。",
+  "status": "completed",
+  "task_id": "2026-09-12-fast-release",
+  "unresolved": [],
+  "validation": [
+    "相关模式、CI 历史、覆盖范围、脚本分流、产物一致性和清理测试通过；最终 impacted preflight 16/16 通过（616.772 秒），mapping_miss=false、SQLite ResourceWarning=0，结果可复用。",
+    "临时干净检出的源码输入与任务一致；本地真实 AMD64 构建、打包和隔离验收通过（缓存命中下共 53.321 秒）。容器内 loopback API smoke 8/8 通过（4.842 秒），使用 network none，测试容器和镜像已清理。",
+    "只读核对生产 revision 后，真实最终 Gate 结果通过快速准备的覆盖与输入校验。控制文档结构、Markdown 预算及 diff 格式检查通过；GitHub workflow 仅本地行为验证，未推送、未创建正式 Tag、未部署。"
   ]
 }
 ```

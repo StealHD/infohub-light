@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/release_fast.sh"
 REMOTE_HOST="${INTELISCOPE_DEPLOY_HOST:-vps-tokyo}"
 REMOTE_BASE="${INTELISCOPE_DEPLOY_BASE:-/opt/inteliscope}"
 PUBLIC_URL="${INTELISCOPE_PUBLIC_URL:-https://rb.jiefs.top}"
@@ -15,7 +16,7 @@ TAG_CREATED=false
 TAG_PUSHED=false
 
 usage() {
-  echo "Usage: $0 release <vX.Y.Z> | preflight <vX.Y.Z> | rollback [release-id] | status"
+  echo "Usage: $0 release|release-fast <vX.Y.Z> | prepare-fast <vX.Y.Z> --gate-result PATH [--e2e-result PATH] | preflight <vX.Y.Z> | rollback [release-id] | status"
 }
 
 fail() {
@@ -198,25 +199,17 @@ else:
 }
 
 build_package_and_upload() {
+  build_package "$@"
+  upload_package "$5"
+}
+
+build_package() {
   local revision_short="$1" revision_full="$2" version="$3" built_at="$4" release_id="$5"
   local image="$6" archive image_archive expected_arch actual_arch image_revision image_source_digest source_digest
-  local source_sha image_sha remote_stage source_pid image_pid source_status image_status
   archive="$RELEASE_TMP_DIR/source.tar.gz"
   image_archive="$RELEASE_TMP_DIR/image.tar.gz"
   expected_arch="${PLATFORM#linux/}"
   source_digest="git:$revision_full"
-  remote_stage="/tmp/inteliscope-release-$release_id"
-
-  transfer_with_retry() {
-    local source="$1" destination="$2" attempt
-    for attempt in 1 2 3; do
-      if rsync --partial -az "$source" "$destination"; then
-        return 0
-      fi
-      [[ "$attempt" -lt 3 ]] || return 1
-      sleep 5
-    done
-  }
 
   require_frozen_release_source "$revision_full"
   docker buildx build \
@@ -251,6 +244,21 @@ build_package_and_upload() {
 
   git -C "$ROOT_DIR" archive --format=tar.gz --output="$archive" "$revision_full"
   docker save "$image" | gzip -1 >"$image_archive"
+}
+
+transfer_with_retry() {
+  local source="$1" destination="$2" attempt
+  for attempt in 1 2 3; do
+    if rsync --partial -az "$source" "$destination"; then return 0; fi
+    [[ "$attempt" -lt 3 ]] || return 1
+    sleep 5
+  done
+}
+
+upload_package() {
+  local remote_stage="/tmp/inteliscope-release-$1"
+  local archive="$RELEASE_TMP_DIR/source.tar.gz" image_archive="$RELEASE_TMP_DIR/image.tar.gz"
+  local source_sha image_sha source_pid image_pid source_status image_status
   source_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
   image_sha="$(shasum -a 256 "$image_archive" | awk '{print $1}')"
   ssh "$REMOTE_HOST" mkdir -p "$remote_stage"
@@ -489,6 +497,7 @@ release() {
   local version revision_full revision_short built_at release_id image ci_pid package_pid
   local ci_status package_status
   require_release_prerequisites
+  "$PYTHON_BIN" "$ROOT_DIR/scripts/release_mode.py" --require standard
   version="$(project_version)"
   revision_full="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   revision_short="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
@@ -619,6 +628,17 @@ REMOTE
 
 command="${1:-}"
 case "$command" in
+  prepare-fast)
+    [[ $# -ge 4 ]] || { usage; exit 2; }
+    RELEASE_TAG="$2"
+    shift 2
+    prepare_fast "$@"
+    ;;
+  release-fast)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    RELEASE_TAG="$2"
+    release_fast
+    ;;
   release)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     RELEASE_TAG="$2"
