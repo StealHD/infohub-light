@@ -11,42 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-09",
-  "result": "`/` 与 `@` 候选列表支持点击外部立即收起；复用 React Aria 外部交互检测并保持非模态，草稿不变、新点击目标不被重新聚焦，内部选择语义与发送边界不变。同步 UI 合同。",
-  "status": "completed",
-  "task_id": "composer-suggestions-outside-dismiss-20260909",
-  "unresolved": [],
-  "validation": [
-    "快捷交互 Vitest 19 项、TypeScript、UI 静态、定向 ESLint、Markdown/控制结构与 diff check 通过。",
-    "单条受控桌面 Playwright 用例通过，确认点击可见页面标题关闭 `/` 候选、草稿保留且随后 @ 选择和发送验证正常；退出码 0，临时 4173 服务退出。",
-    "5173 页面返回 200；继续当前本地 A 模式，无子 agent、容器、真实模型/通知或自动提交；按小 UI 迭代要求未跑全量构建/preflight。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-09",
-  "result": "按用户授权整理本地运行分支的自动化详情、归档恢复、快捷操作与动效改动，准备提交并合入本地 main；将保存的 OpenClaw 模型目录超时补丁转换为无上下文格式，保留修复语义。运行数据、私密配置与其他工作区改动不纳入提交。",
-  "status": "completed",
-  "task_id": "local-runtime-main-integration-20260909",
-  "unresolved": [
-    "测试通知发送尚未实现，不属于本次合并范围；外部 OpenClaw 修复只以可复核补丁纳入仓库，不代表其他环境已应用。"
-  ],
-  "validation": [
-    "补丁反向 dry-run 与 diff 空白检查通过；修复快速测试返回时双击可重复提交的问题，定向 18 项通过，稍后手动重测仍可用。",
-    "整合 main 的 Skills 权限改动后，impacted preflight 16/16 通过（563.381 秒），包含完整后端 Pytest、139 文件 906 项 Vitest、类型、lint、UI/E2E 合同及构建；进程正常退出，SQLite ResourceWarning 为零。证据 .test-results/20260909T074715Z-18977/result.json。",
-    "功能提交 3819efc7 已从任务分支快进合入本地 main；原有 Skills 权限保留。工作日志双方记录逐条核对一致，命令浮层/自动化布局决策归为 D214/D215，main 的 D213 Skills 决策保持不变。",
-    "本轮未新跑浏览器 E2E、未启动临时服务，不以静态合同检查替代浏览器验收；未重启 A 模式服务、迁移数据库、调用真实模型、发送通知、启动容器、推送或发布。"
-  ]
-}
-```
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
   "result": "优化原 inteliscope-ui skill，增加目标项目识别、工作模式、按需读取、规则冲突与分层验证；将该改动单独纳入本地 main，读取指引服从 main 现役 AGENTS，不新增 skill 或修改生产 UI。",
   "status": "completed",
   "task_id": "2026-09-09-inteliscope-ui-skill-refinement",
@@ -401,6 +365,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
+    "decisions",
+    "verification"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "从本地 main 创建隔离分支，精简 PR 选测、公共 CI 校验和发布重复 preflight，加入已验证 main 基线与纯版本升级轻量验证。",
+  "status": "completed",
+  "task_id": "2026-09-12-optimize-test-release",
+  "unresolved": [],
+  "validation": [
+    "门禁、版本基线、CI shell 调度和发布阻断定向回归通过；独立差异审查的两项发现均已修复并复验。",
+    "impacted preflight 16/16 通过，完整后端/前端代码检查及生产构建成功，耗时 790.692 秒；mapping_miss=false，SQLite ResourceWarning=0。",
+    "Markdown、init-pro schema/policy、WORKLOG、控制 JSON 与 git diff --check 通过；只在 codex/optimize-test-release Worktree 修改，未合并、推送、创建 Tag 或部署。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
     "interface"
   ],
   "recorded_on": "2026-09-12",
@@ -437,6 +421,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "后端分段覆盖完成，SQLite ResourceWarning 为零；前端 Vitest 923 项首次通过，唯一旧 mock 补齐 can_subscribe 后定向复验通过，合计 924 项；22 项定向组件测试与三视口共 6 项 Playwright（Axe/表单保留/单次创建/仅订阅重试/无横溢）通过。类型、lint、UI/E2E 合同、冻结文件限制、JSON、构建与控制结构验证通过。",
     "证据链：.test-results/20260912T081805Z-33377/result.json → .test-results/openclaw-remaining-20260912/result.json → .test-results/openclaw-final-20260912/result.json；最后 2 项检查通过。初次失败记录 .test-results/20260912T081439Z-32655/result.json 保留。",
     "仅本地临时数据库与受控上游；生产迁移、部署、Gateway Skill 刷新、真实会话 prepare/apply、真实抓取、模型和通知均未执行。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "verification"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "整合订阅修复提交 0aa97a2a 与本地 main 发布流程优化 a9452945；保留发布脚本及 CI 更新，合并测试映射，发布决策沿用 D220、来源身份决策改为 D221，双方工作记录完整保留。",
+  "status": "completed",
+  "task_id": "openclaw-subscription-local-main-merge-20260912",
+  "unresolved": [],
+  "validation": [
+    "门禁去重、CI 调度、发布 preflight、CI 基线与 runtime health 五个定向测试文件通过，退出码 0；复用此前订阅修复分段回归证据，按用户要求不重跑完整业务测试。",
+    "Markdown、控制结构、WORKLOG、JSON 与 diff check 通过；自动逐条比较确认两个父分支的工作记录内容均完整保留。发布脚本、CI workflows 及三个 test_gate 模块与原 main 无差异。",
+    "仅本地提交及合并；未推送远端、创建版本标签、迁移运行库或部署生产。"
   ]
 }
 ```

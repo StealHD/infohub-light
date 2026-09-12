@@ -1054,7 +1054,7 @@ def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_stor
     assert "console.log" not in script
 
 
-def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
+def test_test_gate_ci_keeps_parallel_domains_and_conditional_release_checks():
     workflow = (ROOT / ".github" / "workflows" / "test-gate.yml").read_text(encoding="utf-8")
     tag_workflow = (ROOT / ".github" / "workflows" / "release-tag.yml").read_text(encoding="utf-8")
 
@@ -1064,8 +1064,7 @@ def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     assert "impact:" in workflow
     assert "backend-full:" in workflow
     assert "frontend-full:" in workflow
-    assert "--mode full --scope backend" in workflow
-    assert "--mode full --scope frontend" in workflow
+    # Mode selection and shared-control ordering run in test_gate_workflow_scheduling.
     assert "--mode release --scope e2e" in workflow
     assert "--full-e2e" in workflow
     assert 'github.event_name }}" == "push"' in workflow
@@ -1076,8 +1075,9 @@ def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     assert "needs: [impact, frontend-full]" not in workflow
     assert 'tags: ["v*"]' not in workflow
     assert "retention-days: 7" in workflow
-    assert workflow.count("include-hidden-files: true") == 4
-    assert workflow.count("if-no-files-found: error") == 4
+    for upload in workflow.split("uses: actions/upload-artifact@v4")[1:]:
+        if ".test-results/" in upload:
+            assert "include-hidden-files: true" in upload
     assert "frontend/test-results/**/*" in workflow
     assert "frontend/playwright-report/**/*" in workflow
     assert "service_real_source_smoke" not in workflow

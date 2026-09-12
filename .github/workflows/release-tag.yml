@@ -44,7 +44,7 @@ jobs:
         name: Isolated API-only Docker smoke
         run: |
           set -o pipefail
-          uv run python scripts/test_gate.py run --mode release --scope smoke \
+          uv run python scripts/test_gate.py run --mode release --scope smoke --skip-control \
             | tee /tmp/smoke-summary.json
       - if: always()
         run: cat /tmp/smoke-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true

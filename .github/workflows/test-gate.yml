@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: test-gate-${{ github.ref }}
@@ -36,23 +37,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - id: plan
-        name: Generate impact plan
+        name: Generate impact plan and verify shared controls
         env:
+          GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GATE_EVENT: ${{ github.event_name }}
         run: |
-          if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
-            BASE_SHA="$(git rev-parse "$HEAD_SHA^")"
-          fi
-          python scripts/check_code_size.py --scope policy --compare-base "$BASE_SHA"
-          python scripts/test_gate.py plan \
-            --base "$BASE_SHA" --head "$HEAD_SHA" --json \
+          set -euo pipefail
+          python scripts/test_gate_ci.py \
+            --event "$GATE_EVENT" --base "$BASE_SHA" --head "$HEAD_SHA" \
             --output /tmp/impact-plan.json | tee /tmp/impact-summary.json
+          python scripts/test_gate.py run --mode targeted --scope control \
+            --impact-plan /tmp/impact-plan.json | tee /tmp/control-summary.json
           echo "ui_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["ui_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
           echo "backend_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["backend_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
           echo "frontend_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["frontend_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
-          cat /tmp/impact-summary.json >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/impact-summary.json /tmp/control-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: impact-control-failure
+          path: .test-results/
+          include-hidden-files: true
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: impact-plan
@@ -80,10 +92,12 @@ jobs:
           name: impact-plan
           path: /tmp/impact
       - id: gate
-        name: Full backend gate
+        name: Impacted PR or full main backend gate
         run: |
           set -o pipefail
-          uv run python scripts/test_gate.py run --mode full --scope backend \
+          code_mode=full
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then code_mode=targeted; fi
+          uv run python scripts/test_gate.py run --mode "$code_mode" --scope backend --skip-control \
             --impact-plan /tmp/impact/impact-plan.json | tee /tmp/backend-summary.json
       - if: always()
         run: cat /tmp/backend-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
@@ -121,10 +135,12 @@ jobs:
           name: impact-plan
           path: /tmp/impact
       - id: gate
-        name: Full frontend gate
+        name: Impacted PR or full main frontend gate
         run: |
           set -o pipefail
-          python scripts/test_gate.py run --mode full --scope frontend \
+          code_mode=full
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then code_mode=targeted; fi
+          python scripts/test_gate.py run --mode "$code_mode" --scope frontend --skip-control \
             --impact-plan /tmp/impact/impact-plan.json | tee /tmp/frontend-summary.json
       - if: always()
         run: cat /tmp/frontend-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
@@ -173,7 +189,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "push" || "${{ github.event.inputs.release }}" == "true" ]]; then
             e2e_mode+=(--full-e2e)
           fi
-          python scripts/test_gate.py run --mode release --scope e2e \
+          python scripts/test_gate.py run --mode release --scope e2e --skip-control \
             "${e2e_mode[@]}" \
             --impact-plan /tmp/impact/impact-plan.json | tee /tmp/e2e-summary.json
       - if: always()
@@ -212,7 +228,7 @@ jobs:
         name: Isolated API-only Docker smoke
         run: |
           set -o pipefail
-          uv run python scripts/test_gate.py run --mode release --scope smoke \
+          uv run python scripts/test_gate.py run --mode release --scope smoke --skip-control \
             --impact-plan /tmp/impact/impact-plan.json | tee /tmp/smoke-summary.json
       - if: always()
         run: cat /tmp/smoke-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
