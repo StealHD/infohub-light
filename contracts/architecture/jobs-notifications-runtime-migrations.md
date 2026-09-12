@@ -96,6 +96,8 @@ Personal Agent global 37 使用 `scripts/migrate_agent_connections_v37.py --data
 
 本地 `up-latest` 与正式 VPS cutover 只能通过 `scripts/runtime_health.py` 判定运行面完成：目标版本/revision、API ready、Worker ready、API/Worker Docker health、两容器 source digest、React asset 与适用的公网 revision 必须同时成立。Docker health 为 `starting` 时继续有界等待，只有 `unhealthy` 或超时失败。回滚在旧 API/Worker 重新 healthy 前不得更新 `current` 或报告成功；显式迁移发布必须让 `INTELISCOPE_PRE_MIGRATION_BACKUP` 指向 `$base/data/backups/` 下的非符号链接迁移前副本，旧代码启动前先恢复并校验该数据库。
 
+来源身份 global 46 由 `scripts/migrate_source_identity_v46.py --data-dir ABSOLUTE_DATA_DIR` 只读预检，已有 global 45 数据库须停 API/Worker、等待 Worker heartbeat 安全窗后显式追加 `--apply --services-stopped`。工具检查旧索引、重复身份、owner 和外键，备份为 `0600`，在单个事务内安装部分唯一索引及身份 trigger，验证 shape/integrity 后提交 marker；失败仅回滚本事务，不自动恢复整个备份覆盖后续写入。预检、迁移均不抓取、不创建订阅/Job、不调用 AI 或通知。普通 initialize 不隐式升级旧库；缺失或损坏 global 46 时 API readiness 与身份写入返回 `source_identity_migration_required`，既有只读接口仍可用。上线前必须显式完成迁移，不能将 readiness 失败当作自动迁移授权。新模型允许跨用户同 key；回退旧程序需停服务并由操作者明确恢复经过验证的迁移前备份（会丢失备份之后的写入），不得直接让旧程序连接已产生新身份组合的数据库。
+
 ### 3.11 Content Repair Boundary
 
 `scripts/repair_user_content_v5.py` 是历史内容 inspect/apply/reconcile/enqueue 的唯一维护入口，`src/services/content_repair.py` 是 Worker `content_repair` 的唯一执行边界。repair 可以复用现有 source adapter、公共网络策略和媒体缓存，但必须强制 AI disabled，只匹配 `user_content_items` 已有 article id，并禁止调用 `FeedProductionService`。因此它不创建或替换 snapshot、不更新 Feed latest/history、不接触新文章，也不评估 schedule。

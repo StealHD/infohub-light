@@ -34,7 +34,7 @@ Gateway bootstrap token 只存在于 React 表单 state；API、React Query、UR
 
 API 只接受服务端生成的 request ID；路由事件只使用模板路径。成功事件由最外层请求边界在业务事务已经提交且 transaction guard 通过后写入；回滚、事务泄漏与未处理异常只能写失败。未知异常由统一边界转换成带 request ID 的安全 500。Worker 的 claim、eligibility、execute、finalize、finish、pre-claim boundary、lease recovery、invalidation、逐来源获取、头像和通知事件只能在对应持久状态明确后写入；Job 类型必须先注册 trace policy。普通 GET、Feed 浏览、空轮询和 heartbeat 不生成成功 operation event；所有 API 写路由都必须映射 mutation operation。
 
-managed handler 每次 emit 都必须确认 write/flush 结果，并把 runtime/operation sink 健康投影到 readiness 的 additive `logging_status`；日志降级不得改变已提交业务结果。`scripts/check_observability_contract.py` 是上述架构的静态执行门禁，并由 targeted/full/release 每个 Test Gate scope 先行调用；Test Gate 持久化输出必须复用运行时脱敏器且不得保留具名 raw 临时日志。
+managed handler 每次 emit 都必须确认 write/flush 结果，并把 runtime/operation sink 健康投影到 readiness 的 additive `logging_status`；日志降级不得改变已提交业务结果。`scripts/check_observability_contract.py` 是上述架构的静态执行门禁，按[验证流程](../../dev/test-gate.md)在独立 Gate 或 CI 公共 control 中先行调用；Test Gate 持久化输出必须复用运行时脱敏器且不得保留具名 raw 临时日志。
 
 详细字段、敏感值禁令、事件矩阵和排障流程以 `docs/dev/observability-logging.md` 为唯一真源。
 

@@ -30,11 +30,12 @@ HORIZON_AUTH_SECURE_COOKIE=true
 从干净、与 `origin/main` 完全一致的本地 `main` 发布：
 
 ```bash
-./scripts/release_vps.sh preflight vX.Y.Z
 ./scripts/release_vps.sh release vX.Y.Z
 ```
 
-该脚本会复用精确 main SHA 的成功 Test Gate、本地构建和验证镜像、上传镜像/源包、等待 Tag smoke，并在 VPS 上验证 API、Worker、scheduler 停止、备份、readiness 与前端 revision。迁移版本必须先完成对应的显式迁移流程；普通发布会拒绝隐式迁移。
+该脚本会校验发布身份、迁移和 VPS 容量，复用精确 main SHA 的成功 Test Gate、本地构建和验证镜像、上传镜像/源包、等待 Tag smoke，并在 VPS 上验证 API、Worker、scheduler 停止、备份、readiness 与前端 revision。迁移版本必须先完成对应的显式迁移流程；普通发布会拒绝隐式迁移。
+
+正常发布不自动重跑本地代码测试。可选诊断命令 `./scripts/release_vps.sh preflight vX.Y.Z` 会执行同样的发布前置校验，再运行本地 impacted preflight；失败即退出，不创建 Tag 或切换服务。门禁流程见[测试与控制面验证](test-gate.md)。
 
 发布完成后，在本地受限环境变量中提供 canary 用户的 URL 和一次性 read token，运行：
 

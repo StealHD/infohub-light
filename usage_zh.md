@@ -114,11 +114,12 @@ docker compose logs -f horizon-api horizon-worker
 正常发布从本地、干净且与 `origin/main` 一致的 `main` 执行：
 
 ```bash
-./scripts/release_vps.sh preflight vX.Y.Z
 ./scripts/release_vps.sh release vX.Y.Z
 ./scripts/release_vps.sh status
 ./scripts/release_vps.sh rollback [release-id]
 ```
+
+正常发布复用精确 main SHA 的成功 Test Gate，不自动重跑本地代码测试。需要排查时，可单独运行 `./scripts/release_vps.sh preflight vX.Y.Z`；它执行相同的发布前置校验，再运行本地 impacted preflight，失败即退出，不创建 Tag 或切换服务。测试与发布门禁以[验证流程](dev/test-gate.md)为准。
 
 镜像必须在本地构建并验证 `linux/amd64`，VPS 只执行 `docker load`。切换前脚本检查活跃 Job，并在发现残留历史 scheduler 容器时阻断。普通发布失败回滚到上一不可变 API/Worker release；包含数据库迁移的版本必须走独立 runbook。
 

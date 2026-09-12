@@ -129,3 +129,7 @@ register_diagnostic_tools(server, context)
 尺寸目标为 `useOpenClawChat.ts ≤ 300`、`OpenClawConversation.tsx ≤ 200`、`remote_server.py ≤ 200`、`remote_diagnostics.py ≤ 200`、`setup_openclaw_local.py ≤ 150`；其他新增生产文件遵守 `tests/code_size_policy.json` 且不新增例外。
 
 执行恢复由 `information_automations/{execution_capability,model_refresh,preview_recovery,connector_sync}.py` 分别拥有能力、刷新回执、预览幂等与双入口控制同步；`agent_connections/analysis_model_policy.py` 只协调有归属证据的主机白名单并保留显式限制。global 45 侧表不改历史预览存储形状。
+
+## 来源身份与分流
+
+`source_resolution_capabilities.py` 拥有通用解析能力的无 I/O 投影；registry guide 和 resolver 共享该定义。`services/source_identity.py` 拥有当前 actor 的可见身份选择与领域迁移错误，`catalog_source_upsert.py` 编排既有 REST upsert。`storage/source_identity_store.py` 独占带 scope/owner 的 key 查询，`source_identity_schema.py` 独占 global 46 索引、校验和显式迁移；ServiceStore 保留事务和按 source ID 的关联。来源权限/身份规则以 [Service catalog](../api/service-core.md) 为准。
