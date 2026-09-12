@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-09",
-  "result": "模型子列表移除占满整行的“返回思考程度”文字按钮，改为 32px 图标返回操作；隐藏模型列表视觉滚动条，同时保留滚轮、触控、键盘滚动和可访问名称。同步组件规范、手册与更新记录。",
-  "status": "completed",
-  "task_id": "compact-model-list-navigation-20260909",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 11 项、TypeScript、UI 静态、定向 ESLint、Markdown 与 diff check 通过。",
-    "单个受控桌面 Playwright 用例通过（4.7s），确认返回图标宽度 32px、scrollbar-width none、模型列表和 Escape 焦点行为；测试进程退出码 0，临时 4173 服务已退出。",
-    "继续当前本地 A 模式，无子 agent、容器、真实模型/通知或自动提交；按小 UI 迭代要求未运行全量构建/preflight。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
   "result": "临时命令结果面板支持点击外部立即收起。复用 React Aria 外部交互检测并保持非模态：外部点击的新目标继续接管焦点，关闭按钮和 Escape 仍返回输入框，面板不进入聊天记录或发送模型请求。同步 UI 合同、验收、手册与更新记录。",
   "status": "completed",
   "task_id": "composer-panel-outside-dismiss-20260909",
@@ -429,6 +411,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "最终提交仅改变 E2E 夹具，生产构建输入与已本地构建的 99923ddf2525 相同；本地复用 14 个完全一致的 amd64 运行层并更新发布标识，归档明文 SHA-256 f50fc0bd402a8ac677b130baaa5009b07264f2ee5c547ad1806913b688b1637f 在 VPS 匹配后 docker load。VPS 未构建项目。",
     "VPS 显式 global 45 迁移成功，备份 service-information-recovery-v45-20260911T110107375956Z.db；API/Worker/Docker/公开资源通过 runtime_health，线上为 2.6.18 / a8651e6bb2ab。迁移回滚标记已归档到发布目录并从规范环境清除，防止下次升级误用。",
     "Gateway 2026.9.2 限定补丁已备份应用、语法检查及重启，RPC ready；托管执行器升级到 previews_only，目录与执行能力回传 age=8.1 秒、runtime_block=null。三条旧预览 pending、attempts=0，确认和领取均为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "verification"
+  ],
+  "recorded_on": "2026-09-12",
+  "result": "从本地 main 创建隔离分支，精简 PR 选测、公共 CI 校验和发布重复 preflight，加入已验证 main 基线与纯版本升级轻量验证。",
+  "status": "completed",
+  "task_id": "2026-09-12-optimize-test-release",
+  "unresolved": [],
+  "validation": [
+    "门禁、版本基线、CI shell 调度和发布阻断定向回归通过；独立差异审查的两项发现均已修复并复验。",
+    "impacted preflight 16/16 通过，完整后端/前端代码检查及生产构建成功，耗时 790.692 秒；mapping_miss=false，SQLite ResourceWarning=0。",
+    "Markdown、init-pro schema/policy、WORKLOG、控制 JSON 与 git diff --check 通过；只在 codex/optimize-test-release Worktree 修改，未合并、推送、创建 Tag 或部署。"
   ]
 }
 ```

@@ -134,13 +134,19 @@ echo "VPS capacity ready: used=${used_percent}% available_kib=${available_kib}"
 REMOTE
 }
 
-run_quick_preflight() {
+require_release_prerequisites() {
   local base_ref
   require_commands
   require_release_identity
   base_ref="$(release_base_ref)"
   reject_implicit_migrations "$base_ref"
   remote_capacity_preflight
+}
+
+run_quick_preflight() {
+  local base_ref
+  require_release_prerequisites
+  base_ref="$(release_base_ref)"
   cd "$ROOT_DIR"
   "$PYTHON_BIN" scripts/test_gate.py preflight \
     --base "$base_ref" --head HEAD
@@ -482,7 +488,7 @@ REMOTE
 release() {
   local version revision_full revision_short built_at release_id image ci_pid package_pid
   local ci_status package_status
-  run_quick_preflight
+  require_release_prerequisites
   version="$(project_version)"
   revision_full="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   revision_short="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"

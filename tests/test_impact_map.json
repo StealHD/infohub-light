@@ -20,7 +20,10 @@
     "scripts/check_code_size.py",
     "scripts/code_size_policy.py",
     "scripts/code_size_ts_ast.mjs",
+    "scripts/test_gate.py",
     "scripts/test_gate_changes.py",
+    "scripts/test_gate_commands.py",
+    "scripts/test_gate_ci.py",
     "scripts/test_gate_log.py",
     "src/__init__.py",
     "tests/test_code_size.py",
@@ -714,7 +717,7 @@
         "frontend/e2e/*.ts"
       ],
       "groups": [
-        "frontend_full"
+        "control"
       ]
     }
   ],
@@ -894,6 +897,10 @@
       "tests/test_service_stack_smoke_script.py",
       "tests/test_source_contract_smoke_script.py",
       "tests/test_test_gate.py",
+      "tests/test_gate_dedup.py",
+      "tests/test_gate_workflow_scheduling.py",
+      "tests/test_test_gate_ci.py",
+      "tests/test_release_preflight.py",
       "tests/test_user_content_v4_migration.py",
       "tests/test_content_repair_v5.py",
       "tests/test_deepseek_smoke.py"

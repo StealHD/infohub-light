@@ -6,7 +6,7 @@
 
 1. 改动前创建任务独享 snapshot（示例路径可替换）。snapshot schema 2 保存 `base_sha`，冻结单体按任务开始的版本比较；新文件/函数及既有例外的硬限制只由 `tests/code_size_policy.json` 定义，缩小冻结文件不修改策略。
 2. 按逻辑切片运行直接受影响的 Pytest、Vitest 或 Playwright spec，先定位首个失败；不以全量抓取、AI 或真实推送代替测试。
-3. 提交、最终 main 验证或部署前主动审查任务范围 diff，修复所有已知或高置信缺陷，并复验直接受影响的 spec。不得把已知缺陷留给 CI、Docker 或 VPS 发现。
+3. 提交或最终 main 验证前主动审查任务范围 diff，修复所有已知或高置信缺陷，并复验直接受影响的 spec。不得把已知缺陷留给 CI、Docker 或 VPS 发现。
 4. 运行一次 impacted `preflight`。完整 Gate 失败后先修复并复验失败 spec；同一任务的完整 Gate 最多重跑 5 次（不含首次执行），每次重跑前都必须修复已知问题并通过直接相关测试。
 
 ```bash
@@ -22,10 +22,12 @@ python scripts/test_gate.py preflight --snapshot /tmp/infohub-task-impact.json
 
 ## PR、main 与正式发布
 
-- PR/main 对受影响的后端、前端代码域运行完整检查；全局依赖/构建改动覆盖两域。文档-only revision 仅运行 control。
-- PR Linux UI 运行映射的 E2E spec；ActorOps、Workbench、Agent Workspace 和视觉快照等按现有映射选择。App Shell、设计系统、全局路由和未知 UI fail closed 到全部 E2E。开始 Playwright 前的静态 E2E 合同拒绝硬编码 preview 端口、瞬态 inert 前计数断言和不确定视觉准备。
-- 有 UI 影响的 main push 为最终 SHA 运行一次权威完整 Playwright Gate。正式 VPS 发布复用精确 main SHA 的成功 Gate，绿灯后才创建并推送版本 Tag；Tag workflow 核验同一 main 结果，仅追加隔离 API Docker smoke。
-- 标准 `scripts/release_vps.sh` 先做有界 impacted preflight，再复用 main 证据；本地流程不得重复 release Docker smoke 或完整 Playwright。release smoke 不得调用真实来源、付费 provider、AI、Worker、通知或退役 scheduler。
+- PR 对受影响后端运行映射 Pytest，前端运行关联 Vitest 与必要静态检查；main 对受影响代码域运行完整检查。公共基础模块、真实依赖/构建改动及未知可执行路径保留保守扩大范围，文档-only revision 仅运行 control。
+- 公共 control 在 CI 的 impact job 执行一次，后端、前端、E2E 和手动 smoke 依赖该 job 成功，再用 `run --skip-control` 执行自己的 scope。独立调用默认仍包含 control；`--skip-control` 不接受 all/control scope。命令已包含生产 build 时不再独立执行 TypeScript，因为 `npm run build` 包含 `tsc`；无 build 的选测保留类型检查。
+- PR Linux UI 运行映射的 E2E spec；ActorOps、Workbench、Agent Workspace 和视觉快照等按现有映射选择。App Shell、设计系统、全局路由和未知 UI fail closed 到全部 E2E。只改 E2E spec/截图不触发完整 Vitest，仍检查 E2E 合同并验证浏览器场景。开始 Playwright 前的静态 E2E 合同拒绝硬编码 preview 端口、瞬态 inert 前计数断言和不确定视觉准备。
+- 有 UI 影响的 main push 为最终 SHA 运行一次权威完整 Playwright Gate。main 的影响范围从最近已成功的、严格早于当前 HEAD 的第一父链 main Gate 起算，包含此前失败或取消后尚未验证的改动；GitHub 查询不可用或无可信基线时执行完整代码与 E2E 验证。CI planner 最多查询 100 个成功的 main push Gate，不新增持久验证缓存。
+- 仅 main 且整个原始 Git diff 只改变 `pyproject.toml` 的项目版本及 `uv.lock` 中本项目 `horizon` 的版本、前后版本分别一致、TOML 其余内容及文件模式不变时，复用已成功基线的代码证据并只执行 control 与版本一致性验证。依赖、哈希、构建配置、其他文件或无可信证据均不走版本轻量路径；本地和 PR 仍按依赖文件映射保守验证。新的 main SHA 仍须完成自己的 CI，之后才能创建 Tag。
+- 标准 `scripts/release_vps.sh release` 只执行发布身份、迁移、容量等条件检查，不自动运行本地代码 preflight；复用精确 main SHA 的成功 Gate，绿灯后才创建并推送版本 Tag。显式 `preflight` 是可选诊断，继续执行本地 impacted preflight。Tag workflow 核验同一 main 结果后跳过重复 control，仅追加隔离 API Docker smoke。release smoke 不得调用真实来源、付费 provider、AI、Worker、通知或退役 scheduler。
 
 ## 输出与失败定位
 
