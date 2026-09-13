@@ -8,136 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-09",
-  "result": "在 codex/agent-setup-ui 补齐个人 Agent 网页接入入口：受信任 Owner/Admin 可为本人准备独立绑定、下载私密配置并提交主机验证回执；未绑定及待验证状态分别提供配置和继续入口，保留既有数据连接。同步 API/UI 合同、操作手册、更新记录及 D216。",
-  "status": "completed",
-  "task_id": "agent-web-setup-20260909",
-  "unresolved": [
-    "未提交、发布或部署；当前真实账号的个人 Agent 绑定未自动创建，fsj 未修改，未调用真实模型或发送通知。"
-  ],
-  "validation": [
-    "定向 API 9 项通过；个人接入组件 6 项及原连接页 20 项通过。覆盖确认、角色拒绝、身份参数拒绝、重复准备、私密归档权限、回执激活、迟到下载丢弃和安全错误提示。",
-    "真实浏览器使用模拟 API 验证 1440/1024/390/720 CSS px、明暗主题、Reduced Motion、键盘确认、配置下载、继续配置、关闭焦点恢复、回执提交与横向边界；Axe 严重/关键问题为零。验收进程退出 0，浏览器已关闭，临时 Vite PID 32800 已结束且端口释放。CLI 缓存权限不可用，未修改系统权限，改用项目浏览器库。",
-    "修正旧文案测试后最终 impacted preflight 20260909T152912Z-41062 16/16 通过，含后端检查、前端测试、类型检查、构建与控制面验证；无 SQLite 未关闭警告。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-09",
-  "result": "按用户授权将个人 Agent 网页接入修复整合到本地 main，准备发布 v2.6.13 并部署 vps-tokyo；发布单元为同版 API/Worker，不含迁移、真实模型测试或个人绑定自动配置。",
-  "status": "completed",
-  "task_id": "agent-setup-release-v2613-20260909",
-  "unresolved": [],
-  "validation": [
-    "任务 diff 已审查；接入修复上轮最终 preflight 16/16 通过，接口与浏览器验收完成。",
-    "054cdef5 已 fast-forward 合入本地 main 并推送；发布 preflight .test-results/20260909T184309Z-57928 为 16/16，通过精确 main CI 34371850692 与 Tag smoke 34393116483，GitHub Release v2.6.13 已发布。",
-    "容量预检曾阻断；2026-09-10 经用户授权，将 VPS 2.6.0 至 2.6.8 的 9 个备份目录（21 文件）转存本地 项目同级 vps-backups-20260910.xkFV36，双端 SHA-256 全部一致后删除对应远端副本，释放约 3 GiB。当前与上一版备份及运行数据保留；本地副本可恢复。",
-    "为避免普通发布回滚误恢复旧 schema，先将 .env 备份至 /opt/inteliscope/backups/v2613-env-marker-20260910/env.before，再仅清除过期 INTELISCOPE_PRE_MIGRATION_BACKUP 标记；原迁移前数据库备份保留，本轮未迁移。",
-    "标准 release_vps.sh 在本地构建 revision-locked linux/amd64 镜像并上传，VPS 只 docker load。已部署 2.6.13-20260909T185125Z-054cdef5fb6f；runtime_health 验证 API/Worker healthy、ready、source digest、React index-CjXFmbjd.js 及公网 revision=054cdef5fb6f。发布进程 exit 0，本地与远端临时发布目录已清理；部署后磁盘可用 7.8 GiB、使用率 80%。",
-    "未调用真实模型或发测试通知，未自动创建个人 Agent 绑定，未修改既有 fsj 连接；网页配置入口上线不代表个人 Gateway 已完成安装激活。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "独立本地分支实现个人 Agent 单入口与本机托管配置，保留手动接口兼容和账号授权；本地 API、前端与 OpenClaw 连接已验证，未启动 Docker、提交或部署。",
-  "status": "partial",
-  "task_id": "2026-09-10-managed-agent-local",
-  "unresolved": [
-    "完整 preflight 未取得全绿结果，不能作为提交或发布验收。",
-    "Worker 未启动：既有活动提醒与后台文案可能调用模型或发通知；当前前端/API 可预览接入，不把它声称为完整 A 运行。",
-    "真实本机验证复用已有有效个人绑定，未为验收额外创建或替换现有账号 Agent。"
-  ],
-  "validation": [
-    "托管主机、账号和个人目录定向测试通过；Vitest 10 项、接入跨浏览器矩阵 4 项、原管理页回归 1 项通过，构建、类型、UI 合同检查通过。",
-    "明暗主题、四种视口、200% 等效窄屏重排及 Axe 已验收；浏览器进程正常退出，临时 4173 服务已清理。",
-    "两次 preflight 均在测试侧失败：旧夹具缺少 data_dir、E2E 映射过宽；已分别修复并定向复测，映射测试 62 项通过，未第三次重跑完整门禁。",
-    "本机 Gateway 管理握手、实际配置加载哈希、本人 MCP 读取及浏览器聊天连接通过；未发送聊天、调用模型或发送通知。",
-    "原测试库已私密备份并通过显式 schema 41 迁移，数据和既有绑定保留。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "本地接入卡新增确认解除与显式重新接入；新授权不复活旧凭据，不删除旧 Agent 或历史。本地 API 已更新，未实际撤销用户绑定，未启动 Docker、提交或部署。",
-  "status": "completed",
-  "task_id": "2026-09-10-agent-disconnect",
-  "unresolved": [
-    "整套 preflight 未取得全绿记录；真实解除与新接入由用户点击验证，未替用户执行。"
-  ],
-  "validation": [
-    "托管接入后端 9 项、页面 Vitest 11 项通过；权限、撤销后新身份、重复接入和取消/确认覆盖。",
-    "浏览器 4 项通过，含明暗、Reduced Motion、窄屏重排、Axe、跨浏览器与确认取消；测试正常退出，临时 4173 服务清理。",
-    "构建、UI 合同、类型检查通过；impacted preflight 后端通过，在前端 lint 发现 ref 写法问题，已修复且 lint、Vitest、类型定向复测通过，未重复整套门禁。",
-    "本地 API health 正常，用户浏览器已显示解除接入按钮。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "修复本机重新接入被 Gateway 多 Agent ownership 校验拒绝：托管补丁显式声明归属并移除旧 default 标记，保留其他 Agent、模型和隔离配置；本地 API 已重启加载修复，原待验证绑定保留供用户重试。",
-  "status": "completed",
-  "task_id": "2026-09-10-agent-ownership-fix",
-  "unresolved": [
-    "真实安装和最终接入结果仍需用户点击重试验证；本次通过的门禁仅覆盖本次后端修复，不代表此前整分支验收全绿。"
-  ],
-  "validation": [
-    "Gateway 定位到 config.patch INVALID_REQUEST ownership 错误；当前待验证 Agent 未安装，纯配置编译通过。",
-    "托管主机 7 项测试通过，覆盖旧默认配置转换、幂等、漂移和未知结果；本机 OpenClaw 原生 Schema 复现旧运行时拒绝并接受显式归属。",
-    "本次后端差异 impacted preflight 8/8 通过并正常退出，无 SQLite ResourceWarning；补充文档检查和 diff check 通过。",
-    "本地 API health 正常；未自动重试真实配置，未调用模型、通知、Docker 或 VPS。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "实现 /agents 成员申请与管理员版本审批、拒绝后重新申请和失败续接；global 42 显式迁移备份原本地测试库，持久化申请与成员绑定，不引入通知。真实本机成员配置、本人 MCP 读取和聊天握手成功，管理员绑定保持不变；非容器前端/API 保留，未提交或部署。",
-  "status": "completed",
-  "task_id": "member-agent-access-approval-20260910",
-  "unresolved": [],
-  "validation": [
-    "申请权限、重复请求、两管理员并发决策、工作区隔离、成员身份、失败恢复、迁移等 9 项定向测试通过；16 项托管安装与配置测试通过",
-    "浏览器 1440/1024/390、双上下文申请审批、拒绝取消、明暗主题、Reduced Motion、200% 重排及 Axe：6 项通过；并行清理挂起后已串行复验退出 0，临时 4173 服务清理",
-    "两次 impacted preflight：后端全量、静态、类型与尺寸通过；旧 API mock 和前端手动令牌/连接断言失败已修正，分别定向 16 项和 119 项通过；按门禁重跑上限未第三次全量重跑。最终构建通过，首屏 JS Brotli 245135 bytes",
-    "真实本机成员 fengshenjie 接入 ready，独立目标 Agent、MCP 本人订阅读取与普通连接握手通过；0 模型调用、0 通知"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "ui"
@@ -448,6 +318,126 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "本地 impacted preflight 15/15 通过，包含完整后端、148 个前端测试文件 928 项、类型/静态/构建检查；未关闭 SQLite 连接警告为 0。记录：.test-results/20260912T132300Z-26226/result.json。",
     "Agent Workspace 与会话目录 Playwright：35 通过，16 按设备条件跳过；首屏 JavaScript Brotli 245218 bytes。全程未调用真实 AI 或删除线上会话。",
     "读取 OpenClaw 2026.9.2 官方发布包核对 sessions.delete 参数、expectedSessionId 与工作树回收顺序。VPS 只读核对：2.6.19，API/Worker healthy。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "自动化任务的模型目录改为直接读取当前用户个人 OpenClaw Agent 的 configured 模型；刷新不再依赖分析执行器、Inteliscope 白名单或模型调用，并同步更新界面、手册和变更日志。",
+  "status": "completed",
+  "task_id": "2026-09-13-openclaw-model-direct-catalog",
+  "unresolved": [],
+  "validation": [
+    "本地浏览器实际点击刷新模型目录，返回 12 个 OpenClaw 已配置模型；未启用任务、未调用模型。",
+    "完整 impacted preflight 15/15 通过：后端全量 Pytest、前端 148 文件/928 测试、lint、build 与 UI 合同。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "修复直接读取 OpenClaw 模型目录会把自动化执行能力误写为 catalog_only 的回归；目录刷新保持现有执行模式。为当前本机绑定补齐隔离分析 Agent 和 previews_only supervisor，手动测试可领取，正式自动化不自动执行。",
+  "status": "completed",
+  "task_id": "2026-09-13-openclaw-catalog-execution-regression",
+  "unresolved": [],
+  "validation": [
+    "真实本机 Gateway 返回 12 个模型；执行状态 previews_only、分析状态 ready、无待处理测试。",
+    "完整 impacted preflight 15/15 通过，包含后端全量 Pytest、前端 148 文件/928 测试、lint、build 与 UI 合同。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "observability",
+    "verification"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "自动化分析执行器将 Gateway 返回的结构化终态工具错误（包括 HTTP 500）判定为确定失败 analysis_call_failed，不再误标 completion_unknown 并锁死后续手动测试；只有超时、断连等未取得终态证据的情况保留不确定保护。当前本机旧预览已按已记录的终态证据恢复为可重试。",
+  "status": "completed",
+  "task_id": "2026-09-13-automation-gateway-terminal-failure",
+  "unresolved": [
+    "当前 OpenClaw Gateway 对本次底层 LLM 失败只返回通用 Plugin LLM completion failed；产品现在会明确显示为可重试的模型调用失败，不再把它伪装成未知状态。"
+  ],
+  "validation": [
+    "新增结构化 Gateway 500、纯文本 500 与后续领取回归测试；相关后端 51 项和前端 9 项通过。",
+    "完整 impacted preflight 15/15 通过：后端全量 Pytest、前端 148 文件/928 测试、lint、build 与 UI 合同。",
+    "本地浏览器确认 Gateway 已连接、自动化分析已就绪、模型目录直接展示当前 OpenClaw 12 个模型，旧测试显示明确失败且手动重新测试可点击；未主动调用模型。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "修复本地托管自动化 Supervisor 每轮在执行前重复读取 OpenClaw 模型目录的竞争；目录读取仅在缺失、过期或显式刷新时进行，其他周期只上报执行心跳。目录同步与模型任务拆为不同周期，避免 Codex App Server 在模型读取后立即启动隔离任务。未使用 Docker、未发布、未触发真实模型或通知。",
+  "status": "completed",
+  "task_id": "automation-model-discovery-race-20260913",
+  "unresolved": [
+    "用户可在本地页面手动重新测试既有 Automation；本次未代为调用模型。"
+  ],
+  "validation": [
+    "连接器定向 Pytest 6 项通过；git diff --check 通过。",
+    "本机原生 API 重启后 health ready；Supervisor 连续两个 30 秒周期仅得到 Service 心跳 200，未创建新的 OpenClaw Codex App Server 进程。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "停止后台按目录年龄触发 OpenClaw 模型读取，模型目录只在初次接入、绑定变更或用户显式刷新时同步；重启本机 Gateway 清除卡住的 Codex App Server 子进程。测试文章选择按当前 Feed 的可用文章计数，明确提示已失效选择并在确认时剔除，避免把不可见旧文章提交到测试。未使用 Docker、未发布、未主动调用模型或通知。",
+  "status": "completed",
+  "task_id": "automation-runtime-and-test-selection-20260913",
+  "unresolved": [
+    "最后一次屏幕中的模型失败是重启前的历史测试结果；下一次由用户手动提交时将产生新的记录，继续实时观察。"
+  ],
+  "validation": [
+    "测试文章 Vitest 3 项通过；连接器 Pytest 6 项通过；git diff --check 通过。",
+    "本机 Gateway health OK，API ready，Supervisor 连续 30 秒周期仅完成 Service 心跳。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "查明本地自动化模型调用在 @openclaw/codex 2026.9.3 新 generation 的 model/list 固定 5 秒上限处失败；版本限定补丁仅将隔离分析目录等待延至 30 秒并重启 Gateway。修复已确认终态失败的旧预览仍阻止人工重测的问题，未知完成仍禁止重领。保留本地原生 A 服务，不发布 VPS、不发送通知。",
+  "status": "completed",
+  "task_id": "automation-codex-isolated-timeout-and-preview-retry-20260913",
+  "unresolved": [
+    "插件未来升级到未经核对的新版本时需按版本重新审查补丁；VPS 未发布。"
+  ],
+  "validation": [
+    "本机网页真实测试：两篇命中、单篇未命中，均完成 1/1 且有模型结果；新单篇请求创建新 claim 并完成。",
+    "相关 Pytest 18 项通过；补丁脚本 dry-run 和已应用检查通过；API readiness 200；git diff --check 通过。"
   ]
 }
 ```

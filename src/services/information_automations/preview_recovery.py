@@ -40,8 +40,14 @@ def confirm(conn, user, rule, article_ids, identity, digest, now):
         ids = [item['article_id'] for item in json.loads(row['input_json'])]
         if set(ids) != set(article_ids):
             continue
-        if row['attempts']:
+        terminal_failure = (row['status'] == 'failed'
+            and row['reason'] in {'analysis_call_failed', 'invalid_model_output'}
+            and conn.execute("SELECT 1 FROM information_claims WHERE preview_id=? AND status='completed' LIMIT 1",
+                             (row['id'],)).fetchone() is not None)
+        if row['attempts'] and not terminal_failure:
             raise RuleError('completion_unknown', '旧测试已经领取，请先核对分析记录，不能自动重新推理。',409)
+        if terminal_failure:
+            continue
         conn.execute('INSERT INTO information_preview_confirmations VALUES(?,?,?,?)', (row['id'],digest,now,identity))
         conn.execute("UPDATE information_previews SET status='failed',reason='preview_superseded' WHERE id=?", (row['id'],))
     conn.execute('INSERT INTO information_preview_confirmations VALUES(?,?,?,NULL)', (identity,digest,now))

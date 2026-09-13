@@ -72,14 +72,19 @@ def catalog(store, binding_id, now=None):
     row = store.connect().execute('''SELECT m.*,c.enabled,c.last_seen,c.generation AS current_generation FROM information_model_catalog m
         JOIN information_connectors c USING(binding_id) WHERE binding_id=?''', (binding_id,)).fetchone()
     valid = row and row['enabled'] and row['generation'] == row['current_generation']
-    online = valid and row['last_seen'] and 0 <= (now - datetime.fromisoformat(row['last_seen'])).total_seconds() <= 300
-    fresh = online and 0 <= (now - datetime.fromisoformat(row['updated_at'])).total_seconds() <= 300
+    # The user can read a Gateway model directory even when the separately
+    # managed analysis runner is offline.  Execution availability is projected
+    # by execution_capability; it must not make the model picker stale.
+    # Model configuration changes only when the user changes OpenClaw.  Keep
+    # the last confirmed directory usable until that user asks for Refresh;
+    # age-based invalidation caused the worker to issue unsolicited Gateway
+    # model reads immediately before an automation task.
     models = [model for model in json.loads(row['models_json']) if model['id'] not in json.loads(row['blocked_models_json'])] if valid else []
-    reason = 'not_configured' if not row else 'offline' if not online else 'catalog_stale' if not fresh else 'no_authorized_models' if not models else None
+    reason = 'not_configured' if not row else 'no_authorized_models' if not models else None
     from .execution_capability import capability
     from .model_refresh import public_refresh
     return {**capability(store, binding_id, now), **public_refresh(store.connect(), binding_id), 'models': models, 'updated_at': row['updated_at'] if valid else None,
-            'status': 'ready' if fresh else 'stale' if valid else 'unavailable', 'reason': reason,
+            'status': 'ready' if valid else 'unavailable', 'reason': reason,
             'recovery_action': {'not_configured': 'repair_connection', 'offline': 'check_service',
                                 'catalog_stale': 'refresh_catalog', 'no_authorized_models': 'review_models'}.get(reason)}
 

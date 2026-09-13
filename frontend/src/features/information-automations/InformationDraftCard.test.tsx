@@ -90,13 +90,11 @@ it('polls a semantic preview without enabling the rule', async () => {
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
 })
 
-it('explains missing connector metadata and enables model selection after refresh', async () => {
+it('reads the configured OpenClaw models directly and enables selection after refresh', async () => {
   const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
-  expect(await screen.findByText(/自动化分析尚未配置，由管理员修复接入/)).toBeVisible()
+  expect(await screen.findByText(/点击刷新将直接读取本机 OpenClaw 配置/)).toBeVisible()
   expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
-  const refresh = { id: 'refresh-one', status: 'pending', requested_at: '', completed_at: null, changed: true }
-  api.refreshInformationModels.mockResolvedValue({ requested: true, status: 'unavailable', models: [], refresh } as never)
-  api.informationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }], refresh: { ...refresh, status: 'completed' } } as never)
+  api.refreshInformationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] } as never)
   await user.click(screen.getByRole('button', { name: '刷新模型目录' }))
   expect(await screen.findByText('已加载 1 个模型，请选择分析模型。', {}, { timeout: 3000 })).toBeVisible()
   await user.click(screen.getByRole('button', { name: /分析模型/ }))
@@ -108,7 +106,7 @@ it('explains missing connector metadata and enables model selection after refres
 it('keeps an empty authorized catalog disabled with a specific explanation', async () => {
   const { api } = setup(false, 'unavailable')
   api.informationModels.mockResolvedValue({ status: 'ready', models: [] })
-  expect(await screen.findByText(/暂无获准用于独立分析的模型/)).toBeVisible()
+  expect(await screen.findByText(/当前没有可用模型/)).toBeVisible()
   expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
 })
 
@@ -118,5 +116,6 @@ it('explains blocked and failed previews rather than showing indefinite analysis
   const base = { version: 2, results: [], sends_notification: false as const, advances_cursor: false as const }
   expect(previewStatus({ ...base, status: 'pending', reason: 'analysis_model_unavailable' })).toContain('分析已暂停')
   expect(previewStatus({ ...base, status: 'failed', reason: 'invalid_model_output' })).toContain('格式或引用')
+  expect(previewStatus({ ...base, status: 'failed', reason: 'analysis_call_failed' })).toContain('OpenClaw 已返回')
   expect(previewStatus({ ...base, status: 'judging' })).toBe('模型正在分析…')
 })

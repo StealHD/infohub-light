@@ -44,3 +44,13 @@ it('pages latest-feed article choices ten at a time and preserves cancel semanti
   await user.click(screen.getByRole('button', { name: '确认选择' }))
   expect(onConfirm).toHaveBeenCalledExactlyOnceWith([{ id: 'article-10', title: '文章 10' }])
 })
+
+it('does not submit a previously selected article that is no longer in the current feed', async () => {
+  const user = userEvent.setup(); const onConfirm = vi.fn()
+  const articles = [{ id: 'current', title: '当前文章' }] as FeedItem[]
+  shell(<InformationArticlePicker open articles={articles} value={[{ id: 'current', title: '当前文章' }, { id: 'gone', title: '旧文章' }]} onClose={vi.fn()} onConfirm={onConfirm} />)
+  expect(screen.getByText('已选 1 篇；仅显示当前最新信息流中符合任务来源的文章。')).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('有 1 篇已不在当前信息流中')
+  await user.click(screen.getByRole('button', { name: '确认选择' }))
+  expect(onConfirm).toHaveBeenCalledExactlyOnceWith([{ id: 'current', title: '当前文章' }])
+})

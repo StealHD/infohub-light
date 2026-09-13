@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import httpx
 from .batches import SYSTEM, output_schema
-from .completion_errors import completion_error
+from .completion_errors import completion_error, confirmed_gateway_tool_failure
 from . import completion_guard
 
 
@@ -22,7 +22,7 @@ class InformationConnector:
         self.agent_id, self.journal = agent_id, Path(journal)
         if self.journal.is_symlink() or self.journal.parent.resolve() != self.journal.parent:
             raise ValueError('Regular private journal path required')
-        self.discover_models, self.catalog_at = discover_models, 0
+        self.discover_models = discover_models
         self.client = client or httpx.Client(timeout=75, follow_redirects=False)
 
     def close(self):
@@ -66,8 +66,8 @@ class InformationConnector:
         mode = 'catalog_only' if catalog_only else execution_mode
         if mode not in {'catalog_only','previews_only','full'}:
             raise ValueError('Invalid analysis execution mode')
-        synchronize(self,mode)
-        if mode == 'catalog_only':
+        catalog_synchronized = synchronize(self,mode)
+        if mode == 'catalog_only' or catalog_synchronized:
             return {'status':'catalog_synced','retry_after':30}
         pending = self.flush()
         if pending is not None:
@@ -99,7 +99,10 @@ class InformationConnector:
             if not raw.get('ok') or not isinstance(result, dict):
                 raise ValueError('Invalid isolated completion')
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
-            if isinstance(error, httpx.HTTPStatusError) and 400 <= error.response.status_code < 500:
+            # Only a response with Gateway's final tool-error envelope proves
+            # that this invocation has stopped.  A timeout/disconnect remains
+            # ambiguous and must keep the durable inference fence.
+            if confirmed_gateway_tool_failure(error):
                 completion_guard.record(self.journal, task['claim_id'], self.agent_id, 'finished')
             result = {'error': 'completion_unknown' if completion_guard.uncertain(self.journal) else completion_error(error)}
         self.persist({'claim_id': task['claim_id'], 'body': {'claim_token': task['claim_token'], 'result': result}})

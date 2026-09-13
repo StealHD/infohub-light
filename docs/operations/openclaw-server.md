@@ -70,3 +70,5 @@ Gateway 主机属于可信运维边界；部署后变更任何 Agent、工具或
 维护时先确认运行进程加载的 `@openclaw/codex` 包路径及 package 版本，不能只修改 OpenClaw 安装目录中的同名内置文件。对目标包先执行补丁 dry-run，成功后应用并按现有服务管理方式重载；以实际加载源包含 `modelListTimeoutMs` 确认生效。回滚使用同一补丁的反向 dry-run/apply 后重载。插件升级或 generation 更换后必须重新核对，不自动向未知版本套用此补丁；本记录不代表 VPS 已部署。
 
 验证证据：修复前捕获到准备阶段 5 秒超时；修复后同一条规则、同一篇文章通过独立调用，14.7 秒返回 HTTP 200，实际模型为 `openai/gpt-5.6-terra`，结果 `matched`，单篇覆盖与原文引用通过 Service 的 `batches.validate`。受控检查覆盖慢目录、其他调用的原上限、总时限、30 秒上限及无自动重试。诊断没有写回历史失败记录，也未发送通知；页面再次提交被审批拦截，未宣称页面端到端测试通过。
+
+2026-09-13 再次发生相同的 `model/list timed out`：升级后当前加载的是 `@openclaw/codex 2026.9.3` 的新 generation，旧版插件上的补丁没有随之迁移。先用 `openclaw plugins inspect codex --json` 核对实际 `rootDir`，再运行 `python scripts/patch_openclaw_codex_model_list_timeout.py` 检查当前加载包；返回 `ready` 后加 `--apply`，按主机现有服务管理方式重启 Gateway。脚本默认从插件检查结果定位实际加载包，只接受已核对的 2026.9.3 源码，备份原文件；升级到未知版本时拒绝套用。重启后再次运行检查，应返回 `already_patched`。本机对照验证：5 秒时测试失败；同一任务、同样文章在 30 秒上限下由网页完成分析，进度 1/1 且显示命中依据。此操作只修复本机已加载的插件，不代表 VPS 已修改。

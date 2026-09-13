@@ -95,6 +95,33 @@ def test_old_queue_requires_confirmation_and_unknown_claim_never_reexecutes(cont
     assert claim_work(store,rules.targets,store.test_machine_token)['task'] is None
 
 
+@pytest.mark.parametrize('reason,claim_status,retry_allowed', [
+    ('analysis_call_failed', 'completed', True),
+    ('invalid_model_output', 'completed', True),
+    ('completion_unknown', 'completed', False),
+    ('analysis_timeout', 'completed', False),
+    ('analysis_call_failed', 'claimed', False),
+])
+def test_claimed_legacy_preview_retries_only_after_confirmed_terminal_failure(context, reason, claim_status, retry_allowed):
+    store,rules,user,rule,_=prepare(context)
+    old=rules.test(user['id'],rule['id'],1,['article'],'old')
+    task=claim_work(store,rules.targets,store.test_machine_token)['task']
+    assert task['preview_id']==old['preview_id']
+    conn=store.connect()
+    conn.execute('DELETE FROM information_preview_confirmations WHERE preview_id=?',(old['preview_id'],))
+    conn.execute('UPDATE information_previews SET status=?,reason=? WHERE id=?',('failed',reason,old['preview_id']))
+    conn.execute('UPDATE information_claims SET status=? WHERE id=?',(claim_status,task['claim_id']))
+    conn.commit()
+    if retry_allowed:
+        fresh=rules.test(user['id'],rule['id'],1,['article'],'new-click')
+        assert fresh['preview_id']!=old['preview_id']
+        assert get_preview(rules,user['id'],rule['id'],old['preview_id'])['reason']==reason
+    else:
+        with pytest.raises(RuleError) as failure:
+            rules.test(user['id'],rule['id'],1,['article'],'new-click')
+        assert failure.value.code=='completion_unknown'
+
+
 def test_refresh_receipt_fences_old_sync_and_blocks_release_only_after_ack(context):
     store,_,_,_,machine=prepare(context)
     conn=store.connect();block_model(conn,machine['binding_id'],'test/model');conn.commit()
@@ -105,7 +132,7 @@ def test_refresh_receipt_fences_old_sync_and_blocks_release_only_after_ack(conte
     second=request_refresh(store,machine['binding_id'])['refresh']['id']
     assert second!=first
     sync_catalog(store,machine,Capabilities(protocol_version=2,execution_mode='previews_only',refresh_request_id=first,models=[{'id':'test/model','name':'Test'}]))
-    assert control(store,machine)['refresh_request_id']==second
+    assert control(store,machine,'previews_only',None)['refresh_request_id']==second
     assert catalog(store,machine['binding_id'])['models']==[]
     sync_catalog(store,machine,Capabilities(protocol_version=2,execution_mode='previews_only',refresh_request_id=second,models=[{'id':'test/model','name':'Test'},{'id':'test/new','name':'New'}]))
     value=catalog(store,machine['binding_id'])

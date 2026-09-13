@@ -46,7 +46,10 @@ def test_host_catalog_alone_does_not_prove_supervisor_heartbeat(context):
     store.connect().commit()
     body = Capabilities(protocol_version=2, models=[{'id': 'test/model', 'name': 'Test'}], catalog_only=True)
     sync_catalog(store, machine, body, runtime_verified=False)
-    assert catalog(store, base['binding_id'])['status'] != 'ready'
+    # Directory freshness comes from the Gateway read; runner liveness stays
+    # independently projected through agent_analysis/execution capability.
+    assert catalog(store, base['binding_id'])['status'] == 'ready'
+    assert catalog(store, base['binding_id'])['preview_executable'] is False
     sync_catalog(store, machine, body)
     assert public(store, base['binding_id'])['phase'] == 'catalog_only'
     assert catalog(store, base['binding_id'])['status'] == 'ready'

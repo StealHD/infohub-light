@@ -11,6 +11,9 @@ export function InformationArticlePicker({ open, articles, value, onClose, onCon
   const [draft, setDraft] = useState(value)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
+  const availableIds = new Set(articles.map((item) => item.id))
+  const availableDraft = draft.filter((item) => availableIds.has(item.id))
+  const unavailableCount = draft.length - availableDraft.length
   const filtered = articles.filter((item) => item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const rows = filtered.slice(page * pageSize, (page + 1) * pageSize)
   const reset = () => { setDraft(value); setSearch(''); setPage(0) }
@@ -20,7 +23,8 @@ export function InformationArticlePicker({ open, articles, value, onClose, onCon
       <SearchField aria-label="搜索测试文章" value={search} onChange={(next) => { setSearch(next); setPage(0) }} fullWidth>
         <SearchField.Group><SearchField.SearchIcon><Icons.Search size={15} /></SearchField.SearchIcon><SearchField.Input placeholder="搜索文章标题" /><SearchField.ClearButton /></SearchField.Group>
       </SearchField>
-      <p className="type-meta text-muted">已选 {draft.length} 篇；仅显示当前最新信息流中符合任务来源的文章。</p>
+      <p className="type-meta text-muted">已选 {availableDraft.length} 篇；仅显示当前最新信息流中符合任务来源的文章。</p>
+      {unavailableCount > 0 && <p role="status" className="type-meta text-warning">有 {unavailableCount} 篇已不在当前信息流中，确认后会从测试选择中移除。</p>}
       {rows.map((item) => <Checkbox key={item.id} isSelected={draft.some((selected) => selected.id === item.id)}
         isDisabled={!draft.some((selected) => selected.id === item.id) && draft.length >= 1000}
         onChange={(checked) => setDraft((current) => checked ? [...current, { id: item.id, title: item.title }] : current.filter((selected) => selected.id !== item.id))}>
@@ -30,6 +34,6 @@ export function InformationArticlePicker({ open, articles, value, onClose, onCon
       {filtered.length > pageSize && <div className="flex items-center justify-between gap-2"><Button size="sm" variant="ghost" isDisabled={page === 0} onPress={() => setPage((value) => value - 1)}>上一页</Button>
         <span className="type-meta">{page + 1} / {Math.ceil(filtered.length / pageSize)}</span><Button size="sm" variant="ghost" isDisabled={(page + 1) * pageSize >= filtered.length} onPress={() => setPage((value) => value + 1)}>下一页</Button></div>}
     </div></Modal.Body>
-    <Modal.Footer><Button variant="ghost" onPress={() => { reset(); onClose() }}>取消</Button><Button onPress={() => onConfirm(draft)}>确认选择</Button></Modal.Footer>
+    <Modal.Footer><Button variant="ghost" onPress={() => { reset(); onClose() }}>取消</Button><Button onPress={() => onConfirm(availableDraft)}>确认选择</Button></Modal.Footer>
   </Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>
 }

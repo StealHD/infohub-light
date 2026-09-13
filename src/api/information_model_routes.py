@@ -1,6 +1,6 @@
 """Public model metadata and machine-only capability synchronization."""
-from pydantic import BaseModel, Field
-from typing import Annotated
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Literal
 from fastapi import Depends, Header, Response, Request
 from .context import ApiContext
 from .system_auth import api_context, current_user
@@ -21,11 +21,12 @@ async def list_models(response: Response,user=Depends(current_user),context: Api
 async def refresh_models(response: Response,user=Depends(current_user),context: ApiContext=Depends(api_context)):
     def operation():
         rules=service(response,context)
-        binding=rules.binding(rules.actor(user['id'],write=True))
-        from ..services.information_automations.model_refresh import request_refresh
-        requested = request_refresh(context.store,binding['binding_id'])
-        return {**catalog(context.store,binding['binding_id']), **requested}
-    return invoke(operation)
+        rules.binding(rules.actor(user['id'],write=True))
+        from ..services.information_automations.direct_model_catalog import refresh
+        return refresh(context.store, context.secret_values, context.openclaw_chat_settings,
+                       context.data_path, user['id'])
+    import asyncio
+    return await asyncio.to_thread(invoke, operation)
 
 
 async def capabilities(body: Capabilities,response: Response,request: Request,authorization: Annotated[str|None,Header()]=None,context: ApiContext=Depends(api_context)):
@@ -46,11 +47,23 @@ async def capabilities(body: Capabilities,response: Response,request: Request,au
     return invoke(operation)
 
 
-async def connector_control(response: Response, request: Request, authorization: Annotated[str|None,Header()]=None, context: ApiContext=Depends(api_context)):
+class ControlRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    protocol_version: int = Field(ge=2, le=2)
+    execution_mode: Literal['catalog_only', 'previews_only', 'full']
+    runtime_block: Literal['completion_unknown'] | None = None
+
+
+async def connector_control(body: ControlRequest, response: Response, request: Request, authorization: Annotated[str|None,Header()]=None, context: ApiContext=Depends(api_context)):
     response.headers['Cache-Control']='no-store'
     request.state.operation_logged=True
     from ..services.information_automations.model_refresh import control
-    return invoke(lambda: control(context.store,authenticate(context.store,bearer(authorization))))
+    def operation():
+        from .information_operation_routes import machine_audit
+        token = bearer(authorization)
+        machine_audit(request, context.store, token)
+        return control(context.store, authenticate(context.store, token), body.execution_mode, body.runtime_block)
+    return invoke(operation)
 
 
 class RefreshFailure(BaseModel):

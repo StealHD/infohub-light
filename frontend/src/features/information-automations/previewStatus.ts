@@ -12,7 +12,7 @@ export function previewStatus(result: InformationTest): string | null {
     daily_semantic_limit: '今日分析额度已用完，等待额度恢复。',
     invalid_model_output: '模型返回格式或引用未通过校验，测试已停止。请重新测试。',
     analysis_timeout: '模型调用超时，测试已停止。请稍后重试。',
-    analysis_call_failed: '独立分析调用失败，测试已停止。请检查接入后重试。',
+    analysis_call_failed: 'OpenClaw 已返回模型调用失败；当前测试已停止且未生成结果。修复模型或 Gateway 后可手动重新测试。',
     analysis_model_unavailable: '分析已暂停：模型不可用。请刷新模型目录或更换模型后重新测试。',
     analysis_thinking_unavailable: '分析已暂停：模型不支持当前推理强度，请修改后重新测试。',
   }
