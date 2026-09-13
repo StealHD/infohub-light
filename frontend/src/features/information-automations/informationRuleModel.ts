@@ -1,7 +1,7 @@
 import type { InformationRuleConfig } from '../../api/informationAutomationService'
 
 export const emptyInformationRule = (): InformationRuleConfig => ({
-  schema_version: 2, name: '新的自动化', source_ids: [], target_id: null, requirement: '', model: null,
+  schema_version: 2, name: '新的自动化', source_ids: [], target_id: null, notification_enabled: false, requirement: '', model: null,
   trigger: { kind: 'each', count: 5, max_wait_seconds: 3600, interval_seconds: 3600,
     time: '08:00', weekdays: [], timezone: 'Asia/Shanghai' },
 })
@@ -42,7 +42,7 @@ export const reminderReasonLabels: Record<string, string> = {
   literal_keywords: '根据已保存的关键词条件判断。',
 }
 export function completeRule(config: InformationRuleConfig): boolean {
-  return Boolean(config.name.trim() && config.source_ids.length && config.target_id && config.requirement.trim() && config.model)
+  return Boolean(config.name.trim() && config.source_ids.length && (config.notification_enabled === false || config.target_id) && config.requirement.trim() && config.model)
 }
 export function linesToTerms(value: string): string[] {
   return value.split('\n').map((line) => line.trim()).filter(Boolean)

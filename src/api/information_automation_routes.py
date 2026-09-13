@@ -2,7 +2,7 @@
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 from .context import ApiContext
 from .responses import ApiError, ok
@@ -25,8 +25,17 @@ class TransitionRule(BaseModel):
 class TestRule(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: StrictInt = Field(ge=1)
-    article_ids: list[str] = Field(min_length=1, max_length=1000)
+    article_ids: list[str] = Field(default_factory=list, max_length=1000)
+    custom_text: str | None = Field(default=None, min_length=1, max_length=24000)
     request_id: str | None = Field(default=None,min_length=1,max_length=128)
+    send_notification: StrictBool = False
+    notification_target_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @model_validator(mode='after')
+    def one_input(self):
+        if bool(self.article_ids) == bool(self.custom_text and self.custom_text.strip()):
+            raise ValueError('provide exactly one of article_ids or custom_text')
+        return self
 
 
 def service(response: Response, context: ApiContext):
@@ -71,7 +80,9 @@ async def transition_rule(rule_id: str, body: TransitionRule, response: Response
 
 async def test_rule(rule_id: str, body: TestRule, response: Response, user=Depends(current_user),
                     context: ApiContext = Depends(api_context)):
-    return invoke(service(response, context).test, user['id'], rule_id, body.version, body.article_ids, body.request_id)
+    return invoke(service(response, context).test, user['id'], rule_id, body.version, body.article_ids,
+                  body.request_id, body.send_notification, body.notification_target_id,
+                  custom_text={'text': body.custom_text} if body.custom_text else None)
 
 
 async def list_runs(rule_id: str, response: Response, limit: Annotated[int, Query(ge=1, le=100)] = 50,

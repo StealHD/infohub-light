@@ -7,77 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "实现成员撤销与本人解除共用的持久化清理流程、global 43 显式迁移、立即吊销绑定和专用令牌、停止/配置清理核验及管理员重试 UI。仅本地非容器环境，未提交、发布或调用模型/通知。",
-  "status": "partial",
-  "task_id": "member-agent-revocation-20260910",
-  "unresolved": [
-    "合入 main、精确 main CI、tag、Release 与 VPS 尚待完成；VPS 空间低于发布8GiB门槛。"
-  ],
-  "validation": [
-    "一次 impacted preflight 12/13 已执行项通过（含后端全量），前端 lint 混合导出失败已拆分修正；随后 lint/typecheck、前端全量 140 文件899测试和最终构建均退出0，未重复后端全量或宣称整次门禁绿灯",
-    "33 项相关后端测试通过，新增配置期间撤销、防重及重启投影后撤销定向 7 项通过；前端定向 11 项通过，构建通过",
-    "模拟双浏览器、确认取消、失败重试、1440/1024/390、Reduced Motion、明暗主题和 Axe：3 项通过并退出 0；已检查截图，临时 4173 服务无监听",
-    "本地 global 43 迁移已备份原测试库且未生成历史撤销；真实空闲成员 fengshenjie 绑定与专用数据令牌失效，管理员 Agent 配置仍存在，前端5173与API health均200",
-    "2026-09-10 接续：真实本机服务层回收精确 Agent 派生 monitor、专用配置与环境凭据，旧令牌失效；管理员与历史保留，重新审批新身份及握手通过。",
-    "最终相关后端36项、配置并发保护5项通过；.test-results/20260910T055035Z-50179 整项 preflight 16/16通过，557秒，退出0。",
-    "真实浏览器使用两个隔离的临时登录会话（角色未修改、无接口mock）：取消撤销不改变绑定、确认后成员失权、清理完成后成员按钮申请、管理员按钮允许、新Agent身份、聊天连接通过；脚本退出0，无模型/通知调用。"
-  ]
-}
-```
-
-```json
-{
-  "commit": "984eea2f",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "补齐 Service 与 OpenClaw 分机部署的受限 SSH 托管通道，复用个人配置和清理逻辑，加入远端回执、撤销墓碑与部署说明；生产接入和发布以最终核验为准。",
-  "status": "partial",
-  "task_id": "managed-agent-vps-20260910",
-  "unresolved": [
-    "最终 main 精确 CI、tag/Release、VPS 新版切换及项目接入激活待完成；未主动撤销生产管理员验证清理。"
-  ],
-  "validation": [
-    "Impacted preflight 16/16 正常退出；后续阶段确认保护的定向 SSH/接入/清理测试 22 项及审批/清理 16 项通过。",
-    "真实 Tokyo 到既有 OpenClaw 受限 SSH 握手通过，任意命令拒绝；目标专用配置实际加载、本人 MCP 与签名回执核验通过，未调用模型或发送通知。",
-    "保留当前/上一版回滚与迁移 42/43 备份；SHA256 与逐字节确认后清理两份重复备份，六份旧数据库压缩校验保留，恢复映射已记录于 VPS。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-09-10",
-  "result": "实现个人 MCP 明确协议与原生探测、模型操作互斥及发送快照复验、安全错误分类、global 44 托管分析安装/目录/监督服务/撤销边界；同页管理员修复旧绑定，保留账号、历史和正常凭据。",
-  "status": "partial",
-  "task_id": "openclaw-runtime-repair-20260910",
-  "unresolved": [
-    "账号专用分析身份与凭据补齐等待浏览器敏感操作确认，随后继续个人 Agent 的 Flash/Pro/单篇分析真实验收；尚未调用模型或发送通知。"
-  ],
-  "validation": [
-    "定向后端分析/接入/模型目录组合 36 项通过；原生协议与监督服务受控测试通过；浏览器三视口 15 项通过且进程/4174 临时服务退出；impacted preflight 16/16 通过（全域），前端 902 项通过；生产构建初始 JS Brotli 245639 bytes；差异审查、代码尺寸及控制文件检查通过。",
-    "main 10e8170974bd103f95c3aa606eae3e68767d9540 CI 全通过，v2.6.16 tag 冒烟/Release/VPS 显式 global 44 迁移与切换完成；API/Worker/公网 revision 与 React asset 核验通过，同 SHA 适配器及 catalog-only 监督服务已上线，项目个人聊天握手通过。"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-09-10",
   "result": "修正个人与独立分析 Agent 的 memory.search.enabled 字段；原生 MCP 探测兼容 js/mjs 及新版生命周期模块拆分，补充实际安装包回归和操作说明。仅完成本地修复，未提交、发布或修改生产配置。",
@@ -438,6 +367,68 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "本机网页真实测试：两篇命中、单篇未命中，均完成 1/1 且有模型结果；新单篇请求创建新 claim 并完成。",
     "相关 Pytest 18 项通过；补丁脚本 dry-run 和已应用检查通过；API readiness 200；git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "在 codex/telegram-topics-openclaw-notify 分支实现 Telegram 可选话题、OpenClaw 通知服务及管理员渠道目录、正式任务可关闭通知、测试命中后可选持久化通知与 Worker 投递；新增显式 global 47 迁移及文档。未触发真实投递、迁移或部署。",
+  "status": "partial",
+  "task_id": "telegram-topics-openclaw-automation-notify-20260913",
+  "unresolved": [
+    "该分支最终完整 preflight 尚无一次全绿记录；真实通知需指定接收服务后验收，生产迁移、合并与部署另行执行。"
+  ],
+  "validation": [
+    "后端定向测试与全域 Pytest 通过；SQLite 资源警告修正后全域门禁后端阶段通过，代码尺寸和控制面检查通过。",
+    "第二次 impacted preflight 停于前端 Fast Refresh lint；已拆分组件与辅助函数，单独 lint、全量 Vitest 148 文件932项、生产构建与 UI 合同通过；根据门禁规则不再运行第三次完整 preflight。",
+    "自动化浏览器验收 9 项、通知设置响应式验收 3 项通过，覆盖桌面/平板/手机、明暗主题、键盘和 Reduced Motion；差异及 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "自动化测试支持自定义文本输入，文本替代所选 Feed 文章创建隔离预览；本地测试环境重启时加载测试库的 OpenClaw 配置并启动分析 Connector，当前绑定已有心跳。",
+  "status": "completed",
+  "task_id": "automation-custom-text-and-local-connector-20260913",
+  "unresolved": [
+    "旧的离线测试记录保留终态，需由用户显式手动重新测试；不自动重放可能包含通知的测试。"
+  ],
+  "validation": [
+    "语义预览定向 Pytest 5 项通过，覆盖自定义文本、请求去重与冲突。",
+    "自动化前端定向 Vitest 8 项通过，TypeScript typecheck 与 git diff --check 通过；API、前端、Worker 及 Connector 当前本地就绪。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-09-13",
+  "result": "修复自定义文本测试因没有原文 URL 被通知层误判为缺少证据的问题；命中后可发送包含测试标记、摘要、理由与判断依据的通知，并重启当前分支的 API、Worker 和 Connector。",
+  "status": "completed",
+  "task_id": "custom-preview-notification-delivery-20260913",
+  "unresolved": [
+    "历史 failed 测试记录保持终态；用户手动重新测试才会创建新的、可投递的测试通知。"
+  ],
+  "validation": [
+    "pytest tests/test_information_semantic_previews.py tests/test_information_unified.py -q 通过，覆盖无原文 URL 的自定义文本通知投递。",
+    "前端定向 Vitest 8 项、TypeScript typecheck、git diff --check 通过；5173、API、Worker 与 Connector heartbeat 就绪。"
   ]
 }
 ```

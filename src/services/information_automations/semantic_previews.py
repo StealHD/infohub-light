@@ -17,15 +17,36 @@ def get_preview(rules, user_id, rule_id, preview_id):
                                        (preview_id, user_id, rule_id)).fetchone()
     if not row:
         raise RuleError('not_found', '测试不存在。', 404)
+    notice = rules.store.connect().execute('SELECT target_id,status,receipt_json,reason FROM information_preview_notifications WHERE preview_id=?',
+                                          (preview_id,)).fetchone() if _extensions_ready(rules.store.connect()) else None
     return {'preview_id': row['id'], 'version': row['version'], 'status': row['status'], 'reason': row['reason'],
             'selection': [{'id':item['article_id'],'title':item.get('title') or item['article_id']} for item in json.loads(row['input_json'])],
-            'results': json.loads(row['results_json']), 'sends_notification': False, 'advances_cursor': False,
+            'results': json.loads(row['results_json']), 'sends_notification': bool(notice),
+            'notification_status': notice['status'] if notice else 'not_required',
+            'notification_target_id': notice['target_id'] if notice else None,
+            'notification_reason': notice['reason'] if notice else None,
+            'notification_receipt': json.loads(notice['receipt_json']) if notice and notice['receipt_json'] else None,
+            'advances_cursor': False,
             **progress(rules.store.connect(), preview_id=preview_id), **recovery.diagnostics(rules.store,row)}
 
 
-def create_preview(rules, user, row, config, article_ids, request_id=None):
+def _extensions_ready(conn):
+    from ...storage.notification_extension_schema import ready
+    return ready(conn)
+
+
+def create_preview(rules, user, row, config, article_ids, request_id=None, *,
+                   send_notification=False, notification_target_id=None, custom_input=None):
     binding = rules.binding(user)
-    digest = recovery.fingerprint(user['id'],row['id'],row['version'],article_ids)
+    if notification_target_id and not send_notification:
+        raise RuleError('invalid_test_notification', '未开启测试通知时不能选择目标。', 400)
+    selected_target_id = (notification_target_id or config.target_id) if send_notification else None
+    if send_notification and not selected_target_id:
+        raise RuleError('notification_target_required', '请选择测试通知服务。', 400)
+    if send_notification and not _extensions_ready(rules.store.connect()):
+        raise RuleError('notification_migration_required', '请先完成 global 47 迁移。', 503)
+    target = rules.target(user, config.model_copy(update={'target_id': selected_target_id}), require_ready=True) if send_notification else None
+    digest = recovery.fingerprint(user['id'],row['id'],row['version'],article_ids,send_notification,selected_target_id)
     from ...storage.information_recovery_schema import ready
     if not ready(rules.store.connect()):
         raise RuleError('information_migration_required','请先完成 global 45 迁移。',503)
@@ -38,14 +59,17 @@ def create_preview(rules, user, row, config, article_ids, request_id=None):
     if not config.requirement.strip():
         raise RuleError('incomplete_rule', '请填写完整判断要求。')
     inputs = []
-    for article_id in dict.fromkeys(article_ids):
-        stored = UserContentStore(rules.store).get_item(workspace_id=user['workspace_id'], user_id=user['id'], article_id=article_id)
-        if not stored:
-            raise RuleError('not_found', '测试文章不存在。', 404)
-        item = evidence_input(stored, 1000000)
-        if not set(config.source_ids) & set(item['source_ids']):
-            raise RuleError('test_source_mismatch', '测试文章不属于所选来源。', 400)
-        inputs.append(item)
+    if custom_input:
+        inputs.append(custom_input)
+    else:
+        for article_id in dict.fromkeys(article_ids):
+            stored = UserContentStore(rules.store).get_item(workspace_id=user['workspace_id'], user_id=user['id'], article_id=article_id)
+            if not stored:
+                raise RuleError('not_found', '测试文章不存在。', 404)
+            item = evidence_input(stored, 1000000)
+            if not set(config.source_ids) & set(item['source_ids']):
+                raise RuleError('test_source_mismatch', '测试文章不属于所选来源。', 400)
+            inputs.append(item)
     now, identity = datetime.now(timezone.utc).isoformat(), 'iapreview_' + uuid.uuid4().hex
     with transaction(rules.store) as conn:
         current = rules.row(rules.actor(user['id'], write=True), row['id'])
@@ -66,6 +90,11 @@ def create_preview(rules, user, row, config, article_ids, request_id=None):
             (id,rule_id,user_id,version,binding_id,input_json,requirement,status,ready_at,created_at)
             VALUES(?,?,?,?,?,?,?,'pending',?,?)''',
             (identity,row['id'],user['id'],row['version'],binding['binding_id'],json.dumps(inputs,ensure_ascii=False),config.requirement,now,now))
+        if target:
+            conn.execute('''INSERT INTO information_preview_notifications
+                (preview_id,target_id,target_generation,target_activation,status,created_at,updated_at)
+                VALUES(?,?,?,?,'waiting_analysis',?,?)''',
+                (identity,target['id'],target['config_generation'],target['activation_generation'],now,now))
         create_batch(conn, config, inputs, now, preview_id=identity)
         recovery.remember(conn,user["id"],request_id,digest,identity)
     return get_preview(rules, user['id'], row['id'], identity)

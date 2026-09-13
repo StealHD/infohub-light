@@ -59,7 +59,7 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
 
   return <NotificationTargetSelectionForm
     settings={settings.data}
-    targets={services.data.services}
+    targets={services.data.services.filter((item) => item.channel !== 'openclaw')}
     onSave={save}
     readOnly={user.role === 'viewer'}
   />

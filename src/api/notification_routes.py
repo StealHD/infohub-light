@@ -3,7 +3,7 @@
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from starlette.concurrency import run_in_threadpool
 
 from .context import ApiContext
@@ -59,6 +59,7 @@ class NotificationTargetCreateRequest(BaseModel):
     webhook_provider: WebhookProvider | None = None
     webhook_signing_secret: str | None = Field(default=None, max_length=4096)
     telegram_chat_id: str | None = Field(default=None, max_length=128)
+    telegram_message_thread_id: StrictInt | None = Field(default=None, ge=1)
 
 
 class NotificationTargetPatchRequest(BaseModel):
@@ -71,6 +72,7 @@ class NotificationTargetPatchRequest(BaseModel):
     webhook_provider: WebhookProvider | None = None
     webhook_signing_secret: str | None = Field(default=None, max_length=4096)
     telegram_chat_id: str | None = Field(default=None, max_length=128)
+    telegram_message_thread_id: StrictInt | None = Field(default=None, ge=1)
 
 
 class NotificationServiceEmailTransportRequest(BaseModel):
@@ -167,12 +169,14 @@ async def notification_services_get(
 ) -> dict[str, Any]:
     _ready(context)
     response.headers["Cache-Control"] = "no-store"
-    return ok(
-        context.notification_targets.list_public_services(
-            workspace_id=str(user["workspace_id"]),
-            user_id=str(user["id"]),
-        )
+    result = context.notification_targets.list_public_services(
+        workspace_id=str(user["workspace_id"]), user_id=str(user["id"]),
     )
+    from ..services.openclaw_notification_services import OpenClawNotificationServices
+    from ..storage.notification_extension_schema import ready as extensions_ready
+    if extensions_ready(context.store.connect()):
+        result['services'].extend(OpenClawNotificationServices(context.store, context.data_path).list(user['workspace_id']))
+    return ok(result)
 
 
 def _validate_service_credentials(
@@ -257,6 +261,7 @@ async def admin_notification_services_create(
             "webhook_provider",
             "webhook_signing_secret",
             "telegram_chat_id",
+            "telegram_message_thread_id",
         )
         if field in provided or field in {"name", "scope", "channel"}
     }
@@ -344,6 +349,7 @@ async def admin_notification_services_patch(
             "webhook_provider",
             "webhook_signing_secret",
             "telegram_chat_id",
+            "telegram_message_thread_id",
         )
         if field in provided
     }
@@ -676,3 +682,5 @@ def register_notification_routes(app: FastAPI) -> None:
         notification_settings_test,
         methods=["POST"],
     )
+    from .openclaw_notification_routes import register as register_openclaw_notifications
+    register_openclaw_notifications(app)

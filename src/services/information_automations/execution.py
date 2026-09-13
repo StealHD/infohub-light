@@ -17,12 +17,13 @@ def approved_context(rules, row):
     if binding['binding_id'] != row['binding_id']:
         raise RuleError('agent_binding_changed', '个人接入已变化，请重新确认。')
     rules.validate_sources(user, config)
-    target = rules.target(user, config, require_ready=True)
-    if not target or (target['config_generation'], target['activation_generation']) != (
-            row['target_generation'], row['target_activation']):
-        raise RuleError('notification_target_changed', '通知服务已变化，请重新确认。')
-    if transport_generation(rules.store, user, target) != row['transport_generation']:
-        raise RuleError('notification_transport_changed', '通知发送服务已变化，请重新确认。')
+    target = rules.target(user, config, require_ready=True) if config.notification_enabled else None
+    if config.notification_enabled:
+        if not target or (target['config_generation'], target['activation_generation']) != (
+                row['target_generation'], row['target_activation']):
+            raise RuleError('notification_target_changed', '通知服务已变化，请重新确认。')
+        if transport_generation(rules.store, user, target) != row['transport_generation']:
+            raise RuleError('notification_transport_changed', '通知发送服务已变化，请重新确认。')
     return user, config, target
 
 

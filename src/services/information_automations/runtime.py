@@ -5,6 +5,7 @@ from ..notification_email_transport import WorkspaceEmailTransportService
 from ..workspace_telegram_transport import WorkspaceTelegramTransportService
 from .execution import evaluate_pending
 from .delivery import ReminderTransport, dispatch_pending
+from .preview_delivery import dispatch_preview_notifications
 
 
 def run_information_automations(store, *, data_dir):
@@ -16,4 +17,6 @@ def run_information_automations(store, *, data_dir):
     from .semantic_claims import maintain_semantic_leases
     maintain_semantic_leases(store)
     evaluate_pending(store, targets)
-    dispatch_pending(store, targets, ReminderTransport(store, targets, data_dir), limit=1)
+    sender = ReminderTransport(store, targets, data_dir)
+    dispatch_pending(store, targets, sender, limit=1)
+    dispatch_preview_notifications(store, targets, sender, limit=1)

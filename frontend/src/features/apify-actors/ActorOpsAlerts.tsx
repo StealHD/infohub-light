@@ -65,7 +65,7 @@ export function ActorOpsAlertSettingsPanel() {
     <Modal isOpen={open} onOpenChange={(next) => { if (!saving) { setOpen(next); if (!next) setSaveError('') } }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">编辑 ActorOps 告警</Modal.Trigger>
       <Modal.Backdrop isDismissable={!saving} isKeyboardDismissDisabled={saving}><Modal.Container><Modal.Dialog><Modal.Header><Modal.Heading>编辑 ActorOps 告警</Modal.Heading></Modal.Header><Modal.Body>
-        <AlertEditor settings={settings.data} services={services.data?.services ?? []} saving={saving || services.isPending} saveError={saveError} onSave={save} onClose={() => { setSaveError(''); setOpen(false) }} />
+        <AlertEditor settings={settings.data} services={services.data?.services.filter((item) => item.channel !== 'openclaw') ?? []} saving={saving || services.isPending} saveError={saveError} onSave={save} onClose={() => { setSaveError(''); setOpen(false) }} />
       </Modal.Body></Modal.Dialog></Modal.Container></Modal.Backdrop>
     </Modal>
   </>

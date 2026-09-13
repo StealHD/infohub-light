@@ -161,3 +161,5 @@ def apply_migration(conn, *, fresh=False) -> None:
 def bootstrap(conn, *, existing_schema):
     if not existing_schema:
         apply_migration(conn, fresh=True)
+        from .notification_extension_schema import apply_migration as apply_notification_extensions
+        apply_notification_extensions(conn)

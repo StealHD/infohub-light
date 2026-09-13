@@ -141,3 +141,18 @@ def test_feed_publication_hook_is_atomic_and_independent_of_notification_opt_in(
             store.connect().rollback()
     assert store.connect().execute('SELECT count(*) FROM information_events').fetchone()[0] == 0
     assert store.connect().execute("SELECT count(*) FROM information_seen_items WHERE article_id='new'").fetchone()[0] == 0
+
+
+def test_formal_rule_without_notification_still_analyzes(context):
+    store, rules, _, alice, _, _, config, _ = context
+    config = config.model_copy(update={'notification_enabled': False, 'target_id': None})
+    now = datetime.now(timezone.utc)
+    acquire(context, ['old'], now)
+    draft = rules.save(alice['id'], config)
+    rules.transition(alice['id'], draft['id'], 1, 'enable')
+    acquire(context, ['new'], now)
+    assert evaluate_pending(store, rules.targets, now=now + timedelta(seconds=61))
+    judge_all(context, now + timedelta(seconds=62))
+    run = rules.runs(alice['id'], draft['id'])['items'][0]
+    assert run['status'] == 'matched' and run['notification_status'] == 'not_required'
+    assert dispatch_pending(store, rules.targets, lambda *_: pytest.fail('unexpected send')) == []

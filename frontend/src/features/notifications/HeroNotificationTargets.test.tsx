@@ -92,6 +92,14 @@ function renderServices(apiOverrides: Partial<ServiceApi> = {}) {
       service_id: created.id,
       archived: true,
     }),
+    openClawNotificationChannels: vi.fn().mockResolvedValue({ channels: [
+      { channel: 'telegram', account_id: 'primary', account_name: '主账号', available: true },
+      { channel: 'telegram', account_id: 'secondary', account_name: '备用账号', available: true },
+    ] }),
+    createOpenClawNotificationService: vi.fn().mockResolvedValue(service({ id: 'ocn_test', channel: 'openclaw' })),
+    updateOpenClawNotificationService: vi.fn(),
+    testAndEnableOpenClawNotificationService: vi.fn().mockResolvedValue({ sent: true, channel: 'openclaw' }),
+    archiveOpenClawNotificationService: vi.fn(),
     updateNotificationTarget: vi.fn(),
     archiveNotificationTarget: vi.fn(),
     ...apiOverrides,
@@ -147,14 +155,22 @@ describe('HeroNotificationTargets', () => {
     await browser.type(within(dialog).getByRole('textbox', { name: '服务名称' }), '群组 Telegram')
     expect(within(dialog).getByRole('button', { name: /邮件服务商/ })).toHaveClass('select__trigger')
     await browser.click(within(dialog).getByRole('button', { name: /发送方式/ }))
+    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
+      'Telegram',
+      'OpenClaw',
+      '邮箱',
+      'Webhook',
+    ])
     await browser.click(await screen.findByRole('option', { name: 'Webhook' }))
     expect(within(dialog).getByRole('button', { name: /Webhook 类型/ })).toHaveClass('select__trigger')
     await browser.click(within(dialog).getByRole('button', { name: /发送方式/ }))
     await browser.click(await screen.findByRole('option', { name: 'Telegram' }))
     const destination = within(dialog).getByLabelText('群组或会话 Chat ID')
+    const topic = within(dialog).getByLabelText('话题 ID（可选）')
     const token = within(dialog).getByLabelText('Bot Token')
     expect(destination).toHaveAttribute('type', 'password')
     expect(token).toHaveAttribute('type', 'password')
+    expect(topic.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await browser.type(destination, '-1001234567890')
     await browser.type(token, '123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
     await browser.click(screen.getByRole('button', { name: '保存并测试' }))
@@ -189,6 +205,51 @@ describe('HeroNotificationTargets', () => {
       { enabled: true },
     ))
     expect(api.testAndEnableNotificationService).not.toHaveBeenCalled()
+  })
+
+  it('sends Telegram to a specified topic and can clear it on edit', async () => {
+    const browser = userEvent.setup()
+    const existing = service({ telegram_topic_configured: true })
+    const api = renderServices({ notificationServices: vi.fn().mockResolvedValue(response([existing])) })
+    await browser.click(await screen.findByRole('button', { name: '新增通知服务' }))
+    const create = screen.getByRole('dialog', { name: '新增通知服务' })
+    await browser.type(within(create).getByRole('textbox', { name: '服务名称' }), '话题服务')
+    await browser.click(within(create).getByRole('button', { name: /发送方式/ }))
+    await browser.click(await screen.findByRole('option', { name: 'Telegram' }))
+    await browser.type(within(create).getByLabelText('群组或会话 Chat ID'), '-1001234567890')
+    await browser.type(within(create).getByLabelText('Bot Token'), '123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    await browser.type(within(create).getByLabelText('话题 ID（可选）'), '17')
+    await browser.click(within(create).getByRole('button', { name: '保存并测试' }))
+    await waitFor(() => expect(api.createNotificationService).toHaveBeenCalledWith(expect.objectContaining({ telegram_message_thread_id: 17 })))
+    await browser.click(await screen.findByRole('button', { name: '更多操作：值班 Telegram' }))
+    await browser.click(await screen.findByRole('button', { name: '编辑' }))
+    const edit = await screen.findByRole('dialog', { name: '编辑通知服务' })
+    await browser.click(within(edit).getByRole('button', { name: /话题设置/ }))
+    await browser.click(await screen.findByRole('option', { name: '恢复默认话题' }))
+    await browser.click(within(edit).getByRole('button', { name: '保存并测试' }))
+    await waitFor(() => expect(api.updateNotificationService).toHaveBeenCalledWith(existing.id,
+      expect.objectContaining({ telegram_message_thread_id: null })))
+  })
+
+  it('creates an OpenClaw service from a configured account without exposing the destination', async () => {
+    const browser = userEvent.setup()
+    const api = renderServices()
+    await browser.click(await screen.findByRole('button', { name: '新增通知服务' }))
+    const dialog = screen.getByRole('dialog', { name: '新增通知服务' })
+    await browser.type(within(dialog).getByRole('textbox', { name: '服务名称' }), 'OpenClaw 值班')
+    await browser.click(within(dialog).getByRole('button', { name: /发送方式/ }))
+    await browser.click(await screen.findByRole('option', { name: 'OpenClaw' }))
+    await browser.click(within(dialog).getByRole('button', { name: /OpenClaw 渠道/ }))
+    await browser.click(await screen.findByRole('option', { name: 'telegram' }))
+    await browser.click(within(dialog).getByRole('button', { name: /OpenClaw 账号/ }))
+    await browser.click(await screen.findByRole('option', { name: '主账号' }))
+    await browser.type(within(dialog).getByLabelText('收件目标'), '-1009876543210')
+    await browser.click(within(dialog).getByRole('button', { name: '保存并测试' }))
+    await waitFor(() => expect(api.createOpenClawNotificationService).toHaveBeenCalledWith({
+      name: 'OpenClaw 值班', openclaw_channel: 'telegram', openclaw_account: 'primary', destination: '-1009876543210',
+    }))
+    await waitFor(() => expect(api.testAndEnableOpenClawNotificationService).toHaveBeenCalledWith('ocn_test'))
+    expect(document.body.textContent).not.toContain('-1009876543210')
   })
 
   it('keeps the accepted Popover action mounted and single-flight until completion', async () => {

@@ -6,6 +6,8 @@ import { useInformationContext } from './useInformationContext'
 export type TestArticleSelection = { id: string; title: string }
 export type InformationTestSession = {
   ruleId: string; version: number; selection: TestArticleSelection[]
+  customText: string
+  sendNotification: boolean; notificationTargetId: string | null
   phase: 'idle' | 'submitting' | 'pending' | 'judging' | 'quota_wait' | 'completed' | 'failed' | 'submission_unknown'
   data?: InformationTest; error?: string; requestId?: string
 }
@@ -29,7 +31,8 @@ export function useInformationTests() {
     let active = true
     const poll = async () => {
       for (const [key, session] of Object.entries(sessionsRef.current)) {
-        if (!key.startsWith(`${userId}:`) || session.data?.requires_review || !session.data?.preview_id || !['pending', 'judging', 'quota_wait'].includes(session.phase) || polling.current.has(key)) continue
+        const notificationPending = session.data?.sends_notification && ['waiting_analysis', 'pending', 'sending', 'quota_wait'].includes(session.data.notification_status || '')
+        if (!key.startsWith(`${userId}:`) || session.data?.requires_review || !session.data?.preview_id || (!['pending', 'judging', 'quota_wait'].includes(session.phase) && !notificationPending) || polling.current.has(key)) continue
         polling.current.add(key)
         try {
           const data = await api.informationTestPreview(session.ruleId, session.data.preview_id)
@@ -45,7 +48,7 @@ export function useInformationTests() {
   }, [api, userId])
 
   const session = (ruleId: string, version: number): InformationTestSession => sessions[keyFor(userId, ruleId, version)] || {
-    ruleId, version, selection: [], phase: 'idle',
+    ruleId, version, selection: [], customText: '', sendNotification: false, notificationTargetId: null, phase: 'idle',
   }
   const restore = useCallback(async (ruleId: string, version: number) => {
     const key = keyFor(userId, ruleId, version)
@@ -53,24 +56,41 @@ export function useInformationTests() {
     try {
       const data = await api.informationTestPreview(ruleId, 'latest')
       if (data?.version === version) setSessions((all) => all[key]?.phase === 'submitting' || all[key]?.requestId !== requestId ? all : {
-        ...all, [key]: { ...all[key], ruleId, version, selection: all[key]?.selection.length ? all[key].selection : data.selection || [], phase: phaseFor(data), data },
+        ...all, [key]: { ...all[key], ruleId, version, selection: all[key]?.selection.length ? all[key].selection : data.selection || [],
+          customText: all[key]?.customText || '',
+          sendNotification: all[key]?.sendNotification ?? false,
+          notificationTargetId: all[key]?.notificationTargetId ?? null, phase: phaseFor(data), data },
       })
     } catch { /* Preserve the current draft and submission diagnostics. */ }
   }, [api, userId])
   const select = (ruleId: string, version: number, selection: TestArticleSelection[]) => setSessions((current) => {
-    const key = keyFor(userId, ruleId, version); return { ...current, [key]: { ...(current[key] || { ruleId, version, phase: 'idle' }), selection } }
+    const key = keyFor(userId, ruleId, version); return { ...current, [key]: { ...(current[key] || { ruleId, version, phase: 'idle', customText: '', sendNotification: false, notificationTargetId: null }), selection } }
+  })
+  const setCustomText = (ruleId: string, version: number, customText: string) => setSessions((current) => {
+    const key = keyFor(userId, ruleId, version)
+    const previous = current[key] || { ruleId, version, selection: [], customText: '', phase: 'idle' as const, sendNotification: false, notificationTargetId: null }
+    return { ...current, [key]: { ...previous, customText, requestId: undefined, data: undefined, phase: 'idle' } }
+  })
+  const configureNotification = (ruleId: string, version: number, sendNotification: boolean, notificationTargetId: string | null) => setSessions((current) => {
+    const key = keyFor(userId, ruleId, version)
+    const previous = current[key] || { ruleId, version, selection: [], customText: '', phase: 'idle' as const, sendNotification: false, notificationTargetId: null }
+    return { ...current, [key]: { ...previous, sendNotification, notificationTargetId, requestId: undefined, data: undefined, phase: 'idle' } }
   })
   const start = async (ruleId: string, version: number) => {
     const key = keyFor(userId, ruleId, version)
     const current = sessionsRef.current[key]
-    if (!current?.selection.length || starting.current.has(key) || (['submitting', 'pending', 'judging', 'quota_wait'].includes(current.phase) && !current.data?.requires_review)) return
+    if ((!current?.selection.length && !current?.customText.trim()) || starting.current.has(key) || (['submitting', 'pending', 'judging', 'quota_wait'].includes(current.phase) && !current.data?.requires_review)) return
     starting.current.add(key)
     const startedAt = performance.now()
     const snapshot = [...current.selection]
     const requestId = current.phase === "submission_unknown" && current.requestId ? current.requestId : crypto.randomUUID()
     setSessions((all) => ({ ...all, [key]: { ...current, selection: snapshot, requestId, phase: 'submitting', data: undefined, error: undefined } }))
     try {
-      const data = await api.testInformationRule(ruleId, version, snapshot.map((item) => item.id), requestId)
+      const customText = current.customText.trim()
+      const target = current.sendNotification ? current.notificationTargetId || undefined : undefined
+      const data = customText
+        ? await api.testInformationRule(ruleId, version, [], requestId, current.sendNotification, target, customText)
+        : await api.testInformationRule(ruleId, version, snapshot.map((item) => item.id), requestId, current.sendNotification, target)
       setSessions((all) => ({ ...all, [key]: { ...all[key], selection: snapshot, phase: phaseFor(data), data, error: undefined } }))
     } catch (cause) {
       const rejected = cause instanceof ApiError && cause.code !== 'invalid_response' && cause.code !== 'request_failed'
@@ -81,5 +101,5 @@ export function useInformationTests() {
       starting.current.delete(key)
     }
   }
-  return { sessions, session, select, start, restore }
+  return { sessions, session, select, setCustomText, configureNotification, start, restore }
 }

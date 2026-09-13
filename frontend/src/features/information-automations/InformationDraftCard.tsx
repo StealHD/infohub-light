@@ -31,7 +31,9 @@ export default function InformationDraftCard({ ruleId }: { ruleId: string }) {
       onSaved={async (saved) => { cache.setQueryData(key, saved); await cache.invalidateQueries({ queryKey: ['information-rules', userId] }) }} /></Suspense>
       <Button className="mt-3" variant="secondary" aria-expanded={showTest} onPress={() => setShowTest((value) => !value)}>{showTest ? '收起测试' : '测试已保存规则'}</Button>
       {showTest && <div className="mt-4 border-t border-separator pt-4"><InformationTestPanel rule={query.data} dirty={dirty} canMutate={Boolean(access.data?.can_chat) && !query.isError}
-        session={tests.session(ruleId, query.data.version)} onSelect={(value) => tests.select(ruleId, query.data!.version, value)} onStart={() => tests.start(ruleId, query.data!.version)} /></div>}
+        session={tests.session(ruleId, query.data.version)} onSelect={(value) => tests.select(ruleId, query.data!.version, value)} onTextChange={(value) => tests.setCustomText(ruleId, query.data!.version, value)}
+        onConfigureNotification={(send, target) => tests.configureNotification(ruleId, query.data!.version, send, target)}
+        onStart={() => tests.start(ruleId, query.data!.version)} /></div>}
     </>}
   </Card>
 }

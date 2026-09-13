@@ -5,13 +5,11 @@ import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import type {
   NotificationChannel,
-  NotificationEmailProvider,
   NotificationService,
-  NotificationServiceEmailTransportPatch,
   WebhookProvider,
 } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
-import { StatusBadge, type StatusBadgeTone } from '../../components/settings'
+import { StatusBadge } from '../../components/settings'
 import {
   actionToast,
   Button,
@@ -29,82 +27,8 @@ import {
 import { HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { safeNotificationError } from './notificationModel'
 import { NotificationServiceActions } from './NotificationServiceActions'
-
-const channelLabels: Record<NotificationChannel, string> = {
-  email: '邮箱',
-  webhook: 'Webhook',
-  telegram: 'Telegram',
-}
-
-const botTokenPattern = /^\d{5,20}:[A-Za-z0-9_-]{30,100}$/
-const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
-
-function destinationLabel(channel: NotificationChannel): string {
-  if (channel === 'email') return '收件邮箱'
-  if (channel === 'telegram') return '群组或会话 Chat ID'
-  return 'Webhook 地址'
-}
-
-function serviceStatus(service: NotificationService): string {
-  if (!service.configured) return '未配置'
-  if (!service.transport_ready && service.channel !== 'webhook') return '共享凭据待验证'
-  if (service.last_test_status === 'failed') return '测试失败'
-  if (service.last_test_status === 'unknown') return '结果未知'
-  if (service.last_test_status !== 'sent') return '待验证'
-  if (!service.enabled) return '已暂停'
-  return service.available ? '可用' : '暂不可用'
-}
-
-function serviceStatusTone(service: NotificationService): StatusBadgeTone {
-  if (service.available && service.enabled) return 'success'
-  if (service.last_test_status === 'failed' || !service.configured) return 'danger'
-  if (!service.enabled || service.last_test_status !== 'sent') return 'warning'
-  return 'neutral'
-}
-
-function serviceUnavailableReason(service: NotificationService): string {
-  if (!service.configured) return '接收地址尚未保存'
-  if (!service.transport_ready && service.channel !== 'webhook') {
-    return service.channel === 'telegram'
-      ? '共享 Bot Token 尚未通过验证'
-      : '共享邮件凭据尚未通过验证'
-  }
-  if (service.last_test_status === 'unknown') return '上次测试结果未知，请确认接收端后再手动测试'
-  if (service.last_test_status === 'failed') return '上次测试失败，请编辑后重试'
-  if (service.last_test_status !== 'sent') return '当前配置尚未测试'
-  if (!service.enabled) return '服务已暂停'
-  return '服务暂不可用'
-}
-
-type EmailDraft = {
-  provider: NotificationEmailProvider
-  senderEmail: string
-  senderName: string
-  credential: string
-  region: string
-  smtpUsername: string
-}
-
-const emptyEmailDraft: EmailDraft = {
-  provider: 'qq',
-  senderEmail: '',
-  senderName: 'Inscope',
-  credential: '',
-  region: '',
-  smtpUsername: '',
-}
-
-function emailTransportPayload(draft: EmailDraft): NotificationServiceEmailTransportPatch {
-  const usesSes = draft.provider === 'amazon_ses'
-  return {
-    provider: draft.provider,
-    sender_email: draft.senderEmail.trim(),
-    sender_name: draft.senderName.trim(),
-    region: usesSes ? draft.region.trim() : null,
-    smtp_username: usesSes ? draft.smtpUsername.trim() : null,
-    ...(draft.credential ? { credential: draft.credential } : {}),
-  }
-}
+import { EmailCredentialFields } from './notificationServiceFields'
+import { botTokenPattern, channelLabels, destinationLabel, emailPattern, emailTransportPayload, emptyEmailDraft, serviceStatus, serviceStatusTone, serviceUnavailableReason, validTopic, type EmailDraft } from './notificationServiceModel'
 
 export function HeroNotificationTargets({
   queryEnabled = true,
@@ -119,12 +43,21 @@ export function HeroNotificationTargets({
     enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
   })
+  const openclawChannels = useQuery({
+    queryKey: ['openclaw-notification-channels', user.id],
+    queryFn: ({ signal }) => api.openClawNotificationChannels(signal),
+    enabled: queryEnabled && (user.role === 'owner' || user.role === 'admin'),
+    retry: false,
+  })
   const [name, setName] = useState('')
   const [channel, setChannel] = useState<NotificationChannel>('email')
   const [destination, setDestination] = useState('')
   const [provider, setProvider] = useState<WebhookProvider>('generic_event')
   const [signingSecret, setSigningSecret] = useState('')
   const [botToken, setBotToken] = useState('')
+  const [topic, setTopic] = useState('')
+  const [openclawChannel, setOpenclawChannel] = useState('')
+  const [openclawAccount, setOpenclawAccount] = useState('')
   const [emailDraft, setEmailDraft] = useState<EmailDraft>(emptyEmailDraft)
   const [replaceEmailCredential, setReplaceEmailCredential] = useState(false)
   const [busyService, setBusyService] = useState<string | null>(null)
@@ -136,6 +69,10 @@ export function HeroNotificationTargets({
   const [editWebhookProvider, setEditWebhookProvider] = useState<WebhookProvider>('generic_event')
   const [editSigningSecret, setEditSigningSecret] = useState('')
   const [editBotToken, setEditBotToken] = useState('')
+  const [editTopic, setEditTopic] = useState('')
+  const [editTopicAction, setEditTopicAction] = useState<'keep' | 'replace' | 'clear'>('keep')
+  const [editOpenclawChannel, setEditOpenclawChannel] = useState('')
+  const [editOpenclawAccount, setEditOpenclawAccount] = useState('')
   const [editEmailDraft, setEditEmailDraft] = useState<EmailDraft>(emptyEmailDraft)
   const [editReplaceEmailCredential, setEditReplaceEmailCredential] = useState(false)
   const [archiveTarget, setArchiveTarget] = useState<NotificationService | null>(null)
@@ -180,6 +117,11 @@ export function HeroNotificationTargets({
   ): string {
     if (!name.trim()) return '请输入通知服务名称。'
     if (!draftDestination.trim()) return `请输入${destinationLabel(draftChannel)}。`
+    if (draftChannel === 'openclaw') {
+      if (!openclawChannel || !openclawAccount) return '请选择已就绪的 OpenClaw 渠道和账号。'
+      if (openclawChannel === 'telegram' && topic.trim() && !validTopic(topic.trim())) return '话题 ID 必须是正整数。'
+      return ''
+    }
     if (draftChannel === 'email') {
       if (!emailPattern.test(draftDestination.trim())) return '请输入有效的收件邮箱。'
       if (configureEmailCredential) {
@@ -194,6 +136,7 @@ export function HeroNotificationTargets({
     if (draftChannel === 'telegram') {
       if (!telegramCredential?.configured && !draftToken) return '首次配置 Telegram 服务时必须填写 Bot Token。'
       if (draftToken && !botTokenPattern.test(draftToken)) return '请输入有效的 Telegram Bot Token。'
+      if (topic.trim() && !validTopic(topic.trim())) return '话题 ID 必须是正整数。'
     }
     return ''
   }
@@ -231,7 +174,11 @@ export function HeroNotificationTargets({
     setCreating(true)
     let createdId = ''
     try {
-      const created = await api.createNotificationService({
+      const created = channel === 'openclaw'
+        ? await api.createOpenClawNotificationService({ name: name.trim(), openclaw_channel: openclawChannel,
+            openclaw_account: openclawAccount, destination: submittedDestination,
+            ...(openclawChannel === 'telegram' && topic.trim() ? { telegram_message_thread_id: Number(topic.trim()) } : {}) })
+        : await api.createNotificationService({
         name: name.trim(),
         scope: 'shared',
         channel,
@@ -245,6 +192,7 @@ export function HeroNotificationTargets({
           : channel === 'telegram'
             ? {
                 telegram_chat_id: submittedDestination,
+                ...(topic.trim() ? { telegram_message_thread_id: Number(topic.trim()) } : {}),
                 ...(submittedToken ? { telegram_bot_token: submittedToken } : {}),
               }
             : {
@@ -254,8 +202,12 @@ export function HeroNotificationTargets({
               }),
       })
       createdId = created.id
-      await api.testAndEnableNotificationService(created.id)
+      const tested = channel === 'openclaw'
+        ? await api.testAndEnableOpenClawNotificationService(created.id)
+        : await api.testAndEnableNotificationService(created.id)
+      if (!tested.sent) throw new Error('测试发送未得到可验证回执。')
       setName('')
+      setTopic('')
       setReplaceEmailCredential(false)
       setCreateOpen(false)
       await refresh()
@@ -274,14 +226,17 @@ export function HeroNotificationTargets({
   }
 
   function closeCreateDialog() {
-    if (!creating) { setCreateOpen(false); setName(''); setChannel('email'); setDestination(''); setProvider('generic_event'); setSigningSecret(''); setBotToken(''); setEmailDraft(emptyEmailDraft); setReplaceEmailCredential(false); setRequestError('') }
+    if (!creating) { setCreateOpen(false); setName(''); setChannel('email'); setDestination(''); setProvider('generic_event'); setSigningSecret(''); setBotToken(''); setTopic(''); setEmailDraft(emptyEmailDraft); setReplaceEmailCredential(false); setRequestError('') }
   }
 
   async function testAndEnable(service: NotificationService) {
     setBusyService(service.id)
     setRequestError('')
     try {
-      await api.testAndEnableNotificationService(service.id)
+      const tested = service.channel === 'openclaw'
+        ? await api.testAndEnableOpenClawNotificationService(service.id)
+        : await api.testAndEnableNotificationService(service.id)
+      if (!tested.sent) throw new Error('测试发送未得到可验证回执。')
       await refresh()
       actionToast.success('通知服务测试成功并已启用')
     } catch (caught) {
@@ -301,6 +256,10 @@ export function HeroNotificationTargets({
     setEditWebhookProvider(service.webhook_provider ?? 'generic_event')
     setEditSigningSecret('')
     setEditBotToken('')
+    setEditTopic('')
+    setEditTopicAction('keep')
+    setEditOpenclawChannel(service.openclaw_channel || '')
+    setEditOpenclawAccount(service.openclaw_account || '')
     setEditEmailDraft(currentEmailDraft())
     setEditReplaceEmailCredential(false)
     setRequestError('')
@@ -317,6 +276,11 @@ export function HeroNotificationTargets({
     }
     if (submittedToken && !botTokenPattern.test(submittedToken)) {
       setRequestError('请输入有效的 Telegram Bot Token。')
+      return
+    }
+    if ((service.channel === 'telegram' || (service.channel === 'openclaw' && editOpenclawChannel === 'telegram'))
+      && editTopicAction === 'replace' && !validTopic(editTopic.trim())) {
+      setRequestError('话题 ID 必须是正整数。')
       return
     }
     const configureEmailCredential = service.channel === 'email'
@@ -350,7 +314,15 @@ export function HeroNotificationTargets({
     setRequestError('')
     let saved = false
     try {
-      await api.updateNotificationService(service.id, {
+      if (service.channel === 'openclaw') {
+        await api.updateOpenClawNotificationService(service.id, {
+          name: editName.trim() || service.name,
+          openclaw_channel: editOpenclawChannel,
+          openclaw_account: editOpenclawAccount,
+          ...(submittedDestination ? { destination: submittedDestination } : {}),
+          ...(editTopicAction !== 'keep' ? { telegram_message_thread_id: editTopicAction === 'clear' ? null : Number(editTopic.trim()) } : {}),
+        })
+      } else await api.updateNotificationService(service.id, {
         ...(editName.trim() && editName.trim() !== service.name ? { name: editName.trim() } : {}),
         ...(submittedDestination
           ? service.channel === 'email'
@@ -368,12 +340,18 @@ export function HeroNotificationTargets({
         ...(service.channel === 'telegram' && submittedToken
           ? { telegram_bot_token: submittedToken }
           : {}),
+        ...(service.channel === 'telegram' && editTopicAction !== 'keep'
+          ? { telegram_message_thread_id: editTopicAction === 'clear' ? null : Number(editTopic.trim()) }
+          : {}),
         ...(configureEmailCredential
           ? { email_transport: emailTransportPayload(submittedEmail) }
           : {}),
       })
       saved = true
-      await api.testAndEnableNotificationService(service.id)
+      const tested = service.channel === 'openclaw'
+        ? await api.testAndEnableOpenClawNotificationService(service.id)
+        : await api.testAndEnableNotificationService(service.id)
+      if (!tested.sent) throw new Error('测试发送未得到可验证回执。')
       setEditingService(null)
       setEditDestination('')
       await refresh()
@@ -397,6 +375,8 @@ export function HeroNotificationTargets({
     try {
       if (service.legacy_private) {
         await api.updateNotificationTarget(service.id, { enabled: false })
+      } else if (service.channel === 'openclaw') {
+        await api.updateOpenClawNotificationService(service.id, { enabled: false })
       } else {
         await api.updateNotificationService(service.id, { enabled: false })
       }
@@ -417,6 +397,8 @@ export function HeroNotificationTargets({
     try {
       if (service.legacy_private) {
         await api.updateNotificationTarget(service.id, { enabled: true })
+      } else if (service.channel === 'openclaw') {
+        await api.updateOpenClawNotificationService(service.id, { enabled: true })
       } else {
         await api.updateNotificationService(service.id, { enabled: true })
       }
@@ -452,6 +434,8 @@ export function HeroNotificationTargets({
     try {
       if (service.legacy_private) {
         await api.archiveNotificationTarget(service.id)
+      } else if (service.channel === 'openclaw') {
+        await api.archiveOpenClawNotificationService(service.id)
       } else {
         await api.archiveNotificationService(service.id)
       }
@@ -541,11 +525,24 @@ export function HeroNotificationTargets({
         setChannel(value as NotificationChannel)
         setDestination('')
         setBotToken('')
+        setTopic('')
+        setOpenclawChannel('')
+        setOpenclawAccount('')
         setSigningSecret('')
         setEmailDraft((current) => ({ ...current, senderEmail: '', credential: '', smtpUsername: '' }))
         setReplaceEmailCredential(false)
         setRequestError('')
       }} />
+
+      {channel === 'openclaw' && <>
+        <HeroSelect label="OpenClaw 渠道" value={openclawChannel} className="w-full"
+          options={[...new Set((openclawChannels.data?.channels || []).filter((item) => item.available).map((item) => item.channel))].map((id) => ({ id, label: id }))}
+          onChange={(value) => { setOpenclawChannel(value); setOpenclawAccount(''); setTopic('') }} />
+        <HeroSelect label="OpenClaw 账号" value={openclawAccount} className="w-full"
+          options={(openclawChannels.data?.channels || []).filter((item) => item.channel === openclawChannel && item.available).map((item) => ({ id: item.account_id, label: item.account_name || item.account_id }))}
+          onChange={setOpenclawAccount} />
+        {openclawChannels.isError && <Description>渠道目录不可用，请检查 Gateway 连接和管理员权限。</Description>}
+      </>}
 
       {channel === 'webhook' && <HeroSelect label="Webhook 类型" value={provider} className="w-full" options={services.data.webhook_provider_options.map((option) => ({ id: option.provider, label: option.label }))} onChange={(value) => setProvider(value as WebhookProvider)} />}
 
@@ -559,6 +556,11 @@ export function HeroNotificationTargets({
         {channel === 'telegram' && <Description>群组 Chat ID 通常以 -100 开头；机器人必须已加入群组并具备发言权限。</Description>}
       </TextField>
 
+      {(channel === 'telegram' || (channel === 'openclaw' && openclawChannel === 'telegram')) && <TextField fullWidth value={topic} onChange={setTopic}>
+        <Label>话题 ID（可选）</Label>
+        <Input inputMode="numeric" placeholder="留空发送到默认话题" />
+        <Description>留空发送到默认话题。</Description>
+      </TextField>}
       {channel === 'telegram' && <TextField fullWidth value={botToken} onChange={setBotToken}>
         <Label>Bot Token{telegramCredential?.configured ? '（可留空复用）' : ''}</Label>
         <Input type="password" autoComplete="new-password" placeholder={telegramCredential?.configured ? '留空复用已配置 Token' : '从 BotFather 获取，保存后不会回显'} />
@@ -632,6 +634,21 @@ export function HeroNotificationTargets({
                 <Label>更换共享 Bot Token（可选）</Label>
                 <Input type="password" autoComplete="new-password" placeholder="留空复用当前 Token" />
               </TextField>}
+              {editingTarget.channel === 'openclaw' && <>
+                <HeroSelect label="OpenClaw 渠道" value={editOpenclawChannel} className="w-full"
+                  options={[...new Set((openclawChannels.data?.channels || []).map((item) => item.channel))].map((id) => ({ id, label: id }))}
+                  onChange={(value) => { setEditOpenclawChannel(value); setEditOpenclawAccount(''); setEditTopicAction('clear') }} />
+                <HeroSelect label="OpenClaw 账号" value={editOpenclawAccount} className="w-full"
+                  options={(openclawChannels.data?.channels || []).filter((item) => item.channel === editOpenclawChannel).map((item) => ({ id: item.account_id, label: item.account_name || item.account_id }))}
+                  onChange={setEditOpenclawAccount} />
+              </>}
+              {(editingTarget.channel === 'telegram' || (editingTarget.channel === 'openclaw' && editOpenclawChannel === 'telegram')) && <HeroSelect label="话题设置" value={editTopicAction} options={[
+                { id: 'keep', label: editingTarget.telegram_topic_configured ? '保持当前话题' : '保持默认话题' },
+                { id: 'replace', label: '更换话题 ID' }, { id: 'clear', label: '恢复默认话题' },
+              ]} onChange={(value) => setEditTopicAction(value as 'keep' | 'replace' | 'clear')} />}
+              {(editingTarget.channel === 'telegram' || (editingTarget.channel === 'openclaw' && editOpenclawChannel === 'telegram')) && editTopicAction === 'replace' && <TextField fullWidth value={editTopic} onChange={setEditTopic}>
+                <Label>新话题 ID</Label><Input inputMode="numeric" placeholder="请输入正整数话题 ID" />
+              </TextField>}
               {editingTarget.channel === 'webhook' && <TextField fullWidth value={editSigningSecret} onChange={setEditSigningSecret}>
                 <Label>更换签名密钥（可选）</Label>
                 <Input type="password" autoComplete="new-password" placeholder="留空保持当前值" />
@@ -672,48 +689,4 @@ export function HeroNotificationTargets({
     </HeroNotice>}
     {requestError && <HeroNotice title={requestError} />}
   </div>
-}
-
-function EmailCredentialFields({
-  draft,
-  onChange,
-  providers,
-  credentialConfigured,
-}: {
-  draft: EmailDraft
-  onChange: (draft: EmailDraft) => void
-  providers: Array<{
-    provider: NotificationEmailProvider
-    label: string
-    credential_label: string
-  }>
-  credentialConfigured: boolean
-}) {
-  const preset = providers.find((option) => option.provider === draft.provider)
-  const usesSes = draft.provider === 'amazon_ses'
-  return <>
-    <HeroSelect label="邮件服务商" value={draft.provider} className="w-full" options={providers.map((option) => ({ id: option.provider, label: option.label }))} onChange={(value) => onChange({ ...draft, provider: value as NotificationEmailProvider, credential: '' })} />
-    <TextField fullWidth value={draft.senderEmail} onChange={(value) => onChange({ ...draft, senderEmail: value })}>
-      <Label>发件邮箱</Label>
-      <Input type="email" autoComplete="email" />
-    </TextField>
-    <TextField fullWidth value={draft.senderName} onChange={(value) => onChange({ ...draft, senderName: value })}>
-      <Label>发件名称</Label>
-      <Input maxLength={80} />
-    </TextField>
-    <TextField fullWidth value={draft.credential} onChange={(value) => onChange({ ...draft, credential: value })}>
-      <Label>{preset?.credential_label ?? '授权码或 API Key'}{credentialConfigured ? '（可留空复用）' : ''}</Label>
-      <Input type="password" autoComplete="new-password" placeholder={credentialConfigured ? '留空复用已配置凭据' : '保存后不会回显'} />
-    </TextField>
-    {usesSes && <>
-      <TextField fullWidth value={draft.region} onChange={(value) => onChange({ ...draft, region: value })}>
-        <Label>Amazon SES Region</Label>
-        <Input placeholder="例如：ap-northeast-1" />
-      </TextField>
-      <TextField fullWidth value={draft.smtpUsername} onChange={(value) => onChange({ ...draft, smtpUsername: value })}>
-        <Label>SES SMTP 用户名</Label>
-        <Input autoComplete="off" />
-      </TextField>
-    </>}
-  </>
 }

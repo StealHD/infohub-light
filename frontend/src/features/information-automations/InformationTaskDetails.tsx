@@ -12,10 +12,12 @@ const NewRule = lazy(() => import('./InformationNewRule').then((module) => ({ de
 
 type Tab = 'overview' | 'test' | 'runs'
 
-export function InformationTaskDetails({ rule, creating, canMutate, onClose, onSaved, onBusyChange, testSession, onTestSelect, onTestStart }: {
+export function InformationTaskDetails({ rule, creating, canMutate, onClose, onSaved, onBusyChange, testSession, onTestSelect, onTestTextChange, onTestConfigureNotification, onTestStart }: {
   rule?: InformationRule; creating: boolean; canMutate: boolean; onClose: () => void
   onSaved: (rule: InformationRule) => Promise<unknown>; onBusyChange: (busy: boolean) => void
-  testSession?: InformationTestSession; onTestSelect: (value: TestArticleSelection[]) => void; onTestStart: () => Promise<void>
+  testSession?: InformationTestSession; onTestSelect: (value: TestArticleSelection[]) => void
+  onTestTextChange: (value: string) => void
+  onTestConfigureNotification: (send: boolean, target: string | null) => void; onTestStart: () => Promise<void>
 }) {
   const { api } = useInformationContext()
   const [tab, setTab] = useState<Tab>('overview')
@@ -59,7 +61,7 @@ export function InformationTaskDetails({ rule, creating, canMutate, onClose, onS
         onExit={() => setEditing(false)} onDraftChange={handleDraftChange} /></Suspense></div>
       </Tabs.Panel>
       <Tabs.Panel id="test" className="pt-4"><InformationTestPanel rule={rule} dirty={dirty} canMutate={canMutate}
-        session={testSession} onSelect={onTestSelect} onStart={onTestStart} /></Tabs.Panel>
+        session={testSession} onSelect={onTestSelect} onTextChange={onTestTextChange} onConfigureNotification={onTestConfigureNotification} onStart={onTestStart} /></Tabs.Panel>
       <Tabs.Panel id="runs" className="pt-4"><InformationRuleRuns ruleId={rule.id} /></Tabs.Panel>
     </Tabs>
   </div>
