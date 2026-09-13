@@ -69,6 +69,7 @@ export const informationAutomationApi = (client: ApiClient) => ({
   informationRule: (id: string, signal?: AbortSignal) => client.get<InformationRule>(path(id), signal),
   createInformationRule: (config: InformationRuleConfig) => client.post<InformationRule>(base, config),
   updateInformationRule: (id: string, version: number, config: InformationRuleConfig) => client.put<InformationRule>(path(id), { version, config }),
+  deleteInformationRule: (id: string, version: number) => client.delete<{ id: string; deleted: true }>(`${path(id)}?version=${version}`),
   transitionInformationRule: (id: string, version: number, action: 'enable' | 'pause' | 'archive' | 'restore') => client.post<InformationRule>(`${path(id)}/transition`, { version, action }),
   testInformationRule: (id: string, version: number, article_ids: string[], request_id?: string) => client.post<InformationTest>(`${path(id)}/test`, { version, article_ids, request_id }),
   informationTestPreview: (id: string, previewId: string, signal?: AbortSignal) => client.get<InformationTest>(`${path(id)}/test/${encodeURIComponent(previewId)}`, signal),

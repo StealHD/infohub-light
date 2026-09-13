@@ -108,19 +108,19 @@ test('docked panels retain closing content, reverse smoothly and restore focus',
 })
 
 
-test('session menu confirms deletion and refreshes the sidebar and history', async ({ page }, testInfo) => {
+test('session X confirms deletion and refreshes the sidebar and history', async ({ page }, testInfo) => {
   await connect(page)
   if (['mobile', 'compact-desktop'].includes(testInfo.project.name)) await page.getByRole('button', { name: '打开 OpenClaw 会话' }).click()
   const sidebar = page.locator('[data-agent-workspace-sidebar]')
-  await sidebar.getByRole('button', { name: '会话详情：历史记录 000', exact: true }).click()
-  await page.getByRole('button', { name: '删除会话', exact: true }).click()
+  const remove = sidebar.getByRole('button', { name: '删除会话：历史记录 000', exact: true })
+  await remove.hover()
+  await expect(page.getByText('删除会话', { exact: true })).toBeVisible()
+  await remove.click()
   const confirmation = page.getByRole('dialog', { name: '删除会话', exact: true })
   await expect(confirmation).toBeVisible()
   await confirmation.getByRole('button', { name: '取消', exact: true }).click()
   await expect(confirmation).toBeHidden()
-  await page.keyboard.press('Escape')
-  await sidebar.getByRole('button', { name: '会话详情：历史记录 000', exact: true }).click()
-  await page.getByRole('button', { name: '删除会话', exact: true }).click()
+  await remove.click()
   await confirmation.getByRole('button', { name: '确认删除', exact: true }).click()
   await expect(confirmation).toBeHidden()
   await expect(sidebar.getByRole('button', { name: '打开会话：历史记录 000', exact: true })).toHaveCount(0)

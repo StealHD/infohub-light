@@ -115,3 +115,54 @@ def test_archived_rule_can_restore_to_unconfirmed_draft(context):
     assert restored['confirmed_at'] is None
     with pytest.raises(RuleError, match='已归档'):
         rules.transition(alice['id'], draft['id'], 1, 'restore')
+
+
+def test_delete_hides_rule_and_preserves_versions_with_cas_and_scope(context):
+    store, rules, _, alice, bob, viewer, config, _ = context
+    draft = rules.save(alice['id'], config)
+    with pytest.raises(RuleError) as denied:
+        rules.delete(bob['id'], draft['id'], 1)
+    assert denied.value.status == 404
+    with pytest.raises(RuleError) as readonly:
+        rules.delete(viewer['id'], draft['id'], 1)
+    assert readonly.value.status == 403
+    with pytest.raises(RuleError) as stale:
+        rules.delete(alice['id'], draft['id'], 2)
+    assert stale.value.code == 'rule_version_conflict'
+    assert rules.delete(alice['id'], draft['id'], 1) == {'id': draft['id'], 'deleted': True}
+    assert rules.list(alice['id'])['items'] == []
+    with pytest.raises(RuleError) as gone:
+        rules.get(alice['id'], draft['id'])
+    assert gone.value.status == 404
+    with pytest.raises(RuleError) as restore:
+        rules.transition(alice['id'], draft['id'], 1, 'restore')
+    assert restore.value.status == 404
+    assert store.connect().execute('SELECT COUNT(*) FROM information_rule_versions WHERE rule_id=?', (draft['id'],)).fetchone()[0] == 1
+
+
+def test_delete_active_rule_cancels_unsent_without_erasing_receipts(context):
+    store, rules, _, alice, _, _, config, _ = context
+    draft = rules.save(alice['id'], config)
+    rules.transition(alice['id'], draft['id'], 1, 'enable')
+    conn = store.connect()
+    approval = conn.execute('SELECT confirmation_id FROM information_rules WHERE id=?', (draft['id'],)).fetchone()[0]
+    for run_id, status, notification, receipt in (
+        ('queued', 'pending', 'pending', None),
+        ('sent', 'matched', 'sent', '{"message_id":"receipt"}'),
+    ):
+        conn.execute('''INSERT INTO information_runs
+            (id,rule_id,version,confirmation_id,status,notification_status,input_json,event_ids_json,
+             receipt_json,ready_at,created_at,updated_at) VALUES (?,?,?,?,?,?,'{}','[]',?,?,?,?)''',
+            (run_id, draft['id'], 1, approval, status, notification, receipt,
+             '2026-09-13', '2026-09-13', '2026-09-13'))
+    conn.commit()
+    rules.delete(alice['id'], draft['id'], 1)
+    row = conn.execute('SELECT state,issue FROM information_rules WHERE id=?', (draft['id'],)).fetchone()
+    assert tuple(row) == ('archived', 'deleted_by_user')
+    assert conn.execute('SELECT COUNT(*) FROM information_trigger_state WHERE rule_id=?', (draft['id'],)).fetchone()[0] == 0
+    rows = conn.execute('SELECT id,status,notification_status,receipt_json FROM information_runs WHERE rule_id=? ORDER BY id',
+                        (draft['id'],)).fetchall()
+    assert [tuple(run) for run in rows] == [
+        ('queued', 'cancelled', 'cancelled', None),
+        ('sent', 'matched', 'sent', '{"message_id":"receipt"}'),
+    ]

@@ -44,3 +44,43 @@ it('surfaces the background test state on its task row', () => {
   expect(screen.getByText('测试分析中')).toBeVisible()
   expect(screen.getByText('测试提交结果未知')).toBeVisible()
 })
+
+it('keeps row viewing separate from one in-flight start or pause action', async () => {
+  const user = userEvent.setup()
+  const completed = { ...rules[1], config: { ...rules[1].config, source_ids: ['source'], target_id: 'target', model: { id: 'test/model', thinking: null } } }
+  let release!: () => void
+  const onTransition = vi.fn().mockReturnValue(new Promise<void>((resolve) => { release = resolve }))
+  const onSelect = vi.fn()
+  render(<MemoryRouter><DesignSystemProvider><InformationTaskList rules={[rules[0], completed]} selected={null} onSelect={onSelect} loading={false} hasMore={false}
+    canMutate action={null} onTransition={onTransition} /></DesignSystemProvider></MemoryRouter>)
+  await user.dblClick(screen.getByRole('button', { name: '启动任务：任务 1' }))
+  expect(onTransition).toHaveBeenCalledExactlyOnceWith(completed, 'enable')
+  expect(onSelect).not.toHaveBeenCalled()
+  release()
+})
+
+it('keeps icon controls separate and confirms deletion without opening the task', async () => {
+  const user = userEvent.setup(); const onSelect = vi.fn(); const onDelete = vi.fn().mockResolvedValue(undefined)
+  render(<MemoryRouter><DesignSystemProvider><InformationTaskList rules={[rules[0], rules[2]]} selected={null} onSelect={onSelect} loading={false} hasMore={false}
+    canMutate action={null} onTransition={vi.fn()} onDelete={onDelete} /></DesignSystemProvider></MemoryRouter>)
+  expect(screen.getByRole('button', { name: '暂停任务：任务 0' })).toBeVisible()
+  await user.click(screen.getByRole('button', { name: '删除任务：任务 2' }))
+  expect(screen.getByRole('dialog', { name: '删除任务' })).toBeVisible()
+  expect(onSelect).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '确认删除' }))
+  expect(onDelete).toHaveBeenCalledExactlyOnceWith(rules[2])
+})
+
+it('disables mutation controls for read-only access and unsaved changes', () => {
+  const onTransition = vi.fn(); const onDelete = vi.fn()
+  const { rerender } = render(<MemoryRouter><DesignSystemProvider><InformationTaskList rules={[rules[0]]} selected={null} onSelect={vi.fn()} loading={false} hasMore={false}
+    action={null} onTransition={onTransition} onDelete={onDelete} /></DesignSystemProvider></MemoryRouter>)
+  expect(screen.getByRole('button', { name: '暂停任务：任务 0' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '删除任务：任务 0' })).toBeDisabled()
+  rerender(<MemoryRouter><DesignSystemProvider><InformationTaskList rules={[rules[0]]} selected="0" onSelect={vi.fn()} loading={false} hasMore={false}
+    canMutate dirtyRuleId="0" action={null} onTransition={onTransition} onDelete={onDelete} /></DesignSystemProvider></MemoryRouter>)
+  expect(screen.getByRole('button', { name: '暂停任务：任务 0' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '删除任务：任务 0' })).toBeDisabled()
+  expect(onTransition).not.toHaveBeenCalled()
+  expect(onDelete).not.toHaveBeenCalled()
+})

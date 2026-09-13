@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
-import { lazy, Suspense, useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, RefreshButton } from '../../design-system'
 import type { InformationRuleConfig } from '../../api/informationAutomationService'
 import { useInformationContext } from './useInformationContext'
 import { InformationTestPanel } from './InformationTestPanel'
+import { InformationRuleActivation, type InformationRuleActionState, type InformationRuleTransitionAction } from './InformationRuleActivation'
 import { useInformationTests } from './useInformationTests'
 const InformationRuleEditor = lazy(() => import('./InformationRuleEditor').then((module) => ({ default: module.InformationRuleEditor })))
 
@@ -15,18 +16,32 @@ export default function InformationDraftCard({ ruleId }: { ruleId: string }) {
   const restore = tests.restore
   const [dirty, setDirty] = useState(false)
   const [showTest, setShowTest] = useState(false)
+  const [action, setAction] = useState<InformationRuleActionState>(null)
+  const [transitionError, setTransitionError] = useState('')
+  const transitionLock = useRef(false)
   const handleDraftChange = useCallback((_config: InformationRuleConfig, changed: boolean) => setDirty(changed), [])
   const key = ['information-rule', userId, ruleId]
   const query = useQuery({ queryKey: key, queryFn: ({ signal }) => api.informationRule(ruleId, signal), retry: false })
   const access = useQuery({ queryKey: ['agent-connection', userId], queryFn: ({ signal }) => api.agentConnection(signal) })
   useEffect(() => { if (query.data) void restore(query.data.id, query.data.version) }, [restore, query.data])
+  const transition = async (rule: NonNullable<typeof query.data>, next: InformationRuleTransitionAction) => {
+    if (transitionLock.current) return
+    transitionLock.current = true; setAction({ ruleId: rule.id, action: next }); setTransitionError('')
+    try {
+      const saved = await api.transitionInformationRule(rule.id, rule.version, next)
+      cache.setQueryData(key, saved); await cache.invalidateQueries({ queryKey: ['information-rules', userId] })
+    } catch (failure) { setTransitionError(failure instanceof Error ? failure.message : '任务状态更新失败，请重试。') }
+    finally { transitionLock.current = false; setAction(null) }
+  }
   return <Card variant="secondary" className="my-4 p-4" aria-label="服务端提醒确认卡">
     <Card.Title>{query.data?.config.name || '提醒草稿'}</Card.Title>
     <Card.Description>规则内容从当前账号的服务端读取。聊天文本不会直接启用提醒。</Card.Description>
     <RefreshButton pending={query.isFetching} aria-label="刷新确认卡" onPress={() => query.refetch()} />
     {query.isPending && <p role="status">正在读取可信规则…</p>}
     {query.isError && <p role="alert">当前账号无法读取此草稿，请从个人提醒列表检查。</p>}
-    {query.data && <><Suspense fallback={<p role="status">正在加载任务详情…</p>}><InformationRuleEditor key={`${userId}:${ruleId}`} rule={query.data} canMutate={Boolean(access.data?.can_chat) && !query.isError}
+    {query.data && <><InformationRuleActivation rule={query.data} canMutate={Boolean(access.data?.can_chat) && !query.isError} dirty={dirty} action={action} onTransition={transition} />
+      {transitionError && <p role="alert">{transitionError}</p>}
+      <Suspense fallback={<p role="status">正在加载任务详情…</p>}><InformationRuleEditor key={`${userId}:${ruleId}`} rule={query.data} canMutate={Boolean(access.data?.can_chat) && !query.isError}
       onDraftChange={handleDraftChange}
       onSaved={async (saved) => { cache.setQueryData(key, saved); await cache.invalidateQueries({ queryKey: ['information-rules', userId] }) }} /></Suspense>
       <Button className="mt-3" variant="secondary" aria-expanded={showTest} onPress={() => setShowTest((value) => !value)}>{showTest ? '收起测试' : '测试已保存规则'}</Button>

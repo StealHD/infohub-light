@@ -6,8 +6,9 @@ import { queryKeys } from '../../api/queryKeys'
 import { useInformationContext } from './useInformationContext'
 import { informationSourceLabel } from './informationSourceLabel'
 import { triggerLabel } from './informationRuleModel'
+import { InformationRecentRuns } from './InformationRecentRuns'
 
-export function InformationTaskOverview({ rule, config, dirty }: { rule: InformationRule; config: InformationRuleConfig; dirty: boolean }) {
+export function InformationTaskOverview({ rule, config, dirty, onViewRuns }: { rule: InformationRule; config: InformationRuleConfig; dirty: boolean; onViewRuns: () => void }) {
   const { api, userId } = useInformationContext()
   const [expanded, setExpanded] = useState(false)
   const sources = useQuery({ queryKey: queryKeys.subscriptions(userId), queryFn: ({ signal }) => api.subscriptions(signal) })
@@ -29,6 +30,7 @@ export function InformationTaskOverview({ rule, config, dirty }: { rule: Informa
       <SummaryRow label="通知目标" value={target} />
       <SummaryRow label="最近更新" value={`${new Date(rule.updated_at).toLocaleString()} · 版本 ${rule.version}`} />
     </dl>
+    <InformationRecentRuns ruleId={rule.id} onViewAll={onViewRuns} />
   </div>
 }
 

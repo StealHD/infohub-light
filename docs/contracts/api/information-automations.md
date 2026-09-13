@@ -30,7 +30,7 @@ Automations 配置 v2 统一使用完整自然语言要求，关键词、语义�
 | 路径（前缀 `/api/me/information-automations`） | 行为 |
 | --- | --- |
 | GET / POST 根路径 | 分页查询／保存草稿；分页为 limit 1–100、offset 非负 |
-| GET / PUT `/{rule_id}` | 读取／接收 version、config，CAS 创建不可变新版本 |
+| GET / PUT / DELETE `/{rule_id}` | 读取／接收 version、config，CAS 创建不可变新版本；删除要求查询参数 `version` |
 | POST `/{rule_id}/transition` | 严格整数 version；action 为 enable、pause、archive、restore |
 | POST `/{rule_id}/test` | version、1–1000 个本人 article_ids、可选 request_id（1–128 字）；幂等创建或复用独立预览 |
 | GET `/{rule_id}/test/{preview_id}` | 读取预览进度、综合结论和依据；preview_id=latest 返回最近记录或 null |
@@ -42,6 +42,8 @@ Automations 配置 v2 统一使用完整自然语言要求，关键词、语义�
 trigger.kind 为 each、count、interval、calendar。count 默认 5，范围 2–10,000；max_wait_seconds 默认 3600，可为 null 或 60–604800。interval_seconds 默认 3600，范围 60–604800。calendar 使用 time（HH:mm，默认 08:00）、timezone（有效 IANA，默认 Asia/Shanghai）及 weekdays（0 为周一，空列表每天；不得重复）。模型只接收完整要求与本批内容，不使用个人标签。
 
 保存配置会暂停既有规则、取消未开始的旧任务，启用时确认当前版本、个人 binding、目标 config/activation generation 和 Transport generation。重复启用同一 active 版本不重置水位；其他配置变化后从当前事件水位开始，不补发暂停期间内容。仅模型变化保留已经排队的输入，在新版本确认事务内重新建批；旧判断结果不复用。归档可恢复为同版本草稿，并保留配置、不可变版本与运行记录；恢复会清除旧确认和授权上下文，不自动启用、补跑或发送通知，重新启用仍须显式确认。非归档状态调用 restore 失败关闭。
+
+删除仅允许本人可写规则并使用当前版本 CAS；服务端将规则标记为不可恢复的已删除归档，停止后续触发、取消未开始的工作，列表与直接读取均隐藏该规则。已存在的运行、投递回执和配额记录保留供审计；已开始但结果未知的投递不伪报成功。不存在或已经删除返回 404，版本冲突返回 409。删除不调用分析或通知，也不新增数据库迁移。
 
 ## 新内容、触发和批次
 

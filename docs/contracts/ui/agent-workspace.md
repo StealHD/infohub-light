@@ -24,7 +24,7 @@
 
 ## 3. Sessions and Worktree tasks
 
-- Navigation is a separate Gateway-authorized directory, never an ownership guess from labels. The rail shows at most three single-line rows: current plus the two most recently active other non-archived sessions. Status is inline; a keyboard/touch-operable details Popover exposes the full title.
+- Navigation is a separate Gateway-authorized directory, never an ownership guess from labels. The rail shows at most three single-line rows: current plus the two most recently active other non-archived sessions. Status is inline; every row reserves the compact delete track. Its X is visible on fine-pointer row hover or keyboard focus and always visible for coarse pointers, has an above-anchored “删除会话” Tooltip, and never opens or switches the session.
 - Resource navigation reuses the same workspace error-boundary identity and sidebar DOM; route recovery must not remount the rail for Skills, Automations or Examples.
 - Selecting an already visible session preserves recent-activity order and navigation geometry. Switching feedback uses a non-layout live status, and the new-conversation button shows creation pending only for its own action. Selecting a session outside the three visible rows replaces only the least-recent slot so the current session remains visible.
 - “全部会话” opens a searchable 50-row paged directory, with non-archived sessions by default and an archived-only filter. Follow server offsets beyond 200 rows. Directory pages never define Tasks/Artifacts scope. Results are isolated by user, Gateway, connection generation, search, archive filter and offset; stale responses cannot replace the current scope.
@@ -90,11 +90,13 @@ Owner/Admin 在同页使用“我的 Agent / 接入申请”标签，申请标�
 
 列表使用紧凑任务卡：状态筛选和已加载范围搜索不触发写操作，卡内仅名称、状态、频率、下次处理时间及当前页面内的测试状态；完整配置按需进入 `ResourceDetailsPanel`。宽屏详情可拖动并按账号记忆独立宽度，任务列表至少保留 640 px；空间不足改用 Drawer/Sheet，并保持关闭后的焦点返回。新建也使用该面板；一次只编辑一条，写操作完成前不切换或关闭。筛选、刷新、拖动及详情标签切换不卸载已打开的编辑器；不将归档或持续任务伪装为“已完成”。
 
-`/agent/automations` 默认呈现 Service 的个人提醒列表；旧 Gateway Cron 保留在 `?advanced=cron`，使用原临时管理授权。详情默认“概览”，与“测试”“运行记录”分开；概览将四行描述、前两个来源、模型、频率和通知目标收敛成摘要。只有进入编辑才显示表单，来源通过可取消的独立搜索多选面板确认，模型选择直接显示，触发/通知配置分组展开；保存操作常驻，退出编辑保留草稿，保存不等于启用。统一自然语言描述不区分关键词与语义模式；四种触发的参数逐项展开，模型及推理选项来自本人目录，失败保留原选择。新建直接进入编辑模式。已归档任务提供恢复入口，恢复后是未确认草稿而不是启用态。列表、卡片、运行查询按 userId 隔离。未保存规则配置按 userId、ruleId、version 存入 sessionStorage，旧版本不自动覆盖新版本。
+`/agent/automations` 默认呈现 Service 的个人提醒列表；旧 Gateway Cron 保留在 `?advanced=cron`，使用原临时管理授权。详情默认“概览”，与“测试”“运行记录”分开；概览将四行描述、前两个来源、模型、频率和通知目标收敛成摘要，并在底部显示最近三次真实运行和进入完整记录的入口。列表与详情对已启用任务显示“暂停”，对完整草稿或已暂停任务显示“启动”；启动是一次直接的显式写操作，沿用当前保存配置，只处理新增内容，不打开二次确认且不补跑或测试。只有进入编辑才显示表单，来源通过可取消的独立搜索多选面板确认，模型标签和刷新入口同排，触发/通知配置分组展开；保存操作常驻，退出编辑保留草稿，保存不等于启动。未保存或不完整配置不可启动，失败保留原状态及恢复提示。统一自然语言描述不区分关键词与语义模式；四种触发的参数逐项展开，模型及推理选项来自本人目录，失败保留原选择。新建直接进入编辑模式。已归档任务提供恢复入口，恢复后是未确认草稿而不是启用态。列表、卡片、运行查询按 userId 隔离。未保存规则配置按 userId、ruleId、version 存入 sessionStorage，旧版本不自动覆盖新版本。
+
+列表右侧为固定尺寸的独立启停与删除图标按钮，悬停或键盘聚焦解释动作；状态变更期间按钮不改变几何或重排已显示任务。详情保留文字操作。草稿、已暂停、已启用和已归档任务均可经独立确认删除；删除后从目录消失、停止后续处理，既有运行回执保留，不再提供恢复入口。未保存修改先保存或放弃，权限与版本冲突由服务端最终校验。删除失败保留任务和确认框，并提供错误提示。
 
 测试初始只显示规则版本、已选文章数和选择/开始操作。文章在独立面板中从当前最新 Feed、且属于任务来源的条目里搜索和分页选择，每页 10 条；取消不改变选择，确认形成本次快照。测试使用已保存版本，未保存修改必须先保存；提交中、排队、分析、额度等待、完成、失败和结果未知分别呈现，只显示服务端真实计数，不伪造百分比，且始终说明不发送通知。页面内测试状态按 userId、ruleId、version 隔离并在详情外轮询；关闭或切换任务后可从列表状态回到同一次测试，但浏览器刷新不承诺恢复，也不自动重提。综合结论优先，判断依据、逐篇结果和运行详情默认折叠；接口不支持取消测试时不提供取消操作。
 
-聊天中仅 assistant 的规则引用可触发可信卡读取，最多三张；当前账号无权读取时不展示可操作内容。新建与示例仅保存草稿；测试展示版本及不发送说明；启用必须保存后再单独确认。判断与通知分别展示，未知投递不得显示已发送或提供自动重发。真实通知回执仍按本轮用户要求保留待验收。
+聊天中仅 assistant 的规则引用可触发可信卡读取，最多三张；当前账号无权读取时不展示可操作内容。新建与示例仅保存草稿；测试展示版本及不发送说明；完整且已保存的规则可直接启动。判断与通知分别展示，未知投递不得显示已发送或提供自动重发。真实通知回执仍按本轮用户要求保留待验收。
 
 自动化测试从服务端 latest 恢复最近记录；旧预览待确认与完成未知分别显示，未知完成保留核对入口并禁止重新推理。模型刷新在一次直接的 OpenClaw 目录读取完成后更新下拉框，读取期间防止重复提交，保留草稿与原模型选择。目录 ready 与手动测试执行能力不能混为一谈，明确接口拒绝显示原因。
 
@@ -104,4 +106,4 @@ Owner/Admin 在同页使用“我的 Agent / 接入申请”标签，申请标�
 
 ## 会话永久删除
 
-侧栏与全部会话（含归档）的菜单复用同一危险删除操作。当前会话显示禁用原因“请先切换后删除”，主会话、运行中会话和未协商删除能力也禁用。OpenClaw 2026.9.2 无法保证工作树回收失败时保留会话，所以带工作树的会话禁用并说明先安全清理工作树。确认框支持取消，提交期间禁止重复操作；Controller 重新读取会话并检查连接代次，成功才通知目录刷新、重置全部会话分页。失败保持会话并显示安全错误，不乐观删除、不自动重试。沿用 design-system Modal/Button、键盘焦点与窄屏合同。
+侧栏与全部会话（含归档）的行尾 X 复用同一危险删除操作。细指针仅在行悬停或键盘聚焦时显示，触屏常显且始终保留位置，避免标题跳动；X 的悬停或键盘聚焦说明“删除会话”。当前会话显示禁用原因“请先切换后删除”，主会话、运行中会话和未协商删除能力也禁用。OpenClaw 2026.9.2 无法保证工作树回收失败时保留会话，所以带工作树的会话禁用并说明先安全清理工作树。确认框支持取消，提交期间禁止重复操作；Controller 重新读取会话并检查连接代次，成功才通知目录刷新、重置全部会话分页。失败保持会话并显示安全错误，不乐观删除、不自动重试。沿用 design-system Modal/Button、键盘焦点与窄屏合同。

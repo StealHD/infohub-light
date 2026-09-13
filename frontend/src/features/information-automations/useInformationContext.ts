@@ -3,7 +3,7 @@ import type { informationAutomationApi } from '../../api/informationAutomationSe
 import { useAgentConnectionContext } from '../agent-connection/AgentConnectionContext'
 
 type InformationApi = ReturnType<typeof informationAutomationApi>
-const methods = ['informationRules', 'informationRule', 'createInformationRule', 'updateInformationRule',
+const methods = ['informationRules', 'informationRule', 'createInformationRule', 'updateInformationRule', 'deleteInformationRule',
   'informationModels', 'refreshInformationModels', 'transitionInformationRule', 'testInformationRule', 'informationTestPreview', 'informationRuns'] as const satisfies readonly (keyof InformationApi)[]
 
 export function useInformationContext() {

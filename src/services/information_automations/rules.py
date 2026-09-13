@@ -93,7 +93,7 @@ class InformationRules:
     def row(self, user, rule_id):
         row = self.store.connect().execute('SELECT * FROM information_rules WHERE id=? AND user_id=?',
                                           (rule_id, user['id'])).fetchone()
-        if not row:
+        if not row or row['issue'] == 'deleted_by_user':
             raise RuleError('not_found', '提醒不存在。', 404)
         return dict(row)
 
@@ -118,7 +118,7 @@ class InformationRules:
         user = self.actor(user_id)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
             raise RuleError('invalid_pagination', '分页参数无效。', 400)
-        rows = self.store.connect().execute('''SELECT * FROM information_rules WHERE user_id=?
+        rows = self.store.connect().execute('''SELECT * FROM information_rules WHERE user_id=? AND (issue IS NULL OR issue<>'deleted_by_user')
             ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?''', (user['id'], limit + 1, offset)).fetchall()
         return {'items': [public_rule(row, self.store.connect()) for row in rows[:limit]], 'has_more': len(rows) > limit,
                 'next_offset': offset + limit if len(rows) > limit else None}
@@ -226,6 +226,21 @@ class InformationRules:
                 conn.execute('DELETE FROM information_rule_carry WHERE rule_id=?',(rule_id,))
                 conn.execute('DELETE FROM information_event_carry WHERE rule_id=?',(rule_id,))
             return public_rule(self.row(user, rule_id), conn)
+
+    def delete(self, user_id, rule_id, version):
+        with transaction(self.store) as conn:
+            user = self.actor(user_id, write=True)
+            row = self.row(user, rule_id)
+            if row['version'] != version:
+                raise RuleError('rule_version_conflict', '提醒已变化，请刷新后重新删除。')
+            now = now_iso()
+            conn.execute("UPDATE information_rules SET state='archived',issue='deleted_by_user',updated_at=? WHERE id=?", (now, rule_id))
+            cancel_unsent(conn, rule_id, 'rule_deleted')
+            conn.execute('DELETE FROM information_trigger_state WHERE rule_id=?', (rule_id,))
+            conn.execute('DELETE FROM information_rule_carry WHERE rule_id=?', (rule_id,))
+            conn.execute('DELETE FROM information_event_carry WHERE rule_id=?', (rule_id,))
+            conn.execute("UPDATE information_previews SET status='failed',reason='rule_deleted' WHERE rule_id=? AND status IN ('pending','judging','quota_wait')", (rule_id,))
+            return {'id': rule_id, 'deleted': True}
 
     def test(self, user_id, rule_id, version, article_ids, request_id=None):
         user = self.actor(user_id)

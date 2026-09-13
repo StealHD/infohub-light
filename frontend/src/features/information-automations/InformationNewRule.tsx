@@ -2,7 +2,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { InformationRule } from '../../api/informationAutomationService'
-import { Button, Card, StableAsyncButton } from '../../design-system'
+import { Button, StableAsyncButton } from '../../design-system'
 import { InformationRuleFields } from './InformationRuleFields'
 import { emptyInformationRule } from './informationRuleModel'
 import { useInformationContext } from './useInformationContext'
@@ -25,7 +25,7 @@ export function InformationNewRule({ onSaved, onCancel, onBusyChange }: { onSave
   const lock = useRef(false)
   const sources = useQuery({ queryKey: queryKeys.subscriptions(userId), queryFn: ({ signal }) => api.subscriptions(signal) })
   const targets = useQuery({ queryKey: queryKeys.notificationServices(userId), queryFn: ({ signal }) => api.notificationServices(signal) })
-  return <Card variant="secondary" className="grid gap-4 p-4">
+  return <div className="grid gap-4">
     <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-wrap gap-2 border-b border-separator bg-surface px-4 py-3">
       <Button variant="ghost" isDisabled={busy} onPress={onCancel}>取消</Button>
       <StableAsyncButton pending={busy} pendingContent="正在保存…" isDisabled={!value.name.trim()} onPress={async () => {
@@ -44,5 +44,5 @@ export function InformationNewRule({ onSaved, onCancel, onBusyChange }: { onSave
       targets={targets.data?.services || []} disabled={busy} />
     {(sources.isError || targets.isError) && <p role="alert">来源或通知目标读取失败，请重新打开后重试。</p>}
     {error && <p role="alert">{error}</p>}
-  </Card>
+  </div>
 }

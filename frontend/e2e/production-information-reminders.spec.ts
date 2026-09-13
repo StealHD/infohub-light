@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { emptyInformationRule } from '../src/features/information-automations/informationRuleModel'
 import { installAgentApi } from './agentWorkspaceFixtures'
 
-for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draft, keyboard confirmation and test preview stay separate (${colorMode})`, async ({ page }, testInfo) => {
+for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draft, direct start and test preview stay separate (${colorMode})`, async ({ page }, testInfo) => {
   await installAgentApi(page)
   await page.addInitScript((colorMode) => localStorage.setItem('inteliscope.ui.theme.v1', JSON.stringify({ themeName: 'graphite-purple', colorMode })), colorMode)
   await page.emulateMedia({ colorScheme: colorMode, reducedMotion: 'reduce' })
@@ -17,7 +17,8 @@ for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draf
     let data: unknown
     if (path === '/api/me/information-automations') data = { items: [rule], has_more: false, next_offset: null }
     else if (path.endsWith('/models')) data = { status: 'ready', updated_at: '2026-09-08', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] }
-    else if (path.endsWith('/transition')) { activations += 1; rule.state = 'active'; data = rule }
+    else if (path.endsWith('/transition')) { activations += 1; rule.state = route.request().postDataJSON().action === 'pause' ? 'paused' : 'active'; data = rule }
+    else if (path.endsWith('/runs')) data = { items: [{ id: 'run-1', version: 1, status: 'matched', notification_status: 'sent', reason: null, evidence: [], receipt: null, created_at: '2026-09-08T08:00:00Z', updated_at: '2026-09-08T08:00:00Z' }], has_more: false, next_offset: null }
     else if (path.endsWith('/test')) { tests += 1; data = { version: 1, preview_id: 'preview', status: 'pending', results: [], sends_notification: false, advances_cursor: false } }
     else if (path.endsWith('/test/preview')) data = { version: 1, preview_id: 'preview', status: completePreview ? 'completed' : 'pending', results: completePreview ? [{ article_id: 'article', status: 'matched' }] : [], sends_notification: false, advances_cursor: false }
     else if (path.endsWith('/' + rule.id) && route.request().method() === 'PUT') {
@@ -52,7 +53,7 @@ for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draf
   await page.getByRole('button', { name: '编辑', exact: true }).click()
   await expect(page.getByLabel('任务名称')).toHaveValue('研究提醒')
   await expect(page.getByText('判断方式', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /分析模型/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /选择模型/ })).toBeVisible()
   await page.getByRole('button', { name: /触发与通知/ }).click()
   await page.getByRole('button', { name: /触发方式/ }).click()
   await page.getByRole('option', { name: '累计条数', exact: true }).click()
@@ -78,14 +79,13 @@ for (const colorMode of ['light', 'dark'] as const) test(`personal reminder draf
   await page.getByRole('button', { name: '编辑', exact: true }).click()
   await expect(page.getByLabel('任务名称')).toHaveValue('未保存草稿')
   await page.getByRole('button', { name: '保存草稿' }).click()
-  await expect(page.getByRole('button', { name: '确认启用' })).toBeEnabled()
-  await page.getByRole('button', { name: '确认启用' }).focus()
+  const launch = page.getByRole('button', { name: '启动', exact: true }).last()
+  await expect(launch).toBeEnabled()
+  await launch.focus()
   await page.keyboard.press('Enter')
-  const dialog = page.getByRole('dialog', { name: '确认启用“未保存草稿”' })
-  await expect(dialog).toBeVisible(); expect(activations).toBe(0)
-  await dialog.getByRole('button', { name: '取消', exact: true }).click()
-  await expect(dialog).toBeHidden()
-  expect(activations).toBe(0)
+  await expect(page.getByRole('button', { name: '暂停', exact: true }).last()).toBeVisible()
+  expect(activations).toBe(1)
+  await expect(page.getByRole('dialog', { name: '确认启用“未保存草稿”' })).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const scan = await new AxeBuilder({ page }).analyze()
   expect(scan.violations.filter((v) => ['serious', 'critical'].includes(v.impact || ''))).toEqual([])

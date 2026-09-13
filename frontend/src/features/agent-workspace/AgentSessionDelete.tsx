@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Modal, StableAsyncButton } from '../../design-system'
+import { Button, Icons, Modal, StableAsyncButton, Tooltip, TooltipTriggerButton, topAnchoredTooltipProps } from '../../design-system'
 import type { OpenClawWorkspaceController, OpenClawWorkspaceSession } from '../openclaw'
 import { sessionDeleteReason } from '../openclaw/workspace/openclawSessionDeletion'
 import { openClawSessionTitle } from '../openclaw/chat/openclawSessionTitle'
@@ -19,9 +19,16 @@ export function AgentSessionDelete({ session, current, workspace, disabled }: {
     catch (failure) { setError(failure instanceof Error ? failure.message : '删除未确认，请刷新会话列表核对。') }
     finally { setPending(false) }
   }
+  const buttonClassName = 'size-8 shrink-0 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100'
   return <>
-    <Button variant="danger" isDisabled={Boolean(reason)} onPress={() => { setError(''); setOpen(true) }}>删除会话</Button>
-    {reason && <p className="type-meta text-muted">{reason}</p>}
+    {reason
+      ? <Tooltip delay={250}><Tooltip.Trigger<'span'> aria-label={`无法删除会话：${reason}`} render={(triggerProps) => <span {...triggerProps} tabIndex={0} className={`${buttonClassName} inline-flex`}>
+        <Button aria-hidden="true" size="sm" variant="ghost" isIconOnly isDisabled className="pointer-events-none size-8"><Icons.X size={15} aria-hidden="true" /></Button>
+      </span>} /><Tooltip.Content {...topAnchoredTooltipProps}>{reason}</Tooltip.Content></Tooltip>
+      : <Tooltip delay={250}><TooltipTriggerButton aria-label={`删除会话：${openClawSessionTitle(session)}`} className={buttonClassName}
+        onClick={(event) => { event.stopPropagation(); setError(''); setOpen(true) }}><Icons.X size={15} aria-hidden="true" /></TooltipTriggerButton>
+        <Tooltip.Content {...topAnchoredTooltipProps}>删除会话</Tooltip.Content>
+      </Tooltip>}
     <Modal isOpen={open} onOpenChange={(value) => { if (!pending) setOpen(value) }}>
       <Modal.Backdrop isDismissable={!pending} isKeyboardDismissDisabled={pending}><Modal.Container size="sm"><Modal.Dialog>
         <Modal.Header><Modal.Heading>删除会话</Modal.Heading></Modal.Header>

@@ -1,4 +1,4 @@
-import type { InformationRuleConfig } from '../../api/informationAutomationService'
+import type { InformationRun, InformationRuleConfig } from '../../api/informationAutomationService'
 
 export const emptyInformationRule = (): InformationRuleConfig => ({
   schema_version: 2, name: '新的自动化', source_ids: [], target_id: null, requirement: '', model: null,
@@ -19,6 +19,9 @@ export const judgmentLabels = {
 export const notificationLabels = {
   not_required: '无需通知', pending: '等待发送', sending: '正在发送', sent: '已发送',
   failed: '发送失败', unknown: '发送结果未知 · 不自动重发', cancelled: '已取消发送', quota_wait: '等待通知额度',
+}
+export function notificationLabel(run: Pick<InformationRun, 'notification_status' | 'receipt'>): string {
+  return run.notification_status === 'sent' && !run.receipt ? '没有可验证回执' : notificationLabels[run.notification_status]
 }
 export const reminderReasonLabels: Record<string, string> = {
   analysis_model_unavailable: '所选 OpenClaw 模型暂不可用，队列已保留。请刷新模型目录。',

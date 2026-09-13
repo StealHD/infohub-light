@@ -43,3 +43,20 @@ def test_http_draft_confirmation_and_identity_injection(context, client):
     assert http.get(route).status_code == 404
     assert http.get(route + '/runs').status_code == 404
     assert http.get(base).json()['data']['items'] == []
+
+
+def test_http_delete_requires_current_version_and_hides_rule(context, client):
+    http, app = client
+    base = '/api/me/information-automations'
+    draft = http.post(base, json=context[6].model_dump()).json()['data']
+    route = base + '/' + draft['id']
+    assert http.delete(route + '?version=2').status_code == 409
+    app.dependency_overrides[current_user] = lambda: context[4]
+    assert http.delete(route + '?version=1').status_code == 404
+    app.dependency_overrides[current_user] = lambda: context[5]
+    assert http.delete(route + '?version=1').status_code == 403
+    app.dependency_overrides[current_user] = lambda: context[3]
+    deleted = http.delete(route + '?version=1')
+    assert deleted.status_code == 200 and deleted.json()['data'] == {'id': draft['id'], 'deleted': True}
+    assert http.get(route).status_code == 404
+    assert http.get(base).json()['data']['items'] == []

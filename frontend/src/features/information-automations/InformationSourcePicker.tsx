@@ -16,11 +16,12 @@ export function InformationSourcePicker({ value, sources, disabled, onChange }: 
   const filtered = enabled.filter((source) => informationSourceLabel(source).toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const rows = filtered.slice(page * pageSize, (page + 1) * pageSize)
   const selected = value.map((id) => enabled.find((source) => source.source_id === id)).filter(Boolean) as typeof enabled
-  const summary = selected.length ? `${informationSourceLabel(selected[0])}${selected.length > 1 ? ` 等 ${selected.length} 个` : ''}` : '尚未选择订阅源'
+  const summary = selected.length ? `${informationSourceLabel(selected[0])}${selected.length > 1 ? ` 等 ${selected.length} 个` : ''}` : ''
   const begin = () => { setDraft(value); setSearch(''); setPage(0); setOpen(true) }
   return <>
-    <div className="grid gap-2"><p className="type-control">订阅源</p><p className="type-meta break-words text-muted">{summary}</p>
-      <Button variant="secondary" isDisabled={disabled || !enabled.length} onPress={begin}><Icons.ListChecks size={15} />选择订阅源</Button>
+    <div className="grid gap-2"><div className="flex flex-wrap items-center gap-2"><p className="type-control">订阅源</p>
+      <Button size="sm" variant="secondary" isDisabled={disabled || !enabled.length} onPress={begin}><Icons.ListChecks size={15} />选择订阅源</Button></div>
+      {summary && <p className="type-meta break-words text-muted">{summary}</p>}
       {!enabled.length && <a href="/subscriptions" className="type-body underline">先添加或启用订阅</a>}
       {selected.some((source) => source.notify_on_new_items) && <p className="type-meta text-muted">部分来源已开启全部新内容通知，将独立发送。</p>}
     </div>

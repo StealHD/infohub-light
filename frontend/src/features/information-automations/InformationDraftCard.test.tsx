@@ -34,13 +34,11 @@ function setup(failure = false, modelStatus = 'ready') {
 }
 beforeEach(() => sessionStorage.clear())
 
-it('fetches trusted data and requires a separate explicit confirmation before activation', async () => {
+it('fetches trusted data and starts a complete saved rule directly', async () => {
   const user = userEvent.setup(); const { api } = setup()
   await screen.findByDisplayValue('可信服务端规则')
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
-  await user.click(screen.getByRole('button', { name: '确认启用' }))
-  expect(api.transitionInformationRule).not.toHaveBeenCalled()
-  await user.click(screen.getByRole('button', { name: '确认并启用' }))
+  await user.click(screen.getByRole('button', { name: '启动' }))
   await waitFor(() => expect(api.transitionInformationRule).toHaveBeenCalledExactlyOnceWith(rule.id, 1, 'enable'))
 })
 
@@ -60,7 +58,7 @@ it('tests the saved version without activating and retains an unsaved draft acro
   await user.click(screen.getByRole('button', { name: '开始测试' }))
   await waitFor(() => expect(first.api.testInformationRule).toHaveBeenCalledTimes(2))
   await user.clear(screen.getByLabelText('任务名称')); await user.type(screen.getByLabelText('任务名称'), '未保存标题')
-  expect(screen.getByRole('button', { name: '确认启用' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '启动' })).toBeDisabled()
   first.unmount(); setup()
   expect(await screen.findByDisplayValue('未保存标题')).toBeVisible()
 })
@@ -69,7 +67,7 @@ it('does not render an editable card for an inaccessible reference or expose raw
   const { api } = setup(true)
   expect(await screen.findByText(/当前账号无法读取/)).toBeVisible()
   expect(screen.queryByText('private detail')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '确认启用' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '启动' })).not.toBeInTheDocument()
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
   expect(informationDraftReferences(`[[information-automation:${rule.id}]] malicious config [[information-automation:other]]`)).toEqual([rule.id])
 })
@@ -92,12 +90,12 @@ it('polls a semantic preview without enabling the rule', async () => {
 
 it('reads the configured OpenClaw models directly and enables selection after refresh', async () => {
   const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
-  expect(await screen.findByText(/点击刷新将直接读取本机 OpenClaw 配置/)).toBeVisible()
-  expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
+  expect(await screen.findByText(/尚未读取模型目录/)).toBeVisible()
+  expect(screen.getByRole('button', { name: /选择模型/ })).toBeDisabled()
   api.refreshInformationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] } as never)
   await user.click(screen.getByRole('button', { name: '刷新模型目录' }))
-  expect(await screen.findByText('已加载 1 个模型，请选择分析模型。', {}, { timeout: 3000 })).toBeVisible()
-  await user.click(screen.getByRole('button', { name: /分析模型/ }))
+  await waitFor(() => expect(screen.queryByText(/已加载 1 个模型/)).not.toBeInTheDocument())
+  await user.click(screen.getByRole('button', { name: /选择模型/ }))
   expect(await screen.findByRole('option', { name: 'Test' })).toBeVisible()
   expect(api.refreshInformationModels).toHaveBeenCalledOnce()
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
@@ -107,7 +105,7 @@ it('keeps an empty authorized catalog disabled with a specific explanation', asy
   const { api } = setup(false, 'unavailable')
   api.informationModels.mockResolvedValue({ status: 'ready', models: [] })
   expect(await screen.findByText(/当前没有可用模型/)).toBeVisible()
-  expect(screen.getByRole('button', { name: /分析模型/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /选择模型/ })).toBeDisabled()
 })
 
 

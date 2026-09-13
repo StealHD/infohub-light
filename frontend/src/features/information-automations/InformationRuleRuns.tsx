@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Button, Card, Icons, RefreshButton, StableAsyncButton } from '../../design-system'
 import { useInformationContext } from './useInformationContext'
-import { judgmentLabels, notificationLabels, reminderReasonLabels } from './informationRuleModel'
+import { judgmentLabels, notificationLabel, reminderReasonLabels } from './informationRuleModel'
 
 export function InformationRuleRuns({ ruleId }: { ruleId: string }) {
   const { api, userId } = useInformationContext()
@@ -17,7 +17,7 @@ export function InformationRuleRuns({ ruleId }: { ruleId: string }) {
     {query.isPending && <p role="status">正在读取运行记录…</p>}
     {query.data?.pages.flatMap((page) => page.items).map((run) => {
       const open = expanded === run.id
-      const notification = run.notification_status === 'sent' && !run.receipt ? '没有可验证回执' : notificationLabels[run.notification_status]
+      const notification = notificationLabel(run)
       return <Card key={run.id} className="p-0" variant="secondary">
         <Button variant="ghost" className="h-auto w-full justify-start rounded-[var(--inteliscope-radius-card)] p-3 text-left" aria-expanded={open}
           onPress={() => setExpanded((current) => current === run.id ? null : run.id)}>

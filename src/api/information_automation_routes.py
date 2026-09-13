@@ -64,6 +64,11 @@ async def update_rule(rule_id: str, body: UpdateRule, response: Response, user=D
                   rule_id=rule_id, expected_version=body.version)
 
 
+async def delete_rule(rule_id: str, response: Response, version: Annotated[int, Query(ge=1)],
+                      user=Depends(current_user), context: ApiContext = Depends(api_context)):
+    return invoke(service(response, context).delete, user['id'], rule_id, version)
+
+
 async def transition_rule(rule_id: str, body: TransitionRule, response: Response, user=Depends(current_user),
                           context: ApiContext = Depends(api_context)):
     return invoke(service(response, context).transition, user['id'], rule_id, body.version, body.action)
@@ -95,7 +100,7 @@ def register_information_automation_routes(app: FastAPI):
     register(app)
     base = '/api/me/information-automations'
     for path, endpoint, method in [('', list_rules, 'GET'), ('', create_rule, 'POST'),
-                                   ('/{rule_id}', get_rule, 'GET'), ('/{rule_id}', update_rule, 'PUT'),
+                                   ('/{rule_id}', get_rule, 'GET'), ('/{rule_id}', update_rule, 'PUT'), ('/{rule_id}', delete_rule, 'DELETE'),
                                    ('/{rule_id}/transition', transition_rule, 'POST'),
                                    ('/{rule_id}/test', test_rule, 'POST'), ('/{rule_id}/test/{preview_id}', get_test, 'GET'), ('/{rule_id}/runs', list_runs, 'GET')]:
         app.add_api_route(base + path, endpoint, methods=[method])
