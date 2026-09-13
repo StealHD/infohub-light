@@ -12,12 +12,18 @@
 
 - 独立 runner 与托管 supervisor 共用 `catalog_only`、`previews_only`、`full`。新安装默认 `previews_only`；旧托管记录未声明 execution_mode 时保留原目录模式。显式模式不隐含确认旧预览或启用正式规则。
 - capabilities 增量字段：execution_mode、runtime_block（completion_unknown|null）、refresh_request_id、filtered_models（id 与安全 reason）。catalog 增量字段：execution_mode、preview_executable、execution_reason、filtered_models、refresh。旧协议 2 未上报能力时执行拒绝 connector_upgrade_required；目录 ready 不代表可以测试。
-- 提交前及事务内校验当前绑定、同代能力与 300 秒心跳/目录、所选模型；领取再次校验。previews_only 只领取有独立确认记录的新预览。目录模式不领取也不回传旧结果。正式规则仍需完整模式及原确认。测试不发送通知、不推进正式水位。
-- request_id 按用户持久去重；同规则、版本和去重排序文章集合的有效预览跨标签页复用。同一请求不能换输入。无确认侧表的旧预览不能领取；明确重测时原子保留旧行、标记 preview_superseded 并建新预览。旧预览已领取但 claim 已完成、预览明确以 analysis_call_failed 或 invalid_model_output 终结时允许人工新建测试；结果仍未知或调用超时时禁止重新推理，预览领取租约过期以 completion_unknown 终结且不自动重领。
+- 提交前及事务内校验当前绑定、同代能力与 300 秒心跳/目录、所选模型；领取再次校验。previews_only 只领取有独立确认记录的新预览。目录模式不领取也不回传旧结果。正式规则仍需完整模式及原确认。测试默认不发送通知，也不推进正式水位；显式勾选后仅命中时由 Worker 发送测试通知。
+- request_id 按用户持久去重；同规则、版本、去重排序文章集合和通知选项/目标的有效预览跨标签页复用。同一请求不能换输入。无确认侧表的旧预览不能领取；明确重测时原子保留旧行、标记 preview_superseded 并建新预览。旧预览已领取但 claim 已完成、预览明确以 analysis_call_failed 或 invalid_model_output 终结时允许人工新建测试；结果仍未知或调用超时时禁止重新推理，预览领取租约过期以 completion_unknown 终结且不自动重领。
 - GET latest 恢复 selection、进度和结果；requires_review 区分旧预览待确认与未知完成。等待原因包括 offline、execution_disabled、connector_upgrade_required、user_concurrency、daily_semantic_limit、analysis_model_unavailable。Gateway `/tools/invoke` 返回的结构化 `{ok:false,error}` 是已确定的调用失败，结束本次测试或运行并显示安全的 `analysis_call_failed`；只有连接中断、超时等没有终态响应证据时才显示 completion_unknown 并保留推理栅栏。
 - POST models/refresh 同步读取当前用户个人 Agent 的 OpenClaw 配置并返回更新后的目录；前端只在这一次读取期间禁用刷新，不等待执行器回执。
 - 机器凭据 POST `/api/connector/information-automations/control` 读取 refresh_request_id；执行器仅在实际执行时上报自身能力与结果；它不参与浏览器读取模型目录。现有回执接口保留给已部署执行器的兼容恢复流程，不泄露上游原文。
 - 目录读取不会自动改变用户选择或调用模型。执行器上报的过滤原因仅适用于实际执行；浏览器目录不展示旧 allowlist 归属提示。
+
+## 可选通知与测试投递（global 47）
+
+正式任务 `notification_enabled=false` 可在没有 target_id 时启用并正常分析；命中结果记录 `notification_status=not_required`。旧任务的缺省行为保留。只有 `notification_enabled=true` 的匹配结果进入正式通知账本。
+
+测试接口默认只分析。测试可从当前 Feed 选择文章，或提交一段不属于 Feed 的自定义文本；两者互斥，自定义文本只作为本次隔离预览输入，不写入 Feed、订阅或正式水位。`send_notification=true` 时选择本次可用通知服务（默认任务 target_id，可用 `notification_target_id` 临时覆盖），服务 ID 与配置/启用代次随预览持久化，正式配置不变。结果返回独立的 `notification_status/notification_reason/notification_receipt`，以及 `sends_notification`，但不返回目标、Gateway 凭据或原始目的地。未命中、证据不足和分析失败不会发；综合消息显式标记“测试通知”。Feed 文章附原文链接；自定义文本没有原文链接时，仍发送摘要、理由和判断依据。结果提交后 Worker 复验账号、个人绑定、规则版本、订阅与隐私、目标版本和状态，再领取发送。已开始但结果未知的尝试计入每日上限，终态不自动重发；通知失败不覆盖分析结论。
 
 ## 当前实现与待验收边界
 
@@ -32,12 +38,12 @@ Automations 配置 v2 统一使用完整自然语言要求，关键词、语义�
 | GET / POST 根路径 | 分页查询／保存草稿；分页为 limit 1–100、offset 非负 |
 | GET / PUT / DELETE `/{rule_id}` | 读取／接收 version、config，CAS 创建不可变新版本；删除要求查询参数 `version` |
 | POST `/{rule_id}/transition` | 严格整数 version；action 为 enable、pause、archive、restore |
-| POST `/{rule_id}/test` | version、1–1000 个本人 article_ids、可选 request_id（1–128 字）；幂等创建或复用独立预览 |
+| POST `/{rule_id}/test` | version、1–1000 个本人 article_ids 或 1–24,000 字 custom_text（二选一）、可选 request_id（1–128 字）、send_notification（默认 false）及可选 notification_target_id；按输入及通知选项/目标幂等创建或复用独立预览 |
 | GET `/{rule_id}/test/{preview_id}` | 读取预览进度、综合结论和依据；preview_id=latest 返回最近记录或 null |
 | GET `/{rule_id}/runs` | 分页返回分析、通知、进度、模型、依据和安全回执 |
 | GET `/models` / POST `/models/refresh` | 本人模型目录／直接刷新当前个人 Agent 的 OpenClaw 配置 |
 
-`config` 包含 `schema_version=2`、name（1–100 字）、requirement（最多 24,000 字）、本人已启用订阅 source_ids（最多 50）、可见 target_id、trigger 和 model。model 为 `{id, thinking:null|string}`，必须选择主机目录允许的模型；缺省推理沿用模型默认。草稿可以不完整，启用须补齐并验证。新 wire 不含 mode、conditions；旧输入只转换成草稿描述，没有旧执行器。
+`config` 包含 `schema_version=2`、name（1–100 字）、requirement（最多 24,000 字）、本人已启用订阅 source_ids（最多 50）、可见 target_id、notification_enabled、trigger 和 model。旧配置缺少 notification_enabled 时按 true 解释，新建 UI 默认 false；false 时 target_id 可为 null。model 为 `{id, thinking:null|string}`，必须选择主机目录允许的模型；缺省推理沿用模型默认。草稿可以不完整，启用须补齐并验证。新 wire 不含 mode、conditions；旧输入只转换成草稿描述，没有旧执行器。
 
 trigger.kind 为 each、count、interval、calendar。count 默认 5，范围 2–10,000；max_wait_seconds 默认 3600，可为 null 或 60–604800。interval_seconds 默认 3600，范围 60–604800。calendar 使用 time（HH:mm，默认 08:00）、timezone（有效 IANA，默认 Asia/Shanghai）及 weekdays（0 为周一，空列表每天；不得重复）。模型只接收完整要求与本批内容，不使用个人标签。
 
@@ -72,9 +78,9 @@ trigger.kind 为 each、count、interval、calendar。count 默认 5，范围 2�
 
 ## 通知与回执
 
-沿用 Email、Telegram、Webhook transport；发送综合摘要、理由与服务端输入中的原文链接。未命中无需通知，证据不足和失败保留原因。判断与通知状态独立；正式发送前再次验证账号、binding、订阅、版本、确认、目标与 Transport generation。
+沿用 Email、Telegram、Webhook transport，自动化还可选 OpenClaw 通知服务；发送综合摘要、理由与服务端输入中的原文链接。未命中无需通知，证据不足和失败保留原因。判断与通知状态独立；正式发送前再次验证账号、binding、订阅、版本、确认、目标与 Transport generation。
 
-每日每规则最多 20 次通知，上海自然日，已开始但未知的尝试也计数。先持久化 sending 再发送；仅 SMTP 接受、Telegram message ID 或已验证 Webhook ACK 为 sent。未知发送不自动重发；遗留 sending 五分钟后为 unknown。公开回执不含目的地或秘密。
+测试与正式合计每日每规则最多 20 次通知，上海自然日，已开始但未知的尝试也计数。先持久化 sending 再发送；仅 SMTP 接受、Telegram message ID 或已验证 Webhook ACK 为 sent。未知发送不自动重发；遗留 sending 五分钟后为 unknown。公开回执不含目的地或秘密。
 
 ## 迁移与操作
 

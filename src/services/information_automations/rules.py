@@ -106,6 +106,14 @@ class InformationRules:
     def target(self, user, config, *, require_ready=False):
         if not config.target_id:
             return None
+        if config.target_id.startswith('ocn_'):
+            from ..openclaw_notification_services import OpenClawNotificationServices
+            service = OpenClawNotificationServices(self.store, self.targets.secret_store.data_dir)
+            target = service.row(user['workspace_id'], config.target_id)
+            if not target or (require_ready and not service.available(target)):
+                raise RuleError('notification_target_unavailable', '请先验证并启用通知服务。')
+            target['channel'] = 'openclaw'
+            return target
         visible = self.targets.list_public_targets(workspace_id=user['workspace_id'], user_id=user['id'])
         if config.target_id not in {row['id'] for row in visible['targets']}:
             raise RuleError('notification_target_unavailable', '通知服务不可用。')
@@ -150,7 +158,8 @@ class InformationRules:
             user = self.actor(user_id, write=True)
             self.binding(user)
             self.validate_sources(user, config)
-            self.target(user, config)
+            if config.notification_enabled:
+                self.target(user, config)
             now, encoded = now_iso(), config.model_dump_json()
             if rule_id:
                 row = self.row(user, rule_id)
@@ -193,27 +202,28 @@ class InformationRules:
                 config = RuleConfig.model_validate_json(row['config_json'])
                 binding = self.binding(user)
                 self.validate_sources(user, config)
-                target = self.target(user, config, require_ready=True)
-                if not config.source_ids or not target or not config.requirement.strip() or not config.model:
-                    raise RuleError('incomplete_rule', '请补齐来源、完整要求、模型和通知服务。')
+                target = self.target(user, config, require_ready=True) if config.notification_enabled else None
+                if not config.source_ids or (config.notification_enabled and not target) or not config.requirement.strip() or not config.model:
+                    raise RuleError('incomplete_rule', '请补齐来源、完整要求和模型；开启通知时还需通知服务。')
                 from .model_catalog import require_model
                 require_model(self.store, binding['binding_id'], config.model)
                 if row['state'] == 'active':
                     if (row['binding_id'], row['target_generation'], row['target_activation'], row['transport_generation']) != (
-                            binding['binding_id'], target['config_generation'], target['activation_generation'], transport_generation(self.store, user, target)):
+                            binding['binding_id'], target['config_generation'] if target else None,
+                            target['activation_generation'] if target else None, transport_generation(self.store, user, target) if target else None):
                         raise RuleError('rule_authorization_changed', '授权已变化，请暂停后重新确认。')
                     return public_rule(row, conn)
                 cursor = conn.execute('SELECT COALESCE(MAX(id),0) FROM information_events WHERE user_id=?', (user_id,)).fetchone()[0]
                 confirmation_id = 'iaapproval_' + uuid.uuid4().hex
-                approval = {'binding_id': binding['binding_id'], 'target_id': target['id'],
-                            'target_generation': target['config_generation'], 'target_activation': target['activation_generation'],
-                            'transport_generation': transport_generation(self.store, user, target)}
+                approval = {'binding_id': binding['binding_id'], 'target_id': target['id'] if target else None,
+                            'target_generation': target['config_generation'] if target else None, 'target_activation': target['activation_generation'] if target else None,
+                            'transport_generation': transport_generation(self.store, user, target) if target else None}
                 conn.execute('INSERT INTO information_rule_approvals VALUES(?,?,?,?,?)',
                              (confirmation_id, rule_id, version, json.dumps(approval), now))
                 conn.execute('''UPDATE information_rules SET state='active',issue=NULL,binding_id=?,target_generation=?,
                     target_activation=?,transport_generation=?,confirmed_at=?,confirmation_id=?,cursor=?,updated_at=? WHERE id=?''',
-                             (binding['binding_id'], target['config_generation'], target['activation_generation'],
-                              transport_generation(self.store, user, target), now, confirmation_id, cursor, now, rule_id))
+                             (binding['binding_id'], target['config_generation'] if target else None, target['activation_generation'] if target else None,
+                              transport_generation(self.store, user, target) if target else None, now, confirmation_id, cursor, now, rule_id))
                 from .scheduling import next_due
                 due = next_due(config.trigger, datetime.fromisoformat(now))
                 conn.execute('INSERT OR REPLACE INTO information_trigger_state VALUES(?,?)', (rule_id, due.isoformat() if due else None))
@@ -242,17 +252,27 @@ class InformationRules:
             conn.execute("UPDATE information_previews SET status='failed',reason='rule_deleted' WHERE rule_id=? AND status IN ('pending','judging','quota_wait')", (rule_id,))
             return {'id': rule_id, 'deleted': True}
 
-    def test(self, user_id, rule_id, version, article_ids, request_id=None):
+    def test(self, user_id, rule_id, version, article_ids, request_id=None,
+             send_notification=False, notification_target_id=None, custom_text=None):
         user = self.actor(user_id)
         row = self.row(user, rule_id)
+        config = RuleConfig.model_validate_json(row['config_json'])
+        custom = None
+        if custom_text is not None:
+            from .custom_preview_input import prepare
+            custom = prepare(custom_text)
+            article_ids = [custom['article_id']]
+        selected_target_id = (notification_target_id or config.target_id) if send_notification else None
         from .preview_recovery import request_preview
-        previous = request_preview(self,user_id,rule_id,version,article_ids,request_id)
+        previous = request_preview(self,user_id,rule_id,version,article_ids,request_id,
+                                   send_notification,selected_target_id)
         if previous:
             return previous
         if row['version'] != version:
             raise RuleError('rule_version_conflict', '提醒已变化，请重新测试。')
         if not 1 <= len(article_ids) <= 1000:
             raise RuleError('invalid_test_items', '请选择 1–1000 篇本人文章。', 400)
-        config = RuleConfig.model_validate_json(row['config_json'])
         from .semantic_previews import create_preview
-        return create_preview(self, user, row, config, article_ids, request_id)
+        return create_preview(self, user, row, config, article_ids, request_id,
+                              send_notification=send_notification, notification_target_id=notification_target_id,
+                              custom_input=custom)

@@ -8,6 +8,7 @@ from src.services.notification_webhook_transport import WebhookSendResult
 from src.services.workspace_telegram_transport import (
     TelegramTransportServiceError,
 )
+from src.services.openclaw_notification_transport import OpenClawNotificationGateway
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -38,6 +39,43 @@ def _login(
         json={"username": username, "password": password},
     )
     assert response.status_code == 200
+
+
+def test_openclaw_service_admin_catalog_and_destination_privacy(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    calls = []
+    monkeypatch.setattr(OpenClawNotificationGateway, 'catalog', lambda self: [
+        {'channel': 'telegram', 'account_id': 'primary', 'available': True},
+        {'channel': 'telegram', 'account_id': 'other', 'available': False},
+    ])
+    def fake_send(self, **kwargs):
+        calls.append(kwargs)
+        return {'channel': 'openclaw', 'verification': 'provider_accepted', 'message_id': '123'}
+    monkeypatch.setattr(OpenClawNotificationGateway, 'send', fake_send)
+    catalog = client.get('/api/admin/openclaw-notification-services/channels')
+    assert catalog.status_code == 200
+    assert len(catalog.json()['data']['channels']) == 2
+    created = client.post('/api/admin/openclaw-notification-services', json={
+        'name': 'OpenClaw 值班群', 'openclaw_channel': 'telegram', 'openclaw_account': 'primary',
+        'destination': '-1001234567890', 'telegram_message_thread_id': 17,
+    })
+    assert created.status_code == 200, created.text
+    service_id = created.json()['data']['id']
+    assert '-1001234567890' not in created.text
+    tested = client.post(f'/api/admin/openclaw-notification-services/{service_id}/test-and-enable')
+    assert tested.status_code == 200 and tested.json()['data']['sent'] is True
+    assert calls[0]['destination'] == '-1001234567890' and calls[0]['message_thread_id'] == 17
+    listed = client.get('/api/notification-services')
+    assert listed.status_code == 200 and '-1001234567890' not in listed.text
+    assert any(item['id'] == service_id for item in listed.json()['data']['services'])
+    client.app.state.service_store.create_user(workspace_id='default', username='member', role='member', password='secret-password')
+    client.post('/api/auth/logout')
+    _login(client, 'member')
+    assert client.get('/api/admin/openclaw-notification-services/channels').status_code == 403
+    assert client.post('/api/admin/openclaw-notification-services', json={
+        'name': 'bad', 'openclaw_channel': 'telegram', 'openclaw_account': 'primary', 'destination': '-100'
+    }).status_code == 403
 
 
 def test_personal_multichannel_patch_and_per_channel_test_wiring(
@@ -648,6 +686,7 @@ def test_admin_notification_service_configures_tests_and_reuses_telegram(
     assert rotated_token not in rotated.text
     paused = client.get("/api/notification-services").json()["data"]
     assert paused["channel_credentials"]["telegram"]["ready"] is False
+
     assert all(
         not service["available"]
         for service in paused["services"]
@@ -851,3 +890,35 @@ def test_notification_service_failed_test_keeps_safe_draft(
     assert draft["last_test_status"] == "failed"
     assert token not in listed.text
     assert chat_id not in listed.text
+
+
+def test_telegram_service_topic_is_optional_versioned_and_cleared_explicitly(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    sent = []
+    service = client.app.state.notification_targets
+    monkeypatch.setattr(service.telegram_transport, "send_message", lambda **kwargs: (
+        sent.append(kwargs) or TelegramSendResult(message_id=len(sent), verification="provider_accepted")
+    ))
+    created = client.post("/api/admin/notification-services", json={
+        "name": "分话题群", "channel": "telegram", "telegram_chat_id": "-1001234567890",
+        "telegram_bot_token": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "telegram_message_thread_id": 42,
+    })
+    assert created.status_code == 200, created.text
+    target_id = created.json()["data"]["id"]
+    assert created.json()["data"]["telegram_topic_configured"] is True
+    assert client.post(f"/api/admin/notification-services/{target_id}/test-and-enable").status_code == 200
+    assert sent[-1]["message_thread_id"] == 42
+    retained = client.patch(f"/api/admin/notification-services/{target_id}", json={"name": "分话题群更新"})
+    assert retained.status_code == 200
+    assert retained.json()["data"]["telegram_topic_configured"] is True
+    cleared = client.patch(f"/api/admin/notification-services/{target_id}", json={"telegram_message_thread_id": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["data"]["enabled"] is False
+    assert cleared.json()["data"]["telegram_topic_configured"] is False
+    assert client.post(f"/api/admin/notification-services/{target_id}/test-and-enable").status_code == 200
+    assert sent[-1]["message_thread_id"] is None
+    for invalid in (0, -1, True, "42"):
+        rejected = client.patch(f"/api/admin/notification-services/{target_id}", json={"telegram_message_thread_id": invalid})
+        assert rejected.status_code in {400, 422}

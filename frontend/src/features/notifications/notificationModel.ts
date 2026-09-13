@@ -2,6 +2,8 @@ import { ApiError } from '../../api/client'
 
 const notificationErrorLabels: Record<string, string> = {
   invalid_notification_channel: '通知方式无效，请重新选择。',
+  invalid_notification_target_name: '通知服务名称无效，请检查后重试。',
+  notification_target_name_conflict: '同名通知服务已保存；测试未通过时请在服务列表中重新测试。',
   notification_destination_required: '当前通知方式还没有配置接收地址。',
   invalid_notification_destination: '接收地址格式无效，请检查后重试。',
   invalid_webhook_provider: 'Webhook 类型无效，请重新选择。',
@@ -12,6 +14,7 @@ const notificationErrorLabels: Record<string, string> = {
   notification_channel_unavailable: '当前通知方式暂不可用，请联系管理员。',
   notification_test_failed: '测试通知发送失败，请检查接收端后重试。',
   notification_test_outcome_unknown: '测试通知结果未知，请勿重复发送；请先确认接收端。',
+  notification_target_test_outcome_unknown: '测试通知结果未知，请勿重复发送；请先确认接收端。',
   notification_test_rate_limited: '测试通知发送过于频繁，请稍后再试。',
   invalid_email_transport_provider: '邮件服务商无效，请重新选择。',
   invalid_email_transport_sender: '发件邮箱与所选服务商不匹配。',

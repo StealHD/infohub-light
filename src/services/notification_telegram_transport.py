@@ -94,6 +94,18 @@ def normalize_telegram_chat_id(value: Any) -> str:
     )
 
 
+def normalize_telegram_message_thread_id(value: Any) -> int | None:
+    """Accept an optional positive forum topic ID without coercing booleans."""
+    if value is None or value == "":
+        return None
+    if type(value) is int and 0 < value <= _MAX_SIGNED_64:
+        return value
+    raise TelegramConfigurationError(
+        "invalid_telegram_message_thread_id",
+        "Telegram topic ID must be a positive integer",
+    )
+
+
 def _normalize_message_text(value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TelegramConfigurationError(
@@ -218,6 +230,7 @@ async def send_telegram_message(
     chat_id: Any,
     text: Any,
     *,
+    message_thread_id: Any = None,
     timeout: float = 5.0,
     transport_factory: Callable[
         [], httpx.AsyncBaseTransport
@@ -230,15 +243,19 @@ async def send_telegram_message(
     token = normalize_telegram_bot_token(bot_token)
     destination = normalize_telegram_chat_id(chat_id)
     message = _normalize_message_text(text)
+    topic = normalize_telegram_message_thread_id(message_thread_id)
     target_url = (
         f"https://{_TELEGRAM_API_HOST}/bot{token}/sendMessage"
     )
-    content = json.dumps(
-        {
+    payload = {
             "chat_id": destination,
             "text": message,
             "link_preview_options": {"is_disabled": True},
-        },
+        }
+    if topic is not None:
+        payload["message_thread_id"] = topic
+    content = json.dumps(
+        payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

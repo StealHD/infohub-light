@@ -79,6 +79,8 @@ export default function InformationAutomationsView({ canMutate }: { canMutate: b
       <InformationTaskDetails key={selected || 'empty'} rule={rule} creating={selected === 'new'} canMutate={canMutate} onClose={close}
         testSession={rule ? tests.session(rule.id, rule.version) : undefined}
         onTestSelect={(value) => { if (rule) tests.select(rule.id, rule.version, value) }}
+        onTestTextChange={(value) => { if (rule) tests.setCustomText(rule.id, rule.version, value) }}
+        onTestConfigureNotification={(send, target) => { if (rule) tests.configureNotification(rule.id, rule.version, send, target) }}
         onTestStart={async () => { if (rule) await tests.start(rule.id, rule.version) }}
         onBusyChange={(value) => { busy.current = value }} onDirtyChange={(value) => setDirtyRuleId(value && rule ? rule.id : null)} onSaved={save} action={action} onTransition={transition} onDelete={remove}
         transitionError={transitionError && transitionError.ruleId === rule?.id ? transitionError.message : undefined} />

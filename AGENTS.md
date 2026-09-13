@@ -26,6 +26,7 @@ Current domain objects:
 - Review the user-visible impact of every product-code change: update the changelog for visible behavior or API compatibility changes, and update the manual when an operation or configuration workflow changes. Internal refactors, tests, and CI changes do not require a documentation diff.
 - Production UI changes inherit the component roles and parameters in `docs/contracts/ui/` unless the user explicitly scopes a different style. Use HeroUI v3 OSS only through `frontend/src/design-system/**`; HeroUI Pro is a visual-hierarchy reference, not a code or dependency source. New or changed pages must reuse an existing component role before introducing a local size, spacing, radius, icon or motion parameter; reusable additions belong in the design system and UI contract.
 - Production images must be built locally; never compile this repository on `vps-tokyo`. Follow the [runtime and migration contract](docs/contracts/architecture/jobs-notifications-runtime-migrations.md#310-runtime--migration-boundary) for Worktree builds, image transfer, health checks and rollback.
+- Before any Git merge, state the source branch, target branch, their worktree paths, and whether a remote push is included. Do not start the merge until that mapping is visible in commentary.
 
 <!-- init-pro:section name=precedence -->
 ## 3. 控制文件唯一真源

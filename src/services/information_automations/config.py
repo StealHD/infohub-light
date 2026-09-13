@@ -1,7 +1,7 @@
 """One natural-language requirement and explicit, versioned execution settings."""
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints, model_validator
 
 Term = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 
@@ -65,6 +65,7 @@ class RuleConfig(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     source_ids: list[Term] = Field(default_factory=list, max_length=50)
     target_id: Term | None = None
+    notification_enabled: StrictBool = True
     requirement: str = Field(default='', max_length=24000)
     trigger: Trigger = Field(default_factory=Trigger)
     model: ModelSelection | None = None

@@ -444,7 +444,7 @@ class WorkspaceTelegramTransportService:
         *,
         workspace_id: str,
         chat_id: Any,
-        text: Any,
+        text: Any, message_thread_id: Any = None,
         require_enabled: bool = True,
         transport: dict[str, Any] | None = None,
     ) -> TelegramSendResult:
@@ -476,7 +476,7 @@ class WorkspaceTelegramTransportService:
                     send_telegram_message(
                         token,
                         normalize_telegram_chat_id(chat_id),
-                        str(text),
+                        str(text), **({"message_thread_id": message_thread_id} if message_thread_id is not None else {}),
                         timeout=5.0,
                     ),
                     timeout=6.0,

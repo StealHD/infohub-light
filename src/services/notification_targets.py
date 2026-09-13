@@ -28,7 +28,9 @@ from .notification_telegram_transport import (
     TelegramConfigurationError,
     TelegramSendResult,
     normalize_telegram_chat_id,
+    normalize_telegram_message_thread_id,
 )
+from .notification_target_topics import get_topic, set_topic
 from .notification_webhook_transport import (
     DINGTALK,
     FEISHU_LARK_V2,
@@ -41,7 +43,6 @@ from .notification_webhook_transport import (
     validate_signing_secret,
     validate_webhook_url,
     webhook_provider_options,
-    webhook_verification_mode,
 )
 from .secret_store import SecretStore
 from .workspace_telegram_transport import (
@@ -266,94 +267,10 @@ class NotificationTargetService:
         }
 
     def public_target(
-        self,
-        target: dict[str, Any],
-        *,
-        actor: dict[str, Any],
+        self, target: dict[str, Any], *, actor: dict[str, Any],
     ) -> dict[str, Any]:
-        configured = self._destination(target) is not None
-        tested = (
-            target.get("last_test_status") == "sent"
-            and int(target.get("last_test_config_generation") or 0)
-            == int(target.get("config_generation") or 0)
-        )
-        transport_ready = self._transport_ready(target)
-        archived = target.get("archived_at") is not None
-        available = bool(
-            not archived
-            and target.get("enabled")
-            and configured
-            and tested
-            and transport_ready
-        )
-        can_edit = bool(
-            not archived
-            and str(actor.get("role") or "") != "viewer"
-            and (
-                (
-                    target.get("scope") == "private"
-                    and str(target.get("owner_user_id"))
-                    == str(actor.get("id"))
-                )
-                or (
-                    target.get("scope") == "shared"
-                    and str(actor.get("role") or "") in {"owner", "admin"}
-                )
-            )
-        )
-        usage = self.store.notification_target_usage(
-            workspace_id=str(target["workspace_id"]),
-            target_id=str(target["id"]),
-        )
-        test_status = target.get("last_test_status")
-        if (
-            test_status == "failed"
-            and str(target.get("last_test_error_code") or "").endswith(
-                ("outcome_unknown", "response_invalid")
-            )
-        ):
-            test_status = "unknown"
-        public: dict[str, Any] = {
-            "id": str(target["id"]),
-            "name": str(target["name"]),
-            "scope": str(target["scope"]),
-            "channel": str(target["channel"]),
-            "configured": configured,
-            "enabled": bool(target.get("enabled")),
-            "available": available,
-            "transport_ready": transport_ready,
-            "config_generation": int(
-                target.get("config_generation") or 1
-            ),
-            "activation_generation": int(
-                target.get("activation_generation") or 0
-            ),
-            "enabled_at": target.get("enabled_at"),
-            "last_test_status": test_status,
-            "last_tested_at": target.get("last_tested_at"),
-            "last_test_error_code": target.get("last_test_error_code"),
-            "can_edit": can_edit,
-            "can_test": bool(can_edit and configured and transport_ready),
-            "can_enable": bool(can_edit and configured and tested),
-            "usage": usage,
-            "updated_at": target.get("updated_at"),
-        }
-        if target.get("channel") == "webhook":
-            provider = normalize_stored_webhook_provider(
-                target.get("webhook_provider")
-            )
-            public.update(
-                {
-                    "webhook_provider": provider,
-                    "webhook_signing_secret_configured": bool(
-                        self._signing_secret(target)
-                    ),
-                    "webhook_verification_mode": webhook_verification_mode(
-                        provider
-                    ),
-                }
-            )
-        return public
+        from .notification_target_projection import public_target
+        return public_target(self, target, actor=actor)
 
     def create(
         self,
@@ -368,6 +285,7 @@ class NotificationTargetService:
         webhook_provider: Any = UNSET,
         webhook_signing_secret: Any = UNSET,
         telegram_chat_id: Any = UNSET,
+        telegram_message_thread_id: Any = UNSET,
     ) -> dict[str, Any]:
         actor = self._actor(
             workspace_id=workspace_id,
@@ -395,6 +313,16 @@ class NotificationTargetService:
                 "invalid_notification_channel",
                 "notification target channel is invalid",
             )
+        if telegram_message_thread_id is not UNSET and target_channel != "telegram":
+            raise NotificationTargetError("invalid_notification_target_configuration", "topic requires Telegram")
+        if telegram_message_thread_id is not UNSET:
+            from ..storage.notification_extension_schema import ready as notification_extensions_ready
+            if not notification_extensions_ready(self.store.connect()):
+                raise NotificationTargetError('notification_migration_required', 'global 47 migration required', status_code=503)
+            try:
+                telegram_message_thread_id = normalize_telegram_message_thread_id(telegram_message_thread_id)
+            except TelegramConfigurationError as exc:
+                raise NotificationTargetError(exc.code, str(exc)) from exc
         self._validate_configuration_fields(
             channel=target_channel,
             email_address=email_address,
@@ -464,6 +392,8 @@ class NotificationTargetService:
                 ),
                 commit=False,
             )
+            if telegram_message_thread_id not in (UNSET, None, ""):
+                set_topic(self.store, target_id, telegram_message_thread_id)
             conn.commit()
         except Exception:
             if conn.in_transaction:
@@ -497,6 +427,7 @@ class NotificationTargetService:
         webhook_provider: Any = UNSET,
         webhook_signing_secret: Any = UNSET,
         telegram_chat_id: Any = UNSET,
+        telegram_message_thread_id: Any = UNSET,
     ) -> dict[str, Any]:
         actor = self._actor(
             workspace_id=workspace_id,
@@ -517,6 +448,16 @@ class NotificationTargetService:
                 actor=actor,
                 target_id=target_id,
             )
+            if telegram_message_thread_id is not UNSET and target["channel"] != "telegram":
+                raise NotificationTargetError("invalid_notification_target_configuration", "topic requires Telegram")
+            if telegram_message_thread_id is not UNSET:
+                from ..storage.notification_extension_schema import ready as notification_extensions_ready
+                if not notification_extensions_ready(conn):
+                    raise NotificationTargetError('notification_migration_required', 'global 47 migration required', status_code=503)
+                try:
+                    telegram_message_thread_id = normalize_telegram_message_thread_id(telegram_message_thread_id)
+                except TelegramConfigurationError as exc:
+                    raise NotificationTargetError(exc.code, str(exc)) from exc
             target_name = str(target["name"])
             name_key = str(target["name_key"])
             if name is not UNSET:
@@ -536,6 +477,7 @@ class NotificationTargetService:
                     webhook_provider,
                     webhook_signing_secret,
                     telegram_chat_id,
+                    telegram_message_thread_id,
                 )
             )
             self._validate_configuration_fields(
@@ -758,6 +700,8 @@ class NotificationTargetService:
                     target_id,
                 ),
             )
+            if telegram_message_thread_id is not UNSET:
+                set_topic(self.store, target_id, telegram_message_thread_id)
             conn.commit()
         except Exception:
             if conn.in_transaction:
@@ -1111,6 +1055,7 @@ class NotificationTargetService:
                     result = self.telegram_transport.send_message(
                         workspace_id=workspace_id,
                         chat_id=destination,
+                        message_thread_id=get_topic(self.store, str(target["id"])),
                         text=(
                             "Inteliscope 通知服务测试\n"
                             "这是一条模拟消息，用于验证当前通知服务。"
@@ -1222,6 +1167,7 @@ class NotificationTargetService:
             "_resolved_signing_secret": signing,
             "_notification_target": target,
             "_channel_state": target,
+            "_telegram_message_thread_id": get_topic(self.store, str(target["id"])) if target["channel"] == "telegram" else None,
         }
 
     def target_is_available(self, target: dict[str, Any]) -> bool:
@@ -1278,6 +1224,7 @@ class NotificationTargetService:
                 return self.telegram_transport.send_message(
                     workspace_id=str(target["workspace_id"]),
                     chat_id=destination,
+                    message_thread_id=get_topic(self.store, str(target["id"])),
                     text=(
                         "Inteliscope 通知目标测试\n"
                         "这是一条模拟消息，用于验证当前通知目标。"

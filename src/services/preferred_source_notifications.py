@@ -2493,7 +2493,7 @@ class PreferredSourceNotificationService:
             return self.telegram_transport.send_message(
                 workspace_id=str(settings.get("workspace_id") or ""),
                 chat_id=chat_id,
-                text=text,
+                text=text, message_thread_id=settings.get("_telegram_message_thread_id"),
             )
         except TelegramTransportServiceError as exc:
             raise NotificationServiceError(

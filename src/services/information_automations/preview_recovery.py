@@ -7,8 +7,8 @@ from .execution_capability import capability
 from ...storage.information_recovery_schema import ready
 
 
-def fingerprint(user_id, rule_id, version, article_ids):
-    return hashlib.sha256(json.dumps([user_id,rule_id,version,sorted(set(article_ids))], separators=(',',':')).encode()).hexdigest()
+def fingerprint(user_id, rule_id, version, article_ids, send_notification=False, target_id=None):
+    return hashlib.sha256(json.dumps([user_id,rule_id,version,sorted(set(article_ids)),send_notification,target_id if send_notification else None], separators=(',',':')).encode()).hexdigest()
 
 
 def existing(conn, user_id, request_id, digest):
@@ -89,14 +89,14 @@ def latest_preview(rules, user_id, rule_id):
     return get_preview(rules,user_id,rule_id,row['id'])
 
 
-def request_preview(rules, user_id, rule_id, version, article_ids, request_id):
+def request_preview(rules, user_id, rule_id, version, article_ids, request_id, send_notification=False, target_id=None):
     conn = rules.store.connect()
     if not request_id or not ready(conn):
         return None
     row = conn.execute('SELECT * FROM information_preview_requests WHERE user_id=? AND request_id=?',(user_id,request_id)).fetchone()
     if not row:
         return None
-    if row['fingerprint'] != fingerprint(user_id,rule_id,version,article_ids):
+    if row['fingerprint'] != fingerprint(user_id,rule_id,version,article_ids,send_notification,target_id):
         raise RuleError('preview_request_conflict','请求编号已用于其他测试。',409)
     from .semantic_previews import get_preview
     return get_preview(rules,user_id,rule_id,row['preview_id'])

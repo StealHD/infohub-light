@@ -88,6 +88,20 @@ it('polls a semantic preview without enabling the rule', async () => {
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
 })
 
+it('keeps test notification off by default and sends only after explicit opt-in', async () => {
+  const user = userEvent.setup(); const { api } = setup()
+  await screen.findByDisplayValue('可信服务端规则')
+  await user.click(screen.getByRole('button', { name: '测试已保存规则' }))
+  expect(screen.getByRole('switch', { name: '命中后发送测试通知' })).not.toBeChecked()
+  await user.click(screen.getByRole('switch', { name: '命中后发送测试通知' }))
+  await user.click(screen.getByRole('button', { name: '选择文章' }))
+  await user.click(await screen.findByRole('checkbox', { name: 'AI 研究' }))
+  await user.click(screen.getByRole('button', { name: '确认选择' }))
+  await user.click(screen.getByRole('button', { name: '开始测试' }))
+  await waitFor(() => expect(api.testInformationRule).toHaveBeenCalledWith(rule.id, 1, ['article'],
+    expect.any(String), true, 'target'))
+})
+
 it('reads the configured OpenClaw models directly and enables selection after refresh', async () => {
   const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
   expect(await screen.findByText(/尚未读取模型目录/)).toBeVisible()

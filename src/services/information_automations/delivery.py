@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 from ..notification_email_transport import WorkspaceEmailTransportService
 from ..notification_webhook_transport import send_notification_webhook
 from ..workspace_telegram_transport import WorkspaceTelegramTransportService
+from ..notification_target_topics import get_topic
+from ..openclaw_notification_services import OpenClawNotificationServices
 from .execution import approved_context, pause_invalid
 from .rules import InformationRules, RuleError, transaction
 from .limits import RULE_DAILY_NOTIFICATIONS
@@ -32,11 +34,19 @@ def notification_payload(run, config, conn):
 
 
 def notification_text(payload):
-    links = [item['title'][:100] + '\n' + item['url'] for item in payload['items'] if item['url'] and len(item['url']) <= 3500]
-    first = links[0] if links else ''
+    blocks = []
+    for item in payload['items']:
+        title = str(item.get('title') or '')[:100]
+        url = str(item.get('url') or '')
+        if url and len(url) <= 3500:
+            blocks.append(title + '\n' + url)
+        elif title:
+            quote = str(item.get('summary') or '').strip()[:600]
+            blocks.append(title + ('\n' + quote if quote else ''))
+    first = blocks[0] if blocks else ''
     heading = payload['rule_name'] + '\n' + payload['summary'] + '\n' + payload['reason']
     text = heading[:4000 - len(first) - 2] + '\n\n' + first
-    for block in links[1:]:
+    for block in blocks[1:]:
         if len(text) + len(block) + 2 <= 4000:
             text += '\n\n' + block
     return text
@@ -47,8 +57,11 @@ class ReminderTransport:
         self.targets = targets
         self.email = WorkspaceEmailTransportService(store, data_dir=str(data_dir))
         self.telegram = WorkspaceTelegramTransportService(store, data_dir=str(data_dir))
+        self.openclaw = OpenClawNotificationServices(store, data_dir)
 
     def __call__(self, user, target, payload):
+        if target['channel'] == 'openclaw':
+            return self.openclaw.send(target, notification_text(payload), payload['run_id'])
         settings = self.targets.delivery_settings(target, user_id=user['id'])
         destination = settings['_resolved_destination']
         channel = target['channel']
@@ -57,7 +70,8 @@ class ReminderTransport:
             self.email.send_notification(workspace_id=user['workspace_id'], recipient_email=destination, payload=payload)
             return {'channel': channel, 'verification': 'smtp_accepted'}
         if channel == 'telegram':
-            result = self.telegram.send_message(workspace_id=user['workspace_id'], chat_id=destination, text=text)
+            result = self.telegram.send_message(workspace_id=user['workspace_id'], chat_id=destination, text=text,
+                                                message_thread_id=get_topic(self.targets.store, target['id']))
             return {'channel': channel, 'verification': result.verification, 'message_id': result.message_id}
         if channel != 'webhook':
             raise RuleError('notification_channel_unavailable', '通知渠道不可用。')
@@ -79,6 +93,8 @@ def verified_receipt(value):
         provider = value.get('provider')
         if provider in {'generic_event', 'generic_text', 'feishu_lark_v2', 'wecom', 'dingtalk', 'slack', 'discord'}:
             return {'channel': channel, 'verification': verification, 'provider': provider}
+    if channel == 'openclaw' and verification == 'provider_accepted' and str(value.get('message_id') or '').strip():
+        return {'channel': channel, 'verification': verification, 'message_id': str(value['message_id'])}
     return None
 
 
@@ -101,6 +117,11 @@ def claim_delivery(rules, run_id, now, daily_limit):
         start = local_start.astimezone(timezone.utc).isoformat()
         count = conn.execute('SELECT count(*) FROM information_runs WHERE rule_id=? AND delivery_started_at>=?',
                              (row['id'], start)).fetchone()[0]
+        from ...storage.notification_extension_schema import ready as notification_ready
+        if notification_ready(conn):
+            count += conn.execute('''SELECT count(*) FROM information_preview_notifications n
+                JOIN information_previews p ON p.id=n.preview_id WHERE p.rule_id=? AND n.delivery_started_at>=?''',
+                (row['id'], start)).fetchone()[0]
         if count >= daily_limit:
             tomorrow = (local_start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
             conn.execute("UPDATE information_runs SET notification_status='quota_wait',reason='daily_notification_limit',ready_at=?,updated_at=? WHERE id=?",

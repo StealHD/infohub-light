@@ -112,12 +112,20 @@ def finish(conn, batch_id, result):
     conn.execute('UPDATE information_batches SET result_json=? WHERE id=?', (encoded, batch_id))
     evidence = [{**item, 'status': result['status'], 'reason': item['note']} for item in result['evidence']]
     if row['run_id']:
+        from .config import RuleConfig
+        config_row = conn.execute('SELECT config_json FROM information_rule_versions WHERE rule_id=(SELECT rule_id FROM information_runs WHERE id=?) AND version=(SELECT version FROM information_runs WHERE id=?)', (row['run_id'], row['run_id'])).fetchone()
+        send_notification = RuleConfig.model_validate_json(config_row[0]).notification_enabled if config_row else False
         conn.execute('UPDATE information_runs SET status=?,notification_status=?,evidence_json=?,reason=? WHERE id=?',
-                     (result['status'], 'pending' if result['status'] == 'matched' else 'not_required',
+                     (result['status'], 'pending' if result['status'] == 'matched' and send_notification else 'not_required',
                       json.dumps(evidence, ensure_ascii=False), result['reason'], row['run_id']))
     else:
         conn.execute("UPDATE information_previews SET status='completed',results_json=?,reason=? WHERE id=?",
                      (json.dumps(evidence, ensure_ascii=False), result['reason'], row['preview_id']))
+        from ...storage.notification_extension_schema import ready as notification_ready
+        if notification_ready(conn):
+            conn.execute("""UPDATE information_preview_notifications SET status=?,updated_at=datetime('now')
+                WHERE preview_id=? AND status='waiting_analysis'""",
+                ('pending' if result['status'] == 'matched' else 'not_required', row['preview_id']))
 
 
 def validate(value, step, originals):

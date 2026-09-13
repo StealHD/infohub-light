@@ -20,6 +20,7 @@ export type InformationModelCatalog = {
 }
 export type InformationRuleConfig = {
   schema_version: 2; name: string; source_ids: string[]; target_id: string | null
+  notification_enabled?: boolean
   requirement: string; trigger: InformationTrigger; model: InformationModel | null
 }
 export type InformationBatchResult = {
@@ -58,7 +59,7 @@ export type InformationRun = InformationBatch & {
   updated_at: string
 }
 export type InformationPage<T> = { items: T[]; has_more: boolean; next_offset: number | null }
-export type InformationTest = InformationBatch & { preview_id?: string; requires_review?: boolean; selection?: { id: string; title: string }[]; status?: 'pending' | 'judging' | 'completed' | 'failed' | 'quota_wait'; reason?: string | null; version: number; results: InformationEvidence[]; sends_notification: false; advances_cursor: false }
+export type InformationTest = InformationBatch & { preview_id?: string; requires_review?: boolean; selection?: { id: string; title: string }[]; status?: 'pending' | 'judging' | 'completed' | 'failed' | 'quota_wait'; reason?: string | null; version: number; results: InformationEvidence[]; sends_notification: boolean; notification_target_id?: string | null; notification_status?: InformationRun['notification_status'] | 'waiting_analysis'; notification_reason?: string | null; notification_receipt?: InformationRun['receipt']; advances_cursor: false }
 
 const base = '/api/me/information-automations'
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`
@@ -71,7 +72,7 @@ export const informationAutomationApi = (client: ApiClient) => ({
   updateInformationRule: (id: string, version: number, config: InformationRuleConfig) => client.put<InformationRule>(path(id), { version, config }),
   deleteInformationRule: (id: string, version: number) => client.delete<{ id: string; deleted: true }>(`${path(id)}?version=${version}`),
   transitionInformationRule: (id: string, version: number, action: 'enable' | 'pause' | 'archive' | 'restore') => client.post<InformationRule>(`${path(id)}/transition`, { version, action }),
-  testInformationRule: (id: string, version: number, article_ids: string[], request_id?: string) => client.post<InformationTest>(`${path(id)}/test`, { version, article_ids, request_id }),
+  testInformationRule: (id: string, version: number, article_ids: string[], request_id?: string, send_notification = false, notification_target_id?: string | null, custom_text?: string) => client.post<InformationTest>(`${path(id)}/test`, { version, article_ids, request_id, send_notification, ...(custom_text ? { custom_text } : {}), ...(send_notification && notification_target_id ? { notification_target_id } : {}) }),
   informationTestPreview: (id: string, previewId: string, signal?: AbortSignal) => client.get<InformationTest>(`${path(id)}/test/${encodeURIComponent(previewId)}`, signal),
   informationRuns: (id: string, offset = 0, signal?: AbortSignal) => client.get<InformationPage<InformationRun>>(`${path(id)}/runs?limit=50&offset=${offset}`, signal),
 })
