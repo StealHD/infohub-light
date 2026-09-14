@@ -48,6 +48,7 @@ data/subscribers.json
 data/mcp.secrets.json
 data/mcp-secrets.json
 data/mcp-runs/
+data/openclaw-relay/
 data/cache/
 data/media/
 data/site/
