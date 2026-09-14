@@ -48,6 +48,8 @@ For every changed asynchronous action:
 
 ### 9.5 Static enforcement boundary
 
+For the 2026-09-14 release baseline, preserve the current approved collapsed-rail logo and transparent scroll-through header, and the current responsive ActorOps v2 route-card spacing. The four desktop/tablet macOS snapshots for these two surfaces follow that existing UI; updating their acceptance images does not authorize reverting the layout or loosening the functional geometry assertions.
+
 The static contract rejects MUI/Emotion imports, production feature-level direct HeroUI imports, nested `DesignSystemProvider` mounts, raw business-page colors, page-level visual constants, business-owned copies of the approved PageFrame widths, and deleted preview technology. Interaction checks are added only when a narrow source rule has positive and negative fixtures and does not reject legitimate list keys, non-button state copy, or non-interactive refetch orchestration. Snapshot or expectation changes require an intentional contract change; they are not an automatic response to a failing visual test.
 
 - UI-LAYOUT-04 regression must include long unbroken Session identifiers inside a 360 px docked inspector and mobile Sheet in both themes. Assert control/value/arrow/panel rectangles separately; prove the full selected value remains readable through the keyboard/touch option overlay and focus returns on close. Also compare expanded Feed/OpenClaw sidebar widths, check the switcher remains within the rail, and open current/historical sessions from Skills with successful navigation, preserved drafts and failed-switch route rollback.
