@@ -14,9 +14,11 @@ REMOTE_RELEASE_STAGE=""
 LOCAL_RELEASE_IMAGE=""
 TAG_CREATED=false
 TAG_PUSHED=false
+MIGRATION_RECEIPT_PATH=""
+MIGRATION_BACKUP_PATH=""
 
 usage() {
-  echo "Usage: $0 release|release-fast <vX.Y.Z> | prepare-fast <vX.Y.Z> --gate-result PATH [--e2e-result PATH] | preflight <vX.Y.Z> | rollback [release-id] | status"
+  echo "Usage: $0 release <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | migrate-notification-destinations-v47 <vX.Y.Z> | release-fast <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | prepare-fast <vX.Y.Z> --gate-result PATH [--e2e-result PATH] [--migration-receipt REMOTE_ABSOLUTE_PATH] | preflight <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | rollback [release-id] | status"
 }
 
 fail() {
@@ -37,11 +39,11 @@ cleanup() {
   if [[ -n "$RELEASE_TMP_DIR" && -d "$RELEASE_TMP_DIR" ]]; then
     rm -rf "$RELEASE_TMP_DIR"
   fi
-  if [[ "$REMOTE_RELEASE_STAGE" =~ ^/tmp/inteliscope-release-[A-Za-z0-9._-]+$ ]]; then
+  if [[ "$REMOTE_RELEASE_STAGE" =~ ^/tmp/inteliscope-(release|migration)-[A-Za-z0-9._-]+$ ]]; then
     ssh -o ConnectTimeout=10 "$REMOTE_HOST" bash -s -- "$REMOTE_RELEASE_STAGE" <<'REMOTE' >/dev/null 2>&1 || true
 set -euo pipefail
 stage="$1"
-[[ "$stage" =~ ^/tmp/inteliscope-release-[A-Za-z0-9._-]+$ ]]
+[[ "$stage" =~ ^/tmp/inteliscope-(release|migration)-[A-Za-z0-9._-]+$ ]]
 rm -rf -- "$stage"
 REMOTE
   fi
@@ -94,7 +96,7 @@ release_base_ref() {
 }
 
 reject_implicit_migrations() {
-  local base_ref="$1" migration_files schema_delta
+  local base_ref="$1" receipt_path="${2:-}" migration_files schema_delta verified_backup
   migration_files="$(
     git -C "$ROOT_DIR" diff --name-only "$base_ref"...HEAD -- 'scripts/migrate_*.py'
   )"
@@ -103,8 +105,18 @@ reject_implicit_migrations() {
       | grep -E '^[+-].*(CREATE TABLE|ALTER TABLE|DROP TABLE|schema_migrations|PRAGMA user_version)' \
       || true
   )"
-  [[ -z "$migration_files" && -z "$schema_delta" ]] || fail \
-    "release contains a database migration; use the explicit migration workflow before normal cutover"
+  if [[ -z "$migration_files" && -z "$schema_delta" ]]; then
+    [[ -z "$receipt_path" ]] || fail "migration receipt supplied for a release without a migration"
+    return
+  fi
+  [[ "$migration_files" == "scripts/migrate_notification_destinations_v47.py" && -z "$schema_delta" ]] \
+    || fail "release contains an unsupported database migration; use its explicit migration workflow before normal cutover"
+  [[ -n "$receipt_path" ]] \
+    || fail "release contains v47; run migrate-notification-destinations-v47, then pass its verified receipt to release"
+  verified_backup="$(verify_notification_destinations_v47_receipt "$receipt_path" "$(git -C "$ROOT_DIR" rev-parse HEAD)")"
+  [[ "$verified_backup" == "$REMOTE_BASE/data/backups/"* ]] \
+    || fail "v47 migration receipt did not return a managed backup"
+  MIGRATION_BACKUP_PATH="$verified_backup"
 }
 
 remote_capacity_preflight() {
@@ -140,7 +152,7 @@ require_release_prerequisites() {
   require_commands
   require_release_identity
   base_ref="$(release_base_ref)"
-  reject_implicit_migrations "$base_ref"
+  reject_implicit_migrations "$base_ref" "$MIGRATION_RECEIPT_PATH"
   remote_capacity_preflight
 }
 
@@ -287,10 +299,11 @@ REMOTE
 
 deploy_remote_release() {
   local release_id="$1" image="$2" version="$3" revision="$4" built_at="$5" source_digest="$6"
+  local migration_receipt="$7" migration_backup="$8"
   local remote_stage="/tmp/inteliscope-release-$release_id"
   ssh "$REMOTE_HOST" bash -s -- \
     "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" "$source_digest" \
-    "$remote_stage" "$PUBLIC_URL" <<'REMOTE'
+    "$remote_stage" "$PUBLIC_URL" "$migration_receipt" "$migration_backup" <<'REMOTE'
 set -euo pipefail
 base="$1"
 release_id="$2"
@@ -301,6 +314,8 @@ built_at="$6"
 source_digest="$7"
 remote_stage="$8"
 public_url="$9"
+migration_receipt="${10}"
+migration_backup="${11}"
 release_dir="$base/releases/$release_id"
 backup_dir="$base/backups/$release_id"
 previous_release=""
@@ -311,6 +326,53 @@ previous_release=""
 previous_release="$(readlink -f "$base/current")"
 [[ -d "$previous_release" ]] || { echo "previous release is unavailable: $previous_release" >&2; exit 1; }
 [[ ! -e "$release_dir" ]] || { echo "release already exists: $release_dir" >&2; exit 1; }
+if [[ -n "$migration_receipt" || -n "$migration_backup" ]]; then
+  [[ -n "$migration_receipt" && -n "$migration_backup" ]] \
+    || { echo "incomplete migration cutover evidence" >&2; exit 1; }
+  ! grep -q '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$base/.env" \
+    || { echo "stale migration rollback setting must be resolved before v47 cutover" >&2; exit 1; }
+  python3 - "$base" "$migration_receipt" "$migration_backup" <<'PY'
+import json
+import os
+import sqlite3
+import stat
+import sys
+from pathlib import Path
+
+base = Path(sys.argv[1])
+receipt_path = Path(sys.argv[2])
+expected_backup = Path(sys.argv[3])
+backup_dir = base / 'data' / 'backups'
+database = base / 'data' / 'service.db'
+
+def private_regular(path: Path) -> None:
+    metadata = os.lstat(path)
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise ValueError(f'unsafe private file: {path}')
+
+if receipt_path.parent != backup_dir or expected_backup.parent != backup_dir:
+    raise ValueError('migration evidence escapes the managed backup directory')
+private_regular(receipt_path)
+private_regular(expected_backup)
+with receipt_path.open(encoding='utf-8') as handle:
+    receipt = json.load(handle)
+if receipt.get('backup') != {'path': str(expected_backup), 'mode': '0o600'}:
+    raise ValueError('migration receipt backup changed before cutover')
+connection = sqlite3.connect(f'file:{database}?mode=ro', uri=True, timeout=30)
+try:
+    if connection.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+        raise ValueError('production database integrity check failed before cutover')
+    if connection.execute('PRAGMA foreign_key_check').fetchall():
+        raise ValueError('production database foreign keys are invalid before cutover')
+    marker = connection.execute(
+        'SELECT name, checksum FROM schema_migrations WHERE version=47'
+    ).fetchone()
+    if marker != ('notification_destinations', 'notification-destinations-v1'):
+        raise ValueError('v47 marker changed before cutover')
+finally:
+    connection.close()
+PY
+fi
 if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; then
   echo "legacy scheduler must remain stopped during Service releases" >&2
   exit 1
@@ -374,27 +436,31 @@ wait_runtime() {
 }
 
 rollback_cutover() {
-  local status=$? migration_backup=""
+  local status=$? legacy_migration_backup=""
   trap - ERR INT TERM
   echo "cutover failed; restoring $previous_release" >&2
   install -m 600 "$backup_dir/env.before" "$base/.env" || {
     echo "rollback failed; canonical environment could not be restored" >&2
     exit 1
   }
-  migration_backup="$(
-    grep '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$backup_dir/env.before" \
-      | tail -n 1 | cut -d= -f2- || true
-  )"
+  if [[ -z "$migration_backup" ]]; then
+    legacy_migration_backup="$(
+      grep '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$backup_dir/env.before" \
+        | tail -n 1 | cut -d= -f2- || true
+    )"
+  fi
   docker stop --time 20 horizon-light-worker horizon-light-api >/dev/null 2>&1 || true
-  if [[ -n "$migration_backup" ]]; then
-    [[ "$migration_backup" == "$base/data/backups/"* \
-      && -f "$migration_backup" && ! -L "$migration_backup" \
-      && "$(stat -c '%a' "$migration_backup")" == "600" ]] || {
-      echo "rollback database backup is invalid: $migration_backup" >&2
+  if [[ -n "$legacy_migration_backup" ]]; then
+    [[ "$legacy_migration_backup" == "$base/data/backups/"* \
+      && -f "$legacy_migration_backup" && ! -L "$legacy_migration_backup" \
+      && "$(stat -c '%a' "$legacy_migration_backup")" == "600" ]] || {
+      echo "rollback database backup is invalid: $legacy_migration_backup" >&2
       exit 1
     }
-    install -m 600 "$migration_backup" "$base/data/service.db"
+    install -m 600 "$legacy_migration_backup" "$base/data/service.db"
     validate_database
+  elif [[ -n "$migration_backup" ]]; then
+    echo "keeping the additive v47 database and all writes made after migration" >&2
   fi
   cd "$previous_release"
   if ! docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
@@ -526,7 +592,8 @@ release() {
   git -C "$ROOT_DIR" push origin "refs/tags/$RELEASE_TAG"
   TAG_PUSHED=true
   wait_for_workflow_success release-tag.yml "$revision_full" "$RELEASE_TAG"
-  deploy_remote_release "$release_id" "$image" "$version" "$revision_short" "$built_at" "git:$revision_full"
+  deploy_remote_release "$release_id" "$image" "$version" "$revision_short" "$built_at" "git:$revision_full" \
+    "$MIGRATION_RECEIPT_PATH" "$MIGRATION_BACKUP_PATH"
   REMOTE_RELEASE_STAGE=""
   echo "Release complete: $RELEASE_TAG ($release_id)"
 }
@@ -626,6 +693,7 @@ if [[ -L "$base/current" ]]; then readlink "$base/current"; fi
 REMOTE
 }
 
+source "$ROOT_DIR/scripts/release_v47.sh"
 command="${1:-}"
 case "$command" in
   prepare-fast)
@@ -635,18 +703,58 @@ case "$command" in
     prepare_fast "$@"
     ;;
   release-fast)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
+    [[ $# -ge 2 ]] || { usage; exit 2; }
     RELEASE_TAG="$2"
+    shift 2
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --migration-receipt)
+          [[ $# -ge 2 && -z "$MIGRATION_RECEIPT_PATH" ]] || { usage; exit 2; }
+          MIGRATION_RECEIPT_PATH="$2"
+          shift 2
+          ;;
+        *) usage; exit 2 ;;
+      esac
+    done
     release_fast
     ;;
   release)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
+    [[ $# -ge 2 ]] || { usage; exit 2; }
     RELEASE_TAG="$2"
+    shift 2
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --migration-receipt)
+          [[ $# -ge 2 && -z "$MIGRATION_RECEIPT_PATH" ]] \
+            || { usage; exit 2; }
+          MIGRATION_RECEIPT_PATH="$2"
+          shift 2
+          ;;
+        *) usage; exit 2 ;;
+      esac
+    done
     release
     ;;
-  preflight)
+  migrate-notification-destinations-v47)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     RELEASE_TAG="$2"
+    migrate_notification_destinations_v47
+    ;;
+  preflight)
+    [[ $# -ge 2 ]] || { usage; exit 2; }
+    RELEASE_TAG="$2"
+    shift 2
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --migration-receipt)
+          [[ $# -ge 2 && -z "$MIGRATION_RECEIPT_PATH" ]] \
+            || { usage; exit 2; }
+          MIGRATION_RECEIPT_PATH="$2"
+          shift 2
+          ;;
+        *) usage; exit 2 ;;
+      esac
+    done
     run_quick_preflight
     ;;
   rollback)

@@ -74,7 +74,7 @@ def baseline(host: str) -> str:
 
 
 def seal(root: Path, directory: Path, release_id: str, image: str, built_at: str,
-         host: str, runtime: str, public_url: str) -> dict:
+         host: str, runtime: str, public_url: str, migration_receipt: str) -> dict:
     check_directory(root, directory)
     metadata = json.loads(docker("image", "inspect", image))[0]
     report = json.loads((directory / "smoke.json").read_text())
@@ -91,13 +91,15 @@ def seal(root: Path, directory: Path, release_id: str, image: str, built_at: str
                     baseline=evidence["baseline"], inputs=evidence["inputs"],
                     image=image, image_id=metadata["Id"], release_id=release_id, built_at=built_at,
                     host=host, runtime=runtime, public_url=public_url,
+                    migration_receipt=migration_receipt,
                     hashes={name: file_hash(directory / name) for name in
                             ("source.tar.gz", "image.tar.gz", "evidence.json", "smoke.json")})
     write(directory / "manifest.json", manifest)
     return manifest
 
 
-def verify(root: Path, directory: Path, host: str, runtime: str, public_url: str) -> dict:
+def verify(root: Path, directory: Path, host: str, runtime: str, public_url: str,
+           migration_receipt: str) -> dict:
     check_directory(root, directory)
     file_hash(directory / "manifest.json")
     manifest = json.loads((directory / "manifest.json").read_text())
@@ -105,7 +107,8 @@ def verify(root: Path, directory: Path, host: str, runtime: str, public_url: str
     if (manifest.get("schema") != 1 or manifest.get("mode") != "fast"
             or manifest.get("revision") != revision or manifest.get("version") != version(root)
             or manifest.get("inputs") != inputs(root)
-            or (manifest.get("host"), manifest.get("runtime"), manifest.get("public_url")) != (host, runtime, public_url)):
+            or (manifest.get("host"), manifest.get("runtime"), manifest.get("public_url")) != (host, runtime, public_url)
+            or manifest.get("migration_receipt") != migration_receipt):
         raise GateConfigError("prepared release identity changed; run prepare-fast again")
     if not re.fullmatch(r"[0-9A-Za-z._-]+", manifest["release_id"]):
         raise GateConfigError("invalid prepared release id")
@@ -132,6 +135,7 @@ def main() -> int:
     parser.add_argument("--host", default="vps-tokyo")
     parser.add_argument("--runtime", default="/opt/inteliscope")
     parser.add_argument("--public-url", default="https://rb.jiefs.top")
+    parser.add_argument("--migration-receipt", default="")
     parser.add_argument("--image")
     parser.add_argument("--release-id")
     parser.add_argument("--built-at")
@@ -149,9 +153,10 @@ def main() -> int:
             write(args.directory / "smoke.json", smoke(ROOT, args.image))
         elif args.action == "seal":
             seal(ROOT, args.directory, args.release_id, args.image, args.built_at,
-                 args.host, args.runtime, args.public_url)
+                 args.host, args.runtime, args.public_url, args.migration_receipt)
         else:
-            data = verify(ROOT, args.directory, args.host, args.runtime, args.public_url)
+            data = verify(ROOT, args.directory, args.host, args.runtime, args.public_url,
+                          args.migration_receipt)
             print(data["release_id"], data["image"], data["version"], data["built_at"])
         return 0
     except (OSError, ValueError, KeyError, TypeError, GateConfigError, subprocess.SubprocessError) as exc:

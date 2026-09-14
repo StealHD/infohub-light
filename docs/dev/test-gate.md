@@ -33,6 +33,8 @@ python scripts/test_gate.py preflight --snapshot /tmp/infohub-task-impact.json
 
 ## 显式快速发布
 
+含显式 v47 迁移的快速发布须先完成本地 Gate、推送并等待精确 main SHA 的轻量绿灯，再执行 `migrate-notification-destinations-v47`。`prepare-fast` 与 `release-fast` 均须以 `--migration-receipt` 指向同一份已验证的生产库迁移回执；不把测试库数据导入生产。
+
 标准 `release` 保持完整门禁和 Tag smoke。最终 main 提交末尾只有一个 `Release-Mode: fast` trailer 时，main 仅运行公共 control、版本一致性和改动脚本语法检查；缺省或 `standard` 走标准路径，重复、位置错误或未知值报错。PR 保持选测，手动 workflow dispatch 执行完整代码与 E2E；自动轻量绿灯不能充当完整验证基线，后续标准 Gate 累计期间全部 fast 改动。标准、快速入口均核验模式，不自动切换或改写已推送历史。
 
 先确定版本与最终代码，在本地 Gate 中取得通过结果，再从干净本地 main 运行 `prepare-fast vX.Y.Z --gate-result PATH [--e2e-result PATH]`。允许准备时尚未推送。Gate 结果包含版本化输入指纹、命令范围和 Python/Node/系统环境；准备阶段按实际运行的 API/Worker 一致 revision 计算完整待发布差异，逐项核对覆盖。局部分支结果、失败、输入变化、环境变化、旧格式和缺少必要 E2E 均拒绝；未知生产基线要求完整代码及完整 E2E。普通 UI 按映射选测，全局/未知影响扩大，不增加 ARM/AMD64 双平台全套测试。只有非可执行的普通 Markdown 变化可复用业务结果，准备阶段重新执行轻量校验；版本及锁文件变化仍须最终代码验证。

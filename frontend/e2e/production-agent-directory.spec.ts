@@ -113,6 +113,7 @@ test('session X confirms deletion and refreshes the sidebar and history', async 
   if (['mobile', 'compact-desktop'].includes(testInfo.project.name)) await page.getByRole('button', { name: '打开 OpenClaw 会话' }).click()
   const sidebar = page.locator('[data-agent-workspace-sidebar]')
   const remove = sidebar.getByRole('button', { name: '删除会话：历史记录 000', exact: true })
+  await sidebar.locator('[data-agent-session-row]').filter({ hasText: '历史记录 000' }).hover()
   await remove.hover()
   await expect(page.getByText('删除会话', { exact: true })).toBeVisible()
   await remove.click()

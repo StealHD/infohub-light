@@ -20,7 +20,8 @@ from src.api.system_auth import api_context, current_user
 from src.api.responses import ApiError, error_response
 from src.services.information_automations.connector_runner import InformationConnector
 from src.services.information_automations.connector_auth import authenticate
-from src.services.information_automations.model_catalog import Capabilities, sync_catalog
+from src.services.information_automations.model_catalog import Capabilities, catalog, sync_catalog
+from src.services.information_automations import direct_model_catalog
 
 
 def serve(root):
@@ -33,9 +34,19 @@ def serve(root):
     machine=authenticate(store,store.test_machine_token)
     models=[{'id':'test/model','name':'Test','thinking_levels':[]}]
     sync_catalog(store,machine,Capabilities(protocol_version=2,execution_mode='previews_only',models=models))
+    refreshes=[]
+
+    def refresh_models(*_args):
+        refreshes.append(True)
+        sync_catalog(store,machine,Capabilities(protocol_version=2,models=models),runtime_verified=False)
+        return catalog(store,machine['binding_id'])
+
+    patch.setattr(direct_model_catalog,'refresh',refresh_models)
     app=FastAPI()
     app.add_exception_handler(ApiError,lambda _,exc:error_response(exc))
-    app.dependency_overrides[api_context]=lambda:SimpleNamespace(store=store,notification_targets=rules.targets)
+    app.dependency_overrides[api_context]=lambda:SimpleNamespace(
+        store=store,notification_targets=rules.targets,secret_values=None,
+        openclaw_chat_settings=None,data_path=root)
     app.dependency_overrides[current_user]=lambda:user
     register_information_automation_routes(app)
     sock=socket.socket();sock.bind(('127.0.0.1',0));sock.listen(128)
@@ -46,7 +57,7 @@ def serve(root):
 
     @app.get('/__fixture')
     async def info():
-        return {'rule':rule,'source':config.source_ids[0],'calls':len(calls)}
+        return {'rule':rule,'source':config.source_ids[0],'calls':len(calls),'refreshes':len(refreshes)}
 
     @app.post('/__cycle')
     async def cycle():

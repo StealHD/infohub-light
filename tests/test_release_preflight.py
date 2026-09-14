@@ -58,12 +58,17 @@ if command == "git":
         sys.exit(0 if failure == "remote_tag" else 2)
     elif args[0] == "describe":
         print("v0.0.1")
-    elif args[:2] == ["diff", "--name-only"] and failure == "migration":
-        print("scripts/migrate_fixture.py")
+    elif args[:2] == ["diff", "--name-only"] and failure in {"migration", "receipt"}:
+        print("scripts/migrate_notification_destinations_v47.py")
     elif args[:2] == ["diff", "-U0"] and failure == "schema":
         print("+CREATE TABLE fixture")
 elif command == "ssh":
-    sys.stdin.read()
+    payload = sys.stdin.read()
+    if "notification_destinations_v47_release_receipt_v1" in payload:
+        if failure == "receipt":
+            sys.exit(1)
+        print("/opt/inteliscope/data/backups/service-notification-destinations-v47.db")
+        sys.exit(0)
     if args[:1] != ["-o"]:
         record("capacity")
         sys.exit(1 if failure == "capacity" else 0)
@@ -83,6 +88,10 @@ build_package_and_upload() {
   [[ "$FAKE_FAILURE" != artifact ]]
 }
 deploy_remote_release() {
+  [[ $# -eq 8 ]] || return 1
+  if [[ -n "$7" ]]; then
+    printf 'cutover_receipt %s %s\\n' "$7" "$8" >> "$FAKE_EVENT_LOG"
+  fi
   printf 'cutover\\n' >> "$FAKE_EVENT_LOG"
 }
 '''
@@ -117,6 +126,7 @@ def run_release_command(tmp_path):
     scripts = fixture_root / "scripts"
     scripts.mkdir(parents=True)
     (scripts / "release_fast.sh").write_text((ROOT / "scripts/release_fast.sh").read_text())
+    (scripts / "release_v47.sh").write_text((ROOT / "scripts/release_v47.sh").read_text())
     (fixture_root / "pyproject.toml").write_text(
         '[project]\nversion = "99.99.99"\n', encoding="utf-8"
     )
@@ -178,6 +188,27 @@ def test_release_reuses_exact_main_ci_without_running_local_code_tests(run_relea
     assert events.index(tag) < events.index(tag_ci) < events.index("cutover")
 
 
+def test_release_accepts_only_a_verified_v47_migration_receipt(run_release_command):
+    receipt = "/opt/inteliscope/data/backups/migration-notification-destinations-v47.json"
+    result, events = run_release_command(
+        "release", failure="migration", extra=("--migration-receipt", receipt),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "cutover" in events
+
+
+def test_release_blocks_an_unverifiable_v47_migration_receipt(run_release_command):
+    receipt = "/opt/inteliscope/data/backups/migration-notification-destinations-v47.json"
+    result, events = run_release_command(
+        "release", failure="receipt", extra=("--migration-receipt", receipt),
+    )
+
+    assert result.returncode != 0
+    assert not any(event.startswith(("artifact ", "gh ", "git tag -a", "git push")) for event in events)
+    assert "cutover" not in events
+
+
 @pytest.mark.parametrize("failure", ["", "test_gate"])
 def test_explicit_preflight_runs_local_tests_without_tagging_or_cutover(run_release_command, failure):
     result, events = run_release_command("preflight", failure=failure)
@@ -230,6 +261,37 @@ def test_fast_publication_never_builds_or_runs_tests(run_release_command):
     assert "fast smoke" not in events and "fast evidence" not in events
     assert events.index("fast verify") < events.index("upload") < events.index("cutover")
     assert any("Release-Mode: fast" in e for e in events if e.startswith("git tag"))
+
+
+def test_fast_publication_requires_verified_v47_receipt(run_release_command):
+    receipt = "/opt/inteliscope/data/backups/migration-notification-destinations-v47-" + REVISION + ".json"
+    result, events = run_release_command("release-fast", failure="migration")
+    assert result.returncode != 0
+    assert "cutover" not in events and not any(e.startswith("git tag -a") for e in events)
+
+    result, events = run_release_command(
+        "release-fast", failure="migration", extra=("--migration-receipt", receipt)
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "cutover" in events
+    assert any(event.startswith("cutover_receipt " + receipt + " ") for event in events)
+
+
+def test_fast_preparation_requires_verified_v47_receipt(run_release_command):
+    receipt = "/opt/inteliscope/data/backups/migration-notification-destinations-v47-" + REVISION + ".json"
+    result, events = run_release_command(
+        "prepare-fast", failure="migration", extra=("--gate-result", "/tmp/example-result.json")
+    )
+    assert result.returncode != 0
+    assert "build" not in events
+
+    result, events = run_release_command(
+        "prepare-fast", failure="migration", extra=(
+            "--gate-result", "/tmp/example-result.json", "--migration-receipt", receipt,
+        ),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "build" in events
 
 
 @pytest.mark.parametrize("failure", ["verify", "main_ci", "tag_ci", "mode"])

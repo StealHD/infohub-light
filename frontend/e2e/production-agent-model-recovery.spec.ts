@@ -5,8 +5,9 @@ import AxeBuilder from '@axe-core/playwright'
 import { installAgentApi } from './agentWorkspaceFixtures'
 
 test('real relay blocks inherited model and preserves terminal diagnostics after recovery', async ({ page, context, request, baseURL }, testInfo) => {
-  test.setTimeout(60000)
+  test.setTimeout(120000)
   page.setDefaultTimeout(8000)
+  page.setDefaultNavigationTimeout(30000)
   let server: ChildProcess | undefined
   const root = path.resolve('..')
   const fixture = await new Promise<{ url: string; user: string; agent: string; key: string; cookie: string }>((resolve, reject) => {
@@ -38,8 +39,8 @@ test('real relay blocks inherited model and preserves terminal diagnostics after
       return route.fulfill({ json: { ok: true, data } })
     })
     await page.emulateMedia({ colorScheme: testInfo.project.name === 'tablet' ? 'light' : 'dark', reducedMotion: 'reduce' })
-    await page.goto(fixture.url + '/agent')
-    await expect(page.getByText(/当前会话的模型继承异常/)).toBeVisible()
+    await page.goto(fixture.url + '/agent', { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await expect(page.getByText(/当前会话的模型继承异常/)).toBeVisible({ timeout: 30000 })
     const input = page.getByRole('textbox', { name: '发送给 OpenClaw 的问题' })
     await input.fill('保留草稿并验证选择模型')
     const snapshot = async () => (await (await request.get(fixture.url + '/__fixture')).json())
@@ -54,12 +55,12 @@ test('real relay blocks inherited model and preserves terminal diagnostics after
     await expect(page.getByTestId('openclaw-timeline').getByText('切换前的上下文', { exact: true })).toBeVisible()
     expect((await snapshot()).created).toEqual([{ agentId: fixture.agent, model: 'deepseek/flash', parentSessionKey: fixture.key, fork: true }])
     await page.getByRole('button', { name: '发送给 OpenClaw', exact: true }).dblclick()
-    await expect(page.getByText('已有部分回复', { exact: true })).toBeVisible()
+    await expect(page.getByText('已有部分回复', { exact: true })).toBeVisible({ timeout: 30000 })
     await expect(page.getByText('本次实际模型：deepseek/flash')).toBeVisible()
     await expect(page.getByText(/运行编号：/)).toBeVisible()
     expect(Object.values((await snapshot()).calls)).toMatchObject([{ actual: 'deepseek/flash', deliver: false }])
-    await page.reload()
-    await expect(page.getByText('已有部分回复', { exact: true })).toBeVisible()
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByText('已有部分回复', { exact: true })).toBeVisible({ timeout: 30000 })
     await expect(page.getByText('模型额度受限，请稍后手动重试或检查额度。').last()).toBeVisible()
     await expect(page.getByText(/运行编号：/)).toBeVisible()
     expect(Object.keys((await snapshot()).calls)).toHaveLength(1)

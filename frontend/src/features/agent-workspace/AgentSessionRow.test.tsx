@@ -23,6 +23,9 @@ it('uses a reserved X delete control instead of a details menu and does not open
 it('keeps an unavailable delete target disabled with its specific reason', () => {
   render(<MemoryRouter><DesignSystemProvider><AgentSessionRow workspace={workspace} session={session} current disabled={false} onOpen={vi.fn()} /></DesignSystemProvider></MemoryRouter>)
   const unavailable = screen.getByLabelText('无法删除会话：请先切换后删除')
+  expect(unavailable).toHaveAttribute('role', 'button')
+  expect(unavailable).toHaveAttribute('aria-disabled', 'true')
   expect(unavailable).toHaveAttribute('tabindex', '0')
   expect(unavailable.querySelector('button')).toBeDisabled()
+  expect(unavailable.querySelector('button')).toHaveAccessibleName('删除会话不可用：请先切换后删除')
 })

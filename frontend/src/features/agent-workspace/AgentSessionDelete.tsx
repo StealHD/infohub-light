@@ -22,8 +22,8 @@ export function AgentSessionDelete({ session, current, workspace, disabled }: {
   const buttonClassName = 'size-8 shrink-0 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100'
   return <>
     {reason
-      ? <Tooltip delay={250}><Tooltip.Trigger<'span'> aria-label={`无法删除会话：${reason}`} render={(triggerProps) => <span {...triggerProps} tabIndex={0} className={`${buttonClassName} inline-flex`}>
-        <Button aria-hidden="true" size="sm" variant="ghost" isIconOnly isDisabled className="pointer-events-none size-8"><Icons.X size={15} aria-hidden="true" /></Button>
+      ? <Tooltip delay={250}><Tooltip.Trigger<'span'> aria-label={`无法删除会话：${reason}`} render={(triggerProps) => <span {...triggerProps} role="button" aria-disabled="true" tabIndex={0} className={`${buttonClassName} inline-flex`}>
+        <Button aria-label={`删除会话不可用：${reason}`} size="sm" variant="ghost" isIconOnly isDisabled className="pointer-events-none size-8"><Icons.X size={15} aria-hidden="true" /></Button>
       </span>} /><Tooltip.Content {...topAnchoredTooltipProps}>{reason}</Tooltip.Content></Tooltip>
       : <Tooltip delay={250}><TooltipTriggerButton aria-label={`删除会话：${openClawSessionTitle(session)}`} className={buttonClassName}
         onClick={(event) => { event.stopPropagation(); setError(''); setOpen(true) }}><Icons.X size={15} aria-hidden="true" /></TooltipTriggerButton>

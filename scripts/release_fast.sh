@@ -11,7 +11,8 @@ fast_directory() {
 
 verify_fast_package() {
   fast_helper verify --directory "$(fast_directory)" --host "$REMOTE_HOST" \
-    --runtime "$REMOTE_BASE" --public-url "$PUBLIC_URL"
+    --runtime "$REMOTE_BASE" --public-url "$PUBLIC_URL" \
+    --migration-receipt "$MIGRATION_RECEIPT_PATH"
 }
 
 prepare_fast() {
@@ -23,6 +24,7 @@ prepare_fast() {
     case "$1" in
       --gate-result) [[ $# -ge 2 ]] || fail "--gate-result requires PATH"; gate_result="$2"; shift 2 ;;
       --e2e-result) [[ $# -ge 2 ]] || fail "--e2e-result requires PATH"; e2e_result="$2"; shift 2 ;;
+      --migration-receipt) [[ $# -ge 2 && -z "$MIGRATION_RECEIPT_PATH" ]] || fail "--migration-receipt requires one PATH"; MIGRATION_RECEIPT_PATH="$2"; shift 2 ;;
       *) fail "unknown prepare-fast argument: $1" ;;
     esac
   done
@@ -37,10 +39,10 @@ prepare_fast() {
   [[ "$RELEASE_TAG" == "v$version" ]] || fail "tag and project version disagree"
   [[ "$PLATFORM" == linux/amd64 ]] || fail "fast release requires linux/amd64"
   baseline="$(fast_helper baseline --host "$REMOTE_HOST")"
-  reject_implicit_migrations "$(release_base_ref)"
+  reject_implicit_migrations "$(release_base_ref)" "$MIGRATION_RECEIPT_PATH"
   compare_base="HEAD^"
   if [[ "$baseline" != unknown* ]]; then
-    reject_implicit_migrations "$baseline"
+    reject_implicit_migrations "$baseline" "$MIGRATION_RECEIPT_PATH"
     compare_base="$baseline"
   fi
   gate_args=(--gate-result "$gate_result" --baseline "$baseline")
@@ -70,7 +72,8 @@ prepare_fast() {
   require_frozen_release_source "$revision"
   [[ "$(fast_helper baseline --host "$REMOTE_HOST")" == "$baseline" ]] || fail "production baseline changed during prepare"
   fast_helper seal --directory "$directory" --release-id "$release_id" --image "$image" \
-    --built-at "$built_at" --host "$REMOTE_HOST" --runtime "$REMOTE_BASE" --public-url "$PUBLIC_URL"
+    --built-at "$built_at" --host "$REMOTE_HOST" --runtime "$REMOTE_BASE" \
+    --public-url "$PUBLIC_URL" --migration-receipt "$MIGRATION_RECEIPT_PATH"
   RELEASE_TMP_DIR=""
   LOCAL_RELEASE_IMAGE=""
   echo "Fast preparation complete in $((SECONDS - started))s: $directory"
@@ -101,7 +104,8 @@ release_fast() {
   [[ "$(fast_helper baseline --host "$REMOTE_HOST")" == "$(
     "$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.argv[1]))["baseline"] or "unknown")' "$directory/manifest.json"
   )" ]] || fail "production baseline changed before cutover"
-  deploy_remote_release "$release_id" "$image" "$version" "${revision:0:12}" "$built_at" "git:$revision"
+  deploy_remote_release "$release_id" "$image" "$version" "${revision:0:12}" "$built_at" "git:$revision" \
+    "$MIGRATION_RECEIPT_PATH" "$MIGRATION_BACKUP_PATH"
   REMOTE_RELEASE_STAGE=""
   echo "Fast release complete in $((SECONDS - started))s: $RELEASE_TAG ($release_id)"
 }

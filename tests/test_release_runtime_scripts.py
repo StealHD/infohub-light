@@ -47,7 +47,10 @@ def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
     assert 'install -m 600 "$backup_dir/env.before" "$base/.env" || true' not in script
     assert 'wait_runtime "$previous_release" "$public_url"' in script
     assert "INTELISCOPE_PRE_MIGRATION_BACKUP" in script
-    assert script.index('install -m 600 "$migration_backup" "$base/data/service.db"') < script.index(
+    assert 'source "$ROOT_DIR/scripts/release_v47.sh"' in script
+    assert 'keeping the additive v47 database and all writes made after migration' in script
+    assert 'set_env INTELISCOPE_PRE_MIGRATION_BACKUP "$migration_backup"' not in script
+    assert script.index('install -m 600 "$legacy_migration_backup" "$base/data/service.db"') < script.index(
         'cd "$previous_release"'
     )
     assert 'docker image rm "$LOCAL_RELEASE_IMAGE"' in script
@@ -58,7 +61,7 @@ def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
     assert "docker system df" in script
     assert "-name 'inteliscope-release-*'" in script
     assert 'REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"' in script
-    assert '[[ "$stage" =~ ^/tmp/inteliscope-release-[A-Za-z0-9._-]+$ ]]' in script
+    assert '[[ "$stage" =~ ^/tmp/inteliscope-(release|migration)-[A-Za-z0-9._-]+$ ]]' in script
     assert 'rm -rf -- "$stage"' in script
     package = script.split("build_package_and_upload() {", 1)[1].split("deploy_remote_release() {", 1)[0]
     assert package.count('require_frozen_release_source "$revision_full"') == 2

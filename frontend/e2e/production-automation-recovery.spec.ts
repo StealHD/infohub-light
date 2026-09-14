@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { installAgentApi } from './agentWorkspaceFixtures'
 
-test('real Service preview completes once and model refresh waits for connector receipt', async ({ page, request }, testInfo) => {
+test('real Service preview completes once and model refresh reads the catalog directly', async ({ page, request }, testInfo) => {
   test.setTimeout(60000)
   page.setDefaultTimeout(8000)
   const root = path.resolve('..')
@@ -52,24 +52,17 @@ test('real Service preview completes once and model refresh waits for connector 
     await page.getByRole('tab', { name: '测试', exact: true }).click()
     await expect(page.getByText('测试已完成', { exact: true }).last()).toBeVisible()
     await page.getByRole('button', { name: '编辑', exact: true }).click()
-    const selection = page.getByRole('button', { name: /分析模型/ })
+    const selection = page.getByRole('button', { name: /Test 选择模型/ })
     await request.post(url + '/__add-model')
     await page.getByRole('button', { name: '刷新模型目录' }).click()
-    await expect(page.getByText('正在等待执行器同步模型目录…')).toBeVisible()
-    await selection.click()
-    await expect(page.getByRole('option', { name: 'New model' })).toHaveCount(0)
-    await page.keyboard.press('Escape')
-    await request.post(url + '/__cycle')
-    await expect(page.getByText('模型目录已刷新。')).toBeVisible()
     await selection.click()
     await expect(page.getByRole('option', { name: 'New model' })).toBeVisible()
     await page.keyboard.press('Escape')
     expect((await (await request.get(url + '/__fixture')).json()).calls).toBe(1)
     await expect(selection).toContainText('Test')
     await page.getByRole('button', { name: '刷新模型目录' }).click()
-    await expect(page.getByText('正在等待执行器同步模型目录…')).toBeVisible()
-    await request.post(url + '/__cycle')
-    await expect(page.getByText('已刷新，无变化。')).toBeVisible()
+    await expect.poll(async () => (await (await request.get(url + '/__fixture')).json()).refreshes).toBe(2)
+    expect((await (await request.get(url + '/__fixture')).json()).calls).toBe(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     const axe = await new AxeBuilder({ page }).analyze()
     expect(axe.violations.filter((item) => ['serious', 'critical'].includes(item.impact || ''))).toEqual([])

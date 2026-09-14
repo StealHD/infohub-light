@@ -34,17 +34,23 @@ def prepared(tmp_path, monkeypatch):
     monkeypatch.setattr(fast, "docker", lambda *args: json.dumps([metadata]))
     monkeypatch.setattr(fast, "baseline", lambda host: revision)
     fast.seal(tmp_path, directory, "1.2.3-test", "inteliscope-service:1.2.3-test",
-              "2026-09-12T00:00:00Z", "vps", "/opt/app", "https://example.invalid")
+              "2026-09-12T00:00:00Z", "vps", "/opt/app", "https://example.invalid", "")
     return tmp_path, directory, metadata
 
 
-def verify(prepared):
+def verify(prepared, migration_receipt=""):
     root, directory, _ = prepared
-    return fast.verify(root, directory, "vps", "/opt/app", "https://example.invalid")
+    return fast.verify(root, directory, "vps", "/opt/app", "https://example.invalid",
+                       migration_receipt)
 
 
 def test_same_artifacts_are_reusable_without_test_or_build(prepared):
     assert verify(prepared)["mode"] == "fast"
+
+
+def test_migration_receipt_must_match_prepared_manifest(prepared):
+    with pytest.raises(GateConfigError, match="identity changed"):
+        verify(prepared, "/opt/app/data/backups/other.json")
 
 
 def test_symlink_directory_is_rejected(prepared):
