@@ -40,7 +40,7 @@ python scripts/test_gate.py preflight --snapshot /tmp/infohub-task-impact.json
 ./scripts/release_vps.sh release vX.Y.Z
 ```
 
-发布只执行：核对干净的本地 main、origin/main 和版本 → 复用同 SHA 镜像或本地构建一次 linux/amd64 镜像 → 核对 API/Worker 入口与产物身份 → 上传 → 先检查活跃任务；仅空队列才停 API/Worker、复核并备份现有生产库 → 切换 → 版本/健康/React 静态资源检查 → 创建并推送 Tag。失败切换仍自动恢复旧程序。VPS 不编译项目；原有生产数据、运行配置和显式迁移边界沿用运行合同。
+发布只执行：核对干净的本地 main、origin/main 和版本 → 复用同 SHA 镜像或本地构建一次 linux/amd64 镜像 → 核对 API/Worker 入口与产物身份 → 上传 → 停 API/Worker、保留其持久化的排队/运行任务并备份现有生产库 → 切换 → 版本/健康/React 静态资源检查 → 创建并推送 Tag。新 Worker 按原有租约/重试处理任务；只有显式数据库迁移才要求空队列。失败切换仍自动恢复旧程序。VPS 不编译项目；原有生产数据、运行配置和显式迁移边界沿用运行合同。
 
 发布及准备阶段不运行 UI 合同检查、视觉快照、Axe、Playwright、Vitest、完整 Pytest、本地 preflight 或隔离 Docker smoke；不收集/核对测试回执，不等待 main CI 或 Tag CI。Tag workflow 只异步核对版本与 main 归属。用户要求发布已有代码时，直接走上述路径，不因 UI 审查补改产品界面。开发阶段已知问题按当前授权范围处理，不以发布任务为由扩大 UI 修改。
 

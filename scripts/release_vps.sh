@@ -326,25 +326,23 @@ if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; th
 fi
 
 validate_database() {
-  python3 - "$base/data/service.db" "${1:-jobs}" <<'PY'
+  python3 - "$base/data/service.db" "${1:-basic}" <<'PY'
 import sqlite3
 import sys
 
 connection = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True, timeout=30)
 try:
-    # Ordinary code cutover needs queue safety, not a repeated whole-database audit.
+    # Ordinary releases preserve durable queued/running jobs.  Only explicit
+    # migration rollback asks for a complete database audit.
     full = sys.argv[2] == "full"
     integrity = connection.execute("PRAGMA integrity_check").fetchone()[0] if full else "ok"
     foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall() if full else []
-    active_jobs = connection.execute(
-        "SELECT COUNT(*) FROM fetch_jobs WHERE status IN ('queued', 'running')"
-    ).fetchone()[0]
+    connection.execute("SELECT 1").fetchone()
 finally:
     connection.close()
-if integrity != "ok" or foreign_keys or active_jobs:
+if integrity != "ok" or foreign_keys:
     raise SystemExit(
-        f"database preflight failed: integrity={integrity!r} "
-        f"foreign_keys={len(foreign_keys)} active_jobs={active_jobs}"
+        f"database preflight failed: integrity={integrity!r} foreign_keys={len(foreign_keys)}"
     )
 PY
 }
@@ -470,13 +468,10 @@ loaded_source_digest="$(
 [[ "$loaded_revision" == "$revision" ]]
 [[ "$loaded_source_digest" == "$source_digest" ]]
 
-# Refuse a busy queue before stopping the existing production containers.
-# This read-only check also avoids turning an ordinary busy-worker refusal into
-# an outage.  Recheck after stop below to close the handoff race.
-validate_database
-
 trap rollback_cutover ERR INT TERM
 docker stop --time 20 horizon-light-worker horizon-light-api >/dev/null
+# Queued and running jobs are durable.  A normal code release preserves them;
+# the restarted Worker continues its existing lease/retry lifecycle.
 validate_database || rollback_cutover
 python3 - "$base/data/service.db" "$backup_dir/service.db" <<'PY'
 import os

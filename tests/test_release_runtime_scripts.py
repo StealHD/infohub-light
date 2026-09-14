@@ -68,13 +68,14 @@ def test_normal_vps_release_keeps_runtime_protection_without_ci_waits():
     assert 'source_args=(--expected-source-digest "$source_digest")' in rollback
 
 
-def test_normal_vps_release_does_not_run_full_database_scan_after_worker_start():
+def test_normal_vps_release_preserves_active_jobs_and_does_not_scan_after_worker_start():
     script = (ROOT / "scripts" / "release_vps.sh").read_text(encoding="utf-8")
     cutover = script.split("trap rollback_cutover ERR INT TERM", 1)[1].split(
         "trap - ERR INT TERM", 1
     )[0]
 
-    assert "validate_database\n\ntrap rollback_cutover ERR INT TERM" in script
+    assert "active_jobs" not in script
+    assert "Queued and running jobs are durable." in script
     assert cutover.count("validate_database") == 1
     assert cutover.index('docker stop --time 20 horizon-light-worker horizon-light-api') < cutover.index(
         "validate_database"
