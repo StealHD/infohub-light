@@ -470,9 +470,14 @@ loaded_source_digest="$(
 [[ "$loaded_revision" == "$revision" ]]
 [[ "$loaded_source_digest" == "$source_digest" ]]
 
+# Refuse a busy queue before stopping the existing production containers.
+# This read-only check also avoids turning an ordinary busy-worker refusal into
+# an outage.  Recheck after stop below to close the handoff race.
+validate_database
+
 trap rollback_cutover ERR INT TERM
 docker stop --time 20 horizon-light-worker horizon-light-api >/dev/null
-validate_database
+validate_database || rollback_cutover
 python3 - "$base/data/service.db" "$backup_dir/service.db" <<'PY'
 import os
 import sqlite3

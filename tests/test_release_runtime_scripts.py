@@ -74,6 +74,7 @@ def test_normal_vps_release_does_not_run_full_database_scan_after_worker_start()
         "trap - ERR INT TERM", 1
     )[0]
 
+    assert "validate_database\n\ntrap rollback_cutover ERR INT TERM" in script
     assert cutover.count("validate_database") == 1
     assert cutover.index('docker stop --time 20 horizon-light-worker horizon-light-api') < cutover.index(
         "validate_database"

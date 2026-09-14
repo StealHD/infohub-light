@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "verification"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "整合订阅修复提交 0aa97a2a 与本地 main 发布流程优化 a9452945；保留发布脚本及 CI 更新，合并测试映射，发布决策沿用 D220、来源身份决策改为 D221，双方工作记录完整保留。",
-  "status": "completed",
-  "task_id": "openclaw-subscription-local-main-merge-20260912",
-  "unresolved": [],
-  "validation": [
-    "门禁去重、CI 调度、发布 preflight、CI 基线与 runtime health 五个定向测试文件通过，退出码 0；复用此前订阅修复分段回归证据，按用户要求不重跑完整业务测试。",
-    "Markdown、控制结构、WORKLOG、JSON 与 diff check 通过；自动逐条比较确认两个父分支的工作记录内容均完整保留。发布脚本、CI workflows 及三个 test_gate 模块与原 main 无差异。",
-    "仅本地提交及合并；未推送远端、创建版本标签、迁移运行库或部署生产。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "verification"
   ],
@@ -406,6 +387,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "3 项现有镜像身份、API/Worker 共用镜像及离线运行入口定向测试通过。",
     "本地 desktop-linux 完成两次 linux/amd64 实际构建；第二次仅修改四个发布参数，所有 RUN/COPY 命中缓存，两镜像的 16 个 RootFS 层完全相同且发布标签正确变化。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-09-14",
+  "result": "修复快速发布的活跃任务顺序：服务运行时先以只读方式检查队列，只有空队列才停 API/Worker；停服后的复核失败显式恢复旧容器。未改产品、UI、数据库结构或运行配置。",
+  "status": "completed",
+  "task_id": "release-active-job-precheck-20260914",
+  "unresolved": [],
+  "validation": [
+    "发布脚本、制品与调度 37 项定向回归通过；Bash 语法、Markdown 控制与 diff 检查通过。",
+    "生产 v2.6.19 已用原镜像和原配置恢复健康；本次失败发布未创建 Tag、未切换新版本。"
   ]
 }
 ```
