@@ -1,9 +1,11 @@
 ---
 name: inteliscope-ui
-description: Implement or review Inteliscope production Web UI under its UI Contract. When explicitly supplied or copied to another Web project, adapt to that project's stack and conventions, including new pages and projects. Covers interaction, responsive behavior, accessibility and component reuse; excludes backend-only work and Inteliscope's fixed-data HeroUI preview unless production UI rules are also affected.
+description: Apply Inteliscope UI constraints while designing and writing production interfaces, including component reuse, layout, interaction, responsive behavior and accessibility. Also supports requested UI reviews. Excludes release/deployment tasks and backend-only work; adapts to another Web project only when explicitly supplied there.
 ---
 
 # Inteliscope UI
+
+此 skill 指导设计和写 UI 时的实现选择，不管理验收或发布。用户要求发布已有代码时，不启动 UI 工作流，不补跑视觉检查或修改用户已确定的界面。
 
 ## 确认项目与任务
 
@@ -30,9 +32,17 @@ description: Implement or review Inteliscope production Web UI under its UI Cont
 3. `docs/contracts/ui/interaction-constitution.md`：跨页面交互。
 4. `docs/contracts/ui/component-parameters.md`：组件角色和数值归属。
 5. 索引链接的目标路由合同，仅展开受影响界面的条款及适用例外。
-6. `docs/contracts/ui/acceptance.md`：选择测试或宣告完成之前核对。
+6. 只有任务涉及 UI 测试或评审时，按需查 `docs/contracts/ui/acceptance.md` 的相关场景；不把它变成发布前置步骤。
 
 在 Inteliscope 中，随后检查最近的生产组件、对应测试、`frontend/src/design-system/index.ts` 及其相关实现、`frontend/scripts/check-ui-contract.mjs`。业务 UI 基础组件从设计系统边界导入，先选择现有角色再考虑新增模式。
+
+## 设计和编写时直接应用
+
+- 动手前把用户指定的布局和视觉方向对应到已有页面、组件角色与合同条款；保持用户明确选定的样子。静态截图、旧测试或历史规范不能成为擅自改回旧布局的理由。
+- 选组件时直接使用设计系统边界和已有语义角色；字体、尺寸、间距、圆角、颜色、图标及动效参数从组件合同和设计系统取值，不先在页面里临时硬编码再等发布时修补。
+- 写异步操作时同时写好 pending、防重复请求、成功和可恢复失败；保留按钮轨道、逻辑 DOM、焦点、草稿、滚动与展开状态。新增状态在当前组件中完成，不以重新挂载整页实现刷新。
+- 写布局时就处理窄屏收缩、长文本、触屏操作、明暗主题和 Reduced Motion；给图标按钮提供语义名称，并让键盘和焦点行为随组件一起实现。
+- 数值和详细交互语义仍以对应 UI 合同为唯一真源。只有用户请求改变规则含义才修改规范；普通 UI 修改直接符合既有规则，不为每次修改增加新约束。
 
 ## 实施与规则冲突
 
@@ -42,7 +52,7 @@ description: Implement or review Inteliscope production Web UI under its UI Cont
 - Inteliscope 可复用行为归 `frontend/src/design-system/**`；跨路由交互、组件数值、路由例外、验收和静态检查分别回到现有权威文件。静态规则须有正反例，不能用宽泛正则代替行为验证。引用规则标识或权威章节，不把合同复制到此 skill。
 - 其他项目沿用自身的组件与规则归属；缺少共享模式时仅提取当前确有复用需求的部分，不顺带更换组件库或重构全站。
 
-## 交互检查与验证
+## 编码时的交互要点
 
 Inteliscope 以交互宪章的规则标识及 acceptance 为准，不在此重定义阈值。其他项目按实际任务检查以下行为，具体尺寸、时长、视口、样式及组件选择由目标项目决定：
 
@@ -50,12 +60,12 @@ Inteliscope 以交互宪章的规则标识及 acceptance 为准，不在此重�
 - **恢复与上下文**：失败保留可恢复输入，提供明确下一步；结果不明且可能重复产生副作用时先核对状态。局部更新保留逻辑节点、焦点、选区、滚动和展开意图，除非用户接受的操作必然移除对象或导航。
 - **内容与输入方式**：长标题、URL、错误和标签在窄屏及放大时可读可操作；键盘、触屏、可访问名称与焦点回归符合组件语义。Reduced Motion 保留状态含义，业务正确性不只依赖动画结束事件。
 
-根据变更选择已有验证工具：静态检查验证可机械判断的边界；组件测试验证状态与请求行为；浏览器验证真实几何、焦点、滚动、响应式和视觉结果。快照通过不证明可用性，静态检查通过不证明完整交互合规。
+测试选择由项目开发流程和当前任务决定，此 skill 不增加独立验收阶段、全量浏览器矩阵或发布回执。需要验证当前修改时，使用已有的相关检查；不把遵守规则推迟到测试失败后。
 
-- **Inteliscope 生产 UI 实施**：遵循 acceptance 的顺序，运行最小相关 Vitest 或 Playwright spec，并在 `frontend` 目录运行 `npm run check:ui` 和 `npm run typecheck`。实施前建立任务 snapshot，审查任务差异后按仓库策略运行一次 impacted preflight；不重复执行已由门禁提供的相同检查。UI 合同变更还须遵循 `AGENTS.md` 的控制面验证要求。
+- **Inteliscope 生产 UI 实施**：按上文在代码中落实对应合同，开发验证沿用仓库流程；发布不再承担 UI 设计评审或补测职责。
 - **其他项目**：从项目清单和测试配置选择适用命令，不预设 npm、Vitest 或 Playwright。工具缺失时完成仍可执行的检查并说明证据缺口，不擅自安装新测试框架。
 - **评审交付**：分别标明已确认问题、待验证推断、已执行检查及未覆盖场景，不将只读抽查写成全量合规结论。
-- **此 skill 的维护**：使用可用的 `skill-creator/scripts/quick_validate.py` 验证格式，并通过代表任务检查项目路由、只读边界和验证选择；格式校验不替代行为评估。仓库内修改仍遵循任务 snapshot、差异审查、impacted preflight 和工作记录要求。
+- **此 skill 的维护**：使用可用的 `skill-creator/scripts/quick_validate.py` 验证格式，检查设计/编码、只读评审与发布任务的路由是否正确。
 
 ## 外部参考与可移植边界
 

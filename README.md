@@ -145,15 +145,14 @@ The local acceptance benchmark uses an isolated temporary database and 100 real 
 Normal upgrades use one guarded command from a clean `main` that exactly matches `origin/main`:
 
 ```bash
-./scripts/release_vps.sh preflight vX.Y.Z
 ./scripts/release_vps.sh release vX.Y.Z
 ./scripts/release_vps.sh status
 ./scripts/release_vps.sh rollback [release-id]
 ```
 
-The release command reuses the successful Test Gate for the exact main SHA, builds the pinned `linux/amd64` image locally while CI completes, uploads the source and image concurrently with resumable `rsync`, pushes the tag only after main is green, and waits for the tag's isolated API smoke before cutover. The VPS only performs `docker load`; it never builds this repository. Before replacing API and Worker it checks for active jobs, blocks cutover if a residual historical scheduler container is running, creates private online database and environment backups, and automatically restarts the previous immutable API/Worker release if readiness or asset verification fails. A release that contains database migration work is refused and must use its explicit migration runbook.
+The release command builds or reuses one revision-locked `linux/amd64` image locally, verifies API/Worker entrypoints, uploads it with resumable `rsync`, backs up the existing production database with API/Worker stopped, and switches the runtime. Version, readiness and served React assets are checked before tagging; a failed cutover restores the previous runtime. Release does not run application/UI suites, require test receipts, or wait for main/Tag CI. `release-fast` is an alias; optional `prepare-fast` caches the same package. Explicit database migration remains a separate operation, and the VPS only loads the image.
 
-The public target is `https://rb.jiefs.top/`. VPS releases live under `/opt/inteliscope/releases/<release-id>` and share `/opt/inteliscope/{data,logs,.env}`. The local release image is removed after the command finishes so release builds do not accumulate. `scripts/release_rc1.sh` remains only for a first-time empty-database bootstrap; it is not the normal upgrade path.
+The public target is `https://rb.jiefs.top/`. VPS releases live under `/opt/inteliscope/releases/<release-id>` and share `/opt/inteliscope/{data,logs,.env}`. Prepared image archives are cached under ignored `.test-results/fast-release/<SHA>/`. `scripts/release_rc1.sh` remains only for a first-time empty-database bootstrap; it is not the normal upgrade path.
 
 ## Verification
 

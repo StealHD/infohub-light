@@ -107,7 +107,6 @@ migrate_notification_destinations_v47() {
   receipt_path="$REMOTE_BASE/data/backups/migration-notification-destinations-v47-$revision.json"
   [[ -z "$(ssh "$REMOTE_HOST" test -e "$receipt_path" && printf present || true)" ]] \
     || fail "v47 migration receipt already exists for this release: $receipt_path"
-  wait_for_workflow_success test-gate.yml "$revision" main
   remote_capacity_preflight
 
   RELEASE_TMP_DIR="$(mktemp -d -t inteliscope-migration.XXXXXX)"
@@ -260,7 +259,6 @@ reissue_notification_destinations_v47_receipt() {
   receipt_path="$REMOTE_BASE/data/backups/migration-notification-destinations-v47-$revision.json"
   [[ -z "$(ssh "$REMOTE_HOST" test -e "$receipt_path" && printf present || true)" ]] \
     || fail "target release receipt already exists: $receipt_path"
-  wait_for_workflow_success test-gate.yml "$revision" main
   RELEASE_TMP_DIR="$(mktemp -d -t inteliscope-v47-receipt.XXXXXX)"
   archive="$RELEASE_TMP_DIR/source.tar.gz"
   git -C "$ROOT_DIR" archive --format=tar.gz --output="$archive" "$revision"

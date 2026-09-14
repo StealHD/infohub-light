@@ -4,22 +4,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
+def test_normal_vps_release_keeps_runtime_protection_without_ci_waits():
     script = (ROOT / "scripts" / "release_vps.sh").read_text(encoding="utf-8")
 
     assert "git fetch --prune origin main --tags" in script
     assert "local main must exactly match origin/main" in script
     assert "scripts/test_gate.py preflight" in script
     assert '--base "$base_ref" --head HEAD' in script
-    assert "test-gate.yml" in script
-    assert 'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"' in script
-    assert "release-tag.yml" in script
-    assert script.index("wait_for_workflow_success test-gate.yml") < script.index(
-        'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"'
-    )
-    assert script.index("wait_for_workflow_success release-tag.yml") < script.rindex(
-        '  deploy_remote_release "$release_id"'
-    )
+    fast = (ROOT / "scripts/release_fast.sh").read_text()
+    assert "wait_for_workflow_success" not in script + fast
+    assert "test-gate.yml" not in script + fast
+    assert "release-tag.yml" not in script + fast
+    assert 'release() {\n  release_fast\n}' in script
+    assert fast.index('  deploy_remote_release "$release_id"') < fast.index('git -C "$ROOT_DIR" tag -a')
     assert "docker buildx build" in script
     assert '--platform "$PLATFORM"' in script
     assert 'docker save "$image"' in script
@@ -55,12 +52,10 @@ def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
     )
     assert 'docker image rm "$LOCAL_RELEASE_IMAGE"' in script
     assert "remote_capacity_preflight" in script
-    assert "used_percent > 85" in script
-    assert "available_kib < 8388608" in script
-    assert "Read-only cleanup inventory (nothing was deleted)" in script
-    assert "docker system df" in script
-    assert "-name 'inteliscope-release-*'" in script
-    assert 'REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"' in script
+    assert "available_kib < required_kib" in script
+    assert "package_kib + database_kib + 524288" in script
+    assert "8388608" not in script
+    assert 'REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"' in fast
     assert '[[ "$stage" =~ ^/tmp/inteliscope-(release|migration)-[A-Za-z0-9._-]+$ ]]' in script
     assert 'rm -rf -- "$stage"' in script
     package = script.split("build_package_and_upload() {", 1)[1].split("deploy_remote_release() {", 1)[0]

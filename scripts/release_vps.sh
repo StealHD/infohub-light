@@ -7,7 +7,6 @@ REMOTE_HOST="${INTELISCOPE_DEPLOY_HOST:-vps-tokyo}"
 REMOTE_BASE="${INTELISCOPE_DEPLOY_BASE:-/opt/inteliscope}"
 PUBLIC_URL="${INTELISCOPE_PUBLIC_URL:-https://rb.jiefs.top}"
 PLATFORM="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"
-CI_TIMEOUT_SECONDS="${INTELISCOPE_RELEASE_CI_TIMEOUT_SECONDS:-1800}"
 PYTHON_BIN="${INTELISCOPE_RELEASE_PYTHON:-$ROOT_DIR/.venv/bin/python}"
 RELEASE_TMP_DIR=""
 REMOTE_RELEASE_STAGE=""
@@ -18,7 +17,7 @@ MIGRATION_RECEIPT_PATH=""
 MIGRATION_BACKUP_PATH=""
 
 usage() {
-  echo "Usage: $0 release <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | migrate-notification-destinations-v47 <vX.Y.Z> | reissue-notification-destinations-v47-receipt <vX.Y.Z> --from-receipt REMOTE_ABSOLUTE_PATH | release-fast <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | prepare-fast <vX.Y.Z> --gate-result PATH [--e2e-result PATH] [--migration-receipt REMOTE_ABSOLUTE_PATH] | preflight <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | rollback [release-id] | status"
+  echo "Usage: $0 release|release-fast <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | prepare-fast <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | migrate-notification-destinations-v47 <vX.Y.Z> | reissue-notification-destinations-v47-receipt <vX.Y.Z> --from-receipt REMOTE_ABSOLUTE_PATH | preflight <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | rollback [release-id] | status"
 }
 
 fail() {
@@ -58,7 +57,7 @@ trap cleanup EXIT
 
 require_commands() {
   local command
-  for command in git docker rsync ssh gh gzip shasum; do
+  for command in git docker rsync ssh gzip shasum; do
     command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
   done
   [[ -x "$PYTHON_BIN" ]] || fail "project Python is unavailable: $PYTHON_BIN"
@@ -120,9 +119,11 @@ reject_implicit_migrations() {
 }
 
 remote_capacity_preflight() {
-  ssh "$REMOTE_HOST" bash -s -- "$REMOTE_BASE" <<'REMOTE'
+  local package_kib="${1:-0}"
+  ssh "$REMOTE_HOST" bash -s -- "$REMOTE_BASE" "$package_kib" <<'REMOTE'
 set -euo pipefail
 base="$1"
+package_kib="$2"
 probe="$base"
 [[ -d "$probe" ]] || probe="$(dirname "$base")"
 read -r available_kib used_percent < <(
@@ -132,15 +133,10 @@ read -r available_kib used_percent < <(
   echo "could not determine VPS disk capacity" >&2
   exit 1
 }
-if (( used_percent > 85 || available_kib < 8388608 )); then
-  echo "VPS capacity preflight failed: used=${used_percent}% available_kib=${available_kib}" >&2
-  echo "Read-only cleanup inventory (nothing was deleted):" >&2
-  df -h "$probe" >&2 || true
-  docker system df >&2 || true
-  du -x -h -d 1 "$base/releases" "$base/backups" "$base/logs" 2>/dev/null \
-    | sort -h >&2 || true
-  find /tmp -maxdepth 1 -type d -name 'inteliscope-release-*' \
-    -exec du -sh -- {} + 2>/dev/null | sort -h >&2 || true
+database_kib="$(du -k "$base/data/service.db" | awk '{print $1}')"
+required_kib=$((package_kib + database_kib + 524288))
+if (( available_kib < required_kib )); then
+  echo "VPS capacity insufficient: available_kib=$available_kib required_kib=$required_kib" >&2
   exit 1
 fi
 echo "VPS capacity ready: used=${used_percent}% available_kib=${available_kib}"
@@ -153,7 +149,6 @@ require_release_prerequisites() {
   require_release_identity
   base_ref="$(release_base_ref)"
   reject_implicit_migrations "$base_ref" "$MIGRATION_RECEIPT_PATH"
-  remote_capacity_preflight
 }
 
 run_quick_preflight() {
@@ -164,50 +159,6 @@ run_quick_preflight() {
   "$PYTHON_BIN" scripts/test_gate.py preflight \
     --base "$base_ref" --head HEAD
   echo "Preflight passed for $RELEASE_TAG against $base_ref"
-}
-
-wait_for_workflow_success() {
-  local workflow="$1" revision="$2" head_branch="$3"
-  local started now runs state url
-  started="$(date +%s)"
-  while true; do
-    runs="$(
-      gh run list --workflow "$workflow" --commit "$revision" --limit 20 \
-        --json status,conclusion,event,headBranch,url
-    )"
-    read -r state url <<<"$(
-      "$PYTHON_BIN" -c '
-import json, sys
-branch = sys.argv[1]
-runs = [r for r in json.load(sys.stdin) if r.get("event") == "push" and r.get("headBranch") == branch]
-successful = next((r for r in runs if r.get("status") == "completed" and r.get("conclusion") == "success"), None)
-pending = next((r for r in runs if r.get("status") != "completed"), None)
-failed = next((r for r in runs if r.get("status") == "completed" and r.get("conclusion") != "success"), None)
-selected = successful or pending or failed
-if successful:
-    print("success", successful.get("url", ""))
-elif pending:
-    print("pending", pending.get("url", ""))
-elif failed:
-    print("failure", failed.get("url", ""))
-else:
-    print("missing", "")
-' "$head_branch" <<<"$runs"
-    )"
-    case "$state" in
-      success)
-        echo "$workflow passed for $revision: $url"
-        return 0
-        ;;
-      failure)
-        fail "$workflow failed for $revision: $url"
-        ;;
-    esac
-    now="$(date +%s)"
-    (( now - started < CI_TIMEOUT_SECONDS )) \
-      || fail "timed out waiting for $workflow on $revision"
-    sleep 15
-  done
 }
 
 build_package_and_upload() {
@@ -375,14 +326,16 @@ if docker ps --format '{{.Names}}' | grep -Eq '^horizon(-light)?-scheduler$'; th
 fi
 
 validate_database() {
-  python3 - "$base/data/service.db" <<'PY'
+  python3 - "$base/data/service.db" "${1:-jobs}" <<'PY'
 import sqlite3
 import sys
 
 connection = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True, timeout=30)
 try:
-    integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-    foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+    # Ordinary code cutover needs queue safety, not a repeated whole-database audit.
+    full = sys.argv[2] == "full"
+    integrity = connection.execute("PRAGMA integrity_check").fetchone()[0] if full else "ok"
+    foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall() if full else []
     active_jobs = connection.execute(
         "SELECT COUNT(*) FROM fetch_jobs WHERE status IN ('queued', 'running')"
     ).fetchone()[0]
@@ -454,7 +407,7 @@ rollback_cutover() {
       exit 1
     }
     install -m 600 "$legacy_migration_backup" "$base/data/service.db"
-    validate_database
+    validate_database full
   elif [[ -n "$migration_backup" ]]; then
     echo "keeping the additive v47 database and all writes made after migration" >&2
   fi
@@ -544,7 +497,7 @@ cd "$release_dir"
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \
   horizon-api horizon-worker
 wait_runtime "$release_dir" "$public_url"
-# The full integrity/FK/active-job check ran while Worker was stopped above.
+# The active-job check and backup ran while API/Worker were stopped above.
 # Runtime health is the authoritative post-start check; do not race live jobs.
 ln -sfn "$release_dir" "$base/current"
 rm -rf "$remote_stage"
@@ -554,42 +507,7 @@ REMOTE
 }
 
 release() {
-  local version revision_full revision_short built_at release_id image ci_pid package_pid
-  local ci_status package_status
-  require_release_prerequisites
-  "$PYTHON_BIN" "$ROOT_DIR/scripts/release_mode.py" --require standard
-  version="$(project_version)"
-  revision_full="$(git -C "$ROOT_DIR" rev-parse HEAD)"
-  revision_short="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
-  built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  release_id="${RELEASE_TAG#v}-$(date -u +%Y%m%dT%H%M%SZ)-$revision_short"
-  image="inteliscope-service:$release_id"
-  LOCAL_RELEASE_IMAGE="$image"
-  RELEASE_TMP_DIR="$(mktemp -d -t inteliscope-release.XXXXXX)"
-  REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"
-
-  wait_for_workflow_success test-gate.yml "$revision_full" main &
-  ci_pid=$!
-  build_package_and_upload \
-    "$revision_short" "$revision_full" "$version" "$built_at" "$release_id" "$image" &
-  package_pid=$!
-  set +e
-  wait "$ci_pid"; ci_status=$?
-  wait "$package_pid"; package_status=$?
-  set -e
-  [[ "$ci_status" -eq 0 && "$package_status" -eq 0 ]] \
-    || fail "main CI or release artifact preparation failed"
-  require_frozen_release_source "$revision_full"
-
-  git -C "$ROOT_DIR" tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
-  TAG_CREATED=true
-  git -C "$ROOT_DIR" push origin "refs/tags/$RELEASE_TAG"
-  TAG_PUSHED=true
-  wait_for_workflow_success release-tag.yml "$revision_full" "$RELEASE_TAG"
-  deploy_remote_release "$release_id" "$image" "$version" "$revision_short" "$built_at" "git:$revision_full" \
-    "$MIGRATION_RECEIPT_PATH" "$MIGRATION_BACKUP_PATH"
-  REMOTE_RELEASE_STAGE=""
-  echo "Release complete: $RELEASE_TAG ($release_id)"
+  release_fast
 }
 
 rollback_release() {
@@ -691,7 +609,7 @@ source "$ROOT_DIR/scripts/release_v47.sh"
 command="${1:-}"
 case "$command" in
   prepare-fast)
-    [[ $# -ge 4 ]] || { usage; exit 2; }
+    [[ $# -ge 2 ]] || { usage; exit 2; }
     RELEASE_TAG="$2"
     shift 2
     prepare_fast "$@"

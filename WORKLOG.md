@@ -8,50 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "从本地 main 2df85c1a 创建 codex/openclaw-subscription-routing 独立 Worktree，形成全来源 Agent 分流修复 A 与多用户来源身份隔离修复 B 两份计划；未实施代码、迁移或部署。",
-  "status": "completed",
-  "task_id": "openclaw-subscription-routing-plan-20260912",
-  "unresolved": [
-    "A+B 尚未实施；B 拟更改身份唯一性并需显式数据库迁移，运行验收和发布待后续执行。"
-  ],
-  "validation": [
-    "新 Worktree 的来源解析、MCP 订阅、全来源与 Skill 四组基线 61 passed。",
-    "生产只读核对：OpenClaw GitHub key 被另一账号 private 来源占用；最近 source/create 的 owner 请求与已有 source 所有者不同；无生产写入。",
-    "本地临时 API 库复现截图请求，验证现有跨用户 private key 冲突返回 409。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "从本地 main 的隔离分支实施订阅分流与来源身份修复：直接配置来源不再误报 Web setup，global 46 按 private owner/shared 身份约束，REST/MCP 一致门禁与 Web 部分成功恢复。独立审查发现的迁移覆盖并发写入、同身份配置覆盖与停用来源边界已修正。",
-  "status": "completed",
-  "task_id": "openclaw-subscription-routing-implementation-20260912",
-  "unresolved": [],
-  "validation": [
-    "12 类 self-service 来源在 fresh/migrated 两种库各验证一次，24 项组合用例通过，其他用户 private 配置不变且 Job/Actor Attempt 为零；原始 GitHub Release Web/MCP 场景、迁移与并发回归通过。",
-    "独立审查修复迁移自动恢复覆盖并发写入、同身份配置/scope 覆盖、disabled resolver 误判、新 managed 来源订阅阻断及重试输入被忽略；历史 workspace/id 外键索引按精确 SQL 兼容，未知身份索引仍阻断。",
-    "遵循用户减少重复测试要求：两次 preflight 分别停在历史索引兼容与旧迁移 fixture；失败点已定向复验通过，从第二次中断点跳过已过测试续跑剩余后端及尚未执行的代码域命令。没有第三次完整 preflight，也不将原 failed 记录改写为 passed。",
-    "后端分段覆盖完成，SQLite ResourceWarning 为零；前端 Vitest 923 项首次通过，唯一旧 mock 补齐 can_subscribe 后定向复验通过，合计 924 项；22 项定向组件测试与三视口共 6 项 Playwright（Axe/表单保留/单次创建/仅订阅重试/无横溢）通过。类型、lint、UI/E2E 合同、冻结文件限制、JSON、构建与控制结构验证通过。",
-    "证据链：.test-results/20260912T081805Z-33377/result.json → .test-results/openclaw-remaining-20260912/result.json → .test-results/openclaw-final-20260912/result.json；最后 2 项检查通过。初次失败记录 .test-results/20260912T081439Z-32655/result.json 保留。",
-    "仅本地临时数据库与受控上游；生产迁移、部署、Gateway Skill 刷新、真实会话 prepare/apply、真实抓取、模型和通知均未执行。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "verification"
   ],
@@ -413,6 +369,43 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Targeted migration, release, fast-artifact and runtime-script tests passed; Bash syntax, Python syntax, code-size and Markdown controls passed.",
     "Production v47 database and old 2.6.19 runtime were left intact while correcting the live-lock issue."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "instructions",
+    "phase",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-14",
+  "result": "按用户要求直接在本地 main 简化发布：release/release-fast 共用自动准备或复用镜像、上传、原生产库备份、健康切换后 Tag；移除发布测试回执、模式要求、CI 等待和重复 smoke。UI skill 指导设计和编码时应用既有规则，不管理验收；同步发布文档及替代决定。产品 UI、开发 CI、数据库与运行配置未改，未提交或部署。",
+  "status": "completed",
+  "task_id": "minimal-release-ui-coding-rules-20260914",
+  "unresolved": [],
+  "validation": [
+    "47 项发布命令、缓存、失败中止、回执和 workflow 回归通过；外部命令均模拟，没有浏览器或 VPS 操作。",
+    "缓存复用不查询生产的补充断言复验通过；bash 语法、Python 编译、代码规模、Markdown、skill 格式、控制面结构和 diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-14",
+  "result": "直接在本地 main 优化 Dockerfile 缓存层级：保留固定 digest 基础镜像，先按锁文件安装第三方依赖，再复制应用和前端产物并安装项目自身，最后声明和写入版本、SHA、源码摘要及构建时间；未改产品代码、数据库或运行配置，未部署。",
+  "status": "completed",
+  "task_id": "dockerfile-cache-layering-20260914",
+  "unresolved": [],
+  "validation": [
+    "3 项现有镜像身份、API/Worker 共用镜像及离线运行入口定向测试通过。",
+    "本地 desktop-linux 完成两次 linux/amd64 实际构建；第二次仅修改四个发布参数，所有 RUN/COPY 命中缓存，两镜像的 16 个 RootFS 层完全相同且发布标签正确变化。"
   ]
 }
 ```

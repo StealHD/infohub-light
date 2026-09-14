@@ -119,7 +119,7 @@ docker compose logs -f horizon-api horizon-worker
 ./scripts/release_vps.sh rollback [release-id]
 ```
 
-正常发布复用精确 main SHA 的成功 Test Gate，不自动重跑本地代码测试。需要排查时，可单独运行 `./scripts/release_vps.sh preflight vX.Y.Z`；它执行相同的发布前置校验，再运行本地 impacted preflight，失败即退出，不创建 Tag 或切换服务。测试与发布门禁以[验证流程](dev/test-gate.md)为准。
+正常发布构建或复用同 SHA 的本地 amd64 镜像，上传后备份原生产库并切换，健康检查通过后推送 Tag；不运行 UI/完整测试、不需要测试回执，也不等待 main 或 Tag CI。需要排查时，可单独运行 `./scripts/release_vps.sh preflight vX.Y.Z`；它作为可选诊断执行本地 impacted preflight，失败即退出，不创建 Tag 或切换服务。测试与发布门禁以[验证流程](dev/test-gate.md)为准。
 
 Global 47 的生产升级是唯一明确支持的迁移发布流程：先运行只针对现有生产库的显式迁移，再把返回的受控回执传给发布命令。它不会复制测试库、创建第二个生产库、写入业务测试数据或发送通知。
 
@@ -129,24 +129,20 @@ Global 47 的生产升级是唯一明确支持的迁移发布流程：先运行�
   --migration-receipt /opt/inteliscope/data/backups/migration-notification-destinations-v47-FULL_GIT_SHA.json
 ```
 
-迁移命令只接受干净且精确等于 `origin/main`、已通过该 SHA Test Gate 的版本；它从该提交上传源码归档但不在 VPS 构建镜像，停止现有 API/Worker、跨 Worker heartbeat 安全窗后创建 `0600` SQLite backup，再原位添加 global 47 的三张空表和 marker。完成后它校验表形、完整性和外键、生成绑定该完整 SHA 的 `0600` 回执并恢复原有运行面。发布命令在构建、Tag 和切换前重验回执、backup 与生产 schema；如果后续切换失败，回退旧程序但保留已经验证的 v47 数据库和迁移后新写入。迁移前 backup 只留作人工灾难恢复，普通回滚不会用旧快照覆盖当前生产数据。缺回执、回执不匹配、权限/路径不安全或数据校验失败一律拒绝发布。
+迁移命令只接受干净且精确等于 `origin/main`的版本；它从该提交上传源码归档但不在 VPS 构建镜像，停止现有 API/Worker、跨 Worker heartbeat 安全窗后创建 `0600` SQLite backup，再原位添加 global 47 的三张空表和 marker。完成后它校验表形、完整性和外键、生成绑定该完整 SHA 的 `0600` 回执并恢复原有运行面。发布命令在构建、Tag 和切换前重验回执、backup 与生产 schema；如果后续切换失败，回退旧程序但保留已经验证的 v47 数据库和迁移后新写入。迁移前 backup 只留作人工灾难恢复，普通回滚不会用旧快照覆盖当前生产数据。缺回执、回执不匹配、权限/路径不安全或数据校验失败一律拒绝发布。
 
-生产库使用 DELETE journal 时，运行中的 API/Worker 不能承受在线全库完整性扫描；迁移时停服务做完整校验，后续在线回执检查仅读取 marker 和表形。若迁移完成后只修改了发布安全脚本、最终 SHA 改变，可在新 SHA 的 main CI 通过后执行 `./scripts/release_vps.sh reissue-notification-destinations-v47-receipt vX.Y.Z --from-receipt /opt/inteliscope/data/backups/原迁移回执.json`，为后代提交签发指向同一份迁移前备份的新回执；此命令不改数据库、不新建备份，产品或存储代码变化时拒绝。
+生产库使用 DELETE journal 时，运行中的 API/Worker 不能承受在线全库完整性扫描；迁移时停服务做完整校验，后续在线回执检查仅读取 marker 和表形。若迁移完成后只修改了发布安全脚本、最终 SHA 改变，可执行 `./scripts/release_vps.sh reissue-notification-destinations-v47-receipt vX.Y.Z --from-receipt /opt/inteliscope/data/backups/原迁移回执.json`，为后代提交签发指向同一份迁移前备份的新回执；此命令不改数据库、不新建备份，产品或存储代码变化时拒绝。
 
 镜像必须在本地构建并验证 `linux/amd64`，VPS 只执行 `docker load`。切换前脚本检查活跃 Job，并在发现残留历史 scheduler 容器时阻断。普通发布失败回滚到上一不可变 API/Worker release；其他数据库迁移仍必须走各自独立 runbook。
 
-频繁小改可显式选择快速发布，标准入口不变。在最终发布提交消息末尾加一个 `Release-Mode: fast` trailer；先确定版本并完成本地测试，再准备正式镜像：
+普通 `release` 和 `release-fast` 都采用同一简化流程，无需提交 trailer 或预先取得 Gate/E2E 结果。直接运行发布即可；想提前构建时可选用：
 
 ```bash
-./scripts/release_vps.sh prepare-fast vX.Y.Z --gate-result .test-results/RUN/result.json \
-  --migration-receipt /opt/inteliscope/data/backups/migration-notification-destinations-v47-FULL_GIT_SHA.json
-# UI 改动另传 --e2e-result .test-results/E2E_RUN/result.json
-git push origin main
-./scripts/release_vps.sh release-fast vX.Y.Z \
-  --migration-receipt /opt/inteliscope/data/backups/migration-notification-destinations-v47-FULL_GIT_SHA.json
+./scripts/release_vps.sh prepare-fast vX.Y.Z
+./scripts/release_vps.sh release vX.Y.Z
 ```
 
-`prepare-fast` 允许本地 main 尚未推送，复用有效 Gate 结果并验证一次 AMD64 镜像；`release-fast` 只发布对应准备产物，等待 GitHub 轻量校验，不再构建或测试。若版本包含 v47 迁移，先完成本地 Gate、推送并取得精确 main 轻量绿灯，再执行上述显式迁移；准备与发布两个 fast 入口均须传同一份已校验的远端回执。两种模式使用正常版本 Tag，均保留备份、健康与回滚。代码、版本、目标基线或产物变化时须显式重新准备；已有旧格式测试结果不能直接复用。完整范围、模式选择和失败处理以[验证流程](dev/test-gate.md#显式快速发布)为准。
+缓存匹配时直接复用，失效时自动重建。准备只构建本地镜像和归档，不访问生产数据库或执行测试。global 47 迁移仍使用上文显式命令，发布时传对应回执。普通发布仅在停 API/Worker 后检查活跃 Job 并备份，不重复全库扫描；失败切换恢复旧程序并保留原数据。细节见[发布流程](dev/test-gate.md#发布)。
 
 ActorOps global 33 是当前独立停机迁移，并要求有效 global 32。停止 API/Worker 后先只读检查，再显式应用；它只安装本地 circuit、维护来源标记与头像映射 sidecar，不会调用 Actor、AI 或真实来源，也不会创建、结算或删除费用事实。
 

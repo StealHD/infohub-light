@@ -18,7 +18,7 @@ Current domain objects:
 - Personal tags are user preference signals and must not be sent to AI scoring prompts.
 - `analysis_mode=personal_only` items enter history and personal feed but skip AI analysis, featured selection, and daily push.
 - Prefer targeted tests and static checks before running full fetch, enrichment, or push workflows.
-- Follow the [verification workflow](docs/dev/test-gate.md) for implementation, commit, integration and release. Fix known or high-confidence defects before advancing to the next gate.
+- Follow the [verification workflow](docs/dev/test-gate.md) for implementation, commit and integration; publication uses its separate minimal release path. Apply UI constraints while designing and writing UI through the project skill; release-only work does not trigger UI review, repair or test gates.
 - Code-size policy freezes historical monolith paths against task-start growth; shrinking a frozen file never requires a policy edit. New files and functions use the hard limits defined only in `tests/code_size_policy.json`. Put new behavior in focused modules instead of growing a frozen file.
 - Do not read `data/site/history-data.json`, `data/site/history/**`, cached media, full logs, generated summaries, or `data/horizon.db` unless the task specifically concerns those files.
 - Keys pasted into a task are compromised evidence: never persist or call them. DeepSeek activation requires a replacement value written through SecretStore and a one-call smoke.
@@ -61,7 +61,8 @@ Read the applicable root/scoped `AGENTS.md` once, then locate task-relevant code
 | Remote MCP or Browser OpenClaw | API Remote MCP/Gateway module and architecture OpenClaw module |
 | Capability, limits, degradation, provider or output vocabulary | `project-defaults.yaml` and the affected implementation |
 | Logging or operation events | Observability authority and affected code/tests |
-| Test selection, commit, integration or release verification | Verification authority; runtime/migration contract for operating services |
+| Test selection, commit or integration | Verification authority |
+| Release/deployment | Verification authority's minimal release path and runtime/migration contract; no UI skill or UI acceptance unless the user also requests UI changes |
 | Rule meaning, supersession or compatibility dispute | Decision index → matching record |
 | Control-plane maintenance | Manifest, explicit policy and affected authority; use `init-pro` audit/check/context as documented in Verification |
 | Historical evidence | [Historical index](archive/project-history/README.md) → targeted `rg`; no default archive expansion |

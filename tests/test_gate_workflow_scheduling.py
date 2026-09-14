@@ -92,10 +92,14 @@ def test_browser_gate_remains_complete_on_main(tmp_path, event, full):
     assert '--skip-control' in args
 
 
-def test_tag_can_skip_controls_only_after_exact_main_verification():
+def test_tag_checks_identity_without_application_tests_or_main_ci_dependency():
     workflow = (ROOT / '.github/workflows/release-tag.yml').read_text()
-    assert workflow.index('head_sha=$GITHUB_SHA&branch=main&event=push&status=success') < workflow.index('--skip-control')
-    assert '--scope smoke --skip-control' in workflow
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in workflow
+    assert '[[ "$GITHUB_REF_NAME" == "$expected_tag" ]]' in workflow
+    assert "test-gate.yml" not in workflow
+    assert "test_gate.py" not in workflow
+    assert "docker" not in workflow.lower()
+    assert "release_mode.py" not in workflow
 
 
 def test_fast_control_runs_only_lightweight_commands(tmp_path):
@@ -111,5 +115,3 @@ def test_fast_control_runs_only_lightweight_commands(tmp_path):
     for job in ('backend-full', 'frontend-full', 'ui-e2e'):
         section = WORKFLOW.split(f'  {job}:\n', 1)[1].split('    runs-on:', 1)[0]
         assert "needs.impact.outputs.release_mode != 'fast'" in section
-    tag = (ROOT / '.github/workflows/release-tag.yml').read_text()
-    assert tag.count("if: steps.identity.outputs.release_mode == 'standard'") == 3

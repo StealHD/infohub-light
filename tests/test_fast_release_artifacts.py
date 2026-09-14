@@ -9,7 +9,6 @@ from scripts import release_fast as fast
 from scripts import release_image_smoke as image_smoke
 from scripts.release_mode import git
 from scripts.test_gate_changes import GateConfigError
-from scripts.test_gate_evidence import inputs
 
 
 @pytest.fixture
@@ -27,8 +26,6 @@ def prepared(tmp_path, monkeypatch):
     directory.mkdir(parents=True)
     for name in ("source.tar.gz", "image.tar.gz"):
         (directory / name).write_bytes(name.encode())
-    fast.write(directory / "evidence.json", dict(inputs=inputs(tmp_path), baseline=revision))
-    fast.write(directory / "smoke.json", dict(ok=True, image_id="sha256:test"))
     metadata = {"Id": "sha256:test", "Architecture": "amd64", "Config": {"Labels": {
         "io.inteliscope.source.digest": "git:" + revision, "org.opencontainers.image.version": "1.2.3"}}}
     monkeypatch.setattr(fast, "docker", lambda *args: json.dumps([metadata]))
@@ -44,8 +41,12 @@ def verify(prepared, migration_receipt=""):
                        migration_receipt)
 
 
-def test_same_artifacts_are_reusable_without_test_or_build(prepared):
-    assert verify(prepared)["mode"] == "fast"
+def test_same_artifacts_are_reusable_without_test_or_build(prepared, monkeypatch):
+    monkeypatch.setattr(fast, "baseline", lambda host: pytest.fail("cache must not query production"))
+    assert verify(prepared)["schema"] == 2
+    _, directory, _ = prepared
+    assert not (directory / "evidence.json").exists()
+    assert not (directory / "smoke.json").exists()
 
 
 def test_migration_receipt_must_match_prepared_manifest(prepared):
@@ -84,17 +85,15 @@ def test_unreachable_host_is_not_an_unknown_baseline(monkeypatch):
         fast.baseline("vps")
 
 
-@pytest.mark.parametrize("change", ["source", "image", "archive", "evidence", "baseline", "target", "symlink"])
+@pytest.mark.parametrize("change", ["source", "image", "archive", "target", "symlink"])
 def test_changed_artifacts_fail(prepared, monkeypatch, change):
     root, directory, metadata = prepared
     if change == "source":
         (root / "new.py").write_text("new code")
     elif change == "image":
         metadata["Id"] = "sha256:other"
-    elif change in {"archive", "evidence"}:
-        (directory / ("image.tar.gz" if change == "archive" else "evidence.json")).write_text("changed")
-    elif change == "baseline":
-        monkeypatch.setattr(fast, "baseline", lambda host: "f" * 40)
+    elif change == "archive":
+        (directory / "image.tar.gz").write_text("changed")
     elif change == "symlink":
         (directory / "image.tar.gz").unlink()
         (directory / "image.tar.gz").symlink_to(directory / "source.tar.gz")

@@ -1,12 +1,12 @@
 ## 9. Enforcement and acceptance
 
-This file is the sole production UI review checklist. It verifies the laws owned by the UI README, Interaction Constitution, component matrix, and route contracts; it does not redefine them.
+This file is the production UI development/review checklist. It verifies the laws owned by the UI README, Interaction Constitution, component matrix, and route contracts; it does not redefine them. These checks are not release prerequisites. The UI skill applies the rules while designing and writing UI; it does not own an acceptance pipeline.
 
 Composer shortcuts acceptance covers both Feed and workspace TextAreas: caret-middle insertion, IME, disabled and duplicate Skills, read failure/retry, generation races, source-snapshot exclusion, selection without send, send-time revalidation and retry snapshots. `/` and `@` suggestions preserve their draft and do not send when an outside press dismisses them. Controlled Gateway browser fixtures verify temporary composer-anchored command panels, unchanged transcript and composer geometry, close/Escape focus restoration, outside-press dismissal without swallowing or refocusing the pressed target, replacement without accumulation, new-session cancellation and Worktree creation/retry rejection, exact command Send/Enter parity and no chat payload/history insertion. Suggestion density checks cover the headerless bounded list, fine/coarse-pointer row minima, mixed @ group captions, long names and fully readable disabled reasons. Also cover route-preserved Skill drafts, 320 px rail and mobile bounds, keyboard, Reduced Motion, themes and Axe with panels open.
 
-### 9.1 Required gate order
+### 9.1 Development checks
 
-Every production UI change must pass, in order:
+For a UI implementation task, apply the existing development workflow and select checks for the affected surface. Do not rerun this list during publication:
 
 1. Static UI contract checks, product-documentation merge maintenance, and ESLint import restrictions.
 2. TypeScript and affected Vitest specs.
@@ -48,7 +48,7 @@ For every changed asynchronous action:
 
 ### 9.5 Static enforcement boundary
 
-For the 2026-09-14 release baseline, preserve the current approved collapsed-rail logo and transparent scroll-through header, and the current responsive ActorOps v2 route-card spacing. The four desktop/tablet macOS snapshots for these two surfaces follow that existing UI; updating their acceptance images does not authorize reverting the layout or loosening the functional geometry assertions.
+Preserve the current approved collapsed-rail logo and transparent scroll-through header, and the current responsive ActorOps v2 route-card spacing. The four desktop/tablet macOS snapshots for these two surfaces follow that existing UI; updating their acceptance images does not authorize reverting the layout or loosening the functional geometry assertions.
 
 The static contract rejects MUI/Emotion imports, production feature-level direct HeroUI imports, nested `DesignSystemProvider` mounts, raw business-page colors, page-level visual constants, business-owned copies of the approved PageFrame widths, and deleted preview technology. Interaction checks are added only when a narrow source rule has positive and negative fixtures and does not reject legitimate list keys, non-button state copy, or non-interactive refetch orchestration. Snapshot or expectation changes require an intentional contract change; they are not an automatic response to a failing visual test.
 

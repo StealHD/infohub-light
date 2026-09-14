@@ -3,7 +3,7 @@
 
 ## 0. 任务读取路由
 
-先读本索引了解权威与路由所有权；跨页面交互先读 interaction constitution，组件数值再读 component parameters，随后只读目标页面模块，验收前读 acceptance。项目级 `.agents/skills/inteliscope-ui/SKILL.md` 仅是自动发现与读取入口，不是第二套规范。
+先读本索引了解权威与路由所有权；跨页面交互先读 interaction constitution，组件数值再读 component parameters，随后只读目标页面模块。项目级 `.agents/skills/inteliscope-ui/SKILL.md` 指导在设计与编码时直接落实这些规则；测试/评审按需读 acceptance。发布任务不启动 UI 工作流。
 
 
 ## 1. Authority
