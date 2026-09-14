@@ -9,26 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
-    "decisions",
-    "verification"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "从本地 main 创建隔离分支，精简 PR 选测、公共 CI 校验和发布重复 preflight，加入已验证 main 基线与纯版本升级轻量验证。",
-  "status": "completed",
-  "task_id": "2026-09-12-optimize-test-release",
-  "unresolved": [],
-  "validation": [
-    "门禁、版本基线、CI shell 调度和发布阻断定向回归通过；独立差异审查的两项发现均已修复并复验。",
-    "impacted preflight 16/16 通过，完整后端/前端代码检查及生产构建成功，耗时 790.692 秒；mapping_miss=false，SQLite ResourceWarning=0。",
-    "Markdown、init-pro schema/policy、WORKLOG、控制 JSON 与 git diff --check 通过；只在 codex/optimize-test-release Worktree 修改，未合并、推送、创建 Tag 或部署。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
     "interface"
   ],
   "recorded_on": "2026-09-12",
@@ -413,6 +393,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Impacted local preflight passed 15/15 checks; direct release migration and fast publication tests passed.",
     "Full production-baseline Gate and release deployment remain subsequent steps."
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-09-14",
+  "result": "Moved production release integrity scan and backup behind API/Worker stop, made live v47 receipt verification schema-only, and added an explicit descendant-SHA receipt reissue that preserves the original backup and database.",
+  "status": "completed",
+  "task_id": "v47-live-receipt-lock-safety-20260914",
+  "unresolved": [
+    "Fast publication of the corrected descendant SHA still requires its final Gate, CI, image preparation and cutover."
+  ],
+  "validation": [
+    "Targeted migration, release, fast-artifact and runtime-script tests passed; Bash syntax, Python syntax, code-size and Markdown controls passed.",
+    "Production v47 database and old 2.6.19 runtime were left intact while correcting the live-lock issue."
   ]
 }
 ```

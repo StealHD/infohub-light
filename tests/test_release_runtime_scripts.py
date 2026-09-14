@@ -80,12 +80,26 @@ def test_normal_vps_release_does_not_run_full_database_scan_after_worker_start()
     )[0]
 
     assert cutover.count("validate_database") == 1
+    assert cutover.index('docker stop --time 20 horizon-light-worker horizon-light-api') < cutover.index(
+        "validate_database"
+    ) < cutover.index("source.backup(destination)")
     assert cutover.index("validate_database") < cutover.index(
         "horizon-api horizon-worker"
     )
     assert cutover.index("horizon-api horizon-worker") < cutover.index(
         'wait_runtime "$release_dir"'
     )
+
+
+def test_live_v47_receipt_verification_checks_schema_without_scanning_the_database():
+    helper = (ROOT / "scripts" / "release_v47.sh").read_text(encoding="utf-8")
+    online = helper.split("verify_notification_destinations_v47_receipt() {", 1)[1].split(
+        "migrate_notification_destinations_v47() {", 1
+    )[0]
+    assert "schema_migrations WHERE version=47" in online
+    assert "PRAGMA table_info" in online
+    assert "PRAGMA integrity_check" not in online
+    assert "PRAGMA foreign_key_check" not in online
 
 
 def test_rc1_release_freezes_and_propagates_the_build_source_identity():

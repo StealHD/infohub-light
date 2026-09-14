@@ -131,6 +131,8 @@ Global 47 的生产升级是唯一明确支持的迁移发布流程：先运行�
 
 迁移命令只接受干净且精确等于 `origin/main`、已通过该 SHA Test Gate 的版本；它从该提交上传源码归档但不在 VPS 构建镜像，停止现有 API/Worker、跨 Worker heartbeat 安全窗后创建 `0600` SQLite backup，再原位添加 global 47 的三张空表和 marker。完成后它校验表形、完整性和外键、生成绑定该完整 SHA 的 `0600` 回执并恢复原有运行面。发布命令在构建、Tag 和切换前重验回执、backup 与生产 schema；如果后续切换失败，回退旧程序但保留已经验证的 v47 数据库和迁移后新写入。迁移前 backup 只留作人工灾难恢复，普通回滚不会用旧快照覆盖当前生产数据。缺回执、回执不匹配、权限/路径不安全或数据校验失败一律拒绝发布。
 
+生产库使用 DELETE journal 时，运行中的 API/Worker 不能承受在线全库完整性扫描；迁移时停服务做完整校验，后续在线回执检查仅读取 marker 和表形。若迁移完成后只修改了发布安全脚本、最终 SHA 改变，可在新 SHA 的 main CI 通过后执行 `./scripts/release_vps.sh reissue-notification-destinations-v47-receipt vX.Y.Z --from-receipt /opt/inteliscope/data/backups/原迁移回执.json`，为后代提交签发指向同一份迁移前备份的新回执；此命令不改数据库、不新建备份，产品或存储代码变化时拒绝。
+
 镜像必须在本地构建并验证 `linux/amd64`，VPS 只执行 `docker load`。切换前脚本检查活跃 Job，并在发现残留历史 scheduler 容器时阻断。普通发布失败回滚到上一不可变 API/Worker release；其他数据库迁移仍必须走各自独立 runbook。
 
 频繁小改可显式选择快速发布，标准入口不变。在最终发布提交消息末尾加一个 `Release-Mode: fast` trailer；先确定版本并完成本地测试，再准备正式镜像：

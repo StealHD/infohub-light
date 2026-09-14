@@ -50,6 +50,23 @@ def test_preview_apply_backup_and_existing_data(tmp_path, monkeypatch):
         assert ready(migrated)
         assert migrated.execute('PRAGMA foreign_key_check').fetchone() is None
     assert migrate(tmp_path)['status'] == 'already_migrated'
+    database_inode = (tmp_path / 'service.db').stat().st_ino
+    reissued = tmp_path / 'backups' / 'release-v47-descendant.json'
+    with pytest.raises(ValueError, match='source migration receipt is invalid'):
+        migration.reissue_release_receipt(
+            tmp_path, source_receipt=receipt, source_revision='c' * 40,
+            release_receipt=reissued, release_revision='b' * 40,
+        )
+    result = migration.reissue_release_receipt(
+        tmp_path, source_receipt=receipt, source_revision='a' * 40,
+        release_receipt=reissued, release_revision='b' * 40,
+    )
+    assert result['status'] == 'reissued'
+    assert result['backup'] == json.loads(receipt.read_text())['backup']['path']
+    assert json.loads(reissued.read_text())['reissued_from'] == str(receipt)
+    assert json.loads(reissued.read_text())['release_revision'] == 'b' * 40
+    assert reissued.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / 'service.db').stat().st_ino == database_inode
 
 
 def test_release_receipt_failure_restores_the_existing_database(tmp_path, monkeypatch):

@@ -18,7 +18,7 @@ MIGRATION_RECEIPT_PATH=""
 MIGRATION_BACKUP_PATH=""
 
 usage() {
-  echo "Usage: $0 release <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | migrate-notification-destinations-v47 <vX.Y.Z> | release-fast <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | prepare-fast <vX.Y.Z> --gate-result PATH [--e2e-result PATH] [--migration-receipt REMOTE_ABSOLUTE_PATH] | preflight <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | rollback [release-id] | status"
+  echo "Usage: $0 release <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | migrate-notification-destinations-v47 <vX.Y.Z> | reissue-notification-destinations-v47-receipt <vX.Y.Z> --from-receipt REMOTE_ABSOLUTE_PATH | release-fast <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | prepare-fast <vX.Y.Z> --gate-result PATH [--e2e-result PATH] [--migration-receipt REMOTE_ABSOLUTE_PATH] | preflight <vX.Y.Z> [--migration-receipt REMOTE_ABSOLUTE_PATH] | rollback [release-id] | status"
 }
 
 fail() {
@@ -360,10 +360,6 @@ if receipt.get('backup') != {'path': str(expected_backup), 'mode': '0o600'}:
     raise ValueError('migration receipt backup changed before cutover')
 connection = sqlite3.connect(f'file:{database}?mode=ro', uri=True, timeout=30)
 try:
-    if connection.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-        raise ValueError('production database integrity check failed before cutover')
-    if connection.execute('PRAGMA foreign_key_check').fetchall():
-        raise ValueError('production database foreign keys are invalid before cutover')
     marker = connection.execute(
         'SELECT name, checksum FROM schema_migrations WHERE version=47'
     ).fetchone()
@@ -475,7 +471,6 @@ rollback_cutover() {
   exit "$status"
 }
 
-validate_database
 mkdir -p "$base/releases" "$base/backups"
 install -d -m 700 "$backup_dir"
 install -m 600 "$base/.env" "$backup_dir/env.before"
@@ -495,21 +490,6 @@ if [[ ! -f "$previous_release/release-metadata.env" ]]; then
     || printf 'INTELISCOPE_SOURCE_DIGEST=%s\n' "$previous_source_digest" >>"$previous_metadata_tmp"
   install -m 600 "$previous_metadata_tmp" "$previous_release/release-metadata.env"
 fi
-python3 - "$base/data/service.db" "$backup_dir/service.db" <<'PY'
-import os
-import sqlite3
-import sys
-
-source = sqlite3.connect(sys.argv[1], timeout=30)
-destination = sqlite3.connect(sys.argv[2])
-try:
-    source.backup(destination)
-finally:
-    destination.close()
-    source.close()
-os.chmod(sys.argv[2], 0o600)
-PY
-
 mkdir "$release_dir"
 tar -xzf "$remote_stage/source.tar.gz" -C "$release_dir" \
   --exclude='data' --exclude='data/*' \
@@ -538,8 +518,22 @@ loaded_source_digest="$(
 [[ "$loaded_source_digest" == "$source_digest" ]]
 
 trap rollback_cutover ERR INT TERM
-docker stop --time 20 horizon-light-worker >/dev/null
+docker stop --time 20 horizon-light-worker horizon-light-api >/dev/null
 validate_database
+python3 - "$base/data/service.db" "$backup_dir/service.db" <<'PY'
+import os
+import sqlite3
+import sys
+
+source = sqlite3.connect(sys.argv[1], timeout=30)
+destination = sqlite3.connect(sys.argv[2])
+try:
+    source.backup(destination)
+finally:
+    destination.close()
+    source.close()
+os.chmod(sys.argv[2], 0o600)
+PY
 set_env INTELISCOPE_IMAGE "$image"
 set_env INTELISCOPE_VERSION "$version"
 set_env INTELISCOPE_BUILD_REVISION "$revision"
@@ -739,6 +733,11 @@ case "$command" in
     [[ $# -eq 2 ]] || { usage; exit 2; }
     RELEASE_TAG="$2"
     migrate_notification_destinations_v47
+    ;;
+  reissue-notification-destinations-v47-receipt)
+    [[ $# -eq 4 && "$3" == --from-receipt ]] || { usage; exit 2; }
+    RELEASE_TAG="$2"
+    reissue_notification_destinations_v47_receipt "$4"
     ;;
   preflight)
     [[ $# -ge 2 ]] || { usage; exit 2; }

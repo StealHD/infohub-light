@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import sqlite3
+import stat
 import sys
 from contextlib import closing
 from datetime import datetime, timezone
@@ -65,7 +66,7 @@ def _restore_database(database, backup):
     os.chmod(database, 0o600)
 
 
-def _write_release_receipt(receipt_path, *, release_revision, backup):
+def _write_release_receipt(receipt_path, *, release_revision, backup, reissued_from=None):
     receipt_path = Path(receipt_path)
     backup = Path(backup)
     if not receipt_path.is_absolute() or not backup.is_absolute():
@@ -87,6 +88,8 @@ def _write_release_receipt(receipt_path, *, release_revision, backup):
             'checksum': 'notification-destinations-v1',
         },
     }
+    if reissued_from is not None:
+        receipt['reissued_from'] = str(reissued_from)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, 'O_NOFOLLOW'):
         flags |= os.O_NOFOLLOW
@@ -100,6 +103,52 @@ def _write_release_receipt(receipt_path, *, release_revision, backup):
         receipt_path.unlink(missing_ok=True)
         raise
     return str(receipt_path)
+
+
+def reissue_release_receipt(data_dir, *, source_receipt, source_revision,
+                            release_receipt, release_revision):
+    """Bind the already verified v47 migration to a descendant release without touching the DB."""
+    data_dir = Path(data_dir).resolve()
+    backup_dir = data_dir / 'backups'
+    source_receipt = Path(source_receipt)
+    release_receipt = Path(release_receipt)
+    if (source_receipt.parent != backup_dir or release_receipt.parent != backup_dir
+            or source_receipt == release_receipt):
+        raise ValueError('release receipts must be distinct files in the managed backup directory')
+    metadata = source_receipt.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise ValueError('source migration receipt is unsafe')
+    original = json.loads(source_receipt.read_text(encoding='utf-8'))
+    expected_marker = {'version': 47, 'name': 'notification_destinations',
+                       'checksum': 'notification-destinations-v1'}
+    if (original.get('schema') != RELEASE_RECEIPT_SCHEMA
+            or original.get('migration') != 'notification_destinations_v47'
+            or original.get('marker') != expected_marker
+            or original.get('release_revision') != source_revision
+            or len(source_revision) != 40
+            or any(c not in '0123456789abcdef' for c in source_revision)):
+        raise ValueError('source migration receipt is invalid')
+    backup = original.get('backup')
+    if not isinstance(backup, dict) or backup.get('mode') != '0o600':
+        raise ValueError('source migration backup metadata is invalid')
+    backup_path = Path(str(backup.get('path', '')))
+    if backup_path.parent != backup_dir or backup_path.is_symlink() or not backup_path.is_file():
+        raise ValueError('source migration backup is unavailable')
+    backup_mode = backup_path.stat().st_mode
+    if not stat.S_ISREG(backup_mode) or stat.S_IMODE(backup_mode) != 0o600:
+        raise ValueError('source migration backup is unsafe')
+    with closing(sqlite3.connect(f'file:{data_dir / "service.db"}?mode=ro', uri=True, timeout=5)) as conn:
+        if not ready(conn):
+            raise ValueError('existing production database has no valid v47 schema')
+    with closing(sqlite3.connect(f'file:{backup_path}?mode=ro', uri=True, timeout=5)) as conn:
+        if ready(conn):
+            raise ValueError('source migration backup is not pre-v47')
+    written = _write_release_receipt(
+        release_receipt, release_revision=release_revision, backup=backup_path,
+        reissued_from=source_receipt,
+    )
+    return {'status': 'reissued', 'release_receipt': written,
+            'source_receipt': str(source_receipt), 'backup': str(backup_path)}
 
 
 def preview(data_dir):
@@ -169,7 +218,22 @@ if __name__ == '__main__':
     parser.add_argument('--services-stopped', action='store_true')
     parser.add_argument('--release-receipt', type=Path)
     parser.add_argument('--release-revision')
+    parser.add_argument('--reissue-from', type=Path)
+    parser.add_argument('--reissue-source-revision')
     args = parser.parse_args()
-    print(json.dumps(migrate(args.data_dir, apply=args.apply, services_stopped=args.services_stopped,
-                             backup_dir=args.backup_dir, release_receipt=args.release_receipt,
-                             release_revision=args.release_revision)))
+    if args.reissue_from is not None:
+        if args.apply or args.services_stopped or args.backup_dir is not None:
+            parser.error('receipt reissue cannot migrate or change the backup directory')
+        if (args.release_receipt is None or args.release_revision is None
+                or args.reissue_source_revision is None):
+            parser.error('receipt reissue requires source and target full revisions')
+        result = reissue_release_receipt(
+            args.data_dir, source_receipt=args.reissue_from,
+            source_revision=args.reissue_source_revision,
+            release_receipt=args.release_receipt, release_revision=args.release_revision,
+        )
+    else:
+        result = migrate(args.data_dir, apply=args.apply, services_stopped=args.services_stopped,
+                         backup_dir=args.backup_dir, release_receipt=args.release_receipt,
+                         release_revision=args.release_revision)
+    print(json.dumps(result))

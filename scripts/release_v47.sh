@@ -55,10 +55,8 @@ if backup_path.parent != backup_dir:
 private_regular(backup_path)
 connection = sqlite3.connect(f'file:{database}?mode=ro', uri=True, timeout=30)
 try:
-    if connection.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-        raise ValueError('production database integrity check failed')
-    if connection.execute('PRAGMA foreign_key_check').fetchall():
-        raise ValueError('production database foreign keys are invalid')
+    # The complete integrity/FK scan ran with services stopped during migration.
+    # Repeating it against a live DELETE-journal database blocks Worker writes.
     marker = connection.execute(
         'SELECT name, checksum FROM schema_migrations WHERE version=47'
     ).fetchone()
@@ -240,4 +238,57 @@ REMOTE
   verified_backup="$(verify_notification_destinations_v47_receipt "$receipt_path" "$revision")"
   [[ -n "$verified_backup" ]] || fail "v47 receipt verification returned no backup"
   echo "v47 migration complete; release with --migration-receipt $receipt_path"
+}
+
+reissue_notification_destinations_v47_receipt() {
+  local source_receipt="$1" source_revision revision receipt_path archive archive_sha stage
+  require_commands
+  require_release_identity
+  [[ "$source_receipt" == "$REMOTE_BASE/data/backups/migration-notification-destinations-v47-"*.json ]] \
+    || fail "source receipt must be a managed v47 migration receipt"
+  source_revision="${source_receipt##*migration-notification-destinations-v47-}"
+  source_revision="${source_revision%.json}"
+  [[ "$source_revision" =~ ^[0-9a-f]{40}$ ]] || fail "source receipt has no full revision"
+  revision="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+  [[ "$source_revision" != "$revision" ]] || fail "source and target receipt revisions must differ"
+  git -C "$ROOT_DIR" merge-base --is-ancestor "$source_revision" "$revision" \
+    || fail "source migration revision is not an ancestor of the release"
+  [[ -z "$(git -C "$ROOT_DIR" diff --name-only "$source_revision"..."$revision" -- \
+    src/storage src/services frontend/src)" ]] \
+    || fail "product or storage behavior changed after v47 migration; a receipt cannot be reissued"
+  verify_notification_destinations_v47_receipt "$source_receipt" "$source_revision" >/dev/null
+  receipt_path="$REMOTE_BASE/data/backups/migration-notification-destinations-v47-$revision.json"
+  [[ -z "$(ssh "$REMOTE_HOST" test -e "$receipt_path" && printf present || true)" ]] \
+    || fail "target release receipt already exists: $receipt_path"
+  wait_for_workflow_success test-gate.yml "$revision" main
+  RELEASE_TMP_DIR="$(mktemp -d -t inteliscope-v47-receipt.XXXXXX)"
+  archive="$RELEASE_TMP_DIR/source.tar.gz"
+  git -C "$ROOT_DIR" archive --format=tar.gz --output="$archive" "$revision"
+  archive_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  stage="/tmp/inteliscope-migration-v47-receipt-${revision:0:12}-$$"
+  REMOTE_RELEASE_STAGE="$stage"
+  ssh "$REMOTE_HOST" mkdir -p "$stage"
+  transfer_with_retry "$archive" "$REMOTE_HOST:$stage/source.tar.gz" \
+    || fail "v47 receipt source upload failed"
+  ssh "$REMOTE_HOST" bash -s -- "$REMOTE_BASE" "$stage" "$archive_sha" \
+    "$source_receipt" "$source_revision" "$receipt_path" "$revision" <<'REMOTE'
+set -euo pipefail
+base="$1"
+stage="$2"
+archive_sha="$3"
+source_receipt="$4"
+source_revision="$5"
+receipt_path="$6"
+revision="$7"
+[[ "$(sha256sum "$stage/source.tar.gz" | awk '{print $1}')" == "$archive_sha" ]]
+tar -xzf "$stage/source.tar.gz" -C "$stage"
+(cd "$stage" && python3 scripts/migrate_notification_destinations_v47.py \
+  --data-dir "$base/data" --reissue-from "$source_receipt" \
+  --reissue-source-revision "$source_revision" \
+  --release-receipt "$receipt_path" --release-revision "$revision")
+rm -rf -- "$stage"
+REMOTE
+  REMOTE_RELEASE_STAGE=""
+  verify_notification_destinations_v47_receipt "$receipt_path" "$revision" >/dev/null
+  echo "v47 receipt reissued without changing the database: $receipt_path"
 }
