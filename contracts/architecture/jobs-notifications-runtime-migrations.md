@@ -43,7 +43,7 @@ React UI 低频读取当前用户 schedule，并在发现 active job 后复用�
 
 `src/services/notification_email_transport.py::WorkspaceEmailTransportService` 独占 schema v10 工作区邮件发送配置、固定 Provider Registry、凭据绑定、管理员测试门禁和 MIME/SMTP 发送。QQ、网易、Gmail、Resend 与 Amazon SES 的 host/port/login 只由 Registry 派生，API 不接受自定义 host 或 TLS 模式；SES host 只能由经过格式约束的 Region 拼接。Owner/Admin mutation 在 SQLite 写锁内重读实时 actor；凭据只写确定性的工作区 SecretStore 变量，SQLite 只保存变量名与 SHA-256 摘要。API 测试与 Worker 必须复用同一发送方法，每次发送重新读取 SecretStore 并比较摘要，TLS 使用系统 CA、SSL/465 和 20 秒 timeout。
 
-`src/services/notification_telegram_transport.py` 独占 Bot Token/Chat ID 语法校验、固定 Telegram Bot API `sendMessage` 请求、4096 字符纯文本边界、ACK 校验和稳定错误分类；业务服务不得接受自定义 API host、复制请求或解析响应。工作区 `WorkspaceTelegramTransportService` 独占 Bot Token SecretStore 绑定、generation 与 enable gate；规范 UI 通过某个 Telegram 服务的组合测试同时验证当前 Bot generation 与 Chat ID，旧独立 Transport test 只保留兼容。请求只含 `chat_id/text/link_preview_options.is_disabled=true`，不发送 `parse_mode`；HTTP 成功还必须校验 `ok=true`、数字 message ID 和目标会话一致。POST 已开始后的 timeout、5xx 或畸形响应为 unknown 且不自动重放。
+`src/services/notification_telegram_transport.py` 独占 Bot Token/Chat ID 语法校验、固定 Telegram Bot API `sendMessage` 请求、4096 字符纯文本边界、ACK 校验和稳定错误分类；业务服务不得接受自定义 API host、复制请求或解析响应。工作区 `WorkspaceTelegramTransportService` 独占 Bot Token SecretStore 绑定、generation 与 enable gate；规范 UI 通过某个 Telegram 服务的组合测试同时验证当前 Bot generation 与 Chat ID，旧独立 Transport test 只保留兼容。请求含 `chat_id/text/link_preview_options.is_disabled=true`，指定话题时加 `message_thread_id`，不发送 `parse_mode`；HTTP 成功还必须校验 `ok=true`、数字 message ID 和目标会话一致。POST 已开始后的 timeout、5xx 或畸形响应为 unknown 且不自动重放。
 
 通知候选必须在 `FeedProductionService` 已生成 snapshot 后、`JobQueue.complete_job()` 的 claim-guarded 事务提交前通过局部 savepoint stage；它只接受相邻 snapshot 的稳定 article ID 新增、完整订阅 provenance、严格晚于总开关、目标、绑定与订阅水位的可解析 `published_at`，并跳过首份 snapshot、历史复用、reconcile、`personal_only`、source test、content repair 和失败任务。snapshot、Source Health、Job 或 claim 回滚时 outbox 同步回滚；通知 staging 自身失败只回滚该目标 savepoint，不得让已完成获取重跑或阻断其他目标。
 
@@ -71,6 +71,8 @@ member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL us
 ### 3.10 Runtime / Migration Boundary
 
 标准与显式快速发布共享 `release_vps.sh` 的上传、备份、切换、健康和回滚。快速路径仅把不可变镜像准备与隔离 API smoke 前移到本地；验证与复用条件统一见[测试流程](../../dev/test-gate.md#显式快速发布)，不降低本节运行时边界。
+
+Global 47 `notification_extension_schema.py` 由新库 bootstrap 或停 API/Worker 后显式迁移安装；旧库绝不随 initialize 自动升级。`notification_target_topics.py` 保存 Telegram 目的地话题，`openclaw_notification_services.py` 管理自动化专用的 SecretStore 目的地与版本，`openclaw_notification_transport.py` 使用现有管理员 Gateway 连接读取 `channels.status` 并直发 `send`。`information_automations/preview_delivery.py` 只由 Worker 消费持久测试通知意图；模型 connector 不持有通知权限。新模块不扩充历史通知目标的渠道 CHECK，普通来源通知和 ActorOps 绑定仍只见旧服务类型。
 
 Global 45 `information_recovery_schema.py` 显式新增执行能力、刷新请求、预览确认与请求幂等四张独立状态表；不改历史迁移，不回填或执行旧预览。新库 bootstrap 安装，既有库必须停 API/Worker 后通过 `scripts/migrate_information_recovery_v45.py --data-dir ABS --apply` 备份、迁移和完整性核验。恢复操作见 [自动化恢复手册](../../dev/automation-analysis-recovery.md)，接口真源见 [信息自动化](../api/information-automations.md)。
 
