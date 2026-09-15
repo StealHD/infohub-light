@@ -58,6 +58,8 @@ def test_normal_vps_release_keeps_runtime_protection_without_ci_waits():
     assert 'REMOTE_RELEASE_STAGE="/tmp/inteliscope-release-$release_id"' in fast
     assert '[[ "$stage" =~ ^/tmp/inteliscope-(release|migration)-[A-Za-z0-9._-]+$ ]]' in script
     assert 'rm -rf -- "$stage"' in script
+    assert 'migration_receipt="${10:-}"' in script
+    assert 'migration_backup="${11:-}"' in script
     package = script.split("build_package_and_upload() {", 1)[1].split("deploy_remote_release() {", 1)[0]
     assert package.count('require_frozen_release_source "$revision_full"') == 2
     assert package.index('require_frozen_release_source "$revision_full"') < package.index("docker buildx build")

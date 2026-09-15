@@ -12,26 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-09-13",
-  "result": "自动化测试支持自定义文本输入，文本替代所选 Feed 文章创建隔离预览；本地测试环境重启时加载测试库的 OpenClaw 配置并启动分析 Connector，当前绑定已有心跳。",
-  "status": "completed",
-  "task_id": "automation-custom-text-and-local-connector-20260913",
-  "unresolved": [
-    "旧的离线测试记录保留终态，需由用户显式手动重新测试；不自动重放可能包含通知的测试。"
-  ],
-  "validation": [
-    "语义预览定向 Pytest 5 项通过，覆盖自定义文本、请求去重与冲突。",
-    "自动化前端定向 Vitest 8 项通过，TypeScript typecheck 与 git diff --check 通过；API、前端、Worker 及 Connector 当前本地就绪。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-13",
   "result": "修复自定义文本测试因没有原文 URL 被通知层误判为缺少证据的问题；命中后可发送包含测试标记、摘要、理由与判断依据的通知，并重启当前分支的 API、Worker 和 Connector。",
   "status": "completed",
   "task_id": "custom-preview-notification-delivery-20260913",
@@ -376,6 +356,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "OpenClaw 会话回归 34/34 通过；TypeScript、ESLint、UI contract 及前端代码规模检查通过。",
     "新增 workspace 错误轨道断言，确认错误提示具有与 transcript 相同的居中最大宽度；未中断当前 Gateway 或发送消息来制造真实错误。",
     "首次 preflight 仅因 OpenClawTimeline 超过 150 行失败；抽取组件后 impacted preflight 13/13 通过，0 失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-09-16",
+  "result": "修复普通发布未传 v47 回执时 SSH 丢弃空尾参数、VPS cutover 在严格模式读取第 10/11 参数失败的问题；可选回执与备份均使用安全空值默认，不改变迁移、备份、切换或回滚边界。",
+  "status": "completed",
+  "task_id": "release-empty-migration-arguments-20260916",
+  "unresolved": [],
+  "validation": [
+    "tests/test_release_runtime_scripts.py 与 tests/test_release_preflight.py 定向回归通过；bash -n scripts/release_vps.sh 和 git diff --check 通过。",
+    "首次真实发布在 VPS 切换前安全停止，未创建 Tag；修复后将从同一干净 main 重试。"
   ]
 }
 ```
