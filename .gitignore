@@ -52,6 +52,9 @@ data/openclaw-relay/
 data/cache/
 data/media/
 data/site/
+data/archives/
+data/.source-identity-v46.lock
+data/gateway-local-test-cert.pem
 
 docs/_posts/*.md
 

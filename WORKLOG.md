@@ -8,70 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "verification"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "保留标准发布，新增显式 prepare-fast/release-fast；GitHub 按提交与 Tag 模式分流，快速路径复用本地测试覆盖和正式 AMD64 镜像，共用上传、切换、健康与回滚。",
-  "status": "completed",
-  "task_id": "2026-09-12-fast-release",
-  "unresolved": [],
-  "validation": [
-    "相关模式、CI 历史、覆盖范围、脚本分流、产物一致性和清理测试通过；最终 impacted preflight 16/16 通过（616.772 秒），mapping_miss=false、SQLite ResourceWarning=0，结果可复用。",
-    "临时干净检出的源码输入与任务一致；本地真实 AMD64 构建、打包和隔离验收通过（缓存命中下共 53.321 秒）。容器内 loopback API smoke 8/8 通过（4.842 秒），使用 network none，测试容器和镜像已清理。",
-    "只读核对生产 revision 后，真实最终 Gate 结果通过快速准备的覆盖与输入校验。控制文档结构、Markdown 预算及 diff 格式检查通过；GitHub workflow 仅本地行为验证，未推送、未创建正式 Tag、未部署。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "从本地 main d853e3bb 建立独立修复工作树与分支；模型目录跟随 OpenClaw 配置交集并退役可证明未修改的系统快照，用户 MCP 统一实时角色权限且补齐事务末端校验，托管过滤器保留令牌幂等升级，会话菜单支持确认后永久删除。发布候选版本 2.6.20。",
-  "status": "partial",
-  "task_id": "openclaw-model-mcp-session-fixes-20260912",
-  "unresolved": [
-    "OpenClaw 主机 ubuntu@124.223.12.170 拒绝现有本机维护密钥，已向用户询问 SSH 别名或密钥文件路径；尚未合并 main、发布 VPS、开启线上系统设置写开关或执行远端托管配置升级。",
-    "OpenClaw 2026.9.2 先删会话再回收工作树；为保证失败时保留会话，带工作树会话提前拒绝删除，需先在 OpenClaw 安全清理工作树。"
-  ],
-  "validation": [
-    "本地 impacted preflight 15/15 通过，包含完整后端、148 个前端测试文件 928 项、类型/静态/构建检查；未关闭 SQLite 连接警告为 0。记录：.test-results/20260912T132300Z-26226/result.json。",
-    "Agent Workspace 与会话目录 Playwright：35 通过，16 按设备条件跳过；首屏 JavaScript Brotli 245218 bytes。全程未调用真实 AI 或删除线上会话。",
-    "读取 OpenClaw 2026.9.2 官方发布包核对 sessions.delete 参数、expectedSessionId 与工作树回收顺序。VPS 只读核对：2.6.19，API/Worker healthy。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "自动化任务的模型目录改为直接读取当前用户个人 OpenClaw Agent 的 configured 模型；刷新不再依赖分析执行器、Inteliscope 白名单或模型调用，并同步更新界面、手册和变更日志。",
-  "status": "completed",
-  "task_id": "2026-09-13-openclaw-model-direct-catalog",
-  "unresolved": [],
-  "validation": [
-    "本地浏览器实际点击刷新模型目录，返回 12 个 OpenClaw 已配置模型；未启用任务、未调用模型。",
-    "完整 impacted preflight 15/15 通过：后端全量 Pytest、前端 148 文件/928 测试、lint、build 与 UI 合同。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui",
     "verification"
@@ -398,6 +334,55 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布脚本、制品和调度 37 项定向回归通过；Bash 语法、Markdown 控制与 diff 检查通过。",
     "未修改产品 UI、数据库结构、生产配置或任何任务记录。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-09-15",
+  "result": "将本地数据归档目录、source identity v46 迁移锁文件和 gateway 本地测试证书加入 Git 忽略规则；现有运行产物未删除。",
+  "status": "completed",
+  "task_id": "ignore-local-data-artifacts-20260915",
+  "unresolved": [],
+  "validation": [
+    "git check-ignore 已确认三个未跟踪项分别命中新增规则。",
+    "impacted control preflight 5/5 通过；WORKLOG 校验和 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "在本地 main 工作区修复 df068ba9 简化发布后遗漏的重复测试：移除运行时测试中要求 Tag 查询旧 Gate 与执行 smoke 的断言，由既有 Tag 专项测试集中验证版本、main 归属和无 CI/smoke 依赖；开发 CI 的手动 smoke 检查保留。仅修改测试，不改变发布流程或图片适配。",
+  "status": "completed",
+  "task_id": "2026-09-15-tag-workflow-test-sync",
+  "unresolved": [],
+  "validation": [
+    "修复前定向复现 tests/test_light_runtime_scripts.py:1085 旧 Gate 查询断言失败；该文件被 python_api_store 和 python_scripts 共用。",
+    "相关 Pytest 四个文件 67 项通过；任务范围 diff 审查与 git diff --check 通过。",
+    "任务 snapshot impacted preflight 8/8 通过，无映射遗漏与未关闭 SQLite 连接警告；证据 .test-results/20260915T115236Z-99665/result.json。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "按用户要求将本地 main 已验证的两份 Tag 发布测试修复补丁应用到 codex/analyze-openai-reset-test-miss 与 codex/ui-sidebar-automations-0915 工作区；两处均保留为未提交修改，未合并或推送。",
+  "status": "completed",
+  "task_id": "2026-09-15-apply-tag-test-fix-to-two-branches",
+  "unresolved": [],
+  "validation": [
+    "两个目标均通过 git apply --check；应用后两份测试文件与本地 main 修复逐字节一致。用户随后明确只需应用，不追加 preflight。"
   ]
 }
 ```
