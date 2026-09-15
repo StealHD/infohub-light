@@ -242,6 +242,21 @@ def list_reconcilable(repository: Any, *, limit: int):
                      AND (result_state='pending' OR cost_final=0)
                  )
                  OR (
+                     status IN ('registered', 'running')
+                     AND result_state='observed'
+                     AND cost_final=1
+                     AND remote_run_id IS NOT NULL
+                     AND dataset_id IS NOT NULL
+                     AND EXISTS (
+                         SELECT 1 FROM fetch_jobs AS job
+                          WHERE job.id=actor_attempts_v2.logical_job_id
+                            AND job.workspace_id=actor_attempts_v2.workspace_id
+                            AND job.job_type='source_fetch'
+                            AND job.source_id=actor_attempts_v2.source_id
+                            AND job.status IN ('failed','partial','cancelled')
+                     )
+                 )
+                 OR (
                      status IN ('succeeded', 'failed', 'cancelled')
                      AND cost_final=0
                      AND (

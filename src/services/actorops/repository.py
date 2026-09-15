@@ -166,8 +166,8 @@ class ActorOpsRepository:
             error_code=error_code,
         )
 
-    def has_unsettled_fetch_cost(self, *, route_id: str, source_id: str) -> bool:
-        return _execution.has_unsettled_fetch_cost(
+    def fetch_blocking_code(self, *, route_id: str, source_id: str) -> str | None:
+        return _execution.fetch_blocking_code(
             self, route_id=route_id, source_id=source_id
         )
 

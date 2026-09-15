@@ -47,12 +47,11 @@ class SourceFreshnessRepository:
         candidates = eligible_runtime_candidates(self.repository, candidates)
         if not candidates:
             return FreshnessPlan(())
-        if self.circuit.has_unsettled_cost(
+        blocker = self.circuit.blocking_code(
             binding, logical_job_id=logical_job_id
-        ):
-            return FreshnessPlan(
-                (), blocked_code="actorops_cost_settlement_required"
-            )
+        )
+        if blocker:
+            return FreshnessPlan((), blocked_code=blocker)
         states = candidate_operational_states(self.repository, candidates)
         candidates = tuple(
             item for _, item in sorted(

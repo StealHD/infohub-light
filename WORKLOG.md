@@ -10,26 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "decisions",
-    "verification"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "保留标准发布，新增显式 prepare-fast/release-fast；GitHub 按提交与 Tag 模式分流，快速路径复用本地测试覆盖和正式 AMD64 镜像，共用上传、切换、健康与回滚。",
-  "status": "completed",
-  "task_id": "2026-09-12-fast-release",
-  "unresolved": [],
-  "validation": [
-    "相关模式、CI 历史、覆盖范围、脚本分流、产物一致性和清理测试通过；最终 impacted preflight 16/16 通过（616.772 秒），mapping_miss=false、SQLite ResourceWarning=0，结果可复用。",
-    "临时干净检出的源码输入与任务一致；本地真实 AMD64 构建、打包和隔离验收通过（缓存命中下共 53.321 秒）。容器内 loopback API smoke 8/8 通过（4.842 秒），使用 network none，测试容器和镜像已清理。",
-    "只读核对生产 revision 后，真实最终 Gate 结果通过快速准备的覆盖与输入校验。控制文档结构、Markdown 预算及 diff 格式检查通过；GitHub workflow 仅本地行为验证，未推送、未创建正式 Tag、未部署。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
     "interface",
     "observability",
     "ui"
@@ -398,6 +378,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布脚本、制品和调度 37 项定向回归通过；Bash 语法、Markdown 控制与 diff 检查通过。",
     "未修改产品 UI、数据库结构、生产配置或任何任务记录。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "修复 ActorOps 已结算成功 Run 因原 source_fetch Job 失败而长期阻塞的问题：Reconciler 以 CAS 重排 exact Job，运行时只读原 Dataset 并重新验证/发布，不创建第二个 Attempt、费用预留或 Actor POST；明确区分费用待结算与结果待恢复，原 Job 取消时保留真实费用并安全终结。同步手册和更新日志，并切换本地 API、Worker、Vite 到修复分支。",
+  "status": "completed",
+  "task_id": "issue-3-actorops-result-recovery-20260915",
+  "unresolved": [
+    "仓库 main 基准中的 release-tag.yml 缺少 test_light_runtime_scripts.py 已要求的 test-gate workflow 查询字符串，导致标准 targeted gate 的既有断言失败；该断言在基准提交 12bd333a 可独立复现，本次未扩大范围修改发布工作流。",
+    "未修改生产数据库、未部署生产，也未合并 main。"
+  ],
+  "validation": [
+    "ActorOps 相关回归 41 项通过；覆盖失败 Job 重排、取消终结、费用/结果 blocker 区分、原 Dataset 复读且 Actor POST 为 0；代码尺寸和 diff 检查通过。",
+    "除已在 main 基准复现的单个发布工作流断言外，后端 tests 全集通过；前端 UI contract、typecheck、lint 和更新日志页面 5 项测试通过。",
+    "本地 API live/ready 200、Worker ready、Vite 200；三个进程均从修复 worktree 运行并复用主工作区原 data/logs，本地待恢复 observed/final fetch Attempt 数为 0。"
   ]
 }
 ```

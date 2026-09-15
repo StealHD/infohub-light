@@ -59,20 +59,25 @@ class SourceCandidateCircuit:
             ).rowcount
         return changed == 1
 
-    def has_unsettled_cost(
+    def blocking_code(
         self, binding: Any, *, logical_job_id: str
-    ) -> bool:
-        return self.repository.connection.execute(
-            """SELECT 1 FROM actor_attempts_v2
+    ) -> str | None:
+        row = self.repository.connection.execute(
+            """SELECT status, result_state, cost_final FROM actor_attempts_v2
                 WHERE workspace_id=? AND route_id=? AND source_id=? AND kind='fetch'
                   AND (status NOT IN ('succeeded','failed','cancelled') OR cost_final=0)
                   AND logical_job_id<>?
-                LIMIT 1""",
+                ORDER BY cost_final, updated_at, attempt_id LIMIT 1""",
             (
                 self.repository.workspace_id, binding.route_id,
                 binding.source_id, logical_job_id,
             ),
-        ).fetchone() is not None
+        ).fetchone()
+        if row is None:
+            return None
+        if not bool(row["cost_final"]):
+            return "actorops_cost_settlement_required"
+        return "actorops_result_recovery_required"
 
     def record_failure(
         self, *, binding: Any, candidate_id: str, outcome: str,

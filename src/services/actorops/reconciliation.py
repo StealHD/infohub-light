@@ -14,7 +14,10 @@ from .ports import (
     ReconciliationRunObservation,
     RemoteRunLedger,
 )
-from .reconciliation_lifecycle import settle_unstarted_after_terminal_job
+from .reconciliation_lifecycle import (
+    recover_observed_result_after_terminal_job,
+    settle_unstarted_after_terminal_job,
+)
 from .recovery_probe import (
     RECOVERY_ATTEMPT_GROUP_PREFIX,
     apply_settled_recovery_success,
@@ -251,6 +254,21 @@ class ActorOpsReconciler:
                     actual_cost_usd=observation.actual_cost_usd,
                     cost_final=observation.cost_final,
                 )
+                current_row = self.repository.get_attempt(str(row["attempt_id"]))
+                recovery = recover_observed_result_after_terminal_job(
+                    self.repository, current_row
+                )
+                if recovery == "queued":
+                    self.repository.resilience.emit(
+                        root_job_id=str(current_row["logical_job_id"]),
+                        route_id=str(current_row["route_id"]),
+                        source_id=str(current_row["source_id"]),
+                        candidate_id=str(current_row["candidate_id"]),
+                        phase="attempt_result_recovery",
+                        outcome="queued",
+                        reason_code="actorops_result_recovery_queued",
+                        final_cost_usd=current_row["actual_cost_usd"],
+                    )
             return ReconciliationSummary(remote_reads=1, settled=1)
         if normalized in _REMOTE_TERMINAL_FAILURE:
             if current in TERMINAL_ATTEMPT_STATUSES:

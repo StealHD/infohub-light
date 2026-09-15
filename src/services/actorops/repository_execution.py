@@ -184,16 +184,21 @@ def record_runtime_candidate_outcome(
     return repository.get_candidate(candidate_id)
 
 
-def has_unsettled_fetch_cost(
+def fetch_blocking_code(
     repository: Any, *, route_id: str, source_id: str
-) -> bool:
+) -> str | None:
     """Check the paid-source admission barrier inside the caller's write txn."""
 
     repository._require_transaction()
-    return repository.connection.execute(
-        """SELECT 1 FROM actor_attempts_v2
+    row = repository.connection.execute(
+        """SELECT status, result_state, cost_final FROM actor_attempts_v2
             WHERE workspace_id=? AND route_id=? AND source_id=? AND kind='fetch'
               AND (status NOT IN ('succeeded','failed','cancelled') OR cost_final=0)
-            LIMIT 1""",
+            ORDER BY cost_final, updated_at, attempt_id LIMIT 1""",
         (repository.workspace_id, route_id, source_id),
-    ).fetchone() is not None
+    ).fetchone()
+    if row is None:
+        return None
+    if not bool(row["cost_final"]):
+        return "actorops_cost_settlement_required"
+    return "actorops_result_recovery_required"
