@@ -348,6 +348,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "1735c336",
   "control_topics": [
     "architecture",
     "interface",
@@ -356,20 +357,18 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-15",
   "result": "修复 ActorOps 已结算成功 Run 因原 source_fetch Job 失败而长期阻塞的问题：Reconciler 以 CAS 重排 exact Job，运行时只读原 Dataset 并重新验证/发布，不创建第二个 Attempt、费用预留或 Actor POST；明确区分费用待结算与结果待恢复，原 Job 取消时保留真实费用并安全终结。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "issue-3-actorops-result-recovery-20260915",
-  "unresolved": [
-    "尚未推送远端或部署生产。"
-  ],
+  "unresolved": [],
   "validation": [
-    "ActorOps 相关回归 41 项通过；覆盖失败 Job 重排、取消终结、费用/结果 blocker 区分、原 Dataset 复读且 Actor POST 为 0；代码尺寸和 diff 检查通过。",
-    "合并前后端测试已通过相关发布工作流断言；当前分支待完成最终合并与门禁。"
+    "合并后的 main 后端全量 Pytest 通过；前端全量 150 个测试文件、939 项通过。",
+    "工作日志、Markdown、可观测性和差异检查通过；合并提交为 1735c336。"
   ]
 }
 ```
-
 ```json
 {
+  "commit": "1735c336",
   "control_topics": [
     "architecture",
     "interface",
@@ -378,15 +377,14 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-15",
   "result": "实现 Instagram 独立帖子媒体提取、图集和视频封面缓存接入、详情顺序保持，以及默认预览和显式摘要确认的单文章补图 CLI。媒体通过原帖子身份校验关联，不修改 Candidate Manifest；维护路径只复用私有地址或同来源已结算 Run 的既有 Dataset，不创建 Actor、费用预留、文章、快照、AI 或通知。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "instagram-post-media-adaptation-20260915",
   "unresolved": [
-    "两个旧成功 Dataset 返回 404，未做历史文章补图；用户确认不需要补回。",
-    "尚未推送远端或部署生产。"
+    "两个旧成功 Dataset 返回 404，未做历史文章补图；用户确认不需要补回。"
   ],
   "validation": [
-    "Instagram 提取、补图、媒体缓存、展示、ActorOps 映射与旧内容修复关联回归 77 项通过；覆盖无缩略图映射、嵌套行、视频 URL 拒绝、图集顺序/上限、多尺寸、部分下载、重复执行、并发拒绝、事务回滚、原 Run GET 和租户隔离。",
-    "前端完整门禁 11 个命令通过，含 939 项 Vitest、Lint、UI/E2E 静态合同和生产构建；代码尺寸、Observability、控制文档结构和 diff 检查通过。"
+    "Instagram 提取、补图、媒体缓存、展示、ActorOps 映射与旧内容修复关联回归 77 项通过；合并后的 main 后端全量 Pytest 通过。",
+    "前端全量 150 个测试文件、939 项通过；工作日志、Markdown、可观测性和差异检查通过；合并提交为 1735c336。"
   ]
 }
 ```
