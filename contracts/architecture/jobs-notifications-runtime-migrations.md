@@ -2,6 +2,8 @@
 Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥、Webhook URL/签名、Telegram Bot Token 或 Telegram Chat ID。真实 AI/Apify 值、write-only 通知目的地与 Transport 凭据由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，多值变更必须先构造完整新状态再原子替换且权限为 `0600`；SQLite 只保存用途绑定的确定性变量名、SHA-256 摘要和非秘密 Provider 元数据。API/Worker 可以热加载该文件，但 API、日志、job、Feed、outbox、DOM、Toast 和非管理员 source 投影不得返回真实值。Apify pool 表只引用 `secret_id/version` 和安全状态；活动、排空中或仍有非终态 Run 的成员不得轮换或删除，必须先走安全排空。`source_catalog.secret_env` 在池模式只保留回滚兼容，不参与读取、展示或新来源写入。
 
 ### 3.8 Job Boundary
+
+Instagram 媒体维护例外为显式单文章 CLI（[操作手册](../../dev/instagram-media-repair.md)）：默认只读预览，`--apply --expected-preview` 才进入带版本栅栏的媒体事务。独立既有 Dataset reader 只复用原 acquisition Run 的同版本凭据执行有界 GET，不经过会创建预留的通用 Dataset 重读入口。不得创建 Actor Run、费用预留、AI、通知、文章或快照，不进入免费来源批量修复。媒体缓存的双向文件 journal 随 SQLite commit/rollback 完成清理，稳定索引是唯一更新的 Feed/History 投影。
 长耗时抓取、source test 和用户 feed refresh 必须通过 job queue 表达。Web 请求只创建、取消、重试或查询 job；Worker 负责执行 job 并写入状态/result。Worker claim 在 `BEGIN IMMEDIATE` 中原子写入 `worker_id + claim_token + locked_until`；finalize、失败、续租必须带同一 claim guard。Worker 每 10 秒 heartbeat/续租，35 秒未更新视为 stale；过期 running job 会在下一次 claim 前回到 queued 或达到上限后 failed。SQLite MVP 不强杀正在执行的 Python 任务。
 
 `src/services/response_schema.py` 独占上游与标准化响应结构摘要：adapter 在原始对象仍位于调用栈时立即转换为有界 `path + type`，只把摘要交给 Orchestrator；`safe_run_diagnostics()` 独占 `response_schemas` 的 Job 投影。共享获取命中只记录 `cached`，不得读取或复制旧 Job 的上游结构。原始响应值和结构诊断均不得进入 Feed snapshot 或 `user_content_items`。

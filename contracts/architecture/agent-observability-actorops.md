@@ -54,7 +54,7 @@ managed handler 每次 emit 都必须确认 write/flush 结果，并把 runtime/
 
 Actor 全局熔断必须在十五分钟内至少两个不同、此前成功返回真实帖子的来源出现系统性语义异常；单来源连续异常只暂停该来源六小时。冷却按 1/3/6/24 小时递增，到期只把候选置为 half-open 并复用下一次自然任务；连续两次真实成功才恢复 closed，恢复候选不抢占当前 active。Dami 在成功 Canary 前保持 disabled；由至多两个当前已启用的不同 X/profile source 分别成功返回真实帖子后进入 48 小时 probation，真实帖子成功率达到 95% 才转正，零样本或低于门槛都自动禁用。Canary 强制最多一条结果且与自然 paid attempt 在同候选上双向互斥；这种临时 busy 不得污染候选健康或 route 状态。管理员完整排序是健康候选的选择优先级，reorder 必须能影响下一次选择，但不得中断已取得 lease 的调用。
 
-route generation 与 Key pool generation 都进入 shared acquisition fingerprint。正常抓取开始时取得 route generation；同一调用内发生合法切换时，成功结果必须携带路由服务签发的最终 generation 证明，coordinator 才可在一个事务中把旧 acquisition claim 迁移到新 key 并发布；没有证明、Key generation 同时变化、目标 generation 已有 owner 或 finalize 前再次变化时全部拒绝写缓存与 Feed。管理员或并发路由变化后的迟到结果只结算费用并终止 attempt，禁止更新候选/目标健康或签发新 generation 证明。Worker 在领取新 Job 前必须先对账 Key Run 与 Actor attempt；可安全恢复的已启动 Run 必须继续 poll/dataset/语义校验，已语义成功但 Job 未完成的 attempt 只 GET 重读原 Dataset，无法确认是否启动或缺少可验证 Dataset 时保持 blocked，不得靠 Job lease 过期重复 POST。
+route generation 与 Key pool generation 都进入 shared acquisition fingerprint。正常抓取开始时取得 route generation；同一调用内发生合法切换时，成功结果必须携带路由服务签发的最终 generation 证明，coordinator 才可在一个事务中把旧 acquisition claim 迁移到新 key 并发布；没有证明、Key generation 同时变化、目标 generation 已有 owner 或 finalize 前再次变化时全部拒绝写缓存与 Feed。管理员或并发路由变化后的迟到结果只结算费用并终止 attempt，禁止更新候选/目标健康或签发新 generation 证明。Worker 在领取新 Job 前必须先对账 Key Run 与 Actor attempt；可安全恢复的已启动 Run 必须继续 poll/dataset/语义校验，已观察成功、费用终结但原 Job 失败的 Attempt 只以 CAS 重排该 exact Job，并由它 GET 重读原 Dataset、重新验证后经过 publication fence，不创建第二次 Actor 请求或费用预留。原 Job 明确取消时保留费用并终结 Attempt；已有同来源活跃 Job、无法确认是否启动或缺少可验证 Dataset 时保持 blocked，不得跨 Job 接管或靠 Job lease 过期重复 POST。
 
 ### 3.6J Generic Apify ActorOps Boundary
 

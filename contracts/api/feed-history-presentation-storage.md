@@ -1,5 +1,7 @@
 Feed retention / current cold-storage 规则：
 
+Instagram 帖子媒体：Adapter 在既有身份、URL、时间和正文校验后按稳定帖子 ID 关联内部图片清单，不改变 Candidate Manifest 或公开 Feed Schema。支持单图、子项优先图集、视频封面和混合图集；每帖最多缓存 6 张，复用 `presentation.media.images/count/total_image_count/truncated`。尺寸候选择优、签名变体去重；不递归采集头像/评论/推荐内容，不下载视频。非法或关联歧义的媒体不影响有效文字，部分缓存失败保留已知总数。超过有界扫描的未核验尾部不计作已确认图片。指定历史补图只修改该用户既有 `user_content_items` 的媒体投影和私有资产；历史快照、分析、状态和水位不变。命令及拒绝原因见[补图手册](../../dev/instagram-media-repair.md)。
+
 1. `GET /api/feed/latest` 从当前用户隔离的 `user_content_items` 稳定索引投影 `feed_start <= effective_at <= now` 的内容，按 `effective_at DESC, article_id ASC` 稳定返回；最新 schema-v2 snapshot 只提供生成元数据和已保存集合成员证据。不得读取全局 `data/site/radar-data.json`、`history-data.json` 或 `article-graph.json`。响应增加 `window{timezone="Asia/Shanghai",feed_days,today_start,feed_start,now}`，`feed_days` 来自工作区 `filtering.feed_window_days` 且只允许 `7/14/30`。
 2. `effective_at` 是稳定展示时间：优先使用可解析且不超过当前时间五分钟的可信 `published_at`，否则使用首次入库时间。缺失、非法或异常未来发布时间不得进入未来；同一稳定 article ID 的重复抓取只更新展示内容和 `last_seen_at`，不得改写已有 `effective_at` 把旧内容重新移回 Feed。v11 以带备份的显式迁移回填 `effective_at/search_text` 和增量 FTS5 索引。
 3. 上海当天为当地 `00:00` 到 `window.now`，Feed 为当天及之前 N-1 个自然日，History 严格为 `effective_at < feed_start`。compat view 的 `today_items` 只是最终 `items` 中 `timeline_bucket=today` 的子集；canonical view 省略该重复集合，客户端必须从同一 `items` 过滤。Feed 与 History 必须无重叠、无遗漏。管理员调整 `feed_window_days` 后下一次读取立即重新分层，不抓取、不创建 snapshot，也不删除内容。
