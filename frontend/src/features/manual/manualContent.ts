@@ -14,8 +14,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-09-13',
-  change: '自动化可直接启动或暂停，概览显示最近三次真实运行；模型选择和会话删除入口更紧凑。',
+  reviewedAt: '2026-09-15',
+  change: 'Instagram 支持帖子图片、图集和视频封面；历史补图通过先预览后执行的维护命令完成。',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -33,6 +33,10 @@ export const manualSections: ManualSection[] = [
       {
         title: '获取内容',
         description: '订阅列表的“立即获取”会创建后台任务；任务结束后会先加载最新信息流，再显示去重合并后实际新增了多少条。任务状态和详情仍可在同页“运行记录”中查看，不需要反复点击。',
+      },
+      {
+        title: '查看 Instagram 图片',
+        description: '新获取帖子的单图、图集及视频封面会进入本地缓存，点击现有缩略图查看图集；每帖最多 6 张，并显示已知总数和未缓存提示。视频不下载本体。历史补图需由维护人员使用 scripts/repair_instagram_media.py 指定 workspace、user、source 和 article，先预览，再加 --apply 与 --expected-preview 执行；不发起新的付费抓取、不改正文分析、不发送通知。图片地址或既有 Dataset 不可用时保留文字。',
       },
       {
         title: '开始阅读',

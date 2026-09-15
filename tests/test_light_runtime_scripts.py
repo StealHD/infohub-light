@@ -1054,9 +1054,8 @@ def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_stor
     assert "console.log" not in script
 
 
-def test_test_gate_ci_keeps_parallel_domains_and_conditional_release_checks():
+def test_test_gate_ci_keeps_parallel_domains_and_manual_release_smoke():
     workflow = (ROOT / ".github" / "workflows" / "test-gate.yml").read_text(encoding="utf-8")
-    tag_workflow = (ROOT / ".github" / "workflows" / "release-tag.yml").read_text(encoding="utf-8")
 
     assert 'python-version: "3.12"' in workflow
     assert 'node-version: "22"' in workflow
@@ -1064,11 +1063,12 @@ def test_test_gate_ci_keeps_parallel_domains_and_conditional_release_checks():
     assert "impact:" in workflow
     assert "backend-full:" in workflow
     assert "frontend-full:" in workflow
-    # Mode selection and shared-control ordering run in test_gate_workflow_scheduling.
+    # Scheduling and Tag identity checks live in test_gate_workflow_scheduling.
     assert "--mode release --scope e2e" in workflow
     assert "--full-e2e" in workflow
     assert 'github.event_name }}" == "push"' in workflow
     assert "--mode release --scope smoke" in workflow
+    assert "github.event.inputs.release == 'true'" in workflow
     assert "needs.impact.outputs.ui_impacted == 'true'" in workflow
     assert "needs.impact.outputs.backend_impacted == 'true'" in workflow
     assert "needs.impact.outputs.frontend_impacted == 'true'" in workflow
@@ -1081,13 +1081,6 @@ def test_test_gate_ci_keeps_parallel_domains_and_conditional_release_checks():
     assert "frontend/test-results/**/*" in workflow
     assert "frontend/playwright-report/**/*" in workflow
     assert "service_real_source_smoke" not in workflow
-    assert 'tags: ["v*"]' in tag_workflow
-    assert "actions/workflows/test-gate.yml/runs?head_sha=$GITHUB_SHA" in tag_workflow
-    assert "git merge-base --is-ancestor" in tag_workflow
-    assert "--mode release --scope smoke" in tag_workflow
-    assert "--scope backend" not in tag_workflow
-    assert "--scope frontend" not in tag_workflow
-    assert "--scope e2e" not in tag_workflow
     assert "horizon-worker" not in workflow
 
 

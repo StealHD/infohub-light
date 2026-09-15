@@ -8,31 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "observability",
-    "ui"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "从本地 main d853e3bb 建立独立修复工作树与分支；模型目录跟随 OpenClaw 配置交集并退役可证明未修改的系统快照，用户 MCP 统一实时角色权限且补齐事务末端校验，托管过滤器保留令牌幂等升级，会话菜单支持确认后永久删除。发布候选版本 2.6.20。",
-  "status": "partial",
-  "task_id": "openclaw-model-mcp-session-fixes-20260912",
-  "unresolved": [
-    "OpenClaw 主机 ubuntu@124.223.12.170 拒绝现有本机维护密钥，已向用户询问 SSH 别名或密钥文件路径；尚未合并 main、发布 VPS、开启线上系统设置写开关或执行远端托管配置升级。",
-    "OpenClaw 2026.9.2 先删会话再回收工作树；为保证失败时保留会话，带工作树会话提前拒绝删除，需先在 OpenClaw 安全清理工作树。"
-  ],
-  "validation": [
-    "本地 impacted preflight 15/15 通过，包含完整后端、148 个前端测试文件 928 项、类型/静态/构建检查；未关闭 SQLite 连接警告为 0。记录：.test-results/20260912T132300Z-26226/result.json。",
-    "Agent Workspace 与会话目录 Playwright：35 通过，16 按设备条件跳过；首屏 JavaScript Brotli 245218 bytes。全程未调用真实 AI 或删除线上会话。",
-    "读取 OpenClaw 2026.9.2 官方发布包核对 sessions.delete 参数、expectedSessionId 与工作树回收顺序。VPS 只读核对：2.6.19，API/Worker healthy。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui",
     "verification"
@@ -402,6 +377,32 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps 相关回归 41 项通过；覆盖失败 Job 重排、取消终结、费用/结果 blocker 区分、原 Dataset 复读且 Actor POST 为 0；代码尺寸和 diff 检查通过。",
     "除已在 main 基准复现的单个发布工作流断言外，后端 tests 全集通过；前端 UI contract、typecheck、lint 和更新日志页面 5 项测试通过。",
     "本地 API live/ready 200、Worker ready、Vite 200；三个进程均从修复 worktree 运行并复用主工作区原 data/logs，本地待恢复 observed/final fetch Attempt 数为 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "在 codex/analyze-openai-reset-test-miss 实现 Instagram 独立帖子媒体提取、图集和视频封面缓存接入、详情顺序保持，以及默认预览和显式摘要确认的单文章补图 CLI。媒体通过原帖子身份校验关联，不修改 Candidate Manifest；维护路径只复用私有地址或同来源已结算 Run 的既有 Dataset，不创建 Actor、费用预留、文章、快照、AI 或通知。更新媒体合同、手册与更新日志，重载本地分支环境。",
+  "status": "partial",
+  "task_id": "instagram-post-media-adaptation-20260915",
+  "unresolved": [
+    "两个既有成功 Dataset 的有界只读请求不可用，尚不能证明真实上游行含计划中的图片字段；实现以固定样例验证，未启动新的付费 Actor。",
+    "标准完整门禁受既有 test_test_gate_ci_keeps_parallel_domains_and_conditional_release_checks 断言影响，本次不修改发布工作流。",
+    "未指定实际历史补图文章，未对真实文章 apply；未合并 main、未部署生产。"
+  ],
+  "validation": [
+    "最终代码的 Instagram 提取、补图、媒体缓存、展示、ActorOps 映射与旧内容修复关联回归 77 项通过；覆盖无缩略图映射、嵌套行、视频 URL 拒绝、图集顺序/上限、多尺寸、部分下载、重复执行、并发拒绝、事务回滚、原 Run GET 和租户隔离。",
+    "前端完整门禁 11 个命令通过，含 939 项 Vitest、Lint、UI/E2E 静态合同和生产构建；关联页面 46 项单独通过。代码尺寸、Observability、控制文档结构和 diff 检查通过。",
+    "标准 preflight 仅在已知 release-tag 工作流旧断言失败。其余后端全套排除该断言通过；最后新增旧缩略图视频 URL 回退保护后，复验上述 77 项关联回归和控制检查，不把此前全套结果当作这次末尾改动的完整门禁证据。",
+    "本地生产 UI 8080 和 Vite 5173 返回 200；API live/ready、数据库、Worker、日志 ready。继续使用主工作区原数据和日志，没有执行真实历史文章补图。"
   ]
 }
 ```
