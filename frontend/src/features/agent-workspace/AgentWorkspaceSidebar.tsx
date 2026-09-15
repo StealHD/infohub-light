@@ -7,10 +7,11 @@ import {
   EmptyState,
   Icons,
   LoadingState,
-  Separator,
-  StableAsyncButton,
   StatusNotice,
+  Tooltip,
+  TooltipTriggerButton,
   actionToast,
+  topAnchoredTooltipProps,
 } from '../../design-system'
 import type { OpenClawChatController, OpenClawWorkspaceSession } from '../openclaw'
 import { WorkspaceSwitcher } from '../workbench-live/WorkspaceSwitcher'
@@ -19,6 +20,7 @@ import { AgentSessionRow } from './AgentSessionRow'
 import { AgentSessionHistory } from './AgentSessionHistory'
 import { recentSessionRows, useAgentSessionDirectory } from './useAgentSessionDirectory'
 import type { AgentWorkspaceSessionState } from './useAgentWorkspaceSessions'
+import { readSessionDeleteConfirmation, writeSessionDeleteConfirmation } from './sessionDeletePreference'
 
 const workspaceLinks = [
   { to: '/agent/skills', label: 'Skills', icon: Icons.Sparkles },
@@ -43,11 +45,20 @@ export function AgentWorkspaceSidebar({
 }) {
   const navigate = useNavigate()
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [deleteConfirmationByUser, setDeleteConfirmationByUser] = useState<Record<string, boolean>>(
+    () => ({ [user.id]: readSessionDeleteConfirmation(user.id) }),
+  )
   const opening = useRef(false)
   const directory = useAgentSessionDirectory(chat, user.id)
   const rows = recentSessionRows(directory.page?.sessions ?? [], sessions.current)
   const firstQuestion = chat.messages.find((message) => message.role === 'user')?.text
   const switchingDisabled = chat.isRunning || chat.runtimeUpdating
+  const confirmBeforeDelete = deleteConfirmationByUser[user.id] ?? readSessionDeleteConfirmation(user.id)
+
+  function updateDeleteConfirmation(enabled: boolean) {
+    const stored = writeSessionDeleteConfirmation(user.id, enabled)
+    setDeleteConfirmationByUser((current) => ({ ...current, [user.id]: stored ? enabled : true }))
+  }
 
   async function openSession(session: OpenClawWorkspaceSession): Promise<boolean> {
     if (opening.current || chat.runtimeUpdating) return false
@@ -70,28 +81,37 @@ export function AgentWorkspaceSidebar({
     </div>
 
     <div className="quiet-scroll-region min-h-0 flex-1 overflow-y-auto px-3 py-4">
-      <div className="grid gap-2">
-        <StableAsyncButton
-          variant="secondary"
-          pending={false}
-          pendingContent="新建中…"
-          isDisabled={chat.status !== 'connected' || switchingDisabled}
-          className="justify-start"
-          onPress={async () => { if (await chat.newConversation()) { navigate('/agent'); onNavigate() } }}
-        >
-          <Icons.Plus size={16} aria-hidden="true" />新对话
-        </StableAsyncButton>
+      <div className="flex min-h-8 items-center justify-between gap-2 pb-2 pl-2">
+        <p className="type-label text-muted">会话</p>
+        <div className="flex shrink-0 items-center gap-1">
+          <Tooltip delay={250}>
+            <TooltipTriggerButton
+              aria-label="全部会话"
+              className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground"
+              onClick={() => setHistoryOpen(true)}
+            ><Icons.History size={15} aria-hidden="true" /></TooltipTriggerButton>
+            <Tooltip.Content {...topAnchoredTooltipProps}>全部会话</Tooltip.Content>
+          </Tooltip>
+          <Tooltip delay={250}>
+            <TooltipTriggerButton
+              aria-label="新对话"
+              pending={chat.runtimeUpdating}
+              disabled={chat.status !== 'connected' || switchingDisabled}
+              className="size-8 shrink-0 rounded-lg text-accent hover:bg-accent/10"
+              onClick={async () => { if (await chat.newConversation()) { navigate('/agent'); onNavigate() } }}
+            ><Icons.Plus size={16} aria-hidden="true" /></TooltipTriggerButton>
+            <Tooltip.Content {...topAnchoredTooltipProps}>新对话</Tooltip.Content>
+          </Tooltip>
+        </div>
       </div>
-
-      <p className="type-label mt-5 px-2 pb-2 text-muted">会话</p>
       {chat.sessionKey ? <div className="grid gap-1">
         {rows.map((session) => <AgentSessionRow workspace={chat.workspace}
           key={session.key} session={session}
           current={session.key === chat.sessionKey}
           firstQuestion={session.key === chat.sessionKey ? firstQuestion : undefined}
           disabled={session.key !== chat.sessionKey && switchingDisabled} onOpen={(target) => { void openSession(target) }}
+          confirmBeforeDelete={confirmBeforeDelete} onConfirmBeforeDeleteChange={updateDeleteConfirmation}
         />)}
-        <Button variant="ghost" className="justify-start text-muted" onPress={() => setHistoryOpen(true)}>全部会话</Button>
       </div> : chat.status === 'connected'
         ? <EmptyState title="等待 Session" description="Gateway 已连接，正在等待当前 Session。" />
         : <EmptyState title="连接 OpenClaw" description="在对话区完成 Gateway 连接后，会话会显示在这里。" actions={<Button variant="secondary" onPress={() => { navigate('/agent'); onNavigate() }}>前往连接</Button>} />}
@@ -99,8 +119,7 @@ export function AgentWorkspaceSidebar({
       {directory.error && <div className="mt-2"><StatusNotice title="会话暂不可用" status="warning">{directory.error}</StatusNotice></div>}
       <p role="status" className="sr-only">{chat.runtimeUpdating ? '正在更新会话，请稍候。' : chat.isRunning ? '当前生成完成或取消后才可切换会话。' : ''}</p>
 
-      <Separator className="my-4" />
-      <p className="type-label px-2 pb-2 text-muted">工作区</p>
+      <p className="type-label mt-4 px-2 pb-2 text-muted">工作区</p>
       <nav aria-label="OpenClaw 工作区" className="grid gap-1">
         {workspaceLinks.map(({ to, label, icon: Icon }) => <NavLink
           key={to}
@@ -115,7 +134,8 @@ export function AgentWorkspaceSidebar({
     <div className="flex h-[var(--inteliscope-size-sidebar-footer)] shrink-0 items-center border-t border-separator p-2">
       <WorkspaceAccountMenu user={user} onLogout={onLogout} variant="agent" />
     </div>
-    <AgentSessionHistory open={historyOpen} onOpenChange={setHistoryOpen} chat={chat} userId={user.id} onOpen={openSession} />
+    <AgentSessionHistory open={historyOpen} onOpenChange={setHistoryOpen} chat={chat} userId={user.id} onOpen={openSession}
+      confirmBeforeDelete={confirmBeforeDelete} onConfirmBeforeDeleteChange={updateDeleteConfirmation} />
 
   </div>
 }

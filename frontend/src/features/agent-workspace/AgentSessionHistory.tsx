@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Button, Checkbox, EmptyState, Input, Label, LoadingState, Modal, RefreshButton, StatusNotice, TextField } from '../../design-system'
+import { Button, Checkbox, EmptyState, Input, Label, LoadingState, Modal, RefreshButton, StatusNotice, Switch, TextField } from '../../design-system'
 import type { OpenClawChatController, OpenClawWorkspaceSession } from '../openclaw'
 import { AgentSessionRow } from './AgentSessionRow'
 import { useAgentSessionDirectory } from './useAgentSessionDirectory'
 
-export function AgentSessionHistory({ open, onOpenChange, chat, userId, onOpen }: {
+export function AgentSessionHistory({ open, onOpenChange, chat, userId, onOpen, confirmBeforeDelete, onConfirmBeforeDeleteChange }: {
   open: boolean; onOpenChange: (open: boolean) => void; chat: OpenClawChatController; userId: string; onOpen: (session: OpenClawWorkspaceSession) => Promise<boolean>
+  confirmBeforeDelete: boolean; onConfirmBeforeDeleteChange: (enabled: boolean) => void
 }) {
   const [search, setSearch] = useState('')
   const [archived, setArchived] = useState(false)
@@ -18,10 +19,13 @@ export function AgentSessionHistory({ open, onOpenChange, chat, userId, onOpen }
       <Modal.Body><div className="grid min-w-0 gap-3">
         <TextField value={search} onChange={(value) => { setSearch(value); setOffsets([0]) }}><Label>搜索会话</Label><Input placeholder="搜索标题或会话" /></TextField>
         <Checkbox isSelected={archived} onChange={(value) => { setArchived(value); setOffsets([0]) }}><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><Checkbox.Content><Label>查看已归档会话</Label></Checkbox.Content></Checkbox>
+        <Switch isSelected={confirmBeforeDelete} onChange={onConfirmBeforeDeleteChange}>
+          <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>删除前确认</Switch.Content>
+        </Switch>
         {directory.error && <StatusNotice title="会话暂不可用" status="warning">{directory.error}<RefreshButton onPress={directory.refresh} pending={directory.loading} label="重试" /></StatusNotice>}
         {!directory.available && <StatusNotice title="会话目录不可用" status="warning">连接支持会话目录的 Gateway 后重试。</StatusNotice>}
         {directory.loading && !directory.page ? <LoadingState label="正在读取历史会话" rows={3} /> : <div aria-busy={directory.loading} className="quiet-scroll-region grid max-h-[50dvh] min-w-0 gap-1 overflow-y-auto">
-          {directory.page?.sessions.map((session) => <AgentSessionRow workspace={chat.workspace} key={session.key} session={session} current={session.key === chat.sessionKey} disabled={session.key !== chat.sessionKey && (chat.isRunning || chat.runtimeUpdating)} onOpen={(target) => { void onOpen(target).then((success) => { if (success) onOpenChange(false) }) }} />)}
+          {directory.page?.sessions.map((session) => <AgentSessionRow workspace={chat.workspace} key={session.key} session={session} current={session.key === chat.sessionKey} disabled={session.key !== chat.sessionKey && (chat.isRunning || chat.runtimeUpdating)} onOpen={(target) => { void onOpen(target).then((success) => { if (success) onOpenChange(false) }) }} confirmBeforeDelete={confirmBeforeDelete} onConfirmBeforeDeleteChange={onConfirmBeforeDeleteChange} />)}
           {directory.page?.sessions.length === 0 && <EmptyState title="没有匹配的会话" description="尝试其他关键词或切换归档筛选。" />}
         </div>}
       </div></Modal.Body>

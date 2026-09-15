@@ -4,7 +4,7 @@ import { render, screen, userEvent, OpenClawActivityTrace, OpenClawConversation,
 describe('OpenClaw conversation surface', () => {
 
 
-  it('merges fast tool calls into a stable row while retaining longer activity details', async () => {
+  it('lists every retained completed step with its status and duration', async () => {
     const browser = userEvent.setup()
     render(<OpenClawActivityTrace
       running={false}
@@ -24,9 +24,9 @@ describe('OpenClaw conversation surface', () => {
     const toggle = screen.getByRole('button', { name: /已完成 2 个步骤/u })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await browser.click(toggle)
-    expect(screen.getByText('已完成 1 个快速步骤')).toBeInTheDocument()
-    expect(screen.getByText('已检查来源健康')).toBeInTheDocument()
-    expect(screen.queryByText('已读取任务详情')).not.toBeInTheDocument()
+    expect(screen.getByText('读取任务详情').parentElement).toHaveTextContent(/读取任务详情\s*· 已完成 · 0\.2秒/u)
+    expect(screen.getByText('检查来源健康').parentElement).toHaveTextContent(/检查来源健康\s*· 已完成 · 0\.8秒/u)
+    expect(screen.queryByText(/快速步骤/u)).not.toBeInTheDocument()
   })
 
 
@@ -90,7 +90,7 @@ describe('OpenClaw conversation surface', () => {
   })
 
 
-  it('uses the approved flat C2 timeline with inline local times and safe http links', () => {
+  it('uses a right-aligned user bubble while keeping assistant messages flat and links safe', () => {
     const now = new Date(2026, 6, 22, 15, 0, 0).getTime()
     vi.spyOn(Date, 'now').mockReturnValue(now)
     const chat = chatController({
@@ -118,18 +118,20 @@ describe('OpenClaw conversation surface', () => {
 
     const timeline = screen.getByTestId('openclaw-timeline')
     expect(timeline).toHaveClass('grid-cols-[12px_minmax(0,1fr)]')
-    expect(timeline.querySelectorAll('[data-chat-marker]')).toHaveLength(3)
-    expect(timeline.querySelector('.rounded-2xl')).toBeNull()
+    expect(timeline.querySelectorAll('[data-chat-marker]')).toHaveLength(2)
     expect(timeline.querySelector('[class*="bg-accent/12"]')).toBeNull()
     expect(timeline.querySelector('[class*="bg-surface-secondary"]')).toBeNull()
     for (const body of timeline.querySelectorAll('[data-chat-message-body]')) {
       expect(body).toHaveClass('type-chat')
     }
 
-    const userRole = screen.getByText('你')
-    expect(userRole.nextElementSibling?.tagName).toBe('TIME')
-    expect(userRole.nextElementSibling).toHaveTextContent('14:32')
-    expect(userRole.nextElementSibling).toHaveAttribute('title', '2026-07-22 14:32:00')
+    const userMessage = screen.getByRole('article', { name: '你的消息' })
+    expect(userMessage).toHaveClass('col-span-2', 'items-end')
+    expect(userMessage.querySelector('[data-chat-message-bubble]')).toHaveClass('max-w-[85%]', 'rounded-2xl', 'bg-default')
+    expect(screen.queryByText('你')).not.toBeInTheDocument()
+    const userTime = userMessage.querySelector('time')
+    expect(userTime).toHaveTextContent('14:32')
+    expect(userTime).toHaveAttribute('title', '2026-07-22 14:32:00')
     expect(screen.getByText('07-21 09:05')).toBeInTheDocument()
     expect(timeline.querySelectorAll('time')).toHaveLength(2)
     expect(screen.getAllByText('OpenClaw')).toHaveLength(2)
@@ -147,7 +149,30 @@ describe('OpenClaw conversation surface', () => {
   })
 
 
-  it('disables thinking at automatic when the selected model does not reason', () => {
+  it('keeps full-workspace user and assistant turns in one vertical grid column', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      messages: [
+        { id: 'user-1', role: 'user', text: '检查任务', status: 'sent', createdAt: 1_000 },
+        { id: 'assistant-1', role: 'assistant', text: '第一步', status: 'sent', createdAt: 2_000 },
+        { id: 'assistant-2', role: 'assistant', text: '第二步', status: 'sent', createdAt: 3_000 },
+      ],
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} variant="workspace" />)
+
+    const timeline = screen.getByTestId('openclaw-timeline')
+    expect(timeline).toHaveClass('grid-cols-1')
+    expect(screen.getByRole('article', { name: '你的消息' })).not.toHaveClass('col-span-2')
+    const articles = timeline.querySelectorAll('article')
+    expect(articles).toHaveLength(3)
+    expect(Array.from(articles).every((article) => !article.classList.contains('border-b'))).toBe(true)
+    expect(timeline.querySelectorAll('[data-chat-marker]')).toHaveLength(2)
+  })
+
+
+  it('explains unavailable thinking inside the shared runtime picker', async () => {
+    const browser = userEvent.setup()
     const chat = chatController({
       status: 'connected',
       sessionKey: 'session-1',
@@ -157,17 +182,16 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByRole('button', { name: 'OpenClaw 模型：Quick' })).toBeInTheDocument()
-    const thinking = screen.getByRole('button', { name: 'OpenClaw 思考程度：自动' })
-    expect(thinking).toBeDisabled()
-    expect(document.getElementById(thinking.getAttribute('aria-describedby') ?? '')).toHaveTextContent('此模型未提供推理档位。')
-    expect(thinking.closest('[title]')).toHaveAttribute('title', '此模型未提供推理档位。')
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：Quick，思考程度：选择思考' }))
+    expect(screen.getByText('此模型未提供推理档位。')).toBeVisible()
+    expect(screen.getByRole('slider', { name: '思考程度' })).toBeDisabled()
     expect(screen.queryByRole('option', { name: '速度优先' })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: '深度分析' })).not.toBeInTheDocument()
   })
 
 
-  it('does not invent thinking choices when OpenClaw returns no model-level options', () => {
+  it('does not invent thinking choices when OpenClaw returns no model-level options', async () => {
+    const browser = userEvent.setup()
     const chat = chatController({
       status: 'connected',
       sessionKey: 'session-1',
@@ -177,12 +201,8 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    const thinking = screen.getByRole('button', { name: 'OpenClaw 思考程度：自动' })
-    expect(thinking).toBeDisabled()
-    expect(document.getElementById(thinking.getAttribute('aria-describedby') ?? '')).toHaveTextContent(
-      'OpenClaw 未返回此模型的可选推理档位。',
-    )
-    expect(thinking.closest('[title]')).toHaveAttribute('title', 'OpenClaw 未返回此模型的可选推理档位。')
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：Plain，思考程度：选择思考' }))
+    expect(screen.getByText('OpenClaw 未返回此模型的可选推理档位。')).toBeVisible()
   })
 
 

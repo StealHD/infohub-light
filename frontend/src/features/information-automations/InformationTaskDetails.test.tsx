@@ -14,6 +14,8 @@ const api = {
   notificationServices: vi.fn().mockResolvedValue({ services: [] }),
   informationRuns: vi.fn().mockResolvedValue({ items: [], has_more: false, next_offset: null }),
   latestFeed: vi.fn().mockResolvedValue({ items: [] }),
+  informationModels: vi.fn().mockResolvedValue({ status: 'ready', updated_at: '2026-09-15T00:00:00Z', models: [{ id: 'test/model', name: '测试模型', thinking_levels: [] }] }),
+  refreshInformationModels: vi.fn().mockResolvedValue({ status: 'ready', updated_at: '2026-09-15T00:00:00Z', models: [{ id: 'test/model', name: '测试模型', thinking_levels: [] }] }),
 }
 vi.mock('./useInformationContext', () => ({ useInformationContext: () => ({ api, userId: 'alice' }) }))
 
@@ -65,6 +67,23 @@ it('keeps test selection and submission actions right aligned', () => {
     onSelect={vi.fn()} onTextChange={vi.fn()} onConfigureNotification={vi.fn()} onStart={vi.fn()} />)
   expect(screen.getByRole('button', { name: '选择文章' }).parentElement).toHaveClass('justify-between')
   expect(screen.getByRole('button', { name: '开始测试' }).parentElement).toHaveClass('justify-end')
+})
+
+it('right aligns edit actions and exposes trigger and notification fields directly', async () => {
+  const user = userEvent.setup()
+  frame(<InformationTaskDetails rule={rule} creating={false} canMutate onClose={vi.fn()} onSaved={vi.fn()} onBusyChange={vi.fn()}
+    testSession={{ ruleId: rule.id, version: rule.version, selection: [], customText: '', sendNotification: false, notificationTargetId: null, phase: 'idle' }}
+    onTestSelect={vi.fn()} onTestTextChange={vi.fn()} onTestConfigureNotification={vi.fn()} onTestStart={vi.fn()}
+    action={null} onTransition={vi.fn()} onDelete={vi.fn()} />)
+
+  await user.click(screen.getByRole('button', { name: '编辑任务：研究提醒' }))
+  const save = await screen.findByRole('button', { name: '保存草稿' })
+  expect(save.parentElement).toHaveClass('justify-end')
+  expect(screen.getByRole('button', { name: '选择订阅源' }).parentElement).toHaveClass('justify-between')
+  expect(screen.getByRole('button', { name: '刷新模型目录' }).parentElement).toHaveClass('justify-between')
+  expect(screen.getByRole('heading', { name: '触发与通知' })).toBeVisible()
+  expect(screen.getByLabelText('触发方式')).toBeVisible()
+  expect(screen.queryByRole('button', { name: /触发与通知/ })).not.toBeInTheDocument()
 })
 
 it('keeps permission-disabled icon actions named and explains why they are unavailable', () => {

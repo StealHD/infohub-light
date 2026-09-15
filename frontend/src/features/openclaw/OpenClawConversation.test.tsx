@@ -46,6 +46,21 @@ describe('OpenClaw conversation surface', () => {
   })
 
 
+  it('aligns a connected conversation error to the centered workspace message track', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      issue: { kind: 'unknown', message: '本次请求未能完成，请重试。' },
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} variant="workspace" />)
+
+    const issue = screen.getByRole('alert')
+    expect(issue).toHaveTextContent('本次请求未能完成，请重试。')
+    expect(issue).toHaveAttribute('data-openclaw-issue')
+    expect(issue).toHaveClass('mx-auto', 'w-full', 'max-w-[var(--inteliscope-width-agent-conversation)]')
+  })
+
+
   it('clears the bootstrap token field immediately after a successful connection', async () => {
     const browser = userEvent.setup()
     const chat = chatController()
@@ -385,7 +400,7 @@ describe('OpenClaw conversation surface', () => {
   })
 
 
-  it('uses separate model and thinking selectors with verified runtime actions', async () => {
+  it('uses the shared OpenClaw model and thinking picker with verified runtime actions', async () => {
     const browser = userEvent.setup()
     const chat = chatController({
       status: 'connected',
@@ -410,28 +425,15 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.queryByRole('button', { name: /OpenClaw 运行设置/ })).not.toBeInTheDocument()
     const runtime = screen.getByTestId('openclaw-runtime-controls')
     expect(runtime.firstElementChild).toBe(screen.getByRole('button', { name: '上下文占用 10k / 200k，5%' }))
-    await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4' }))
-    expect(screen.getByRole('listbox', { name: /OpenClaw 模型/u })).toHaveClass(
-      'max-h-[min(360px,calc(100dvh-24px))]',
-      'overflow-y-auto',
-      'overscroll-contain',
-    )
-    expect(screen.getByText('openai')).toBeInTheDocument()
-    expect(screen.getByText('local')).toBeInTheDocument()
-    expect(screen.getByText('200k 上下文 · 思考：低、高')).toBeInTheDocument()
-    expect(screen.getByText('32k 上下文 · 不支持思考档位')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4，思考程度：高' }))
+    await browser.click(screen.getByRole('button', { name: '选择模型：GPT-5.4' }))
+    expect(screen.getByRole('listbox', { name: /OpenClaw 模型/u })).toHaveClass('effort-model-list')
     const selectedModel = screen.getByRole('option', { name: /GPT-5.4/ })
     expect(selectedModel).toHaveAttribute('aria-selected', 'true')
     expect(selectedModel.querySelector('[data-slot="list-box-item-indicator"][data-visible]')).toBeInTheDocument()
     await browser.click(screen.getByRole('option', { name: /Quick/ }))
     expect(chat.setModel).toHaveBeenCalledWith('local/quick')
 
-    await browser.click(screen.getByRole('button', { name: 'OpenClaw 思考程度：高' }))
-    const selectedThinking = screen.getByRole('option', { name: '高' })
-    expect(selectedThinking).toHaveAttribute('aria-selected', 'true')
-    expect(selectedThinking.querySelector('[data-slot="list-box-item-indicator"][data-visible]')).toBeInTheDocument()
-    await browser.click(screen.getByRole('option', { name: '低' }))
-    expect(chat.setThinking).toHaveBeenCalledWith('low')
   })
 
 
@@ -460,8 +462,7 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
     expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('flex')
-    expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name' })).toHaveClass('w-fit', 'min-w-0', 'max-w-[180px]')
-    expect(screen.getByRole('button', { name: 'OpenClaw 思考程度：深度分析' })).toHaveClass('shrink-0')
+    expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name，思考程度：深度分析' })).toHaveClass('effort-picker-trigger')
   })
 
 
@@ -485,7 +486,7 @@ describe('OpenClaw conversation surface', () => {
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
     await waitFor(() => expect(screen.getAllByText('正在检查来源健康')).not.toHaveLength(0))
-    expect(screen.getByText('已接收 2 条上下文')).toBeInTheDocument()
+    expect(screen.getByText('接收 2 条上下文').parentElement).toHaveTextContent(/接收 2 条上下文\s*· 已完成 · 0\.1秒/u)
     const toggle = screen.getByRole('button', { name: /正在检查来源健康/u })
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await browser.click(toggle)

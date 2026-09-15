@@ -26,6 +26,8 @@ describe('WorkspaceSwitcher', () => {
     const browser = userEvent.setup()
     renderSwitcher()
     const trigger = screen.getByRole('button', { name: '切换工作区，当前为 Inscope' })
+    expect(trigger).not.toHaveClass('bg-default/70')
+    expect(trigger).toHaveClass('hover:bg-default')
     trigger.focus()
     await browser.keyboard('{Enter}')
     expect(screen.getByRole('dialog', { name: '切换工作区' })).toBeInTheDocument()

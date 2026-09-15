@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { projectOpenClawAgentEvent } from './openclawEventProjection'
+import { applyAgentEventToTrace, projectOpenClawAgentEvent } from './openclawEventProjection'
 import {
   INTELISCOPE_HANDOFF_MARKER,
   projectOpenClawHandoffDisplay,
@@ -70,6 +70,25 @@ describe('OpenClaw pure chat projections', () => {
       event: 'agent',
       payload: { sessionKey: 'other', runId: 'run-1', stream: 'tool', seq: 3 },
     }, 'session-1')).toBeNull()
+  })
+
+  it('retains the latest 20 tool steps and marks the trace as truncated', () => {
+    const trace = Array.from({ length: 21 }, (_, index) => index).reduce((current, index) => applyAgentEventToTrace(current, {
+      runId: 'run-1',
+      seq: index,
+      stream: 'tool',
+      phase: 'result',
+      timestamp: 1_000 + index,
+      toolCallId: `tool-${index}`,
+      toolKey: 'get_job',
+      toolLabel: '读取任务详情',
+      failed: false,
+    }), null as ReturnType<typeof applyAgentEventToTrace> | null)
+
+    const finalTrace = trace!
+    expect(finalTrace.activities).toHaveLength(20)
+    expect(finalTrace.activities[0]?.id).toBe('tool-1')
+    expect(finalTrace.activitiesTruncated).toBe(true)
   })
 
   it('projects only fresh exact-session usage and available runtime models', () => {
