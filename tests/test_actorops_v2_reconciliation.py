@@ -80,7 +80,9 @@ def _repository(tmp_path: Path) -> tuple[ServiceStore, ActorOpsRepository, str]:
     return store, repository, route_id
 
 
-def _job(store: ServiceStore, job_id: str, *, status: str) -> None:
+def _job(
+    store: ServiceStore, job_id: str, *, status: str, source_id: str | None = None
+) -> None:
     user = store.create_user(
         workspace_id=DEFAULT_WORKSPACE_ID,
         username=f"owner-{job_id}",
@@ -90,13 +92,14 @@ def _job(store: ServiceStore, job_id: str, *, status: str) -> None:
     stamp = "2026-08-20T00:00:00+00:00"
     store.connect().execute(
         """INSERT INTO fetch_jobs (
-               id, workspace_id, user_id, job_type, status, payload_json,
+               id, workspace_id, user_id, source_id, job_type, status, payload_json,
                finished_at, created_at, updated_at
-           ) VALUES (?, ?, ?, 'source_fetch', ?, '{}', ?, ?, ?)""",
+           ) VALUES (?, ?, ?, ?, 'source_fetch', ?, '{}', ?, ?, ?)""",
         (
             job_id,
             DEFAULT_WORKSPACE_ID,
             str(user["id"]),
+            source_id,
             status,
             stamp if status not in {"queued", "running"} else None,
             stamp,

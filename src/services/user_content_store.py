@@ -18,6 +18,7 @@ from .content_presentation import complete_content_presentation
 from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from .feed_current_source import apply_current_feed_sources
 from .user_item_state import UserItemStateStore
+from .instagram_media_order import ordered_instagram_assets
 from ..ai.analysis_cache import AnalysisCache
 from .content_timeline import (
     FeedWindow,
@@ -1324,17 +1325,15 @@ class UserContentStore:
             }
         )
         media_rows = self.store.connect().execute(
-            """
-            SELECT id, width, height, alt, checksum FROM media_assets
-            WHERE workspace_id = ? AND (user_id = ? OR user_id IS NULL) AND article_id = ?
-              AND asset_kind = 'content_image' AND status = 'ready'
+            """SELECT id, width, height, alt, checksum FROM media_assets
+            WHERE workspace_id = ? AND (user_id = ? OR user_id IS NULL) AND article_id = ? AND asset_kind = 'content_image' AND status = 'ready'
             ORDER BY updated_at DESC, created_at DESC, id DESC
             """,
             (workspace_id, user_id, article_id),
         ).fetchall()
         unique_media_rows = []
         seen_media_identities: set[str] = set()
-        for row in media_rows:
+        for row in ordered_instagram_assets(media_rows, item):
             identity = str(row["checksum"] or row["id"])
             if identity in seen_media_identities:
                 continue

@@ -149,10 +149,11 @@ class CandidateExecution:
             # paid Attempt before either reservation becomes visible.
             existing = self.repository.get_attempt_by_idempotency(key)
             if existing is None:
-                if self.repository.has_unsettled_fetch_cost(
+                blocker = self.repository.fetch_blocking_code(
                     route_id=snapshot.route.route_id, source_id=source_id
-                ):
-                    raise _cost_settlement_required()
+                )
+                if blocker:
+                    raise _admission_blocked(blocker)
                 self.repository.create_attempt(
                     attempt_id=attempt_id,
                     idempotency_key=key,
@@ -531,6 +532,16 @@ class _SettledCandidateFailure(ActorOpsRuntimeError):
 def _cost_settlement_required() -> ActorOpsRuntimeError:
     return ActorOpsRuntimeError(
         "actorops_cost_settlement_required",
+        failure_class=FailureClass.REMOTE_UNKNOWN,
+        retryable=False,
+    )
+
+
+def _admission_blocked(code: str) -> ActorOpsRuntimeError:
+    if code == "actorops_cost_settlement_required":
+        return _cost_settlement_required()
+    return ActorOpsRuntimeError(
+        code,
         failure_class=FailureClass.REMOTE_UNKNOWN,
         retryable=False,
     )

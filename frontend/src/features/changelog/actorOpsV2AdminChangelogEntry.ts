@@ -2,6 +2,15 @@ import type { ChangelogEntry } from './changelogTypes'
 
 export const actorOpsV2AdminChangelogEntries: ChangelogEntry[] = [
   {
+    date: '2026-09-15',
+    title: '已结算的 Actor 结果会继续完成验证',
+    summary: '远端运行成功但原获取任务中断时，系统会复用原 Dataset 完成验证，不再长期误报为费用待结算。',
+    items: [
+      { title: '原结果自动恢复', description: '费用已最终结算且 Dataset 已绑定时，Worker 会恢复原失败任务并只读重验；不会再次启动 Actor、重复预留费用或让新任务接管旧结果。' },
+      { title: '费用与结果原因分开', description: '费用未知继续显示待结算；费用已结算但内容尚未验证时改为结果待恢复。原任务已明确取消则保留真实费用并安全终结，不伪造成功。' },
+    ],
+  },
+  {
     date: '2026-09-02',
     title: 'Actor 替换会区分同一 Actor 的不同版本',
     summary: '当故障版本和推荐版本属于同一商城 Actor 时，页面会明确说明候选是另一固定版本；候选状态读取失败时不再继续使用旧推荐。',

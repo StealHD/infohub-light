@@ -11,6 +11,7 @@ from .._discovery import deterministic_input_plan, deterministic_manifest
 from .._manifest import build_input, validate_and_map
 from .common import normalize_profile_target
 from .profile_rows import prepare_profile_rows
+from .media_enrichment import enrich_instagram_media
 
 
 class InstagramProfileItemsAdapter:
@@ -90,11 +91,13 @@ class InstagramProfileItemsAdapter:
         self, rows: Sequence[Mapping[str, object]], target: TargetSpec,
         manifest: ActorManifest, window: FetchWindow,
     ) -> NormalizedBatch:
-        return validate_and_map(
-            self.prepare_output_rows(rows, target, manifest),
+        prepared = self.prepare_output_rows(rows, target, manifest)
+        batch = validate_and_map(
+            prepared,
             target, manifest, window,
             platform="instagram", source_type=SourceType.INSTAGRAM,
         )
+        return enrich_instagram_media(batch, prepared, target, manifest, window)
 
     def prepare_output_rows(
         self, rows: Sequence[Mapping[str, object]], target: TargetSpec,
