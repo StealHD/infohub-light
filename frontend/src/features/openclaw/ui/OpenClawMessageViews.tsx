@@ -166,19 +166,38 @@ export function ConversationTurn({
   children?: ReactNode
   variant?: 'compact' | 'workspace'
 }) {
+  const messageText = role === 'assistant'
+    ? text.replace(/\[\[information-automation:iar_[a-f0-9]{32}\]\]/gu, '')
+    : text
+  if (role === 'user') return <article
+    aria-label="你的消息"
+    className={`${variant === 'workspace' ? 'py-4' : `col-span-2 ${hasNext ? 'pb-4' : ''}`} flex w-full min-w-0 flex-col items-end`}
+    data-chat-role={role}
+    data-chat-status={status}
+  >
+    <div data-chat-message-bubble className="ml-auto w-fit max-w-[85%] min-w-0 rounded-2xl bg-default px-3 py-2">
+      {messageText && <div
+        data-chat-message-body
+        className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
+      ><OpenClawMessageText text={messageText} /></div>}
+      {children}
+    </div>
+    <div className="mr-1 mt-1 flex justify-end"><MessageTimestamp value={createdAt} /></div>
+  </article>
+
   return <>
     <div data-chat-marker className={`${variant === 'workspace' ? 'hidden' : 'flex'} min-h-full flex-col items-center self-stretch`} aria-hidden="true">
       <span className={`mt-1.5 size-[5px] shrink-0 rounded-full ${role === 'assistant' ? 'bg-accent' : 'bg-muted'}`} />
       {hasNext && <span className="mt-[5px] min-h-8 w-px flex-1 bg-separator" />}
     </div>
     <article
-      className={`${variant === 'workspace' ? 'w-full border-b border-separator/70 py-5' : `max-w-full ${hasNext ? 'pb-4' : ''}`} min-w-0`}
+      className={`${variant === 'workspace' ? 'w-full py-5' : `max-w-full ${hasNext ? 'pb-4' : ''}`} min-w-0`}
       data-chat-role={role}
       data-chat-status={status}
     >
       <div className="mb-[5px] flex min-w-0 items-baseline gap-1.5">
         <span className={`type-label ${role === 'assistant' ? 'text-accent' : 'text-muted'}`}>
-          {role === 'assistant' ? 'OpenClaw' : '你'}
+          OpenClaw
         </span>
         <MessageTimestamp value={createdAt} />
       </div>
@@ -186,7 +205,7 @@ export function ConversationTurn({
           data-chat-message-body
           className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
         >
-          <OpenClawMessageText text={role === 'assistant' ? text.replace(/\[\[information-automation:iar_[a-f0-9]{32}\]\]/gu, '') : text} />
+          <OpenClawMessageText text={messageText} />
         </div>}
       {role === 'assistant' && text.includes('[[information-automation:') && <Suspense fallback={<p role="status">正在加载确认卡…</p>}><InformationDraftCards text={text} /></Suspense>}
       {children}

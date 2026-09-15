@@ -26,7 +26,7 @@ export function InformationNewRule({ onSaved, onCancel, onBusyChange }: { onSave
   const sources = useQuery({ queryKey: queryKeys.subscriptions(userId), queryFn: ({ signal }) => api.subscriptions(signal) })
   const targets = useQuery({ queryKey: queryKeys.notificationServices(userId), queryFn: ({ signal }) => api.notificationServices(signal) })
   return <div className="grid gap-4">
-    <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-wrap gap-2 border-b border-separator bg-surface px-4 py-3">
+    <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-wrap justify-end gap-2 border-b border-separator bg-surface px-4 py-3">
       <Button variant="ghost" isDisabled={busy} onPress={onCancel}>取消</Button>
       <StableAsyncButton pending={busy} pendingContent="正在保存…" isDisabled={!value.name.trim()} onPress={async () => {
         if (lock.current) return

@@ -86,7 +86,7 @@ export function projectOpenClawAgentEvent(
 function mergeRunActivity(
   activities: OpenClawRunActivity[],
   event: OpenClawSanitizedAgentEvent,
-): OpenClawRunActivity[] {
+): { activities: OpenClawRunActivity[]; truncated: boolean } {
   const terminal = event.phase === 'result' || event.phase === 'end' || event.phase === 'done' || event.failed
   const status: OpenClawRunActivity['status'] = event.failed ? 'failed' : terminal ? 'completed' : 'running'
   const id = event.toolCallId
@@ -103,7 +103,7 @@ function mergeRunActivity(
   }
   if (existingIndex >= 0) next[existingIndex] = activity
   else next.push(activity)
-  return next.slice(-MAX_RUN_ACTIVITIES)
+  return { activities: next.slice(-MAX_RUN_ACTIVITIES), truncated: next.length > MAX_RUN_ACTIVITIES }
 }
 
 export function applyAgentEventToTrace(
@@ -118,12 +118,14 @@ export function applyAgentEventToTrace(
     activities: [],
   }
   if (event.stream === 'tool') {
+    const merged = mergeRunActivity(current.activities, event)
     return {
       ...current,
       runId: event.runId,
       phase: 'using_tool',
       status: 'running',
-      activities: mergeRunActivity(current.activities, event),
+      activities: merged.activities,
+      activitiesTruncated: current.activitiesTruncated || merged.truncated,
     }
   }
   if (event.stream === 'thinking' || event.stream === 'plan') {

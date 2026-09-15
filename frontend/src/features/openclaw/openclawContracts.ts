@@ -40,6 +40,7 @@ export type OpenClawRunTrace = {
   startedAt: number
   endedAt?: number
   activities: OpenClawRunActivity[]
+  activitiesTruncated?: boolean
 }
 
 export type OpenClawContextItem = {

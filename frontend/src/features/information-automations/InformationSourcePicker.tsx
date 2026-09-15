@@ -19,7 +19,7 @@ export function InformationSourcePicker({ value, sources, disabled, onChange }: 
   const summary = selected.length ? `${informationSourceLabel(selected[0])}${selected.length > 1 ? ` 等 ${selected.length} 个` : ''}` : ''
   const begin = () => { setDraft(value); setSearch(''); setPage(0); setOpen(true) }
   return <>
-    <div className="grid gap-2"><div className="flex flex-wrap items-center gap-2"><p className="type-control">订阅源</p>
+    <div className="grid gap-2"><div className="flex flex-wrap items-center justify-between gap-2"><p className="type-control">订阅源</p>
       <Button size="sm" variant="secondary" isDisabled={disabled || !enabled.length} onPress={begin}><Icons.ListChecks size={15} />选择订阅源</Button></div>
       {summary && <p className="type-meta break-words text-muted">{summary}</p>}
       {!enabled.length && <a href="/subscriptions" className="type-body underline">先添加或启用订阅</a>}

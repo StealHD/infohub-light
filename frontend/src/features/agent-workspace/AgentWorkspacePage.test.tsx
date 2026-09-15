@@ -34,6 +34,11 @@ describe('Agent Workspace page', () => {
   it('renders one OpenClaw workspace layer with a fixed desktop session sidebar and closed inspector', async () => {
     const { context } = renderPage('/agent')
     expect(screen.getByRole('complementary', { name: 'OpenClaw 会话' })).toHaveClass('w-[var(--inteliscope-width-agent-sidebar)]')
+    const allSessions = screen.getByRole('button', { name: '全部会话' })
+    const newConversation = screen.getByRole('button', { name: '新对话' })
+    expect(allSessions.parentElement).toBe(newConversation.parentElement)
+    expect(allSessions).not.toHaveTextContent('全部会话')
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 会话' }).querySelector('[role="separator"]')).toBeNull()
     expect(screen.getByRole('navigation', { name: 'OpenClaw 工作区' })).toBeInTheDocument()
     expect(screen.queryByRole('complementary', { name: /检查器/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('separator', { name: /调整/ })).not.toBeInTheDocument()
@@ -41,6 +46,12 @@ describe('Agent Workspace page', () => {
     expect(await screen.findByText('站内 OpenClaw 对话尚未启用；仍可复制交接提示词到自己的 OpenClaw。')).toBeInTheDocument()
     expect(context.draft.question).toBe('保留中的 Feed 草稿')
     expect(screen.getByRole('heading', { name: 'OpenClaw 对话' }).closest('header')).toHaveAttribute('data-page-header-appearance', 'inset')
+  })
+
+  it('opens the full session directory from the title-row icon', async () => {
+    renderPage('/agent')
+    await userEvent.setup().click(screen.getByRole('button', { name: '全部会话' }))
+    expect(screen.getByRole('dialog', { name: '全部会话' })).toBeVisible()
   })
 
   it('explains every feature without sending, creating a task or clearing the draft', async () => {

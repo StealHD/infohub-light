@@ -4,6 +4,7 @@ import { Button, Card, ChatSource, ChatSources, ImageGalleryModal, Icons, Prompt
 import type { OpenClawChatController } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
 import { OpenClawActivityTrace } from './OpenClawActivityTrace'
+import { OpenClawConversationIssue } from './OpenClawConversationIssue'
 import { OpenClawFailureNotice } from './OpenClawFailureNotice'
 import { ConversationTurn, OpenClawImageGrid, type OpenClawImageViewerState } from './OpenClawMessageViews'
 import type { OpenClawComposerPort } from './openclawComposerPort'
@@ -168,7 +169,7 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
       {newOutputBelow && <Button size="sm" variant="secondary" className="sticky bottom-2 z-10 ml-auto mt-2 shadow-md" onPress={scrollToLatest}>
         有新回复 <Icons.ArrowDown size={14} aria-hidden="true" />
       </Button>}
-      {chat.issue && <p role="alert" className="type-body mt-3 max-w-full break-words text-danger [overflow-wrap:anywhere]">{chat.issue.message}</p>}
+      {chat.issue && <OpenClawConversationIssue message={chat.issue.message} variant={variant} />}
     </div>
     <ImageGalleryModal
       isOpen={Boolean(viewer)}

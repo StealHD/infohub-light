@@ -8,128 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "修复本地托管自动化 Supervisor 每轮在执行前重复读取 OpenClaw 模型目录的竞争；目录读取仅在缺失、过期或显式刷新时进行，其他周期只上报执行心跳。目录同步与模型任务拆为不同周期，避免 Codex App Server 在模型读取后立即启动隔离任务。未使用 Docker、未发布、未触发真实模型或通知。",
-  "status": "completed",
-  "task_id": "automation-model-discovery-race-20260913",
-  "unresolved": [
-    "用户可在本地页面手动重新测试既有 Automation；本次未代为调用模型。"
-  ],
-  "validation": [
-    "连接器定向 Pytest 6 项通过；git diff --check 通过。",
-    "本机原生 API 重启后 health ready；Supervisor 连续两个 30 秒周期仅得到 Service 心跳 200，未创建新的 OpenClaw Codex App Server 进程。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "停止后台按目录年龄触发 OpenClaw 模型读取，模型目录只在初次接入、绑定变更或用户显式刷新时同步；重启本机 Gateway 清除卡住的 Codex App Server 子进程。测试文章选择按当前 Feed 的可用文章计数，明确提示已失效选择并在确认时剔除，避免把不可见旧文章提交到测试。未使用 Docker、未发布、未主动调用模型或通知。",
-  "status": "completed",
-  "task_id": "automation-runtime-and-test-selection-20260913",
-  "unresolved": [
-    "最后一次屏幕中的模型失败是重启前的历史测试结果；下一次由用户手动提交时将产生新的记录，继续实时观察。"
-  ],
-  "validation": [
-    "测试文章 Vitest 3 项通过；连接器 Pytest 6 项通过；git diff --check 通过。",
-    "本机 Gateway health OK，API ready，Supervisor 连续 30 秒周期仅完成 Service 心跳。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "查明本地自动化模型调用在 @openclaw/codex 2026.9.3 新 generation 的 model/list 固定 5 秒上限处失败；版本限定补丁仅将隔离分析目录等待延至 30 秒并重启 Gateway。修复已确认终态失败的旧预览仍阻止人工重测的问题，未知完成仍禁止重领。保留本地原生 A 服务，不发布 VPS、不发送通知。",
-  "status": "completed",
-  "task_id": "automation-codex-isolated-timeout-and-preview-retry-20260913",
-  "unresolved": [
-    "插件未来升级到未经核对的新版本时需按版本重新审查补丁；VPS 未发布。"
-  ],
-  "validation": [
-    "本机网页真实测试：两篇命中、单篇未命中，均完成 1/1 且有模型结果；新单篇请求创建新 claim 并完成。",
-    "相关 Pytest 18 项通过；补丁脚本 dry-run 和已应用检查通过；API readiness 200；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "优化 OpenClaw 会话删除与个人 Automations：会话行直接显示删除 X 和禁用原因；自动化表单删除重复提示，完整草稿/暂停任务可一键启动或暂停，概览显示最近三次真实运行。",
-  "status": "completed",
-  "task_id": "agent-automations-ui-polish-20260913",
-  "unresolved": [
-    "未提交、未发布；未调用真实模型或通知。"
-  ],
-  "validation": [
-    "前端定向 Vitest 17 项、typecheck、UI contract、lint 与生产构建通过。",
-    "Automations Playwright 9 项及 Agent Directory Playwright 20 项通过，覆盖明暗主题、桌面/平板/紧凑桌面/手机、键盘、Reduced Motion 与 Axe。",
-    "浅色已启用状态的对比度回归在浏览器 Axe 中修正并复验通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "自动化列表启停改为固定尺寸图标并保持刷新顺序；草稿及其他状态任务可经确认删除，后续处理停止且历史运行回执保留。",
-  "status": "completed",
-  "task_id": "agent-automation-icon-delete-20260913",
-  "unresolved": [
-    "代码留在独立 worktree，未提交或发布至 VPS。"
-  ],
-  "validation": [
-    "定向 Pytest、Vitest、类型检查、UI 检查与三屏模拟 Playwright 通过；未删除真实任务或发送通知。",
-    "impacted preflight 15/15 通过；本地镜像 API/Worker 健康且 5173 代理返回目标修复版本。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "在 codex/telegram-topics-openclaw-notify 分支实现 Telegram 可选话题、OpenClaw 通知服务及管理员渠道目录、正式任务可关闭通知、测试命中后可选持久化通知与 Worker 投递；新增显式 global 47 迁移及文档。未触发真实投递、迁移或部署。",
-  "status": "partial",
-  "task_id": "telegram-topics-openclaw-automation-notify-20260913",
-  "unresolved": [
-    "该分支最终完整 preflight 尚无一次全绿记录；真实通知需指定接收服务后验收，生产迁移、合并与部署另行执行。"
-  ],
-  "validation": [
-    "后端定向测试与全域 Pytest 通过；SQLite 资源警告修正后全域门禁后端阶段通过，代码尺寸和控制面检查通过。",
-    "第二次 impacted preflight 停于前端 Fast Refresh lint；已拆分组件与辅助函数，单独 lint、全量 Vitest 148 文件932项、生产构建与 UI 合同通过；根据门禁规则不再运行第三次完整 preflight。",
-    "自动化浏览器验收 9 项、通知设置响应式验收 3 项通过，覆盖桌面/平板/手机、明暗主题、键盘和 Reduced Motion；差异及 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -385,6 +263,119 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "Instagram 提取、补图、媒体缓存、展示、ActorOps 映射与旧内容修复关联回归 77 项通过；合并后的 main 后端全量 Pytest 通过。",
     "前端全量 150 个测试文件、939 项通过；工作日志、Markdown、可观测性和差异检查通过；合并提交为 1735c336。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "Automations 详情栏改为与任务列表同轨占宽，顶栏随列表同步缩短；详情操作统一为有说明的图标按钮，描述箭头和测试区操作完成右对齐，并同步 UI 合同、手册与更新日志。独立分支未修改后端、数据库、自动化执行或通知行为。",
+  "status": "partial",
+  "task_id": "2026-09-15-ui-sidebar-automations-0915",
+  "unresolved": [
+    "impacted preflight 被现有 Release Tag workflow 合同基线断言阻断；同一断言已在未包含本分支改动的本地 main 独立复现，本次 UI-only 范围未修改发布工作流。"
+  ],
+  "validation": [
+    "定向前端 20/20、完整前端 151 个文件共 943 项、TypeScript、ESLint、UI 合同、生产构建及产物检查通过。",
+    "Playwright 桌面、平板、手机共 12/12 通过，覆盖明暗主题、200% 缩放、详情开关、拖动与键盘调宽、焦点返回、草稿保留、等待态尺寸和无横向溢出；使用模拟接口，未触发真实抓取、模型或通知。",
+    "impacted targeted/preflight 在基线失败前完成 7 项控制与格式检查；Release Tag workflow 合同断言在本地 main 单测中同样失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "修复工作区切换菜单左右留白不对称与品牌按钮常驻背景；Automations 新建和编辑操作靠右，来源选择与模型刷新分列对齐，触发与通知字段进入编辑后直接显示；同步 UI 合同、操作手册和变更日志。",
+  "status": "completed",
+  "task_id": "ui-workspace-automation-edit-polish-20260915",
+  "unresolved": [
+    "内置浏览器不响应页面缩放快捷键，未取得实际 200% 缩放测量；已用 390×844、1024×768、1440×900 和 320 px 详情宽度覆盖重排与溢出风险。"
+  ],
+  "validation": [
+    "工作区菜单在 1440×900 实测侧栏 232 px、菜单 216 px、左右各 8 px且页面无横向溢出；Automations 在 400 px 与 320 px 详情宽度下操作靠右、触发字段直接可见。",
+    "1024×768 Drawer 与 390×844 Sheet 均无横向溢出；手机面板宽 390 px，模型、推理、触发和通知选择控件均完整位于 21–369 px 内容区。",
+    "定向 Vitest 7 项通过；Information Automations 分组已执行的 26 项通过，另有 1 个 worker 启动超时后将该文件 2 项单独复验通过；lint、typecheck、UI contract 通过；impacted preflight 11/11 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "信息流右侧 Agent 不再使用独立模型与思考下拉框，改为与完整 OpenClaw 对话共用模型、思考、Fast 和默认恢复胶囊浮层；同步 UI 合同、操作手册与变更日志。",
+  "status": "completed",
+  "task_id": "ui-inscope-openclaw-runtime-picker-20260915",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw 对话相关 Vitest 3 个文件 44 项通过；typecheck 与 UI contract check 通过。",
+    "127.0.0.1:5173/feed 实页确认右侧 Agent 显示统一 GPT-5.6-Terra／medium 胶囊，展开后可见 Fast、模型入口、思考滑杆和默认恢复；未发送消息或调用模型。",
+    "impacted preflight 13/13 通过，包含 frontend_full、control 与 python_api_store 分组。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "OpenClaw 会话入口并入侧栏标题行并与工作区箭头对齐；删除确认支持成功后按账号记住不再提醒并可从全部会话恢复；完整工作台和信息流 Agent 共用右对齐用户气泡；执行详情逐项显示安全操作名、状态和耗时并明确截断或缺失证据。同步 UI 合同、手册与更新日志，未改后端、数据库或真实执行行为。",
+  "status": "completed",
+  "task_id": "ui-openclaw-conversation-messages-20260915",
+  "unresolved": [],
+  "validation": [
+    "相关会话、删除偏好、消息气泡和事件投影 Vitest 通过；TypeScript、ESLint、UI contract 和 diff 检查通过。",
+    "127.0.0.1:5173 实页确认加号与工作区箭头对齐、全部会话删除开关、确认框不再提醒、用户气泡靠右且多条助手回复纵向排列；未发送消息、删除会话或调用模型。",
+    "impacted preflight 13/13 通过，覆盖 control、frontend_full 与 python_api_store，0 失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-16",
+  "result": "OpenClaw 侧栏移除会话区与工作区之间的装饰分隔线，将全部会话改为带说明的历史图标并与新对话加号同排；完整工作台移除助手消息之间的装饰横线。同步 UI 合同、操作手册与更新日志，未改变会话、消息或 Gateway 业务行为。",
+  "status": "completed",
+  "task_id": "ui-openclaw-remove-dividers-history-icon-20260916",
+  "unresolved": [],
+  "validation": [
+    "相关 Agent Workspace 与 OpenClaw 会话 Vitest 17/17 通过；TypeScript、ESLint、UI contract 和 diff 检查通过。",
+    "127.0.0.1:5173 实页确认两处装饰横线已移除、全部会话与新对话图标同排，历史图标可正常打开原会话目录；未发送消息或删除会话。",
+    "impacted preflight 13/13 通过，覆盖 control、frontend_full 与 python_api_store，0 失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-16",
+  "result": "修复完整 OpenClaw 会话的运行/发送错误错位：将错误提示从外层滚动区改为复用居中消息宽度轨道；错误内容、连接/重试行为与紧凑 Agent 布局未改变。为保持代码规模限制，将提示抽为同目录专用组件，并同步 UI 合同与更新日志。",
+  "status": "completed",
+  "task_id": "ui-openclaw-issue-track-alignment-20260916",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw 会话回归 34/34 通过；TypeScript、ESLint、UI contract 及前端代码规模检查通过。",
+    "新增 workspace 错误轨道断言，确认错误提示具有与 transcript 相同的居中最大宽度；未中断当前 Gateway 或发送消息来制造真实错误。",
+    "首次 preflight 仅因 OpenClawTimeline 超过 150 行失败；抽取组件后 impacted preflight 13/13 通过，0 失败。"
   ]
 }
 ```

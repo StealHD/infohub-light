@@ -28,7 +28,7 @@ export function InformationRuleEditor({ rule, canMutate, onSaved, onBusyChange, 
     } finally { lock.current = false; onBusyChange?.(false); if (draft.active.current) setBusy('') }
   }
   return <div className="grid gap-4">
-    <div className="sticky top-0 z-10 -mx-4 flex flex-wrap gap-2 border-b border-separator bg-surface px-4 py-3">
+    <div className="sticky top-0 z-10 -mx-4 flex flex-wrap justify-end gap-2 border-b border-separator bg-surface px-4 py-3">
       {onExit && <Button variant="ghost" isDisabled={Boolean(busy)} onPress={onExit}>返回概览</Button>}
       <StableAsyncButton pending={busy === 'save'} pendingContent="正在保存…" isDisabled={!editable || Boolean(busy) || !draft.dirty}
         onPress={() => perform('save', async () => {

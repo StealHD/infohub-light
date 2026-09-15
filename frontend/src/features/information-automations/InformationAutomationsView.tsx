@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { Button, RefreshButton, StableAsyncButton } from '../../design-system'
@@ -11,7 +11,7 @@ import { InformationTaskDetails } from './InformationTaskDetails'
 import { retainInformationRuleOrder } from './informationRuleOrder'
 import { useInformationTests } from './useInformationTests'
 
-export default function InformationAutomationsView({ canMutate }: { canMutate: boolean }) {
+export default function InformationAutomationsView({ canMutate, header }: { canMutate: boolean; header?: ReactNode }) {
   const { api, userId } = useInformationContext()
   const cache = useQueryClient()
   const key = ['information-rules', userId]
@@ -61,6 +61,7 @@ export default function InformationAutomationsView({ canMutate }: { canMutate: b
     } finally { transitionLock.current = false; busy.current = false; setAction(null) }
   }
   return <div className="flex h-full min-h-0 min-w-0">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{header}
     <div className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-[var(--inteliscope-size-page-header)] min-[768px]:px-6"><div className="mx-auto grid max-w-4xl gap-4">
       <div className="flex flex-wrap items-center gap-2"><p className="type-body min-w-0 flex-1 text-muted">安排任务，让关注的信息按时送达。</p>
         <RefreshButton variant="ghost" pending={query.isFetching} aria-label="刷新提醒列表" onPress={() => query.refetch()} />
@@ -74,8 +75,8 @@ export default function InformationAutomationsView({ canMutate }: { canMutate: b
         canMutate={canMutate} action={action} dirtyRuleId={dirtyRuleId} onTransition={transition} onDelete={remove} />
       {query.hasNextPage && <StableAsyncButton pending={query.isFetchingNextPage} pendingContent="正在加载…" onPress={() => query.fetchNextPage()}>加载更多提醒</StableAsyncButton>}
       <Link to="/agent/automations?advanced=cron" className="type-meta text-muted underline">高级 Gateway Cron</Link>
-    </div></div>
-    <ResourceDetailsPanel open={Boolean(selected)} onClose={close} userId={userId} title={selected === 'new' ? '新建自动化' : rule?.config.name || '任务详情'}>
+    </div></div></div>
+    <ResourceDetailsPanel open={Boolean(selected)} onClose={close} userId={userId} reservePageHeader={false} title={selected === 'new' ? '新建自动化' : rule?.config.name || '任务详情'}>
       <InformationTaskDetails key={selected || 'empty'} rule={rule} creating={selected === 'new'} canMutate={canMutate} onClose={close}
         testSession={rule ? tests.session(rule.id, rule.version) : undefined}
         onTestSelect={(value) => { if (rule) tests.select(rule.id, rule.version, value) }}

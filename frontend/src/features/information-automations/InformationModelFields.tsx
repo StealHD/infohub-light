@@ -15,7 +15,7 @@ export function InformationModelFields({ value, onChange, disabled, compactHeadi
     : value.model && !selectedModel ? '所选模型已不可用，请重新选择。'
     : ''
   return <fieldset className="grid gap-3">{!compactHeading && <legend className="type-section-title">模型</legend>}
-      <div className="flex flex-wrap items-center gap-2"><p className="type-control">分析模型</p>
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="type-control">分析模型</p>
         <RefreshButton pending={refreshing || models.isFetching} aria-label="刷新模型目录" onPress={refresh} /></div>
       <FormSelect label="选择模型" value={value.model?.id || ''} isDisabled={disabled || models.data?.status !== 'ready' || !models.data.models.length}
         options={(models.data?.models || []).map((model) => ({ id: model.id, label: model.name }))}

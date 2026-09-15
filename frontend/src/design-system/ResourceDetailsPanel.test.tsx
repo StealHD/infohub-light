@@ -42,3 +42,9 @@ it('switches to a drawer when the list cannot retain 640px', () => {
   expect(screen.queryByRole('separator', { name: '调整任务列表和详情宽度' })).not.toBeInTheDocument()
   expect(screen.getByText('抽屉内容')).toBeVisible()
 })
+
+it('can align a docked details header to the top of its own column', () => {
+  render(<MemoryRouter><DesignSystemProvider><ResourceDetailsPanel open onClose={vi.fn()} userId="alice" title="任务详情" reservePageHeader={false}><p>内容</p></ResourceDetailsPanel></DesignSystemProvider></MemoryRouter>)
+  const frame = screen.getByRole('complementary', { name: '自动化任务详情' }).firstElementChild
+  expect(frame).not.toHaveClass('pt-[var(--inteliscope-size-page-header)]')
+})

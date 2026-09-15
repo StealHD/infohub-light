@@ -18,11 +18,20 @@ const runPhaseLabels: Record<OpenClawRunPhase, string> = {
 
 const QUICK_ACTIVITY_THRESHOLD_MS = 400
 
-function activityLabel(activity: OpenClawRunActivity): string {
-  if (activity.status === 'running') return `正在${activity.label}`
-  if (activity.status === 'failed') return `${activity.label}失败`
-  if (activity.status === 'stopped') return `${activity.label}已停止`
-  return `已${activity.label}`
+function activityStatusLabel(activity: OpenClawRunActivity): string {
+  if (activity.status === 'running') return '进行中'
+  if (activity.status === 'failed') return '失败'
+  if (activity.status === 'stopped') return '已停止'
+  return activity.endedAt === undefined ? '结果未确认' : '已完成'
+}
+
+function activityDuration(activity: OpenClawRunActivity, now: number): string {
+  const end = activity.endedAt ?? (activity.status === 'running' ? now : undefined)
+  if (end === undefined) return '耗时未知'
+  const milliseconds = Math.max(0, end - activity.startedAt)
+  if (milliseconds < 1_000) return `${Math.max(0.1, Math.round(milliseconds / 100) / 10).toFixed(1)}秒`
+  const seconds = Math.round(milliseconds / 100) / 10
+  return `${seconds}秒`
 }
 
 function ActivityIcon({ activity }: { activity: OpenClawRunActivity }) {
@@ -53,29 +62,21 @@ export function OpenClawActivityTrace({ trace, running }: {
   const phaseLabel = trace.phase === 'using_tool' && activeTool && activeToolVisible
     ? `正在${activeTool.label}`
     : runPhaseLabels[trace.phase]
+  const activityCount = trace.activitiesTruncated ? `至少 ${trace.activities.length}` : `${trace.activities.length}`
   const summary = trace.status === 'completed'
-    ? `已完成 ${trace.activities.length} 个步骤`
+    ? `已完成 ${activityCount} 个步骤`
     : trace.status === 'aborted'
       ? trace.activities.length ? `已停止 · 完成 ${trace.activities.filter((activity) => activity.status === 'completed').length} 个步骤` : '已停止，未生成回答'
       : trace.status === 'failed'
         ? '处理失败'
         : phaseLabel
-  const quickCompletedCount = trace.activities.filter((activity) => (
-    activity.id !== 'context'
-    &&
-    activity.status === 'completed'
-    && activity.endedAt !== undefined
-    && activity.endedAt - activity.startedAt < QUICK_ACTIVITY_THRESHOLD_MS
-  )).length
-  const detailedActivities = trace.activities.filter((activity) => {
+  const visibleActivities = trace.activities.filter((activity) => {
+    if (!running) return true
     if (activity.id === 'context') return true
     if (activity.status === 'running') return now - activity.startedAt >= QUICK_ACTIVITY_THRESHOLD_MS
     if (activity.status !== 'completed' || activity.endedAt === undefined) return true
     return activity.endedAt - activity.startedAt >= QUICK_ACTIVITY_THRESHOLD_MS
   })
-  const maxDetailedActivities = quickCompletedCount > 0 ? 2 : 3
-  const visibleActivities = detailedActivities.slice(-maxDetailedActivities)
-  const hiddenCount = Math.max(0, detailedActivities.length - visibleActivities.length)
   const tone = trace.status === 'failed' ? 'danger' : trace.status === 'aborted' ? 'neutral' : running ? 'accent' : 'success'
 
   return <div data-openclaw-activity data-run-status={trace.status} className="mt-2 min-w-0 rounded-xl border border-separator bg-default/45 px-2.5 py-2">
@@ -101,20 +102,17 @@ export function OpenClawActivityTrace({ trace, running }: {
       <Icons.ChevronDown size={13} aria-hidden="true" className={`shrink-0 text-muted transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`} />
     </button>
     <span className="sr-only" role="status">{phaseLabel}</span>
-    {expanded && <div className="mt-1 grid gap-1 border-t border-separator pt-1.5">
-      {hiddenCount > 0 && <span className="type-meta pl-5 text-muted">另有 {hiddenCount} 个较早步骤</span>}
-      {quickCompletedCount > 0 && <div className="type-meta flex min-w-0 items-center gap-2 text-muted">
-        <span className="grid size-3.5 shrink-0 place-items-center"><Icons.Check size={13} aria-hidden="true" /></span>
-        <span className="min-w-0 truncate">已完成 {quickCompletedCount} 个快速步骤</span>
-      </div>}
+    {expanded && <div className="quiet-scroll-region mt-1 grid max-h-40 gap-1 overflow-y-auto border-t border-separator pt-1.5">
+      {trace.activitiesTruncated && <span className="type-meta pl-5 text-muted">仅显示最近 20 个步骤</span>}
       {visibleActivities.length ? visibleActivities.map((activity) => <div
         key={activity.id}
         data-activity-status={activity.status}
         className={`type-meta flex min-w-0 items-center gap-2 ${activity.status === 'failed' ? 'text-danger' : activity.status === 'running' ? 'text-accent' : 'text-muted'}`}
       >
         <span className="grid size-3.5 shrink-0 place-items-center"><ActivityIcon activity={activity} /></span>
-        <span className="min-w-0 truncate">{activityLabel(activity)}</span>
-      </div>) : <span className="type-meta text-muted">{phaseLabel}</span>}
+        <span className="min-w-0 break-words [overflow-wrap:anywhere]">{activity.label}</span>
+        <span className="shrink-0">· {activityStatusLabel(activity)} · {activityDuration(activity, now)}</span>
+      </div>) : <span className="type-meta text-muted">未收到详细步骤</span>}
     </div>}
   </div>
 }

@@ -99,7 +99,7 @@ export function WorkspaceSwitcher({
     'aria-label': `切换工作区，当前为 ${active.label}`,
     className: compact
       ? 'flex size-8 shrink-0 items-center justify-center rounded-[var(--inteliscope-radius-control)] text-foreground hover:bg-default focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11'
-      : 'flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[var(--inteliscope-radius-card)] bg-default/70 px-3 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus',
+      : 'flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[var(--inteliscope-radius-card)] px-3 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus',
   }
 
   if (mobileSheet) return <Drawer isOpen={open} onOpenChange={updateOpen}>
@@ -116,7 +116,7 @@ export function WorkspaceSwitcher({
 
   return <Popover isOpen={open} onOpenChange={updateOpen}>
     <Popover.Trigger<'button'> ref={popoverTriggerRef} {...triggerProps} render={(props) => <button {...props} type="button" />}>{trigger}</Popover.Trigger>
-    <Popover.Content placement={placement} offset={8} containerPadding={12} className="workspace-switcher-popover z-50 p-0">
+    <Popover.Content placement={placement} offset={8} containerPadding={!compact && placement === 'bottom start' ? 8 : 12} className="workspace-switcher-popover z-50 p-0">
       <Popover.Dialog aria-label="切换工作区" className="grid gap-1 p-2">{options}</Popover.Dialog>
     </Popover.Content>
   </Popover>
