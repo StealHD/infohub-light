@@ -10,26 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "decisions",
-    "verification"
-  ],
-  "recorded_on": "2026-09-12",
-  "result": "保留标准发布，新增显式 prepare-fast/release-fast；GitHub 按提交与 Tag 模式分流，快速路径复用本地测试覆盖和正式 AMD64 镜像，共用上传、切换、健康与回滚。",
-  "status": "completed",
-  "task_id": "2026-09-12-fast-release",
-  "unresolved": [],
-  "validation": [
-    "相关模式、CI 历史、覆盖范围、脚本分流、产物一致性和清理测试通过；最终 impacted preflight 16/16 通过（616.772 秒），mapping_miss=false、SQLite ResourceWarning=0，结果可复用。",
-    "临时干净检出的源码输入与任务一致；本地真实 AMD64 构建、打包和隔离验收通过（缓存命中下共 53.321 秒）。容器内 loopback API smoke 8/8 通过（4.842 秒），使用 network none，测试容器和镜像已清理。",
-    "只读核对生产 revision 后，真实最终 Gate 结果通过快速准备的覆盖与输入校验。控制文档结构、Markdown 预算及 diff 格式检查通过；GitHub workflow 仅本地行为验证，未推送、未创建正式 Tag、未部署。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
     "interface",
     "observability",
     "ui"
@@ -398,6 +378,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "发布脚本、制品和调度 37 项定向回归通过；Bash 语法、Markdown 控制与 diff 检查通过。",
     "未修改产品 UI、数据库结构、生产配置或任何任务记录。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-15",
+  "result": "Automations 详情栏改为与任务列表同轨占宽，顶栏随列表同步缩短；详情操作统一为有说明的图标按钮，描述箭头和测试区操作完成右对齐，并同步 UI 合同、手册与更新日志。独立分支未修改后端、数据库、自动化执行或通知行为。",
+  "status": "partial",
+  "task_id": "2026-09-15-ui-sidebar-automations-0915",
+  "unresolved": [
+    "impacted preflight 被现有 Release Tag workflow 合同基线断言阻断；同一断言已在未包含本分支改动的本地 main 独立复现，本次 UI-only 范围未修改发布工作流。"
+  ],
+  "validation": [
+    "定向前端 20/20、完整前端 151 个文件共 943 项、TypeScript、ESLint、UI 合同、生产构建及产物检查通过。",
+    "Playwright 桌面、平板、手机共 12/12 通过，覆盖明暗主题、200% 缩放、详情开关、拖动与键盘调宽、焦点返回、草稿保留、等待态尺寸和无横向溢出；使用模拟接口，未触发真实抓取、模型或通知。",
+    "impacted targeted/preflight 在基线失败前完成 7 项控制与格式检查；Release Tag workflow 合同断言在本地 main 单测中同样失败。"
   ]
 }
 ```

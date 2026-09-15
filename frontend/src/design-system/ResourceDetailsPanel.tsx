@@ -8,7 +8,7 @@ import {
 } from './resourceDetailsPreference'
 
 /** Resource pages reuse the workspace inspector geometry and responsive surfaces. */
-export function ResourceDetailsPanel({ open, onClose, userId, title, children }: { open: boolean; onClose: () => void; userId: string; title: string; children: ReactNode }) {
+export function ResourceDetailsPanel({ open, onClose, userId, title, reservePageHeader = true, children }: { open: boolean; onClose: () => void; userId: string; title: string; reservePageHeader?: boolean; children: ReactNode }) {
   const viewportWidth = useViewportWidth()
   const [stored, setStored] = useState(() => ({ userId, width: readResourceDetailsWidth(userId) }))
   const [resizing, setResizing] = useState(false)
@@ -41,7 +41,7 @@ export function ResourceDetailsPanel({ open, onClose, userId, title, children }:
   const content = <div className="quiet-scroll-region h-full min-h-0 overflow-y-auto p-4">{children}</div>
   return canDockResourceDetails(viewportWidth)
     ? <DisclosurePanel open={open} label="自动化任务详情" width={`${width}px`}>
-      <div className={`relative h-full min-h-0 pt-[var(--inteliscope-size-page-header)] ${resizing ? 'select-none' : ''}`} onKeyDown={(event) => {
+      <div className={`relative h-full min-h-0 ${reservePageHeader ? 'pt-[var(--inteliscope-size-page-header)]' : ''} ${resizing ? 'select-none' : ''}`} onKeyDown={(event) => {
         if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); onClose() }
       }}>
         <div role="separator" tabIndex={0} aria-label="调整任务列表和详情宽度" aria-orientation="vertical"

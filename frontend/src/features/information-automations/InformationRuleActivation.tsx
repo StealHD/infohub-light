@@ -16,7 +16,9 @@ export function InformationRuleActivation({ rule, canMutate, dirty = false, acti
   const complete = completeRule(rule.config)
   const label = transition === 'enable' ? '启动' : '暂停'
   const pendingLabel = transition === 'enable' ? '正在启动…' : '正在暂停…'
-  if (compact) return <Tooltip delay={250}><TooltipTriggerButton aria-label={`${label}任务：${rule.config.name}`} title={dirty ? '请先保存修改' : undefined}
+  const disabledReason = !canMutate ? '当前账号没有管理权限' : dirty ? '请先保存修改' : busy ? '请等待当前操作完成' : undefined
+  if (compact) return <Tooltip delay={250}><TooltipTriggerButton aria-label={`${label}任务：${rule.config.name}`}
+    aria-description={disabledReason} title={disabledReason}
     pending={pending} disabled={!canMutate || dirty || busy || (transition === 'enable' && !complete)} className={`size-9 shrink-0 rounded-[var(--inteliscope-radius-control)] text-accent hover:bg-default ${className}`}
     onClick={() => onTransition(rule, transition)}>
     {pending ? <Icons.LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : transition === 'enable' ? <Icons.Play size={16} aria-hidden="true" /> : <Icons.Pause size={16} aria-hidden="true" />}

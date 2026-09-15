@@ -1,8 +1,9 @@
 import { lazy, Suspense, useCallback, useState } from 'react'
 import type { InformationRule, InformationRuleConfig } from '../../api/informationAutomationService'
-import { Button, StableAsyncButton, StatusIndicator, Tabs } from '../../design-system'
+import { Icons, StatusIndicator, Tabs, Tooltip, TooltipTriggerButton, topAnchoredTooltipProps } from '../../design-system'
 import { InformationRuleActivation, type InformationRuleActionState, type InformationRuleTransitionAction } from './InformationRuleActivation'
 import { InformationRuleDelete } from './InformationRuleDelete'
+import { InformationRuleArchiveAction } from './InformationRuleArchiveAction'
 import { InformationTaskOverview } from './InformationTaskOverview'
 import { InformationTestPanel } from './InformationTestPanel'
 import { InformationRuleRuns } from './InformationRuleRuns'
@@ -32,15 +33,23 @@ export function InformationTaskDetails({ rule, creating, canMutate, onClose, onS
   if (creating) return <Suspense fallback={<p role="status">正在加载新建表单…</p>}><NewRule onCancel={onClose} onBusyChange={onBusyChange} onSaved={async (saved) => { await onSaved(saved) }} /></Suspense>
   if (!rule || !draft || !testSession) return <p className="type-body text-muted">任务不在当前列表中，请关闭详情后刷新列表。</p>
   const pending = action?.ruleId === rule.id
+  const editDisabledReason = !canMutate
+    ? '当前账号没有编辑权限'
+    : rule.state === 'archived'
+      ? '请先恢复任务'
+      : pending
+        ? '请等待当前操作完成'
+        : undefined
   return <div className="grid min-w-0 gap-4 [overflow-wrap:anywhere]">
     <div className="flex flex-wrap items-center gap-2"><StatusIndicator label={ruleStateLabels[rule.state]} tone={rule.state === 'active' ? 'success' : 'neutral'} />
       {dirty && <span className="type-meta text-warning">未保存</span>}<span className="min-w-0 flex-1" />
-      {!editing && <Button size="sm" variant="secondary" isDisabled={!canMutate || rule.state === 'archived'} onPress={() => { setTab('overview'); setEditing(true) }}>编辑</Button>}
-      <InformationRuleActivation rule={rule} canMutate={canMutate} dirty={dirty} action={action} onTransition={onTransition} />
-      {rule.state === 'archived'
-        ? <StableAsyncButton size="sm" variant="secondary" pending={action?.ruleId === rule.id && action.action === 'restore'} pendingContent="正在恢复…" isDisabled={!canMutate || pending} onPress={() => onTransition(rule, 'restore')}>恢复</StableAsyncButton>
-        : <StableAsyncButton size="sm" variant="ghost" pending={action?.ruleId === rule.id && action.action === 'archive'} pendingContent="正在归档…" isDisabled={!canMutate || dirty || pending} onPress={() => onTransition(rule, 'archive')}>归档</StableAsyncButton>}
-      <InformationRuleDelete rule={rule} canMutate={canMutate} dirty={dirty} action={action} onDelete={onDelete} />
+      {!editing && <Tooltip delay={250}><TooltipTriggerButton aria-label={`编辑任务：${rule.config.name}`} aria-description={editDisabledReason} title={editDisabledReason} disabled={Boolean(editDisabledReason)}
+        className="size-9 shrink-0 rounded-[var(--inteliscope-radius-control)] text-accent hover:bg-default"
+        onClick={() => { setTab('overview'); setEditing(true) }}><Icons.Pencil size={16} aria-hidden="true" /></TooltipTriggerButton>
+        <Tooltip.Content {...topAnchoredTooltipProps}>编辑任务</Tooltip.Content></Tooltip>}
+      <InformationRuleActivation compact rule={rule} canMutate={canMutate} dirty={dirty} action={action} onTransition={onTransition} />
+      <InformationRuleArchiveAction rule={rule} canMutate={canMutate} dirty={dirty} action={action} onTransition={onTransition} />
+      <InformationRuleDelete compact rule={rule} canMutate={canMutate} dirty={dirty} action={action} onDelete={onDelete} />
     </div>
     {transitionError && <p role="alert">{transitionError}</p>}
     <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as Tab)}>

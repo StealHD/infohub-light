@@ -11,6 +11,7 @@ export function InformationRuleDelete({ rule, canMutate, dirty = false, action, 
   const [error, setError] = useState('')
   const pending = action?.ruleId === rule.id && action.action === 'delete'
   const disabled = !canMutate || dirty || Boolean(action)
+  const disabledReason = !canMutate ? '当前账号没有管理权限' : dirty ? '请先保存修改' : action ? '请等待当前操作完成' : undefined
   async function remove() {
     if (disabled) return
     setError('')
@@ -18,7 +19,7 @@ export function InformationRuleDelete({ rule, canMutate, dirty = false, action, 
     catch (failure) { setError(failure instanceof Error ? failure.message : '删除结果未确认，请刷新任务列表后重试。') }
   }
   return <>
-    {compact ? <Tooltip delay={250}><TooltipTriggerButton aria-label={`删除任务：${rule.config.name}`} title={dirty ? '请先保存修改' : undefined}
+    {compact ? <Tooltip delay={250}><TooltipTriggerButton aria-label={`删除任务：${rule.config.name}`} aria-description={disabledReason} title={disabledReason}
       disabled={disabled} className="size-9 shrink-0 rounded-[var(--inteliscope-radius-control)] text-danger hover:bg-default"
       onClick={() => { setError(''); setOpen(true) }}><Icons.Trash2 size={16} aria-hidden="true" /></TooltipTriggerButton>
       <Tooltip.Content {...topAnchoredTooltipProps}>删除任务</Tooltip.Content></Tooltip>

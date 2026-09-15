@@ -48,10 +48,10 @@ export function InformationTestPanel({ rule, dirty, canMutate, session, onSelect
         isDisabled={pending || !canMutate} options={targets.map((item) => ({ id: item.id, label: item.name }))}
         onChange={(target) => onConfigureNotification(true, target)} />}
       {session.sendNotification && !selectedTarget && <p role="alert" className="type-meta text-warning">请选择已验证的通知服务。</p>}
-      <StableAsyncButton pending={session.phase === 'submitting'} pendingContent="正在提交…"
+      <div className="flex min-w-0 flex-wrap justify-end gap-2"><StableAsyncButton pending={session.phase === 'submitting'} pendingContent="正在提交…"
         isDisabled={!canMutate || rule.state === 'archived' || dirty || (!session.selection.length && !usesCustomText) || pending || (session.sendNotification && !selectedTarget) || session.data?.reason === "completion_unknown"} onPress={onStart}>
         {session.data?.reason === 'preview_confirmation_required' ? '确认重新测试' : session.phase === 'submission_unknown' || session.phase === 'failed' ? '手动重新测试' : '开始测试'}
-      </StableAsyncButton>
+      </StableAsyncButton></div>
     </Card>
     {session.phase !== 'idle' && <div role="status" className="grid gap-3">
       <StatusIndicator tone={session.phase === 'failed' || session.phase === 'submission_unknown' ? 'danger' : session.phase === 'completed' ? 'success' : 'accent'} label={informationTestStatusLabel(session.phase)} />
