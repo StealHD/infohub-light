@@ -14,7 +14,13 @@ MAX_FRAME = 2 * 1024 * 1024
 
 
 class RelayFailure(Exception):
-    pass
+    """Safe relay failure carrying only a bounded stage and retry policy."""
+
+    def __init__(self, message, *, stage='relay', terminal=False, cause=None):
+        super().__init__(message)
+        self.stage = stage
+        self.terminal = terminal
+        self.cause = cause
 
 
 async def authenticate(upstream, root, token):
@@ -52,8 +58,10 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         if len(arrivals) >= 120:
             raise RelayFailure("Too many requests")
         arrivals.append(now)
-        if len(raw.encode()) > MAX_FRAME or not valid_session():
-            raise RelayFailure('Session expired or message too large')
+        if len(raw.encode()) > MAX_FRAME:
+            raise RelayFailure('Message too large', stage='browser_request')
+        if not valid_session():
+            raise RelayFailure('Session expired', stage='session_watch', terminal=True)
         frame = json.loads(raw)
         request_id = frame.get('id')
         if frame.get('type') != 'req' or not isinstance(request_id, str) or len(request_id) > 128:
@@ -61,6 +69,13 @@ async def browser_requests(browser, upstream, owner, agent, pending, valid_sessi
         method, params = frame.get('method'), frame.get('params', {})
         if not isinstance(params, dict) or len(pending) >= 32 or request_id in pending:
             raise RelayFailure('Invalid or excessive requests')
+        if method == 'relay.ping':
+            if params:
+                await browser.send_json(error_reply(request_id, 'Invalid heartbeat request'))
+            else:
+                await browser.send_json({'type': 'res', 'id': request_id, 'ok': True,
+                                         'payload': {'alive': True}})
+            continue
         try:
             if method == 'chat.send' and not chat_ready():
                 raise PermissionError('Skill policy synchronization is pending')
@@ -83,7 +98,7 @@ async def gateway_events(browser, upstream, owner, agent, pending, valid_session
                          allowed_skill_keys=lambda: None):
     async for raw in upstream:
         if not valid_session():
-            raise RelayFailure('Binding or session expired')
+            raise RelayFailure('Binding or session expired', stage='session_watch', terminal=True)
         frame = json.loads(raw)
         if frame.get('type') == 'res':
             entry = pending.pop(frame.get('id'), None)
@@ -108,41 +123,75 @@ async def session_watch(valid_session):
     while True:
         await asyncio.sleep(15)
         if not valid_session():
-            raise RelayFailure('InfoHub login expired')
+            raise RelayFailure('InfoHub login expired', stage='session_watch', terminal=True)
 
 
 async def relay(browser, user_id, valid_session, agent, *, readonly=False,
                 allowed_skill_keys=lambda: None, chat_ready=lambda: True, delete_session=None):
     url, token, root = settings()
     owner = Ownership(root, user_id)
-    async with connect(url, proxy=None, open_timeout=15, ping_interval=20, ping_timeout=20,
-                       max_size=MAX_FRAME, max_queue=16, close_timeout=5) as upstream:
-        hello = await authenticate(upstream, root, token)
-        await verify_agent(upstream, agent)
+    try:
+        upstream_context = connect(url, proxy=None, open_timeout=15, ping_interval=20, ping_timeout=20,
+                                   max_size=MAX_FRAME, max_queue=16, close_timeout=5)
+        upstream = await upstream_context.__aenter__()
+    except Exception as exc:
+        raise RelayFailure('OpenClaw upstream unavailable', stage='upstream_connect', cause=exc) from exc
+    try:
+        try:
+            hello = await authenticate(upstream, root, token)
+        except Exception as exc:
+            if isinstance(exc, RelayFailure):
+                exc.stage = 'upstream_auth'
+                raise
+            raise RelayFailure('OpenClaw authentication unavailable', stage='upstream_auth', cause=exc) from exc
+        try:
+            await verify_agent(upstream, agent)
+        except Exception as exc:
+            if isinstance(exc, RelayFailure):
+                exc.stage = 'agent_verify'
+                raise
+            raise RelayFailure('Bound Agent verification unavailable', stage='agent_verify', cause=exc) from exc
         if not valid_session():
-            raise RelayFailure('Binding or session expired')
+            raise RelayFailure('Binding or session expired', stage='session_watch', terminal=True)
         await browser.send_json({'type': 'event', 'event': 'connect.challenge', 'payload': {'nonce': 'infohub-session'}})
-        request = json.loads(await asyncio.wait_for(browser.receive_text(), 15))
+        try:
+            request = json.loads(await asyncio.wait_for(browser.receive_text(), 15))
+        except Exception as exc:
+            raise RelayFailure('Browser handshake unavailable', stage='browser_handshake', cause=exc) from exc
         if request.get('method') != 'connect' or request.get('type') != 'req':
-            raise RelayFailure('Connect required')
+            raise RelayFailure('Connect required', stage='browser_handshake')
+        negotiated_methods = [method for method in (
+            'sessions.preview', 'sessions.list', 'sessions.delete', 'skills.status'
+        ) if method in hello.get('features', {}).get('methods', [])]
+        negotiated_methods.append('relay.ping')
         await browser.send_json({'type': 'res', 'id': request.get('id'), 'ok': True, 'payload': {
-            'features': {'methods': [method for method in ('sessions.preview', 'sessions.list', 'sessions.delete', 'skills.status')
-                                     if method in hello.get('features', {}).get('methods', [])]},
+            'features': {'methods': negotiated_methods},
             'protocol': 4, 'auth': {'role': 'operator', 'scopes': SCOPES},
             'snapshot': {'sessionDefaults': {'defaultAgentId': agent}},
         }})
         pending = {}
-        tasks = [asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session, readonly, chat_ready, delete_session)),
-                 asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending, valid_session, allowed_skill_keys)),
-                 asyncio.create_task(session_watch(valid_session))]
+        tasks = {
+            asyncio.create_task(browser_requests(browser, upstream, owner, agent, pending, valid_session,
+                                                 readonly, chat_ready, delete_session)): 'browser_transport',
+            asyncio.create_task(gateway_events(browser, upstream, owner, agent, pending, valid_session,
+                                               allowed_skill_keys)): 'upstream_transport',
+            asyncio.create_task(session_watch(valid_session)): 'session_watch',
+        }
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
-                task.result()
+                try:
+                    task.result()
+                except Exception as exc:
+                    if isinstance(exc, RelayFailure):
+                        raise
+                    raise RelayFailure('Relay transport closed', stage=tasks[task], cause=exc) from exc
         finally:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        await upstream_context.__aexit__(None, None, None)
 
 
 async def verify_agent(upstream, agent):

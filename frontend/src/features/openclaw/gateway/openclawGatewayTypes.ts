@@ -15,6 +15,7 @@ export type GatewayEvent = { type: 'event'; event: string; payload?: unknown; se
 
 export type GatewayHello = {
   protocol?: number
+  features?: { methods?: unknown[] }
   auth?: { deviceToken?: string; role?: string; scopes?: string[] }
   snapshot?: {
     sessionDefaults?: { defaultAgentId?: string }

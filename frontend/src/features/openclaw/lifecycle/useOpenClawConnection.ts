@@ -10,7 +10,9 @@ import type { OpenClawCredentialVault } from '../openclawCredentialVault'
 import type { OpenClawChatOptions, OpenClawClientPort } from '../openclawContracts'
 import {
   OPENCLAW_CURRENT_SCOPES,
+  GatewayRequestError,
   OpenClawGatewayClient,
+  OpenClawSocketClosedError,
   generateDeviceIdentity,
   gatewaySupportsMethod,
   parseOpenClawConnectionInput,
@@ -20,7 +22,7 @@ import {
 } from '../openclawGateway'
 import { readSavedGatewayUrl, saveGatewayUrl } from '../storage/openclawGatewayPreferences'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
-import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
+import { stopOpenClawRecovery, type OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { restoredSessionAgent } from './openclawSessionIdentity'
 import { createOpenClawSession } from './openclawSessionOperations'
 
@@ -81,6 +83,76 @@ function resetFailedSessionLoad(input: OpenClawConnectionInput): void {
   input.transcript.reset()
 }
 
+function isTerminalConnectionError(error: unknown): boolean {
+  if (error instanceof OpenClawSocketClosedError) return error.code === 1008
+  return ['origin', 'pairing', 'auth', 'protocol', 'permission', 'session']
+    .includes(setupIssue(error).kind)
+}
+
+function queueOpenClawReconnect(
+  connection: OpenClawLifecycleRefs['connection'],
+  dispatch: OpenClawChatDispatch,
+): void {
+  void import('./openclawConnectionRecovery').then(({ scheduleOpenClawReconnect }) => {
+    scheduleOpenClawReconnect(connection, dispatch)
+  })
+}
+
+async function activateManagedRecovery(
+  input: OpenClawConnectionInput,
+  client: OpenClawClientPort,
+  hello: GatewayHello,
+  isCurrent: () => boolean,
+  managed: boolean,
+): Promise<boolean> {
+  stopOpenClawRecovery(input.refs.connection)
+  const { markOpenClawConnectionStable } = await import('./openclawConnectionRecovery')
+  if (!isCurrent()) return false
+  if (managed) {
+    const { startManagedRelayHeartbeat } = await import('./openclawRelayHeartbeat')
+    if (!isCurrent()) return false
+    input.refs.connection.heartbeatStop = startManagedRelayHeartbeat({
+      client,
+      hello,
+      isCurrent,
+      onFailure: () => {
+        if (!isCurrent()) return
+        stopOpenClawRecovery(input.refs.connection)
+        client.close()
+        input.refs.connection.client = null
+        input.refs.connection.hello = null
+        queueOpenClawReconnect(input.refs.connection, input.dispatch)
+      },
+    })
+  }
+  markOpenClawConnectionStable(input.refs.connection, input.dispatch, isCurrent)
+  return true
+}
+
+function finishConnectionFailure(
+  input: OpenClawConnectionInput,
+  error: unknown,
+  managed: boolean,
+  reconnecting: boolean,
+): void {
+  const connection = input.refs.connection
+  stopOpenClawRecovery(connection)
+  connection.client?.close()
+  connection.client = null
+  connection.hello = null
+  if (managed && !isTerminalConnectionError(error)) {
+    queueOpenClawReconnect(connection, input.dispatch)
+    return
+  }
+  connection.manualClose = true
+  if (!reconnecting || !managed) {
+    input.session.reset()
+    input.resetConversation()
+    input.transcript.reset()
+  }
+  input.dispatch({ type: 'patch', value: { status: 'error', issue: setupIssue(error) } })
+}
+
 async function performOpenClawConnect(
   input: OpenClawConnectionInput,
   setGatewayUrl: (value: string) => void,
@@ -90,12 +162,15 @@ async function performOpenClawConnect(
 ): Promise<boolean> {
   if (!input.options.enabled) return false
   const connection = input.refs.connection
+  if (connection.reconnecting) return false
+  connection.reconnecting = true
   const generation = ++connection.generation
   const isCurrent = (client?: OpenClawClientPort) => generation === connection.generation && (!client || connection.client === client)
+  const managed = isManagedGateway(input.options.defaultGatewayUrl)
+  const priorSessionKey = input.refs.session.sessionKey
   connection.manualClose = false
   input.dispatch({ type: 'patch', value: { status: reconnecting ? 'reconnecting' : 'connecting', issue: null } })
   try {
-    const managed = isManagedGateway(input.options.defaultGatewayUrl)
     const parsed = managed ? { gatewayUrl: managedGatewayUrl(), bootstrapToken: '' } : authInput
       ? parseOpenClawConnectionInput(requestedUrl ?? input.getGatewayUrl(), authInput)
       : { gatewayUrl: validateGatewayUrl(requestedUrl ?? input.getGatewayUrl()), bootstrapToken: '' }
@@ -106,6 +181,7 @@ async function performOpenClawConnect(
     const identity = stored?.identity ?? await generateDeviceIdentity()
     if (!isCurrent()) return false
     const factory = input.options.clientFactory ?? ((clientOptions) => new OpenClawGatewayClient(clientOptions))
+    let handshakeComplete = false
     const client = factory({
       url: parsed.gatewayUrl,
       bootstrapToken: parsed.bootstrapToken || undefined,
@@ -115,22 +191,25 @@ async function performOpenClawConnect(
       platform: navigator.platform || 'web',
       deviceFamily: 'browser',
       onEvent: (event) => input.routeEvent(event, generation),
-      onClose: () => {
+      onClose: (event) => {
         if (connection.manualClose || generation !== connection.generation) return
-        input.dispatch({ type: 'patch', value: { status: 'reconnecting' } })
-        connection.reconnectAttempt += 1
-        input.dispatch({ type: 'patch', value: { reconnectAttempt: connection.reconnectAttempt } })
-        const delay = connection.reconnectDelay
-        connection.reconnectDelay = Math.min(Math.round(delay * 1.7), 30_000)
-        connection.reconnectTimer = window.setTimeout(() => {
-          connection.reconnectTimer = null
-          connection.reconnect(true)
-        }, delay)
+        if (!handshakeComplete) return
+        stopOpenClawRecovery(connection)
+        connection.client = null
+        connection.hello = null
+        const closed = new OpenClawSocketClosedError(event)
+        if (isTerminalConnectionError(closed)) {
+          connection.manualClose = true
+          input.dispatch({ type: 'patch', value: { status: 'error', issue: setupIssue(closed) } })
+          return
+        }
+        queueOpenClawReconnect(connection, input.dispatch)
       },
     })
     connection.client?.close()
     connection.client = client
     const hello: GatewayHello = await client.connect()
+    handshakeComplete = true
     if (!isCurrent(client)) {
       client.close()
       return false
@@ -157,10 +236,16 @@ async function performOpenClawConnect(
         const preview = await client.request('sessions.preview', openClawSessionPreviewParams(sessionKey))
         if (!isCurrent(client)) return false
         const previewStatus = projectOpenClawSessionPreview(preview, sessionKey)
-        if (previewStatus === 'missing') sessionKey = null
+        if (previewStatus === 'missing') {
+          if (reconnecting && priorSessionKey) throw new GatewayRequestError({
+            code: 'SESSION_NOT_FOUND', message: 'Stored session is no longer available',
+          })
+          sessionKey = null
+        }
         else if (previewStatus === 'error') throw new Error('OpenClaw 暂时无法验证已保存会话。')
       } catch (error) {
         if (!isCurrent(client)) return false
+        if (reconnecting && priorSessionKey && isMissingOpenClawSession(error)) throw error
         if (!isMissingOpenClawSession(error)) throw error
         sessionKey = null
       }
@@ -178,6 +263,7 @@ async function performOpenClawConnect(
     try {
       tools = await loadConnectedSession(input, client, sessionKey, agentId)
     } catch (error) {
+      if (reconnecting && priorSessionKey && isMissingOpenClawSession(error)) throw error
       if (!reusedStoredSession || !isMissingOpenClawSession(error) || !isCurrent(client)) throw error
       resetFailedSessionLoad(input)
       sessionKey = await createOpenClawSession(client, { agentId })
@@ -190,28 +276,22 @@ async function performOpenClawConnect(
     if (!isCurrent(client)) return false
     const { hasInteliscopeTools } = await import('../chat/openclawToolAvailability')
     if (!isCurrent(client)) return false
-    connection.reconnectDelay = 1_000
-    connection.reconnectAttempt = 0
+    if (!await activateManagedRecovery(input, client, hello, () => isCurrent(client), managed)) return false
     input.dispatch({
       type: 'patch',
       value: {
         toolsStatus: hasInteliscopeTools(tools, agentId) ? 'available' : managed ? 'unknown' : 'missing',
-        reconnectAttempt: 0,
         status: 'connected',
       },
     })
     return true
   } catch (error) {
     if (generation === connection.generation) {
-      connection.client?.close()
-      connection.client = null
-      connection.hello = null
-      input.session.reset()
-      input.resetConversation()
-      input.transcript.reset()
-      input.dispatch({ type: 'patch', value: { status: 'error', issue: setupIssue(error) } })
+      finishConnectionFailure(input, error, managed, reconnecting)
     }
     return false
+  } finally {
+    connection.reconnecting = false
   }
 }
 
@@ -223,16 +303,31 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
     saveGatewayUrl(input.options.userId, normalized)
   }, [input.dispatch, input.options.userId, input.setGatewayUrlRef])
 
+  const pause = useCallback(() => {
+    const connection = input.refs.connection
+    connection.manualClose = true
+    connection.generation += 1
+    stopOpenClawRecovery(connection)
+    connection.reconnecting = false
+    connection.client?.close()
+    connection.client = null
+    connection.hello = null
+    connection.mediaTicketSupported = false
+    input.dispatch({ type: 'patch', value: {
+      status: input.options.enabled ? 'idle' : 'disabled', imageInputAvailable: false,
+    } })
+  }, [input.dispatch, input.options.enabled, input.refs])
+
   const disconnect = useCallback(() => {
     const connection = input.refs.connection
     connection.manualClose = true
     connection.generation += 1
-    if (connection.reconnectTimer !== null) window.clearTimeout(connection.reconnectTimer)
-    connection.reconnectTimer = null
+    stopOpenClawRecovery(connection)
     connection.client?.close()
     connection.client = null
     connection.reconnectAttempt = 0
     connection.reconnectDelay = 1_000
+    connection.reconnecting = false
     connection.mediaTicketSupported = false
     connection.hello = null
     input.session.reset()
@@ -275,7 +370,10 @@ export function useOpenClawConnection(input: OpenClawConnectionInput): OpenClawC
     input.refs.connection.automaticConnectKey = null
   }, [input.refs, input.state.gatewayUrl])
 
-  useOpenClawPageLifecycle(disconnect, input.refs.connection, input.options.defaultGatewayUrl, input.options.enabled, input.options.userId)
+  useOpenClawPageLifecycle(
+    pause, disconnect, input.refs.connection,
+    input.options.defaultGatewayUrl, input.options.enabled, input.options.userId,
+  )
 
   useEffect(() => {
     const effectiveStatus = input.state.status === 'disabled' ? 'idle' : input.state.status

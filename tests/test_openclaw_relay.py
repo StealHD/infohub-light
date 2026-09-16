@@ -6,7 +6,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
-from src.api.openclaw_relay_routes import register_openclaw_relay_routes, valid_origin
+from src.api.openclaw_relay_routes import (
+    _close_diagnostics,
+    register_openclaw_relay_routes,
+    valid_origin,
+)
 from src.services.openclaw_relay.ownership import Ownership
 from src.services.openclaw_relay.policy import request_params, response_payload, visible_event
 from src.services.openclaw_relay.identity import connect_params, load_key
@@ -135,6 +139,39 @@ async def test_pending_skill_policy_blocks_new_send_but_keeps_abort_available(tm
         await browser_requests(browser, upstream, owner, 'main', {}, lambda: True,
                                chat_ready=lambda: False)
     upstream.send.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_relay_ping_is_local_bounded_and_does_not_reach_gateway(tmp_path):
+    from src.services.openclaw_relay.bridge import RelayFailure, browser_requests
+
+    owner = Ownership(tmp_path, 'alice')
+    browser = AsyncMock()
+    browser.receive_text.side_effect = [
+        json.dumps({'type': 'req', 'id': 'heartbeat-1', 'method': 'relay.ping', 'params': {}}),
+        RelayFailure('stop'),
+    ]
+    upstream = AsyncMock()
+
+    with pytest.raises(RelayFailure):
+        await browser_requests(browser, upstream, owner, 'main', {}, lambda: True)
+
+    upstream.send.assert_not_called()
+    assert browser.send_json.call_args_list[0].args[0] == {
+        'type': 'res', 'id': 'heartbeat-1', 'ok': True, 'payload': {'alive': True},
+    }
+
+
+def test_relay_close_diagnostics_keep_only_bounded_codes_and_stage():
+    from src.services.openclaw_relay.bridge import RelayFailure
+
+    failure = RelayFailure(
+        'safe', stage='browser_transport', terminal=False,
+        cause=WebSocketDisconnect(code=1001, reason='private browser text'),
+    )
+    assert _close_diagnostics(failure) == (
+        'browser_transport', False, 1001, None, None,
+    )
 
 
 def test_browser_history_load_preserves_bounds_and_owner_isolation(tmp_path):

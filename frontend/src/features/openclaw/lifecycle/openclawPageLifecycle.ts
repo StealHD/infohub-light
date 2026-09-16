@@ -3,6 +3,7 @@ import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 
 /** Release sockets on navigation, including the browser back/forward cache. */
 export function useOpenClawPageLifecycle(
+  pause: () => void,
   disconnect: () => void,
   connection: OpenClawLifecycleRefs['connection'],
   gatewayUrl: string,
@@ -14,7 +15,7 @@ export function useOpenClawPageLifecycle(
     const hide = () => {
       resume = !connection.manualClose
         && (connection.client !== null || connection.reconnectTimer !== null)
-      disconnect()
+      pause()
     }
     const show = (event: PageTransitionEvent) => {
       if (!event.persisted || !resume || !enabled) return
@@ -28,5 +29,5 @@ export function useOpenClawPageLifecycle(
       window.removeEventListener('pageshow', show)
       disconnect()
     }
-  }, [disconnect, connection, gatewayUrl, enabled, userId])
+  }, [pause, disconnect, connection, gatewayUrl, enabled, userId])
 }
