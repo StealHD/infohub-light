@@ -1,4 +1,8 @@
 from pathlib import Path
+import shlex
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +92,41 @@ def test_normal_vps_release_preserves_active_jobs_and_does_not_scan_after_worker
     assert cutover.index("horizon-api horizon-worker") < cutover.index(
         'wait_runtime "$release_dir"'
     )
+
+
+@pytest.mark.parametrize("outcome,expected_status", [("success", 0), ("failed", 1)])
+def test_cutover_poll_survives_dispatch_ssh_loss(tmp_path, outcome, expected_status):
+    script = (ROOT / "scripts" / "release_vps.sh").read_text()
+    function = "deploy_remote_release() {" + script.split(
+        "deploy_remote_release() {", 1
+    )[1].split("\nrelease() {", 1)[0]
+    assert "systemd-run --unit=\"$unit\" --property=Type=exec" in function
+    assert 'if [[ "$(systemctl show "$unit.service" -p LoadState --value)" != loaded ]]' in function
+    assert "trap rollback_cutover ERR INT TERM" in function
+    harness = f"""set -euo pipefail
+REMOTE_HOST=vps-tokyo
+REMOTE_BASE=/opt/inteliscope
+PUBLIC_URL=https://example.test
+poll_file={shlex.quote(str(tmp_path / 'polls'))}
+outcome={shlex.quote(outcome)}
+printf '0' > "$poll_file"
+fail() {{ echo "$*" >&2; exit 1; }}
+transfer_with_retry() {{ grep -q 'trap rollback_cutover ERR INT TERM' "$1"; }}
+ssh() {{
+  if [[ " $* " == *' journalctl '* ]]; then echo 'remote job log'; return 0; fi
+  if [[ " $* " == *'/tmp/inteliscope-release-'* ]]; then return 255; fi
+  count=$(cat "$poll_file")
+  count=$((count + 1))
+  printf '%s' "$count" > "$poll_file"
+  if (( count == 1 )); then echo pending; else echo "$outcome"; fi
+}}
+{function}
+deploy_remote_release sample image 2.6.23 abcdef123456 now git:abcdef '' ''
+"""
+    result = subprocess.run(["bash", "-c", harness], text=True, capture_output=True)
+    assert result.returncode == expected_status, result.stderr
+    assert (tmp_path / "polls").read_text() == "2"
+    assert "remote job log" in result.stdout
 
 
 def test_live_v47_receipt_verification_checks_schema_without_scanning_the_database():
