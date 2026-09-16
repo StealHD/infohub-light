@@ -252,10 +252,9 @@ deploy_remote_release() {
   local release_id="$1" image="$2" version="$3" revision="$4" built_at="$5" source_digest="$6"
   local migration_receipt="$7" migration_backup="$8"
   local remote_stage="/tmp/inteliscope-release-$release_id"
-  local cutover_script unit response attempt
-  cutover_script="$(mktemp -t inteliscope-cutover.XXXXXX)"
-  unit="inteliscope-cutover-${release_id//./-}"
-  cat >"$cutover_script" <<'REMOTE'
+  ssh "$REMOTE_HOST" bash -s -- \
+    "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" "$source_digest" \
+    "$remote_stage" "$PUBLIC_URL" "$migration_receipt" "$migration_backup" <<'REMOTE'
 set -euo pipefail
 base="$1"
 release_id="$2"
@@ -505,60 +504,6 @@ rm -rf "$remote_stage"
 trap - ERR INT TERM
 echo "deployed $release_id revision=$revision"
 REMOTE
-  transfer_with_retry "$cutover_script" "$REMOTE_HOST:$remote_stage/cutover.sh"
-  rm -f "$cutover_script"
-
-  # The VPS owns the cutover and rollback once dispatched. An SSH disconnect
-  # must not kill the shell after API/Worker have stopped.
-  ssh -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
-    "$REMOTE_HOST" bash -s -- \
-    "$unit" "$remote_stage" "$REMOTE_BASE" "$release_id" "$image" "$version" \
-    "$revision" "$built_at" "$source_digest" "$PUBLIC_URL" \
-    "$migration_receipt" "$migration_backup" <<'REMOTE' || true
-set -euo pipefail
-unit="$1"
-stage="$2"
-shift 2
-[[ -f "$stage/cutover.sh" ]]
-if [[ "$(systemctl show "$unit.service" -p LoadState --value)" != loaded ]]; then
-  systemd-run --unit="$unit" --property=Type=exec \
-    /bin/bash "$stage/cutover.sh" "$@"
-fi
-REMOTE
-
-  for attempt in {1..240}; do
-    response="$(ssh -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
-      "$REMOTE_HOST" bash -s -- "$unit" <<'REMOTE'
-set -euo pipefail
-unit="$1.service"
-load="$(systemctl show "$unit" -p LoadState --value)"
-state="$(systemctl show "$unit" -p ActiveState --value)"
-result="$(systemctl show "$unit" -p Result --value)"
-status="$(systemctl show "$unit" -p ExecMainStatus --value)"
-if [[ "$load" != loaded ]]; then
-  echo missing
-elif [[ "$state" == inactive && "$result" == success && "$status" == 0 ]]; then
-  echo success
-elif [[ "$state" == failed || ( "$state" == inactive && "$result" != success ) ]]; then
-  echo failed
-else
-  echo pending
-fi
-REMOTE
-)" || response=pending
-    case "$response" in
-      success)
-        ssh "$REMOTE_HOST" journalctl -u "$unit.service" -n 15 --no-pager -o cat || true
-        return 0 ;;
-      failed)
-        ssh "$REMOTE_HOST" journalctl -u "$unit.service" -n 50 --no-pager -o cat || true
-        fail "VPS cutover job failed or rolled back: $unit" ;;
-      missing)
-        if (( attempt >= 6 )); then fail "VPS cutover job was not started: $unit"; fi ;;
-    esac
-    sleep 2
-  done
-  fail "VPS cutover status uncertain; inspect systemd unit $unit before retrying"
 }
 
 release() {

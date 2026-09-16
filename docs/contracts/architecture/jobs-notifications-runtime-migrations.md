@@ -72,7 +72,7 @@ member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL us
 
 ### 3.10 Runtime / Migration Boundary
 
-普通与快速发布共用 `release_vps.sh` 的最小上传、备份、切换、健康和回滚路径；远端切换由独立 systemd 作业持有，SSH 断连不终止切换或回滚，Tag 只能在作业确认成功后发布。不要求测试回执或等待 CI，具体流程见[发布](../../dev/test-gate.md#发布)。普通代码切换只在停 API/Worker 后检查活跃任务并备份；全库 integrity/FK 校验用于显式迁移或数据库恢复。
+普通与快速发布共用 `release_vps.sh` 的最小上传、备份、切换、健康和回滚路径；不要求测试回执或等待 CI，具体流程见[发布](../../dev/test-gate.md#发布)。普通代码切换只在停 API/Worker 后检查活跃任务并备份；全库 integrity/FK 校验用于显式迁移或数据库恢复。
 
 Global 47 `notification_extension_schema.py` 由新库 bootstrap 或停 API/Worker 后显式迁移安装；旧库绝不随 initialize 自动升级。生产只允许 `release_vps.sh migrate-notification-destinations-v47 vX.Y.Z` 的独立流程：它要求干净且精确 `origin/main` 的 SHA，停 API/Worker、跨 heartbeat 安全窗、创建受管 `0600` SQLite backup，原位添加三张空表与 marker，并在表形、完整性与外键验证后写入绑定该完整 SHA 的 `0600` 回执。随后标准 `release ... --migration-receipt ABSOLUTE_REMOTE_PATH` 必须在 Tag、构建和切换前重验该回执、backup 和 v47 shape。v47 只增加结构，迁移成功后旧 API/Worker 也必须重新健康；后续切换失败仅恢复旧程序和运行配置，保留 v47 数据库及迁移后产生的业务写入。迁移前 backup 留作人工灾难恢复证据，绝不在后续自动回滚中覆盖当前数据库。该流程不复制测试库、不创建第二个生产库、不写业务数据、读取 Secret 或发通知。`notification_target_topics.py` 保存 Telegram 目的地话题，`openclaw_notification_services.py` 管理自动化专用的 SecretStore 目的地与版本，`openclaw_notification_transport.py` 使用现有管理员 Gateway 连接读取 `channels.status` 并直发 `send`。`information_automations/preview_delivery.py` 只由 Worker 消费持久测试通知意图；模型 connector 不持有通知权限。新模块不扩充历史通知目标的渠道 CHECK，普通来源通知和 ActorOps 绑定仍只见旧服务类型。
 

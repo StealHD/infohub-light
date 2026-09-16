@@ -78,9 +78,6 @@ release_fast() {
   ( RELEASE_TMP_DIR="$directory"; upload_package "$release_id" )
   require_frozen_release_source "$revision"
   verify_fast_package >/dev/null
-  # Keep the staged package if dispatch or status polling loses SSH. The
-  # detached VPS job may still be using it to complete or roll back safely.
-  REMOTE_RELEASE_STAGE=""
   deploy_remote_release "$release_id" "$image" "$version" "${revision:0:12}" "$built_at" "git:$revision" \
     "$MIGRATION_RECEIPT_PATH" "$MIGRATION_BACKUP_PATH"
   REMOTE_RELEASE_STAGE=""
