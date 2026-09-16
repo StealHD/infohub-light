@@ -12,11 +12,14 @@ export type OpenClawLifecycleRefs = {
     reconnectTimer: number | null
     reconnectDelay: number
     reconnectAttempt: number
+    reconnecting: boolean
     manualClose: boolean
     automaticConnectKey: string | null
     reconnect: (reconnecting?: boolean) => void
     mediaTicketSupported: boolean
     hello: GatewayHello | null
+    heartbeatStop: (() => void) | null
+    stabilityTimer: number | null
   }
   session: {
     operation?: symbol
@@ -52,11 +55,14 @@ export function createOpenClawLifecycleRefs(): OpenClawLifecycleRefs {
       reconnectTimer: null,
       reconnectDelay: 1_000,
       reconnectAttempt: 0,
+      reconnecting: false,
       manualClose: false,
       automaticConnectKey: null,
       reconnect: () => undefined,
       mediaTicketSupported: false,
       hello: null,
+      heartbeatStop: null,
+      stabilityTimer: null,
     },
     session: { agentId: null, sessionKey: null, thinkingLevel: null, navigationEpoch: 0 },
     run: {
@@ -72,4 +78,13 @@ export function createOpenClawLifecycleRefs(): OpenClawLifecycleRefs {
     },
     transcript: { messages: [], readySessionKey: null, mediaTicketRequests: new Set() },
   }
+}
+
+export function stopOpenClawRecovery(connection: OpenClawLifecycleRefs['connection']): void {
+  if (connection.reconnectTimer !== null) window.clearTimeout(connection.reconnectTimer)
+  if (connection.stabilityTimer !== null) window.clearTimeout(connection.stabilityTimer)
+  connection.reconnectTimer = null
+  connection.stabilityTimer = null
+  connection.heartbeatStop?.()
+  connection.heartbeatStop = null
 }

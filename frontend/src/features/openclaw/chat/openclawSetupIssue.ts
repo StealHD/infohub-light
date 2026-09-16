@@ -1,5 +1,5 @@
 import type { OpenClawSetupIssue } from '../openclawContracts'
-import { GatewayRequestError } from '../openclawGateway'
+import { GatewayRequestError, OpenClawSocketClosedError } from '../openclawGateway'
 import { isOpenClawSessionLabelConflict } from '../openclawSession'
 import { openClawSafeError } from './openclawSafeError'
 
@@ -37,6 +37,9 @@ export function isMissingOpenClawSession(error: unknown): boolean {
 
 export function setupIssue(error: unknown): OpenClawSetupIssue {
   if (error instanceof MissingOpenClawCredentialError) return { kind: 'auth', message: error.message }
+  if (error instanceof OpenClawSocketClosedError && error.code === 1008) {
+    return { kind: 'auth', message: '登录或个人 Agent 接入已失效，请重新登录或修复接入。' }
+  }
   const gatewayError = error instanceof GatewayRequestError
   const code = gatewayError ? error.code.toUpperCase() : ''
   const safeMessage = openClawSafeError(code)

@@ -17,6 +17,25 @@ def test_nginx_exposes_exact_remote_mcp_route_without_basic_auth():
     assert "proxy_pass http://127.0.0.1:8080;" in mcp_location
 
 
+def test_nginx_openclaw_socket_has_bounded_diagnostics_and_long_lived_upgrade():
+    site = Path("deploy/nginx/inteliscope-basic-auth.conf").read_text(encoding="utf-8")
+    shared = Path("deploy/nginx/inteliscope-rate-limit.conf").read_text(encoding="utf-8")
+
+    socket_location = site.split("location = /api/me/openclaw/socket", 1)[1].split(
+        "location = /mcp", 1
+    )[0]
+    assert "log_format inteliscope_websocket" in shared
+    assert "$upstream_http_x_request_id" in shared
+    assert "$request_time" in shared
+    assert "$request_uri" not in shared
+    assert "access_log /var/log/nginx/inteliscope-websocket.log inteliscope_websocket;" in socket_location
+    assert 'proxy_set_header Upgrade $http_upgrade;' in socket_location
+    assert 'proxy_set_header Connection "upgrade";' in socket_location
+    assert "proxy_buffering off;" in socket_location
+    assert "proxy_read_timeout 3600s;" in socket_location
+    assert "proxy_send_timeout 3600s;" in socket_location
+
+
 def test_nginx_remote_mcp_runbook_keeps_production_writes_off_and_schema_v7():
     docs = Path("deploy/nginx/README_zh.md").read_text(encoding="utf-8")
 

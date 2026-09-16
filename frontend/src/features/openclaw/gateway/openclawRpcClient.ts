@@ -24,6 +24,15 @@ type PendingRequest = {
   timer: number
 }
 
+export class OpenClawSocketClosedError extends Error {
+  readonly code: number | undefined
+
+  constructor(event: { code?: number; reason?: string }) {
+    super('OpenClaw Gateway 连接已关闭。')
+    this.code = event.code
+  }
+}
+
 export class OpenClawGatewayClient {
   private options: OpenClawGatewayClientOptions
   private socket: GatewaySocket | null = null
@@ -70,9 +79,10 @@ export class OpenClawGatewayClient {
         this.handleMessage(typeof data === 'string' ? data : String(data ?? ''), resolve, reject)
       })
       socket.addEventListener('close', (event) => {
+        const closed = new OpenClawSocketClosedError(event as { code?: number; reason?: string })
         this.clearConnectTimer()
-        this.rejectPending(new Error('OpenClaw Gateway 连接已关闭。'))
-        if (!this.hello) reject(new Error('OpenClaw Gateway 连接已关闭。'))
+        this.rejectPending(closed)
+        if (!this.hello) reject(closed)
         if (!this.closed) this.options.onClose?.(event as { code?: number; reason?: string })
       })
       socket.addEventListener('error', () => undefined)

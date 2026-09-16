@@ -10,6 +10,11 @@ const openclawServerEntry: ChangelogEntry = {
 }
 
 export const openclawServerEntries: ChangelogEntry[] = [{
+  date: '2026-09-16', title: 'Agent 网页连接可自动恢复',
+  summary: '短暂断网或服务波动后持续重连，保留原对话，并为代理与服务端断点增加可关联诊断。',
+  items: [{ title: '恢复时不重复操作', description: '连接中断后使用带抖动的退避重连；页面恢复可见或网络恢复时立即检查。原会话、历史、草稿和未确认运行保持不变，恢复后读取原状态，不自动重发消息或创建替代会话。' },
+    { title: '失效与波动分别处理', description: '登录或个人 Agent 接入失效时停止自动重连并提示处理；临时网络、代理和上游故障继续恢复。安全连接编号可关联 Nginx 与 API 日志，不记录凭据、对话或会话标识。' }],
+}, {
   date: '2026-09-11', title: '多页面 Agent 连接更稳定',
   summary: '提高同账号连接容量，关闭页面主动释放连接，取消一小时强制断线。',
   items: [{ title: '退出释放与运行保护', description: '默认支持 12 个页面同时连接，部署时可调整。关闭页面停止重连，浏览器后退恢复时恢复连接；切到后台不主动断开，退出页面不发送任务取消。' }],

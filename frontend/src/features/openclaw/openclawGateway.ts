@@ -13,7 +13,7 @@ export {
   validateAdminOpenClawScopes,
   validateStoredOpenClawScopes,
 } from './gateway/openclawGatewayProtocol'
-export { OpenClawGatewayClient } from './gateway/openclawRpcClient'
+export { OpenClawGatewayClient, OpenClawSocketClosedError } from './gateway/openclawRpcClient'
 export {
   parseOpenClawConnectionInput,
   validateGatewayUrl,
