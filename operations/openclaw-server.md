@@ -2,6 +2,14 @@
 
 成员自动接入、审批及撤销的跨主机部署使用[远端托管操作说明](openclaw-managed-remote.md)。下文手动包流程仅为兼容运维方式，不是用户接入入口。
 
+## WebSocket 稳定性与诊断
+
+生产 Nginx 对 `/api/me/openclaw/socket` 使用独立 Upgrade location、关闭代理缓冲，并将读写超时保持为 3600 秒。浏览器和 Relay 另有应用级 `relay.ping`，因此不要通过继续放大代理超时掩盖断线。
+
+`deploy/nginx/inteliscope-rate-limit.conf` 中的 `inteliscope_websocket` 日志格式只记录时间、API 握手返回的 request ID、代理/上游状态与耗时；站点配置将其写入 `/var/log/nginx/inteliscope-websocket.log`。用同一 `request_id` 查询 API runtime 日志，可看到 `stage`、安全关闭码和持续时间。不要在该日志格式中加入 URI、Cookie、Authorization、查询参数或消息正文。
+
+排查顺序：先确认 API/Worker 容器没有重启或 OOM，再按 request ID 区分 `browser_transport`、`upstream_connect|upstream_auth|upstream_transport`、`agent_verify` 与 `session_watch`。浏览器 1000/1001 是正常离开；1008 表示登录或绑定已失效并需要人工处理；1011 和握手 5xx 属于可恢复链路故障。修改 Nginx 后先运行 `nginx -t`，再 reload；保留修改前配置以便回滚。
+
 在生产 `.env` 配置：
 
 ```dotenv
