@@ -10,6 +10,10 @@
 
 排查顺序：先确认 API/Worker 容器没有重启或 OOM，再按 request ID 区分 `browser_transport`、`upstream_connect|upstream_auth|upstream_transport`、`agent_verify` 与 `session_watch`。浏览器 1000/1001 是正常离开；1008 表示登录或绑定已失效并需要人工处理；1011 和握手 5xx 属于可恢复链路故障。修改 Nginx 后先运行 `nginx -t`，再 reload；保留修改前配置以便回滚。
 
+`browser_transport` 的 1006 只说明连接没有正常完成关闭握手，不能单凭它认定是浏览器、Nginx 或上游故障。若多条连接同时中断，应核对客户端 VPN/代理的实际路由，并对同一站点、同一时段做代理路径与直连路径的持久连接对照；只请求 `/api/health/live`，不发送聊天或重放写操作。结合断线时间和仅含 TCP 关闭标志的抓包确定故障所在链路，不采集 Cookie、报文正文或 TLS 密钥。
+
+确认客户端代理路径异常且 HTTPS 直连稳定后，可为该站点添加精确域名直连规则，例如 Clash 的 `DOMAIN,rb.jiefs.top,DIRECT`，保存到当前订阅的规则覆写文件并核对运行时命中。保留原配置以便撤销；无需改变其他站点路由、关闭 TLS 校验或继续加大服务端超时。以实际浏览器连接持续至少 30 分钟、期间仍有双向流量且没有新增异常断线为验收证据；重连提示出现本身不代表故障已修复。
+
 在生产 `.env` 配置：
 
 ```dotenv
