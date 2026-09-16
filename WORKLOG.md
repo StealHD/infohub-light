@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-09-13",
-  "result": "修复自定义文本测试因没有原文 URL 被通知层误判为缺少证据的问题；命中后可发送包含测试标记、摘要、理由与判断依据的通知，并重启当前分支的 API、Worker 和 Connector。",
-  "status": "completed",
-  "task_id": "custom-preview-notification-delivery-20260913",
-  "unresolved": [
-    "历史 failed 测试记录保持终态；用户手动重新测试才会创建新的、可投递的测试通知。"
-  ],
-  "validation": [
-    "pytest tests/test_information_semantic_previews.py tests/test_information_unified.py -q 通过，覆盖无原文 URL 的自定义文本通知投递。",
-    "前端定向 Vitest 8 项、TypeScript typecheck、git diff --check 通过；5173、API、Worker 与 Connector heartbeat 就绪。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "instructions"
   ],
   "recorded_on": "2026-09-14",
@@ -373,6 +353,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "tests/test_release_runtime_scripts.py 与 tests/test_release_preflight.py 定向回归通过；bash -n scripts/release_vps.sh 和 git diff --check 通过。",
     "首次真实发布在 VPS 切换前安全停止，未创建 Tag；修复后将从同一干净 main 重试。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "observability",
+    "verification"
+  ],
+  "recorded_on": "2026-09-16",
+  "result": "从 v2.6.22 定位客户端代理路径的同步断线，为站点添加持久化精确域名直连规则并补充故障定位操作说明；以回退提交 d4b9f6d0 撤销未发布的 v2.6.23，已推送 main，生产保持 v2.6.22。",
+  "status": "completed",
+  "task_id": "web-disconnect-proxy-route-20260916",
+  "unresolved": [
+    "代理节点内部周期关闭连接的原因未调查；本次定位并绕开当前客户端的异常代理路径。"
+  ],
+  "validation": [
+    "同机同时三分钟持久 HTTPS 对照：直连 35 次成功、0 断线、1 条连接；原代理路径 23 次成功、3 次断线、4 条连接。",
+    "代理路径三次中断时间与 API browser_transport/1006 对齐；90 秒 TCP 关闭标志采样覆盖其中两次，均看到代理出口先发 FIN/RST。",
+    "规则生效后重复同样测试：两个入口均 35 次成功、0 断线、1 条连接；实际 Chrome 两条连接保持原 ID 并持续双向流量。",
+    "文档 impacted preflight 5/5 通过；main 回退后与 v2.6.22 文件树完全一致。",
+    "2026-09-16 15:57 至 16:22，两条实际 Chrome 连接分别持续 1474/1449 秒，连接 ID 保持且双向流量增长；用户确认页面恢复后结束观察，未宣称完成原计划 30 分钟。",
+    "截至 16:22:03，API 有界日志查询显示 15:58 后 relay 关闭记录为 0；容器 restart_count=0、OOM=false。"
   ]
 }
 ```
