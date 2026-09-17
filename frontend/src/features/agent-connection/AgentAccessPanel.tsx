@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Button, Tabs, TextField, Input, Label, RefreshButton, FormSelect } from '../../design-system'
@@ -6,8 +6,6 @@ import { queryKeys } from '../../api/queryKeys'
 import { useAgentConnectionContext } from './AgentConnectionContext'
 import { PersonalAgentConnection } from './PersonalAgentConnection'
 import { AccessRequestRow } from './AccessRequestRow'
-
-const ManualMcpConnections = lazy(() => import('./ManualMcpConnections').then(module => ({ default: module.ManualMcpConnections })))
 
 function Requests() {
   const { api, userId } = useAgentConnectionContext()
@@ -46,13 +44,14 @@ export function AgentAccessPanel() {
   const count = useQuery({ queryKey: ['agent-access-count', userId], enabled: Boolean(query.data?.can_manage_setup),
     queryFn: ({ signal }) => api.agentAccessRequests('pending', '', 1, signal), refetchInterval: 10000 })
   if (query.isPending) return <p role="status" className="type-body">正在读取接入状态…</p>
-  if (!query.data?.can_manage_setup) return <><PersonalAgentConnection /><Suspense fallback={null}><ManualMcpConnections key={userId} /></Suspense></>
+  if (!query.data?.can_manage_setup) return <PersonalAgentConnection />
   return <Tabs selectedKey={tab} onSelectionChange={(key) => setParams(key === 'requests' ? { tab: 'requests' } : {})}>
-    <Tabs.List aria-label="Agent 接入管理">
-      <Tabs.Tab id="personal">我的 Agent<Tabs.Indicator /></Tabs.Tab>
-      <Tabs.Tab id="requests">接入申请{count.data?.pending_count ? ` (${count.data.pending_count})` : ''}<Tabs.Indicator /></Tabs.Tab>
+    <p className="type-body text-muted">管理自己的 Agent 接入，或审核成员的接入申请。</p>
+    <Tabs.List aria-label="Agent 接入管理" className="mt-4 flex w-max max-w-full gap-1 border-b border-separator pb-2">
+      <Tabs.Tab id="personal" className="w-auto shrink-0">我的 Agent<Tabs.Indicator /></Tabs.Tab>
+      <Tabs.Tab id="requests" className="w-auto shrink-0">接入申请{count.data?.pending_count ? ` (${count.data.pending_count})` : ''}<Tabs.Indicator /></Tabs.Tab>
     </Tabs.List>
-    <Tabs.Panel id="personal" className="pt-4"><PersonalAgentConnection /><Suspense fallback={null}><ManualMcpConnections key={userId} /></Suspense></Tabs.Panel>
+    <Tabs.Panel id="personal" className="pt-4"><PersonalAgentConnection /></Tabs.Panel>
     <Tabs.Panel id="requests"><Requests /></Tabs.Panel>
   </Tabs>
 }

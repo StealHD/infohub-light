@@ -32,4 +32,22 @@ describe('PromptSuggestion', () => {
     await user.click(item)
     expect(onPress).toHaveBeenCalledTimes(1)
   })
+
+  it('gives advanced tasks a responsive tile role with readable text', () => {
+    render(<PromptSuggestion>
+      <PromptSuggestion.Title prominent>进阶建议</PromptSuggestion.Title>
+      <PromptSuggestion.Items layout="tiles" aria-label="进阶建议任务">
+        <PromptSuggestion.Item layout="tile" aria-label="排查采集链路">
+          <PromptSuggestion.ItemTitle prominent>排查采集链路</PromptSuggestion.ItemTitle>
+          <PromptSuggestion.ItemDescription prominent>关联失败任务与来源健康。</PromptSuggestion.ItemDescription>
+        </PromptSuggestion.Item>
+      </PromptSuggestion.Items>
+    </PromptSuggestion>)
+
+    expect(screen.getByRole('heading', { name: '进阶建议' })).toHaveClass('type-section-title')
+    expect(screen.getByLabelText('进阶建议任务')).toHaveClass('min-[768px]:grid-cols-3')
+    expect(screen.getByRole('button', { name: '排查采集链路' })).toHaveClass('rounded-2xl', 'min-h-24')
+    expect(screen.getByText('排查采集链路')).toHaveClass('type-card-title')
+    expect(screen.getByText('关联失败任务与来源健康。')).toHaveClass('type-body')
+  })
 })

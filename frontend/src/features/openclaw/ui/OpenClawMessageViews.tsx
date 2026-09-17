@@ -1,9 +1,10 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 const InformationDraftCards = lazy(() => import('../../information-automations/InformationDraftCards'))
 
-import { Icons, RefreshButton, Tooltip, TooltipTriggerButton } from '../../../design-system'
+import { Icons, loadChatMarkdown, RefreshButton, Tooltip, TooltipTriggerButton } from '../../../design-system'
 import type { OpenClawContextUsage } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
+const OpenClawMarkdown = lazy(loadChatMarkdown)
 
 type FormattedMessageTime = {
   label: string
@@ -203,9 +204,11 @@ export function ConversationTurn({
       </div>
       {text && <div
           data-chat-message-body
-          className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
+          className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full break-words [overflow-wrap:anywhere]`}
         >
-          <OpenClawMessageText text={messageText} />
+          <Suspense fallback={<span className="type-meta text-muted">正在排版回复…</span>}>
+            <OpenClawMarkdown text={messageText} />
+          </Suspense>
         </div>}
       {role === 'assistant' && text.includes('[[information-automation:') && <Suspense fallback={<p role="status">正在加载确认卡…</p>}><InformationDraftCards text={text} /></Suspense>}
       {children}

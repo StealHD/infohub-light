@@ -47,32 +47,34 @@ function PromptSuggestionHeader({ className = '', ...props }: HTMLAttributes<HTM
   return <div {...props} className={`prompt-suggestion__header min-w-0 ${className}`} />
 }
 
-function PromptSuggestionTitle({ className = '', ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 {...props} className={`prompt-suggestion__title type-page-title ${className}`} />
+function PromptSuggestionTitle({ className = '', prominent = false, ...props }: HTMLAttributes<HTMLHeadingElement> & { prominent?: boolean }) {
+  return <h2 {...props} className={`prompt-suggestion__title ${prominent ? 'type-section-title' : 'type-page-title'} ${className}`} />
 }
 
 function PromptSuggestionDescription({ className = '', ...props }: HTMLAttributes<HTMLParagraphElement>) {
   return <p {...props} className={`prompt-suggestion__description type-body text-muted ${className}`} />
 }
 
-function PromptSuggestionItems({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={`prompt-suggestion__items grid min-w-0 gap-2 ${className}`} />
+function PromptSuggestionItems({ className = '', layout = 'list', ...props }: HTMLAttributes<HTMLDivElement> & { layout?: 'list' | 'tiles' }) {
+  return <div {...props} className={`prompt-suggestion__items grid min-w-0 ${layout === 'tiles' ? 'gap-3 min-[768px]:grid-cols-3' : 'gap-2'} ${className}`} />
 }
 
-function PromptSuggestionItem({ className = '', ...props }: ComponentProps<typeof Button>) {
+function PromptSuggestionItem({ className = '', layout = 'row', ...props }: ComponentProps<typeof Button> & { layout?: 'row' | 'tile' }) {
   return <Button
     {...props}
     variant="secondary"
-    className={`prompt-suggestion__item flex min-h-14 w-full min-w-0 items-center gap-3 rounded-xl border border-separator bg-surface-secondary px-3 py-2 text-left shadow-none hover:bg-default focus-visible:outline-2 focus-visible:outline-focus ${className}`}
+    className={`prompt-suggestion__item relative flex w-full min-w-0 gap-3 border border-separator bg-surface-secondary text-left shadow-none transition-[background-color,border-color] duration-[var(--inteliscope-motion-standard)] hover:border-accent/40 hover:bg-default focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none ${layout === 'tile'
+      ? 'min-h-24 items-center rounded-2xl p-3 pr-9 min-[768px]:min-h-40 min-[768px]:flex-col min-[768px]:items-start min-[768px]:justify-between min-[768px]:p-4'
+      : 'min-h-14 items-center rounded-xl px-3 py-2'} ${className}`}
   />
 }
 
-function PromptSuggestionItemTitle({ className = '', ...props }: HTMLAttributes<HTMLSpanElement>) {
-  return <span {...props} className={`prompt-suggestion__item-title type-control block ${className}`} />
+function PromptSuggestionItemTitle({ className = '', prominent = false, ...props }: HTMLAttributes<HTMLSpanElement> & { prominent?: boolean }) {
+  return <span {...props} className={`prompt-suggestion__item-title ${prominent ? 'type-card-title' : 'type-control'} block ${className}`} />
 }
 
-function PromptSuggestionItemDescription({ className = '', ...props }: HTMLAttributes<HTMLSpanElement>) {
-  return <span {...props} className={`prompt-suggestion__item-description type-meta block text-muted ${className}`} />
+function PromptSuggestionItemDescription({ className = '', prominent = false, ...props }: HTMLAttributes<HTMLSpanElement> & { prominent?: boolean }) {
+  return <span {...props} className={`prompt-suggestion__item-description ${prominent ? 'type-body' : 'type-meta'} block text-muted ${className}`} />
 }
 
 // This namespace-like export is intentional: it keeps the prompt-starter anatomy discoverable at call sites.

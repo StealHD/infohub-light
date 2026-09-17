@@ -89,4 +89,4 @@
 - At 390 px the selector, slots, source rows, summaries and CTA buttons form one column; the three tabs remain a single non-scrolling row and the page has no ActorOps table or horizontal overflow. Status is never color-only, long technical values wrap only inside advanced details, coarse-pointer controls are at least 44 px, reduced motion removes displacement, and focus returns to the real trigger after every dialog outcome.
 - Secrets labels Apify members `生产抓取` or `专用校验（不参与生产）` and allows one validation member. Confirmation blocks active/draining/run-owning members, restores the row trigger, and states production-order/fallback isolation；removal stops future automatic checks without affecting acquisition.
 
-Agent 接入的用户连接不显示 read／subscription／system 三选一；统一按角色显示 permission_profile 与当前有效 permissions。成员申请和管理员审批行明确展示订阅写权限及开关状态；Owner/Admin 显示系统设置写和工作区诊断。外部手动连接提供一次性令牌保存及更新 OpenClaw 工具配置命令，令牌只留在当前弹框内存。
+Agent 接入的用户连接不显示 read／subscription／system 三选一；统一按角色显示 permission_profile 与当前有效 permissions。成员申请和管理员审批行明确展示订阅写权限及开关状态；Owner/Admin 显示系统设置写和工作区诊断。Agent 接入页只展示个人 Agent 与成员申请/审批；外部手动连接的创建和配置命令不再展示，既有授权不因此吊销。

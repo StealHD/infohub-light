@@ -1,4 +1,6 @@
 import { Icons, type LucideIcon } from '../../design-system'
+import { canAdministerSettings } from './settingsLegacyDestination'
+export { canAdministerSettings, settingsDestinationFromLegacyHash } from './settingsLegacyDestination'
 
 export type SettingsRole = 'owner' | 'admin' | 'member' | 'viewer'
 export type SettingsNavigationId = 'overview' | 'sources' | 'fetching' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'system' | 'secrets' | 'actorops' | 'storage'
@@ -61,10 +63,6 @@ export const SETTINGS_NAVIGATION_GROUPS: readonly SettingsNavigationGroup[] = [
   },
 ]
 
-export function canAdministerSettings(role: SettingsRole): boolean {
-  return role === 'owner' || role === 'admin'
-}
-
 export function settingsNavigationForRole(role: SettingsRole): readonly SettingsNavigationGroup[] {
   const canAdminister = canAdministerSettings(role)
   return SETTINGS_NAVIGATION_GROUPS.map((group) => ({
@@ -90,18 +88,4 @@ export function activeSettingsNavigationId(pathname: string, hash: string): Sett
 export function settingsWorkspaceTitle(pathname: string, hash: string): string {
   const active = activeSettingsNavigationId(pathname, hash)
   return SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.items).find((item) => item.id === active)?.label ?? '设置'
-}
-
-export function settingsDestinationFromLegacyHash(hash: string, role: SettingsRole): string {
-  const id = hash.replace(/^#/, '')
-  if (!id || id === 'settings-about') return '/settings'
-  if (id === 'settings-notifications') return '/settings/notifications'
-  if (id === 'settings-ai') return '/settings/ai'
-  if (id === 'settings-fetching' && canAdministerSettings(role)) return '/settings/fetching'
-  if (id === 'settings-ignored') return '/settings/ignored'
-  if (id === 'settings-secrets' && canAdministerSettings(role)) return '/settings/secrets'
-  if (id === 'settings-actorops' && canAdministerSettings(role)) return '/settings/actorops'
-  if (id === 'settings-storage' && canAdministerSettings(role)) return '/settings/storage'
-  if (id === 'settings-system' && canAdministerSettings(role)) return '/settings/system'
-  return '/settings'
 }

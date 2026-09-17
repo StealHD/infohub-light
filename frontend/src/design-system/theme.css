@@ -2,6 +2,8 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "./agent-workspace.css";
+@import "./chat-markdown.css";
+@import "./spatial-suggestions.css";
 @import "./effort-picker.css";
 @import "@fontsource-variable/noto-sans-sc/wght.css";
 

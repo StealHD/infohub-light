@@ -1,31 +1,14 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 
-import { Button, Card, ChatSource, ChatSources, ImageGalleryModal, Icons, PromptSuggestion, StableAsyncButton } from '../../../design-system'
+import { Button, Card, ChatSource, ChatSources, ImageGalleryModal, Icons, StableAsyncButton } from '../../../design-system'
 import type { OpenClawChatController } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
 import { OpenClawActivityTrace } from './OpenClawActivityTrace'
 import { OpenClawConversationIssue } from './OpenClawConversationIssue'
 import { OpenClawFailureNotice } from './OpenClawFailureNotice'
 import { ConversationTurn, OpenClawImageGrid, type OpenClawImageViewerState } from './OpenClawMessageViews'
+import { OpenClawPromptSuggestions } from './OpenClawPromptSuggestions'
 import type { OpenClawComposerPort } from './openclawComposerPort'
-
-function suggestions(composer: OpenClawComposerPort) {
-  if (composer.snapshot) return [
-    { prompt: '概括最近变化', description: '基于当前专题快照提炼最近发生了什么。', icon: Icons.FileText },
-    { prompt: '梳理时间脉络', description: '按发布时间整理变化顺序。', icon: Icons.GitCompareArrows },
-    { prompt: '提炼风险与机会', description: '找出值得关注的风险和后续机会。', icon: Icons.ListChecks },
-  ]
-  if (composer.itemCount) return [
-    { prompt: '总结这些内容', description: '归纳已选内容中的关键结论。', icon: Icons.FileText },
-    { prompt: '比较关键信号', description: '找出相同趋势与值得关注的差异。', icon: Icons.GitCompareArrows },
-    { prompt: '提炼行动线索', description: '把值得继续跟进的事项整理出来。', icon: Icons.ListChecks },
-  ]
-  return [
-    { prompt: '诊断最近失败任务', description: '定位失败原因并给出下一步。', icon: Icons.Stethoscope },
-    { prompt: '查看异常来源', description: '检查近期不可用或退化的来源。', icon: Icons.TriangleAlert },
-    { prompt: '我有哪些订阅', description: '汇总当前订阅与可见范围。', icon: Icons.Rss },
-  ]
-}
 
 function CompactTimelineHeader({ chat }: { chat: OpenClawChatController }) {
   return <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
@@ -84,13 +67,6 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
     setNewOutputBelow(false)
   }
 
-  function fillSuggestion(question: string) {
-    composer.setQuestion(question)
-    window.requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>('[aria-label="发送给 OpenClaw 的问题"]')?.focus()
-    })
-  }
-
   return <>
     <div
       ref={scrollRef}
@@ -109,22 +85,7 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
         <Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description>
         <a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a>
       </Card>}
-      {!chat.messages.length && !chat.streamText && !runTrace && <PromptSuggestion className={`${variant === 'workspace' ? 'max-w-[var(--inteliscope-width-agent-conversation)] py-12' : 'max-w-sm py-3'} mx-auto text-center`}>
-        <PromptSuggestion.Header>
-          <PromptSuggestion.Title>从哪里开始？</PromptSuggestion.Title>
-          <PromptSuggestion.Description className="mt-1">可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</PromptSuggestion.Description>
-        </PromptSuggestion.Header>
-        <PromptSuggestion.Items className="mt-4 text-left" aria-label="问题建议">
-          {suggestions(composer).map(({ prompt, description, icon: Icon }) => <PromptSuggestion.Item key={prompt} aria-label={prompt} onPress={() => fillSuggestion(prompt)}>
-            <Icon size={16} className="shrink-0 text-accent" aria-hidden="true" />
-            <span className="min-w-0 flex-1">
-              <PromptSuggestion.ItemTitle>{prompt}</PromptSuggestion.ItemTitle>
-              <PromptSuggestion.ItemDescription>{description}</PromptSuggestion.ItemDescription>
-            </span>
-            <Icons.ArrowUpRight size={15} className="shrink-0 text-muted" aria-hidden="true" />
-          </PromptSuggestion.Item>)}
-        </PromptSuggestion.Items>
-      </PromptSuggestion>}
+      {!chat.messages.length && !chat.streamText && !runTrace && <OpenClawPromptSuggestions composer={composer} variant={variant} />}
       <div data-testid="openclaw-timeline" data-conversation-variant={variant} className={`${variant === 'workspace' ? 'mx-auto w-full max-w-[var(--inteliscope-width-agent-conversation)] grid-cols-1 gap-x-0' : 'grid-cols-[12px_minmax(0,1fr)] gap-x-[9px]'} grid min-w-0 overflow-x-hidden`}>
         {chat.messages.map((message, index) => {
           const traceAttached = attachTerminalTrace && index === chat.messages.length - 1

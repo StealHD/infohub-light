@@ -13,7 +13,7 @@ export async function installShortcutFixture(page: Page, effort = false, history
   })
   await page.addInitScript(({ effort, history }) => {
     sessionStorage.setItem('inteliscope.ui.insights-dismissed.v1:shortcuts', '1')
-    const state = { requests: [] as Array<{ method: string; params: Record<string, unknown> }>, enabled: true, failSkills: false }
+    const state = { requests: [] as Array<{ method: string; params: Record<string, unknown> }>, enabled: true, failSkills: false, responseText: '模拟请求已完成' }
     ;(window as unknown as { shortcutFixture: typeof state }).shortcutFixture = state
     class MockSocket {
       readyState = 1
@@ -45,7 +45,7 @@ export async function installShortcutFixture(page: Page, effort = false, history
         setTimeout(() => {
           const failed = state.failSkills && frame.method === 'skills.status'
           this.emit('message', { data: JSON.stringify({ type: 'res', id: frame.id, ok: !failed, payload: payloads[frame.method] ?? { ok: true }, ...(failed ? { error: { code: 'UNAVAILABLE', message: 'SECRET_SENTINEL' } } : {}) }) })
-          if (frame.method === 'chat.send') this.event('chat', { sessionKey: 'root', runId: frame.params.idempotencyKey, state: 'final', message: { role: 'assistant', content: [{ type: 'text', text: '模拟请求已完成' }] } })
+          if (frame.method === 'chat.send') this.event('chat', { sessionKey: 'root', runId: frame.params.idempotencyKey, state: 'final', message: { role: 'assistant', content: [{ type: 'text', text: state.responseText }] } })
         }, 0)
       }
     }

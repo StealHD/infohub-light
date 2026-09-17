@@ -8,151 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "instructions"
-  ],
-  "recorded_on": "2026-09-14",
-  "result": "Merged c3e7574e from codex/telegram-topics-openclaw-notify into local main, retained the later main automation UI behavior, and added the pre-merge source/target/worktree/push mapping rule.",
-  "status": "completed",
-  "task_id": "merge-telegram-topics-openclaw-notify-main-20260914",
-  "unresolved": [
-    "Not pushed, deployed, or migrated in a production runtime."
-  ],
-  "validation": [
-    "Merge conflicts resolved with both feature and main behavior preserved; targeted checks run after merge."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-14",
-  "result": "Hardened explicit v47 production migration with 0600 SQLite backup and revision-bound receipt, wired receipt into fast release without test-data copying, and repaired existing UI accessibility/E2E assertions without layout changes.",
-  "status": "completed",
-  "task_id": "fast-v2620-v47-release-readiness-20260914",
-  "unresolved": [
-    "No production migration, tag, or VPS cutover was performed by this worklog entry."
-  ],
-  "validation": [
-    "Impacted local preflight passed 15/15 checks; direct release migration and fast publication tests passed.",
-    "Full production-baseline Gate and release deployment remain subsequent steps."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "verification"
-  ],
-  "recorded_on": "2026-09-14",
-  "result": "Moved production release integrity scan and backup behind API/Worker stop, made live v47 receipt verification schema-only, and added an explicit descendant-SHA receipt reissue that preserves the original backup and database.",
-  "status": "completed",
-  "task_id": "v47-live-receipt-lock-safety-20260914",
-  "unresolved": [
-    "Fast publication of the corrected descendant SHA still requires its final Gate, CI, image preparation and cutover."
-  ],
-  "validation": [
-    "Targeted migration, release, fast-artifact and runtime-script tests passed; Bash syntax, Python syntax, code-size and Markdown controls passed.",
-    "Production v47 database and old 2.6.19 runtime were left intact while correcting the live-lock issue."
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "decisions",
-    "instructions",
-    "phase",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-14",
-  "result": "按用户要求直接在本地 main 简化发布：release/release-fast 共用自动准备或复用镜像、上传、原生产库备份、健康切换后 Tag；移除发布测试回执、模式要求、CI 等待和重复 smoke。UI skill 指导设计和编码时应用既有规则，不管理验收；同步发布文档及替代决定。产品 UI、开发 CI、数据库与运行配置未改，未提交或部署。",
-  "status": "completed",
-  "task_id": "minimal-release-ui-coding-rules-20260914",
-  "unresolved": [],
-  "validation": [
-    "47 项发布命令、缓存、失败中止、回执和 workflow 回归通过；外部命令均模拟，没有浏览器或 VPS 操作。",
-    "缓存复用不查询生产的补充断言复验通过；bash 语法、Python 编译、代码规模、Markdown、skill 格式、控制面结构和 diff 检查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-14",
-  "result": "直接在本地 main 优化 Dockerfile 缓存层级：保留固定 digest 基础镜像，先按锁文件安装第三方依赖，再复制应用和前端产物并安装项目自身，最后声明和写入版本、SHA、源码摘要及构建时间；未改产品代码、数据库或运行配置，未部署。",
-  "status": "completed",
-  "task_id": "dockerfile-cache-layering-20260914",
-  "unresolved": [],
-  "validation": [
-    "3 项现有镜像身份、API/Worker 共用镜像及离线运行入口定向测试通过。",
-    "本地 desktop-linux 完成两次 linux/amd64 实际构建；第二次仅修改四个发布参数，所有 RUN/COPY 命中缓存，两镜像的 16 个 RootFS 层完全相同且发布标签正确变化。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-14",
-  "result": "修复快速发布的活跃任务顺序：服务运行时先以只读方式检查队列，只有空队列才停 API/Worker；停服后的复核失败显式恢复旧容器。未改产品、UI、数据库结构或运行配置。",
-  "status": "completed",
-  "task_id": "release-active-job-precheck-20260914",
-  "unresolved": [],
-  "validation": [
-    "发布脚本、制品与调度 37 项定向回归通过；Bash 语法、Markdown 控制与 diff 检查通过。",
-    "生产 v2.6.19 已用原镜像和原配置恢复健康；本次失败发布未创建 Tag、未切换新版本。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-14",
-  "result": "按用户发布优先级修正普通发布流程：API/Worker 切换时保留 fetch_jobs 的 queued/running 持久状态，不再把可重试抓取任务作为代码发布阻塞；新 Worker 沿用现有租约与重试恢复。显式数据库迁移仍保持独立空队列边界。",
-  "status": "completed",
-  "task_id": "release-preserve-active-jobs-20260914",
-  "unresolved": [],
-  "validation": [
-    "发布脚本、制品和调度 37 项定向回归通过；Bash 语法、Markdown 控制与 diff 检查通过。",
-    "未修改产品 UI、数据库结构、生产配置或任何任务记录。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-09-15",
-  "result": "将本地数据归档目录、source identity v46 迁移锁文件和 gateway 本地测试证书加入 Git 忽略规则；现有运行产物未删除。",
-  "status": "completed",
-  "task_id": "ignore-local-data-artifacts-20260915",
-  "unresolved": [],
-  "validation": [
-    "git check-ignore 已确认三个未跟踪项分别命中新增规则。",
-    "impacted control preflight 5/5 通过；WORKLOG 校验和 git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "verification"
   ],
   "recorded_on": "2026-09-15",
@@ -377,6 +232,154 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "文档 impacted preflight 5/5 通过；main 回退后与 v2.6.22 文件树完全一致。",
     "2026-09-16 15:57 至 16:22，两条实际 Chrome 连接分别持续 1474/1449 秒，连接 ID 保持且双向流量增长；用户确认页面恢复后结束观察，未宣称完成原计划 30 分钟。",
     "截至 16:22:03，API 有界日志查询显示 15:58 后 relay 关闭记录为 0；容器 restart_count=0、OOM=false。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-16",
+  "result": "从本地 main 创建独立 worktree，优化 /agents：管理员个人 Agent 与成员审批页签改为紧凑并说明用途，个人状态区分网页聊天连接与接入状态，外部 MCP 连接明确适用场景并折叠旧手动配置命令；同步操作手册与更新日志。",
+  "status": "completed",
+  "task_id": "agents-connection-ui-20260916",
+  "unresolved": [],
+  "validation": [
+    "相关 Vitest 4 文件 20 项通过，TypeScript 类型检查与 UI 静态契约通过。",
+    "Playwright 托管接入桌面与手机 4 项通过，并查看深色桌面与手机截图；浅色和 200% 重排截图生成。",
+    "impacted preflight 13/13 通过；首次尝试因系统 Python 缺少 pytest 停止，改用现有项目虚拟环境后完整通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "在现有 codex/agents-connection-ui-20260916 分支移除外部 MCP 连接页面入口，收紧个人 Agent 卡片的状态、权限与操作布局；既有服务端手动授权保持兼容，文档与页面说明同步更新。未提交或部署。",
+  "status": "completed",
+  "task_id": "agents-unified-connection-ui-20260917",
+  "unresolved": [],
+  "validation": [
+    "最终 impacted preflight 13/13 通过，包含 Python 定向检查、前端全量 Vitest、lint、UI 合同、生产构建及首屏体积检查（244412/245760 bytes）。",
+    "桌面与手机 Agent 接入端到端场景通过；410px 实页确认状态、刷新及三个操作紧凑排列，无横向溢出；本地 /agents 返回 200。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "在现有 codex/agents-connection-ui-20260916 分支将空对话的简单查询升级为三类可编辑进阶分析任务，并以设计系统响应式任务卡展示；专题与已选内容也使用证据导向的完整提问。同步 UI 合同、手册与更新日志，未提交或部署。",
+  "status": "completed",
+  "task_id": "agent-advanced-suggestions-20260917",
+  "unresolved": [],
+  "validation": [
+    "类型检查、UI 合同、相关 Vitest 13 项与生产构建通过；桌面和手机端 Agent 快捷入口浏览器用例 14 项通过、2 项按原有条件跳过。",
+    "462px 和桌面实页已检查任务卡布局；点击只填入草稿、不发送。最终 impacted preflight 13/13 命令通过；本地 /agent 预览 HTTP 200。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "在现有 codex/agents-connection-ui-20260916 分支为 Agent 助手回复加入按需加载的安全 Markdown 排版，支持标题、列表、强调、代码和表格；仅允许 HTTP(S) 外链，原始 HTML 和远程图片不执行或加载。同步 UI 合同、手册和更新日志，未提交或部署。",
+  "status": "completed",
+  "task_id": "agent-markdown-replies-20260917",
+  "unresolved": [],
+  "validation": [
+    "类型检查、UI 合同、Lint、相关 Vitest 13 项与生产构建通过，初始 JS Brotli 245345/245760 bytes。",
+    "桌面与手机端 Markdown 浏览器用例 2 项通过，包含长表格、长代码、无横向溢出及 Axe；最终 impacted preflight 13/13 命令通过，控制面结构检查通过，/agent 本地预览 HTTP 200。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "在当前分支将完整 Agent 进阶建议改为透视叠放卡片，加入渐变、纹理、侧卡预览、按钮/方向键/滑动切换；当前卡片仅填入问题。组件按需加载，同步组件合同、路由说明、决策、手册和更新日志，未提交或部署。",
+  "status": "completed",
+  "task_id": "agent-spatial-suggestions-20260917",
+  "unresolved": [],
+  "validation": [
+    "类型检查、相关 Vitest 11 项通过；桌面及手机浏览器检查 4 项通过，涵盖切换、滑动、填入不发送、无横向溢出和 Axe。",
+    "已查看桌面/手机截图并确认本地 5173 实际页面显示新效果。",
+    "最终 impacted preflight 13/13 通过（.test-results/20260917T080318Z-7573），生产首屏 JS Brotli 245337/245760 bytes。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "对照用户录屏与 HeroUI Pro 公共页面，在当前分支将 Agent 进阶建议改为纵向透视卡片：更明显的侧卡层次、动态光影与投影、4.5 秒自动轮换；悬停或聚焦暂停，保留手动切换与填入问题行为。同步 UI 合同、手册和更新日志，未提交或部署。",
+  "status": "completed",
+  "task_id": "agent-spatial-refine-20260917",
+  "unresolved": [],
+  "validation": [
+    "类型检查、UI 合同、生产构建通过，初始 JS Brotli 245333/245760 bytes。",
+    "桌面和手机专项浏览器检查 5 项通过、1 项按设备条件跳过；覆盖自动轮换、悬停暂停及交互。",
+    "最终 impacted preflight 11/11 命令通过（.test-results/20260917T094027Z-9124）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "细化当前分支 Agent 建议卡片：保留 3D 层级与指针倾斜，缩小卡片并移除右下硬黑边；三种独立细线底纹仅受光时显现，紫灰、青绿和暖金底色保持独立；背景光限制色强和范围并消除底部直线边界。侧卡切换、正面卡填入建议，自动轮换保留。同步组件合同与更新日志，未提交或部署。",
+  "status": "completed",
+  "task_id": "agent-card-light-depth-20260917",
+  "unresolved": [],
+  "validation": [
+    "完整 impacted preflight 11/11 通过（.test-results/20260917T100442Z-13413），生产首屏 JS Brotli 245499/245760 bytes。",
+    "桌面/手机交互浏览器测试 5 项通过、1 项按设备跳过；新增无光隐藏、移入显纹、移出隐藏检查 1 项通过，已查看受光截图和本地手机页面。",
+    "最后光晕范围调整后的生产构建通过，Markdown 控制和 E2E 合同补查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-17",
+  "result": "移除 Agent 建议卡片底部上一项、页码与下一项栏，保留读屏播报；修复透明 3D 容器拦截侧卡点击，点击露出侧卡切换，正面卡填入建议。同步 UI 合同、手册与更新日志，未提交或部署。",
+  "status": "completed",
+  "task_id": "agent-direct-card-navigation-20260917",
+  "unresolved": [],
+  "validation": [
+    "impacted preflight 11/11 通过（.test-results/20260917T102828Z-15836）。",
+    "修复透明容器后，桌面与手机侧卡点击、键盘及滑动浏览器测试 4/4 通过；本地页面点击露出的侧卡已确认切换且不改草稿。"
   ]
 }
 ```

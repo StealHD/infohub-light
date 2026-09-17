@@ -7,11 +7,11 @@ const analysisLabels: Record<string, string> = {
   revoking: '正在撤销', removed: '已撤销', offline: '服务离线，请管理员检查',
 }
 
-export function AgentCapabilityStatus({ state, connected }: { state: AgentConnection; connected: boolean }) {
+export function AgentCapabilityStatus({ state, connected }: { state: AgentConnection; connected?: boolean }) {
   if (!state.can_connect) return null
-  return <dl className="grid gap-1 mt-3 type-meta text-muted" aria-label="Agent 能力状态">
-    <div><dt className="inline">聊天连接：</dt><dd className="inline">{connected ? '已连接' : '等待连接'}</dd></div>
-    <div><dt className="inline">个人数据授权：</dt><dd className="inline">{state.verification.own_content ? '已验证；工具调用需在聊天中核验' : '待验证'}</dd></div>
+  return <dl className="mt-3 grid gap-1 type-meta text-muted min-[640px]:grid-cols-3" aria-label="Agent 能力状态">
+    <div><dt className="inline">聊天：</dt><dd className="inline">{connected === undefined ? '进入后连接' : connected ? '已连接' : '等待连接'}</dd></div>
+    <div><dt className="inline">个人工具：</dt><dd className="inline">{state.verification.own_content ? '已授权，调用时核验' : '待验证'}</dd></div>
     <div><dt className="inline">自动化分析：</dt><dd className="inline">{analysisLabels[state.analysis?.phase || 'not_configured'] || '等待核验'}</dd></div>
   </dl>
 }

@@ -1,10 +1,10 @@
 import { McpPermissions } from './McpPermissions'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { queryKeys } from '../../api/queryKeys'
 import { useAgentConnectionContext } from './AgentConnectionContext'
-import { Card, RefreshButton, StableAsyncButton } from '../../design-system'
+import { Button, Card, RefreshButton, StableAsyncButton, StatusIndicator } from '../../design-system'
 import type { OpenClawChatController } from '../openclaw/openclawContracts'
 import { DisconnectAgent } from './DisconnectAgent'
 import { MemberAccess } from './MemberAccess'
@@ -16,6 +16,7 @@ const phases: Record<string, string> = { checking: '正在检查环境', prepari
 
 export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatController }) {
   const { api, userId } = useAgentConnectionContext()
+  const navigate = useNavigate()
   const identity = useRef(userId)
   useLayoutEffect(() => { identity.current = userId }, [userId])
   const [request, setRequest] = useState<{ userId: string; pending: boolean; label?: string; error?: string } | null>(null)
@@ -46,9 +47,15 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
   }
 
   return <Card variant="secondary" className="p-4" aria-busy={Boolean(busy || query.isFetching)}>
-    <Card.Title render={(props) => <h2 {...props} />}>我的 Agent</Card.Title>
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+      <Card.Title render={(props) => <h2 {...props} />}>我的 Agent</Card.Title>
+      <div className="flex items-center gap-2">
+        {state?.can_connect && <StatusIndicator label="已接入" tone="success" />}
+        <RefreshButton pending={query.isFetching} label="刷新接入状态" isIconOnly variant="ghost" onPress={() => query.refetch()} />
+      </div>
+    </div>
     <Card.Description>{state?.cleanup ? cleanupLabel(state.cleanup.phase) : busy ? phases[state?.setup?.phase || 'checking'] : state?.can_connect
-      ? '个人 Agent 已接入。其他浏览器登录同一账号即可使用，无需重复配置。'
+      ? '个人 Agent 已接入当前账号。换浏览器登录后也可直接使用。'
       : state?.state === 'revoked' ? '个人接入已解除。主动重新接入将创建新 Agent 和新授权；旧 Agent 与历史数据保留，不迁移旧会话。'
         : state?.state === 'invalid' ? '个人接入已失效，请管理员检查；系统不会自动重建授权。'
         : state?.can_manage_setup ? '由系统自动完成个人配置和验证，无需下载文件或手动创建令牌。'
@@ -56,7 +63,7 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
             : state ? '请管理员为当前账号完成个人接入。' : '正在读取接入状态…'}</Card.Description>
     <McpPermissions permissions={state?.permissions} />
     {!chat && state && !state.can_manage_setup && <MemberAccess state={state} refresh={() => query.refetch()} />}
-    {state && <AgentCapabilityStatus state={state} connected={chat?.status === 'connected'} />}
+    {state && <AgentCapabilityStatus state={state} connected={chat ? chat.status === 'connected' : undefined} />}
     {busy && <p className="type-meta mt-3 text-muted" role="status">可以离开页面，返回后查看同一次接入进度。</p>}
     {error && <p role="alert" className="type-body mt-3">{error}</p>}
     {query.isError && <p role="alert" className="type-body mt-3">接入状态读取失败，请刷新后重试。</p>}
@@ -64,21 +71,20 @@ export function PersonalAgentConnection({ chat }: { chat?: OpenClawChatControlle
       {state.setup?.error || '自动接入暂不可用，请管理员检查本机环境。'}</p>}
     {state?.state === 'ready' && !state.can_connect && <p role="status" className="type-body mt-3">个人授权已保存，但 Gateway 连接尚未就绪，请管理员检查。</p>}
     <div className="mt-4 flex flex-wrap items-center gap-2">
+      {!chat && state?.can_connect && <Button onPress={() => navigate('/agent')}>进入 OpenClaw</Button>}
       {!chat && state?.can_manage_setup && state.cleanup && ['failed', 'recovery'].includes(state.cleanup.phase) && <StableAsyncButton pending={Boolean(own?.pending)} pendingContent="正在重试"
         onPress={async () => {
           setRequest({ userId, pending: true, label: '重试清理' })
           try { await api.revokeAgentConnection(); await query.refetch(); if (identity.current === userId) setRequest({ userId, pending: false }) }
           catch { if (identity.current === userId) setRequest({ userId, pending: false, error: '清理请求未确认，请刷新核对后重试。' }) }
         }}>重试清理</StableAsyncButton>}
-      {!chat && canSetup && <StableAsyncButton pending={Boolean(busy)} pendingContent="正在接入"
+      {!chat && canSetup && <StableAsyncButton variant={state?.can_connect ? 'secondary' : 'primary'} pending={Boolean(busy)} pendingContent="正在接入"
         isDisabled={!state.setup?.available || query.isError} onPress={setup}>
         {label}
       </StableAsyncButton>}
-      {!chat && state?.can_connect && <Link to="/agent" className="type-control underline">进入 OpenClaw</Link>}
       {chat && state?.can_connect && <StableAsyncButton pending={chat.status === 'connecting'} pendingContent="正在连接"
         isDisabled={query.isError || chat.status === 'connected'} onPress={() => chat.connect()}>连接</StableAsyncButton>}
       {chat && !state?.can_connect && <Link to="/agents" className="type-control underline">前往 Agent 接入</Link>}
-      <RefreshButton pending={query.isFetching} aria-label="刷新接入状态" onPress={() => query.refetch()} />
       {!chat && state?.can_manage_setup && ['ready', 'pending_verification', 'invalid'].includes(state.state)
         && <DisconnectAgent disabled={Boolean(busy || query.isError)} />}
     </div>

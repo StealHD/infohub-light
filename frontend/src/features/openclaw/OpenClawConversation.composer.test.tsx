@@ -59,11 +59,11 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={value} />)
 
-    await browser.click(screen.getByRole('button', { name: '诊断最近失败任务' }))
-    expect(value.setQuestion).toHaveBeenCalledWith('诊断最近失败任务')
+    await browser.click(screen.getByRole('button', { name: '排查采集链路' }))
+    expect(value.setQuestion).toHaveBeenCalledWith('请检查我最近失败的采集任务和异常来源，结合任务诊断、来源健康与可用的操作记录，按影响范围列出可能原因、证据和下一步；证据不足时明确说明，先不要修改配置或重试。')
     expect(chat.send).not.toHaveBeenCalled()
-    expect(screen.getByLabelText('问题建议')).toHaveClass('prompt-suggestion__items')
-    expect(screen.getByRole('button', { name: '查看异常来源' })).toHaveClass('prompt-suggestion__item')
+    expect(screen.getByLabelText('进阶建议任务')).toHaveClass('prompt-suggestion__items')
+    expect(screen.getByRole('button', { name: '研判近期信号' })).toHaveClass('prompt-suggestion__item')
     expect(screen.getByText('连接中断，正在重连 · 第 2 次')).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '立即重试' }))
     expect(chat.retryConnection).toHaveBeenCalledTimes(1)
@@ -90,7 +90,7 @@ describe('OpenClaw conversation surface', () => {
   })
 
 
-  it('uses a right-aligned user bubble while keeping assistant messages flat and links safe', () => {
+  it('uses a right-aligned user bubble while keeping assistant messages flat and links safe', async () => {
     const now = new Date(2026, 6, 22, 15, 0, 0).getTime()
     vi.spyOn(Date, 'now').mockReturnValue(now)
     const chat = chatController({
@@ -115,6 +115,7 @@ describe('OpenClaw conversation surface', () => {
       ],
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+    await screen.findByText('执行')
 
     const timeline = screen.getByTestId('openclaw-timeline')
     expect(timeline).toHaveClass('grid-cols-[12px_minmax(0,1fr)]')
@@ -144,7 +145,7 @@ describe('OpenClaw conversation surface', () => {
       expect(link).toHaveClass('text-accent')
     }
     expect(screen.getAllByRole('link')).toHaveLength(2)
-    expect(timeline).toHaveTextContent('[执行](javascript:alert(1)) <b>plain</b>')
+    expect(timeline).toHaveTextContent('执行 <b>plain</b>')
     expect(timeline.querySelector('b')).toBeNull()
   })
 

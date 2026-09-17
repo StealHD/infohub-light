@@ -142,15 +142,37 @@ function managedPage(api: Partial<ServiceApi>) {
 }
 
 describe('one managed Agent entry', () => {
-  it('shows one action and never reads manual tokens or starts setup on mount', async () => {
-    const api = { agentConnection: vi.fn().mockResolvedValue(unbound), agentDelegations: vi.fn(),
+  it('shows the unified Agent entry and approval without external connection setup', async () => {
+    const browser = userEvent.setup()
+    const api = {
+      agentConnection: vi.fn().mockResolvedValue({ ...unbound, state: 'ready', can_connect: true }),
+      agentDelegations: vi.fn().mockResolvedValue({ enabled: true, mcp_url: '/mcp', connections: [] }),
+      agentAccessRequests: vi.fn().mockResolvedValue({ items: [], total: 0, pending_count: 0 }),
+    }
+    managedPage(api)
+
+    expect(await screen.findByRole('tab', { name: '我的 Agent' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '接入申请' })).toBeVisible()
+    expect(screen.getByText('管理自己的 Agent 接入，或审核成员的接入申请。')).toBeVisible()
+    expect(await screen.findByText('个人 Agent 已接入当前账号。换浏览器登录后也可直接使用。')).toBeVisible()
+    expect(screen.getByText('进入后连接')).toBeVisible()
+    expect(screen.queryByText('外部 MCP 连接')).toBeNull()
+    expect(screen.queryByRole('button', { name: '创建外部连接' })).toBeNull()
+    expect(api.agentDelegations).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('tab', { name: '接入申请' }))
+    expect(await screen.findByText('暂无相关申请')).toBeVisible()
+  })
+
+  it('shows one managed setup action without creating manual tokens on mount', async () => {
+    const api = { agentConnection: vi.fn().mockResolvedValue(unbound),
+      agentDelegations: vi.fn().mockResolvedValue({ enabled: false }),
       setupManagedAgentConnection: vi.fn() }
     managedPage(api)
     expect(await screen.findByRole('button', { name: '接入 Agent' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: '创建连接' })).toBeNull()
     expect(screen.queryByText('高级接入')).toBeNull()
-    expect(api.agentDelegations).not.toHaveBeenCalled()
     expect(api.setupManagedAgentConnection).not.toHaveBeenCalled()
+    expect(api.agentDelegations).not.toHaveBeenCalled()
   })
   it('locks rapid activation and reads the same server-owned running state', async () => {
     const browser = userEvent.setup()
@@ -174,10 +196,10 @@ describe('one managed Agent entry', () => {
     const api = { agentConnection: vi.fn().mockResolvedValue({ ...unbound, state: 'ready', can_connect: true }),
       setupManagedAgentConnection: vi.fn() }
     const first = managedPage(api)
-    expect(await screen.findByRole('link', { name: '进入 OpenClaw' })).toHaveAttribute('href', '/agent')
+    expect(await screen.findByRole('button', { name: '进入 OpenClaw' })).toBeVisible()
     first.unmount()
     managedPage(api)
-    expect(await screen.findByRole('link', { name: '进入 OpenClaw' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '进入 OpenClaw' })).toBeVisible()
     expect(api.setupManagedAgentConnection).not.toHaveBeenCalled()
   })
   it('shows failure locally and does not recreate revoked bindings', async () => {

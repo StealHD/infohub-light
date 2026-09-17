@@ -68,6 +68,7 @@ export { RefreshButton, RefreshIconButton } from './RefreshButton'
 export { StableAsyncButton } from './StableAsyncButton'
 export { Timeline } from './Timeline'
 export { ImageGalleryModal } from './ImageGalleryModal'
+export { loadChatMarkdown } from './loadChatMarkdown'
 export type { ImageGalleryImage } from './ImageGalleryModal'
 export type {
   TimelineConnectorProps,
@@ -121,3 +122,5 @@ export * as Icons from './icons'
 export { ComposerSuggestions } from './ComposerSuggestions'
 export { ComposerPanel } from './ComposerPanel'
 export type { ComposerSuggestion } from './ComposerSuggestions'
+
+export { loadSpatialSuggestions } from './loadSpatialSuggestions'

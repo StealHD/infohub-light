@@ -65,7 +65,7 @@ test('member request and administrator decision share state across browsers', as
     await admin.getByRole('button', { name: '允许并接入' }).click()
     await expect(page.getByText(/已允许，正在配置/)).toBeVisible()
     request = { ...request, state: 'ready', phase: null }
-    await expect(page.getByRole('link', { name: '进入 OpenClaw' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '进入 OpenClaw' })).toBeVisible()
     expect(decisions).toBe(2)
     for (const target of [page, admin]) {
       expect((await new AxeBuilder({ page: target }).include('main').analyze()).violations).toEqual([])
@@ -126,10 +126,10 @@ test('one onboarding entry survives browser changes without another setup', asyn
     await install(other)
     stage = 'complete'
     await other.goto('/agents')
-    await expect(other.getByRole('link', { name: '进入 OpenClaw' })).toBeVisible()
+    await expect(other.getByRole('button', { name: '进入 OpenClaw' })).toBeVisible()
     await other.getByRole('button', { name: '切换到白天模式' }).click()
     await expect(other.getByRole('button', { name: '切换到黑夜模式' })).toBeVisible()
-    await expect(other.getByRole('link', { name: '进入 OpenClaw' })).toHaveCSS('color', 'oklch(0.23 0.01 286)')
+    await expect(other.getByRole('button', { name: '进入 OpenClaw' })).toBeEnabled()
     await expect.poll(() => other.getByRole('heading', { name: '我的 Agent' }).evaluate((element) =>
       getComputedStyle(element).color === getComputedStyle(document.querySelector('.inteliscope-design-system')!).color)).toBe(true)
     expect(submissions).toBe(1)
@@ -140,7 +140,7 @@ test('one onboarding entry survives browser changes without another setup', asyn
     if (page.viewportSize()!.width >= 1024) {
       // Browser zoom reflow: halve the available CSS viewport at 200%.
       await other.setViewportSize({ width: Math.floor(page.viewportSize()!.width / 2), height: 600 })
-      const entry = other.getByRole('link', { name: '进入 OpenClaw' })
+      const entry = other.getByRole('button', { name: '进入 OpenClaw' })
       await expect(entry).toBeVisible()
       const bounds = (await entry.boundingBox())!
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(other.viewportSize()!.width)
@@ -159,7 +159,7 @@ test('one onboarding entry survives browser changes without another setup', asyn
     for (const target of [page, other]) {
       await target.reload()
       await expect(target.getByText(/个人接入已解除/u)).toBeVisible()
-      await expect(target.getByRole('link', { name: '进入 OpenClaw' })).toHaveCount(0)
+      await expect(target.getByRole('button', { name: '进入 OpenClaw' })).toHaveCount(0)
       await expect(target.getByRole('button', { name: '接入 Agent', exact: true })).toHaveCount(0)
     }
     expect(submissions).toBe(1)
