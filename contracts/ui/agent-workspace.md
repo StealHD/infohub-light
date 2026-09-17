@@ -67,6 +67,7 @@ Opening a current session from Skills/Automations/examples returns to `/agent` w
 
 ## 7. Shared Composer shortcuts
 
+- An empty conversation offers three context-aware advanced task starters: current topic snapshot, selected content, or the user's feed/subscriptions/health. Each starter inserts a complete editable request into the composer and focuses it; choosing one never sends a chat turn or starts a write. Requests ask for evidence, uncertainty and suggested next steps before changes. The full workspace uses the tile role in the component matrix; the compact Feed Agent retains rows.
 - Both workspace and compact Feed composers retain their TextArea, image and model controls. At the caret, `@` or `/` after whitespace or at the start opens a non-modal, upward-first design-system suggestion surface; embedded email/URL/path symbols do not trigger. Suggestions never take textarea focus. Arrows select, Enter chooses without sending, Escape or an outside press dismisses without changing the draft, and Tab retains normal focus traversal; an outside press does not override its new target. IME composition and Shift+Enter retain existing behavior.
 - `@` groups Skills and already-attached material titles. Material selection inserts a bounded readable title without changing attachments. `/` lists only `skills`, `new`, `model`, `reasoning`, `status`, and `help`. Executing a command replaces suggestions with one temporary composer-anchored operation panel; it never adds transcript entries or sends a model prompt. Skills, status, help, model/reasoning choices and new-session confirmations remain local, preserving drafts and existing capability, trust, idempotency and pending guards. Close and Escape restore input focus; pressing outside dismisses the panel without overriding the newly pressed target's focus. Successful selection or cancellation dismisses the panel. A new command replaces the prior panel. The panel is isolated by current user/Gateway/generation/session, never persisted or included in model context. An exact known command also dispatches locally through Send after dismissal or trailing whitespace; unknown text remains ordinary chat.
 - Menu and panel titles use readable action names; only Help includes the `/help` hint. Existing supported slash spellings still dispatch locally. The retired `/worktree` command only explains unavailability and cannot create a task.
@@ -76,7 +77,7 @@ Opening a current session from Skills/Automations/examples returns to `/agent` w
 
 Owner/Admin 的已有接入显示低强调“解除接入”。使用共享 sm 确认对话框说明所有浏览器失效、保留旧数据且不迁移旧会话；取消不写入，提交中锁定并展示本地失败。解除后显示“重新接入”，仅明确点击才请求新身份配置，不因刷新、页面打开或自动重连恢复授权。
 
-`/agents` 的个人入口使用“我的 Agent”卡：Owner/Admin 明确点击“接入 Agent”后自动配置与验证，运行中显示阶段和稳定宽度的“正在接入”，失败显示安全原因及“重试接入”，就绪显示“进入 OpenClaw”。复用 Card、StableAsyncButton、RefreshButton，不增加本地视觉参数。没有手动令牌、下载、命令、回执或“高级接入”。聊天未接入时只导航至此。打开和刷新不写入；后台进度按账号读取，不同浏览器复用绑定；切换账号丢弃迟到结果。启用的 Member 可以申请，等待审核期间不可重复提交，拒绝后显示原因与重新申请；配置失败由管理员处理。Viewer 不开放申请。验证连接不等于模型或通知验收，撤销后不自动重建。权限边界以 Gateway API 合同为准。
+`/agents` 的个人入口使用“我的 Agent”卡：Owner/Admin 明确点击“接入 Agent”后自动配置与验证，运行中显示阶段和稳定宽度的“正在接入”，失败显示安全原因及“重试接入”，就绪显示“进入 OpenClaw”。复用 Card、StableAsyncButton、RefreshButton，不增加本地视觉参数。没有手动令牌、下载、命令、回执或“高级接入”；外部手动 MCP 连接不在产品页展示，既有授权不因此吊销。聊天未接入时只导航至此。打开和刷新不写入；后台进度按账号读取，不同浏览器复用绑定；切换账号丢弃迟到结果。启用的 Member 可以申请，等待审核期间不可重复提交，拒绝后显示原因与重新申请；配置失败由管理员处理。Viewer 不开放申请。验证连接不等于模型或通知验收，撤销后不自动重建。权限边界以 Gateway API 合同为准。
 
 Owner/Admin 在同页使用“我的 Agent / 接入申请”标签，申请标签显示待审核数量。审批采用紧凑响应式行、待审核/处理中/已处理筛选、姓名或用户名搜索，每页 20 条。允许直接提交；拒绝使用 sm Modal，原因必填，取消不写入。失败配置保留在处理中，提供重试或继续核验；刷新与轮询保留已加载行、焦点及滚动。用户管理只链接至此，不复制流程，不新增通知中心或宽侧栏。
 
@@ -109,3 +110,5 @@ Owner/Admin 在同页使用“我的 Agent / 接入申请”标签，申请标�
 ## 会话永久删除
 
 侧栏与全部会话（含归档）的行尾 X 复用同一危险删除操作。细指针仅在行悬停或键盘聚焦时显示，触屏常显且始终保留位置，避免标题跳动；X 的悬停或键盘聚焦说明“删除会话”。当前会话显示禁用原因“请先切换后删除”，主会话、运行中会话和未协商删除能力也禁用。OpenClaw 2026.9.2 无法保证工作树回收失败时保留会话，所以带工作树的会话禁用并说明先安全清理工作树。确认框支持默认未选的“下次不再提醒”；只有确认删除成功后，才按当前账号在此浏览器保存跳过偏好。取消、失败、无效偏好或浏览器存储不可用都继续确认。“全部会话”提供“删除前确认”开关以恢复提示，侧栏与目录共用该值。直接删除和确认删除都使用同步提交锁；失败保持会话并显示安全错误，不乐观删除、不自动重试。Controller 重新读取会话并检查连接代次，成功才通知目录刷新、重置全部会话分页。沿用 design-system Modal/Button、键盘焦点与窄屏合同。
+
+进阶建议在完整工作区使用竖向透视叠放卡片与随指针移动的柔和高光；空闲且页面可见时每 4.5 秒自动轮换，鼠标停留或键盘焦点进入时暂停，手动切换后重新计时。不显示底部分页栏；可点击露出的侧卡、左右滑动或使用方向键切换；点击侧卡先置前，点击当前卡片才填入可编辑问题，不自动发送。Reduced Motion 不自动轮换。紧凑 Feed 面板沿用列表。
