@@ -69,30 +69,52 @@ def select_probe_target(
             if item.assignment_role is not AssignmentRole.INACTIVE
             and successful_probe_targets(item.candidate_id) < required_proofs
         ]
+    repair_candidates = {
+        str(row[0]) for row in repository.connection.execute(
+            """SELECT DISTINCT candidate_id FROM actor_route_repairs_v2
+               WHERE workspace_id=? AND route_id=? AND status='awaiting_probe'
+                 AND candidate_id IS NOT NULL""",
+            (repository.workspace_id, route_id),
+        )
+    }
     pool.sort(key=lambda item: (
         str(item.publisher).casefold() in assigned_publishers,
         item.assignment_role is not AssignmentRole.INACTIVE,
         item.lifecycle is CandidateLifecycle.STATIC_VALID,
         int(item.priority or 0), item.candidate_id,
     ))
-    for candidate in pool:
-        for binding in bindings:
-            proved = repository.connection.execute(
-                """SELECT 1 FROM actor_attempts_v2
+    targets = []
+    for candidate_index, candidate in enumerate(pool):
+        for binding_index, binding in enumerate(bindings):
+            evidence = repository.connection.execute(
+                """SELECT MAX(CASE WHEN status='succeeded'
+                              AND semantic_outcome='valid_nonempty' AND cost_final=1
+                              THEN 1 ELSE 0 END) AS proved,
+                          MAX(CASE WHEN status IN ('succeeded','failed','cancelled')
+                              AND cost_final=1 THEN created_at END) AS last_probe_at
+                   FROM actor_attempts_v2
                    WHERE workspace_id=? AND candidate_id=? AND kind='probe'
                      AND source_id=? AND binding_version=?
-                     AND target_fingerprint=? AND status='succeeded'
-                     AND semantic_outcome='valid_nonempty' AND cost_final=1
-                   LIMIT 1""",
+                     AND target_fingerprint=?""",
                 (
                     repository.workspace_id, candidate.candidate_id,
                     binding["source_id"], binding["binding_version"],
                     binding["target_fingerprint"],
                 ),
             ).fetchone()
-            if proved is None:
-                return candidate.candidate_id, binding
-    return None
+            if not evidence["proved"]:
+                targets.append((
+                    evidence["last_probe_at"],
+                    candidate.candidate_id not in repair_candidates,
+                    candidate_index, binding_index,
+                    candidate.candidate_id, binding,
+                ))
+    if not targets:
+        return None
+    targets.sort(key=lambda target: (
+        target[0] is not None, target[0] or "", target[1:4],
+    ))
+    return targets[0][4], targets[0][5]
 
 
 __all__ = ["select_probe_target"]

@@ -1084,6 +1084,45 @@ def test_joint_probe_target_advances_past_a_candidate_without_an_unproved_bindin
     store.close()
 
 
+def test_maintenance_probes_waiting_repair_then_rotates_after_no_evidence(
+    tmp_path: Path,
+) -> None:
+    store, repository, route_id, source_id = _repository(tmp_path)
+    _authorize(repository, route_id)
+    with repository.transaction():
+        manifest = _manifest("other/candidate-two")
+        repository.create_candidate(
+            candidate_id="candidate-two", route_id=route_id,
+            actor_id="other/candidate-two", publisher="other",
+            build_id="build-candidate-two", build_number="1.0.0",
+            manifest_json=manifest,
+            manifest_hash=actor_manifest_hash(parse_actor_manifest(manifest)),
+            input_schema_hash="a" * 64, output_schema_hash="b" * 64,
+            lifecycle=CandidateLifecycle.STATIC_VALID,
+        )
+        repository.connection.execute(
+            """INSERT INTO actor_route_repairs_v2 (
+                repair_id, workspace_id, route_id, source_id, trigger_code,
+                status, candidate_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'actorops_insufficient_stable_paths',
+                      'awaiting_probe', 'candidate-two', ?, ?)""",
+            ("repair-two", DEFAULT_WORKSPACE_ID, route_id, source_id,
+             "2026-08-20T00:00:00+00:00", "2026-08-20T00:00:00+00:00"),
+        )
+    first = repository.maintenance.probe_target(route_id)
+    assert first is not None and first[0] == "candidate-two"
+
+    result = asyncio.run(_prober(repository, _Remote("empty"), _Preflight()).probe(
+        route_id=route_id, candidate_id="candidate-two", source_id=source_id,
+        source_config={"target": "openai"}, maintenance_slot="2026-08-20:2",
+    ))
+    assert result.status == "no_evidence"
+    second = repository.maintenance.probe_target(route_id)
+    assert second is not None and second[0] == "candidate"
+    assert repository.get_candidate("candidate-two").lifecycle is CandidateLifecycle.STATIC_VALID
+    store.close()
+
+
 def test_generic_maintenance_has_no_platform_or_publication_knowledge() -> None:
     source = Path("src/services/actorops/maintenance.py").read_text()
     repository = Path("src/services/actorops/repository_maintenance.py").read_text()

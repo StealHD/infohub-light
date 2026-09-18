@@ -11,24 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-15",
-  "result": "在本地 main 工作区修复 df068ba9 简化发布后遗漏的重复测试：移除运行时测试中要求 Tag 查询旧 Gate 与执行 smoke 的断言，由既有 Tag 专项测试集中验证版本、main 归属和无 CI/smoke 依赖；开发 CI 的手动 smoke 检查保留。仅修改测试，不改变发布流程或图片适配。",
-  "status": "completed",
-  "task_id": "2026-09-15-tag-workflow-test-sync",
-  "unresolved": [],
-  "validation": [
-    "修复前定向复现 tests/test_light_runtime_scripts.py:1085 旧 Gate 查询断言失败；该文件被 python_api_store 和 python_scripts 共用。",
-    "相关 Pytest 四个文件 67 项通过；任务范围 diff 审查与 git diff --check 通过。",
-    "任务 snapshot impacted preflight 8/8 通过，无映射遗漏与未关闭 SQLite 连接警告；证据 .test-results/20260915T115236Z-99665/result.json。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-15",
   "result": "按用户要求将本地 main 已验证的两份 Tag 发布测试修复补丁应用到 codex/analyze-openai-reset-test-miss 与 codex/ui-sidebar-automations-0915 工作区；两处均保留为未提交修改，未合并或推送。",
   "status": "completed",
   "task_id": "2026-09-15-apply-tag-test-fix-to-two-branches",
@@ -380,6 +362,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "impacted preflight 11/11 通过（.test-results/20260917T102828Z-15836）。",
     "修复透明容器后，桌面与手机侧卡点击、键盘及滑动浏览器测试 4/4 通过；本地页面点击露出的侧卡已确认切换且不改草稿。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-09-18",
+  "result": "在本地 main 派生 worktree 修复 ActorOps 站立维护固定选择同一 no_evidence 候选、使 X 的两条备用 Actor 修复长期等待的问题：优先选择 awaiting_probe 修复候选，并按当前 Binding 已结算 Probe 的时间轮换；保留非空已结算证明、费用和最后一路安全边界。更新 9 月更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-18-actorops-x-maintenance-probe-rotation",
+  "unresolved": [
+    "本地 5173/8080 服务仍运行于另一 worktree，尚未载入此改动；采集 Key 池 blocked 需按既有未知启动结果对账流程恢复，不能靠候选轮换解除。"
+  ],
+  "validation": [
+    "回归测试验证等待修复候选优先、no_evidence 后轮换；使用本地测试库只读调用确认当前选中两条修复记录等待的 Candidate，未启动 Actor。",
+    "相关定向 Pytest 2 项通过；impacted targeted 8/8 通过；最终 impacted preflight 14/14 通过，含前端检查，无 SQLite 连接警告。",
+    "任务范围 diff 审查与 git diff --check 通过；最终 preflight 证据 .test-results/20260918T014356Z-71645/result.json。"
   ]
 }
 ```
