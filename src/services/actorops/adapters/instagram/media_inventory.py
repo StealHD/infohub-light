@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
 from ....apify_actor_manifest import normalize_http_url
+from ...capability_evidence import MediaCapabilityEvidence
+from .media_shapes import MAX_MEDIA, declared_count, declared_gallery, media_nodes, variants
 
 
-MAX_MEDIA = 100
 IMAGE_KEYS = ("displayUrl", "displayURL", "display_url", "imageUrl", "image_url",
-              "thumbnailUrl", "thumbnail_url")
-CHILD_KEYS = ("childPosts", "children", "carouselMedia", "sidecarChildren")
+              "thumbnailUrl", "thumbnail_url", "image")
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,8 @@ class PostMedia:
     video_count: int
     total_count: int
     bounded: bool = False
+    evidence: MediaCapabilityEvidence = MediaCapabilityEvidence()
+    gallery: bool = False
 
     def metadata(self):
         urls = [image.url for image in self.images[:6]]
@@ -37,7 +39,7 @@ class PostMedia:
                   "media_image_count": self.total_count,
                   "media_photo_count": self.photo_count,
                   "media_video_count": self.video_count}
-        if self.photo_count + self.video_count > 1:
+        if self.gallery or self.photo_count + self.video_count > 1:
             result["upstream_content_format"] = "gallery"
         elif self.video_count:
             result["upstream_content_format"] = "video"
@@ -67,27 +69,30 @@ def _dimension(value):
 
 def _video(row):
     return (row.get("isVideo") is True or row.get("is_video") is True
-            or row.get("media_type") == 2
-            or str(row.get("type", row.get("__typename", ""))).lower()
+            or row.get("media_type", row.get("media_type_raw")) == 2
+            or str(row.get("type", row.get("mediaType", row.get("media_type", row.get("__typename", ""))))).lower()
             in {"video", "reel", "reels", "graphvideo"})
 
 
-def _best_image(row):
-    versions = row.get("image_versions2")
-    candidates = versions.get("candidates") if isinstance(versions, Mapping) else None
+def _best_image(row, *, child=False):
+    candidates = variants(row)
     ranked = []
     if isinstance(candidates, list):
         for candidate in candidates[:MAX_MEDIA]:
+            if isinstance(candidate, str):
+                candidate = {"url": candidate}
             if not isinstance(candidate, Mapping):
                 continue
-            url = image_url(candidate.get("url"))
-            width, height = _dimension(candidate.get("width")), _dimension(candidate.get("height"))
+            url = image_url(candidate.get("url", candidate.get("src")))
+            width, height = _dimension(candidate.get("width", candidate.get("config_width"))), _dimension(candidate.get("height", candidate.get("config_height")))
             if url:
                 ranked.append(((width or 0) * (height or 0), url, width, height))
     if ranked:
         _, url, width, height = max(ranked, key=lambda value: value[0])
         return PostImage(url, "video_cover" if _video(row) else "photo", width, height)
-    for key in IMAGE_KEYS:
+    direct = () if _video(row) else ("mediaDownloadUrl", *(("url", "src") if child else ()))
+    keys = (*IMAGE_KEYS, *direct)
+    for key in keys:
         url = image_url(row.get(key))
         if url:
             return PostImage(url, "video_cover" if _video(row) else "photo",
@@ -96,23 +101,23 @@ def _best_image(row):
 
 
 def extract_media(row):
-    children = next((row[key] for key in CHILD_KEYS
-                     if isinstance(row.get(key), list) and row[key]), None)
-    array = next((row[key] for key in ("images", "imageUrls", "image_urls")
-                  if isinstance(row.get(key), list) and row[key]), None)
-    nodes = children if children is not None else array if array is not None else [row]
+    selection = media_nodes(row)
+    nodes = selection.nodes
+    child_container = not (len(nodes) == 1 and nodes[0] is row)
     images, seen = [], {}
-    photos = videos = 0
+    photos = videos = missing = 0
     for node in nodes[:MAX_MEDIA]:
         if isinstance(node, str):
             node = {"imageUrl": node}
         if not isinstance(node, Mapping):
+            missing += 1
             continue
-        if children is None and _video(row):
+        if not selection.children and _video(row):
             node = {**node, "isVideo": True}
-        image = _best_image(node)
+        image = _best_image(node, child=child_container)
         if image is None:
             videos += int(_video(node))
+            missing += int(not _video(node))
             continue
         parsed = urlsplit(image.url)
         host = (parsed.hostname or "").lower()
@@ -130,5 +135,31 @@ def extract_media(row):
         videos += int(image.kind == "video_cover")
         photos += int(image.kind == "photo")
         images.append(image)
+    if _video(row) and not selection.children and images:
+        # Some video Actors expose cover renditions in `images` rather than
+        # displayResources. A video post still has only one cover.
+        images = [max(images, key=lambda image: (image.width or 0) * (image.height or 0))]
+        photos, videos = 0, 1
+    gallery = declared_gallery(row) or bool(declared_count(row))
+    status, reason = 'unknown', 'no_gallery_sample'
+    count = declared_count(row)
+    if selection.malformed or (child_container and missing):
+        status, reason = 'mapping_gap', 'unmapped_media_items'
+    elif gallery and not child_container:
+        status, reason = 'upstream_incomplete', 'gallery_cover_only'
+    elif count and len(nodes) < count:
+        status, reason = 'upstream_incomplete', 'gallery_items_missing'
+    elif len(images) > 1:
+        status, reason = 'observed_multi', 'multiple_media_observed'
+    elif gallery and len(nodes) < 2:
+        status, reason = 'upstream_incomplete', 'gallery_items_missing'
+    if not images and child_container:
+        cover = _best_image(row)
+        if cover:
+            images.append(cover)
+            photos += int(cover.kind == 'photo')
+            videos += int(cover.kind == 'video_cover')
     total = len(images)
-    return PostMedia(tuple(images), photos, videos, total, len(nodes) > MAX_MEDIA)
+    evidence = MediaCapabilityEvidence(status, reason, 1, total)
+    return PostMedia(tuple(images), photos, videos, total, selection.bounded,
+                     evidence, gallery)

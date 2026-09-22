@@ -176,3 +176,19 @@ def test_handler_requires_global_30_before_discovery_access(tmp_path) -> None:
     with pytest.raises(RuntimeError, match="migration_required"):
         run_actorops_v2_discovery(job, data_dir=str(store.data_dir), store=store)
     store.close()
+
+
+def test_discovery_failure_preserves_specific_code_in_worker_result(tmp_path):
+    from src.services.worker_actorops_v2_discovery import _UnavailableCatalog
+    store = ServiceStore(tmp_path / 'data')
+    store.initialize()
+    try:
+        job, _ = _job(store)
+        result = run_actorops_v2_discovery(
+            job, data_dir=str(store.data_dir), store=store,
+            ports=WorkerActorOpsV2DiscoveryPorts(lambda *_: _UnavailableCatalog()),
+        )
+        assert result['_job_status'] == 'failed'
+        assert result['error_code'] == 'actorops_discovery_catalog_unconfigured'
+    finally:
+        store.close()

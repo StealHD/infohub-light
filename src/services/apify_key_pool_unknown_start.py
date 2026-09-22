@@ -20,6 +20,28 @@ _UNKNOWN_START_BLOCK_REASONS = frozenset(
 class ApifyKeyPoolUnknownStartMixin:
     """Retain a terminal audit row instead of guessing an unregistered start."""
 
+    def reconcile_settled_unknown_start_block(self) -> None:
+        """Recover a block left behind when ActorOps settled the Run first."""
+        connection = self.store.connect()
+        owns_transaction = not connection.in_transaction
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            state = self._state_row(connection, self.workspace_id)
+            if (state['status'] == 'blocked'
+                    and state['blocked_reason'] in _UNKNOWN_START_BLOCK_REASONS):
+                from .apify_settled_start_recovery import settled_start_can_release
+                if settled_start_can_release(connection, state):
+                    self._release_unknown_start_block(
+                        connection, state, self._current_time().isoformat(),
+                    )
+            if owns_transaction:
+                connection.commit()
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
+
     def confirm_start_not_created(self, lease: Any) -> dict[str, Any]:
         """Release a blocked start only after an empty authenticated window."""
 

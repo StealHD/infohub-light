@@ -25,5 +25,28 @@ it.each([false, true])('context-preserving default switch excludes double activa
   expect(request).toHaveBeenCalledWith('sessions.create', { agentId: 'personal', model: 'deepseek/flash', parentSessionKey: 'old', fork: true })
   expect(activateSession).toHaveBeenCalledTimes(patched ? 1 : 0)
   if (patched) expect(activateSession).toHaveBeenCalledWith(expect.anything(), 'child', 'personal', expect.anything(), false, true, expect.any(Function))
-  else expect(refs.session.sessionKey).toBe('old')
+  else {
+    expect(refs.session.sessionKey).toBe('old')
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ value: expect.objectContaining({
+      runtimeIssue: 'Gateway 未能固定所选模型，暂无法保留上下文切换。请管理员检查模型继承兼容修复。 原对话和输入已保留。',
+      modelSwitchFallback: null,
+    }) }))
+    expect(request.mock.calls.some(([method]) => method === 'chat.send')).toBe(false)
+  }
+})
+
+it('keeps the model recovery warning when changing thinking or Fast', async () => {
+  const refs = createOpenClawLifecycleRefs()
+  refs.connection.client = { request: vi.fn(), connect: vi.fn(), close: vi.fn() }
+  refs.session.sessionKey = 'old'; refs.session.agentId = 'personal'
+  const state = { runtimeIssue: 'Gateway 未能固定所选模型',
+    runtimeSelection: { modelId: 'deepseek/flash', modelSafety: 'unsafe_fork' },
+    models: [{ id: 'deepseek/flash', name: 'DeepSeek' }], thinkingOptions: [{ id: 'low', label: '低' }],
+  } as OpenClawLifecycleState
+  const dispatch = vi.fn()
+  const { result } = renderHook(() => useOpenClawSessionActions({ refs, state, dispatch, activateSession: vi.fn(), archiveFailedSession: vi.fn() }))
+  await act(async () => { expect(await result.current.setThinking('low')).toBe(true) })
+  await act(async () => { expect(await result.current.setFastMode(true)).toBe(true) })
+  expect(dispatch).toHaveBeenCalledTimes(2)
+  for (const [action] of dispatch.mock.calls) expect(action.value.runtimeIssue).toBe(state.runtimeIssue)
 })

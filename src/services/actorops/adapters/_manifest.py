@@ -62,7 +62,7 @@ def validate_and_map(
         )
         for item in mapped.items
     )
-    return NormalizedBatch(
+    batch = NormalizedBatch(
         items=items,
         semantic_outcome=mapped.semantic_outcome,
         latest_published_at=mapped.latest_published_at,
@@ -71,6 +71,8 @@ def validate_and_map(
         presentation_evidence=presentation,
     )
 
+    from ..structured_enrichment import enrich_structured_batch
+    return enrich_structured_batch(batch, rows, target, manifest, window)
 
 def _runtime(window: FetchWindow) -> ActorRuntime:
     return ActorRuntime(

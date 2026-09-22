@@ -10,7 +10,7 @@ from ..apify_actor_row_extraction import (
     DatasetExtractionError,
     projected_output_schema,
 )
-from .discovery_input_semantics import input_reference_error
+from .discovery_input_semantics import input_reference_error, schema_input_reference_error
 from .discovery_input_bounds import normalize_runtime_limit_refs
 from .discovery_mapping_semantics import (
     output_semantic_error,
@@ -79,7 +79,7 @@ def validate_schema_proven_manifest(
     semantic_error = output_semantic_error(value)
     if semantic_error is not None:
         return None, semantic_error
-    target_error = target_input_semantic_error(value)
+    target_error = target_input_semantic_error(value, revision.input_schema)
     if target_error is not None:
         return None, target_error
     return (
@@ -107,7 +107,9 @@ def _input_error(
             return "actorops_discovery_ai_input_field_unknown"
         if not _value_proven(value, properties[key]):
             return "actorops_discovery_ai_input_value_invalid"
-        reference_error = input_reference_error(key, value, required=key in required)
+        reference_error = (schema_input_reference_error(key, value, properties[key], required=key in required)
+                           if isinstance(manifest.get("structures"), Mapping) else
+                           input_reference_error(key, value, required=key in required))
         if reference_error is not None:
             return reference_error
     return None
@@ -193,7 +195,8 @@ def _output_error(
                 return "actorops_discovery_ai_output_pointer_unknown"
             if not _output_type_proven(resolved, transforms):
                 return "actorops_discovery_ai_output_pointer_nonscalar"
-    return None
+    from .structured_schema import prove_structures
+    return prove_structures(manifest.get("structures"), schema)
 
 
 def _pointer_schema(schema: Mapping[str, object], pointer: str) -> Mapping[str, object] | None:

@@ -7,6 +7,7 @@ from .....models import SourceType
 from ....apify_actor_manifest import parse_actor_manifest
 from .._manifest import validate_and_map
 from .media_inventory import extract_media, image_url
+from ...capability_evidence import MediaCapabilityEvidence
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def enrich_instagram_media(batch, rows, target, manifest, window):
         media = extract_media(media_row)
         logger.info("Instagram media inventory: available=%d total=%d bounded=%d",
                     len(media.images), media.total_count, int(media.bounded))
-        if item_id in indexed and indexed[item_id] != media:
+        if item_id in indexed and (indexed[item_id] is None or indexed[item_id] != media):
             indexed[item_id] = None
         else:
             indexed[item_id] = media
@@ -52,4 +53,11 @@ def enrich_instagram_media(batch, rows, target, manifest, window):
                 items.append(item.model_copy(update={"metadata": metadata}))
             continue
         items.append(item.model_copy(update={"metadata": {**item.metadata, **media.metadata()}}))
-    return replace(batch, items=tuple(items))
+    observations = [indexed[item.id].evidence for item in batch.items
+                    if indexed.get(item.id) is not None]
+    priority = {'unknown': 0, 'observed_multi': 1, 'mapping_gap': 2, 'upstream_incomplete': 3}
+    strongest = max(observations, key=lambda evidence: priority[evidence.status],
+                    default=MediaCapabilityEvidence())
+    evidence = replace(strongest, sample_count=len(observations),
+                       media_count=sum(value.media_count for value in observations))
+    return replace(batch, items=tuple(items), media_evidence=evidence)

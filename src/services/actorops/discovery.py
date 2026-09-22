@@ -265,7 +265,7 @@ class ActorOpsDiscovery:
                         error_code=str(cached_item["rejection_code"]),
                     )
             mapping = adapter.map_discovery_manifest(revision)
-            if mapping.manifest_json is None:
+            if mapping.manifest_json is None or self.ai_mapper is not None:
                 unresolved.append((revision, ref))
             else:
                 deterministic = self._mapped(
@@ -418,6 +418,9 @@ class ActorOpsDiscovery:
     def _persist_sampling_plan(
         self, candidate: object, item: dict[str, object]
     ) -> None:
+        self.repository.media_evidence.record_schema_origin(
+            candidate, item.get("output_schema_origin", "unknown")
+        )
         value = item.get("input_plan_json")
         if isinstance(value, str):
             self.repository.sampling.upsert_ready(candidate, value)
@@ -446,6 +449,11 @@ class ActorOpsDiscovery:
         route_key: object,
     ) -> dict[str, object]:
         mapping = repair_mapping_proposal(route_key, revision, mapping)
+        refine = getattr(self.registry.require(route_key), 'refine_discovery_mapping', None)
+        if refine:
+            mapping = refine(revision, mapping)
+        if mapping and not mapping.manifest_json and mapping.rejection_code:
+            return self._pending(ref, mapping.rejection_code)
         manifest_json, error_code = validate_schema_proven_manifest(
             revision, mapping
         )
@@ -575,6 +583,7 @@ class ActorOpsDiscovery:
             "price_per_run_usd": revision.price_per_run_usd,
             "account_fit_rank": revision.account_fit_rank,
             "account_fit_reason": revision.account_fit_reason,
+            "output_schema_origin": revision.output_schema_origin,
             "input_schema_hash": ActorOpsDiscovery._hash_value(revision.input_schema),
             "output_schema_hash": ActorOpsDiscovery._hash_value(revision.output_schema),
         }
@@ -613,7 +622,7 @@ class ActorOpsDiscovery:
                 "route_id", "catalog_rank", "total_users", "rating",
                 "review_count", "bookmark_count", "query_hits",
                 "display_name", "short_description",
-                "account_fit_rank", "account_fit_reason",
+                "account_fit_rank", "account_fit_reason", "output_schema_origin",
             }
         }
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import httpx
+from .apify_transport import apify_http_client
 
 from ..scrapers.apify_client import ApifyClient
 from ..storage.service_store import ServiceStore
@@ -79,13 +80,13 @@ async def _run_plan(job: dict[str, Any], data_dir: str, store: ServiceStore) -> 
         store=store, data_dir=data_dir, workspace_id=workspace_id,
         user_id=str(job["user_id"]),
     )
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), trust_env=False) as client:
+    async with apify_http_client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         remote = ApifyV2RemoteClient(ApifyClient(coordinator=coordinator, http_client=client))
         try:
             return await ActorOpsReplacementRunner(
                 repository, build_default_registry(), remote, catalog,
                 ai_mapper=ai_mapper,
-            ).run(plan_id, sources)
+            ).run(plan_id, sources, logical_job_id=str(job["id"]))
         finally:
             if ai_mapper is not None:
                 await ai_mapper.aclose()

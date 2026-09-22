@@ -623,6 +623,9 @@ def test_repair_skips_rejected_discovery_candidate_and_uses_next_candidate(
                     output_schema_hash="f" * 64,
                     lifecycle=CandidateLifecycle.STATIC_VALID,
                 )
+            repository.connection.execute(
+                "UPDATE actor_routes_v2 SET runtime_mode='active' WHERE route_id=?", (route_id,)
+            )
             rejected = repository.get_candidate("repair-rejected")
             repository.transition_candidate(
                 rejected.candidate_id,

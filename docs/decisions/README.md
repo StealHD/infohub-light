@@ -5,20 +5,20 @@
 | --- | --- | --- | --- |
 | D001 | 控制面 | 2026-07-08 | [查看](records/D001-D025.md#d001) |
 | D002 | 禁用 scheduler | 2026-07-08 | [查看](records/D001-D025.md#d002) |
-| D003 | Hub taxonomy 取代单层 AI 标签 | 2026-07-08 | [查看](records/D001-D025.md#d003) |
+| D003 | Hub taxonomy | 2026-07-08 | [查看](records/D001-D025.md#d003) |
 | D004 | personal_tags 不进入 AI scoring | 2026-07-08 | [查看](records/D001-D025.md#d004) |
 | D005 | Feed 结果与 finalizer | 2026-07-10 | [查看](records/D001-D025.md#d005) |
 | D006 | Queue 领取与心跳 | 2026-07-10 | [查看](records/D001-D025.md#d006) |
 | D007 | Feed v2 显式重建迁移 | 2026-07-10 | [查看](records/D001-D025.md#d007) |
 | D008 | 信息获取与 Feed 留存 | 2026-07-11 | [查看](records/D001-D025.md#d008) |
-| D009 | 每用户 opt-in 周期由现有 Worker 调度 | 2026-07-11 | [查看](records/D001-D025.md#d009) |
+| D009 | 用户周期调度 | 2026-07-11 | [查看](records/D001-D025.md#d009) |
 | D010 | RC1 不可变镜像与 VPS 切换 | 2026-07-12 | [查看](records/D001-D025.md#d010) |
 | D011 | 密钥边界与受控概括 | 2026-07-13 | [查看](records/D001-D025.md#d011) |
 | D012 | 订阅抓取复用 Worker/finalizer | 2026-07-13 | [查看](records/D001-D025.md#d012) |
 | D013 | Service API 与 SQLite 日志 | 2026-07-13 | [查看](records/D001-D025.md#d013) |
 | D014 | React 三栏界面 | 2026-07-13 | [查看](records/D001-D025.md#d014) |
 | D015 | Shell 与 Feed 视觉系统 | 2026-07-14 | [查看](records/D001-D025.md#d015) |
-| D016 | Feed 确定性 Presentation v1 与理由退役 | 2026-07-14 | [查看](records/D001-D025.md#d016) |
+| D016 | Presentation v1 与理由退役 | 2026-07-14 | [查看](records/D001-D025.md#d016) |
 | D017 | 订阅控制台与 Worker 预检 | 2026-07-14 | [查看](records/D001-D025.md#d017) |
 | D018 | 频道订阅、非破坏主题删除与详情收口 | 2026-07-14 | [查看](records/D001-D025.md#d018) |
 | D019 | 公共来源与用户投影隔离 | 2026-07-14 | [查看](records/D001-D025.md#d019) |
@@ -227,3 +227,4 @@
 | D223 | OpenClaw 权限 | 2026-09-12 | [查看](records/D201-D225.md#d223) |
 | D224 | 自动化直接启动 | 2026-09-13 | [查看](records/D201-D225.md#d224) |
 | D225 | v47 原位迁移后保留生产写入 | 2026-09-14 | [查看](records/D201-D225.md#d225) |
+| D226 | 媒体能力 | 2026-09-20 | [查看](records/D226-D250.md#d226) |

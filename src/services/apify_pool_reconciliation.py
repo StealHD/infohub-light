@@ -6,6 +6,9 @@ import asyncio
 from typing import Any
 
 import httpx
+from .apify_transport import apify_http_client
+
+POOL_RECONCILE_TIMEOUT_SECONDS = 20.0
 
 from ..scrapers.apify_client import ApifyClient
 from ..storage.service_store import ServiceStore
@@ -76,10 +79,9 @@ async def reconcile_apify_pool(
 
     if state["status"] == "draining":
         timeout = httpx.Timeout(10.0, connect=3.0)
-        async with httpx.AsyncClient(
+        async with apify_http_client(
             timeout=timeout,
             transport=http_transport,
-            trust_env=False,
         ) as http_client:
             client = ApifyClient(
                 coordinator=coordinator,
@@ -113,10 +115,9 @@ async def reconcile_apify_pool(
     )
     if settlement_rows:
         timeout = httpx.Timeout(10.0, connect=3.0)
-        async with httpx.AsyncClient(
+        async with apify_http_client(
             timeout=timeout,
             transport=http_transport,
-            trust_env=False,
         ) as http_client:
             client = ApifyClient(
                 coordinator=coordinator,
@@ -202,13 +203,14 @@ async def reconcile_all_apify_pools(
         if coordinator is None:
             continue
         try:
-            state = await reconcile_apify_pool(coordinator)
+            async with asyncio.timeout(POOL_RECONCILE_TIMEOUT_SECONDS):
+                state = await reconcile_apify_pool(coordinator)
         except Exception as exc:
             outcomes.append(
                 {
                     "workspace_id": workspace_id,
                     "ok": False,
-                    "code": str(getattr(exc, "code", None) or type(exc).__name__),
+                    "code": "apify_pool_reconcile_deadline" if isinstance(exc, TimeoutError) else str(getattr(exc, "code", None) or type(exc).__name__),
                 }
             )
         else:

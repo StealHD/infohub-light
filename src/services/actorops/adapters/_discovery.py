@@ -21,6 +21,7 @@ def deterministic_input_plan(
     handle_input_keys: Sequence[str] = (),
     url_input_keys: Sequence[str] = (),
     max_items_input_keys: Sequence[str] = (),
+    input_constants: Mapping[str, object] | None = None,
 ) -> tuple[str | None, str | None]:
     """Build an input-only plan when public output fields are unavailable."""
 
@@ -35,8 +36,10 @@ def deterministic_input_plan(
     if max_items_error:
         return None, max_items_error
     template = {
+        **(input_constants or {}),
         input_key: _input_value(
             input_key,
+            schema=inputs.get(input_key),
             identity_ref=identity_ref,
             list_handle_input_keys=list_handle_input_keys,
             list_url_input_keys=list_url_input_keys,
@@ -65,6 +68,7 @@ def deterministic_manifest(
     handle_input_keys: Sequence[str] = (),
     url_input_keys: Sequence[str] = (),
     max_items_input_keys: Sequence[str] = (),
+    input_constants: Mapping[str, object] | None = None,
     identity_container_keys: Sequence[str] = (),
     avatar_pointer_keys: Sequence[str] = (),
     thumbnail_pointer_keys: Sequence[str] = (),
@@ -128,8 +132,10 @@ def deterministic_manifest(
         "actor_id": revision.actor_id,
         "build_number": revision.build_number,
         "input": {
+            **(input_constants or {}),
             input_key: _input_value(
                 input_key,
+                schema=inputs.get(input_key),
                 identity_ref=identity_ref,
                 list_handle_input_keys=list_handle_input_keys,
                 list_url_input_keys=list_url_input_keys,
@@ -276,11 +282,14 @@ def _pointer_output(pointer: str, transform: str) -> dict[str, object]:
 def _input_value(
     key: str, *, identity_ref: str, list_handle_input_keys: Sequence[str],
     list_url_input_keys: Sequence[str], handle_input_keys: Sequence[str],
-    url_input_keys: Sequence[str],
+    url_input_keys: Sequence[str], schema: object = None,
 ) -> object:
     if key in list_handle_input_keys:
         return [{"$ref": "target.handle"}]
     if key in list_url_input_keys:
+        item = schema.get('items', {}) if isinstance(schema, Mapping) else {}
+        if isinstance(item, Mapping) and isinstance(item.get('properties'), Mapping) and 'url' in item['properties']:
+            return [{'url': {"$ref": "target.canonical_url"}}]
         return [{"$ref": "target.canonical_url"}]
     if key in handle_input_keys:
         return {"$ref": "target.handle"}

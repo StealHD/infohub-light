@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from .capability_evidence import MediaCapabilityEvidence
+
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
 from .domain import RouteKey
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetReadRequest:
+    attempt_id: str
+    remote_run_id: str
+    dataset_id: str
+    max_items: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +61,7 @@ class DiscoveryRevision:
     mapping_feedback: str | None = None
     account_fit_rank: int = 0
     account_fit_reason: str | None = None
+    output_schema_origin: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +137,8 @@ class NormalizedBatch:
     latest_item_id: str | None = None
     source_avatar_url: str | None = None
     presentation_evidence: PresentationEvidence | None = None
+    media_evidence: MediaCapabilityEvidence | None = None
+    rejected_identity_rows: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +223,7 @@ class RemoteActorClient(Protocol):
     ) -> RemoteRunResult: ...
 
     async def read_dataset(
-        self, dataset_id: str, *, max_items: int
+        self, request: DatasetReadRequest
     ) -> tuple[Mapping[str, object], ...]: ...
 
 

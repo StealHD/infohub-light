@@ -322,6 +322,7 @@ def test_maintenance_worker_uses_real_validation_coordinator_before_probe(
         idempotency_key="worker-recovery-forwarding",
     )
     job = {
+        "id": "maintenance-owner-job",
         "workspace_id": DEFAULT_WORKSPACE_ID,
         "payload_json": recovery_payload,
     }
@@ -340,6 +341,7 @@ def test_maintenance_worker_uses_real_validation_coordinator_before_probe(
     assert captured["catalog_purpose"] == "validation"
     assert captured["remote_coordinator"] is actual
     probe_values = captured["probe_values"]
+    assert probe_values["logical_job_id"] == "maintenance-owner-job"
     assert probe_values["intent"] == "operator_recovery"
     assert probe_values["expected_route_generation"] == 2
     assert probe_values["expected_candidate_generation"] == 2

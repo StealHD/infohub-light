@@ -785,22 +785,16 @@ def test_instagram_accepts_direct_and_exact_coauthor_rows_without_mutating_input
         5, datetime(2026, 8, 19, tzinfo=timezone.utc), None
     ))
 
-    assert prepared[0] is not rows[0]
-    assert all(prepared[index] is rows[index] for index in range(1, 5))
-    assert prepared[0][container]["username"] == "openai"
-    assert prepared[0][other_container]["username"] == "third_party_owner"
-    for key in ("user", "owner"):
-        assert "profile_pic_url" not in prepared[0][key]
-        assert "profile_pic_id" not in prepared[0][key]
+    assert prepared == original
     assert rows == original
     assert len(batch.items) == 5
     assert batch.source_avatar_url == "https://cdn.example/target-profile.jpg"
-    assert avatar_pointer_from_rows(prepared, "instagram") == (
-        f"/{container}/profile_pic_url"
-    )
+    item = next(item for item in batch.items if item.metadata["native_id"] == "item-0")
+    assert item.author == "main_owner"
+    assert item.metadata["contributors"][0]["handle"] == "@OPENAI"
 
 
-def test_instagram_single_coauthor_row_scrubs_both_third_party_avatar_fallbacks() -> None:
+def test_instagram_single_coauthor_row_excludes_both_third_party_avatar_fallbacks() -> None:
     adapter = build_default_registry().require(
         RouteKey("instagram", "profile", "items")
     )
@@ -826,14 +820,8 @@ def test_instagram_single_coauthor_row_scrubs_both_third_party_avatar_fallbacks(
         FetchWindow(1, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
     )
 
-    assert prepared[0]["user"]["username"] == "openai"
-    assert prepared[0]["owner"]["username"] == "third_party_owner"
-    assert all(
-        field not in prepared[0][container]
-        for container in ("user", "owner")
-        for field in ("profile_pic_url", "profile_pic_id")
-    )
-    assert avatar_pointer_from_rows(prepared, "instagram") is None
+    assert prepared[0] == original
+    assert batch.items[0].author == "main_owner"
     assert batch.source_avatar_url is None
     assert row == original
 
@@ -874,16 +862,13 @@ def test_instagram_collaboration_only_uses_exact_coauthor_avatar_hint() -> None:
         FetchWindow(1, datetime(2026, 8, 19, tzinfo=timezone.utc), None),
     )
 
-    for container in ("user", "owner"):
-        assert set(prepared[0][container]) == {"username", "profile"}
-        assert prepared[0][container]["profile"] == {"display_name": "owner"}
+    assert prepared[0] == original
     assert row == original
     assert batch.source_avatar_url == "https://cdn.example/openai-hd.jpg"
     assert "author_avatar_url" not in batch.items[0].metadata
-    assert batch.presentation_evidence is not None
-    assert avatar_pointer_from_rows(
-        batch.presentation_evidence.rows, "instagram"
-    ) == PRESENTATION_AVATAR_FALLBACK_POINTER
+    assert batch.items[0].author == "main_owner"
+    assert batch.presentation_evidence is None
+    assert "avatar_url" not in batch.items[0].metadata["contributors"][0]
 
 
 def test_instagram_presentation_ignores_metadata_and_embedded_foreign_avatar() -> None:

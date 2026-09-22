@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from .candidate_failure_settlement import record_settled_candidate_failure
+from .completed_job_recovery import settle_completed_job_result
 from .domain import AttemptStatus, FailureClass, TERMINAL_ATTEMPT_STATUSES
 from .ports import (
     ReconciliationRunLink,
@@ -95,6 +96,13 @@ class ActorOpsReconciler:
     async def _reconcile_row(
         self, row: Mapping[str, object], reads_remaining: int
     ) -> ReconciliationSummary:
+        if settle_completed_job_result(self.repository, row):
+            return ReconciliationSummary(settled=1)
+        from .probe_recovery import close_created_probe
+        if close_created_probe(self.repository, str(row["attempt_id"]),
+                               error_code="actorops_probe_owner_finished", require_terminal_owner=True):
+            settled = bool(self.repository.get_attempt(str(row["attempt_id"]))["cost_final"])
+            return ReconciliationSummary(settled=int(settled), pending=int(not settled))
         current = AttemptStatus(str(row["status"]))
         resolution = await self.ledger.resolve(row)
         if resolution.ambiguous:

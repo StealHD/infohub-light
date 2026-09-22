@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .domain import AssignmentRole, CandidateLifecycle, MaintenanceBudget, MaintenancePolicyRecord
-from .maintenance_selection import select_probe_target
+from .maintenance_selection import certified_repair_probe_allowed, select_probe_target
 from .policy import candidate_is_runnable
 from .recovery_probe import (
     apply_settled_recovery_success,
@@ -162,8 +162,8 @@ class MaintenanceRepository:
         operator_recovery = bool(values.get("operator_recovery"))
         standard_candidate = (
             not operator_recovery
-            and candidate.lifecycle
-            in (CandidateLifecycle.STATIC_VALID, CandidateLifecycle.PROBATIONARY)
+            and (candidate.lifecycle in (CandidateLifecycle.STATIC_VALID, CandidateLifecycle.PROBATIONARY)
+                 or certified_repair_probe_allowed(self.repository, candidate, binding))
         )
         recovery_candidate = (
             operator_recovery

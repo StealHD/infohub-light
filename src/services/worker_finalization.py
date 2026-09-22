@@ -256,11 +256,14 @@ def _finalize_successful_job(
             ports=ports,
         )
         return FinalizedJob(finalized, None)
+    from .actorops.job_failure import job_failure_fields
+
     status = str(result.pop("_job_status", "succeeded"))
     finalized = queue.complete_job(
         job["id"],
         status=status,
         result=result,
+        **job_failure_fields(job, status, result),
         worker_id=worker_id,
         claim_token=job["claim_token"],
         commit=False,

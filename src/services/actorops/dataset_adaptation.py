@@ -27,6 +27,7 @@ from .ports import (
 )
 from .registry import AdapterNotRegistered, AdapterRegistry
 from .replacement_contract_reason import output_contract_error_code
+from .ports import DatasetReadRequest
 from .probe_limits import PROBE_DATASET_VALIDATION_LIMIT
 from .repository_errors import ActorOpsConflict
 
@@ -43,7 +44,7 @@ ADAPTABLE_OUTPUT_CODES = frozenset({
     "actorops_replacement_observed_mapping_required",
     "actorops_replacement_sample_dataset_empty",
 })
-OBSERVED_MAPPING_RULESET = "actorops-observed-dataset-mapping-v1"
+OBSERVED_MAPPING_RULESET = "actorops-observed-dataset-mapping-v2-structures"
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +159,7 @@ class DatasetAdaptationService:
                     current_origin, manifest_json=manifest_json,
                     manifest_hash=manifest_hash,
                 )
+                self.repository.media_evidence.record_schema_origin(successor, "observed_dataset")
                 for row, semantic_outcome in validated:
                     self.repository.revalidation.create_evidence(
                         origin_attempt=row, candidate_id=successor.candidate_id,
@@ -190,7 +192,8 @@ class DatasetAdaptationService:
             adapter.map_discovery_manifest(observed_revision),
             observed_revision, rows, adapter, target, window, candidate,
         )
-        if manifest_json:
+        fallback_manifest = manifest_json
+        if manifest_json and (self.ai_mapper is None or parse_actor_manifest(manifest_json).structures is not None):
             return manifest_json
         feedback = _feedback(error)
         for _round_index in range(2):
@@ -217,13 +220,18 @@ class DatasetAdaptationService:
             if manifest_json:
                 return manifest_json
             feedback = _feedback(error)
-        return None
+        return fallback_manifest
 
     def _validate_proposal(
         self, mapping: DiscoveryMapping, revision: DiscoveryRevision,
         rows: Sequence[Mapping[str, object]], adapter: Any, target: Any,
         window: FetchWindow, candidate: Any,
     ) -> tuple[str | None, str | None]:
+        refine = getattr(adapter, 'refine_discovery_mapping', None)
+        if refine:
+            mapping = refine(revision, mapping)
+        if mapping and not mapping.manifest_json and mapping.rejection_code:
+            return None, mapping.rejection_code
         manifest_json, error = validate_schema_proven_manifest(revision, mapping)
         if not manifest_json:
             return None, error
@@ -238,6 +246,8 @@ class DatasetAdaptationService:
             return None, output_contract_error_code(failure.code)
         except (TypeError, ValueError):
             return None, "actorops_replacement_contract_mismatch"
+        if batch.media_evidence and batch.media_evidence.status == 'mapping_gap':
+            return None, "actorops_replacement_observed_mapping_failed"
         return (
             (manifest_json, None)
             if batch.semantic_outcome == "valid_nonempty"
@@ -286,8 +296,8 @@ class DatasetAdaptationService:
             return tuple(cached[attempt_id])
         try:
             values = await self.dataset_reader.read_dataset(
-                str(row["dataset_id"]),
-                max_items=PROBE_DATASET_VALIDATION_LIMIT,
+                DatasetReadRequest(str(row["attempt_id"]), str(row["remote_run_id"]),
+                                   str(row["dataset_id"]), PROBE_DATASET_VALIDATION_LIMIT),
             )
         except Exception:
             raise DatasetAdaptationFailure(
@@ -378,6 +388,7 @@ def _observed_revision(
         price_per_run_usd=revision.price_per_run_usd,
         input_schema=revision.input_schema, output_schema=schema,
         mapping_feedback=feedback,
+        output_schema_origin="observed_dataset",
     )
 
 

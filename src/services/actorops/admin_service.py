@@ -71,7 +71,11 @@ class ActorOpsAdminService:
                     for item in candidates
                 ],
                 "bindings": [
-                    self._binding(binding_service, item) for item in bindings
+                    {**self._binding(binding_service, item), "media_capabilities": [
+                        {"candidate_id": candidate.candidate_id,
+                         **repository.media_evidence.summary(item, candidate)}
+                        for candidate in candidates
+                    ]} for item in bindings
                 ],
                 "attempts": self._attempts(repository, route_id),
                 "discoveries": self._discoveries(repository, route_id),
@@ -248,6 +252,7 @@ class ActorOpsAdminService:
             "priority": candidate.priority,
             "generation": candidate.generation,
             "mapping_issue_code": candidate_mapping_issue(candidate),
+            "output_schema_origin": repository.media_evidence.schema_origin(candidate),
             **candidate_compatibility(repository, candidate),
             **state.public(),
             "avatar_mapping_status": CandidatePresentationMappings(

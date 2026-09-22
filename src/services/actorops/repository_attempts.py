@@ -219,11 +219,14 @@ def transition(
 
 
 def list_reconcilable(repository: Any, *, limit: int):
+    from .probe_recovery import PROBE_OWNER_TERMINAL_SQL
+
     bounded_limit = min(max(int(limit), 1), 100)
     rows = repository.connection.execute(
-        """SELECT * FROM actor_attempts_v2
+        f"""SELECT * FROM actor_attempts_v2
            WHERE workspace_id=?
              AND (
+                 ({PROBE_OWNER_TERMINAL_SQL}) OR
                  (
                      status IN ('created', 'starting')
                      AND kind='fetch'
@@ -253,7 +256,7 @@ def list_reconcilable(repository: Any, *, limit: int):
                             AND job.workspace_id=actor_attempts_v2.workspace_id
                             AND job.job_type='source_fetch'
                             AND job.source_id=actor_attempts_v2.source_id
-                            AND job.status IN ('failed','partial','cancelled')
+                            AND job.status IN ('succeeded','failed','partial','cancelled')
                      )
                  )
                  OR (

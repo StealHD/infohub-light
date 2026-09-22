@@ -9,21 +9,7 @@ export class MissingOpenClawCredentialError extends Error {
   }
 }
 
-export function runtimeFailureMessage(error: unknown, action: 'load' | 'switch'): string {
-  const raw = error instanceof Error ? error.message : String(error)
-  const fingerprint = raw.toLowerCase()
-  if (fingerprint.includes('scope') || fingerprint.includes('operator.admin') || fingerprint.includes('permission')) {
-    return action === 'switch'
-      ? '当前连接权限不能直接修改旧会话，原对话已保留。'
-      : '当前连接权限不足，无法读取 OpenClaw 运行设置。'
-  }
-  if (fingerprint.includes('context') || fingerprint.includes('too long') || fingerprint.includes('fork')) {
-    return '当前对话过长，无法在保留上下文的同时切换模型。'
-  }
-  return action === 'switch'
-    ? '未能切换模型，原对话已保留。'
-    : '无法读取 OpenClaw 模型设置。'
-}
+export { runtimeFailureMessage } from './openclawRuntimeFailure'
 
 const MISSING_SESSION_CODES = new Set(['NOT_FOUND', 'SESSION_NOT_FOUND', 'UNKNOWN_SESSION'])
 

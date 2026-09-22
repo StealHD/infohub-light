@@ -23,6 +23,7 @@ from .ports import (
     RemoteRunResult,
 )
 from .repository import ActorOpsRepository
+from .recovery_policy import record_recovery_error, raise_if_recovery_stopped
 
 
 _TERMINAL = {
@@ -182,6 +183,7 @@ class CandidateExecution:
         )
 
     async def _resume(self, row: Any, candidate: Any) -> _PreparedAttempt:
+        raise_if_recovery_stopped(row)
         if int(row["request_schema_version"]) != 2:
             raise ActorOpsRuntimeError(
                 "actorops_legacy_attempt_recovery_only",
@@ -206,9 +208,16 @@ class CandidateExecution:
             dataset_id = str(row["dataset_id"] or "")
             if not dataset_id:
                 raise _unrecoverable_dataset()
-            rows = await self.remote.read_dataset(
-                dataset_id, max_items=int(row["max_items"])
-            )
+            from .ports import DatasetReadRequest
+            try:
+                rows = await self.remote.read_dataset(DatasetReadRequest(
+                    str(row["attempt_id"]), str(row["remote_run_id"] or ""),
+                    dataset_id, int(row["max_items"]),
+                ))
+            except ActorOpsRuntimeError as error:
+                with self.repository.transaction():
+                    record_recovery_error(self.repository, row, error.code)
+                raise
             run = RemoteRunResult(
                 rows=rows,
                 remote_run_id=str(row["remote_run_id"] or ""),
@@ -224,6 +233,8 @@ class CandidateExecution:
                 str(row["attempt_id"]), window, float(row["reserved_usd"])
             )
         if status in _TERMINAL and bool(row["cost_final"]):
+            if row["error_code"] == "actorops_proven_no_start":
+                raise ActorOpsRuntimeError("apify_request_not_started", failure_class=FailureClass.INTERNAL, retryable=False)
             return _PreparedAttempt(
                 str(row["attempt_id"]), window, float(row["reserved_usd"]),
                 skip=True,
@@ -345,12 +356,17 @@ class CandidateExecution:
                     actual_cost_usd=run.actual_cost_usd,
                     cost_final=run.cost_final,
                 )
+        self.repository.media_evidence.record(
+            attempt_id=prepared.attempt_id, binding=snapshot.binding,
+            candidate=candidate, evidence=batch.media_evidence,
+        )
         self._candidate_outcome(candidate, succeeded=True)
         self.repository.resilience.emit(
             root_job_id=str(self.repository.get_attempt(prepared.attempt_id)["logical_job_id"]),
             route_id=candidate.route_id, source_id=str(self.repository.get_attempt(prepared.attempt_id)["source_id"] or "") or None,
             candidate_id=candidate.candidate_id, phase="attempt_result",
-            outcome=batch.semantic_outcome, counts={"item_count": len(batch.items)},
+            reason_code="actorops_partial_identity" if batch.rejected_identity_rows else None,
+            outcome=batch.semantic_outcome, counts={"item_count": len(batch.items), "rejected_identity_rows": batch.rejected_identity_rows},
             final_cost_usd=run.actual_cost_usd,
         )
         return ExecutionResult(
@@ -358,7 +374,7 @@ class CandidateExecution:
             execution_mode="actor",
             health=health.value,
             degraded_reason=(
-                "single_candidate" if health is RouteHealth.DEGRADED else None
+                "actorops_partial_identity" if batch.rejected_identity_rows else "single_candidate" if health is RouteHealth.DEGRADED else None
             ),
             candidate_id=candidate.candidate_id,
             semantic_outcome=batch.semantic_outcome,

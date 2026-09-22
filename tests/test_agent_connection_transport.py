@@ -172,9 +172,8 @@ def test_missing_binding_agent_and_viewer_permissions_fail_closed(site, monkeypa
         with client.websocket_connect('/api/me/openclaw/socket', headers=headers) as ws:
             assert handshake(ws) == a['agent_id']
             assert not rpc(ws, 'sessions.create', {})['ok']
+            # A client disconnect has no JSON reply; context exit joins the session.
             ws.close()
-            with pytest.raises(WebSocketDisconnect):
-                ws.receive_json()
         connections.retire(alice['id'])
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect('/api/me/openclaw/socket', headers=headers):

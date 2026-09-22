@@ -125,7 +125,8 @@ class _DatasetReader:
     def __init__(self):
         self.calls = 0
 
-    async def read_dataset(self, dataset_id, *, max_items):
+    async def read_dataset(self, request):
+        dataset_id, max_items = request.dataset_id, request.max_items
         self.calls += 1
         assert dataset_id == "dataset" and max_items == 4
         return ({"id": "one"},)

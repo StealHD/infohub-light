@@ -38,8 +38,10 @@ class ActorOpsReplacementRunner:
         self.remote = remote
         self.preflight = preflight
         self.ai_mapper = ai_mapper
+        self.logical_job_id = None
 
-    async def run(self, plan_id: str, sources: Mapping[str, Mapping[str, object]]) -> dict[str, object]:
+    async def run(self, plan_id: str, sources: Mapping[str, Mapping[str, object]], *, logical_job_id: str | None = None) -> dict[str, object]:
+        self.logical_job_id = logical_job_id
         plan = self.repository.operator.get_plan(plan_id)
         if plan.status is ReplacementStatus.PREVIEWED:
             return {"status": "previewed", "plan_id": plan.plan_id}
@@ -153,7 +155,7 @@ class ActorOpsReplacementRunner:
                     attempt_group_id=plan.plan_id, attempt_index=binding_version,
                     route_generation=route.generation, binding_version=binding_version,
                     target_fingerprint=fingerprint, reserved_usd=plan.per_probe_cap_usd,
-                    logical_job_id=plan.plan_id,
+                    logical_job_id=self.logical_job_id or plan.plan_id,
                     request_fingerprint=request_fingerprint(
                         target_fingerprint=fingerprint,
                         candidate=candidate,
@@ -178,7 +180,9 @@ class ActorOpsReplacementRunner:
             run = await self.remote.execute(request, RepositoryAttemptEvents(self.repository, attempt_id))
         except ActorOpsRuntimeError as error:
             return self._remote_failure(plan, attempt_id, error)
-        except Exception:
+        except Exception as exc:
+            from .remote_diagnostics import record_remote_exception
+            record_remote_exception(exc, "actorops_replacement_remote_failed")
             return self._remote_failure(plan, attempt_id, ActorOpsRuntimeError("actorops_replacement_remote_failed", failure_class=FailureClass.INTERNAL))
         with self.repository.transaction():
             self.repository.observe_attempt_result(
@@ -378,6 +382,8 @@ class ActorOpsReplacementRunner:
         return {"status": "failed", "plan_id": plan.plan_id, "error_code": code}
 
     def _remote_failure(self, plan: Any, attempt_id: str, error: ActorOpsRuntimeError) -> dict[str, object]:
+        from .probe_recovery import close_created_probe
+        close_created_probe(self.repository, attempt_id, error_code=error.code)
         row = self.repository.get_attempt(attempt_id)
         current = AttemptStatus(str(row["status"]))
         candidate = None

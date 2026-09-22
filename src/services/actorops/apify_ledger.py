@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from ..apify_transport import apify_http_client
 
 from ...scrapers.apify_client import ApifyClient
 from ...storage.service_store import ServiceStore
@@ -208,8 +209,8 @@ class ApifyRunLedger:
 
     def _client(self, coordinator: Any) -> _LedgerClientContext:
         timeout = httpx.Timeout(15.0, connect=5.0)
-        http_client = httpx.AsyncClient(
-            timeout=timeout, transport=self.http_transport, trust_env=False
+        http_client = apify_http_client(
+            timeout=timeout, transport=self.http_transport
         )
         return _LedgerClientContext(ApifyClient(coordinator=coordinator, http_client=http_client), http_client)
 

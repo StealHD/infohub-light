@@ -47,6 +47,11 @@ class ActorOpsRepository:
         self.workspace_id = str(workspace_id)
         self._savepoint = 0
 
+    @property
+    def media_evidence(self):
+        from .repository_media_evidence import MediaEvidenceRepository
+        return MediaEvidenceRepository(self)
+
     def _require_transaction(self) -> None:
         if not self.connection.in_transaction:
             raise ActorOpsRepositoryError("ActorOps mutation requires a repository transaction")

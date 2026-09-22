@@ -8,7 +8,7 @@ import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawCha
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { createOpenClawSession, readOpenClawRuntime } from './openclawSessionOperations'
 import { acquireRuntime } from './openclawRuntimeGuard'
-import { MODEL_RECOVERY_MESSAGE } from '../chat/openclawModelSafety'
+import { verifyModelSwitch } from '../chat/openclawModelSwitchError'
 
 export function useOpenClawSessionActions(input: {
   refs: OpenClawLifecycleRefs
@@ -46,9 +46,7 @@ export function useOpenClawSessionActions(input: {
       if (!isCurrent()) return false
       const projection = await readOpenClawRuntime(client, createdKey, agentId, true)
       if (!isCurrent()) return false
-      if (projection.invalidSessionModel || projection.selection.modelSafety !== 'verified' || projection.selection.modelId !== selected.id) {
-        throw new Error(MODEL_RECOVERY_MESSAGE)
-      }
+      verifyModelSwitch(projection, selected.id)
       await input.activateSession(client, createdKey, agentId, projection, false, true, isCurrent)
       if (!isCurrent()) return false
       return true
@@ -57,7 +55,7 @@ export function useOpenClawSessionActions(input: {
       if (isCurrent()) input.dispatch({
         type: 'patch',
         value: {
-          runtimeIssue: `${runtimeFailureMessage(error, 'switch')} 原对话和输入已保留。`,
+          runtimeIssue: runtimeFailureMessage(error, 'switch'),
           modelSwitchFallback: null,
         },
       })
@@ -74,7 +72,7 @@ export function useOpenClawSessionActions(input: {
     if (currentModel?.reasoning === false && thinkingLevel !== null) return false
     if (thinkingLevel !== null && !input.state.thinkingOptions.some((option) => option.id === thinkingLevel)) return false
     input.refs.session.thinkingLevel = thinkingLevel
-    input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, thinkingLevel }, runtimeIssue: null } })
+    input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, thinkingLevel }, runtimeIssue: input.state.runtimeSelection.modelSafety === 'verified' ? null : input.state.runtimeIssue } })
     return true
   }, [input])
 
@@ -82,7 +80,7 @@ export function useOpenClawSessionActions(input: {
     if (!input.refs.connection.client || !input.refs.session.sessionKey || !input.state.runtimeSelection.modelId
       || input.refs.session.operation || input.refs.run.runId || input.refs.run.pendingSend || input.state.sending || input.state.runtimeUpdating || input.state.runtimeLoading) return false
     input.refs.session.fastMode = enabled
-    input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, fastMode: enabled }, runtimeIssue: null } })
+    input.dispatch({ type: 'patch', value: { runtimeSelection: { ...input.state.runtimeSelection, fastMode: enabled }, runtimeIssue: input.state.runtimeSelection.modelSafety === 'verified' ? null : input.state.runtimeIssue } })
     return true
   }, [input])
 
@@ -101,9 +99,7 @@ export function useOpenClawSessionActions(input: {
       if (!isCurrent()) return false
       const projection = await readOpenClawRuntime(client, createdKey, agentId, true, true)
       if (!isCurrent()) return false
-      if (modelId && (projection.invalidSessionModel || projection.selection.modelId !== modelId)) {
-        throw new Error('OpenClaw 返回的实际模型与选择不一致。')
-      }
+      if (modelId) verifyModelSwitch(projection, modelId)
       await input.activateSession(client, createdKey, agentId, projection, true, false, isCurrent)
       if (!isCurrent()) return false
       return true
@@ -111,7 +107,7 @@ export function useOpenClawSessionActions(input: {
       if (createdKey && modelId && isCurrent()) await input.archiveFailedSession(client, createdKey, agentId)
       if (isCurrent()) input.dispatch({
         type: 'patch',
-        value: { runtimeIssue: modelId ? `${runtimeFailureMessage(error, 'switch')} 原对话仍然可用。` : runtimeFailureMessage(error, 'switch') },
+        value: { runtimeIssue: runtimeFailureMessage(error, 'switch') },
       })
       return false
     } finally {

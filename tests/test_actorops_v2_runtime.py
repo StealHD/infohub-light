@@ -114,7 +114,8 @@ class _Remote:
             cost_final=True,
         )
 
-    async def read_dataset(self, dataset_id, *, max_items):
+    async def read_dataset(self, request):
+        dataset_id, max_items = request.dataset_id, request.max_items
         self.dataset_reads.append((dataset_id, max_items))
         return self.datasets[dataset_id]
 

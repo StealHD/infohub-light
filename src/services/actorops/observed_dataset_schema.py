@@ -135,7 +135,9 @@ def _unique(schemas: Sequence[Mapping[str, object]]) -> list[Mapping[str, object
 
 def _safe_enum(field_name: str, value: object) -> bool:
     if not _SAFE_ENUM_FIELD.search(field_name):
-        return False
+        return isinstance(value, str) and value.casefold() in {
+            "image", "photo", "video", "reel", "carousel", "sidecar", "gallery",
+        }
     return (
         isinstance(value, (bool, int))
         or isinstance(value, str) and bool(_SAFE_ENUM_VALUE.fullmatch(value))

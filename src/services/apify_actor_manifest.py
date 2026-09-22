@@ -36,6 +36,7 @@ from .apify_actor_row_classification import (
 from .apify_actor_output_canonicalization import canonicalize_actor_output
 from .apify_actor_datetime import parse_actor_datetime as _parse_datetime
 from .apify_actor_row_extraction import RowExtractionPlan
+from .apify_actor_structures import StructuredOutput
 
 
 MANIFEST_VERSION = 1
@@ -338,17 +339,14 @@ class SemanticValidation(BaseModel):
 class ActorManifestV1(BaseModel):
     """A fully validated, code-free Actor adapter revision."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-        hide_input_in_errors=True,
-    )
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, hide_input_in_errors=True)
 
     version: Literal[1] = MANIFEST_VERSION
     actor_id: str
     build_number: str
     input_template: dict[str, Any] = Field(alias="input")
     row_extraction: RowExtractionPlan | None = None
+    structures: StructuredOutput | None = None
     output: ManifestOutputMapping
     semantics: SemanticValidation
 
@@ -629,6 +627,7 @@ def map_actor_output(
     runtime: ActorRuntime | Mapping[str, Any],
 ) -> ManifestMappingResult:
     """Map bounded Dataset rows and enforce identity, URL, and time semantics."""
+    from .actorops.structured_identity import confirms_target
 
     parsed = parse_actor_manifest(manifest)
     target_model = _validated_model(
@@ -736,6 +735,7 @@ def map_actor_output(
             semantics=parsed.semantics,
             target=target_model,
             runtime=validation_runtime,
+            identity_verified=confirms_target(row, parsed.structures, target_model, parsed.semantics),
         )
         if source_avatar_url is None and item.author_avatar_url:
             source_avatar_url = item.author_avatar_url
@@ -1139,6 +1139,7 @@ def _validate_mapped_item(
     semantics: SemanticValidation,
     target: ActorTarget,
     runtime: ActorRuntime,
+    identity_verified: bool = False,
 ) -> None:
     try:
         item.url = normalize_http_url(item.url)
@@ -1191,11 +1192,9 @@ def _validate_mapped_item(
         "target.native_id": target.native_id,
         "target.handle": target.handle,
     }[rule.target_ref]
-    if actual is None or expected is None or not _identity_matches(
-        actual,
-        expected,
-        mode=rule.match,
-    ):
+    if actual is None or expected is None or not (identity_verified or _identity_matches(
+        actual, expected, mode=rule.match,
+    )):
         raise ActorManifestError(
             "apify_actor_target_identity_mismatch",
             "Actor output does not match the requested target identity",

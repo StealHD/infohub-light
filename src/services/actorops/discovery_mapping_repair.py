@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
-from .discovery_input_semantics import compatible_input_references
+from .discovery_input_semantics import schema_reference_hints
 from .ports import DiscoveryMapping, DiscoveryRevision
 from .youtube_capabilities import apply_youtube_input_capabilities
 
@@ -53,7 +53,7 @@ def _repair_input(value: object, schema: object, field: str) -> object:
         return value
     if isinstance(value, Mapping) and set(value) == {"$ref"}:
         reference = value.get("$ref")
-        compatible = compatible_input_references(field)
+        compatible = schema_reference_hints(field, schema)
         if isinstance(reference, str) and reference not in compatible and len(compatible) == 1:
             return {"$ref": compatible[0]}
         return dict(value)

@@ -14,6 +14,7 @@ from ..apify_actor_manifest import actor_manifest_hash, parse_actor_manifest
 from .adapter_rows import validate_and_enrich_adapter_rows
 from .attempt_events import RepositoryAttemptEvents
 from .attempt_recovery import request_fingerprint
+from .remote_diagnostics import unexpected_remote_error
 from .domain import AssignmentRole, AttemptStatus, CandidateLifecycle, FailureClass
 from .maintenance_preflight import settle_preflight_rejection
 from .ports import (
@@ -75,6 +76,7 @@ class ActorOpsProber:
         source_config: Mapping[str, object],
         maintenance_slot: str,
         expected_binding_version: int | None = None,
+        logical_job_id: str | None = None,
         intent: str = "standing",
         expected_route_generation: int | None = None,
         expected_candidate_generation: int | None = None,
@@ -147,7 +149,7 @@ class ActorOpsProber:
                     expected_workspace_policy_generation=policy.workspace.generation,
                     expected_route_policy_generation=policy.route.generation,
                     reserved_usd=policy.max_charge_usd, now=now,
-                    logical_job_id=f"maintenance:{maintenance_slot}",
+                    logical_job_id=logical_job_id or f"maintenance:{maintenance_slot}",
                     request_fingerprint=request_fingerprint(
                         target_fingerprint=fingerprint,
                         candidate=candidate,
@@ -180,10 +182,8 @@ class ActorOpsProber:
                 attempt_id, candidate_id,
                 "recovery_required" if error.failure_class is FailureClass.REMOTE_UNKNOWN else "failed", error.code,
             )
-        except Exception:
-            error = ActorOpsRuntimeError(
-                "actorops_maintenance_remote_failed", failure_class=FailureClass.INTERNAL
-            )
+        except Exception as exc:
+            error = unexpected_remote_error(exc, "actorops_maintenance_remote_failed")
             self._record_remote_failure(attempt_id, error)
             return ProbeResult(attempt_id, candidate_id, "failed", error.code)
         with self.repository.transaction():
@@ -458,6 +458,10 @@ class ActorOpsProber:
             return
 
     def _record_remote_failure(self, attempt_id: str, error: ActorOpsRuntimeError) -> None:
+        from .probe_recovery import close_created_probe
+
+        if close_created_probe(self.repository, attempt_id, error_code=error.code):
+            return
         row = self.repository.get_attempt(attempt_id)
         current = AttemptStatus(str(row["status"]))
         if error.failure_class is FailureClass.REMOTE_UNKNOWN:

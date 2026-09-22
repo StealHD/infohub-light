@@ -142,10 +142,21 @@ YouTube 身份派生的最终规则以 `target.canonical_url` 为准：Adapter �
 
 `apify_actor_row_extraction.py` 是所有运行路径唯一的行展开器。它输出 `item|parent|root` 只读 envelope，并强制 Pointer、深度、通配层、筛选数量、顶层读取和发布子项总数上限；`adapter_rows.py` 将其接入 Runtime、Maintenance、Replacement 与重验后，再由平台 Adapter 执行目标身份、URL、时间、正文和可选图片验证。平台字段知识继续只存在于 Adapter 和平台 Prompt，通用展开器不得按 X、Instagram 或 YouTube 分支。
 
-`observed_dataset_schema.py` 只生成路径、类型、数组长度区间、URL/时间格式类别与安全短枚举，不保留正文、账号、目标、URL 值、Secret 或个人标签。`dataset_adaptation.py` 最多调用两轮 Actor 专用 mapping AI，每次 proposal 仍由静态证明和真实 Adapter 验证双重约束。成功修正通过 `repository_adaptation.py` 创建 immutable successor、写零费用 Dataset evidence 并在同一事务中 retarget 原 Replacement plan；不得修改原 Attempt、Run、费用或 Dataset，也不得再次调用 Actor。失败只标记计划 `adaptation_pending`，不把系统映射缺口升级为 Actor 故障。
+`observed_dataset_schema.py` 只生成路径、类型、数组长度区间、URL/时间格式类别与安全短枚举，不保留正文、账号、目标、URL 值、Secret 或个人标签。`dataset_adaptation.py` 最多调用两轮 Actor 专用 mapping AI，每次 proposal 仍由静态证明和真实 Adapter 验证双重约束。成功修正通过 `repository_adaptation.py` 创建 immutable successor、写零费用 Dataset evidence 并在同一事务中 retarget 原 Replacement plan；不得修改原 Attempt、Run、费用或 Dataset，也不得再次调用 Actor。两轮证明失败后计划终态为 `failed` 并释放 Route，不把系统映射缺口升级为 Actor 故障。
 
 公开 Output Schema 缺失时，平台 Adapter 只能生成 input-only `InputPlan v1`；`input_plan.py` 负责受限引用、结构、危险字段、exact Actor/Build 和 Input Schema 证明，`repository_sampling.py` 只读写 global 35 私有 sidecar。InputPlan 不能包含输出映射、不能伪装 Manifest，也不得出现在 Admin API、日志或浏览器。Replacement preview 和 Runner 可用它渲染一次已授权 Probe 输入；取得当前 Run-bound Dataset 后立即进入上述 observed adaptation，原 mapping-pending Candidate 成功时由 immutable successor 取代，失败保持精确适配缺口而非 Actor 故障。
 
 ### 3.6L ActorOps v2 Admin 读取边界
 
 `ActorOpsAdminService` 是现役管理读模型的唯一组合服务：它只经 v2 Repository 查询 Route、Candidate、Binding、Attempt、Discovery、Maintenance、Replacement 与安全 Store metadata，既不构造或读取任何 v1 Route、Pool、Canary、Freshness 或 diagnostic 表。`actorops_admin_routes.py` 只负责 Owner/Admin 鉴权、HTTP envelope 与 503 映射；list/detail 固定为 `schema_version=2`，并对 target fingerprint、水位、Manifest、remote Run/Dataset、idempotency 与 Secret 相关字段脱敏。ActorOps 事件只由脱敏的 `OperationLogQueryService` 提供，且只暴露 `actorops_v2_*` action。缺少 global 30 时 API 返回 `actorops_v2_migration_required`，其他存储不可用为 `actorops_v2_unavailable`；不存在 feature flag、shadow 或旧 HTTP 适配器回退。
+
+
+### 媒体质量边界（D226）
+
+`capability_evidence.py` 定义无平台字段的可选结果证据；旧 Manifest 的 Instagram 字段识别继续归其 Adapter；新 `structures` 由 `apify_actor_structures.py` 定义合同，`structured_paths.py`、`structured_media.py` 和 `structured_identity.py` 统一解释声明，`structured_schema.py` 证明路径与类型，`structured_enrichment.py` 只向已验证内容关联媒体。平台 Adapter 保留目标规范化、共同作者归属政策和输入路由约束，不新增 Actor 名称分支。`repository_media_evidence.py` 持久化经过身份校验的成功结果与 Schema 来源，`repository_freshness.py` 消费通用状态排序，不解析原始媒体字段。Schema 来源与原 Schema hash 分开保存，展示列不作为完整 Schema；观察映射后继标记 observed_dataset。Discovery 与 Dataset adaptation 在严格 Schema 证明前调用可选 `refine_discovery_mapping`，Instagram 用它约束 profile/posts 输入与基础数据档，拒绝详情专用输入；它不能绕过输入/身份/正文合同或收费审批。global 48 为显式附加迁移，缺失不阻断既有抓取。
+
+原 Dataset 重读归 `dataset_replay.py`：从原 Attempt/Run 关联解析凭据版本，仅调用 GET，不经过 Key 池领取或费用预留。`recovery_policy.py` 复用 Job 重试计数与退避，`reconciliation_lifecycle.py` 用 CAS 重新入队；永久读取失败及耗尽且费用已结算的记录不再进入恢复扫描。费用未决记录继续对账。恢复与映射都不改变历史 Run/费用事实。
+
+`completed_job_recovery.py` 只收尾同 workspace/source 成功 Job 的已结算未使用结果，不重复发布或改费用。`probe_recovery.py` 以终态 Worker owner 或已退出执行证明回收 created Probe；无 Run 预留才结零费，否则保留费用交由对账。`repair_wakeup.py` 在接管条件改变后唤醒受阻修复，重新走原准入。免费回退抛错仍同步 Repair；disabled Route 不开启维护。
+
+`repair_candidate_selection.py` 按当前 Binding 的已结算非空证明择优备用，同等保留原选择；维护优先未尝试目标，再补齐部分证明。`repair_assignment.py` 复用证明接管，保留授权、能力、三槽、CAS、非最后一路门与补测预算；失败退避，不扩大全局故障判定，两条稳定路径才结束修复。

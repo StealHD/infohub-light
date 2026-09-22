@@ -23,7 +23,7 @@ from tests.test_actorops_v2_reconciliation import _Ledger, _job, _link, _reposit
 from tests.test_actorops_v2_runtime import _runtime
 
 
-def _observed_attempt(repository, route_id, source_id, *, job_id: str) -> None:
+def _observed_attempt(repository, route_id, source_id, *, job_id: str, cost_final: bool = True) -> None:
     with repository.transaction():
         repository.create_attempt(
             attempt_id="attempt-result-recovery",
@@ -54,7 +54,7 @@ def _observed_attempt(repository, route_id, source_id, *, job_id: str) -> None:
             remote_run_id="remote-result-recovery",
             dataset_id="dataset-result-recovery",
             actual_cost_usd=0.000996,
-            cost_final=True,
+            cost_final=cost_final,
         )
 
 

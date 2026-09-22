@@ -14,6 +14,7 @@ from .runtime_candidate_health import (
     eligible_runtime_candidates,
 )
 from .source_candidate_circuit import SourceCandidateCircuit
+from .runtime_recovery_priority import recovery_candidates
 
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
@@ -52,12 +53,15 @@ class SourceFreshnessRepository:
         )
         if blocker:
             return FreshnessPlan((), blocked_code=blocker)
+        recovery = recovery_candidates(self.repository, binding, candidates, logical_job_id)
         states = candidate_operational_states(self.repository, candidates)
         candidates = tuple(
             item for _, item in sorted(
                 enumerate(candidates),
                 key=lambda pair: (
+                    pair[1].candidate_id not in recovery,
                     states[str(pair[1].candidate_id)].deprioritized,
+                    self.repository.media_evidence.rank(binding, pair[1]),
                     pair[0],
                 ),
             )
@@ -78,7 +82,7 @@ class SourceFreshnessRepository:
             item for item in available if item.candidate_id != primary.candidate_id
         )
         if (
-            natural_schedule and fresh
+            not recovery and natural_schedule and fresh
             and int(fresh["consecutive_scheduled_no_advance"]) >= 3
             and alternatives
         ):

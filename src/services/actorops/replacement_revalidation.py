@@ -15,6 +15,7 @@ from ..apify_actor_manifest import (
 from .adapter_rows import prepare_adapter_rows
 from .domain import CandidateLifecycle, ReplacementStatus
 from .ports import ActorManifest, FetchWindow, ProbePreflightResult
+from .ports import DatasetReadRequest
 from .probe_limits import PROBE_DATASET_VALIDATION_LIMIT
 from .registry import AdapterNotRegistered, AdapterRegistry
 from .replacement_contract_reason import output_contract_error_code
@@ -33,7 +34,7 @@ _REVALIDATABLE = frozenset({
 
 class DatasetReader(Protocol):
     async def read_dataset(
-        self, dataset_id: str, *, max_items: int,
+        self, request: DatasetReadRequest,
     ) -> tuple[dict[str, object], ...]: ...
 
 
@@ -125,8 +126,8 @@ async def revalidate_failed_replacement(
             ) from None
         try:
             rows = await reader.read_dataset(
-                str(origin["dataset_id"]),
-                max_items=PROBE_DATASET_VALIDATION_LIMIT,
+                DatasetReadRequest(str(origin["attempt_id"]), str(origin["remote_run_id"]),
+                                   str(origin["dataset_id"]), PROBE_DATASET_VALIDATION_LIMIT),
             )
         except Exception:
             raise ReplacementRevalidationError(

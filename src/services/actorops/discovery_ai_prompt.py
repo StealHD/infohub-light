@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .discovery_input_semantics import compatible_input_references
+from .discovery_input_semantics import schema_reference_hints
 from .discovery_ai_profiles import route_mapping_profile
+from .structured_prompt import structured_mapping_contract
 from .discovery_virtual_fields import YOUTUBE_TARGET_URL_POINTER
 from .ports import DiscoveryRevision
 
 
 _MAX_SCHEMA_PATHS = 140
 _MAX_ENUM_VALUES = 12
-DISCOVERY_MAPPING_STRATEGY = "deepseek-schema-manifest-v13-input-lower-bounds"
+DISCOVERY_MAPPING_STRATEGY = "deepseek-schema-manifest-v14-structured-output"
 
 
 def mapping_system_prompt() -> str:
@@ -40,6 +41,7 @@ def mapping_prompt(
         "rules": [
             "Return exactly {\"results\": [{\"actor_id\": id, \"status\": \"mapped\", \"manifest\": manifest} or {\"actor_id\": id, \"status\": \"unmappable\", \"error_code\": allowed code}]}.",
             "Return exactly one result for every candidate in the original order.",
+            "Always include manifest.structures and follow structured_output_contract; emit {} when no optional collection is supported.",
             "The manifest actor_id and build_number must exactly match the candidate.",
             "Input must contain every schema field marked required and no unknown field.",
             "Input must otherwise be minimal: include one target field and at most one item-limit field; omit every other optional field.",
@@ -133,6 +135,7 @@ def mapping_prompt(
             "dataset_expansion_overflow", "observed_mapping_failed",
         ],
         "manifest_shape": _manifest_shape(contract),
+        "structured_output_contract": structured_mapping_contract(),
         "required_canonical_output": [
             "native_id", "url", "published_at", contract["identity_field"],
         ],
@@ -147,6 +150,7 @@ def mapping_prompt(
             {
                 "actor_id": revision.actor_id,
                 "build_number": revision.build_number,
+                "output_schema_origin": revision.output_schema_origin,
                 "input_paths": _schema_paths(
                     revision.input_schema, include_values=True,
                     include_reference_hints=True,
@@ -193,6 +197,7 @@ def _manifest_shape(contract: Mapping[str, object]) -> dict[str, object]:
             },
             "url_host_allowlist": contract["url_host_allowlist"],
         },
+        "structures": {},
     }
 
 
@@ -227,6 +232,11 @@ def _schema_paths(
         node, path, required = queue.pop(0)
         if not isinstance(node, Mapping):
             continue
+        options = node.get('anyOf') or node.get('oneOf')
+        if isinstance(options, list):
+            queue.extend(({**{k: v for k, v in node.items() if k not in ('anyOf', 'oneOf')}, **choice}, path, required)
+                         for choice in options if isinstance(choice, Mapping))
+            continue
         types = _types(node)
         entry: dict[str, object] = {
             "path": path or "/", "types": list(types) or ["unknown"],
@@ -235,8 +245,16 @@ def _schema_paths(
         if include_reference_hints and path:
             field = _unescape(path.rsplit("/", 1)[-1])
             entry["compatible_references"] = list(
-                compatible_input_references(field)
+                schema_reference_hints(field, node)
             )
+        for annotation in ("title", "description", "format", "formatCategory"):
+            text = node.get(annotation)
+            if isinstance(text, str):
+                entry[annotation] = text[:500]
+        if not include_values and isinstance(node.get("enum"), list):
+            safe = _safe_schema_value(node["enum"])
+            if safe is not None:
+                entry["enum"] = safe
         if include_values:
             for key in ("const", "default", "enum"):
                 safe = _safe_schema_value(node.get(key))

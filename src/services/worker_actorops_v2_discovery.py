@@ -55,6 +55,7 @@ def run_actorops_v2_discovery(
         "discovery_id": result.discovery_id,
         "stage": result.stage,
         "status": result.status,
+        "error_code": repository.discovery.get(result.discovery_id)["error_code"],
         "idempotent_replay": result.idempotent_replay,
     }
 

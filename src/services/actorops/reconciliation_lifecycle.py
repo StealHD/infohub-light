@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .domain import AttemptStatus, FailureClass
+from .recovery_policy import recovery_due
 
 
 _TERMINAL_JOB_STATUSES = ("succeeded", "failed", "partial", "cancelled")
@@ -80,7 +81,7 @@ def recover_observed_result_after_terminal_job(
         ):
             return None
         job = repository.connection.execute(
-            """SELECT status FROM fetch_jobs
+            """SELECT status, attempts, max_attempts, finished_at, updated_at FROM fetch_jobs
                 WHERE id=? AND workspace_id=? AND job_type='source_fetch'
                   AND source_id=?""",
             (job_id, repository.workspace_id, source_id),
@@ -104,6 +105,9 @@ def recover_observed_result_after_terminal_job(
             return "cancelled"
         if str(job["status"]) not in {"failed", "partial"}:
             return None
+        due = recovery_due(repository, current, job)
+        if due is None:
+            return None
         active = repository.connection.execute(
             """SELECT 1 FROM fetch_jobs
                 WHERE workspace_id=? AND source_id=? AND job_type='source_fetch'
@@ -118,8 +122,9 @@ def recover_observed_result_after_terminal_job(
                       locked_until=NULL, next_run_at=?, cancelled_at=NULL,
                       finished_at=NULL, error_code=NULL, error_message=NULL,
                       result_json=NULL, started_at=NULL, updated_at=?
-                WHERE id=? AND workspace_id=? AND status IN ('failed','partial')""",
-            (stamp, stamp, job_id, repository.workspace_id),
+                WHERE id=? AND workspace_id=? AND status IN ('failed','partial')
+                  AND attempts < max_attempts""",
+            (due, stamp, job_id, repository.workspace_id),
         ).rowcount
         if changed != 1:
             return None

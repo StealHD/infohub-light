@@ -246,7 +246,7 @@ def _operation_outcome(outcome: str) -> str:
     return {
         "selected": "running", "started": "running", "settled": "succeeded",
         "advanced": "succeeded", "no_advance": "succeeded", "fallback": "partial",
-        "failed": "failed", "blocked": "blocked", "queued": "queued",
+        "failed": "failed", "blocked": "unavailable", "queued": "queued",
         "recovered": "succeeded", "skipped": "skipped",
     }.get(outcome, "ok")
 __all__ = ["FreshnessPlan", "ResilienceRepository"]

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .....models import SourceType
 from ...domain import RouteKey
 from ...ports import ActorManifest, DiscoveryMapping, DiscoveryRevision, DiscoverySpec, FetchWindow, NativeFallbackResult, NormalizedBatch, TargetSpec
 from .._discovery import deterministic_input_plan, deterministic_manifest
-from .._manifest import build_input, validate_and_map
+from .._manifest import build_input
+from ....apify_actor_manifest import parse_actor_manifest
 from .common import normalize_profile_target
+from .discovery_inputs import input_options, refine_mapping
 from .profile_rows import prepare_profile_rows
 from .media_enrichment import enrich_instagram_media
+from .legacy_contributors import legacy_contributors_manifest
+from .profile_batch import validate_profile_batch
 
 
 class InstagramProfileItemsAdapter:
@@ -31,25 +34,13 @@ class InstagramProfileItemsAdapter:
     def map_discovery_manifest(self, revision: DiscoveryRevision) -> DiscoveryMapping:
         return deterministic_manifest(
             revision,
-            input_keys=(
-                "username", "usernames", "instagramUsernames", "profiles",
-                "profile", "handle", "profileUrls", "startUrls",
-            ),
+            **input_options(revision),
             identity_field="author_handle",
             identity_pointer_keys=(
                 "author", "authorUsername", "author_username", "username",
                 "ownerUsername", "owner_username", "user.username", "handle",
             ),
-            identity_ref="target.handle",
             allowed_host="instagram.com",
-            list_handle_input_keys=(
-                "usernames", "instagramUsernames", "profiles",
-            ),
-            list_url_input_keys=("profileUrls", "startUrls"),
-            max_items_input_keys=(
-                "maxItems", "maxPosts", "postsPerProfile",
-                "resultsPerProfile", "limit",
-            ),
             avatar_pointer_keys=(
                 "profilePicUrlHD",
                 "profilePicUrl",
@@ -69,20 +60,11 @@ class InstagramProfileItemsAdapter:
     ) -> tuple[str | None, str | None]:
         return deterministic_input_plan(
             revision,
-            input_keys=(
-                "username", "usernames", "instagramUsernames", "profiles",
-                "profile", "handle", "profileUrls", "startUrls",
-            ),
-            identity_ref="target.handle",
-            list_handle_input_keys=(
-                "usernames", "instagramUsernames", "profiles",
-            ),
-            list_url_input_keys=("profileUrls", "startUrls"),
-            max_items_input_keys=(
-                "maxItems", "maxPosts", "postsPerProfile",
-                "resultsPerProfile", "limit",
-            ),
+            **input_options(revision),
         )
+
+    def refine_discovery_mapping(self, revision, mapping):
+        return refine_mapping(revision, mapping)
 
     def build_actor_input(self, target, manifest, window):
         return build_input(target, manifest, window)
@@ -91,18 +73,21 @@ class InstagramProfileItemsAdapter:
         self, rows: Sequence[Mapping[str, object]], target: TargetSpec,
         manifest: ActorManifest, window: FetchWindow,
     ) -> NormalizedBatch:
+        media = getattr(parse_actor_manifest(manifest.manifest_json).structures, "media", None)
+        manifest = legacy_contributors_manifest(rows, manifest)
         prepared = self.prepare_output_rows(rows, target, manifest)
-        batch = validate_and_map(
-            prepared,
-            target, manifest, window,
-            platform="instagram", source_type=SourceType.INSTAGRAM,
-        )
+        prepared, batch = validate_profile_batch(prepared, target, manifest, window)
+        if media:
+            return batch
         return enrich_instagram_media(batch, prepared, target, manifest, window)
 
     def prepare_output_rows(
         self, rows: Sequence[Mapping[str, object]], target: TargetSpec,
         manifest: ActorManifest,
     ) -> Sequence[Mapping[str, object]]:
+        effective = legacy_contributors_manifest(rows, manifest)
+        if parse_actor_manifest(effective.manifest_json).structures is not None:
+            return rows
         return prepare_profile_rows(rows, target, manifest)
 
     async def fetch_native_fallback(self, target, window):

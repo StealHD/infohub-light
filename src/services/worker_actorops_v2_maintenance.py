@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from .apify_transport import apify_http_client
 
 from ..scrapers.apify_client import ApifyClient
 from ..storage.service_store import ServiceStore
@@ -80,7 +81,7 @@ async def _run_probe(job: dict[str, Any], data_dir: str, store: ServiceStore) ->
         return ProbeResult(None, str(payload["candidate_id"]), "skipped", "actorops_maintenance_credential_unavailable")
     catalog = _catalog(store, workspace_id, data_dir, purpose="validation")
     timeout = httpx.Timeout(30.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+    async with apify_http_client(timeout=timeout) as client:
         remote = ApifyV2RemoteClient(ApifyClient(coordinator=coordinator, http_client=client))
         result = await ActorOpsProber(
             ActorOpsRepository(store.connect(), workspace_id), build_default_registry(), remote,
@@ -89,6 +90,7 @@ async def _run_probe(job: dict[str, Any], data_dir: str, store: ServiceStore) ->
             route_id=str(payload["route_id"]), candidate_id=str(payload["candidate_id"]),
             source_id=str(payload["source_id"]), source_config=config,
             maintenance_slot=str(payload["slot"]),
+            logical_job_id=str(job["id"]),
             expected_binding_version=int(payload["binding_version"]),
             intent=str(payload.get("intent") or "standing"),
             expected_route_generation=(
@@ -140,7 +142,9 @@ def enqueue_due_actorops_v2_maintenance(
                 deferred += len(routes)
                 continue
             for route_id in routes:
+                from .actorops.repair_wakeup import wake_assignable_repairs
                 repository.maintenance.reconcile_settled_candidates(route_id)
+                wake_assignable_repairs(repository, route_id)
                 _ensure_degraded_source_repairs(repository, route_id, slot)
                 target = repository.maintenance.probe_target(route_id)
                 if target is None:

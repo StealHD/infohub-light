@@ -103,3 +103,32 @@ def _references(value: object) -> tuple[str, ...]:
 
 
 __all__ = ["compatible_input_references", "input_reference_error"]
+
+
+def schema_reference_hints(field: str, schema: Mapping[str, object]) -> tuple[str, ...]:
+    """Field descriptions supplement names; no Actor-specific input branches."""
+    meaning = ' '.join([field, *[str(schema.get(key) or '')[:500]
+                               for key in ('title', 'description')]])
+    return compatible_input_references(meaning)
+
+
+def schema_input_reference_error(field, value, schema, *, required):
+    if isinstance(value, Mapping) and set(value) == {'$ref'}:
+        if value['$ref'] in schema_reference_hints(field, schema):
+            return None
+        return ('actorops_discovery_ai_missing_required_input_value' if required
+                else 'actorops_discovery_ai_input_value_invalid')
+    if isinstance(value, Mapping):
+        properties = schema.get('properties', {})
+        for name, child in value.items():
+            error = schema_input_reference_error(
+                str(name), child, properties.get(name, {}), required=required)
+            if error:
+                return error
+    if isinstance(value, list):
+        element = {**schema, **schema.get('items', {})}
+        for child in value:
+            error = schema_input_reference_error(field, child, element, required=required)
+            if error:
+                return error
+    return None

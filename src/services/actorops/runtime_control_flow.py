@@ -69,6 +69,13 @@ async def execute_candidate_plan(
                 health=health,
             )
         except ActorOpsRuntimeError as error:
+            if error.failure_class is FailureClass.INTERNAL:
+                repository.resilience.emit(
+                    root_job_id=logical_job_id, route_id=route_id, source_id=source_id,
+                    candidate_id=candidate.candidate_id, phase="candidate_execution",
+                    outcome="failed", reason_code=error.code,
+                )
+                raise
             if error.failure_class is FailureClass.CANDIDATE:
                 repository.resilience.emit(
                     root_job_id=logical_job_id,
@@ -124,7 +131,14 @@ async def fallback_or_fail(
     source_id: str,
     logical_job_id: str,
 ) -> ExecutionResult:
-    fallback = await adapter.fetch_native_fallback(target, window)
+    try:
+        fallback = await adapter.fetch_native_fallback(target, window)
+    except Exception:
+        queue_repair_and_trace(
+            repository, logical_job_id=logical_job_id, route_id=route_id,
+            source_id=source_id, blocked_code=plan.blocked_code,
+        )
+        raise
     if fallback.supported:
         trace_native_fallback(
             repository,

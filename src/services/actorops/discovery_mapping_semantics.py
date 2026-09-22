@@ -26,7 +26,7 @@ _IDENTITY_POSITIVE = (
 )
 
 
-def target_input_semantic_error(manifest: Mapping[str, object]) -> str | None:
+def target_input_semantic_error(manifest: Mapping[str, object], schema=None) -> str | None:
     inputs = manifest.get("input")
     if not isinstance(inputs, Mapping):
         return "actorops_discovery_ai_missing_target_input"
@@ -36,6 +36,9 @@ def target_input_semantic_error(manifest: Mapping[str, object]) -> str | None:
         for reference in _references(value)
         if reference.startswith("target.")
     ]
+    if targets and isinstance(manifest.get("structures"), Mapping) and schema is not None:
+        # Input path/type/reference semantics were proved by the Schema validator.
+        return None
     if not targets or not any(
         _target_binding_matches(manifest, field, reference)
         for field, reference in targets
@@ -49,6 +52,13 @@ def output_semantic_error(manifest: Mapping[str, object]) -> str | None:
     if not isinstance(outputs, Mapping):
         return "actorops_discovery_ai_output_not_content_items"
     identity_field = _identity_field(manifest)
+    if isinstance(manifest.get("structures"), Mapping):
+        required = ("native_id", "url", "published_at", identity_field)
+        if not all(_pointers(outputs.get(name)) for name in required):
+            return "actorops_discovery_ai_required_output_missing"
+        if not any(_pointers(outputs.get(name)) for name in ("title", "text")):
+            return "actorops_discovery_ai_output_not_content_items"
+        return None
     host = _route_host(manifest)
     url_pointers = frozenset(_pointers(outputs.get("url")))
     for canonical in ("native_id", "url", "published_at"):

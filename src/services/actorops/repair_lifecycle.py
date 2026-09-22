@@ -10,6 +10,8 @@ from typing import Any
 from .domain import AssignmentRole, CandidateLifecycle, RouteHealth
 from .policy import candidate_has_exact_execution_contract, candidate_is_runnable
 from .repository_errors import ActorOpsConflict, ActorOpsNotFound
+from .repair_assignment import assign_proved_repair_candidate
+from .repair_candidate_selection import prefer_proved_reserve
 from .repository_maintenance import MAX_MONTHLY_USD, MAX_PROBES_PER_DAY
 from .runtime_candidate_health import (
     candidate_operational_states,
@@ -19,11 +21,17 @@ from .runtime_candidate_health import (
 
 _OPEN = ("queued", "discovering", "awaiting_probe", "blocked")
 _BACKOFF_MINUTES = (30, 120, 360, 1440)
+_ATTEMPT_BLOCKERS = (
+    "actorops_repair_cost_settlement_required",
+    "actorops_cost_settlement_required",
+    "actorops_result_recovery_required",
+    "apify_start_outcome_unknown",
+)
 _ADMISSION_BLOCKERS = frozenset({
     "actorops_repair_not_authorized",
     "actorops_repair_daily_probe_limit",
     "actorops_repair_monthly_budget_exhausted",
-    "actorops_repair_cost_settlement_required",
+    *_ATTEMPT_BLOCKERS,
 })
 _PROBE_LIFECYCLES = {
     CandidateLifecycle.STATIC_VALID,
@@ -95,7 +103,7 @@ class RepairLifecycle:
         repair = self.get(repair_id)
         if str(repair["status"]) not in _OPEN:
             return dict(repair)
-        admission, error = self._admission(str(repair["route_id"]), None)
+        admission, error = self._admission(str(repair["route_id"]), None, require_probe=False)
         if admission == "blocked":
             return self._block(repair, str(error))
         if (
@@ -112,16 +120,29 @@ class RepairLifecycle:
             return recovered
         repair = self.get(repair_id)
         candidate = self._probe_candidate(repair["candidate_id"], str(repair["route_id"]))
+        candidate = prefer_proved_reserve(self.repository, str(repair["route_id"]), candidate)
         if candidate is not None:
-            return self._update(
-                repair,
-                status="awaiting_probe",
-                candidate_id=candidate.candidate_id,
-                delay_minutes=5,
-            )
+            return self._advance_candidate(repair, candidate)
+        admission, error = self._admission(str(repair["route_id"]), None)
+        if admission == "blocked":
+            return self._block(repair, str(error))
         if repair["discovery_id"]:
             return self._advance_discovery(repair)
         return self._start_discovery(repair)
+
+    def _advance_candidate(self, repair: Any, candidate: Any) -> dict[str, Any]:
+        repair = self._update(repair, status="awaiting_probe",
+                              candidate_id=candidate.candidate_id, delay_minutes=5)
+        outcome = assign_proved_repair_candidate(self.repository, repair)
+        if outcome == "needs_probe":
+            admission, error = self._admission(str(repair["route_id"]), None)
+            return self._block(repair, str(error)) if admission == "blocked" else repair
+        if outcome != "assigned":
+            return self._block(repair, outcome)
+        recovered = self._recover_if_stable(repair)
+        if recovered is not None:
+            return recovered
+        return self._update(repair, status="queued", candidate_id=None, delay_minutes=5)
 
     def allows_headroom(self, route_id: str, candidate_id: str) -> bool:
         return self.repository.connection.execute(
@@ -145,8 +166,8 @@ class RepairLifecycle:
         del source_id
         return self._wake(
             """route_id=?
-               AND error_code='actorops_repair_cost_settlement_required'""",
-            (route_id,),
+               AND error_code IN (?,?,?,?)""",
+            (route_id, *_ATTEMPT_BLOCKERS),
         )
 
     def wake_repairs_after_discovery(self, discovery_id: str) -> int:
@@ -168,12 +189,7 @@ class RepairLifecycle:
                 str(discovery["discovery_id"]), str(repair["route_id"])
             )
             if candidate is not None:
-                return self._update(
-                    repair,
-                    status="awaiting_probe",
-                    candidate_id=candidate.candidate_id,
-                    delay_minutes=5,
-                )
+                return self._advance_candidate(repair, candidate)
             return self._block(
                 repair,
                 "actorops_repair_no_candidate",
@@ -316,32 +332,34 @@ class RepairLifecycle:
         return dict(self.get(str(repair["repair_id"])))
 
     def _admission(
-        self, route_id: str, blocked_code: str | None
+        self, route_id: str, blocked_code: str | None, *, require_probe: bool = True
     ) -> tuple[str, str | None]:
         if blocked_code:
             return "blocked", blocked_code
         policy = self.repository.maintenance.effective_policy(route_id)
         if not policy.authorized:
             return "blocked", "actorops_repair_not_authorized"
-        budget = self.repository.maintenance.probe_budget(route_id, _now())
-        daily_cap = min(int(policy.route.max_probes_per_utc_day or 0), MAX_PROBES_PER_DAY)
-        if daily_cap <= 0 or budget.probe_count >= daily_cap:
-            return "blocked", "actorops_repair_daily_probe_limit"
-        monthly_cap = min(float(policy.workspace.monthly_budget_usd or 0), MAX_MONTHLY_USD)
-        if (
-            policy.max_charge_usd <= 0
-            or budget.spent_usd + budget.reserved_usd + policy.max_charge_usd > monthly_cap
-        ):
-            return "blocked", "actorops_repair_monthly_budget_exhausted"
         pending = self.repository.connection.execute(
-            """SELECT 1 FROM actor_attempts_v2 WHERE workspace_id=? AND route_id=?
+            """SELECT cost_final FROM actor_attempts_v2 WHERE workspace_id=? AND route_id=?
                  AND kind='fetch'
                  AND (status NOT IN ('succeeded','failed','cancelled') OR cost_final=0)
-                 LIMIT 1""",
+                 ORDER BY cost_final, updated_at, attempt_id LIMIT 1""",
             (self.repository.workspace_id, route_id),
         ).fetchone()
         if pending is not None:
-            return "blocked", "actorops_repair_cost_settlement_required"
+            return "blocked", (
+                "actorops_result_recovery_required" if pending["cost_final"]
+                else "actorops_repair_cost_settlement_required"
+            )
+        if require_probe:
+            budget = self.repository.maintenance.probe_budget(route_id, _now())
+            daily_cap = min(int(policy.route.max_probes_per_utc_day or 0), MAX_PROBES_PER_DAY)
+            if daily_cap <= 0 or budget.probe_count >= daily_cap:
+                return "blocked", "actorops_repair_daily_probe_limit"
+            monthly_cap = min(float(policy.workspace.monthly_budget_usd or 0), MAX_MONTHLY_USD)
+            if (policy.max_charge_usd <= 0
+                    or budget.spent_usd + budget.reserved_usd + policy.max_charge_usd > monthly_cap):
+                return "blocked", "actorops_repair_monthly_budget_exhausted"
         return "queued", None
 
     def _open_repair(self, route_id: str, source_id: str) -> Any | None:

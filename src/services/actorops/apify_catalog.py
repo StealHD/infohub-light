@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 import httpx
+from ..apify_transport import apify_http_client
 
 from .account_fit import actor_account_fit, normalize_account_tier
 from .apify_dataset_views import row_schema_from_dataset_views
@@ -89,8 +90,8 @@ class ApifyStoreRestClient:
         self, path: str, *, params: Mapping[str, Any] | None = None
     ) -> Mapping[str, Any]:
         owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(
-            timeout=self._timeout, trust_env=False
+        client = self._client or apify_http_client(
+            timeout=self._timeout
         )
         try:
             for attempt in range(3):
@@ -207,7 +208,7 @@ class ApifyDiscoveryCatalog:
             raise
         except Exception as error:
             raise _catalog_error(error) from error
-        input_schema, output_schema = _schemas(build)
+        input_schema, output_schema, origin = _schemas_with_origin(build)
         account_fit = actor_account_fit(
             build.get("readme"), account_tier=account_tier
         )
@@ -222,6 +223,7 @@ class ApifyDiscoveryCatalog:
             price_per_run_usd=_price(actor),
             input_schema=input_schema,
             output_schema=output_schema,
+            output_schema_origin=origin,
             account_fit_rank=account_fit.rank,
             account_fit_reason=account_fit.reason_code,
         )
@@ -399,6 +401,11 @@ def _exact_build_available(
 
 
 def _schemas(build: Mapping[str, Any]) -> tuple[Mapping[str, object], Mapping[str, object]]:
+    return _schemas_with_origin(build)[:2]
+
+
+def _schemas_with_origin(build):
+    origin = "declared_fields"
     definition = build.get("actorDefinition")
     definition = definition if isinstance(definition, Mapping) else {}
     input_schema = _schema(build.get("inputSchema"))
@@ -412,9 +419,11 @@ def _schemas(build: Mapping[str, Any]) -> tuple[Mapping[str, object], Mapping[st
         output_schema = _schema(fields)
         if not output_schema:
             output_schema = row_schema_from_dataset_views(dataset)
+            origin = "dataset_view"
     if not output_schema:
         output_schema = _schema(definition.get("output"))
-    return input_schema, output_schema
+        origin = "declared_fields"
+    return input_schema, output_schema, origin if output_schema else "unknown"
 
 
 def _mapping(value: object) -> Mapping[str, object]:

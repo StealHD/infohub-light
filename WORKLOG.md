@@ -8,195 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "按用户要求将本地 main 已验证的两份 Tag 发布测试修复补丁应用到 codex/analyze-openai-reset-test-miss 与 codex/ui-sidebar-automations-0915 工作区；两处均保留为未提交修改，未合并或推送。",
-  "status": "completed",
-  "task_id": "2026-09-15-apply-tag-test-fix-to-two-branches",
-  "unresolved": [],
-  "validation": [
-    "两个目标均通过 git apply --check；应用后两份测试文件与本地 main 修复逐字节一致。用户随后明确只需应用，不追加 preflight。"
-  ]
-}
-```
-
-```json
-{
-  "commit": "1735c336",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "修复 ActorOps 已结算成功 Run 因原 source_fetch Job 失败而长期阻塞的问题：Reconciler 以 CAS 重排 exact Job，运行时只读原 Dataset 并重新验证/发布，不创建第二个 Attempt、费用预留或 Actor POST；明确区分费用待结算与结果待恢复，原 Job 取消时保留真实费用并安全终结。",
-  "status": "completed",
-  "task_id": "issue-3-actorops-result-recovery-20260915",
-  "unresolved": [],
-  "validation": [
-    "合并后的 main 后端全量 Pytest 通过；前端全量 150 个测试文件、939 项通过。",
-    "工作日志、Markdown、可观测性和差异检查通过；合并提交为 1735c336。"
-  ]
-}
-```
-```json
-{
-  "commit": "1735c336",
-  "control_topics": [
-    "architecture",
-    "interface",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "实现 Instagram 独立帖子媒体提取、图集和视频封面缓存接入、详情顺序保持，以及默认预览和显式摘要确认的单文章补图 CLI。媒体通过原帖子身份校验关联，不修改 Candidate Manifest；维护路径只复用私有地址或同来源已结算 Run 的既有 Dataset，不创建 Actor、费用预留、文章、快照、AI 或通知。",
-  "status": "completed",
-  "task_id": "instagram-post-media-adaptation-20260915",
-  "unresolved": [
-    "两个旧成功 Dataset 返回 404，未做历史文章补图；用户确认不需要补回。"
-  ],
-  "validation": [
-    "Instagram 提取、补图、媒体缓存、展示、ActorOps 映射与旧内容修复关联回归 77 项通过；合并后的 main 后端全量 Pytest 通过。",
-    "前端全量 150 个测试文件、939 项通过；工作日志、Markdown、可观测性和差异检查通过；合并提交为 1735c336。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "Automations 详情栏改为与任务列表同轨占宽，顶栏随列表同步缩短；详情操作统一为有说明的图标按钮，描述箭头和测试区操作完成右对齐，并同步 UI 合同、手册与更新日志。独立分支未修改后端、数据库、自动化执行或通知行为。",
-  "status": "partial",
-  "task_id": "2026-09-15-ui-sidebar-automations-0915",
-  "unresolved": [
-    "impacted preflight 被现有 Release Tag workflow 合同基线断言阻断；同一断言已在未包含本分支改动的本地 main 独立复现，本次 UI-only 范围未修改发布工作流。"
-  ],
-  "validation": [
-    "定向前端 20/20、完整前端 151 个文件共 943 项、TypeScript、ESLint、UI 合同、生产构建及产物检查通过。",
-    "Playwright 桌面、平板、手机共 12/12 通过，覆盖明暗主题、200% 缩放、详情开关、拖动与键盘调宽、焦点返回、草稿保留、等待态尺寸和无横向溢出；使用模拟接口，未触发真实抓取、模型或通知。",
-    "impacted targeted/preflight 在基线失败前完成 7 项控制与格式检查；Release Tag workflow 合同断言在本地 main 单测中同样失败。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "修复工作区切换菜单左右留白不对称与品牌按钮常驻背景；Automations 新建和编辑操作靠右，来源选择与模型刷新分列对齐，触发与通知字段进入编辑后直接显示；同步 UI 合同、操作手册和变更日志。",
-  "status": "completed",
-  "task_id": "ui-workspace-automation-edit-polish-20260915",
-  "unresolved": [
-    "内置浏览器不响应页面缩放快捷键，未取得实际 200% 缩放测量；已用 390×844、1024×768、1440×900 和 320 px 详情宽度覆盖重排与溢出风险。"
-  ],
-  "validation": [
-    "工作区菜单在 1440×900 实测侧栏 232 px、菜单 216 px、左右各 8 px且页面无横向溢出；Automations 在 400 px 与 320 px 详情宽度下操作靠右、触发字段直接可见。",
-    "1024×768 Drawer 与 390×844 Sheet 均无横向溢出；手机面板宽 390 px，模型、推理、触发和通知选择控件均完整位于 21–369 px 内容区。",
-    "定向 Vitest 7 项通过；Information Automations 分组已执行的 26 项通过，另有 1 个 worker 启动超时后将该文件 2 项单独复验通过；lint、typecheck、UI contract 通过；impacted preflight 11/11 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "信息流右侧 Agent 不再使用独立模型与思考下拉框，改为与完整 OpenClaw 对话共用模型、思考、Fast 和默认恢复胶囊浮层；同步 UI 合同、操作手册与变更日志。",
-  "status": "completed",
-  "task_id": "ui-inscope-openclaw-runtime-picker-20260915",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw 对话相关 Vitest 3 个文件 44 项通过；typecheck 与 UI contract check 通过。",
-    "127.0.0.1:5173/feed 实页确认右侧 Agent 显示统一 GPT-5.6-Terra／medium 胶囊，展开后可见 Fast、模型入口、思考滑杆和默认恢复；未发送消息或调用模型。",
-    "impacted preflight 13/13 通过，包含 frontend_full、control 与 python_api_store 分组。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-15",
-  "result": "OpenClaw 会话入口并入侧栏标题行并与工作区箭头对齐；删除确认支持成功后按账号记住不再提醒并可从全部会话恢复；完整工作台和信息流 Agent 共用右对齐用户气泡；执行详情逐项显示安全操作名、状态和耗时并明确截断或缺失证据。同步 UI 合同、手册与更新日志，未改后端、数据库或真实执行行为。",
-  "status": "completed",
-  "task_id": "ui-openclaw-conversation-messages-20260915",
-  "unresolved": [],
-  "validation": [
-    "相关会话、删除偏好、消息气泡和事件投影 Vitest 通过；TypeScript、ESLint、UI contract 和 diff 检查通过。",
-    "127.0.0.1:5173 实页确认加号与工作区箭头对齐、全部会话删除开关、确认框不再提醒、用户气泡靠右且多条助手回复纵向排列；未发送消息、删除会话或调用模型。",
-    "impacted preflight 13/13 通过，覆盖 control、frontend_full 与 python_api_store，0 失败。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-16",
-  "result": "OpenClaw 侧栏移除会话区与工作区之间的装饰分隔线，将全部会话改为带说明的历史图标并与新对话加号同排；完整工作台移除助手消息之间的装饰横线。同步 UI 合同、操作手册与更新日志，未改变会话、消息或 Gateway 业务行为。",
-  "status": "completed",
-  "task_id": "ui-openclaw-remove-dividers-history-icon-20260916",
-  "unresolved": [],
-  "validation": [
-    "相关 Agent Workspace 与 OpenClaw 会话 Vitest 17/17 通过；TypeScript、ESLint、UI contract 和 diff 检查通过。",
-    "127.0.0.1:5173 实页确认两处装饰横线已移除、全部会话与新对话图标同排，历史图标可正常打开原会话目录；未发送消息或删除会话。",
-    "impacted preflight 13/13 通过，覆盖 control、frontend_full 与 python_api_store，0 失败。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-16",
-  "result": "修复完整 OpenClaw 会话的运行/发送错误错位：将错误提示从外层滚动区改为复用居中消息宽度轨道；错误内容、连接/重试行为与紧凑 Agent 布局未改变。为保持代码规模限制，将提示抽为同目录专用组件，并同步 UI 合同与更新日志。",
-  "status": "completed",
-  "task_id": "ui-openclaw-issue-track-alignment-20260916",
-  "unresolved": [],
-  "validation": [
-    "OpenClaw 会话回归 34/34 通过；TypeScript、ESLint、UI contract 及前端代码规模检查通过。",
-    "新增 workspace 错误轨道断言，确认错误提示具有与 transcript 相同的居中最大宽度；未中断当前 Gateway 或发送消息来制造真实错误。",
-    "首次 preflight 仅因 OpenClawTimeline 超过 150 行失败；抽取组件后 impacted preflight 13/13 通过，0 失败。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-16",
-  "result": "修复普通发布未传 v47 回执时 SSH 丢弃空尾参数、VPS cutover 在严格模式读取第 10/11 参数失败的问题；可选回执与备份均使用安全空值默认，不改变迁移、备份、切换或回滚边界。",
-  "status": "completed",
-  "task_id": "release-empty-migration-arguments-20260916",
-  "unresolved": [],
-  "validation": [
-    "tests/test_release_runtime_scripts.py 与 tests/test_release_preflight.py 定向回归通过；bash -n scripts/release_vps.sh 和 git diff --check 通过。",
-    "首次真实发布在 VPS 切换前安全停止，未创建 Tag；修复后将从同一干净 main 重试。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "observability",
     "verification"
   ],
@@ -382,6 +193,227 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "回归测试验证等待修复候选优先、no_evidence 后轮换；使用本地测试库只读调用确认当前选中两条修复记录等待的 Candidate，未启动 Actor。",
     "相关定向 Pytest 2 项通过；impacted targeted 8/8 通过；最终 impacted preflight 14/14 通过，含前端检查，无 SQLite 连接警告。",
     "任务范围 diff 审查与 git diff --check 通过；最终 preflight 证据 .test-results/20260918T014356Z-71645/result.json。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-20",
+  "result": "在本地 main a9d819e 的独立 worktree 修复模型切换错误分类：保留继承未固定、模型不匹配及核验失败原因，移除泛 fork 上下文超限误判；未核验模型的思考/Fast 调整保留警告。原会话、输入和发送安全校验不变，同步手册与更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-20-model-inheritance-recovery",
+  "unresolved": [
+    "本次仅修复本地错误处理与恢复反馈；未修改运行中的 Gateway、未部署生产，线上继承行为仍需核验 Gateway 兼容修复。"
+  ],
+  "validation": [
+    "定向 23 项前端测试通过；最终 impacted preflight 13/13 命令通过（196.752 秒），包括关联后端/前端测试、类型、ESLint、UI/E2E 静态合同、代码规模及控制检查。",
+    "首次 preflight 发现的测试构造参数已修正；worktree 按锁文件安装独立依赖，未修改依赖清单。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-20",
+  "result": "在既有 main worktree 保留模型修复，新增 Instagram 多 Actor 媒体结构解析、Schema 类型输入和来源证据、按 Binding/固定版本隔离的媒体质量 sidecar 与后续候选排序；同任务优先恢复原 Attempt，媒体缺失保留有效正文。增加显式 global 48 迁移、管理安全投影、测试与文档。",
+  "status": "completed",
+  "task_id": "2026-09-20-instagram-multi-actor-media",
+  "unresolved": [
+    "未启动付费 Actor、未迁移或切换生产、未补历史图片；公开结构支持不等于真实图集完整性认证。"
+  ],
+  "validation": [
+    "Instagram 与 ActorOps 419 项整体回归通过；最终媒体/质量定向 58 项通过（含新增的视频尺寸变体和未知图集容器边界）。",
+    "最终 impacted preflight 14/14 命令通过，耗时 280.703 秒，覆盖后端选测、变更语法、前端关联测试/类型/lint、E2E/UI 静态合同、代码规模与控制检查；无未关闭 SQLite 连接警告。报告：.test-results/20260920T072110Z-59822/result.json。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-21",
+  "result": "在 codex/model-inheritance-analysis 实现 Schema/样本驱动的受限 structures 映射：通用媒体集合、尺寸候选、视频封面与共同作者，保留旧 Manifest hash 和真实主作者；AI 观察映射经两轮上限及静态/样本验证。Dataset 恢复绑定原 Attempt/Run/凭据版本，保留 Job 预算与退避；永久失败/耗尽终态不记 Actor 故障，费用继续对账。同步合同、操作说明和更新日志，保留已有模型继承修复。",
+  "status": "completed",
+  "task_id": "2026-09-21-actor-structured-mapping-recovery",
+  "unresolved": [],
+  "validation": [
+    "ActorOps、Manifest、Instagram 媒体专项 473 项通过；原凭据 Dataset GET、重试封顶、费用对账、通用字段/跨帖关联、能力证据写入均覆盖。",
+    "最终 impacted preflight 15/15 通过：后端 3532 项通过、3 项跳过；前端 156 个文件 971 项通过；构建、静态检查、控制文档、diff 均通过；SQLite 未关闭连接警告 0。证据 .test-results/20260920T180415Z-19700/result.json。",
+    "既有 WebSocket 权限测试的关闭后等待问题在本地 main 独立复现；仅修正测试收尾，保留权限断言，相关 19 项通过。未启动真实 AI/付费 Actor，未部署或修改生产/现有候选配置。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-21",
+  "result": "在 codex/model-inheritance-analysis 修复结算后遗留 Repair 阻塞码未唤醒/未更新，区分费用未决与结果恢复；blocked 事件映射为日志合同支持的 unavailable。Instagram 旧 Manifest 通过已证明的共同作者结构接入通用身份端口，复用原作者路径，保留真实主作者、图集与直接目标头像优先级；显式 structures 不被覆盖。同步合同、排查说明和更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-21-actorops-repair-wakeup-coauthors",
+  "unresolved": [
+    "历史失败任务及既有候选冷却保留，本次未补抓历史媒体，也未更改生产；外部网络/DNS 超时不属于本轮代码修复结果。"
+  ],
+  "validation": [
+    "Adapter、结构映射、Instagram 媒体、Repair、Resilience、结果恢复和预算针对性回归通过。",
+    "Impacted preflight 14/14 通过，前端关联测试 121 项通过；SQLite 未关闭连接警告 0。证据 .test-results/20260921T032507Z-44404/result.json。",
+    "对现有两个已结算 Dataset 仅执行 GET 回放：有共同作者证据的结果 3/3 解析成功并保留品牌主作者；缺少共同作者证据的结果继续拒绝目标身份不匹配。未启动新的付费 Run。",
+    "无运行中抓取任务时重启本地分支 API/Worker，保留原环境、数据库及配置；ready 接口的数据库、Worker、日志均 ready，浏览器 5173/feed 内容正常。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-21",
+  "result": "在 codex/model-inheritance-analysis 修复自动恢复状态流转：对账扫描自动收尾成功 source_fetch 遗留、精确关联且已结算 observed 的未使用 Attempt，保留 Job、费用和候选健康；active Route 免费回退异常仍同步 Repair。Repair 复用当前 Binding 已结算证明尝试接管，沿用授权、平台能力、三槽、全局故障及最后一路约束；接管不消耗新 Probe 预算。认证候选缺当前证明时打通调度和费用准入，仅补未证明 Binding；接管受阻记录安全原因并有界退避。同步架构合同、排查说明和更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-21-actorops-completed-job-repair-assignment",
+  "unresolved": [
+    "Instagram 现有三槽占满且不满足全局故障替换条件，保留现有候选并自动退避；本轮不放宽槽位、冷却或 standing authorization。",
+    "外部 YouTube RSS 404 仍可能发生；本次修复其对自动 Repair 流程的影响，不声称上游永久可用。"
+  ],
+  "validation": [
+    "新增成功 Job 自动收尾及安全边界、RSS 404 仍写 Repair、认证候选接管/证明失效/预算/权限/槽位/已确认故障替换、认证候选实际模拟探测完整链路回归，相关 Runtime、Maintenance、Reconciliation、Resilience 和恢复测试通过。",
+    "最终 impacted preflight 14/14 通过，SQLite 未关闭连接警告 0；证据 .test-results/20260921T040625Z-62509/result.json。首次预检在发现认证候选费用准入遗漏后主动中止，修复及专项复验后重新运行。",
+    "只读本地库复制到内存验证真实状态；实际环境无运行中抓取时重启分支 API/Worker，ready 与 Feed 正常。Worker 正常对账自动将 YouTube 遗留 Attempt 收尾为 cancelled/actorops_result_recovery_superseded，原 Job succeeded、历史次数及费用保持不变；12:12 Repair 自动 recovered。",
+    "12:13 Instagram Repair 自动从 awaiting_probe 转为 blocked/actorops_repair_assignment_unavailable，保留候选并安排退避。未手工清库/改业务记录、未人为启动付费测试、未发布生产。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-21",
+  "result": "在 codex/model-inheritance-analysis 修复 Apify 探测异常恢复：执行退出后的 created Probe 无远端预留才取消并释放预算，已有预留保留未决费用进入原对账。新 Maintenance/Replacement Probe 关联实际 Worker Job，终态 owner 或旧 Job exact Attempt 结果可恢复中断记录；运行中 owner 不回收。未捕获的传输异常按启动阶段区分暂时不可用与待对账，保留安全异常位置，不追加付费启动、不惩罚候选。容量受阻 Repair 在原准入可继续时提前唤醒；失败 Job 与完成日志保留安全错误码、Repair 返回下次重试时间。同步恢复合同、排查说明及更新日志。",
+  "status": "completed",
+  "task_id": "2026-09-21-apify-probe-stability-recovery",
+  "unresolved": [
+    "上游网络/Actor 失败仍可能发生；本次保障有界恢复和费用安全，不保证上游持续可用。",
+    "每日探测预算、价格上限和候选接管政策仍有效；当前 Jisoo 为 actorops_repair_daily_probe_limit。没有为验证手动发起付费 Probe，也未部署生产。"
+  ],
+  "validation": [
+    "Probe 启动前异常、终态/运行中 owner、历史结果关联、预留费用保留、幂等恢复、传输启动不确定性、候选健康隔离、接管唤醒与权限、真实 Worker 完成日志错误码等专项回归通过。",
+    "最终 preflight 15/15 通过，含后端全量、前端测试与构建；SQLite 未关闭连接警告 0。证据 .test-results/20260921T060214Z-74017/result.json；任务快照 /tmp/infohub-apify-stability-20260921.json。文档长度和末尾空行门禁问题已修正。",
+    "只读运行库复制到内存重放真实悬挂 Probe，验证可安全收尾；无运行中 Job 时保留原环境重启本地分支 API/Worker，ready 接口正常。14:13 Worker 正常对账自动将目标记录取消为 actorops_probe_owner_finished，cost_final=1、actual_cost_usd=0；未手工修改业务数据。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "observability",
+    "verification"
+  ],
+  "recorded_on": "2026-09-21",
+  "result": "修复 Apify 固定 API 代理不一致、已结算未启动后 Key 池残留阻塞及同 Job 重放误归因；限制预领取核账等待；Instagram 混合作者结果保留已验证行并记录排除数量。",
+  "status": "partial",
+  "task_id": "2026-09-21-apify-transport-settlement-mixed-batch",
+  "unresolved": [
+    "本地网络仍有间歇性传输失败；保留安全异常诊断及费用屏障。",
+    "未部署生产；历史失败 Job/Attempt 和来源冷却保持不变（Jisoo 至北京时间 20:56），未执行新一轮付费抓取验证 Feed 写入。"
+  ],
+  "validation": [
+    "相关定向回归通过；原凭据只读 Actor/Build/Dataset 校验成功。",
+    "真实正常抓取确认当前 Actor Run succeeded，最终费用 0.003 USD；返回 3 行，其中 2 行目标作者、1 行缺少共同作者证据。",
+    "同一已付费 Dataset 经修复解析器和内存 Repository 重验 valid_nonempty 2 条；未追加付费恢复。",
+    "本地 Worker 自动从已结算遗留 blocked 池恢复 ready；失败的零启动抓取也自动结算解锁。",
+    "最终 impacted preflight 15/15 通过，零 SQLite 未关闭警告；结果 .test-results/20260921T070920Z-13662/result.json。",
+    "本地 A API/Worker 已加载最终代码，连续核账超时期间健康检查 ready；分支 codex/model-inheritance-analysis。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture"
+  ],
+  "recorded_on": "2026-09-22",
+  "result": "修复 Actor 自动修复候选停滞：同路线优先复用更多当前 Binding 的已结算非空证明，补齐部分验证候选；同等证明保持原选择，已尝试目标继续轮转，接管保留原权限、预算、冷却和槽位门。",
+  "status": "partial",
+  "task_id": "2026-09-22-actor-repair-progress",
+  "unresolved": [
+    "真实来源恢复尚待补齐 @thsottiaux 验证；正常探测槽最早为 2026-09-22 17:36 CST，仍受原授权、预算和未决费用检查约束。"
+  ],
+  "validation": [
+    "定向 ActorOps 修复、维护、Worker 回归通过；新增 7 项验证补齐证明后绕开主候选冷却及无效证明排除。",
+    "当前本地库只读演算选中已有单来源证明的备用，下一目标为 @thsottiaux；未新建付费探测。",
+    "最终 impacted preflight 14/14 通过，286.274 秒，0 SQLite ResourceWarning；.test-results/20260922T083028Z-74363/result.json。",
+    "本地 Worker 74595 已加载修复，健康检查 ready；正常 Repository 推进已把目标 Repair 转向 candidate_0aa76e017aa928a8e1ab240d，未追加付费 Run。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture"
+  ],
+  "recorded_on": "2026-09-22",
+  "result": "修复 Instagram 空 structures 或仅共同作者声明关闭兼容媒体解析的问题；本地显式安装 global 48（停止 API/Worker，0600 备份），保存既有真实结果的缺图证据，并将已实测多图的候选用于本地 Instagram 路由。",
+  "status": "completed",
+  "task_id": "2026-09-22-instagram-gallery-recovery",
+  "unresolved": [
+    "未修改生产配置，未批量重写历史 Feed；自动修复探测仅采到回复的问题属于前一任务，未在此修复。",
+    "缓存复核期间本地 Worker 遇 SQLite 锁退出，已重新启动；Worker 对锁异常的持续运行能力需要单独修复。"
+  ],
+  "validation": [
+    "图集家族、通用结构映射、媒体证据与迁移定向测试通过；空结构下 3 张图片与仅封面缺失归因回归通过。",
+    "impacted preflight 14/14 通过，302.089 秒、0 SQLite ResourceWarning；.test-results/20260922T095128Z-89824/result.json。",
+    "本地三次真实订阅获取成功：skuukzky 原指定 DddmLrImCIi 帖子 5 张且缓存 5 张，Jisoo 14 张（缓存 6 张），tsucha_ri 2 张（缓存 2 张）；三个来源新候选证据均 observed_multi，后续实际选路仍优先新候选。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-22",
+  "result": "整合 codex/model-inheritance-analysis 的模型切换错误、Instagram 通用媒体结构与 Apify 对账/自动修复改动，完成累计差异合并前验证；发布版本设为 2.6.24。用户明确只发布 main、Tag 与 GitHub Release，不部署 VPS。同步空 structures 仍保留 Instagram 兼容媒体解析的合同。",
+  "status": "completed",
+  "task_id": "2026-09-22-actorops-main-release-v2624",
+  "unresolved": [
+    "24 小时入库过滤与近 7 天 Feed 窗口不一致、Worker SQLite 锁异常退出仍待后续修复；本地手工补图不属于本版代码修复。",
+    "生产 global 48 迁移及 VPS 部署未执行；发布说明标明迁移要求与历史图片不自动回填。"
+  ],
+  "validation": [
+    "累计分支 preflight 15/15 通过，571.828 秒，0 SQLite ResourceWarning；证据 .test-results/20260922T154817Z-13840/result.json。后端全量回归、前端 156 个文件/971 项测试及生产构建通过。",
+    "合并源为任务 Worktree 的 codex/model-inheritance-analysis，目标为主 checkout 的 main；包含推送 origin/main、版本 Tag 和 GitHub Release。发布不执行 release_vps.sh 或连接 VPS。"
   ]
 }
 ```

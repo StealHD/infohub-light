@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from .apify_transport import apify_http_client
 
 from ..scrapers.apify_client import ApifyClient
 from .apify_key_pool import APIFY_RUN_TERMINAL_STATUSES
@@ -34,9 +35,13 @@ async def reconcile_blocked_unknown_start_pool(
         or str(state.get("blocked_reason") or "") not in _UNKNOWN_START_REASONS
     ):
         return state
+    coordinator.reconcile_settled_unknown_start_block()
+    state = coordinator.public_state(workspace_id)
+    if state['status'] != 'blocked':
+        return state
     timeout = httpx.Timeout(15.0, connect=5.0)
-    async with httpx.AsyncClient(
-        timeout=timeout, transport=http_transport, trust_env=False,
+    async with apify_http_client(
+        timeout=timeout, transport=http_transport,
     ) as http_client:
         client = ApifyClient(
             coordinator=coordinator,
@@ -77,8 +82,8 @@ async def reconcile_dedicated_validation_unknown_starts(
     if not runs:
         return coordinator.public_state(workspace_id)
     timeout = httpx.Timeout(15.0, connect=5.0)
-    async with httpx.AsyncClient(
-        timeout=timeout, transport=http_transport, trust_env=False,
+    async with apify_http_client(
+        timeout=timeout, transport=http_transport,
     ) as http_client:
         client = ApifyClient(
             coordinator=coordinator,

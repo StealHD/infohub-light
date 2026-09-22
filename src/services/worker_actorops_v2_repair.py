@@ -35,6 +35,7 @@ def run_actorops_v2_repair(
         "_job_status": "succeeded" if ok else "failed",
         "job_type": "actorops_v2_repair", "repair_id": repair_id,
         "status": str(repair["status"]), "error_code": repair.get("error_code"),
+        "next_attempt_at": repair.get("next_attempt_at"),
     }
 
 

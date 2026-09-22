@@ -68,6 +68,7 @@ ActorOps 另有 Owner/Admin 专用的数据库型执行时间线，用于串联�
 - 相同业务动作必须使用稳定 event/occurrence 语义避免轮询重复扩张；30 天后由维护路径有界删除。API 默认回看 24 小时，最大 30 天，游标分页且 `limit<=100`；Route、source、Candidate、phase、outcome 和时间过滤始终受 workspace 隔离。
 - `GET /api/admin/apify-actor-events` 是该表唯一公开读取面，只允许 Owner/Admin；schema 3 可按 Job、Route、source、repair、phase、outcome、时间和 cursor 读取执行事件，并在未收窄时合并既有脱敏 operation event。普通 operation-log MCP 查询边界和 retention 独立保持不变。
 - 候选选择、启动/注册/运行、结算、结果分类、`no_advance` 交叉验证、来源首选暂停/恢复、route exhaustion 和 repair 状态都必须留下时间线事件；日志写入失败仍不得让抓取、切备或设置保存回滚。
+- Repair 的数据库 `outcome=blocked` 镜像为 operation `outcome=unavailable`，保留稳定原因与原阶段；不能把数据库状态直接作为 operation outcome，导致严格枚举验证拒绝日志。
 
 ## 5. OpenClaw 查询边界
 
