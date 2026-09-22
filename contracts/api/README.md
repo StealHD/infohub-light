@@ -54,3 +54,5 @@
 | 后台任务、迁移、DeepSeek 与 ActorOps | [Job、迁移与 ActorOps](jobs-migrations-actorops.md) |
 | ActorOps auto-pool 退役、双确认与 global 25 惰性兼容 | [ActorOps auto-pool 退役](actorops-retired-auto-pool.md) |
 | ActorOps v2 stable-fetch、Adapter、global 26 与站立授权计划合同 | [ActorOps v2 计划合同](actorops-v2-planned.md) |
+
+探测中断、费用保留及自动修复唤醒：[ActorOps 恢复合同](actorops-probe-recovery.md)。

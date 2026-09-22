@@ -19,7 +19,23 @@ Route list/detail 的公共投影包含一个脱敏 `workflow` 摘要：`discove
 
 Candidate 同时投影 `binding_proof_count`、`binding_required_count` 与安全 `compatibility_issue_code`，用于区分“字段已适配但仍缺当前来源证明”和“Candidate 已阻断”。公共原因只允许 `output_sample_required|binding_proof_incomplete|route_binding_missing` 或既有安全运行状态码；不得把缺少 Binding 证明误写成 Actor 故障，也不得把 `blocked` 显示成等待样本。商城名称、slug 或展示资料变化不得切断已付费证明：Candidate 内部身份固定使用 Provider 的 immutable Actor ID，并继续单独保存公开 slug/name 供 UI 展示；exact Build、Input/Output Schema hash 不变时可复用既有证明，任一 identity 漂移则重新验证。
 
+## 媒体能力证据（global 48）
+
+内容校验成功与媒体能力独立。`NormalizedBatch.media_evidence` 为可选增强，状态为 `unknown|observed_multi|mapping_gap|upstream_incomplete`；单图不能证明图集能力，`observed_multi` 只证明观察到多图，不保证全部完整。媒体问题不改变正文成功，不触发同轮新增付费 Run。后续合格候选按已观察多图、未知/待适配、明确缺失排序；同级维持原序，恢复既有 Attempt 优先，预算、故障和冷却门保留。
+
+global 48 私有表按 workspace、来源 Binding version、Candidate、Build、输入/输出 Schema、Manifest 和解析版本隔离，并按 Attempt 幂等写入；未知样本不清除已有图集证据。同批缺失优先；不追溯改写旧 Attempt。管理 Route detail 的 Binding 新增 `media_capabilities[]`，只含 `candidate_id,status,reason,sample_count,media_count,observed_at`。Candidate 新增 `output_schema_origin=unknown|declared_fields|dataset_view|observed_dataset`，展示列不构成字段完备证明。旧库缺少 global 48 时继续解析与抓取，质量排序默认未知；显式迁移后开始积累证据。
+
+## 通用结构映射与 Dataset 恢复（2026-09-21）
+
+Manifest v1 可选 `structures` 声明媒体、尺寸候选、总数与共同作者，路径须经 Schema/样本证明。缺省不序列化，保留旧 hash 和冻结请求；Instagram 的 `{}` 或仅共同作者声明仍使用兼容媒体解析。媒体按唯一 ID/URL 关联，最多缓存六张。
+
+Schema 为不可信数据，映射须经静态及样本验证；缺图保留正文。共同作者仅用于 Instagram 归属，保留主作者；邀请/标签无效，不保存远程头像。观察修正复用原授权及两轮限制，生成后继，不改旧映射。
+
+`DatasetReadRequest` 核验原 Attempt/Run/Dataset、上限、workspace/用途、Secret/version/pool generation，只用原凭据 GET；禁止领取当前池 Key、预留费用或新增 Run。上限 100 行/8 MiB。身份不明、凭据不可用、401/403、404、非法/超限结果停止恢复；网络/服务瞬态失败按原 Job 次数上限与退避重试。永久失败或 `actorops_result_recovery_exhausted` 终结未完成 Attempt，不记 Actor 故障、不持续阻挡新任务；未决费用继续对账。见[恢复说明](../../dev/instagram-media-repair.md#通用映射升级与恢复排查)。
+
 ## 字段映射补充合同（2026-08-29）
+
+旧共同作者投影及 Repair 结算唤醒重验准入遵循上述恢复说明。
 
 字段 AI 按 X、Instagram、YouTube Route 分别使用发布目标、Actor 类型、输入/输出别名和错 Route 类型；共同最小合同为稳定 ID、原文 URL、发布时间、目标身份及 `title|text` 至少一个，缩略图/图片和展示作者是可选增强。评论、字幕、关注关系或纯资料 Actor 只报告错 Route；嵌套内容、命名 Dataset、相对时间、Schema 不完整和可由目标派生的身份使用独立安全缺口并保持待处理。对应公共 `mapping_issue_code` 新增安全枚举 `wrong_actor_type|nested_content_items|named_dataset_required|output_schema_incomplete|target_identity_derivable|relative_published_at`，不得返回模型解释、Schema 或上游原始错误。YouTube 额外确定性支持 `maxItemsPerUrl`、大小写视频字段和常见缩略图；视频行未重复返回频道 ID 时只由 YouTube Adapter 覆盖注入已规范化的 `target.native_id` 并再次 exact 核验。
 
