@@ -8,30 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "observability",
-    "verification"
-  ],
-  "recorded_on": "2026-09-16",
-  "result": "从 v2.6.22 定位客户端代理路径的同步断线，为站点添加持久化精确域名直连规则并补充故障定位操作说明；以回退提交 d4b9f6d0 撤销未发布的 v2.6.23，已推送 main，生产保持 v2.6.22。",
-  "status": "completed",
-  "task_id": "web-disconnect-proxy-route-20260916",
-  "unresolved": [
-    "代理节点内部周期关闭连接的原因未调查；本次定位并绕开当前客户端的异常代理路径。"
-  ],
-  "validation": [
-    "同机同时三分钟持久 HTTPS 对照：直连 35 次成功、0 断线、1 条连接；原代理路径 23 次成功、3 次断线、4 条连接。",
-    "代理路径三次中断时间与 API browser_transport/1006 对齐；90 秒 TCP 关闭标志采样覆盖其中两次，均看到代理出口先发 FIN/RST。",
-    "规则生效后重复同样测试：两个入口均 35 次成功、0 断线、1 条连接；实际 Chrome 两条连接保持原 ID 并持续双向流量。",
-    "文档 impacted preflight 5/5 通过；main 回退后与 v2.6.22 文件树完全一致。",
-    "2026-09-16 15:57 至 16:22，两条实际 Chrome 连接分别持续 1474/1449 秒，连接 ID 保持且双向流量增长；用户确认页面恢复后结束观察，未宣称完成原计划 30 分钟。",
-    "截至 16:22:03，API 有界日志查询显示 15:58 后 relay 关闭记录为 0；容器 restart_count=0、OOM=false。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-09-16",
@@ -414,6 +390,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "累计分支 preflight 15/15 通过，571.828 秒，0 SQLite ResourceWarning；证据 .test-results/20260922T154817Z-13840/result.json。后端全量回归、前端 156 个文件/971 项测试及生产构建通过。",
     "合并源为任务 Worktree 的 codex/model-inheritance-analysis，目标为主 checkout 的 main；包含推送 origin/main、版本 Tag 和 GitHub Release。发布不执行 release_vps.sh 或连接 VPS。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-09-23",
+  "result": "从本地 main 建立独立 worktree；自动化模型编辑复用对话选择器的模型列表与推理滑杆，显示模型来源，保留完整模型 ID 和保存草稿语义；同步 UI 合同与更新日志。未提交或部署。",
+  "status": "completed",
+  "task_id": "automation-model-source-picker-20260923",
+  "unresolved": [],
+  "validation": [
+    "相关 Vitest 24 项和 TypeScript 检查通过；自动化恢复链路桌面与手机 E2E 2 项通过。",
+    "最终 impacted preflight 13/13 通过，含 Python API/存储、前端全量测试、静态检查与生产构建；首屏 JavaScript Brotli 245635/245760 bytes。",
+    "决策索引、UI 合同、WORKLOG 结构校验及 git diff --check 通过。"
   ]
 }
 ```

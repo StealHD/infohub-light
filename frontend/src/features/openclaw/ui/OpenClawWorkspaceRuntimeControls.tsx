@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
-import { Button, Icons, ListBox, Popover, Tooltip, TooltipTriggerButton, anchoredTooltipProps, topAnchoredTooltipProps } from '../../../design-system'
-import { EffortUsageNotice } from '../../../design-system/EffortUsageNotice'
+import { Button, Icons, Popover, Tooltip, TooltipTriggerButton, anchoredTooltipProps, topAnchoredTooltipProps } from '../../../design-system'
+import { EffortModelList } from '../../../design-system/EffortModelList'
 import { EffortSlider } from '../../../design-system/EffortSlider'
+import { EffortUsageNotice } from '../../../design-system/EffortUsageNotice'
 import { OpenClawContextUsageIndicator } from './OpenClawMessageViews'
 import type { OpenClawChatController } from '../openclawContracts'
 
@@ -62,12 +63,9 @@ export default function OpenClawWorkspaceRuntimeControls({ chat, picker, onPicke
         }}>
           {modelView ? <>
             <Button isIconOnly size="sm" variant="ghost" className="effort-model-back" aria-label="返回思考程度" onPress={() => { setView('effort'); setOpen(true); onPickerClose?.(); requestAnimationFrame(() => modelRef.current?.focus()) }}><Icons.ChevronLeft size={15} aria-hidden="true" /></Button>
-            <ListBox autoFocus="first" aria-label="OpenClaw 模型" className="effort-model-list" selectionMode="single" selectedKeys={chat.runtimeSelection.modelId ? [chat.runtimeSelection.modelId] : []} disabledKeys={disabled ? chat.models.map((entry) => entry.id) : []}>
-              {chat.models.map((entry) => <ListBox.Item id={entry.id} key={entry.id} textValue={`${entry.provider} ${entry.name}`} onPress={() => {
-                void apply(async () => { const success = await chat.setModel(entry.id); if (success) { setView('effort'); setOpen(false); onPickerClose?.(); requestAnimationFrame(() => triggerRef.current?.focus()) } return success })
-              }}>
-              <div className="min-w-0"><span className="type-control block [overflow-wrap:anywhere]">{entry.name}</span><span className="type-meta text-muted">{entry.provider}{entry.supportsImages ? ' · 支持图片' : ''}</span></div><ListBox.ItemIndicator />
-            </ListBox.Item>)}</ListBox>
+            <EffortModelList label="OpenClaw 模型" selectedId={chat.runtimeSelection.modelId} disabled={disabled}
+              models={chat.models.map((entry) => ({ id: entry.id, name: entry.name, source: entry.provider, supportsImages: entry.supportsImages }))}
+              onSelect={(id) => { void apply(async () => { const success = await chat.setModel(id); if (success) { setView('effort'); setOpen(false); onPickerClose?.(); requestAnimationFrame(() => triggerRef.current?.focus()) } return success }) }} />
           </> : <><div className="effort-picker-heading">
             <Tooltip><TooltipTriggerButton aria-label="Fast 快速模式" aria-pressed={fastEnabled} disabled={disabled || !model} onClick={() => apply(async () => { const success = await chat.setFastMode(!fastEnabled); if (success && !fastEnabled) setUsageNotice((notice) => ({ id: notice.id + 1, kind: 'fast' })); return success })} className="effort-picker-fast"><Icons.Zap size={15} strokeWidth={1.7} aria-hidden="true" /></TooltipTriggerButton><Tooltip.Content {...topAnchoredTooltipProps} className="effort-fast-tooltip"><span className="block type-control">Fast</span><span className="block type-meta text-muted">用量更多</span></Tooltip.Content></Tooltip>
             <div className="effort-picker-caption min-w-0 text-center">

@@ -105,12 +105,29 @@ it('keeps test notification off by default and sends only after explicit opt-in'
 it('reads the configured OpenClaw models directly and enables selection after refresh', async () => {
   const user = userEvent.setup(); const { api } = setup(false, 'unavailable')
   expect(await screen.findByText(/尚未读取模型目录/)).toBeVisible()
-  expect(screen.getByRole('button', { name: /选择模型/ })).toBeDisabled()
-  api.refreshInformationModels.mockResolvedValue({ status: 'ready', models: [{ id: 'test/model', name: 'Test', thinking_levels: [] }] } as never)
+  expect(screen.getByRole('button', { name: /选择模型：.*推理强度：/ })).toBeDisabled()
+  api.refreshInformationModels.mockResolvedValue({ status: 'ready', models: [
+    { id: 'test/model', name: 'Test', thinking_levels: [] },
+    { id: 'other/model', name: 'Test', thinking_levels: ['low', 'high'] },
+  ] } as never)
   await user.click(screen.getByRole('button', { name: '刷新模型目录' }))
   await waitFor(() => expect(screen.queryByText(/已加载 1 个模型/)).not.toBeInTheDocument())
-  await user.click(screen.getByRole('button', { name: /选择模型/ }))
-  expect(await screen.findByRole('option', { name: 'Test' })).toBeVisible()
+  const picker = screen.getByRole('button', { name: /选择模型：.*推理强度：/ })
+  await user.click(picker)
+  await user.click(screen.getByRole('button', { name: '选择模型：test · Test' }))
+  expect(await screen.findByRole('option', { name: 'test · Test' })).toBeVisible()
+  expect(screen.getByRole('option', { name: 'other · Test' })).toBeVisible()
+  await user.click(screen.getByRole('option', { name: 'other · Test' }))
+  expect(picker).toHaveTextContent('other · Test')
+  expect(api.updateInformationRule).not.toHaveBeenCalled()
+  await user.click(picker)
+  screen.getByRole('slider', { name: '思考程度' }).focus()
+  await user.keyboard('{End}')
+  expect(picker).toHaveTextContent('high')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '自动化模型与推理强度' })).not.toBeInTheDocument())
+  await user.click(screen.getByRole('button', { name: '保存草稿' }))
+  await waitFor(() => expect(api.updateInformationRule).toHaveBeenCalledWith(rule.id, 1, expect.objectContaining({ model: { id: 'other/model', thinking: 'high' } })))
   expect(api.refreshInformationModels).toHaveBeenCalledOnce()
   expect(api.transitionInformationRule).not.toHaveBeenCalled()
 })
@@ -119,7 +136,7 @@ it('keeps an empty authorized catalog disabled with a specific explanation', asy
   const { api } = setup(false, 'unavailable')
   api.informationModels.mockResolvedValue({ status: 'ready', models: [] })
   expect(await screen.findByText(/当前没有可用模型/)).toBeVisible()
-  expect(screen.getByRole('button', { name: /选择模型/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /选择模型：.*推理强度：/ })).toBeDisabled()
 })
 
 
