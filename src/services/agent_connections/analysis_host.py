@@ -77,9 +77,10 @@ async def install(host, base, token):
                        if config['agents']['entries'].get(key) != value}
             await host.gateway._request(socket, 'analysis-patch', 'config.patch', {
                 'baseHash': current['hash'], 'raw': json.dumps({'agents': {'entries': entries},
-                    'plugins': {'entries': {'llm-task': target['plugins']['entries']['llm-task']}}}),
+                    'plugins': {'entries': {'llm-task': {**target['plugins']['entries']['llm-task'],
+                        'llm': {**target['plugins']['entries']['llm-task']['llm'], 'allowedCompletionModels': None}}}}}),
                 'note': 'Inteliscope isolated analysis setup',
-                'replacePaths': [f'agents.entries.{key}.tools.deny' for key in entries],
+                'replacePaths': [f'agents.entries.{key}.tools.deny' for key in entries] + ['plugins.entries.llm-task.llm.allowedCompletionModels'],
             })
         await wait_loaded(host.gateway, socket)
         from ..openclaw_relay.bridge import verify_agent

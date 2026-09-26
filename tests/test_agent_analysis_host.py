@@ -21,6 +21,10 @@ class AnalysisGateway(Gateway):
             self.writes.append(params)
             path = self.root / 'openclaw.json'
             config = json.loads(path.read_text())
+            plugin_patch = json.loads(params['raw']).get('plugins', {}).get('entries', {}).get('llm-task', {}).get('llm', {})
+            previous = config.get('plugins', {}).get('entries', {}).get('llm-task', {}).get('llm', {}).get('allowedCompletionModels')
+            if previous and 'allowedCompletionModels' in plugin_patch and plugin_patch['allowedCompletionModels'] is None:
+                assert 'plugins.entries.llm-task.llm.allowedCompletionModels' in params.get('replacePaths', [])
             def merge(target, patch):
                 for key, value in patch.items():
                     if value is None:
@@ -75,6 +79,20 @@ def test_explicit_model_prohibition_never_widened(installation):
         asyncio.run(install(host, base, token))
     assert json.loads(path.read_text()) == config
     assert not host.gateway.writes
+
+
+@pytest.mark.parametrize('allowed', [[], ['other/model']])
+def test_install_removes_legacy_allowlist_from_gateway_patch(installation, allowed):
+    host, base, token = prepared(installation)
+    path = host.root / 'openclaw.json'
+    config = json.loads(path.read_text())
+    config.setdefault('plugins', {}).setdefault('entries', {})['llm-task'] = {'enabled': True,
+        'llm': {'allowModelOverride': True, 'allowedCompletionModels': allowed}}
+    path.write_text(json.dumps(config))
+    result = asyncio.run(install(host, base, token))
+    assert result['capabilities']['models'][0]['id'] == 'test/model'
+    assert 'allowedCompletionModels' not in json.loads(path.read_text())['plugins']['entries']['llm-task']['llm']
+    assert asyncio.run(install(host, base, token)) == result
 
 
 def test_inflight_completion_fences_claims_without_false_cleanup_success(installation):

@@ -38,4 +38,5 @@ def configure(config, base, root):
     plugin = result.setdefault('plugins', {}).setdefault('entries', {}).setdefault('llm-task', {})
     plugin['enabled'] = True
     plugin.setdefault('llm', {}).setdefault('allowModelOverride', True)
+    plugin['llm'].pop('allowedCompletionModels', None)
     return result, agent_id

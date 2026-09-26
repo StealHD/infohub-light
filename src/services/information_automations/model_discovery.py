@@ -1,4 +1,4 @@
-"""Read configured Gateway models and host-owned llm-task authorization only."""
+"""Read configured Gateway models without a separate model allowlist."""
 import asyncio
 import json
 from pathlib import Path
@@ -12,7 +12,6 @@ def project_models(payload, config):
     policy = plugin.get('llm', {})
     if plugin.get('enabled') is not True or policy.get('allowModelOverride') is not True:
         return []
-    allowed = policy.get('allowedCompletionModels')
     result, seen = [], set()
     for row in payload.get('models', []):
         if not isinstance(row, dict) or row.get('available') is False:
@@ -21,7 +20,7 @@ def project_models(payload, config):
         if not isinstance(identity, str) or not isinstance(provider, str):
             continue
         identity = identity if identity.startswith(provider + '/') else provider + '/' + identity
-        if identity in seen or (allowed is not None and identity not in allowed):
+        if identity in seen:
             continue
         seen.add(identity)
         levels = [value['id'] for value in row.get('thinkingLevels', [])
@@ -66,7 +65,7 @@ async def model_request(socket, identity, method, params):
 
 def discover(url, token, agent_id, device_dir, config_path, ssl_context=None):
     from types import SimpleNamespace
-    from ..agent_connections.analysis_model_policy import reconcile, project_discovery, policy_path
+    from ..agent_connections.analysis_model_policy import reconcile, project_discovery
     root = Path(config_path).parent
     config = json.loads(Path(config_path).read_text())
     async def operation(socket):
@@ -75,7 +74,6 @@ def discover(url, token, agent_id, device_dir, config_path, ssl_context=None):
         updated, reason = await reconcile(host,socket,personal,config)
         payload = await model_request(socket,'analysis-models','models.list',{'view':'configured','agentId':agent_id})
         return project_discovery(personal,payload,updated,reason)
-    policy = policy_path(root)
-    owned = policy.exists() and json.loads(policy.read_text()).get('owner') == 'system'
+    legacy_policy = 'allowedCompletionModels' in config.get('plugins',{}).get('entries',{}).get('llm-task',{}).get('llm',{})
     return asyncio.run(asyncio.wait_for(rpc_models(url,token,agent_id,device_dir,ssl_context,
-        operation=operation,scopes=['operator.admin'] if owned else None),90))
+        operation=operation,scopes=['operator.admin'] if legacy_policy else None),90))

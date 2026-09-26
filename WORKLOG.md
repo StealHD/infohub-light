@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-09-16",
-  "result": "从本地 main 创建独立 worktree，优化 /agents：管理员个人 Agent 与成员审批页签改为紧凑并说明用途，个人状态区分网页聊天连接与接入状态，外部 MCP 连接明确适用场景并折叠旧手动配置命令；同步操作手册与更新日志。",
-  "status": "completed",
-  "task_id": "agents-connection-ui-20260916",
-  "unresolved": [],
-  "validation": [
-    "相关 Vitest 4 文件 20 项通过，TypeScript 类型检查与 UI 静态契约通过。",
-    "Playwright 托管接入桌面与手机 4 项通过，并查看深色桌面与手机截图；浅色和 200% 重排截图生成。",
-    "impacted preflight 13/13 通过；首次尝试因系统 Python 缺少 pytest 停止，改用现有项目虚拟环境后完整通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "ui",
     "verification"
@@ -408,6 +390,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "相关 Vitest 24 项和 TypeScript 检查通过；自动化恢复链路桌面与手机 E2E 2 项通过。",
     "最终 impacted preflight 13/13 通过，含 Python API/存储、前端全量测试、静态检查与生产构建；首屏 JavaScript Brotli 245635/245760 bytes。",
     "决策索引、UI 合同、WORKLOG 结构校验及 git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "从本地 main 建立 codex/automation-configured-models worktree，取消自动化 completion 模型白名单及归属快照；安装和发现清理遗留列表并使用 Gateway replacePaths 保证删除生效，保留配置并发校验、Agent 可用性和 Provider 认证。同步 D228、合同、手册和更新日志。生产 Gateway 已清除旧列表，三个连接器目录已刷新；代码尚未合并或发布。",
+  "status": "completed",
+  "task_id": "automation-configured-models-20260926",
+  "unresolved": [
+    "原 opencode Provider 认证失败独立存在，未替换 Provider 凭据；生产已验证 senjee/gpt-5.6-luna 可调用。"
+  ],
+  "validation": [
+    "42 项直接相关测试通过，覆盖旧白名单任意归属、空列表、安装、重复刷新、独立 connector 与配置竞态。",
+    "生产 Gateway 确认配置加载且模型白名单字段不存在；三个连接器刷新 completed，目录含 senjee GPT。",
+    "同一生产分析 Agent 的 senjee/gpt-5.6-luna 独立 JSON completion 返回 HTTP 200、实际模型一致、结果有效。",
+    "impacted preflight 15/15 通过（全量后端测试、前端检查与构建）；最终 replacePaths 改动已单独复验 42 项相关测试。控制结构、WORKLOG、文档字节限制与 diff 检查通过。"
   ]
 }
 ```

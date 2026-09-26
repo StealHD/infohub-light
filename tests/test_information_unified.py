@@ -132,10 +132,11 @@ def test_paused_lease_is_never_resurrected(context):
     assert rules.runs(user['id'],rule['id'])['items'][0]['status']=='cancelled'
 
 
-def test_discovery_intersects_host_policy_with_configured_models():
+def test_discovery_uses_configured_models_without_legacy_allowlist():
     config={'plugins':{'entries':{'llm-task':{'enabled':True,'llm':{'allowModelOverride':True,'allowedCompletionModels':['a/one']}}}}}
     payload={'models':[{'id':'one','provider':'a','thinkingLevels':[{'id':'low'}]}, {'id':'two','provider':'a'}, {'id':'broken','provider':'a','available':False}]}
-    assert project_models(payload,config)==[{'id':'a/one','name':'a/one','thinking_levels':['low']}]
+    assert project_models(payload,config)==[{'id':'a/one','name':'a/one','thinking_levels':['low']},
+        {'id':'a/two','name':'a/two','thinking_levels':[]}]
     config['plugins']['entries']['llm-task']['llm']['allowModelOverride']=False
     assert project_models(payload,config)==[]
 
