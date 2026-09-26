@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
-  "result": "移除 Agent 建议卡片底部上一项、页码与下一项栏，保留读屏播报；修复透明 3D 容器拦截侧卡点击，点击露出侧卡切换，正面卡填入建议。同步 UI 合同、手册与更新日志，未提交或部署。",
-  "status": "completed",
-  "task_id": "agent-direct-card-navigation-20260917",
-  "unresolved": [],
-  "validation": [
-    "impacted preflight 11/11 通过（.test-results/20260917T102828Z-15836）。",
-    "修复透明容器后，桌面与手机侧卡点击、键盘及滑动浏览器测试 4/4 通过；本地页面点击露出的侧卡已确认切换且不改草稿。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "verification"
   ],
   "recorded_on": "2026-09-18",
@@ -437,6 +419,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Gateway 2026.9.2 配置已加载；真实 browser.request 打开并读取 Example Domain。个人 Agent 经现役 Relay 的 operator.read/write scopes 调用 read/browser，无 exec；第二次检索成功加载 annas-archive.gl 首页并提交可见搜索框，网站返回手动人机验证。测试标签页已由模型关闭。",
     "服务器独立账号直连公网、loopback、RFC1918、metadata 与 IPv6 均被拒绝；代理拒绝 loopback、metadata、192.0.0.8 和 192.88.99.1 等特殊地址，公网 HTTPS 返回 200。原生 book Chrome 仍为 PID 532808、active；上游代理 sniffer 未启用，不进行目的地址改写。",
     "Gateway 浏览器配置备份：~/.openclaw/backups/browser-before-isolated-egress-20260926.json；Skill 备份：~/.openclaw/backups/book-skill-project-entry-20260926；运行文件备份位于 /var/backups/browser-egress-*。只更新 Gateway 主机运行环境，未重建 Inscope VPS 镜像，未发送通知或下载文件。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "按用户后续明确授权，将个人 Agent 的 book-skill 接入 VPS 原生桌面。新增 book_desktop 插件复用固定检索、视觉验证和任务 lease，以可信 Agent/session 身份派生独立任务；授权同步统一开放、核验与收回。保留当前验证码图片的两次读取与单次提交约束，修复原生图片内容哈希子目录的匹配。更新 Skill 两个部署副本及接口、运维、决策和更新说明。",
+  "status": "partial",
+  "task_id": "inscope-personal-desktop-skill-20260926",
+  "unresolved": [
+    "站点验证通过及最终检索结果受模型接口故障影响，尚未核验；应用镜像尚待发布，VPS 可用空间约 859 MiB。"
+  ],
+  "validation": [
+    "最终完整 preflight 15/15 通过（.test-results/20260926T130654Z-75180/result.json）；针对性 Pytest 和 Node 桌面桥接 7 项回归通过；生产构建初始 JavaScript Brotli 245630 bytes。",
+    "Gateway 插件和三个个人 Agent 已安装配置；真实 Inscope Relay 的 book_desktop start、visual_next、两次 visual_read 成功，模型自行识别并发起 visual_submit。提交工具未返回成功，随后服务器整机重启，临时任务检查点丢失；重启后插件与有效工具仍可用，但续跑模型接口反复 HTTP 502/超时，未确认验证码通过或最终结果。",
+    "备份位于 Gateway ~/.openclaw/backups/book-desktop-personal-20260926；验收请求 deliver:false，未调用下载/通知工具。代码未改原生 main 工作流脚本。"
   ]
 }
 ```

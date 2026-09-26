@@ -1,14 +1,14 @@
 """Minimal managed Skill capabilities; never grant shell or arbitrary filesystem access."""
 from copy import deepcopy
 
-_OWNED_TOOLS = {'read', 'browser'}
+_OWNED_TOOLS = {'read', 'browser', 'book_desktop'}
 _OWNED_DENIES = _OWNED_TOOLS | {'group:fs', 'group:ui', 'canvas', 'computer'}
 
 
 def required_skill_tools(skill_keys):
     required = ['read'] if skill_keys else []
     if 'book-skill' in skill_keys:
-        required.append('browser')
+        required.extend(['browser', 'book_desktop'])
     return required
 
 
@@ -24,6 +24,8 @@ def skill_tool_policy(tools, skill_keys):
     required = required_skill_tools(skill_keys)
     result['allow'] = [tool for tool in result['allow'] if tool not in _OWNED_TOOLS] + required
     blocked = ['write', 'edit', 'apply_patch', 'exec', 'process', 'canvas', 'computer']
+    if 'book_desktop' not in required:
+        blocked.append('book_desktop')
     for tool, group in (('read', 'group:fs'), ('browser', 'group:ui')):
         if tool not in required:
             blocked.extend([group, tool])

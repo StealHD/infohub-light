@@ -7,7 +7,7 @@ export const skillExecutionEntry: ChangelogEntry = {
     { title: '代理浏览器的独立公网出口', description: '为需要代理的托管浏览器提供独立运行环境，仅允许经过校验的公网 HTTPS 访问；个人 Agent 保留原有工具限制。原生桌面浏览器与登录状态不共享，运行环境需管理员显式安装和验收。' },
     { title: '浏览器端点冲突修复工具', description: '新增管理员运维修复命令，默认仅预览本机浏览器控制地址与访问策略的冲突；显式应用后继续限制网页访问本机、内网与元数据地址。普通部署与 Skill 同步不会自动修改此配置。' },
     { title: '消息保留 Skill 标签', description: '发送后在问题气泡内显示本次选择的 Skill；刷新、重连和历史会话恢复时保留标识，不将选择标签当作已执行证明。' },
-    { title: '受限读取与浏览器', description: '开放 Skill 后补齐工作区及已解析 Skill 目录的只读能力，book-skill 同时取得浏览器能力；保留主机文件、Shell 和文件修改限制。' },
+    { title: 'Skill 读取与桌面流程', description: 'book-skill 可复用 VPS 桌面检索、验证码识别与续跑；开放范围同步会核验并收回对应工具。' },
     { title: '已有连接可同步或收回', description: '部署更新后，管理员在管理开放范围点击“同步执行能力”即可修复；已有会话的实际工具未就绪时显示同步失败并允许重试。收回 Skill 时撤回对应受管能力。' },
   ],
 }

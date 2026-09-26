@@ -15,7 +15,9 @@
 
 `agent_connections/browser_policy.py` 仅由显式运维命令 `scripts/repair_openclaw_browser_policy.py` 调用，复用管理连接预览及 CAS 修复本机 CDP 与全局浏览器 SSRF 策略的冲突。固定本机控制端点与公开网页导航分别采用 OpenClaw 原生校验，修复必须关闭私网放行并保留其他禁止项；自定义信任、远端或共享浏览器配置拒绝自动改写。普通 Skill 同步、接入、请求与发布不触发全局浏览器策略修改；保存、加载与真实浏览器执行是独立证据。
 
-代理浏览器不适用上述自动修复。`scripts/openclaw_browser_egress/` 提供显式安装的 Gateway 主机运行环境：`launch.py` 以独立无登录账号启动固定 Chrome、清空继承环境，启动前原子安装仅约束该 UID 的 nftables 出口规则；`proxy.py` 只接受 HTTPS CONNECT，核验全部 DNS IPv4 为公网后将固定 IP 交给上游代理，禁止二次域名解析。独立账号只能连接该本机代理，其他 IPv4/IPv6 出口拒绝；CDP 已建立连接的响应保留。只有此边界安装并通过直接出网拒绝、私网目标拒绝及公网页面验收后，才能显式配置 OpenClaw 的代理兼容模式；该模式的网络限制由隔离出口执行，不可用于普通用户进程或其他浏览器 profile。个人 Agent 仍只获得 read/browser，不复用 main 的桌面、脚本、登录状态或 exec 权限。配置切换前后备份与核验属于独立运维动作，安装器不改 Gateway 配置，也不重启 Gateway。
+代理浏览器不适用上述自动修复。`scripts/openclaw_browser_egress/` 提供显式安装的 Gateway 主机运行环境：`launch.py` 以独立无登录账号启动固定 Chrome、清空继承环境，启动前原子安装仅约束该 UID 的 nftables 出口规则；`proxy.py` 只接受 HTTPS CONNECT，核验全部 DNS IPv4 为公网后将固定 IP 交给上游代理，禁止二次域名解析。独立账号只能连接该本机代理，其他 IPv4/IPv6 出口拒绝；CDP 已建立连接的响应保留。只有此边界安装并通过直接出网拒绝、私网目标拒绝及公网页面验收后，才能显式配置 OpenClaw 的代理兼容模式；该模式的网络限制由隔离出口执行，不可用于普通用户进程或其他浏览器 profile。此出口用于受管 browser。已获准使用 book-skill 的个人 Agent 另可通过下述桌面工具使用原生桌面；两种运行路径的验收分别记录。配置切换前后备份与核验属于独立运维动作，安装器不改 Gateway 配置，也不重启 Gateway。
+
+`scripts/openclaw_book_desktop/` 是 Gateway 上显式安装的桌面 Skill 插件；`book_desktop` 由 Skill 工具切片统一开放、核验和收回。插件只为个人 Agent 注册，用可信 agentId/sessionKey/sessionId 与书籍标签派生任务，固定调用现有 book_browser/visual_flow 脚本并复用其标签页归属、串行桌面租约和检查点。验证码图片仅取该任务当前 prepared challenge 的固定图片，两次成功图片返回后才能提交，未知提交结果不能重放。桌面是管理员明确授权的小团队共享桌面，保留其站点登录状态；不声称拥有独立桌面或 Cookie 隔离。通用 exec/computer 权限仍不开放。
 
 可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的 MCP allowlist 只含自己的角色工具；`agent_connections/skill_tools.py` 统一拥有初次配置及清单同步所需的受限读取和 book-skill 浏览器切片。其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。文件读取仅允许个人 workspace 与当前已解析 Skill 目录；禁止 Shell、文件修改、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
 

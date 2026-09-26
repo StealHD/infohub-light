@@ -1,0 +1,1 @@
+{"id":"inteliscope-book-desktop","name":"Inscope desktop book workflow","version":"1.0.0","activation":{"onStartup":true},"contracts":{"tools":["book_desktop"]},"toolMetadata":{"book_desktop":{"optional":true}},"configSchema":{"type":"object","properties":{},"additionalProperties":false}}

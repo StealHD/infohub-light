@@ -72,7 +72,11 @@ sudo python3 install.py --gateway-user ubuntu --cdp-port 18802 --apply
 
 验收后，由管理员备份并 CAS 修改受管 profile 的 `cdpPort`、全局及 profile `executablePath` 为该启动器、`attachOnly=true`，并将 `extraArgs` 指向 18890。浏览器由 systemd 管理，Gateway 只附加到此固定 CDP 端点；不通过 sudo 子进程规避 Gateway 的启动 PID 归属检查。OpenClaw 代理兼容模式需 `dangerouslyAllowPrivateNetwork=true`；这里只允许在上述独立账号、固定启动器与出口限制全部有效时使用，网络权限仍由内核和代理限定为公网 HTTPS。保留 metadata 禁止项，不能将此配置复用给普通 Chrome 或原生 main 浏览器。核对配置加载后，再执行 Gateway 实际导航/读取及个人 Agent Skill 验收。
 
-站点验收还需核对 Skill 的个人 Agent 入口与原生脚本当前维护的入口一致。部署中的 `book-skill` 在 `Project Agents` 小节指定 `openclaw` profile 和已核验的首页，要求通过可见搜索控件操作；不要让模型凭记忆猜旧域名。修改前备份两个已安装目录的说明，保留 main 工作流及脚本不变。DNS/代理路由变化、站点验证或登录仍是独立结果，不能由工具调用成功推断已取得书籍结果或下载链接。
+个人 Agent 使用原生桌面 book-skill 时，在 Gateway 的 `~/.openclaw/extensions/inteliscope-book-desktop/` 安装仓库 `scripts/openclaw_book_desktop/` 下的三个 `.mjs`、`package.json` 和 `openclaw.plugin.json`。备份现有 Skill 与相关配置，将 `project-agents.md` 安装为两个 Skill 目录中的 `references/project-desktop.md`，并让各自 `SKILL.md` 的 Project Agents 小节引用它。通过 Gateway config CAS 将插件绝对路径加入 `plugins.load.paths`，保留其他插件，加载后同步已开放 Skill 的个人绑定工具。新工具必须在真实会话的 `tools.effective` 和实际调用中分别核验；仅插件文件存在不是成功证据。
+
+`book_desktop` 使用 VPS 原生桌面 Chrome 和既有站点会话，各个人会话有独立的任务标签及标签页归属；共享桌面由既有 lease 串行调度。检索、候选选择、验证码图片读取/提交、通过后的续跑均复用当前安装的固定脚本。Skill 的授权不替代宿主要求的当前验证码操作确认。遇到 busy 保留任务，遇到观察超时先检查同一任务；不得改任务号重复提交。返回 ready 才证明取得当前匹配元数据与最终链接，文件下载/发送仍需独立请求与验收。
+
+插件依赖生产主机现有 `/home/ubuntu/.openclaw/workspace/skills/book-skill/scripts/`、18801 桌面 Chrome、Computer Use node 和桌面 lease；安装前核对这些入口。此适配器不改原生 main 工作流。回滚先撤回个人 Agent 的 `book_desktop` 工具，再恢复 Skill 与插件加载路径并核对 Gateway；保留现有桌面、任务检查点和 main 配置。受管 browser 的独立公网出口仍按本节前述步骤验收。
 
 OpenClaw 会自动补充 `user`、`chrome` profile。切换时必须显式将这两个名字也配置为 `driver=openclaw`、`attachOnly=true`、相同隔离 CDP 端口，并核验实际 profile 列表；不能留下能附加到账号原有桌面的默认入口。其他既有 profile 需要逐个确认，不支持混合共享部署。原生 main 的专用脚本直连自己的独立端口，不受这些别名替换影响。
 

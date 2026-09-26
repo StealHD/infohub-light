@@ -90,7 +90,7 @@ async def test_sync_fails_closed_when_gateway_readback_differs(tmp_path, monkeyp
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize('failure', ['missing_read', 'missing_browser', 'wrong_agent', 'tool_drift', 'none'])
+@pytest.mark.parametrize('failure', ['missing_read', 'missing_browser', 'missing_book_desktop', 'wrong_agent', 'tool_drift', 'none'])
 async def test_same_skill_selection_repairs_old_tools_and_checks_effective_capabilities(tmp_path, monkeypatch, failure):
     gateway = AgentSkillGateway(object(), tmp_path)
     original = {'skills': ['book-skill'], 'tools': {'allow': ['safe', 'browser'],
@@ -120,7 +120,7 @@ async def test_same_skill_selection_repairs_old_tools_and_checks_effective_capab
             return {'sessions': [{'key': 'agent:ih-managed:existing'}]}
         assert method == 'tools.effective'
         assert params == {'agentId': 'ih-managed', 'sessionKey': 'agent:ih-managed:existing'}
-        names = ['read', 'browser']
+        names = ['read', 'browser', 'book_desktop']
         if failure.startswith('missing_'):
             names.remove(failure.removeprefix('missing_'))
         return {'agentId': 'other' if failure == 'wrong_agent' else 'ih-managed',
@@ -187,7 +187,7 @@ async def test_revoking_skills_declares_exact_allow_array_removal(tmp_path, monk
         assert method == 'config.patch'
         patched = json.loads(params['raw'])['agents']['entries']['ih-managed']
         removed = set(entry['tools']['allow']) - set(patched['tools']['allow'])
-        assert removed == {'read', 'browser'}
+        assert removed == {'read', 'browser', 'book_desktop'}
         assert 'agents.entries.ih-managed.tools.allow' in params['replacePaths']
         assert 'agents.entries.ih-managed.skills' in params['replacePaths']
         entry.update(patched)
