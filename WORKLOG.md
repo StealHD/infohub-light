@@ -12,24 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-17",
-  "result": "在现有 codex/agents-connection-ui-20260916 分支将空对话的简单查询升级为三类可编辑进阶分析任务，并以设计系统响应式任务卡展示；专题与已选内容也使用证据导向的完整提问。同步 UI 合同、手册与更新日志，未提交或部署。",
-  "status": "completed",
-  "task_id": "agent-advanced-suggestions-20260917",
-  "unresolved": [],
-  "validation": [
-    "类型检查、UI 合同、相关 Vitest 13 项与生产构建通过；桌面和手机端 Agent 快捷入口浏览器用例 14 项通过、2 项按原有条件跳过。",
-    "462px 和桌面实页已检查任务卡布局；点击只填入草稿、不发送。最终 impacted preflight 13/13 命令通过；本地 /agent 预览 HTTP 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
   "result": "在现有 codex/agents-connection-ui-20260916 分支为 Agent 助手回复加入按需加载的安全 Markdown 排版，支持标题、列表、强调、代码和表格；仅允许 HTTP(S) 外链，原始 HTML 和远程图片不执行或加载。同步 UI 合同、手册和更新日志，未提交或部署。",
   "status": "completed",
   "task_id": "agent-markdown-replies-20260917",
@@ -412,6 +394,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "本地浏览器逐帧复现原列表 424px 突变 106px；修复后关闭阶段保持列表，仅执行既有退出缩放。",
     "直接相关 Vitest 41 项、自动化桌面与移动端 Playwright 2 项通过；聊天模型与推理控件浏览器场景 5 项通过。连接页布局用例首次页面加载失败，随后在 main 和修复分支单独复验均通过。",
     "最终 impacted preflight 13/13 通过（.test-results/20260926T073923Z-73983/result.json），涵盖后端相关测试、前端全量 Vitest、lint、UI 合同及生产构建。修复分支本地预览 15174 端口返回 HTTP 200；前端 157 文件、973 项单元测试通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "在本地 main b9b594c9 创建的 codex/diagnose-agent-send-skill worktree 补齐已开放 Skill 的受限读取与 book-skill 浏览器能力；初次接入和管理员重存清单共用策略，收回清单撤回能力，保留 MCP/其他 Agent 配置。同步核对配置及既有会话的实际工具。未修改发送反馈，未部署或写生产配置。",
+  "status": "completed",
+  "task_id": "agent-skill-execution-capabilities-20260926",
+  "unresolved": [
+    "未部署、未修改生产配置，也未执行真实模型或查书调用；部署后管理员在 Skills → 管理开放范围点击“同步执行能力”并确认，补齐已有连接。",
+    "首屏 JavaScript 体积预算仅余 5 bytes，与其他任务合并时须复核最终产物。"
+  ],
+  "validation": [
+    "定向后端 45 项通过，包含既有接入、重复同步、撤权、失败重试及原生配置检查；Skill 管理页 8 项测试通过，覆盖原清单同步、确认、防重复提交及失败保留选择。",
+    "OpenClaw 2026.9.3 原生 read 测试确认 Skill/参考文件可读，未选 Skill、主机文件、路径穿越和越界符号链接被拒绝；已核对 2026.9.2 官方包相同目录例外实现。",
+    "生产只读确认 sessions.list 与 tools.effective 的 exact session 查询兼容；最终 impacted preflight 14/14 通过（.test-results/20260926T075441Z-87271/result.json），含后端映射回归、前端 156 文件/973 测试、lint、UI 合同和生产构建。",
+    "生产首屏 JavaScript Brotli 为 245755/245760 bytes，当前通过；未增加预算或调整测试映射。"
   ]
 }
 ```

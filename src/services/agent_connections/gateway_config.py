@@ -3,6 +3,7 @@ import copy
 import re
 from pathlib import Path
 from .manifest import validate_manifest, READ_TOOLS, USER_TOOLS
+from .skill_tools import skill_tool_policy
 
 # A fixed restrictive allowlist is authoritative. Denies additionally block host/cross-session paths.
 DENIED = ['group:runtime', 'group:fs', 'group:sessions', 'group:memory', 'group:ui',
@@ -18,8 +19,9 @@ def agent_entry(manifest, root):
             'agentDir': str(root / 'managed' / agent_id / 'agent'),
             'skills': list(manifest.get('skills', [])),
             'memory': {'search': {'enabled': False}},
-            'tools': {'allow': [manifest['mcp_server'] + '__' + tool for tool in manifest['tools']],
-                      'deny': list(DENIED)},
+            'tools': skill_tool_policy({
+                'allow': [manifest['mcp_server'] + '__' + tool for tool in manifest['tools']],
+                'deny': list(DENIED)}, manifest.get('skills', [])),
             'subagents': {'allowAgents': []}}
 
 
@@ -54,11 +56,13 @@ def configure(config, manifest, root):
     if agent_id in agents:
         prior = copy.deepcopy(agents[agent_id])
         prior.setdefault('memory', {'search': {'enabled': False}})
+        prior['tools'] = skill_tool_policy(prior.get('tools', {}), manifest.get('skills', []))
         extra_denies = prior.get('tools', {}).get('deny', [])
-        prior.setdefault('tools', {})['deny'] = list(DENIED)
-        if manifest['version'] == 3 and prior['tools'].get('allow') == [namespace + '__' + tool for tool in READ_TOOLS]:
+        prior['tools']['deny'] = list(expected_agent['tools']['deny'])
+        legacy_tools = skill_tool_policy({'allow': [namespace + '__' + tool for tool in READ_TOOLS]}, manifest.get('skills', []))
+        if manifest['version'] == 3 and prior['tools'].get('allow') == legacy_tools['allow']:
             prior['tools']['allow'] = expected_agent['tools']['allow']
-        permitted = set(DENIED) | {_safe_server(name) + '__*' for name in servers if name != namespace}
+        permitted = set(expected_agent['tools']['deny']) | {_safe_server(name) + '__*' for name in servers if name != namespace}
         if 'llm-task' in extra_denies:
             permitted.add('llm-task')
         if prior != expected_agent or set(extra_denies) != permitted:

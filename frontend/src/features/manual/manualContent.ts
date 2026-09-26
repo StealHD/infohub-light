@@ -241,7 +241,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '管理 Skills 与 Automations',
-        description: '共享服务端接入由 Owner/Admin 在 Skills 页维护全站统一开放清单；初始和新发现 Skill 默认不开放，确认保存并同步成功后才供成员选择。开放不会安装依赖或扩大工具权限，收回后下一次调用即失效，已经开始的对话可继续完成。个人 Gateway 直连仍只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传；点击写操作时才会弹出独立临时 operator.admin 授权。Automations 继续支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，关闭 Inscope 后仍由 Gateway 执行。',
+        description: '共享服务端接入由 Owner/Admin 在 Skills 页维护全站统一开放清单；初始和新发现 Skill 默认不开放，确认保存并同步成功后才供成员选择。开放后会补齐 Skill 说明和参考文件的受限读取，book-skill 同时取得浏览器能力；不开放 Shell 或任意主机文件读取，也不自动安装其他依赖。已有连接部署更新后，在“管理开放范围”点击“同步执行能力”并确认即可补齐；已有会话会核验实际工具，新 Agent 无会话时仅核验配置。收回后下一次调用即失效，已经开始的对话可继续完成。个人 Gateway 直连仍只接受用户提供的 ZIP，浏览器计算 SHA-256 并按 512 KiB 顺序上传；点击写操作时才会弹出独立临时 operator.admin 授权。Automations 继续支持一次、固定间隔或显式时区 Cron 的 isolated agentTurn，关闭 Inscope 后仍由 Gateway 执行。',
       },
       {
         title: '查看使用示例与 Skill 详情',
