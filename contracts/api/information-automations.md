@@ -70,7 +70,7 @@ trigger.kind 为 each、count、interval、calendar。count 默认 5，范围 2�
 - POST `/claim` 要求 `{isolated_completion:true,protocol_version:2}`；旧协议返回 connector_upgrade_required。每次领取一个持久化步骤，包含 stage、完整 requirement、明确 model、有界 input。
 - POST `/claims/{id}/result` 接收 claim_token 与 `{model,output}`；实际模型必须与所选模型一致。output 有 status、summary、reason、covered_ids、evidence（article_id、quote、note）。拒绝未知引用、漏单元、畸形输出及工具形状。
 
-浏览器刷新以个人 Agent 的 `models.list configured` 作为唯一目录来源，Gateway 明确不可用的条目不展示；不生成、维护或读取 Inteliscope 的 allowedCompletionModels 快照。执行器只在任务运行时读取自己所需的配置并上报执行能力。凭据和原始配置不进入 Service 或浏览器。目录配置可用不等于真实模型调用已验收；不支持独立 completion 的运行时仍失败关闭。
+浏览器刷新以个人 Agent 的 `models.list configured` 作为唯一目录来源，Gateway 明确不可用的条目不展示；模型无需额外逐项授权，不生成、维护或读取 Inteliscope 的 allowedCompletionModels 快照。托管接入和执行器目录刷新清除遗留 `llm-task.llm.allowedCompletionModels` 列表，不区分其旧归属；清除使用配置版本校验，完成后重复同步不写配置。执行器上报个人与分析 Agent 均可用的 configured 模型及执行能力。凭据和原始配置不进入 Service 或浏览器。目录配置可用不等于真实模型调用已验收；Provider 认证或独立 completion 失败仍正常报错。
 
 每次领取保存 token 摘要、binding、凭据代次、180 秒租约。过期最多三次领取，提交超时的 0600 journal 先重交同一结果，不重复调用模型。相同结果重复提交幂等，旧租约、旧版本、旧确认或换绑结果不覆盖。模型调用失败将该模型标记不可用并保留队列；后台同步不会自动清除此阻断，用户刷新目录后可重试，或仅更换模型后重新确认。
 

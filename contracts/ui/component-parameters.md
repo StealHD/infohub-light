@@ -39,7 +39,7 @@ Ordinary composition uses 4 px for tightly related icon internals, 8 px for cont
 
 ## 4. Component matrix
 
-The compact Inscope Agent composer reuses the same effort-picker trigger and overlay as the OpenClaw workspace instead of maintaining separate model and thinking selects; width, overflow, focus restoration and disabled-state behavior stay identical.
+The compact Inscope Agent composer reuses the same effort-picker trigger and overlay as the OpenClaw workspace instead of maintaining separate model and thinking selects; width, overflow, focus restoration and disabled-state behavior stay identical. Automations reuses the model-list and effort-slider roles for draft configuration, with the source visible in the selected label and each model row; its picker has no chat-only Fast action.
 
 | Role | Primitive/pattern | Required parameters |
 | --- | --- | --- |

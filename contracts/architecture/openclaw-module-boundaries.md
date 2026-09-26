@@ -128,7 +128,7 @@ register_diagnostic_tools(server, context)
 
 尺寸目标为 `useOpenClawChat.ts ≤ 300`、`OpenClawConversation.tsx ≤ 200`、`remote_server.py ≤ 200`、`remote_diagnostics.py ≤ 200`、`setup_openclaw_local.py ≤ 150`；其他新增生产文件遵守 `tests/code_size_policy.json` 且不新增例外。
 
-执行恢复由 `information_automations/{execution_capability,model_refresh,preview_recovery,connector_sync}.py` 分别拥有能力、刷新回执、预览幂等与双入口控制同步；`agent_connections/analysis_model_policy.py` 只协调有归属证据的主机白名单并保留显式限制。global 45 侧表不改历史预览存储形状。
+执行恢复由 `information_automations/{execution_capability,model_refresh,preview_recovery,connector_sync}.py` 分别拥有能力、刷新回执、预览幂等与双入口控制同步；`agent_connections/analysis_model_policy.py` 在发现模型时清除遗留 completion 模型白名单，不再维护或读取其归属快照。接入安装同样清除旧列表；模型来源为 OpenClaw configured 目录，仍核对个人与分析 Agent 的实际可用性。global 45 侧表不改历史预览存储形状。
 
 ## 来源身份与分流
 
