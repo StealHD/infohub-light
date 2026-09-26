@@ -408,6 +408,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "85c355215f642ada3846f378871c26678ef22c5c",
   "control_topics": [
     "interface",
     "ui",
@@ -415,15 +416,18 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-09-26",
   "result": "从本地 main 创建 codex/skill-message-label worktree，在用户消息气泡保留本次所选 Skill 的中性标签；发送成功清除重试快照后仍保留名称，刷新、历史解析与合并恢复标签，并区分同文不同 Skill。仅存有界安全名称，不把选择标识当作执行证明；复用共享 MetaTag，同步手册、日志与合同。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "agent-skill-message-label-20260926",
   "unresolved": [
-    "最终 impacted preflight、合并及 VPS 发布尚待完成。"
+    "首屏 JavaScript Brotli 剩余预算 92 bytes，后续新增常驻代码需留意预算。"
   ],
   "validation": [
     "Skill 发送、历史投影、持久化、合并与两个会话界面的定向 Vitest 25 项通过。",
     "桌面/手机浏览器 4 项通过，覆盖发送后标签、刷新恢复、320 px Feed 侧栏、64 字符名称换行、明暗主题和 Axe；已检查实际截图。",
-    "生产构建通过，首屏 JavaScript Brotli 245668/245760 bytes；未增加预算。"
+    "生产构建通过，首屏 JavaScript Brotli 245668/245760 bytes；未增加预算。",
+    "最终 impacted preflight 13/13 通过，含 159 文件 / 984 项前端测试及受影响后端、lint、UI/合同与生产构建检查。",
+    "已快进合并并推送 main，标准发布 v2.6.28 / 85c355215f64 成功；本地构建 linux/amd64 镜像，传输重建归档 SHA-256 一致，API、Worker、版本与静态资源健康检查通过，标签已推送。",
+    "发布空间门槛首次阻断后，仅移除无容器引用的 v2.6.19–v2.6.22 五个旧镜像，保留 v2.6.23–v2.6.27、全部数据库备份及发布源码；重试标准发布成功。"
   ]
 }
 ```
