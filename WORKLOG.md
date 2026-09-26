@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-17",
-  "result": "对照用户录屏与 HeroUI Pro 公共页面，在当前分支将 Agent 进阶建议改为纵向透视卡片：更明显的侧卡层次、动态光影与投影、4.5 秒自动轮换；悬停或聚焦暂停，保留手动切换与填入问题行为。同步 UI 合同、手册和更新日志，未提交或部署。",
-  "status": "completed",
-  "task_id": "agent-spatial-refine-20260917",
-  "unresolved": [],
-  "validation": [
-    "类型检查、UI 合同、生产构建通过，初始 JS Brotli 245333/245760 bytes。",
-    "桌面和手机专项浏览器检查 5 项通过、1 项按设备条件跳过；覆盖自动轮换、悬停暂停及交互。",
-    "最终 impacted preflight 11/11 命令通过（.test-results/20260917T094027Z-9124）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
   "result": "细化当前分支 Agent 建议卡片：保留 3D 层级与指针倾斜，缩小卡片并移除右下硬黑边；三种独立细线底纹仅受光时显现，紫灰、青绿和暖金底色保持独立；背景光限制色强和范围并消除底部直线边界。侧卡切换、正面卡填入建议，自动轮换保留。同步组件合同与更新日志，未提交或部署。",
   "status": "completed",
   "task_id": "agent-card-light-depth-20260917",
@@ -430,6 +411,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "42 项定向 Pytest 通过，覆盖预览零写入、CAS 冲突、精确数组替换、读回漂移、待加载与未知写入不重放。",
     "本地 OpenClaw 2026.9.3 原生策略复现原错误；修复后 3 种 loopback CDP 通过，7 个私网/metadata/DNS 指向私网用例拒绝，公网用例通过。未启动浏览器或调用模型。",
     "最终 impacted preflight 14/14 通过，证据 .test-results/20260926T104452Z-20090/result.json；后端回归、语法、前端关联测试、lint、类型及控制检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "57a7d89219cb02cac57efe815e8d6deed8d472b5",
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "按用户后续授权将 codex/browser-endpoint-policy 快进合入本地 main 并推送，标准发布 v2.6.29 至 vps-tokyo。备份原策略后显式 CAS 应用浏览器端点修复，关闭私网放行并移除 4 项 loopback 冲突，保留 metadata 禁止项；Gateway 已加载，真实浏览器启动成功。",
+  "status": "completed",
+  "task_id": "release-browser-policy-v2629-20260926",
+  "unresolved": [
+    "VPS 根分区剩余约 874 MiB（98% 使用率）；后续发布仍需先核对容量。模型驱动的完整书籍检索不属于本次发布验收。"
+  ],
+  "validation": [
+    "本地构建 linux/amd64 镜像并传输，重建归档 SHA-256 完全一致；API、Worker、公开版本及静态资源健康检查通过，v2.6.29 标签已推送。运行 revision=57a7d89219cb。",
+    "生产 OpenClaw 2026.9.2 配置读回及加载哈希一致，browser running/cdpReady/cdpHttp 均为 true；普通 Relay 认证及心跳成功。未调用模型、执行电子书下载或发送通知。",
+    "原策略以 0600 备份到持久 data/backups/openclaw-browser-policy-before-v2.6.29-20260926.json。仅清理无容器引用的 v2.6.23–v2.6.26 镜像，保留 v2.6.27、v2.6.28 及全部数据库备份、源码；上传临时基准文件核对 SHA 后删除。"
   ]
 }
 ```
