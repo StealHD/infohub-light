@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, userEvent, waitFor, chatController } from '../OpenClawConversation.test.support'
 import OpenClawWorkspaceRuntimeControls from './OpenClawWorkspaceRuntimeControls'
@@ -122,4 +123,30 @@ it('rechecks an explicitly reselected model without a success notice', async () 
   expect(chat.setModel).toHaveBeenCalledWith('openai/gpt')
   expect(chat.setModel).toHaveBeenCalledTimes(1)
   expect(screen.queryByText(/模型已切换/)).not.toBeInTheDocument()
+  const trigger = screen.getByRole('button', { name: /OpenClaw 模型/u })
+  await waitFor(() => expect(trigger).toHaveFocus())
+  await user.click(trigger)
+  expect(screen.getByRole('slider')).toBeVisible()
+})
+
+it('opens a reasoning command after dismissing a model command', async () => {
+  const user = userEvent.setup()
+  const chat = controller()
+  const onPickerClose = vi.fn()
+  function Commands() {
+    const [picker, setPicker] = useState<'model' | 'reasoning' | null>('model')
+    return <><button onClick={() => setPicker('reasoning')}>推理命令</button>
+      <OpenClawWorkspaceRuntimeControls chat={chat as never} picker={picker} onPickerClose={() => { onPickerClose(); setPicker(null) }} /></>
+  }
+  render(<Commands />)
+  expect(screen.getByRole('listbox')).toBeVisible()
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+  expect(onPickerClose).toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByRole('button', { name: /OpenClaw 模型/u })).toHaveFocus())
+  await user.click(screen.getByRole('button', { name: '推理命令' }))
+  expect(screen.getByRole('slider')).toBeVisible()
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '选择模型：GPT' }))
+  expect(screen.getByRole('listbox')).toBeVisible()
 })

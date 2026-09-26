@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { InformationRuleConfig } from '../../api/informationAutomationService'
 import { Button, Icons, Popover, RefreshButton } from '../../design-system'
 import { EffortModelList } from '../../design-system/EffortModelList'
@@ -11,6 +11,7 @@ export function InformationModelFields({ value, onChange, disabled, compactHeadi
   value: InformationRuleConfig; onChange: (value: InformationRuleConfig) => void; disabled: boolean; compactHeading?: boolean
 }) {
   const { models, refresh, refreshing, message, error } = useModelRefresh()
+  const modelOptions = useMemo(() => (models.data?.models || []).map((model) => ({ id: model.id, name: model.name, source: sourceOf(model.id) })), [models.data?.models])
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'effort' | 'model'>('effort')
   const [preview, setPreview] = useState<number | null>(null)
@@ -32,12 +33,12 @@ export function InformationModelFields({ value, onChange, disabled, compactHeadi
     : !models.data?.models.length ? '当前没有可用模型，请检查模型配置后刷新。'
     : value.model && !selectedModel ? '所选模型已不可用，请重新选择。'
     : value.model?.thinking && !levels.includes(value.model.thinking) ? '所选推理强度已不可用，请重新选择。' : ''
-  function close() { setOpen(false); setView('effort'); setPreview(null); requestAnimationFrame(() => triggerRef.current?.focus()) }
+  function close() { setOpen(false); setPreview(null); requestAnimationFrame(() => triggerRef.current?.focus()) }
   return <fieldset className="grid gap-3">{!compactHeading && <legend className="type-section-title">模型</legend>}
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="type-control">分析模型</p>
       <RefreshButton pending={refreshing || models.isFetching} aria-label="刷新模型目录" onPress={refresh} /></div>
     <div className="grid gap-2"><p className="type-control">选择模型与推理强度</p>
-      <Popover isOpen={open} onOpenChange={(next) => { setOpen(next); if (!next) { setView('effort'); setPreview(null) } }}>
+      <Popover isOpen={open} onOpenChange={(next) => { setOpen(next); if (next) setView('effort'); else setPreview(null) }}>
         <Button ref={triggerRef} variant="ghost" className="effort-picker-trigger type-control" aria-label={`选择模型：${modelName}，推理强度：${thinkingName}`} isDisabled={chooserDisabled}>
           <span className="effort-toolbar-model">{modelName}</span><span className="effort-toolbar-level">{selectedModel ? thinkingName : ''}</span><Icons.ChevronDown size={15} aria-hidden="true" />
         </Button>
@@ -48,7 +49,7 @@ export function InformationModelFields({ value, onChange, disabled, compactHeadi
           }}>
             {view === 'model' ? <><Button isIconOnly size="sm" variant="ghost" className="effort-model-back" aria-label="返回推理强度" onPress={() => { setView('effort'); requestAnimationFrame(() => modelRef.current?.focus()) }}><Icons.ChevronLeft size={15} aria-hidden="true" /></Button>
               <EffortModelList label="自动化模型" selectedId={value.model?.id || null} disabled={disabled}
-                models={(models.data?.models || []).map((model) => ({ id: model.id, name: model.name, source: sourceOf(model.id) }))}
+                models={modelOptions}
                 onSelect={(id) => { if (id !== value.model?.id) onChange({ ...value, model: { id, thinking: null } }); close() }} />
             </> : <><div className="effort-picker-heading"><span aria-hidden="true" />
               <Button ref={modelRef} variant="ghost" className="effort-model-trigger type-body" aria-label={`选择模型：${modelName}`} isDisabled={chooserDisabled} onPress={() => setView('model')}>

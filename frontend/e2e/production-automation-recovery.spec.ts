@@ -59,9 +59,23 @@ test('real Service preview completes once and model refresh reads the catalog di
     await page.getByRole('button', { name: '选择模型：test · Test', exact: true }).click()
     await expect(page.getByRole('option', { name: 'test · New model' })).toBeVisible()
     await page.screenshot({ path: testInfo.outputPath('automation-model-picker.png') })
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await page.locator('.effort-picker-surface').evaluate((surface) => {
+      const observer = new MutationObserver(() => {
+        if (!surface.isConnected) { observer.disconnect(); return }
+        if (!surface.querySelector('.effort-model-list')) document.body.dataset.modelListReplaced = 'true'
+      })
+      observer.observe(surface, { childList: true, subtree: true })
+    })
+    await page.getByRole('option', { name: 'test · New model' }).click()
+    await expect(page.locator('.effort-picker-surface')).toHaveCount(0)
+    await expect(page.locator('body')).not.toHaveAttribute('data-model-list-replaced', 'true')
+    await expect(selection).toBeFocused()
+    await selection.click()
+    await expect(page.getByRole('slider', { name: '思考程度' })).toBeVisible()
     await page.keyboard.press('Escape')
     expect((await (await request.get(url + '/__fixture')).json()).calls).toBe(1)
-    await expect(selection).toContainText('Test')
+    await expect(selection).toContainText('New model')
     await page.getByRole('button', { name: '刷新模型目录' }).click()
     await expect.poll(async () => (await (await request.get(url + '/__fixture')).json()).refreshes).toBe(2)
     expect((await (await request.get(url + '/__fixture')).json()).calls).toBe(1)

@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
-  "result": "在现有 codex/agents-connection-ui-20260916 分支移除外部 MCP 连接页面入口，收紧个人 Agent 卡片的状态、权限与操作布局；既有服务端手动授权保持兼容，文档与页面说明同步更新。未提交或部署。",
-  "status": "completed",
-  "task_id": "agents-unified-connection-ui-20260917",
-  "unresolved": [],
-  "validation": [
-    "最终 impacted preflight 13/13 通过，包含 Python 定向检查、前端全量 Vitest、lint、UI 合同、生产构建及首屏体积检查（244412/245760 bytes）。",
-    "桌面与手机 Agent 接入端到端场景通过；410px 实页确认状态、刷新及三个操作紧凑排列，无横向溢出；本地 /agents 返回 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui",
     "verification"
   ],
@@ -412,6 +393,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产 Gateway 确认配置加载且模型白名单字段不存在；三个连接器刷新 completed，目录含 senjee GPT。",
     "同一生产分析 Agent 的 senjee/gpt-5.6-luna 独立 JSON completion 返回 HTTP 200、实际模型一致、结果有效。",
     "impacted preflight 15/15 通过（全量后端测试、前端检查与构建）；最终 replacePaths 改动已单独复验 42 项相关测试。控制结构、WORKLOG、文档字节限制与 diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "在 codex/model-picker-smooth-close 修复自动化与聊天选中模型后关闭弹层时闪回推理面板、导致高度骤变的问题；关闭保留当前视图，重新打开恢复推理设置，模型列表改用稳定目录与集合缓存并保留最新选择回调。更新用户日志；未合并或部署。",
+  "status": "completed",
+  "task_id": "model-picker-smooth-close-20260926",
+  "unresolved": [],
+  "validation": [
+    "本地浏览器逐帧复现原列表 424px 突变 106px；修复后关闭阶段保持列表，仅执行既有退出缩放。",
+    "直接相关 Vitest 41 项、自动化桌面与移动端 Playwright 2 项通过；聊天模型与推理控件浏览器场景 5 项通过。连接页布局用例首次页面加载失败，随后在 main 和修复分支单独复验均通过。",
+    "最终 impacted preflight 13/13 通过（.test-results/20260926T073923Z-73983/result.json），涵盖后端相关测试、前端全量 Vitest、lint、UI 合同及生产构建。修复分支本地预览 15174 端口返回 HTTP 200；前端 157 文件、973 项单元测试通过。"
   ]
 }
 ```
