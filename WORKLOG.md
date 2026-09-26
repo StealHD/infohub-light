@@ -425,6 +425,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "93c10e17f91f399ed3eeb874395326fed3030a34",
   "control_topics": [
     "architecture",
     "decisions",
@@ -436,12 +437,13 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "status": "partial",
   "task_id": "inscope-personal-desktop-skill-20260926",
   "unresolved": [
-    "站点验证通过及最终检索结果受模型接口故障影响，尚未核验；应用镜像尚待发布，VPS 可用空间约 859 MiB。"
+    "站点验证码通过及最终书籍检索结果仍未核验；先前真实续跑受服务器重启和模型接口 HTTP 502/超时阻断。"
   ],
   "validation": [
     "最终完整 preflight 15/15 通过（.test-results/20260926T130654Z-75180/result.json）；针对性 Pytest 和 Node 桌面桥接 7 项回归通过；生产构建初始 JavaScript Brotli 245630 bytes。",
     "Gateway 插件和三个个人 Agent 已安装配置；真实 Inscope Relay 的 book_desktop start、visual_next、两次 visual_read 成功，模型自行识别并发起 visual_submit。提交工具未返回成功，随后服务器整机重启，临时任务检查点丢失；重启后插件与有效工具仍可用，但续跑模型接口反复 HTTP 502/超时，未确认验证码通过或最终结果。",
-    "备份位于 Gateway ~/.openclaw/backups/book-desktop-personal-20260926；验收请求 deliver:false，未调用下载/通知工具。代码未改原生 main 工作流脚本。"
+    "备份位于 Gateway ~/.openclaw/backups/book-desktop-personal-20260926；验收请求 deliver:false，未调用下载/通知工具。代码未改原生 main 工作流脚本。",
+    "93c10e17 已合并并推送 main；v2.6.30 使用同 SHA 本地 linux/amd64 镜像发布，API/Worker、版本/revision 与 React 静态资源健康检查通过，Tag 已推送。清理两个未引用旧镜像约331 MiB及13个旧代码发布目录约342 MiB，保留当前/上一版发布目录、回滚镜像、数据库与备份。生产三个个人绑定 Skills/工具配置匹配；两个已有会话 read/browser/book_desktop 有效工具核验通过，一个尚无会话。"
   ]
 }
 ```
