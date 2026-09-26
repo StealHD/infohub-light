@@ -107,6 +107,46 @@ describe('Skills user scenarios', () => {
     expect(screen.getByText('管理员尚未开放 Skills')).toBeVisible()
   })
 
+  it('resynchronizes an unchanged Skill policy after confirmation and prevents duplicate writes', async () => {
+    const user = userEvent.setup()
+    const policy = { revision: 3, allowed_skill_keys: ['book-skill'], sync_state: 'synced', sync_in_progress: false }
+    let finish!: () => void
+    const completion = new Promise<void>((resolve) => { finish = resolve })
+    const update = vi.fn().mockImplementation(async () => { await completion; return { policy } })
+    const { invalidateSkills } = setup(undefined, true, true, 'owner', {
+      agentSkills: vi.fn().mockResolvedValue({ policy, skills: [{ skillKey: 'book-skill', name: '图书查询' }] }),
+      updateAgentSkillPolicy: update,
+    })
+    await user.click(await screen.findByRole('button', { name: '管理开放范围' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(await within(dialog).findByRole('button', { name: '同步执行能力' }))
+    expect(update).not.toHaveBeenCalled()
+    await user.dblClick(within(dialog).getByRole('button', { name: '确认并同步' }))
+    expect(update).toHaveBeenCalledExactlyOnceWith(3, ['book-skill'])
+    expect(within(dialog).getByRole('button', { name: '同步中…' })).toBeDisabled()
+    finish()
+    await waitFor(() => expect(invalidateSkills).toHaveBeenCalledOnce())
+  })
+
+  it('keeps the unchanged selection and offers recovery when capability synchronization fails', async () => {
+    const user = userEvent.setup()
+    const policy = { revision: 3, allowed_skill_keys: ['book-skill'], sync_state: 'synced', sync_in_progress: false }
+    const update = vi.fn().mockRejectedValue(new Error('PRIVATE_GATEWAY_ERROR'))
+    const { invalidateSkills } = setup(undefined, true, true, 'owner', {
+      agentSkills: vi.fn().mockResolvedValue({ policy, skills: [{ skillKey: 'book-skill', name: '图书查询' }] }),
+      updateAgentSkillPolicy: update,
+    })
+    await user.click(await screen.findByRole('button', { name: '管理开放范围' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(await within(dialog).findByRole('button', { name: '同步执行能力' }))
+    await user.click(within(dialog).getByRole('button', { name: '确认并同步' }))
+    expect(await within(dialog).findByText(/已保留选择/)).toBeVisible()
+    expect(within(dialog).getByRole('checkbox', { name: '开放 图书查询' })).toBeChecked()
+    expect(within(dialog).getByRole('button', { name: '刷新状态' })).toBeEnabled()
+    expect(screen.queryByText('PRIVATE_GATEWAY_ERROR')).not.toBeInTheDocument()
+    expect(invalidateSkills).not.toHaveBeenCalled()
+  })
+
   it('explains unsupported status without issuing a request or presenting an empty list', () => {
     const { read } = setup(vi.fn(), false)
     expect(screen.getByText('当前 Gateway 不支持 Skills 状态')).toBeVisible()

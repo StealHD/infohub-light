@@ -8,25 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
-  "result": "在现有 codex/agents-connection-ui-20260916 分支移除外部 MCP 连接页面入口，收紧个人 Agent 卡片的状态、权限与操作布局；既有服务端手动授权保持兼容，文档与页面说明同步更新。未提交或部署。",
-  "status": "completed",
-  "task_id": "agents-unified-connection-ui-20260917",
-  "unresolved": [],
-  "validation": [
-    "最终 impacted preflight 13/13 通过，包含 Python 定向检查、前端全量 Vitest、lint、UI 合同、生产构建及首屏体积检查（244412/245760 bytes）。",
-    "桌面与手机 Agent 接入端到端场景通过；410px 实页确认状态、刷新及三个操作紧凑排列，无横向溢出；本地 /agents 返回 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui",
     "verification"
   ],
@@ -412,6 +393,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产 Gateway 确认配置加载且模型白名单字段不存在；三个连接器刷新 completed，目录含 senjee GPT。",
     "同一生产分析 Agent 的 senjee/gpt-5.6-luna 独立 JSON completion 返回 HTTP 200、实际模型一致、结果有效。",
     "impacted preflight 15/15 通过（全量后端测试、前端检查与构建）；最终 replacePaths 改动已单独复验 42 项相关测试。控制结构、WORKLOG、文档字节限制与 diff 检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "在本地 main b9b594c9 创建的 codex/diagnose-agent-send-skill worktree 补齐已开放 Skill 的受限读取与 book-skill 浏览器能力；初次接入和管理员重存清单共用策略，收回清单撤回能力，保留 MCP/其他 Agent 配置。同步核对配置及既有会话的实际工具。未修改发送反馈，未部署或写生产配置。",
+  "status": "completed",
+  "task_id": "agent-skill-execution-capabilities-20260926",
+  "unresolved": [
+    "未部署、未修改生产配置，也未执行真实模型或查书调用；部署后管理员在 Skills → 管理开放范围点击“同步执行能力”并确认，补齐已有连接。",
+    "首屏 JavaScript 体积预算仅余 5 bytes，与其他任务合并时须复核最终产物。"
+  ],
+  "validation": [
+    "定向后端 45 项通过，包含既有接入、重复同步、撤权、失败重试及原生配置检查；Skill 管理页 8 项测试通过，覆盖原清单同步、确认、防重复提交及失败保留选择。",
+    "OpenClaw 2026.9.3 原生 read 测试确认 Skill/参考文件可读，未选 Skill、主机文件、路径穿越和越界符号链接被拒绝；已核对 2026.9.2 官方包相同目录例外实现。",
+    "生产只读确认 sessions.list 与 tools.effective 的 exact session 查询兼容；最终 impacted preflight 14/14 通过（.test-results/20260926T075441Z-87271/result.json），含后端映射回归、前端 156 文件/973 测试、lint、UI 合同和生产构建。",
+    "生产首屏 JavaScript Brotli 为 245755/245760 bytes，当前通过；未增加预算或调整测试映射。"
   ]
 }
 ```

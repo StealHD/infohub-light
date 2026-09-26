@@ -1,4 +1,4 @@
-"""Narrow admin connection for reading Skills and replacing managed Agent allowlists."""
+"""Admin synchronization of managed Skill allowlists and their restricted tool capabilities."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from websockets.asyncio.client import connect
 from .openclaw_relay.directory import skills_payload
 from .openclaw_relay.identity import connect_params
 from .openclaw_relay.settings import configuration
+from .agent_connections.skill_tools import required_skill_tools, skill_tool_policy, verify_skill_tools
 
 ADMIN_TOKEN_ENV = "HORIZON_OPENCLAW_SKILL_ADMIN_TOKEN"
 ADMIN_SCOPES = ["operator.admin"]
@@ -82,26 +83,57 @@ class AgentSkillGateway:
         except Exception as error:
             raise AgentSkillGatewayError("Gateway Skill catalog is unavailable") from error
 
+    async def _verify_tools(self, socket, agent_id, skill_keys):
+        if not required_skill_tools(skill_keys):
+            return
+        directory = await self._request(socket, f"sessions-{agent_id}", "sessions.list", {
+            "agentId": agent_id, "limit": 1, "archived": "all",
+        })
+        sessions = directory.get('sessions')
+        if not isinstance(sessions, list) or len(sessions) > 1:
+            raise AgentSkillGatewayError('Gateway Skill session verification failed')
+        # A newly provisioned Agent has no runtime session yet. Never create a
+        # conversation or run a model just to verify a configuration operation.
+        if not sessions:
+            return
+        key = sessions[0].get('key')
+        if not isinstance(key, str) or not key.startswith(f'agent:{agent_id}:'):
+            raise AgentSkillGatewayError('Gateway Skill session identity verification failed')
+        effective = await self._request(socket, f"tools-{agent_id}", "tools.effective", {
+            "agentId": agent_id, "sessionKey": key,
+        })
+        if effective.get('agentId') != agent_id:
+            raise AgentSkillGatewayError('Gateway Skill tool identity verification failed')
+        verify_skill_tools(effective, skill_keys)
+
     async def _sync(self, agent_ids, allowed_skill_keys):
         async def operation(socket, hello):
             methods = hello.get("features", {}).get("methods", [])
-            if "config.get" not in methods or "config.patch" not in methods:
+            if not {'config.get', 'config.patch', 'sessions.list', 'tools.effective'}.issubset(methods):
                 raise AgentSkillGatewayError("Gateway does not support config synchronization")
             current = await self._request(socket, "config-get", "config.get", {})
             config, base_hash = current.get("config"), current.get("hash")
             entries = config.get("agents", {}).get("entries", {}) if isinstance(config, dict) else {}
             if not isinstance(base_hash, str) or any(agent_id not in entries for agent_id in agent_ids):
                 raise AgentSkillGatewayError("Managed Agent configuration changed")
-            patch = {"agents": {"entries": {agent_id: {"skills": allowed_skill_keys} for agent_id in agent_ids}}}
-            await self._request(socket, "config-patch", "config.patch", {
-                "raw": json.dumps(patch, separators=(",", ":")), "baseHash": base_hash,
-                "replacePaths": [f"agents.entries.{agent_id}.skills" for agent_id in agent_ids],
-                "note": "Inteliscope workspace Skill policy synchronization",
-            })
+            targets = {agent_id: {"skills": allowed_skill_keys,
+                                 "tools": skill_tool_policy(entries[agent_id].get('tools', {}), allowed_skill_keys)}
+                       for agent_id in agent_ids}
+            changed = {key: target for key, target in targets.items()
+                       if any(entries[key].get(field) != value for field, value in target.items())}
+            if changed:
+                await self._request(socket, "config-patch", "config.patch", {
+                    "raw": json.dumps({"agents": {"entries": changed}}, separators=(",", ":")), "baseHash": base_hash,
+                    "replacePaths": [f"agents.entries.{key}.{field}" for key in changed for field in ('skills', 'tools')],
+                    "note": "Inteliscope workspace Skill capability synchronization",
+                })
             verified = await self._request(socket, "config-verify", "config.get", {})
             verify_entries = verified.get("config", {}).get("agents", {}).get("entries", {})
-            if any(verify_entries.get(agent_id, {}).get("skills") != allowed_skill_keys for agent_id in agent_ids):
+            if any(any(verify_entries.get(key, {}).get(field) != value for field, value in target.items())
+                   for key, target in targets.items()):
                 raise AgentSkillGatewayError("Gateway Skill policy verification failed")
+            for agent_id in agent_ids:
+                await self._verify_tools(socket, agent_id, allowed_skill_keys)
         return await self._session(operation)
 
     def sync(self, agent_ids: list[str], allowed_skill_keys: list[str]):

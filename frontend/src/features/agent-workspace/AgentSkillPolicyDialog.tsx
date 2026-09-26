@@ -73,7 +73,7 @@ export function AgentSkillPolicyDialog({ open, api, onOpenChange, onSaved }: {
       const result = await api.updateAgentSkillPolicy(data.policy.revision, current)
       setData({ ...data, policy: result.policy })
       setConfirming(false)
-      actionToast.success('Skill 开放范围已同步')
+      actionToast.success('Skill 开放范围与执行能力已同步')
       onSaved()
       onOpenChange(false)
     } catch {
@@ -117,7 +117,7 @@ export function AgentSkillPolicyDialog({ open, api, onOpenChange, onSaved }: {
             </div>)}
             {!rows.length && <p className="type-body py-6 text-center text-muted">没有符合条件的 Skill。</p>}
           </div>}
-          {confirming && <StatusNotice title="确认统一开放范围" status="warning">保存后立即影响所有普通用户的下一次 Skill 选择和调用。已开始的对话继续完成。</StatusNotice>}
+          {confirming && <StatusNotice title="确认统一开放范围" status="warning">同步 Skill 开放范围和执行能力，立即影响所有普通用户的下一次选择和调用。已开始的对话继续完成。</StatusNotice>}
           {error && <StatusNotice title="Skill 开放范围操作失败" status="danger">{error}</StatusNotice>}
         </div></Modal.Body>
         <Modal.Footer>
@@ -125,7 +125,7 @@ export function AgentSkillPolicyDialog({ open, api, onOpenChange, onSaved }: {
           {error && <Button variant="secondary" isDisabled={saving} onPress={() => setReload((value) => value + 1)}>刷新状态</Button>}
           {confirming
             ? <StableAsyncButton pending={saving} pendingContent="同步中…" onPress={() => void save()}>确认并同步</StableAsyncButton>
-            : <Button isDisabled={!data || data.policy.sync_in_progress || (!changed && !needsRetry)} onPress={() => setConfirming(true)}>保存开放范围</Button>}
+            : <Button isDisabled={!data || loading || data.policy.sync_in_progress} onPress={() => setConfirming(true)}>{changed || needsRetry ? '保存开放范围' : '同步执行能力'}</Button>}
         </Modal.Footer>
       </Modal.Dialog></Modal.Container>
     </Modal.Backdrop>
