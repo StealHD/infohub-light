@@ -13,6 +13,8 @@
 
 `src/services/agent_skill_access.py` 独占工作区 Skill 策略、revision CAS、绑定同步状态和聊天就绪判断；`src/storage/agent_skill_policy_schema.py` 独占 global 41。`src/api/agent_skill_routes.py` 只做 Owner/Admin 鉴权、公开投影与同步编排。`src/services/agent_skill_gateway.py` 是唯一可读取完整目录并同步受管 Agent `skills` 与 Skill 工具切片的服务端管理连接，凭据只来自 SecretStore，固定 exact `operator.admin`，不得导入浏览器 admin controller。`src/services/openclaw_relay/` 只消费当前允许键与聊天就绪布尔值，不能读取管理目录或修改策略。
 
+`agent_connections/browser_policy.py` 仅由显式运维命令 `scripts/repair_openclaw_browser_policy.py` 调用，复用管理连接预览及 CAS 修复本机 CDP 与全局浏览器 SSRF 策略的冲突。固定本机控制端点与公开网页导航分别采用 OpenClaw 原生校验，修复必须关闭私网放行并保留其他禁止项；自定义信任、远端或共享浏览器配置拒绝自动改写。普通 Skill 同步、接入、请求与发布不触发全局浏览器策略修改；保存、加载与真实浏览器执行是独立证据。
+
 可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的 MCP allowlist 只含自己的角色工具；`agent_connections/skill_tools.py` 统一拥有初次配置及清单同步所需的受限读取和 book-skill 浏览器切片。其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。文件读取仅允许个人 workspace 与当前已解析 Skill 目录；禁止 Shell、文件修改、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
 
 ## 1. 适用范围

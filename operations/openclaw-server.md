@@ -43,6 +43,16 @@ PY
 
 回滚：保留归属数据和私钥，设置 `HORIZON_OPENCLAW_SERVER_ENABLED=false` 并恢复上一镜像；兼容模式重新使用 `HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL`。不要删除原有 Service 数据。HTTPS证书手动DNS续期不由本功能接管。
 
+## 受管浏览器控制端点被策略拦截
+
+`browser endpoint blocked by policy` 指 CDP 控制端点被拒绝，不是目标网页拒绝访问。若 `browser.ssrfPolicy.blockedHostnames` 包含本机 CDP 使用的 `127.0.0.1/localhost/::1`，即使已开放 `browser` 工具，浏览器也不能启动。不要只删除黑名单并保留 `dangerouslyAllowPrivateNetwork=true`，这会放开网页对本机与私网的访问。
+
+服务端运维命令 `python scripts/repair_openclaw_browser_policy.py --data-dir /absolute/service/data` 默认只读取配置并输出预览及 `base_hash`，不输出配置、地址或凭据。使用既有 Service 环境与 SecretStore 的 Skill 管理凭据。工具只接受本机托管的浏览器配置；远端 CDP、附加已有浏览器、自定义信任/允许清单及未知策略字段要求单独人工审查。
+
+预览有变更时，修复会关闭新旧两种私网放行开关，移除显式 loopback 冲突项，保留 metadata 和其他域名禁止项。网页导航、DNS 解析到私网及重定向继续受 OpenClaw 原生严格 SSRF 检查约束；固定本机 CDP 通过原生端点专用校验。该策略属于整个 Gateway 的浏览器配置，会限制所有 profile 的私网页面访问，不能用于需要私网站点的共享部署。
+
+只有获得配置应用授权后，才使用同一命令加 `--apply --expected-hash <预览的base_hash>`。命令使用 `config.patch` 的 CAS 和精确 `browser.ssrfPolicy.blockedHostnames` 数组替换，写后读回核验，不调用模型、启动浏览器、自动重试或强制重启 Gateway。`saved_pending_reload`（退出码 2）只表示保存后尚未证明加载，需另查实际加载状态；未知写入结果应检查配置，不能盲目重放。`applied` 只证明配置已加载，真实浏览器和 Skill 仍需单独验收。普通应用发布、Skills 同步、成员接入及 GET 不会自动运行此修复。
+
 ## 个人 Agent 部署（阶段 1，仅受控环境）
 
 以 OpenClaw 2026.9.2 验证。正式生产发布在 PLAN 阶段 6；以下路径必须指向当前目标环境。Service 主机与 Gateway 主机分别执行，不把浏览器登录、Gateway Token 或模型凭据传入 manifest。
