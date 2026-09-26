@@ -6,7 +6,7 @@ export function sanitizeSkillSelection(value: unknown): OpenClawSkillSelection |
   if (!value || typeof value !== 'object') return
   const item = value as Record<string, unknown>
   if (!['key', 'name', 'gatewayUrl', 'agentId'].every((key) => typeof item[key] === 'string' && item[key].length > 0 && item[key].length <= 256 && !Array.from(item[key]).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127))) return
-  if (!referenceName.test(String(item.name))) return
+  if (!sanitizeSkillName(item.name)) return
   try {
     const url = new URL(String(item.gatewayUrl))
     if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return
@@ -16,16 +16,23 @@ export function sanitizeSkillSelection(value: unknown): OpenClawSkillSelection |
 
 export const SKILL_HANDOFF_MARKER = '[INTELISCOPE_SKILL_HANDOFF_V1]'
 
-export function unwrapSkillHandoff(text: string): string {
+export const sanitizeSkillName = (value: unknown): string | undefined =>
+  typeof value === 'string' && referenceName.test(value) ? value : undefined
+
+export function readSkillHandoff(text: string): { text: string; skillName?: string } {
   let body = text.trim()
+  let expandedName: string | undefined
   if (body.startsWith('Use the following explicitly referenced skills for this request. Read each skill\'s SKILL.md before acting:\n')) {
-    const match = body.match(/^Use the following explicitly referenced skills for this request\. Read each skill's SKILL\.md before acting:\n- [a-z][a-z0-9_-]{0,63}\n\nUser request:\n([\s\S]*)$/u)
-    if (!match) return ''
-    body = match[1]
+    const match = body.match(/^Use the following explicitly referenced skills for this request\. Read each skill's SKILL\.md before acting:\n- ([a-z][a-z0-9_-]{0,63})\n\nUser request:\n([\s\S]*)$/u)
+    if (!match) return { text: '' }
+    expandedName = match[1]
+    body = match[2]
   }
-  if (!body.startsWith(SKILL_HANDOFF_MARKER)) return body
+  if (!body.startsWith(SKILL_HANDOFF_MARKER)) return { text: body }
   const match = body.match(/^\[INTELISCOPE_SKILL_HANDOFF_V1\]\n([^\n]+)\n\$([a-z][a-z0-9_-]{0,63})\n(\[INTELISCOPE_HANDOFF_V8\][\s\S]*)$/u)
-  if (!match) return ''
-  try { if (JSON.parse(match[1]).name !== match[2]) return '' } catch { return '' }
-  return match[3]
+  if (!match || (expandedName && expandedName !== match[2])) return { text: '' }
+  try { if (JSON.parse(match[1]).name !== match[2]) return { text: '' } } catch { return { text: '' } }
+  return { text: match[3], skillName: match[2] }
 }
+
+export const unwrapSkillHandoff = (text: string): string => readSkillHandoff(text).text

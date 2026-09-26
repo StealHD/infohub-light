@@ -13,7 +13,7 @@ export async function installShortcutFixture(page: Page, effort = false, history
   })
   await page.addInitScript(({ effort, history }) => {
     sessionStorage.setItem('inteliscope.ui.insights-dismissed.v1:shortcuts', '1')
-    const state = { requests: [] as Array<{ method: string; params: Record<string, unknown> }>, enabled: true, failSkills: false, responseText: '模拟请求已完成' }
+    const state = { requests: [] as Array<{ method: string; params: Record<string, unknown> }>, enabled: true, failSkills: false, skillName: 'weather', responseText: '模拟请求已完成' }
     ;(window as unknown as { shortcutFixture: typeof state }).shortcutFixture = state
     class MockSocket {
       readyState = 1
@@ -37,7 +37,7 @@ export async function installShortcutFixture(page: Page, effort = false, history
           'agents.list': { defaultId: 'main', agents: [{ id: 'main', model: { primary: 'openai/gpt' } }] },
           'sessions.describe': { session: { key: 'root', agentId: 'main', modelProvider: 'openai', model: 'gpt' } },
           'tools.effective': { groups: [] }, 'chat.history': { messages: history ? [{ role: 'assistant', content: [{ type: 'text', text: Array.from({ length: 50 }, (_, index) => `第 ${index + 1} 段：检查聊天内容和输入框之间的接缝，滚动时不出现额外黑色横带。`).join('\n\n') }] }] : [] },
-          'skills.status': { skills: [{ skillKey: 'weather', name: 'weather', description: '无副作用天气示例', disabled: !state.enabled, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true, missing: {}, install: [] }] },
+          'skills.status': { skills: [{ skillKey: state.skillName, name: state.skillName, description: '无副作用天气示例', disabled: !state.enabled, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true, missing: {}, install: [] }] },
           'projects.list': { projects: [{ id: 'demo', displayName: 'Demo', repoRoot: '/demo', source: 'configured' }] },
           'worktrees.branches': { branches: [{ name: 'main', kind: 'local' }], defaultBranch: 'main' },
           'chat.send': { runId: frame.params.idempotencyKey },

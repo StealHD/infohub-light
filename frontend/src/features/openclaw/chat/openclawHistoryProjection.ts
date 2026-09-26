@@ -125,6 +125,7 @@ export function projectChatMessage(
     createdAt: messageCreatedAt(source) ?? fallback?.createdAt,
     ...(clientTurnId ? { clientTurnId } : {}),
     ...(handoff ? { contextCount: handoff.contextCount } : {}),
+    skillName: handoff?.skillName,
     ...(handoff?.sources?.length ? { contextSources: handoff.sources } : {}),
     ...(images.length ? { images } : {}),
   }

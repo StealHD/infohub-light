@@ -94,6 +94,7 @@ export function OpenClawTimeline({ chat, composer, variant = 'compact' }: {
           return <Fragment key={message.id}><ConversationTurn
             role={message.role}
             text={message.text}
+            skillName={message.skillName}
             createdAt={message.createdAt}
               status={message.status}
               hasNext={index < chat.messages.length - 1 || Boolean(chat.streamText) || showStandaloneTrace}

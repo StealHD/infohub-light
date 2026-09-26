@@ -1,7 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 const InformationDraftCards = lazy(() => import('../../information-automations/InformationDraftCards'))
 
-import { Icons, loadChatMarkdown, RefreshButton, Tooltip, TooltipTriggerButton } from '../../../design-system'
+import { Icons, loadChatMarkdown, MetaTag, RefreshButton, Tooltip, TooltipTriggerButton } from '../../../design-system'
 import type { OpenClawContextUsage } from '../openclawContracts'
 import type { OpenClawMessageImage } from '../openclawMedia'
 const OpenClawMarkdown = lazy(loadChatMarkdown)
@@ -154,6 +154,7 @@ export function ConversationTurn({
   role,
   text,
   createdAt,
+  skillName,
   status,
   hasNext,
   children,
@@ -162,6 +163,7 @@ export function ConversationTurn({
   role: 'user' | 'assistant'
   text: string
   createdAt?: number | null
+  skillName?: string
   status?: string
   hasNext: boolean
   children?: ReactNode
@@ -177,6 +179,7 @@ export function ConversationTurn({
     data-chat-status={status}
   >
     <div data-chat-message-bubble className="ml-auto w-fit max-w-[85%] min-w-0 rounded-2xl bg-default px-3 py-2">
+      {skillName && <div className="mb-2 flex min-w-0 flex-wrap"><MetaTag className="max-w-full"><span className="whitespace-normal [overflow-wrap:anywhere]">Skill：{skillName}</span></MetaTag></div>}
       {messageText && <div
         data-chat-message-body
         className={`${variant === 'workspace' ? 'type-body' : 'type-chat'} min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}

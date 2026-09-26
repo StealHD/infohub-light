@@ -12,24 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-17",
-  "result": "在现有 codex/agents-connection-ui-20260916 分支为 Agent 助手回复加入按需加载的安全 Markdown 排版，支持标题、列表、强调、代码和表格；仅允许 HTTP(S) 外链，原始 HTML 和远程图片不执行或加载。同步 UI 合同、手册和更新日志，未提交或部署。",
-  "status": "completed",
-  "task_id": "agent-markdown-replies-20260917",
-  "unresolved": [],
-  "validation": [
-    "类型检查、UI 合同、Lint、相关 Vitest 13 项与生产构建通过，初始 JS Brotli 245345/245760 bytes。",
-    "桌面与手机端 Markdown 浏览器用例 2 项通过，包含长表格、长代码、无横向溢出及 Axe；最终 impacted preflight 13/13 命令通过，控制面结构检查通过，/agent 本地预览 HTTP 200。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
   "result": "在当前分支将完整 Agent 进阶建议改为透视叠放卡片，加入渐变、纹理、侧卡预览、按钮/方向键/滑动切换；当前卡片仅填入问题。组件按需加载，同步组件合同、路由说明、决策、手册和更新日志，未提交或部署。",
   "status": "completed",
   "task_id": "agent-spatial-suggestions-20260917",
@@ -420,6 +402,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并后构建曾超首屏预算 55 bytes；将纯 artifact scope helper 移至既有按需模块，运行时 5 项测试通过。最终 v2.6.27 生产构建首屏 JavaScript Brotli 245544/245760 bytes，未增加预算。",
     "终态：分支已合入本地 main 并推送；本地构建 linux/amd64 镜像，v2.6.27 部署到 vps-tokyo，Tag 已推送。归档 SHA-256、生产库备份、API/Worker、公开版本与 React 静态资源检查通过，线上 revision=0ebfc4295b22。",
     "生产现有 revision 2 的 book-skill 清单同步成功，3 个活跃绑定均 chat_ready；2 个已有会话实际 read/browser 均可用，无会话绑定核对配置。部署后只读复验通过，未执行真实模型、查书或通知调用。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "从本地 main 创建 codex/skill-message-label worktree，在用户消息气泡保留本次所选 Skill 的中性标签；发送成功清除重试快照后仍保留名称，刷新、历史解析与合并恢复标签，并区分同文不同 Skill。仅存有界安全名称，不把选择标识当作执行证明；复用共享 MetaTag，同步手册、日志与合同。",
+  "status": "partial",
+  "task_id": "agent-skill-message-label-20260926",
+  "unresolved": [
+    "最终 impacted preflight、合并及 VPS 发布尚待完成。"
+  ],
+  "validation": [
+    "Skill 发送、历史投影、持久化、合并与两个会话界面的定向 Vitest 25 项通过。",
+    "桌面/手机浏览器 4 项通过，覆盖发送后标签、刷新恢复、320 px Feed 侧栏、64 字符名称换行、明暗主题和 Axe；已检查实际截图。",
+    "生产构建通过，首屏 JavaScript Brotli 245668/245760 bytes；未增加预算。"
   ]
 }
 ```

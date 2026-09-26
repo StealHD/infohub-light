@@ -1,3 +1,4 @@
+import { sanitizeSkillName } from '../chat/openclawSkillSelection'
 import type { OpenClawChatMessage } from '../openclawContracts'
 import { sanitizeOpenClawSourceReferences } from '../chat/openclawHandoffProtocol'
 import { failureDiagnostic, mergeFailureDiagnostic, failureText } from '../chat/openclawFailureDiagnostic'
@@ -44,6 +45,10 @@ function normalizedMessageText(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim()
 }
 
+function sameSelectedSkill(left: OpenClawChatMessage, right: OpenClawChatMessage): boolean {
+  return !left.skillName || !right.skillName || left.skillName === right.skillName
+}
+
 function messageSignature(message: OpenClawChatMessage): string {
   const contextSources = sanitizeOpenClawSourceReferences(message.contextSources)
   return [
@@ -80,6 +85,7 @@ function persistedMessage(message: OpenClawChatMessage): OpenClawChatMessage {
   return {
     id: message.id,
     role: message.role,
+    skillName: message.role === 'user' ? sanitizeSkillName(message.skillName ?? message.sendSnapshot?.selectedSkill?.name) : undefined,
     text: message.text,
     status: message.status,
     contextCount: message.contextCount,
@@ -119,7 +125,7 @@ export function mergeOpenClawTranscript(
       existingIndex = merged.findIndex((candidate, index) => (
         !matchedLocalIndexes.has(index)
         && candidate.role === remote.role
-        && messageMergeId(candidate) === remoteMergeId
+        && messageMergeId(candidate) === remoteMergeId && sameSelectedSkill(candidate, remote)
       ))
     }
     if (existingIndex < 0) {
@@ -135,7 +141,7 @@ export function mergeOpenClawTranscript(
       const signature = messageSignature(remote)
       const candidates = merged
         .map((candidate, index) => ({ candidate, index }))
-        .filter(({ candidate, index }) => !matchedLocalIndexes.has(index) && messageSignature(candidate) === signature)
+        .filter(({ candidate, index }) => !matchedLocalIndexes.has(index) && messageSignature(candidate) === signature && sameSelectedSkill(candidate, remote))
       const remoteCreatedAt = remote.createdAt
       if (remoteCreatedAt !== undefined) {
         candidates.sort((left, right) => {
@@ -169,6 +175,7 @@ export function mergeOpenClawTranscript(
       ...(diagnostic ? { diagnostic } : {}),
       createdAt: existing.createdAt ?? remote.createdAt,
       contextCount: existing.contextCount ?? remote.contextCount,
+      skillName: existing.skillName ?? remote.skillName,
       contextSources: existing.contextSources ?? remote.contextSources,
       origin: existing.origin ?? remote.origin,
       mergeId: existing.mergeId || remote.mergeId || remoteMergeId,

@@ -88,7 +88,7 @@
 
 普通连接的 `skills.status` 严格投影 `userInvocable / commandVisible / modelVisible`；只有三者显式为 true、启用且 eligible、未被 Agent/allowlist 阻止、原始名称与投影一致且能唯一匹配的 Skill 可选择。不读取文件内容或路径。目录按用户 Controller、Gateway、Agent、Session 和连接代次隔离，按需读取并去重；`skills.changed` 与作用域变化失效。发送前重新读取并校验 exact key/name 和连接身份；失败保留草稿与对应失败快照。
 
-草稿只扩展可选有界 `{key,name,gatewayUrl,agentId}`，旧 v6 草稿兼容；目录、描述和文件内容不持久化。显式调用沿用 `chat.send`：`[INTELISCOPE_SKILL_HANDOFF_V1]`、仅 name 的 JSON、单独 `$name` 行及原 V8 handoff。只接受可唯一映射的安全小写引用名，不猜别名；原问题和材料中的其他 `$` 引用被转义。禁止原生 `/skill` 工具直派和新增 `skills.run`。来源快照仍禁止工具，不能与 Skill 同发。历史投影识别该包装和 Gateway 的显式 Skill 展开前缀，只显示原 V8 展示字段；畸形包装或含私有路径的展开仅显示固定安全提示，不声称 Skill 已执行。
+草稿只扩展可选有界 `{key,name,gatewayUrl,agentId}`，旧 v6 草稿兼容；目录、描述和文件内容不持久化。显式调用沿用 `chat.send`：`[INTELISCOPE_SKILL_HANDOFF_V1]`、仅 name 的 JSON、单独 `$name` 行及原 V8 handoff。只接受可唯一映射的安全小写引用名，不猜别名；原问题和材料中的其他 `$` 引用被转义。禁止原生 `/skill` 工具直派和新增 `skills.run`。来源快照仍禁止工具，不能与 Skill 同发。历史投影识别该包装和 Gateway 的显式 Skill 展开前缀，只显示原 V8 展示字段与经包装一致性核验的有界 Skill 名称，不保留目录、路径或凭据；畸形包装或含私有路径的展开仅显示固定安全提示，不声称 Skill 已执行。
 
 1. `HORIZON_OPENCLAW_CHAT_ENABLED=false` 默认关闭站内对话；`HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789` 只作为 GET delegation 响应中的公共默认值。开启后浏览器直接连接用户的 OpenClaw Gateway WebSocket v4，Inteliscope API 不接收、保存或代理 Gateway token、device token、对话、模型请求或费用。
 2. 未加密 `ws://` 只允许 `127.0.0.1` 或 `localhost`；其他主机必须 `wss://`。Gateway URL 禁止 username/password、query 和 fragment。完整 dashboard 地址只允许在浏览器内解析 fragment token，规范化后的 WebSocket URL不得保留 token。

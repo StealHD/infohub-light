@@ -78,6 +78,7 @@ export type OpenClawSourceReference = {
 }
 
 export type OpenClawChatMessage = {
+  skillName?: string
   diagnostic?: OpenClawFailureDiagnostic
   id: string
   role: 'user' | 'assistant'

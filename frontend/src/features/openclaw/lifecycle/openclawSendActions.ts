@@ -13,7 +13,7 @@ import type {
 import { messageMergeId } from '../storage/openclawTranscriptStore'
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
-import { OpenClawSkillValidationError } from '../chat/openclawSkillSelection'
+import { OpenClawSkillValidationError, sanitizeSkillName } from '../chat/openclawSkillSelection'
 import { validateOpenClawSkill } from './validateOpenClawSkill'
 import { readOpenClawRuntime } from './openclawSessionOperations'
 import { acquireRuntime, RuntimeSelectionError, validateSendSelection } from './openclawRuntimeGuard'
@@ -50,6 +50,7 @@ function prepareOpenClawSend(
   }
   const message: OpenClawChatMessage = {
     id: idempotencyKey, role: 'user', text: displayText, status: 'pending',
+    skillName: sanitizeSkillName(snapshot.selectedSkill?.name),
     contextCount: snapshot.contextCount ?? snapshot.contextItems.length,
     contextSources: openClawSourceReferences(snapshot.contextItems), sendSnapshot: snapshot,
     createdAt: Date.now(), origin: 'local', clientTurnId: idempotencyKey,

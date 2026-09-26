@@ -2,10 +2,11 @@ import type {
   OpenClawContextItem,
   OpenClawSourceReference,
 } from '../openclawContracts'
-import { unwrapSkillHandoff } from './openclawSkillSelection'
+import { readSkillHandoff } from './openclawSkillSelection'
 
 export type OpenClawHandoffDisplay = {
   displayText: string
+  skillName?: string
   contextCount: number
   imageCount?: number
   sources?: OpenClawSourceReference[]
@@ -92,7 +93,7 @@ function safeCount(value: unknown, maximum: number): number {
 }
 
 export function projectOpenClawHandoffDisplay(text: string): OpenClawHandoffDisplay | null {
-  const normalized = unwrapSkillHandoff(text)
+  const { text: normalized, skillName } = readSkillHandoff(text)
   if (!normalized) return { displayText: 'Skill 请求记录暂不可读。', contextCount: 0 }
   const versionedMarker = [INTELISCOPE_HANDOFF_MARKER, ...PREVIOUS_HANDOFF_MARKERS]
     .find((marker) => normalized.startsWith(marker))
@@ -111,6 +112,7 @@ export function projectOpenClawHandoffDisplay(text: string): OpenClawHandoffDisp
       const imageCount = safeCount(parsed.imageCount, 4)
       return {
         displayText,
+        skillName,
         contextCount: safeCount(parsed.contextCount, MAX_SNAPSHOT_ITEMS),
         ...(imageCount ? { imageCount } : {}),
         ...(sources.length ? { sources } : {}),

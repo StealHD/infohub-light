@@ -44,9 +44,12 @@ describe('Skill send snapshots', () => {
     const sending = result.current.send(requestInput)
     expect(await result.current.send(requestInput)).toBe(false)
     expect(refs.transcript.messages).toHaveLength(1)
+    expect(refs.transcript.messages[0].skillName).toBe('weather')
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1))
     finish({ skills: [{ skillKey: 'weather', name: 'weather', disabled: false, eligible: true, userInvocable: true, commandVisible: true, modelVisible: true }] })
     expect(await sending).toBe(true)
+    expect(refs.transcript.messages[0].skillName).toBe('weather')
+    expect(refs.transcript.messages[0].sendSnapshot).toBeUndefined()
     expect(request.mock.calls.filter(([method]) => method === 'chat.send')).toHaveLength(1)
   })
   it('retains exact Skill and stable idempotency key after a failed send and on retry', async () => {
