@@ -37,7 +37,7 @@
 | D032 | 生产 UI 采用单一字体栈与可执行语义排版契约 | 2026-07-18 | [查看](records/D026-D050.md#d032) |
 | D033 | Quiet Studio 成为全站自适应视觉与交互语言 | 2026-07-19 | [查看](records/D026-D050.md#d033) |
 | D034 | MCP 订阅 proposal 与显式 delegation | 2026-07-18 | [查看](records/D026-D050.md#d034) |
-| D035 | Inteliscope 浏览器直接连接用户自有 OpenClaw Gateway | 2026-07-19 | [查看](records/D026-D050.md#d035) |
+| D035 | 浏览器直连个人 Gateway | 2026-07-19 | [查看](records/D026-D050.md#d035) |
 | D036 | 来源优先社交卡与 Agent 上下文 | 2026-07-19 | [查看](records/D026-D050.md#d036) |
 | D037 | 活跃来源时间窗口与上下文可达性 | 2026-07-19 | [查看](records/D026-D050.md#d037) |
 | D038 | 删除生产控制面中的历史 Material UI capability 词汇 | 2026-07-20 | [查看](records/D026-D050.md#d038) |
@@ -72,7 +72,7 @@
 | D068 | Inteliscope 生产镜像只允许本地跨架构构建 | 2026-07-25 | [查看](records/D051-D075.md#d068) |
 | D069 | RSSHub 的 Bilibili 匿名运行态由隔离浏览器刷新 | 2026-07-25 | [查看](records/D051-D075.md#d069) |
 | D070 | 本地初始化主动对账仓库托管的 OpenClaw Skill | 2026-07-25 | [查看](records/D051-D075.md#d070) |
-| D071 | OpenClaw 通过固定 Bilibili 公开查询把账号名称解析为 UID | 2026-07-25 | [查看](records/D051-D075.md#d071) |
+| D071 | Bilibili 账号名称解析 | 2026-07-25 | [查看](records/D051-D075.md#d071) |
 | D072 | Browser OpenClaw 按附件存在性拆分直接请求与只读交接 | 2026-07-26 | [查看](records/D051-D075.md#d072) |
 | D073 | RSS 首次抓取窗口以首个成功健康记录为边界 | 2026-07-26 | [查看](records/D051-D075.md#d073) |
 | D074 | OpenClaw 运行反馈与紧凑 UI 按语义拆分 | 2026-07-26 | [查看](records/D051-D075.md#d074) |
@@ -230,3 +230,4 @@
 | D226 | 媒体能力 | 2026-09-20 | [查看](records/D226-D250.md#d226) |
 | D227 | 自动化模型选择 | 2026-09-23 | [查看](records/D226-D250.md#d227) |
 | D228 | 模型免授权 | 2026-09-26 | [查看](records/D226-D250.md#d228) |
+| D229 | Skill 受限执行 | 2026-09-26 | [查看](records/D226-D250.md#d229) |

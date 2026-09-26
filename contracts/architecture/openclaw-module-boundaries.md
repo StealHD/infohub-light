@@ -11,9 +11,9 @@
 
 本机托管入口由 `agent_managed_setup_routes.py` 做身份与确认校验，`agent_connections/managed_setup.py` 管账号操作生命周期与验证激活，`managed_host.py` 限制本机路径、配置锁、备份、CAS 与 Gateway 安全应用，`mcp_verification.py` 做有界只读核验。主机能力不是通用 Shell/SSH/配置编辑接口；管理连接复用独立 AgentSkillGateway，不给普通聊天连接增加 scope。后台操作展示状态保存在进程内，跨浏览器身份与重启恢复依据仍为数据库绑定及 SecretStore；未知写入不自动重放。
 
-`src/services/agent_skill_access.py` 独占工作区 Skill 策略、revision CAS、绑定同步状态和聊天就绪判断；`src/storage/agent_skill_policy_schema.py` 独占 global 41。`src/api/agent_skill_routes.py` 只做 Owner/Admin 鉴权、公开投影与同步编排。`src/services/agent_skill_gateway.py` 是唯一可读取完整目录并修改受管 Agent `skills` 字段的服务端管理连接，凭据只来自 SecretStore，固定 exact `operator.admin`，不得导入浏览器 admin controller。`src/services/openclaw_relay/` 只消费当前允许键与聊天就绪布尔值，不能读取管理目录或修改策略。
+`src/services/agent_skill_access.py` 独占工作区 Skill 策略、revision CAS、绑定同步状态和聊天就绪判断；`src/storage/agent_skill_policy_schema.py` 独占 global 41。`src/api/agent_skill_routes.py` 只做 Owner/Admin 鉴权、公开投影与同步编排。`src/services/agent_skill_gateway.py` 是唯一可读取完整目录并同步受管 Agent `skills` 与 Skill 工具切片的服务端管理连接，凭据只来自 SecretStore，固定 exact `operator.admin`，不得导入浏览器 admin controller。`src/services/openclaw_relay/` 只消费当前允许键与聊天就绪布尔值，不能读取管理目录或修改策略。
 
-可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的工具 allowlist 只含自己的 13 个只读 MCP 工具；其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。禁止 host/filesystem、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
+可信小团队共用 Gateway/模型，每人独立 Agent workspace、agentDir/session 存储和 MCP namespace。每个个人 Agent 的 MCP allowlist 只含自己的角色工具；`agent_connections/skill_tools.py` 统一拥有初次配置及清单同步所需的受限读取和 book-skill 浏览器切片。其他现有 Agent 显式 deny 新 namespace，旧共享 MCP 与各自配置保留。文件读取仅允许个人 workspace 与当前已解析 Skill 目录；禁止 Shell、文件修改、跨会话、通知发送和全局管理工具。网关主机管理员仍是受信任主体；新建 Agent、改目录或工具配置后必须重新审查这些约束，不承诺独立主机或第三方全局插件存储隔离。
 
 ## 1. 适用范围
 
