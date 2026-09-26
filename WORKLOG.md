@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-17",
-  "result": "在当前分支将完整 Agent 进阶建议改为透视叠放卡片，加入渐变、纹理、侧卡预览、按钮/方向键/滑动切换；当前卡片仅填入问题。组件按需加载，同步组件合同、路由说明、决策、手册和更新日志，未提交或部署。",
-  "status": "completed",
-  "task_id": "agent-spatial-suggestions-20260917",
-  "unresolved": [],
-  "validation": [
-    "类型检查、相关 Vitest 11 项通过；桌面及手机浏览器检查 4 项通过，涵盖切换、滑动、填入不发送、无横向溢出和 Axe。",
-    "已查看桌面/手机截图并确认本地 5173 实际页面显示新效果。",
-    "最终 impacted preflight 13/13 通过（.test-results/20260917T080318Z-7573），生产首屏 JS Brotli 245337/245760 bytes。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
   "result": "对照用户录屏与 HeroUI Pro 公共页面，在当前分支将 Agent 进阶建议改为纵向透视卡片：更明显的侧卡层次、动态光影与投影、4.5 秒自动轮换；悬停或聚焦暂停，保留手动切换与填入问题行为。同步 UI 合同、手册和更新日志，未提交或部署。",
   "status": "completed",
   "task_id": "agent-spatial-refine-20260917",
@@ -428,6 +409,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "最终 impacted preflight 13/13 通过，含 159 文件 / 984 项前端测试及受影响后端、lint、UI/合同与生产构建检查。",
     "已快进合并并推送 main，标准发布 v2.6.28 / 85c355215f64 成功；本地构建 linux/amd64 镜像，传输重建归档 SHA-256 一致，API、Worker、版本与静态资源健康检查通过，标签已推送。",
     "发布空间门槛首次阻断后，仅移除无容器引用的 v2.6.19–v2.6.22 五个旧镜像，保留 v2.6.23–v2.6.27、全部数据库备份及发布源码；重试标准发布成功。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "从本地 main 创建 codex/browser-endpoint-policy worktree，新增默认只读预览、显式 CAS 应用的浏览器策略修复命令：关闭新旧私网放行开关后移除本机 CDP 显式拦截冲突，保留 metadata 与其他禁止项；自定义信任和远端/附加 profile 失败关闭，读回核验并区分保存与加载。按用户要求不部署、不修改线上配置。",
+  "status": "completed",
+  "task_id": "openclaw-browser-endpoint-policy-20260926",
+  "unresolved": [
+    "按用户要求未部署、未修改线上 Gateway 配置；本地原生验证使用 OpenClaw 2026.9.3，生产配置加载及真实浏览器/Skill 执行仍需未来显式应用后验收。"
+  ],
+  "validation": [
+    "42 项定向 Pytest 通过，覆盖预览零写入、CAS 冲突、精确数组替换、读回漂移、待加载与未知写入不重放。",
+    "本地 OpenClaw 2026.9.3 原生策略复现原错误；修复后 3 种 loopback CDP 通过，7 个私网/metadata/DNS 指向私网用例拒绝，公网用例通过。未启动浏览器或调用模型。",
+    "最终 impacted preflight 14/14 通过，证据 .test-results/20260926T104452Z-20090/result.json；后端回归、语法、前端关联测试、lint、类型及控制检查通过。"
   ]
 }
 ```
