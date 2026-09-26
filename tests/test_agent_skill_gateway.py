@@ -57,7 +57,10 @@ async def test_sync_replaces_managed_skills_and_capabilities_and_verifies_readba
     assert ADMIN_SCOPES == ["operator.admin"]
     assert patch[:2] == ("config-patch", "config.patch")
     assert patch[2]["baseHash"] == "base-hash"
-    assert patch[2]["replacePaths"] == ["agents.entries.ih-managed.skills", "agents.entries.ih-managed.tools"]
+    assert patch[2]["replacePaths"] == [
+        'agents.entries.ih-managed.skills', 'agents.entries.ih-managed.tools.allow',
+        'agents.entries.ih-managed.tools.deny',
+    ]
     assert json.loads(patch[2]["raw"]) == {
         "agents": {"entries": {"ih-managed": {
             "skills": ["reader"], "tools": skill_tool_policy({'allow': ['safe']}, ['reader']),
@@ -106,7 +109,12 @@ async def test_same_skill_selection_repairs_old_tools_and_checks_effective_capab
             return {'hash': 'current', 'config': {'agents': {'entries': {'ih-managed': projected}}}}
         if method == 'config.patch':
             writes.append(params)
-            entry.update(json.loads(params['raw'])['agents']['entries']['ih-managed'])
+            patched = json.loads(params['raw'])['agents']['entries']['ih-managed']
+            # Native Gateway rejects array removals unless the exact leaf is declared.
+            for field in ('allow', 'deny'):
+                if set(entry['tools'].get(field, [])) - set(patched['tools'][field]):
+                    assert f'agents.entries.ih-managed.tools.{field}' in params['replacePaths']
+            entry.update(patched)
             return {}
         if method == 'sessions.list':
             return {'sessions': [{'key': 'agent:ih-managed:existing'}]}
@@ -162,3 +170,32 @@ async def test_tool_verification_never_creates_sessions_or_reads_another_agent(t
     else:
         await gateway._verify_tools('socket', 'ih-managed', ['book-skill'])
     assert calls == [('sessions.list', {'agentId': 'ih-managed', 'limit': 1, 'archived': 'all'})]
+
+
+@pytest.mark.anyio
+async def test_revoking_skills_declares_exact_allow_array_removal(tmp_path, monkeypatch):
+    gateway = AgentSkillGateway(object(), tmp_path)
+    entry = {'skills': ['book-skill'], 'tools': skill_tool_policy({'allow': ['safe']}, ['book-skill'])}
+
+    async def session(operation):
+        methods = ['config.get', 'config.patch', 'sessions.list', 'tools.effective']
+        return await operation('socket', {'features': {'methods': methods}})
+
+    async def request(_socket, _request_id, method, params):
+        if method == 'config.get':
+            return {'hash': 'current', 'config': {'agents': {'entries': {'ih-managed': deepcopy(entry)}}}}
+        assert method == 'config.patch'
+        patched = json.loads(params['raw'])['agents']['entries']['ih-managed']
+        removed = set(entry['tools']['allow']) - set(patched['tools']['allow'])
+        assert removed == {'read', 'browser'}
+        assert 'agents.entries.ih-managed.tools.allow' in params['replacePaths']
+        assert 'agents.entries.ih-managed.skills' in params['replacePaths']
+        entry.update(patched)
+        return {}
+
+    monkeypatch.setattr(gateway, '_session', session)
+    monkeypatch.setattr(gateway, '_request', request)
+    await gateway._sync(['ih-managed'], [])
+    assert entry['skills'] == []
+    assert entry['tools']['allow'] == ['safe']
+    assert {'read', 'browser', 'group:fs', 'group:ui'} <= set(entry['tools']['deny'])

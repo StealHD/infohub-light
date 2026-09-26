@@ -124,7 +124,7 @@ class AgentSkillGateway:
             if changed:
                 await self._request(socket, "config-patch", "config.patch", {
                     "raw": json.dumps({"agents": {"entries": changed}}, separators=(",", ":")), "baseHash": base_hash,
-                    "replacePaths": [f"agents.entries.{key}.{field}" for key in changed for field in ('skills', 'tools')],
+                    "replacePaths": [f"agents.entries.{key}.{field}" for key in changed for field in ('skills', 'tools.allow', 'tools.deny')],
                     "note": "Inteliscope workspace Skill capability synchronization",
                 })
             verified = await self._request(socket, "config-verify", "config.get", {})
