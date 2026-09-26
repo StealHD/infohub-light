@@ -1,5 +1,11 @@
-import { OPENCLAW_TASK_STATUSES, type OpenClawWorkspaceBranches, type OpenClawWorkspaceProject, type OpenClawSkill, type OpenClawSkillsStatus, type OpenClawTask, type OpenClawTaskPage, type OpenClawArtifact, type OpenClawArtifactDownload } from './openclawWorkspaceContracts'
+import { OpenClawWorkspaceError, type OpenClawArtifactScope, OPENCLAW_TASK_STATUSES, type OpenClawWorkspaceBranches, type OpenClawWorkspaceProject, type OpenClawSkill, type OpenClawSkillsStatus, type OpenClawTask, type OpenClawTaskPage, type OpenClawArtifact, type OpenClawArtifactDownload } from './openclawWorkspaceContracts'
 import { recordOf, stringOf, numberOf, arrayOf, optionalStringArray, type UnknownRecord } from './openclawWorkspaceValues'
+
+export function artifactScopeParams(scope: OpenClawArtifactScope): Record<string, string> {
+  const values = Object.entries(scope).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[1].trim()))
+  if (values.length !== 1) throw new OpenClawWorkspaceError('failed', '产物查询必须指定一个明确的 Session、Run 或 Task 来源。')
+  return Object.fromEntries(values.map(([key, value]) => [key, value.trim()]))
+}
 
 function projectTask(value: unknown, includeDetails = false): OpenClawTask {
   const row = recordOf(value, 'tasks'); const id = stringOf(row.id); if (!id || !OPENCLAW_TASK_STATUSES.some((status) => status === row.status)) throw new Error('tasks 返回了无效任务。')

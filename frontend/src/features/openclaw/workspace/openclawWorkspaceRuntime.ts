@@ -1,18 +1,13 @@
 import { gatewaySupportsMethod, GatewayRequestError, type GatewayEvent } from '../openclawGateway'
 import { openClawSessionPreviewParams, projectOpenClawSessionPreview } from '../chat/openclawSessionPreview'
 import type { OpenClawLifecycleRefs } from '../lifecycle/openclawLifecycleRefs'
-import { OPENCLAW_WORKSPACE_METHODS, OpenClawWorkspaceError, type OpenClawArtifactScope, type OpenClawTaskStatus, type OpenClawWorkspaceController, type OpenClawWorkspaceMethod, type OpenClawWorkspaceProject } from './openclawWorkspaceContracts'
+import { OPENCLAW_WORKSPACE_METHODS, OpenClawWorkspaceError, type OpenClawTaskStatus, type OpenClawWorkspaceController, type OpenClawWorkspaceMethod, type OpenClawWorkspaceProject } from './openclawWorkspaceContracts'
 
 function stateOf(error: unknown): OpenClawWorkspaceError['state'] { return error instanceof GatewayRequestError && (error.code === 'FORBIDDEN' || error.code === 'MISSING_SCOPE') ? 'forbidden' : 'failed' }
 function publicRequestMessage(state: OpenClawWorkspaceError['state']): string {
   return state === 'forbidden' ? '当前 OpenClaw 权限不允许此操作。' : 'OpenClaw 暂时无法完成此操作，请重试。'
 }
 function requireText(value: string, label: string): string { const normalized = value.trim(); if (!normalized) throw new OpenClawWorkspaceError('failed', `${label}不能为空。`); return normalized }
-function requireArtifactScope(scope: OpenClawArtifactScope): Record<string, string> {
-  const values = Object.entries(scope).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[1].trim()))
-  if (values.length !== 1) throw new OpenClawWorkspaceError('failed', '产物查询必须指定一个明确的 Session、Run 或 Task 来源。')
-  return Object.fromEntries(values.map(([key, value]) => [key, value.trim()]))
-}
 
 export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { controller: OpenClawWorkspaceController; routeEvent(event: GatewayEvent): void } {
   const listeners = new Set<(eventName: string) => void>()
@@ -73,9 +68,9 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
     async listTasks(input = {}) { const params = { limit: 50, ...(input.status ? { status: input.status satisfies OpenClawTaskStatus } : {}), ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}), ...(input.cursor ? { cursor: input.cursor } : {}) }; return (await import('./openclawWorkspaceDetails')).projectTaskPage(await request('tasks.list', params), input.sessionKey) },
     async getTask(taskId, sessionKey) { const id = requireText(taskId, 'Task'); const scope = requireText(sessionKey, 'Session'); return (await import('./openclawWorkspaceDetails')).projectTaskDetail(await request('tasks.get', { taskId: id, sessionKey: scope }), id, scope) },
     async cancelTask(taskId, sessionKey, reason) { const id = requireText(taskId, 'Task'); const scope = requireText(sessionKey, 'Session'); await controller.getTask(id, scope); const result = await request<Record<string, unknown>>('tasks.cancel', { taskId: id, sessionKey: scope, ...(reason?.trim() ? { reason: reason.trim() } : {}) }); return result.found === true && result.cancelled === true },
-    async listArtifacts(scope) { const trustedScope = requireArtifactScope(scope); return (await import('./openclawWorkspaceDetails')).projectArtifacts(await request('artifacts.list', trustedScope), trustedScope) },
-    async getArtifact(artifactId, scope) { const id = requireText(artifactId, 'Artifact'); const trustedScope = requireArtifactScope(scope); return (await import('./openclawWorkspaceDetails')).projectArtifactDetail(await request('artifacts.get', { artifactId: id, ...trustedScope }), { artifactId: id, ...trustedScope }) },
-    async downloadArtifact(artifactId, scope) { const id = requireText(artifactId, 'Artifact'); const trustedScope = requireArtifactScope(scope); return (await import('./openclawWorkspaceDetails')).projectArtifactDownload(await request('artifacts.download', { artifactId: id, ...trustedScope }), { artifactId: id, ...trustedScope }) },
+    async listArtifacts(scope) { const details = await import('./openclawWorkspaceDetails'); const trustedScope = details.artifactScopeParams(scope); return details.projectArtifacts(await request('artifacts.list', trustedScope), trustedScope) },
+    async getArtifact(artifactId, scope) { const id = requireText(artifactId, 'Artifact'); const details = await import('./openclawWorkspaceDetails'); const trustedScope = details.artifactScopeParams(scope); return details.projectArtifactDetail(await request('artifacts.get', { artifactId: id, ...trustedScope }), { artifactId: id, ...trustedScope }) },
+    async downloadArtifact(artifactId, scope) { const id = requireText(artifactId, 'Artifact'); const details = await import('./openclawWorkspaceDetails'); const trustedScope = details.artifactScopeParams(scope); return details.projectArtifactDownload(await request('artifacts.download', { artifactId: id, ...trustedScope }), { artifactId: id, ...trustedScope }) },
     async skillsStatus() {
       const agentId = refs.session.agentId; const sessionKey = refs.session.sessionKey
       const result = (await import('./openclawWorkspaceDetails')).projectSkillsStatus(await request('skills.status', { agentId: agentId ?? undefined }))
