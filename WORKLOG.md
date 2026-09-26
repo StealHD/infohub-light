@@ -400,6 +400,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "0ebfc4295b22fed82f9e83821c7ebb734b1773af",
   "control_topics": [
     "architecture",
     "interface",
@@ -410,14 +411,15 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "status": "completed",
   "task_id": "agent-skill-execution-capabilities-20260926",
   "unresolved": [
-    "未部署、未修改生产配置，也未执行真实模型或查书调用；部署后管理员在 Skills → 管理开放范围点击“同步执行能力”并确认，补齐已有连接。",
-    "首屏 JavaScript 体积预算仅余 5 bytes，与其他任务合并时须复核最终产物。"
+    "首屏 JavaScript 体积预算余 216 bytes，后续合并仍需复核最终构建产物。"
   ],
   "validation": [
-    "定向后端 45 项通过，包含既有接入、重复同步、撤权、失败重试及原生配置检查；Skill 管理页 8 项测试通过，覆盖原清单同步、确认、防重复提交及失败保留选择。",
-    "OpenClaw 2026.9.3 原生 read 测试确认 Skill/参考文件可读，未选 Skill、主机文件、路径穿越和越界符号链接被拒绝；已核对 2026.9.2 官方包相同目录例外实现。",
-    "生产只读确认 sessions.list 与 tools.effective 的 exact session 查询兼容；最终 impacted preflight 14/14 通过（.test-results/20260926T075441Z-87271/result.json），含后端映射回归、前端 156 文件/973 测试、lint、UI 合同和生产构建。",
-    "生产首屏 JavaScript Brotli 为 245755/245760 bytes，当前通过；未增加预算或调整测试映射。"
+    "定向后端 45 项、Skill 管理页 8 项通过；首次 impacted preflight 14/14 通过，含前端 156 文件/973 测试（.test-results/20260926T075441Z-87271/result.json）。",
+    "OpenClaw 2026.9.3 原生 read 测试确认 Skill/参考文件可读，未选 Skill、主机文件、路径穿越与越界符号链接被拒绝；核对 2026.9.2 官方包相同目录例外实现。",
+    "线上发现 Gateway 必须以精确数组路径声明移除意图；修复 skills/tools.allow/tools.deny 的 replacePaths。修复与撤权定向测试 22 项通过，最终 impacted preflight 14/14 通过（.test-results/20260926T090517Z-99197/result.json）。",
+    "合并后构建曾超首屏预算 55 bytes；将纯 artifact scope helper 移至既有按需模块，运行时 5 项测试通过。最终 v2.6.27 生产构建首屏 JavaScript Brotli 245544/245760 bytes，未增加预算。",
+    "终态：分支已合入本地 main 并推送；本地构建 linux/amd64 镜像，v2.6.27 部署到 vps-tokyo，Tag 已推送。归档 SHA-256、生产库备份、API/Worker、公开版本与 React 静态资源检查通过，线上 revision=0ebfc4295b22。",
+    "生产现有 revision 2 的 book-skill 清单同步成功，3 个活跃绑定均 chat_ready；2 个已有会话实际 read/browser 均可用，无会话绑定核对配置。部署后只读复验通过，未执行真实模型、查书或通知调用。"
   ]
 }
 ```
