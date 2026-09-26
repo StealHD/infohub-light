@@ -12,25 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-17",
-  "result": "细化当前分支 Agent 建议卡片：保留 3D 层级与指针倾斜，缩小卡片并移除右下硬黑边；三种独立细线底纹仅受光时显现，紫灰、青绿和暖金底色保持独立；背景光限制色强和范围并消除底部直线边界。侧卡切换、正面卡填入建议，自动轮换保留。同步组件合同与更新日志，未提交或部署。",
-  "status": "completed",
-  "task_id": "agent-card-light-depth-20260917",
-  "unresolved": [],
-  "validation": [
-    "完整 impacted preflight 11/11 通过（.test-results/20260917T100442Z-13413），生产首屏 JS Brotli 245499/245760 bytes。",
-    "桌面/手机交互浏览器测试 5 项通过、1 项按设备跳过；新增无光隐藏、移入显纹、移出隐藏检查 1 项通过，已查看受光截图和本地手机页面。",
-    "最后光晕范围调整后的生产构建通过，Markdown 控制和 E2E 合同补查通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-17",
   "result": "移除 Agent 建议卡片底部上一项、页码与下一项栏，保留读屏播报；修复透明 3D 容器拦截侧卡点击，点击露出侧卡切换，正面卡填入建议。同步 UI 合同、手册与更新日志，未提交或部署。",
   "status": "completed",
   "task_id": "agent-direct-card-navigation-20260917",
@@ -433,6 +414,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "本地构建 linux/amd64 镜像并传输，重建归档 SHA-256 完全一致；API、Worker、公开版本及静态资源健康检查通过，v2.6.29 标签已推送。运行 revision=57a7d89219cb。",
     "生产 OpenClaw 2026.9.2 配置读回及加载哈希一致，browser running/cdpReady/cdpHttp 均为 true；普通 Relay 认证及心跳成功。未调用模型、执行电子书下载或发送通知。",
     "原策略以 0600 备份到持久 data/backups/openclaw-browser-policy-before-v2.6.29-20260926.json。仅清理无容器引用的 v2.6.23–v2.6.26 镜像，保留 v2.6.27、v2.6.28 及全部数据库备份、源码；上传临时基准文件核对 SHA 后删除。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-09-26",
+  "result": "定位原生 main 的专用脚本/桌面与 Inscope 个人 Agent 的 read/browser 是不同执行链路。补齐代理冲突预检；在 Gateway 安装独立账号、nftables 出口限制与固定公网 IP 的 HTTPS 代理，systemd 管理独立 Chrome，Gateway 使用 attachOnly 连接，内置 user/chrome 别名也指向隔离端点。备份后 CAS 切换配置，并仅更新两个已安装 book-skill 的 Project Agents 入口说明。个人 Relay 真实会话已读取 Skill、打开维护首页并提交小王子检索，目标站的人机验证仍阻止书籍结果/最终链接验收。",
+  "status": "partial",
+  "task_id": "inscope-skill-browser-proxy-20260926",
+  "unresolved": [
+    "目标站要求手动人机验证，未取得书籍搜索结果或最终下载链接，不能宣称达到原生 main 的完整检索效果。",
+    "普通 Relay 的验收会话归档请求未成功，保留该测试会话作为证据；未删除其他会话或接管原生桌面。"
+  ],
+  "validation": [
+    "78 项针对性 Pytest 通过；最终产品代码 impacted preflight 14/14 通过（.test-results/20260926T120045Z-51478/result.json）；随后仅更新运维说明，Markdown、diff 与 WORKLOG 结构检查通过。",
+    "Gateway 2026.9.2 配置已加载；真实 browser.request 打开并读取 Example Domain。个人 Agent 经现役 Relay 的 operator.read/write scopes 调用 read/browser，无 exec；第二次检索成功加载 annas-archive.gl 首页并提交可见搜索框，网站返回手动人机验证。测试标签页已由模型关闭。",
+    "服务器独立账号直连公网、loopback、RFC1918、metadata 与 IPv6 均被拒绝；代理拒绝 loopback、metadata、192.0.0.8 和 192.88.99.1 等特殊地址，公网 HTTPS 返回 200。原生 book Chrome 仍为 PID 532808、active；上游代理 sniffer 未启用，不进行目的地址改写。",
+    "Gateway 浏览器配置备份：~/.openclaw/backups/browser-before-isolated-egress-20260926.json；Skill 备份：~/.openclaw/backups/book-skill-project-entry-20260926；运行文件备份位于 /var/backups/browser-egress-*。只更新 Gateway 主机运行环境，未重建 Inscope VPS 镜像，未发送通知或下载文件。"
   ]
 }
 ```

@@ -8,6 +8,17 @@ from ..agent_skill_gateway import AgentSkillGatewayError
 _LOOPBACK = {'localhost', '127.0.0.1', '::1', '[::1]', '*.localhost'}
 _FLAGS = {'dangerouslyAllowPrivateNetwork', 'allowPrivateNetwork'}
 _LISTS = {'blockedHostnames', 'allowedHostnames', 'allowedOrigins', 'hostnameAllowlist'}
+_PROXY_FLAGS = {'--proxy-server', '--proxy-pac-url', '--proxy-auto-detect'}
+
+
+def _check_proxy_routing(profile):
+    args = profile.get('extraArgs', [])
+    if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+        raise ValueError('browser_policy_unsupported')
+    # Check before the unchanged path as well: an earlier repair may already have
+    # disabled private access while leaving an unusable proxy-routed browser.
+    if any(arg.strip().split('=', 1)[0].lower() in _PROXY_FLAGS for arg in args):
+        raise ValueError('browser_policy_proxy_incompatible')
 
 
 def _managed_profiles(browser):
@@ -21,6 +32,7 @@ def _managed_profiles(browser):
     for profile in [browser, *profiles.values()]:
         if not isinstance(profile, dict) or profile.get('attachOnly') is True:
             raise ValueError('browser_policy_unsupported')
+        _check_proxy_routing(profile)
         if profile.get('driver', 'openclaw') != 'openclaw':
             raise ValueError('browser_policy_unsupported')
         if 'cdpUrl' in profile:

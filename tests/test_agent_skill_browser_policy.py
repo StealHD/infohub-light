@@ -64,6 +64,44 @@ def test_nonconflicting_policy_is_unchanged(config):
     assert repaired_browser_policy(config) == config['browser']['ssrfPolicy']
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize('args', [
+    ['--proxy-server=http://127.0.0.1:7890'], ['--proxy-server', 'http://proxy.example:8080'],
+    ['--proxy-pac-url=https://proxy.example/proxy.pac'], ['--proxy-auto-detect'],
+    [' --PROXY-SERVER=http://proxy.example:8080 '],
+    ['--no-proxy-server', '--proxy-server=http://proxy.example:8080'],
+])
+@pytest.mark.parametrize('already_repaired', [False, True])
+async def test_proxy_navigation_conflict_rejects_preview_and_apply_without_writing(config, args, already_repaired):
+    if already_repaired:
+        config['browser']['ssrfPolicy'] = repaired_browser_policy(config)
+    config['browser']['extraArgs'] = args
+    for expected_hash in (None, 'hash-before'):
+        gateway = FakeGateway(config)
+        with pytest.raises(ValueError, match='^browser_policy_proxy_incompatible$'):
+            await repair_browser_policy(gateway, expected_hash=expected_hash)
+        assert [method for method, _ in gateway.calls] == ['config.get']
+        assert gateway.config == config
+
+
+def test_profile_proxy_is_not_silently_ignored(config):
+    config['browser']['profiles']['openclaw']['extraArgs'] = ['--proxy-auto-detect']
+    with pytest.raises(ValueError, match='browser_policy_proxy_incompatible'):
+        repaired_browser_policy(config)
+
+
+@pytest.mark.parametrize('args', ['--proxy-auto-detect', [None], None])
+def test_malformed_browser_arguments_fail_closed(config, args):
+    config['browser']['extraArgs'] = args
+    with pytest.raises(ValueError, match='browser_policy_unsupported'):
+        repaired_browser_policy(config)
+
+
+def test_direct_browser_arguments_preserve_endpoint_repair(config):
+    config['browser']['extraArgs'] = ['--no-proxy-server', '--disable-gpu']
+    assert repaired_browser_policy(config)['dangerouslyAllowPrivateNetwork'] is False
+
+
 def test_additional_wildcard_block_is_not_claimed_as_repaired(config):
     config['browser']['ssrfPolicy']['blockedHostnames'].append('*.0.0.1')
     with pytest.raises(ValueError):
@@ -153,6 +191,17 @@ def test_cli_defaults_to_preview_and_redacts_upstream_failure(tmp_path, monkeypa
     monkeypatch.setattr(gateway, '_session', fail)
     assert cli.main(['--data-dir', str(tmp_path)]) == 1
     assert 'raw-upstream-secret' not in capsys.readouterr().out
+
+
+def test_cli_explains_proxy_conflict_without_leaking_proxy_credentials(tmp_path, monkeypatch, capsys, config):
+    config['browser']['extraArgs'] = ['--proxy-server=http://user:never-print-this@proxy.example:8080']
+    gateway = FakeGateway(config)
+    monkeypatch.setattr(cli, 'AgentSkillGateway', lambda *_: gateway)
+    assert cli.main(['--data-dir', str(tmp_path), '--apply', '--expected-hash', 'hash-before']) == 1
+    output = capsys.readouterr().out
+    assert json.loads(output)['reason'].startswith('Proxy-routed browser is incompatible')
+    assert 'never-print-this' not in output and 'proxy.example' not in output
+    assert [method for method, _ in gateway.calls] == ['config.get']
 
 
 @pytest.mark.parametrize('flags', [['--apply'], ['--expected-hash', 'hash']])

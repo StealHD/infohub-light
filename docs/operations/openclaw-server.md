@@ -49,9 +49,34 @@ PY
 
 服务端运维命令 `python scripts/repair_openclaw_browser_policy.py --data-dir /absolute/service/data` 默认只读取配置并输出预览及 `base_hash`，不输出配置、地址或凭据。使用既有 Service 环境与 SecretStore 的 Skill 管理凭据。工具只接受本机托管的浏览器配置；远端 CDP、附加已有浏览器、自定义信任/允许清单及未知策略字段要求单独人工审查。
 
+若 `extraArgs` 包含 `--proxy-server`、`--proxy-pac-url` 或 `--proxy-auto-detect`，命令在预览及应用前均拒绝改写，并说明代理与严格策略不兼容；即使此前已移除 loopback 黑名单，也不能以 `unchanged` 表示这条导航链路可用。不要为消除该错误打开私网放行，或移除业务必需代理。需先核对 Skill 在原生 Agent 与个人 Agent 下实际使用的脚本、工具和浏览器隔离方式，准备兼容的执行环境。
+
 预览有变更时，修复会关闭新旧两种私网放行开关，移除显式 loopback 冲突项，保留 metadata 和其他域名禁止项。网页导航、DNS 解析到私网及重定向继续受 OpenClaw 原生严格 SSRF 检查约束；固定本机 CDP 通过原生端点专用校验。该策略属于整个 Gateway 的浏览器配置，会限制所有 profile 的私网页面访问，不能用于需要私网站点的共享部署。
 
 只有获得配置应用授权后，才使用同一命令加 `--apply --expected-hash <预览的base_hash>`。命令使用 `config.patch` 的 CAS 和精确 `browser.ssrfPolicy.blockedHostnames` 数组替换，写后读回核验，不调用模型、启动浏览器、自动重试或强制重启 Gateway。`saved_pending_reload`（退出码 2）只表示保存后尚未证明加载，需另查实际加载状态；未知写入结果应检查配置，不能盲目重放。`applied` 只证明配置已加载，真实浏览器和 Skill 仍需单独验收。普通应用发布、Skills 同步、成员接入及 GET 不会自动运行此修复。
+
+验收必须包含独立测试标签页的实际公网域名导航、页面读取及测试页清理，随后通过个人 Agent 验证目标 Skill；启动成功、CDP ready 或原生 `main` 的成功记录均不能替代这两步。关闭代理也不等于域名导航可用：部分 OpenClaw 版本在显式严格模式下还要求 IP 字面量或经过审核的域名允许项。遇到此限制应如实记录，不扩大信任来绕过验收。
+
+### 需要代理的独立托管浏览器
+
+Linux Gateway 可显式安装 `scripts/openclaw_browser_egress/` 中的运行环境。先在本地审查和测试，再把这三个 Python 文件传到 Gateway 的独立临时目录；它不是 Inscope 镜像构建，也不读取原生 main 的浏览器数据。主机需 Python 3、Chrome、sudo、systemd 和 nftables。
+
+```bash
+python3 install.py --gateway-user ubuntu --cdp-port 18802
+sudo python3 install.py --gateway-user ubuntu --cdp-port 18802 --apply
+```
+
+默认上游代理为本机 HTTP 7890，新出口代理监听本机 18890。安装器创建无登录账号 `inteliscope-browser`、独立目录 `/var/lib/inteliscope-browser`、三个 systemd 服务和固定启动器 `/usr/local/bin/inteliscope-managed-chrome`；只改自己的 `inet inteliscope_browser` 表。旧安装文件备份到输出的 `/var/backups/browser-egress-*`，其 manifest 记录原文件映射。安装会启动新的独立浏览器，不修改 Gateway 配置、不重启 Gateway、不停止原生 main 浏览器。
+
+必须先以该独立账号验证：直连公网及 localhost/内网/metadata 均被内核拒绝；通过 18890 访问这些私网目标也被代理拒绝；公网 HTTPS 可经代理打开。代理只允许 443 CONNECT，检查全部 IPv4 解析结果并固定上游 IP，拒绝私网、回环、链路本地、保留和多播地址；不支持 HTTP、IPv6 目标或其他端口。浏览器启动前重新原子应用出口规则；规则/代理不可用时启动失败，不退回直连。每条隧道空闲上限 60 秒、总时长 300 秒。
+
+验收后，由管理员备份并 CAS 修改受管 profile 的 `cdpPort`、全局及 profile `executablePath` 为该启动器、`attachOnly=true`，并将 `extraArgs` 指向 18890。浏览器由 systemd 管理，Gateway 只附加到此固定 CDP 端点；不通过 sudo 子进程规避 Gateway 的启动 PID 归属检查。OpenClaw 代理兼容模式需 `dangerouslyAllowPrivateNetwork=true`；这里只允许在上述独立账号、固定启动器与出口限制全部有效时使用，网络权限仍由内核和代理限定为公网 HTTPS。保留 metadata 禁止项，不能将此配置复用给普通 Chrome 或原生 main 浏览器。核对配置加载后，再执行 Gateway 实际导航/读取及个人 Agent Skill 验收。
+
+站点验收还需核对 Skill 的个人 Agent 入口与原生脚本当前维护的入口一致。部署中的 `book-skill` 在 `Project Agents` 小节指定 `openclaw` profile 和已核验的首页，要求通过可见搜索控件操作；不要让模型凭记忆猜旧域名。修改前备份两个已安装目录的说明，保留 main 工作流及脚本不变。DNS/代理路由变化、站点验证或登录仍是独立结果，不能由工具调用成功推断已取得书籍结果或下载链接。
+
+OpenClaw 会自动补充 `user`、`chrome` profile。切换时必须显式将这两个名字也配置为 `driver=openclaw`、`attachOnly=true`、相同隔离 CDP 端口，并核验实际 profile 列表；不能留下能附加到账号原有桌面的默认入口。其他既有 profile 需要逐个确认，不支持混合共享部署。原生 main 的专用脚本直连自己的独立端口，不受这些别名替换影响。
+
+回滚先将 Gateway 配置恢复到备份并核对加载，停止此次独立浏览器，再停止新代理服务；使用安装备份恢复自己的文件。只清理 `inet inteliscope_browser` 表，保留原生浏览器、其他防火墙规则和用户数据。不得在该独立浏览器仍运行时移除出口限制。
 
 ## 个人 Agent 部署（阶段 1，仅受控环境）
 

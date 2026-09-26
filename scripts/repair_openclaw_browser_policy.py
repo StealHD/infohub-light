@@ -33,8 +33,11 @@ def main(argv=None):
         return 2 if result['status'] == 'saved_pending_reload' else 0
     except Exception as error:
         # No raw upstream errors, URLs, config or secrets in operator output.
+        proxy_conflict = isinstance(error, ValueError) and str(error) == 'browser_policy_proxy_incompatible'
+        reason = ('Proxy-routed browser is incompatible with this strict policy repair; no configuration changed'
+                  if proxy_conflict else 'Inspect browser policy and current configuration before retrying')
         print(json.dumps({'status': 'failed', 'error_type': type(error).__name__,
-                          'reason': 'Inspect browser policy and current configuration before retrying'}))
+                          'reason': reason}))
         return 1
 
 
