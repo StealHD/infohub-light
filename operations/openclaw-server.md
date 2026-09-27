@@ -74,7 +74,7 @@ sudo python3 install.py --gateway-user ubuntu --cdp-port 18802 --apply
 
 个人 Agent 使用原生桌面 book-skill 时，在 Gateway 的 `~/.openclaw/extensions/inteliscope-book-desktop/` 安装仓库 `scripts/openclaw_book_desktop/` 下的三个 `.mjs`、`package.json` 和 `openclaw.plugin.json`。备份现有 Skill 与相关配置，将 `project-agents.md` 安装为两个 Skill 目录中的 `references/project-desktop.md`，并让各自 `SKILL.md` 的 Project Agents 小节引用它。通过 Gateway config CAS 将插件绝对路径加入 `plugins.load.paths`，保留其他插件，加载后同步已开放 Skill 的个人绑定工具。新工具必须在真实会话的 `tools.effective` 和实际调用中分别核验；仅插件文件存在不是成功证据。
 
-`book_desktop` 使用 VPS 原生桌面 Chrome 和既有站点会话，各个人会话有独立的任务标签及标签页归属；共享桌面由既有 lease 串行调度。检索、候选选择、验证码图片读取/提交、通过后的续跑均复用当前安装的固定脚本。Skill 的授权不替代宿主要求的当前验证码操作确认。遇到 busy 保留任务，遇到观察超时先检查同一任务；不得改任务号重复提交。返回 ready 才证明取得当前匹配元数据与最终链接，文件下载/发送仍需独立请求与验收。
+`book_desktop` 使用 VPS 原生桌面 Chrome 和既有站点会话，各个人会话有独立的任务标签及标签页归属；共享桌面由既有 lease 串行调度。检索、候选选择、验证码图片读取/提交、通过后的续跑均复用当前安装的固定脚本。Skill 的授权不替代宿主要求的当前验证码操作确认。遇到 busy 保留任务，遇到观察超时先检查同一任务；租约过期时先读取同一任务状态，再以原书名和约束调用 start 续接。visual_next 只在检查点、目标页与原请求一致且动作尚未开始时自动续接；visual_submit 不自动重放。不得改任务号重复提交。返回 ready 才证明取得当前匹配元数据与最终链接，文件下载/发送仍需独立请求与验收。
 
 插件依赖生产主机现有 `/home/ubuntu/.openclaw/workspace/skills/book-skill/scripts/`、18801 桌面 Chrome、Computer Use node 和桌面 lease；安装前核对这些入口。此适配器不改原生 main 工作流。回滚先撤回个人 Agent 的 `book_desktop` 工具，再恢复 Skill 与插件加载路径并核对 Gateway；保留现有桌面、任务检查点和 main 配置。受管 browser 的独立公网出口仍按本节前述步骤验收。
 
