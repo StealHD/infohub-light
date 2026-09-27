@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {taskIdentity, command, ROOT} from '../scripts/openclaw_book_desktop/command.mjs';
+import {taskIdentity, command, ROOT, LEASE} from '../scripts/openclaw_book_desktop/command.mjs';
 import {createTool} from '../scripts/openclaw_book_desktop/index.mjs';
-import {validatePanelPath} from '../scripts/openclaw_book_desktop/runtime.mjs';
+import {validatePanelPath, recoverableFailure} from '../scripts/openclaw_book_desktop/runtime.mjs';
 
 const agentId = 'ih-' + 'a'.repeat(32);
 function context(session = 'first') {
@@ -38,6 +38,77 @@ test('user text remains one literal argument to a fixed script', () => {
   assert.deepEqual(args, [ROOT + 'book_browser.mjs', 'book-test', 'start', title]);
   assert.throws(() => command('book-test', {...input, operation: 'exec'}));
   assert.throws(() => command('book-test', {...input, operation: 'select', targetId: '../other', ref: 'l1'}));
+});
+
+test('lost lease is a recoverable state without exposing helper stderr', () => {
+  const expected = {phase: 'lease_lost', next: 'status_then_resume_start'};
+  assert.deepEqual(recoverableFailure(LEASE, ['renew', 'book-task'], 'not-owner\n', ''), expected);
+  assert.deepEqual(recoverableFailure('/usr/bin/python3', ['visual_flow.py'], '',
+    'ValueError: active desktop lease required for exact task ID'), expected);
+  assert.equal(recoverableFailure('/usr/bin/python3', ['visual_flow.py'], '',
+    'private browser output'), null);
+});
+
+test('visual preparation reacquires the same task lease before acting', async () => {
+  const targetId = 'A'.repeat(32), calls = [];
+  const tool = createTool(context('recover-lease'), {executeFile: async (binary, args) => {
+    const operation = binary === LEASE ? args[0] : args[0].endsWith('visual_flow.py') ? 'visual_next' : args[2];
+    calls.push(operation);
+    if (operation === 'renew') return {phase: 'lease_lost'};
+    if (operation === 'status') return {phase: 'verification', target: targetId,
+      actionUncertain: false, request: {title: '小王子', language: 'zh', operation: 'release'}};
+    if (operation === 'start') {
+      assert.equal(args[3], '小王子');
+      assert.deepEqual(args.slice(4), ['--language', 'zh']);
+      return {phase: 'verification', target: targetId, hostReady: true};
+    }
+    return {status: 'passed'};
+  }});
+  const result = await tool.execute('recover', {...input, operation: 'visual_next', targetId});
+  assert.deepEqual(calls, ['renew', 'status', 'start', 'visual_next']);
+  assert.equal(result.details.status, 'passed');
+});
+
+test('visual recovery stops before action when checkpoint is uncertain or desktop is busy', async () => {
+  const targetId = 'B'.repeat(32);
+  for (const uncertain of [true, false]) {
+    const calls = [];
+    const tool = createTool(context(`recover-${uncertain}`), {executeFile: async (binary, args) => {
+      const operation = binary === LEASE ? args[0] : args[2];
+      calls.push(operation);
+      if (operation === 'renew') return {phase: 'lease_lost'};
+      if (operation === 'status') return {phase: 'verification', target: targetId,
+        actionUncertain: uncertain, request: {title: '小王子'}};
+      return {phase: 'busy', next: 'wait_for_desktop'};
+    }});
+    const result = await tool.execute('recover', {...input, operation: 'visual_next', targetId});
+    assert.deepEqual(calls, uncertain ? ['renew', 'status'] : ['renew', 'status', 'start']);
+    assert.equal(result.details.phase, uncertain ? 'resume_required' : 'busy');
+  }
+});
+
+test('visual recovery never acts on a changed target', async () => {
+  const targetId = 'C'.repeat(32), calls = [];
+  const tool = createTool(context('changed-target'), {executeFile: async (binary, args) => {
+    const operation = binary === LEASE ? args[0] : args[2];
+    calls.push(operation);
+    if (operation === 'renew') return {phase: 'lease_lost'};
+    return {phase: 'verification', target: 'D'.repeat(32), request: {title: '小王子'}};
+  }});
+  const result = await tool.execute('recover', {...input, operation: 'visual_next', targetId});
+  assert.deepEqual(calls, ['renew', 'status']);
+  assert.equal(result.details.phase, 'resume_required');
+});
+
+test('a lease lost during visual preparation is reported without replaying the action', async () => {
+  const targetId = 'E'.repeat(32), calls = [];
+  const tool = createTool(context('lost-during-action'), {executeFile: async (binary, args) => {
+    calls.push(binary === LEASE ? 'renew' : 'visual_next');
+    return binary === LEASE ? {status: 'renewed'} : {phase: 'lease_lost'};
+  }});
+  const result = await tool.execute('visual', {...input, operation: 'visual_next', targetId});
+  assert.deepEqual(calls, ['renew', 'visual_next']);
+  assert.equal(result.details.phase, 'lease_lost');
 });
 
 test('revoked authorization fails before any native script runs', async () => {
@@ -81,6 +152,21 @@ test('uncertain native submission cannot be replayed with old read receipts', as
   const submit = {...read, operation: 'visual_submit', first: 'Ab123', second: 'Ab123'};
   await assert.rejects(tool.execute('submit', submit), /connection lost/);
   await assert.rejects(tool.execute('repeat', submit), /Two separate/);
+});
+
+test('lost lease never replays a submitted challenge', async () => {
+  let submissions = 0;
+  const tool = createTool(context('submit-lease-lost'), {
+    reading: async () => ({type: 'image', data: 'test', mimeType: 'image/png'}),
+    challengeRecord: async () => ({}),
+    executeFile: async () => { submissions++; return {phase: 'lease_lost'}; },
+  });
+  const read = {...input, operation: 'visual_read', challengeId: 'c'.repeat(32)};
+  await tool.execute('read1', read); await tool.execute('read2', read);
+  const submit = {...read, operation: 'visual_submit', first: 'Ab123', second: 'Ab123'};
+  assert.equal((await tool.execute('submit', submit)).details.phase, 'lease_lost');
+  await assert.rejects(tool.execute('repeat', submit), /Two separate/);
+  assert.equal(submissions, 1);
 });
 
 test('parallel calls on one task cannot run two native operations', async () => {

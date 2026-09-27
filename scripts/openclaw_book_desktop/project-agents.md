@@ -19,6 +19,10 @@ structured arguments; do not run shell commands or read its private task files.
 - Constraint mismatch: `operation: back` on the owned target and choose a matching result.
 - `busy`: another task owns the shared desktop. Preserve this task and wait; never
   take over that task, reset the desktop, or switch browser/profile to avoid the lease.
+- `lease_lost` or `resume_required`: call `status`, then `start` with the original
+  title and constraints to regain the same task's lease. `visual_next` can do this
+  before acting when its last observed target still matches; never replay a
+  `visual_submit` after an uncertain outcome.
 - `service_error`, `missing_task_tab`, `closed`, explicit rejection or uncertain action:
   report the actual observation and preserve the task. Do not reset or resubmit.
 

@@ -4,10 +4,22 @@ import {constants} from 'node:fs';
 import {resolve} from 'node:path';
 import {TASK_ROOT, LEASE} from './command.mjs';
 
+export function recoverableFailure(binary, args, stdout, stderr) {
+  if ((binary === LEASE && args[0] === 'renew' && stdout.trim() === 'not-owner') ||
+      stderr.includes('active desktop lease required')) {
+    return {phase: 'lease_lost', next: 'status_then_resume_start'};
+  }
+  return null;
+}
+
 export function executeFile(binary, args, signal) {
   return new Promise((accept, reject) => {
-    execFile(binary, args, {timeout: 180000, maxBuffer: 512 * 1024, signal, shell: false}, (error, stdout) => {
-      if (error) return reject(new Error('Desktop helper did not finish successfully; preserve task and inspect status before retrying'));
+    execFile(binary, args, {timeout: 180000, maxBuffer: 512 * 1024, signal, shell: false}, (error, stdout, stderr) => {
+      if (error) {
+        const recoverable = recoverableFailure(binary, args, stdout, stderr);
+        if (recoverable) return accept(recoverable);
+        return reject(new Error('Desktop helper did not finish successfully; preserve task and inspect status before retrying'));
+      }
       try {
         if (binary === LEASE && ['renewed', 'released'].includes(stdout.trim())) return accept({status: stdout.trim()});
         const lines = stdout.trim().split('\n').filter(Boolean);

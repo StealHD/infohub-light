@@ -1,4 +1,4 @@
-import {OPS, taskIdentity, command} from './command.mjs';
+import {OPS, LEASE, taskIdentity, command} from './command.mjs';
 import {executeFile, challengeRecord, reading} from './runtime.mjs';
 
 const counts = new Map();
@@ -15,6 +15,23 @@ export function authorized(context) {
   const agent = config?.agents?.entries?.[context.agentId];
   return agent?.skills?.includes('book-skill') && agent?.tools?.allow?.includes('book_desktop') &&
     !agent?.tools?.deny?.some(rule => ['book_desktop', '*', 'inteliscope-book-desktop'].includes(rule));
+}
+
+async function resumeVisualLease(task, input, deps, signal) {
+  const status = await deps.executeFile(...command(task, {operation: 'status'}), signal);
+  if (status?.phase !== 'verification' || status.target !== input.targetId ||
+      status.actionUncertain || !status.request?.title) {
+    return {phase: 'resume_required', next: 'inspect_same_task_status'};
+  }
+  let start;
+  try { start = command(task, {...status.request, operation: 'start'}); }
+  catch { return {phase: 'resume_required', next: 'inspect_same_task_status'}; }
+  const resumed = await deps.executeFile(...start, signal);
+  if (resumed?.phase === 'verification' && resumed.target !== input.targetId) {
+    return {phase: 'resume_required', next: 'inspect_same_task_target'};
+  }
+  if (resumed?.phase === 'verification' && resumed.hostReady !== false) return null;
+  return resumed ?? {phase: 'resume_required', next: 'inspect_same_task_status'};
 }
 
 export function createTool(context, deps = {executeFile, challengeRecord, reading}) {
@@ -39,6 +56,16 @@ export function createTool(context, deps = {executeFile, challengeRecord, readin
           await deps.challengeRecord(task, input.challengeId);
           if (counts.get(key) !== 2) throw new Error('Two separate successful image reads are required before submit');
           counts.delete(key);
+        }
+        if (input.operation === 'visual_next') {
+          const lease = await deps.executeFile(LEASE, ['renew', task], signal);
+          if (lease?.phase === 'lease_lost') {
+            const resumed = await resumeVisualLease(task, input, deps, signal);
+            if (resumed) return {content: [{type: 'text', text: JSON.stringify(resumed)}], details: resumed};
+          } else if (lease?.status !== 'renewed') {
+            const result = {phase: 'resume_required', next: 'inspect_same_task_status'};
+            return {content: [{type: 'text', text: JSON.stringify(result)}], details: result};
+          }
         }
         const result = await deps.executeFile(...cmd, signal);
         if (result.reading_path && result.challenge_id) {

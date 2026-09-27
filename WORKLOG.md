@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui",
-    "verification"
-  ],
-  "recorded_on": "2026-09-20",
-  "result": "在本地 main a9d819e 的独立 worktree 修复模型切换错误分类：保留继承未固定、模型不匹配及核验失败原因，移除泛 fork 上下文超限误判；未核验模型的思考/Fast 调整保留警告。原会话、输入和发送安全校验不变，同步手册与更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-20-model-inheritance-recovery",
-  "unresolved": [
-    "本次仅修复本地错误处理与恢复反馈；未修改运行中的 Gateway、未部署生产，线上继承行为仍需核验 Gateway 兼容修复。"
-  ],
-  "validation": [
-    "定向 23 项前端测试通过；最终 impacted preflight 13/13 命令通过（196.752 秒），包括关联后端/前端测试、类型、ESLint、UI/E2E 静态合同、代码规模及控制检查。",
-    "首次 preflight 发现的测试构造参数已修正；worktree 按锁文件安装独立依赖，未修改依赖清单。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture",
     "interface",
     "verification"
@@ -444,6 +424,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "前端定向测试 2 文件 17 项通过；本地生产构建通过，初始 JavaScript Brotli 245757 字节，满足 245760 字节上限。",
     "最终 impacted preflight 13/13 通过，未关闭 SQLite 连接警告 0；证据 .test-results/20260927T023214Z-32155/result.json。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "verification"
+  ],
+  "recorded_on": "2026-09-27",
+  "result": "修复个人 Agent 的 book_desktop 在桌面租约过期时把 visual_next/renew 压成笼统失败的问题。明确返回 lease_lost；visual_next 在同一任务、目标和已保存请求匹配且检查点确定时先经原生 start 恢复租约，再准备验证。busy、目标变化与不确定动作安全停下，visual_submit 不自动重放。同步 Skill 操作说明、运维手册与更新日志。仅本地代码，未部署 VPS。",
+  "status": "completed",
+  "task_id": "2026-09-27-book-desktop-lease-recovery",
+  "unresolved": [
+    "VPS 当前安装的插件仍为旧版本，线上 Inscope 需后续部署并在真实会话中核验；首次 visual_next 的历史底层 stderr 未保留，不能断言其唯一根因。"
+  ],
+  "validation": [
+    "桌面插件定向 Node 测试 13/13 通过，覆盖租约丢失、自动续接、桌面忙、检查点不确定、目标变化和验证码提交不可重放。",
+    "最终 full preflight 15/15 通过，零未关闭 SQLite 连接警告；证据 .test-results/20260927T040527Z-44934/result.json。前端生产构建通过，首屏 JavaScript Brotli 245724 字节。",
+    "对照 VPS 当前同一任务只读 status，确认 verification、原目标和原请求结构；未运行验证码动作。"
   ]
 }
 ```
