@@ -72,6 +72,37 @@ describe('OpenClaw pure chat projections', () => {
     }, 'session-1')).toBeNull()
   })
 
+  it('shows the desktop Skill action while keeping tool inputs and results private', () => {
+    const start = projectOpenClawAgentEvent({
+      type: 'event', event: 'agent', payload: {
+        sessionKey: 'session-1', runId: 'run-1', seq: 1, stream: 'tool', ts: 1_000,
+        data: { phase: 'start', name: 'book_desktop', toolCallId: 'call-1',
+          args: { operation: 'visual_read', title: 'PRIVATE_BOOK', first: 'SECRET_CODE' } },
+      },
+    }, 'session-1')!
+    expect(start).toMatchObject({ toolKey: 'book_desktop', toolLabel: '读取验证' })
+    let trace = applyAgentEventToTrace(null, start)
+    expect(trace.activities[0]).toMatchObject({ label: '读取验证', status: 'running' })
+
+    const result = projectOpenClawAgentEvent({
+      type: 'event', event: 'agent', payload: {
+        sessionKey: 'session-1', runId: 'run-1', seq: 2, stream: 'tool', ts: 2_000,
+        data: { phase: 'result', name: 'book_desktop', toolCallId: 'call-1', result: 'PRIVATE_RESULT' },
+      },
+    }, 'session-1')!
+    trace = applyAgentEventToTrace(trace, result)
+    expect(trace.activities[0]).toMatchObject({ label: '读取验证', status: 'completed' })
+    expect(JSON.stringify(trace)).not.toMatch(/PRIVATE_BOOK|SECRET_CODE|PRIVATE_RESULT/u)
+
+    const unknown = projectOpenClawAgentEvent({
+      type: 'event', event: 'agent', payload: {
+        sessionKey: 'session-1', runId: 'run-1', seq: 3, stream: 'tool',
+        data: { phase: 'start', name: 'book_desktop', args: { operation: 'PRIVATE_OPERATION' } },
+      },
+    }, 'session-1')!
+    expect(unknown.toolLabel).toBe('使用桌面查书')
+  })
+
   it('retains the latest 20 tool steps and marks the trace as truncated', () => {
     const trace = Array.from({ length: 21 }, (_, index) => index).reduce((current, index) => applyAgentEventToTrace(current, {
       runId: 'run-1',

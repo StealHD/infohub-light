@@ -8,26 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "verification"
-  ],
-  "recorded_on": "2026-09-18",
-  "result": "在本地 main 派生 worktree 修复 ActorOps 站立维护固定选择同一 no_evidence 候选、使 X 的两条备用 Actor 修复长期等待的问题：优先选择 awaiting_probe 修复候选，并按当前 Binding 已结算 Probe 的时间轮换；保留非空已结算证明、费用和最后一路安全边界。更新 9 月更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-18-actorops-x-maintenance-probe-rotation",
-  "unresolved": [
-    "本地 5173/8080 服务仍运行于另一 worktree，尚未载入此改动；采集 Key 池 blocked 需按既有未知启动结果对账流程恢复，不能靠候选轮换解除。"
-  ],
-  "validation": [
-    "回归测试验证等待修复候选优先、no_evidence 后轮换；使用本地测试库只读调用确认当前选中两条修复记录等待的 Candidate，未启动 Actor。",
-    "相关定向 Pytest 2 项通过；impacted targeted 8/8 通过；最终 impacted preflight 14/14 通过，含前端检查，无 SQLite 连接警告。",
-    "任务范围 diff 审查与 git diff --check 通过；最终 preflight 证据 .test-results/20260918T014356Z-71645/result.json。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui",
     "verification"
   ],
@@ -444,6 +424,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Gateway 插件和三个个人 Agent 已安装配置；真实 Inscope Relay 的 book_desktop start、visual_next、两次 visual_read 成功，模型自行识别并发起 visual_submit。提交工具未返回成功，随后服务器整机重启，临时任务检查点丢失；重启后插件与有效工具仍可用，但续跑模型接口反复 HTTP 502/超时，未确认验证码通过或最终结果。",
     "备份位于 Gateway ~/.openclaw/backups/book-desktop-personal-20260926；验收请求 deliver:false，未调用下载/通知工具。代码未改原生 main 工作流脚本。",
     "93c10e17 已合并并推送 main；v2.6.30 使用同 SHA 本地 linux/amd64 镜像发布，API/Worker、版本/revision 与 React 静态资源健康检查通过，Tag 已推送。清理两个未引用旧镜像约331 MiB及13个旧代码发布目录约342 MiB，保留当前/上一版发布目录、回滚镜像、数据库与备份。生产三个个人绑定 Skills/工具配置匹配；两个已有会话 read/browser/book_desktop 有效工具核验通过，一个尚无会话。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-09-27",
+  "result": "修复 Agent 运行步骤中 book_desktop 一律显示‘使用工具’的问题：展示固定的桌面查书、验证读取与提交动作；工具结果事件保留启动时的动作名称，参数和结果不进入进度卡。同步更新日志，仅合并本地代码，不部署 VPS。",
+  "status": "completed",
+  "task_id": "2026-09-27-openclaw-tool-activity-labels",
+  "unresolved": [
+    "VPS 未部署本次改动，线上界面仍保持现状。"
+  ],
+  "validation": [
+    "前端定向测试 2 文件 17 项通过；本地生产构建通过，初始 JavaScript Brotli 245757 字节，满足 245760 字节上限。",
+    "最终 impacted preflight 13/13 通过，未关闭 SQLite 连接警告 0；证据 .test-results/20260927T023214Z-32155/result.json。"
   ]
 }
 ```

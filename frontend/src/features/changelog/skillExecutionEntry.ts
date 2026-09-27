@@ -1,5 +1,11 @@
 import type { ChangelogEntry } from './changelogTypes'
 
+export const toolActivityEntry: ChangelogEntry = {
+  date: '2026-09-27', title: 'Agent 显示当前工具动作',
+  summary: '运行步骤会显示桌面查书及站点验证动作。',
+  items: [{ title: '工具进度更清楚', description: '只显示固定动作名称，不展示工具参数或验证内容。' }],
+}
+
 export const skillExecutionEntry: ChangelogEntry = {
   date: '2026-09-26', title: '补齐已开放 Skill 的执行能力',
   summary: 'Skill 可读取说明与参考文件，book-skill 可使用浏览器；同步会核验已有会话的实际工具是否就绪。',

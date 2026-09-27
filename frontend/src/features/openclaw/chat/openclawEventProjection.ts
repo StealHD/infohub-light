@@ -8,6 +8,7 @@ import { recordOf, stringOf } from './openclawProjectionUtils'
 
 const MAX_RUN_ACTIVITIES = 20
 const INTELISCOPE_TOOL_LABELS: Record<string, string> = {
+  book_desktop: '使用桌面查书',
   get_my_feed: '读取信息流',
   get_item: '读取文章详情',
   list_subscriptions: '查看订阅',
@@ -66,6 +67,11 @@ export function projectOpenClawAgentEvent(
   const data = recordOf(payload.data) ?? {}
   const phase = safeAgentIdentifier(data.phase ?? data.state, 32)?.toLocaleLowerCase() ?? null
   const tool = stream === 'tool' ? projectToolLabel(data.name) : { key: null, label: '' }
+  const operation = tool.key === 'book_desktop'
+    ? stringOf(recordOf(data.args)?.operation)
+    : null
+  const toolLabel = operation === 'visual_read' ? '读取验证'
+    : operation === 'visual_submit' ? '提交验证' : tool.label
   const timestamp = typeof payload.ts === 'number' && Number.isFinite(payload.ts) && payload.ts > 0
     ? payload.ts
     : Date.now()
@@ -78,7 +84,7 @@ export function projectOpenClawAgentEvent(
     timestamp,
     toolCallId: safeAgentIdentifier(data.toolCallId ?? data.callId),
     toolKey: tool.key,
-    toolLabel: stream === 'tool' ? tool.label : null,
+    toolLabel: stream === 'tool' ? toolLabel : null,
     failed: data.isError === true || status === 'error' || status === 'failed' || phase === 'error',
   }
 }
@@ -96,7 +102,7 @@ function mergeRunActivity(
   const next = activities.map((activity) => ({ ...activity }))
   const activity: OpenClawRunActivity = {
     id,
-    label: event.toolLabel ?? '使用工具',
+    label: terminal && existingIndex >= 0 ? next[existingIndex].label : event.toolLabel ?? '使用工具',
     status,
     startedAt: existingIndex >= 0 ? next[existingIndex].startedAt : event.timestamp,
     ...(terminal ? { endedAt: event.timestamp } : {}),
