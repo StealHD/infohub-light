@@ -12,27 +12,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "verification"
   ],
-  "recorded_on": "2026-09-20",
-  "result": "在既有 main worktree 保留模型修复，新增 Instagram 多 Actor 媒体结构解析、Schema 类型输入和来源证据、按 Binding/固定版本隔离的媒体质量 sidecar 与后续候选排序；同任务优先恢复原 Attempt，媒体缺失保留有效正文。增加显式 global 48 迁移、管理安全投影、测试与文档。",
-  "status": "completed",
-  "task_id": "2026-09-20-instagram-multi-actor-media",
-  "unresolved": [
-    "未启动付费 Actor、未迁移或切换生产、未补历史图片；公开结构支持不等于真实图集完整性认证。"
-  ],
-  "validation": [
-    "Instagram 与 ActorOps 419 项整体回归通过；最终媒体/质量定向 58 项通过（含新增的视频尺寸变体和未知图集容器边界）。",
-    "最终 impacted preflight 14/14 命令通过，耗时 280.703 秒，覆盖后端选测、变更语法、前端关联测试/类型/lint、E2E/UI 静态合同、代码规模与控制检查；无未关闭 SQLite 连接警告。报告：.test-results/20260920T072110Z-59822/result.json。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "verification"
-  ],
   "recorded_on": "2026-09-21",
   "result": "在 codex/model-inheritance-analysis 实现 Schema/样本驱动的受限 structures 映射：通用媒体集合、尺寸候选、视频封面与共同作者，保留旧 Manifest hash 和真实主作者；AI 观察映射经两轮上限及静态/样本验证。Dataset 恢复绑定原 Attempt/Run/凭据版本，保留 Job 预算与退避；永久失败/耗尽终态不记 Actor 故障，费用继续对账。同步合同、操作说明和更新日志，保留已有模型继承修复。",
   "status": "completed",
@@ -446,6 +425,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "桌面插件定向 Node 测试 13/13 通过，覆盖租约丢失、自动续接、桌面忙、检查点不确定、目标变化和验证码提交不可重放。",
     "最终 full preflight 15/15 通过，零未关闭 SQLite 连接警告；证据 .test-results/20260927T040527Z-44934/result.json。前端生产构建通过，首屏 JavaScript Brotli 245724 字节。",
     "对照 VPS 当前同一任务只读 status，确认 verification、原目标和原请求结构；未运行验证码动作。"
+  ]
+}
+```
+
+```json
+{
+  "commit": "7ac48ebe34d36ed9241eafb08616aeb80de8d901",
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-09-27",
+  "result": "按用户授权发布本地 main 为 v2.6.31：本地构建 linux/amd64 镜像并部署到 vps-tokyo 的 InfoHub API/Worker；在 OpenClaw 主机 124.223.12.170 备份并更新 book_desktop 插件与两份 Skill 指引，重启 Gateway。保留原生桌面、任务目录和用户检查点。",
+  "status": "completed",
+  "task_id": "2026-09-27-book-desktop-vps-release-v2-6-31",
+  "unresolved": [
+    "本次未对个人 Agent 自动发起新的查书或验证码操作，具体书籍链接须由原会话后续续跑验证。"
+  ],
+  "validation": [
+    "release_vps.sh release v2.6.31 成功：生产 API/Worker 健康，version 2.6.31、revision 7ac48ebe34d3、React 静态资源核验通过；origin/main 和 v2.6.31 Tag 已推送。",
+    "Gateway RPC 读探针正常，插件 inteliscope-book-desktop 为 loaded/enabled；两个已有个人 Agent 会话的 tools.effective 均包含 book_desktop/read/browser，第三个授权 Agent 尚无会话。",
+    "Gateway index.mjs、runtime.mjs 和两份 Project Agents 指引校验和与本地发布文件一致；安装版租约探针返回 lease_lost/status_then_resume_start。旧文件已备份为 book-desktop-lease-v2.6.31-7ac48ebe。"
   ]
 }
 ```
