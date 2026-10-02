@@ -13,26 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-21",
-  "result": "在 codex/model-inheritance-analysis 实现 Schema/样本驱动的受限 structures 映射：通用媒体集合、尺寸候选、视频封面与共同作者，保留旧 Manifest hash 和真实主作者；AI 观察映射经两轮上限及静态/样本验证。Dataset 恢复绑定原 Attempt/Run/凭据版本，保留 Job 预算与退避；永久失败/耗尽终态不记 Actor 故障，费用继续对账。同步合同、操作说明和更新日志，保留已有模型继承修复。",
-  "status": "completed",
-  "task_id": "2026-09-21-actor-structured-mapping-recovery",
-  "unresolved": [],
-  "validation": [
-    "ActorOps、Manifest、Instagram 媒体专项 473 项通过；原凭据 Dataset GET、重试封顶、费用对账、通用字段/跨帖关联、能力证据写入均覆盖。",
-    "最终 impacted preflight 15/15 通过：后端 3532 项通过、3 项跳过；前端 156 个文件 971 项通过；构建、静态检查、控制文档、diff 均通过；SQLite 未关闭连接警告 0。证据 .test-results/20260920T180415Z-19700/result.json。",
-    "既有 WebSocket 权限测试的关闭后等待问题在本地 main 独立复现；仅修正测试收尾，保留权限断言，相关 19 项通过。未启动真实 AI/付费 Actor，未部署或修改生产/现有候选配置。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
   "result": "在 codex/model-inheritance-analysis 修复结算后遗留 Repair 阻塞码未唤醒/未更新，区分费用未决与结果恢复；blocked 事件映射为日志合同支持的 unavailable。Instagram 旧 Manifest 通过已证明的共同作者结构接入通用身份端口，复用原作者路径，保留真实主作者、图集与直接目标头像优先级；显式 structures 不被覆盖。同步合同、排查说明和更新日志。",
   "status": "completed",
   "task_id": "2026-09-21-actorops-repair-wakeup-coauthors",
@@ -447,6 +427,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "release_vps.sh release v2.6.31 成功：生产 API/Worker 健康，version 2.6.31、revision 7ac48ebe34d3、React 静态资源核验通过；origin/main 和 v2.6.31 Tag 已推送。",
     "Gateway RPC 读探针正常，插件 inteliscope-book-desktop 为 loaded/enabled；两个已有个人 Agent 会话的 tools.effective 均包含 book_desktop/read/browser，第三个授权 Agent 尚无会话。",
     "Gateway index.mjs、runtime.mjs 和两份 Project Agents 指引校验和与本地发布文件一致；安装版租约探针返回 lease_lost/status_then_resume_start。旧文件已备份为 book-desktop-lease-v2.6.31-7ac48ebe。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-10-02",
+  "result": "新增首轮自我迭代演练说明：独立分支、候选身份、控制端交接与失败停止条件。文档初稿来自隔离 Terra 执行，独立审查修正构建定位与提交前验证顺序；不宣称自动派发、合并或发布已接通。",
+  "status": "completed",
+  "task_id": "2026-10-02-iteration-smoke-001",
+  "unresolved": [
+    "本提交只交付演练说明；自动派发、合并及发布尚未接入，镜像与 IM 结果在独立运维记录维护。"
+  ],
+  "validation": [
+    "Terra 产物已收取并审查；开发容器 Docker 拒绝、只读源码及敏感挂载缺失探测通过。",
+    "文档及 WORKLOG 的 impacted preflight 5/5 通过；仅 control 域，未改产品代码或运行数据。"
   ]
 }
 ```
