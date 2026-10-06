@@ -444,13 +444,14 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "status": "completed",
   "task_id": "2026-10-06-feed-card-translation",
   "unresolved": [
-    "仅使用模拟模型验证；真实模型验收、部署和生产迁移未执行。"
+    "真实模型翻译未调用验收；功能开发测试使用模拟模型。"
   ],
   "validation": [
     "最终 impacted preflight 15/15 通过：后端 3749 项通过、4 项跳过；前端 160 个文件 992 项通过；SQLite 未关闭连接警告 0。证据 .test-results/20261006T130432Z-45279/result.json。",
     "桌面/手机浏览器 22 项通过、4 项既有设备条件跳过，含翻译 12 项、缓存恢复、失败重试、深浅主题、专题速览及虚拟列表阅读锚点；单独复验浅色主题 2 项通过。",
     "正文翻译与旧正文修复定向 32 项通过，重建保留译文、删除级联清理、未知外键仍拒绝；API/队列/Worker 定向及应用级测试通过。已审查最终 diff；通过翻译与专题速览分包将首屏 JavaScript Brotli 控制为 244209 bytes（上限 245760），构建与全部静态检查通过。",
-    "发布准备补齐 global 49 SHA 绑定回执、迁移前备份/表形校验及兼容回滚；翻译、发布命令和迁移回执定向测试全部通过，shell 语法与 diff 检查通过；版本更新为 2.6.32。"
+    "发布准备补齐 global 49 SHA 绑定回执、迁移前备份/表形校验及兼容回滚；翻译、发布命令和迁移回执定向测试全部通过，shell 语法与 diff 检查通过；版本更新为 2.6.32。",
+    "已发布 v2.6.32 / 49756de93aa9：本机 amd64 构建并校验上传，VPS global 49 显式迁移及 0600 备份成功；6 用户、1637 内容、103 快照计数保留，旧版本兼容健康通过。新版 API/Worker、完整 source digest、公网版本、React 资源检查通过，Tag 已推送。生产备份 service-translation-v49-20261006T150958463447Z.db。"
   ]
 }
 ```
