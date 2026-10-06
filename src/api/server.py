@@ -413,10 +413,8 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "/api/admin/notification-services/{service_id}/test-and-enable",
     ): ("notification", "service_test_enable"),
     ("POST", "/api/config/action"): ("source", "compat_config_action"),
-    ("POST", "/api/feed/source-summary"): (
-        "request",
-        "source_summary_generate",
-    ),
+    ("POST", "/api/feed/source-summary"): ("request", "source_summary_generate"),
+    ("POST", "/api/feed/items/{article_id}/translation"): ("job", "content_translation_request"),
     ("POST", "/api/admin/feed-end-messages/refresh"): (
         "job",
         "feed_end_messages_refresh",

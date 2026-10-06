@@ -42,3 +42,10 @@ Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_run
 `src/services/canonical_content.py` 是全量与增量 Feed 的共同 canonical identity/provenance merger；URL query 属于身份，最新 Feed article id 优先稳定复用。`UserFeedStore` 以有序公开内容 hash 判断版本：时间、job/run 诊断和 live user state 不参与；no-op 返回既有 snapshot 并显式 `snapshot_created=false`。
 
 compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数据库已完成 Feed storage v3 migration 时启用。代码与示例配置对新空库默认 true，但 marker 仍为硬门禁，现存未迁移数据库保持 storage v1，既有部署可显式设 false。storage v2 snapshot payload 保存 metadata、item id 顺序及集合成员 id，完整 item 只写 child rows；reader 必须同时支持 legacy full payload 和 compact payload。现存数据但未迁移时 Worker maintenance 保持延后；真正无 v3 遗留数据的新空库可在 additive 初始化时自动记录 marker。迁移不得原地改写 legacy body，只能 backfill hash、执行 retention、记录 migration 并在 UTC backup 后校验 integrity/foreign keys。
+
+
+## 按需正文翻译
+
+翻译入口归 `src/api/content_translation_routes.py`，输入与模型身份归 `content_translation_input.py`，幂等/缓存归 `content_translation.py`，Worker 执行归 `worker_content_translation.py`；模型提示词、分块和输出校验归 `src/ai/translation.py`。通过既有队列执行独立 `content_translate`，不进入 Feed finalization。模型调用期间不得持有 SQLite 写事务；译文保存与 Job 终态共用既有 Worker 提交和 claim-token 保护。
+
+持久化由 `src/storage/content_translation_schema.py` 的 global 49 所有；公开形状、保留期和输入约束见 API Feed 合同。新库 bootstrap 安装，旧库使用显式离线备份迁移。前端在当前用户 React Query 命名空间管理按需读取及展开状态，退出时取消读取并清理缓存，晚到响应不得恢复已清理的数据。

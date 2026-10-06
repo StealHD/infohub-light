@@ -75,6 +75,7 @@ This directory, indexed by this file, is the sole source of truth for production
 | --- | --- |
 | 跨页面异步状态、布局稳定、DOM 身份、恢复、长文本与 Reduced Motion | [交互宪章](interaction-constitution.md) |
 | 全站组件角色、尺寸、间距、图标和变体参数 | [组件参数](component-parameters.md) |
+| 卡片正文翻译、状态和恢复 | [正文翻译](feed-translation.md) |
 | Workbench shell、Feed、虚拟列表与 OpenClaw | [Workbench、Feed 与 OpenClaw](workbench-feed-openclaw.md) |
 | 完整 Agent Workspace、Worktree、Tasks、Artifacts、Skills 与 Automations | [Agent Workspace](agent-workspace.md) |
 | Admin、Settings、认证与 ActorOps | [Admin、Settings、认证与 ActorOps](admin-settings-auth-actorops.md) |

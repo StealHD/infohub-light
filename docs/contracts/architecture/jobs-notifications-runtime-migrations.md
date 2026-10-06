@@ -139,3 +139,12 @@ DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归
 2. 新 taxonomy 字段：先更新 `tag_policy.py`、`ContentItem` 和 Service snapshot contract，再更新 API/UI 合同。
 3. 新输出面：先定义 API contract，再做 UI。
 4. 新成本型能力：必须有配置开关、低成本验证路径和 degrade 行为。
+
+
+### 卡片翻译 global 49
+
+`content_translations` / `content_translation_requests` 的存储合同见 [Feed API](../api/feed-history-presentation-storage.md#卡片正文翻译)。目标库需具备有效 global 48。预览运行 `python scripts/migrate_content_translations_v49.py --data-dir DATA_DIR`；确认任务队列已排空并停止 API/Worker 后，执行同命令追加 `--apply --backup-dir BACKUP_DIR`，脚本先以 0600 权限备份，再验证数据库和安装新增表；存在排队/运行任务或活动 Worker 时拒绝升级。已有 Feed 内容不回填或修改，未迁移只禁用翻译。程序部署与目标库迁移的实际完成状态必须分别记录。
+
+VPS 迁移停止服务并跨过 35 秒 heartbeat 安全窗后执行。迁移成功、服务仍停止时，用 `scripts/content_translation_release_receipt.py write --base /opt/inteliscope --receipt /opt/inteliscope/data/backups/RECEIPT.json --revision FULL_SHA --backup BACKUP` 记录绑定本次发布 SHA 的 0600 回执，验证迁移前备份及迁移后库的完整性；重启旧 API/Worker 并通过健康检查后，才运行 `release_vps.sh release vX.Y.Z --migration-receipt RECEIPT`。发布前复核回执、表形和 marker，不对运行中的库扫描全库。global 49 仅新增附属表；已核验旧版本兼容后，切换失败保留迁移后的数据库和业务写入，只恢复旧程序。
+
+正文 v5 离线 reconcile 仅对已验证的翻译缓存外键放行内容表重建，临时关闭连接外键执行以保留缓存行，提交前验证所有外键和完整性；未知入向外键仍拒绝重建，失败整体回滚。

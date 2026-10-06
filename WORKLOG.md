@@ -13,26 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-21",
-  "result": "在 codex/model-inheritance-analysis 实现 Schema/样本驱动的受限 structures 映射：通用媒体集合、尺寸候选、视频封面与共同作者，保留旧 Manifest hash 和真实主作者；AI 观察映射经两轮上限及静态/样本验证。Dataset 恢复绑定原 Attempt/Run/凭据版本，保留 Job 预算与退避；永久失败/耗尽终态不记 Actor 故障，费用继续对账。同步合同、操作说明和更新日志，保留已有模型继承修复。",
-  "status": "completed",
-  "task_id": "2026-09-21-actor-structured-mapping-recovery",
-  "unresolved": [],
-  "validation": [
-    "ActorOps、Manifest、Instagram 媒体专项 473 项通过；原凭据 Dataset GET、重试封顶、费用对账、通用字段/跨帖关联、能力证据写入均覆盖。",
-    "最终 impacted preflight 15/15 通过：后端 3532 项通过、3 项跳过；前端 156 个文件 971 项通过；构建、静态检查、控制文档、diff 均通过；SQLite 未关闭连接警告 0。证据 .test-results/20260920T180415Z-19700/result.json。",
-    "既有 WebSocket 权限测试的关闭后等待问题在本地 main 独立复现；仅修正测试收尾，保留权限断言，相关 19 项通过。未启动真实 AI/付费 Actor，未部署或修改生产/现有候选配置。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
   "result": "在 codex/model-inheritance-analysis 修复结算后遗留 Repair 阻塞码未唤醒/未更新，区分费用未决与结果恢复；blocked 事件映射为日志合同支持的 unavailable。Instagram 旧 Manifest 通过已证明的共同作者结构接入通用身份端口，复用原作者路径，保留真实主作者、图集与直接目标头像优先级；显式 structures 不被覆盖。同步合同、排查说明和更新日志。",
   "status": "completed",
   "task_id": "2026-09-21-actorops-repair-wakeup-coauthors",
@@ -447,6 +427,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "release_vps.sh release v2.6.31 成功：生产 API/Worker 健康，version 2.6.31、revision 7ac48ebe34d3、React 静态资源核验通过；origin/main 和 v2.6.31 Tag 已推送。",
     "Gateway RPC 读探针正常，插件 inteliscope-book-desktop 为 loaded/enabled；两个已有个人 Agent 会话的 tools.effective 均包含 book_desktop/read/browser，第三个授权 Agent 尚无会话。",
     "Gateway index.mjs、runtime.mjs 和两份 Project Agents 指引校验和与本地发布文件一致；安装版租约探针返回 lease_lost/status_then_resume_start。旧文件已备份为 book-desktop-lease-v2.6.31-7ac48ebe。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-10-06",
+  "result": "实现各来源卡片正文按需简体中文翻译，复用 AI 设置与 SecretStore；独立单次 Worker、用户隔离 30 天缓存、幂等去重及显式 global 49 备份迁移。Feed、收藏、历史及专题速览保留原文并在下方展示可收起译文；修复异步扩高引起的虚拟列表阅读位置跳动。同步 API、存储、UI 合同、手册与更新日志。",
+  "status": "completed",
+  "task_id": "2026-10-06-feed-card-translation",
+  "unresolved": [
+    "仅使用模拟模型验证；真实模型验收、部署和生产迁移未执行。"
+  ],
+  "validation": [
+    "最终 impacted preflight 15/15 通过：后端 3749 项通过、4 项跳过；前端 160 个文件 992 项通过；SQLite 未关闭连接警告 0。证据 .test-results/20261006T130432Z-45279/result.json。",
+    "桌面/手机浏览器 22 项通过、4 项既有设备条件跳过，含翻译 12 项、缓存恢复、失败重试、深浅主题、专题速览及虚拟列表阅读锚点；单独复验浅色主题 2 项通过。",
+    "正文翻译与旧正文修复定向 32 项通过，重建保留译文、删除级联清理、未知外键仍拒绝；API/队列/Worker 定向及应用级测试通过。已审查最终 diff；通过翻译与专题速览分包将首屏 JavaScript Brotli 控制为 244209 bytes（上限 245760），构建与全部静态检查通过。",
+    "发布准备补齐 global 49 SHA 绑定回执、迁移前备份/表形校验及兼容回滚；翻译、发布命令和迁移回执定向测试全部通过，shell 语法与 diff 检查通过；版本更新为 2.6.32。"
   ]
 }
 ```

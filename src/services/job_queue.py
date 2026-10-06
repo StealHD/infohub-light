@@ -804,10 +804,7 @@ class JobQueue:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
             current = self.store._job(
-                conn.execute(
-                    "SELECT * FROM fetch_jobs WHERE id = ?",
-                    (job_id,),
-                ).fetchone()
+                conn.execute("SELECT * FROM fetch_jobs WHERE id = ?", (job_id,)).fetchone()
             )
             if current is None:
                 raise LookupError("job not found")
@@ -815,6 +812,8 @@ class JobQueue:
                 raise PermissionError("cannot retry another user's job")
             if current["status"] not in {"failed", "partial", "cancelled"}:
                 raise ValueError("only failed, partial, or cancelled jobs can be retried")
+            if current["job_type"] == "content_translate":
+                raise ValueError("请从卡片翻译入口重试，以重新检查正文、模型和额度。")
 
             if current["job_type"] == "user_feed_refresh":
                 active_row = conn.execute(

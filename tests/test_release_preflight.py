@@ -62,10 +62,17 @@ if command == "git":
         print("v0.0.1")
     elif args[:2] == ["diff", "--name-only"] and failure in {"migration", "receipt"}:
         print("scripts/migrate_notification_destinations_v47.py")
+    elif args[:2] == ["diff", "--name-only"] and failure.startswith("v49"):
+        print("scripts/migrate_content_translations_v49.py")
     elif args[:2] == ["diff", "-U0"] and failure == "schema":
         print("+CREATE TABLE fixture")
 elif command == "ssh":
     payload = sys.stdin.read()
+    if "content_translations_v49_release_receipt_v1" in payload:
+        if failure == "v49_receipt":
+            sys.exit(1)
+        print("/opt/inteliscope/data/backups/service-translation-v49.db")
+        sys.exit(0)
     if "notification_destinations_v47_release_receipt_v1" in payload:
         if failure == "receipt":
             sys.exit(1)
@@ -134,6 +141,7 @@ def run_release_command(tmp_path):
     scripts.mkdir(parents=True)
     (scripts / "release_fast.sh").write_text((ROOT / "scripts/release_fast.sh").read_text())
     (scripts / "release_v47.sh").write_text((ROOT / "scripts/release_v47.sh").read_text())
+    (scripts / "content_translation_release_receipt.py").write_text((ROOT / "scripts/content_translation_release_receipt.py").read_text())
     (fixture_root / "pyproject.toml").write_text(
         '[project]\nversion = "99.99.99"\n', encoding="utf-8"
     )
@@ -244,6 +252,18 @@ def test_v47_receipt_remains_required_and_verified(run_release_command, failure,
                                          extra=("--migration-receipt", receipt))
     assert (result.returncode == 0) is success, result.stdout + result.stderr
     assert ("cutover" in events) is success
+
+
+@pytest.mark.parametrize('failure,provided,success', [
+    ('v49', True, True), ('v49', False, False), ('v49_receipt', True, False),
+])
+def test_v49_requires_verified_receipt_before_build_and_cutover(run_release_command, failure, provided, success):
+    receipt = '/opt/inteliscope/data/backups/migration-content-translations-v49.json'
+    result, events = run_release_command('release', failure=failure,
+        extra=('--migration-receipt', receipt) if provided else ())
+    assert (result.returncode == 0) is success, result.stdout + result.stderr
+    assert ('cutover' in events) is success
+    assert ('build' in events) is success
 
 
 @pytest.mark.parametrize("failure", ["", "test_gate"])

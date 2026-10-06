@@ -108,6 +108,8 @@ def _run_maintenance_if_due(store: ServiceStore) -> None:
         return
     update_observability_context(stage="maintenance")
     MaintenanceService(store).run_if_due()
+    from .content_translation import prune_translations
+    prune_translations(store)
 
 
 def _run_v2_enqueuers(

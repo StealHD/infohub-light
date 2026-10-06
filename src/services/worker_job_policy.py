@@ -26,6 +26,7 @@ WORKER_CLAIMABLE_JOB_TYPES = frozenset(
         "source_fetch",
         "user_feed_refresh",
         "content_repair",
+        "content_translate",
         *ACTOROPS_V2_JOB_TYPES,
     }
 )

@@ -142,6 +142,9 @@ def run_job(
     actor_handler = ports.actor_handlers.get(job_type)
     if actor_handler is not None:
         return actor_handler(job, data_dir=data_dir, store=store)
+    if job_type == "content_translate":
+        from .worker_content_translation import run_content_translation
+        return run_content_translation(job, data_dir=data_dir, store=store)
     payload = source_payload_from_catalog(job, store=store)
     if job_type == "source_test":
         return _run_source_test_job(

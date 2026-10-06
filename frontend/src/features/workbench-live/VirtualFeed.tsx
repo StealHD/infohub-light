@@ -13,7 +13,7 @@ import {
   bottomAnchoredTooltipProps,
   topAnchoredTooltipProps,
 } from '../../design-system'
-import { relativeTime, safeExternalUrl } from '../feed/feedModel'
+import { relativeTime } from '../feed/feedModel'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import { cardLabelForViewer, workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
@@ -21,6 +21,8 @@ import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
 import { workbenchMediaLabels, workbenchTimelineLabel } from './workbenchCardPresentation'
 import { CopySummaryAction } from './CopySummaryAction'
+import { CardTranslation } from './CardTranslation'
+import { CardFooterActions } from './CardFooterActions'
 import { useMeasuredClampOverflow } from './useMeasuredClampOverflow'
 
 type VirtualFeedProps = {
@@ -105,7 +107,6 @@ export function WorkbenchCard({
   variant?: 'timeline' | 'source-overview'
 }) {
   const sourceOverview = variant === 'source-overview'
-  const externalUrl = safeExternalUrl(card.url)
   const social = card.displayKind === 'social'
   const socialText = expanded ? card.detailBody || card.primaryText : card.primaryText
   const cardLabel = social ? `${card.sourceLabel}: ${card.primaryText}` : card.title
@@ -183,7 +184,7 @@ export function WorkbenchCard({
     </Tooltip>
   </div>
 
-  return <Card
+  return <CardTranslation card={card} readonly={readonly} onExpand={() => { if (!expanded) onToggleExpanded() }}>{(translation) => <Card
     data-testid="workbench-card"
     data-card-visual="quiet-studio"
     data-card-variant={variant}
@@ -294,8 +295,10 @@ export function WorkbenchCard({
       </div>
     </div>
 
+    {translation.body}
     {sourceOverview ? <Card.Footer className="flex items-center gap-1 px-0 pb-2 pt-1.5">
       <span className="type-meta min-w-0 flex-1 text-muted">{relativeTime(card.publishedAt)}</span>
+      {translation.button}
       {canToggleExpansion && <Tooltip delay={600}>
         <TooltipTriggerButton
           data-expand-trigger
@@ -324,48 +327,12 @@ export function WorkbenchCard({
         >{expanded ? <Icons.FoldVertical size={15} aria-hidden="true" /> : <Icons.UnfoldVertical size={15} aria-hidden="true" />}</TooltipTriggerButton>
         <Tooltip.Content {...topAnchoredTooltipProps}>{expanded ? '收起内容' : '展开内容'}</Tooltip.Content>
       </Tooltip>}
-      <div
-        data-card-actions
-        data-card-footer-actions
-        className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100"
-      >
-        {externalUrl && <Tooltip delay={600}>
-          <Tooltip.Trigger<'a'> render={(triggerProps) => <a
-            {...triggerProps}
-            href={externalUrl}
-            target="_blank"
-            rel="noreferrer"
-            role={undefined}
-            aria-label={`打开 ${cardLabel} 原文`}
-            className={`${triggerProps.className ?? ''} inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
-          ><Icons.ExternalLink size={15} aria-hidden="true" /></a>} />
-          <Tooltip.Content {...topAnchoredTooltipProps}>在新窗口打开原文</Tooltip.Content>
-        </Tooltip>}
-        <Tooltip delay={600}>
-          <TooltipTriggerButton
-            className={`size-8 rounded-lg active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none ${card.userState.is_saved ? 'bg-default text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`}
-            disabled={readonly} pending={savedPending}
-            aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
-            onClick={onToggleSaved}
-          ><Icons.Star size={15} fill={card.userState.is_saved ? 'currentColor' : 'none'} aria-hidden="true" /></TooltipTriggerButton>
-          <Tooltip.Content {...topAnchoredTooltipProps}>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
-        </Tooltip>
-        <button
-          type="button"
-          data-context-state={inContext ? 'selected' : 'idle'}
-          className="type-control inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg bg-transparent px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:min-h-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 motion-reduce:transform-none"
-          disabled={contextFull && !inContext}
-          aria-pressed={inContext}
-          aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
-          onClick={onToggleContext}
-        >
-          <Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" />
-          <span>{inContext ? `已加入 ${contextCount}/8` : '问 Agent'}</span>
-        </button>
-      </div>
+      <CardFooterActions card={card} readonly={readonly} savedPending={savedPending} inContext={inContext}
+        contextFull={contextFull} contextCount={contextCount} onToggleSaved={onToggleSaved}
+        onToggleContext={onToggleContext} translationButton={translation.button} />
     </Card.Footer>}
     {hoverActions}
-  </Card>
+  </Card>}</CardTranslation>
 }
 
 export function VirtualFeed(props: VirtualFeedProps) {
@@ -434,6 +401,11 @@ export function VirtualFeed(props: VirtualFeedProps) {
     },
   })
   const cardsRef = useRef(props.cards)
+  // An asynchronous translation may grow the partially visible reading card.
+  // Compensate only rows entirely above it, preserving backward-scroll behavior.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
+    item.end <= (instance.scrollOffset ?? 0) + topInset
+    && (!instance.itemSizeCache.has(item.key) || instance.scrollDirection !== 'backward')
   const virtualizerRef = useRef(virtualizer)
   cardsRef.current = props.cards
   virtualizerRef.current = virtualizer

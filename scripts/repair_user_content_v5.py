@@ -289,13 +289,23 @@ def _incoming_user_content_foreign_keys(
     return incoming
 
 
+def _has_known_translation_dependencies(connection, incoming) -> bool:
+    from src.storage.content_translation_schema import ready
+
+    expected = {("content_translations", column) for column in ("workspace_id", "user_id", "article_id")}
+    return set(incoming) == expected and ready(connection)
+
+
 def _upgrade_unresolved_reason_to_nullable(
     connection: sqlite3.Connection,
 ) -> None:
     if _unresolved_reason_is_nullable(connection):
         return
     incoming = _incoming_user_content_foreign_keys(connection)
-    if incoming:
+    if incoming and not (
+        _has_known_translation_dependencies(connection, incoming)
+        and not connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    ):
         raise RuntimeError(
             "cannot safely rebuild user_content_items with inbound foreign keys: "
             + ", ".join(f"{table}.{column}" for table, column in incoming)
@@ -411,6 +421,12 @@ def reconcile_content(
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     try:
+        if schema_upgrade_required and _has_known_translation_dependencies(
+            connection, _incoming_user_content_foreign_keys(connection)
+        ):
+            # Offline rebuild: preserve cache rows while replacing their parent.
+            # Unknown inbound relationships remain rejected; check all FKs before commit.
+            connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute("BEGIN IMMEDIATE")
         if schema_upgrade_required:
             _upgrade_unresolved_reason_to_nullable(connection)
@@ -434,6 +450,7 @@ def reconcile_content(
             connection.rollback()
         raise
     finally:
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.close()
 
     report["status"] = "reconciled"

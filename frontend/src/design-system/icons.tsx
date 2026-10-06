@@ -2,6 +2,7 @@ import type { SVGProps } from 'react'
 
 export {
   Archive,
+  Languages,
   Activity,
   Brain,
   Paperclip,

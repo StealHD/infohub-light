@@ -41,7 +41,7 @@ import { sourceMatchesSubscriptionVisibility } from '../subscriptions/subscripti
 import { createAgentSourceSnapshot } from './agentContext'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
-import { SourceOverviewFeed, type SourceSummaryViewState } from './SourceOverviewFeed'
+import { SourceOverviewFeed, type SourceSummaryViewState } from './LazySourceOverviewFeed'
 import { readSourceOverviewViewportAnchor, type SourceOverviewViewportAnchor } from './sourceOverviewViewport'
 import { buildSourceOverviewSections, type SourceOverviewSectionModel } from './sourceOverviewModel'
 import { readCachedSourceSummaries, writeCachedSourceSummary } from './sourceSummaryCache'

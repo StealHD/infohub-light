@@ -108,6 +108,16 @@ reject_implicit_migrations() {
     [[ -z "$receipt_path" ]] || fail "migration receipt supplied for a release without a migration"
     return
   fi
+  if [[ "$migration_files" == "scripts/migrate_content_translations_v49.py" && -z "$schema_delta" ]]; then
+    [[ "$receipt_path" == "$REMOTE_BASE/data/backups/"*.json ]] \
+      || fail "global 49 requires its explicit migration and managed receipt before release"
+    verified_backup="$(ssh "$REMOTE_HOST" python3 - verify --base "$REMOTE_BASE" \
+      --receipt "$receipt_path" --revision "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
+      < "$ROOT_DIR/scripts/content_translation_release_receipt.py")" \
+      || fail "global 49 release receipt verification failed"
+    MIGRATION_BACKUP_PATH="$verified_backup"
+    return
+  fi
   [[ "$migration_files" == "scripts/migrate_notification_destinations_v47.py" && -z "$schema_delta" ]] \
     || fail "release contains an unsupported database migration; use its explicit migration workflow before normal cutover"
   [[ -n "$receipt_path" ]] \
@@ -281,8 +291,8 @@ if [[ -n "$migration_receipt" || -n "$migration_backup" ]]; then
   [[ -n "$migration_receipt" && -n "$migration_backup" ]] \
     || { echo "incomplete migration cutover evidence" >&2; exit 1; }
   ! grep -q '^INTELISCOPE_PRE_MIGRATION_BACKUP=' "$base/.env" \
-    || { echo "stale migration rollback setting must be resolved before v47 cutover" >&2; exit 1; }
-  python3 - "$base" "$migration_receipt" "$migration_backup" <<'PY'
+    || { echo "stale migration rollback setting must be resolved before additive cutover" >&2; exit 1; }
+  python3 - "$base" "$migration_receipt" "$migration_backup" "$source_digest" <<'PY'
 import json
 import os
 import sqlite3
@@ -309,13 +319,21 @@ with receipt_path.open(encoding='utf-8') as handle:
     receipt = json.load(handle)
 if receipt.get('backup') != {'path': str(expected_backup), 'mode': '0o600'}:
     raise ValueError('migration receipt backup changed before cutover')
+if receipt.get('release_revision') != sys.argv[4].removeprefix('git:'):
+    raise ValueError('migration receipt revision changed before cutover')
+expected_marker = receipt.get('marker', {})
+if expected_marker not in [
+    {'version': 47, 'name': 'notification_destinations', 'checksum': 'notification-destinations-v1'},
+    {'version': 49, 'name': 'content_translations', 'checksum': 'content-translations-v1'},
+]:
+    raise ValueError('unsupported migration marker')
 connection = sqlite3.connect(f'file:{database}?mode=ro', uri=True, timeout=30)
 try:
     marker = connection.execute(
-        'SELECT name, checksum FROM schema_migrations WHERE version=47'
+        'SELECT name, checksum FROM schema_migrations WHERE version=?', (expected_marker['version'],)
     ).fetchone()
-    if marker != ('notification_destinations', 'notification-destinations-v1'):
-        raise ValueError('v47 marker changed before cutover')
+    if marker != (expected_marker['name'], expected_marker['checksum']):
+        raise ValueError('migration marker changed before cutover')
 finally:
     connection.close()
 PY
@@ -407,7 +425,7 @@ rollback_cutover() {
     install -m 600 "$legacy_migration_backup" "$base/data/service.db"
     validate_database full
   elif [[ -n "$migration_backup" ]]; then
-    echo "keeping the additive v47 database and all writes made after migration" >&2
+    echo "keeping the additive migration database and all writes made after migration" >&2
   fi
   cd "$previous_release"
   if ! docker compose -f docker-compose.light.yml up -d --no-build --force-recreate \

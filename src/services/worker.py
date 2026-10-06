@@ -73,7 +73,7 @@ WORKER_JOB_TRACE_POLICY = {
     "source_test": "aggregate_acquisition",
     "source_fetch": "per_source_acquisition",
     "user_feed_refresh": "per_source_acquisition",
-    "content_repair": "job_lifecycle_only",
+    "content_repair": "job_lifecycle_only", "content_translate": "job_lifecycle_only",
     **actorops_v2_job_trace_policy(),
 }
 

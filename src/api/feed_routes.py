@@ -360,6 +360,8 @@ def register_feed_latest_route(app: FastAPI) -> None:
 
 
 def register_feed_collection_routes(app: FastAPI) -> None:
+    from .content_translation_routes import register
+    register(app)
     app.add_api_route("/api/feed/search", feed_search, methods=["GET"])
     app.add_api_route("/api/feed/saved", feed_saved, methods=["GET"])
     app.add_api_route("/api/feed/ignored", feed_ignored, methods=["GET"])

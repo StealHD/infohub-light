@@ -45,7 +45,7 @@ def test_normal_vps_release_keeps_runtime_protection_without_ci_waits():
     assert 'wait_runtime "$previous_release" "$public_url"' in script
     assert "INTELISCOPE_PRE_MIGRATION_BACKUP" in script
     assert 'source "$ROOT_DIR/scripts/release_v47.sh"' in script
-    assert 'keeping the additive v47 database and all writes made after migration' in script
+    assert 'keeping the additive migration database and all writes made after migration' in script
     assert 'set_env INTELISCOPE_PRE_MIGRATION_BACKUP "$migration_backup"' not in script
     assert script.index('install -m 600 "$legacy_migration_backup" "$base/data/service.db"') < script.index(
         'cd "$previous_release"'

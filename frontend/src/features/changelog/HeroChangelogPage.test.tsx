@@ -43,6 +43,9 @@ describe('HeroChangelogPage', () => {
   it('renders source-controlled Chinese entries as an accessible timeline with responsive month navigation', () => {
     renderChangelog('/changelog#month-2026-07')
 
+    expect(screen.getByRole('heading', { level: 3, name: '卡片正文支持按需中文翻译' })).toBeInTheDocument()
+    const newestTimeline = screen.getByRole('list', { name: `${changelogMonths[0].label}更新记录` })
+    expect(newestTimeline.querySelector(':scope > [data-timeline-item]')).toHaveAttribute('aria-current', 'true')
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 9 月' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '操作按钮在处理中不再跳动' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 8 月' })).toBeInTheDocument()
@@ -120,7 +123,7 @@ describe('HeroChangelogPage', () => {
     const currentTimeline = screen.getByRole('list', { name: '2026 年 9 月更新记录' })
     const currentEntries = currentTimeline.querySelectorAll(':scope > [data-timeline-item]')
     expect(currentEntries).toHaveLength(changelogMonths.find((month) => month.id === 'month-2026-09')?.entries.length ?? 0)
-    expect(currentEntries[0]).toHaveAttribute('aria-current', 'true')
+    expect(currentEntries[0]).not.toHaveAttribute('aria-current')
     expect(within(currentTimeline).getByText('OpenClaw 成为与 Inscope 平级的工作区')).toBeVisible()
     expect(within(currentTimeline).getByText('两个产品工作区清楚切换')).toBeVisible()
     expect(within(currentTimeline).getByText('按钮尺寸保持稳定')).toBeVisible()

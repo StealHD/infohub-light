@@ -165,3 +165,5 @@ def bootstrap(conn, *, existing_schema):
         apply_notification_extensions(conn)
         from .actor_media_evidence_schema import apply_migration as apply_media_evidence
         apply_media_evidence(conn)
+        from .content_translation_schema import apply_migration as apply_translations
+        apply_translations(conn)
