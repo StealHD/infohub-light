@@ -50,3 +50,12 @@ Instagram 帖子媒体：Adapter 在既有身份、URL、时间和正文校验�
 2. `PATCH /api/me/items/{article_id}/state` 只允许当前用户写自己 feed 中可见的 item；不可见 item 返回 `not_found`。
 3. 忽略是当前用户作用域的可逆隐藏：设置 `dismissed=true` 后条目从默认 Feed 隐藏并进入 `/api/feed/ignored`；设置 `dismissed=false` 后从忽略集合移除。恢复只修改当前用户状态，不重抓来源、不重写其他用户数据。
 4. Fresh DB 不创建 feedback 表。既有库中的 feedback 表与行属于 inert operator-owned data；初始化、Feed v2 migration、reset 与运行时不得读取、删除或改写它们。
+
+
+## 卡片正文翻译
+
+- `GET /api/feed/items/{article_id}/translation` 只读取本人当前正文及 AI 配置对应的译文/任务；`POST` 接收严格的 `{request_id}`（1..128 位字母、数字、下划线或连字符），沿用成员写权限，Viewer 不可创建调用。同一用户同一 request_id 幂等；原文或模型已变化返回 `translation_request_conflict`，明确重试使用新 ID。不同 ID 命中同一活动缓存键也只生成一个任务。
+- 返回标准 envelope；data 为 `status(idle|queued|running|succeeded|failed), job_id, translation, scope(body|excerpt), source_truncated, cached, expires_at, error`。GET 不调用模型；POST 命中成功缓存不计 AI 调用。不可见条目返回 404，无正文返回 `translation_no_text`，模型不可用返回 `translation_model_unavailable`，未迁移返回 503 `translation_migration_required`。
+- 输入只取本人稳定内容的 captured body 或显式来源 excerpt，不使用 AI 概括、标题兜底，不访问外部原文。不分来源限制，目标固定简体中文；正文最多使用已存的 20,000 字符，按不超过 2,000 字符的块顺序翻译，不应用概括长度预算。片段及模型截断必须明确区分，截断、空白或无效输出不缓存成功。
+- `content_translate` 为独立 Worker Job，最多执行一次；执行前、每个模型调用前及写回前重新验证用户权限、内容和配置身份。复用 AI 设置、SecretStore、AI item/attempt 额度和用户 Job 租约；不创建 snapshot、不抓源、不通知。网络结果不明时先读任务状态，用户明确重试才创建新任务；通用 Job 重试拒绝此类型，必须回到卡片入口重新检查输入、缓存和额度。
+- global 49 由 `scripts/migrate_content_translations_v49.py` 显式备份迁移；新库首次初始化安装，旧库不自动安装。`content_translations` 与 `content_translation_requests` 隔离 workspace/user，成功结果保留 30 天，原文、目标语言、prompt 版本、provider/model/连接与凭据版本变化失效；仅保存哈希、译文和必要任务元数据。正文条目或用户删除级联清理，Worker 维护清理过期缓存；任务结果和日志不包含正文、译文、密钥。翻译缺少迁移不阻断其他 Feed 能力。
