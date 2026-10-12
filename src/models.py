@@ -336,6 +336,7 @@ class ApifySocialPlatform(str, Enum):
 
     X = "x"
     YOUTUBE = "youtube"
+    BILIBILI = "bilibili"
     INSTAGRAM = "instagram"
     FACEBOOK = "facebook"
     TELEGRAM = "telegram"
@@ -383,6 +384,9 @@ class ApifySocialSubscriptionConfig(ServiceSourceConfig):
     personal_tags: List[str] = Field(default_factory=list)
     analysis_mode: AnalysisMode = AnalysisMode.FULL
     fetch_profile_details: bool = False
+    keep_latest_item: bool = False
+    rss_identity_url: Optional[str] = Field(default=None, exclude=True)
+    rss_identity_key: Optional[str] = Field(default=None, exclude=True)
 
     @field_validator("token_env")
     @classmethod
@@ -401,6 +405,7 @@ class ApifySocialSubscriptionConfig(ServiceSourceConfig):
         allowed = {
             ApifySocialPlatform.X: {"profile", "keyword"},
             ApifySocialPlatform.YOUTUBE: {"channel"},
+            ApifySocialPlatform.BILIBILI: {"profile"},
             ApifySocialPlatform.INSTAGRAM: {"profile", "hashtag"},
             ApifySocialPlatform.FACEBOOK: {"page", "group", "post"},
             ApifySocialPlatform.TELEGRAM: {"channel"},

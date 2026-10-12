@@ -48,7 +48,7 @@ def _entry_with_overrides(record: dict[str, Any]) -> dict[str, Any]:
     entry["subscription_id"] = record.get("subscription_id")
     entry["source_key"] = record.get("source_key")
     entry["source_display_name"] = record.get("display_name")
-    entry["catalog_source_type"] = record.get("type")
+    entry["catalog_source_type"] = record.get("catalog_source_type") or record.get("type")
     entry["source_priority"] = int(record.get("priority") or 0)
     channel = record.get("override_channel") or record.get("default_channel")
     if channel:
@@ -121,7 +121,7 @@ def _record_with_runtime_fetch_window(
 
     prepared = _record_with_network_policy(store, record)
     subscription_id = str(prepared.get("subscription_id") or "")
-    if prepared.get("type") != "rss" or not subscription_id:
+    if (prepared.get("catalog_source_type") or prepared.get("type")) != "rss" or not subscription_id:
         return prepared
     health = SourceHealthService(store).get_health(subscription_id)
     if health and health.get("last_success_at"):

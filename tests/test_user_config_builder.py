@@ -350,8 +350,10 @@ def test_user_config_builder_applies_30_day_window_to_managed_rsshub(
         base_config=base,
     )
 
-    assert data["sources"]["rss"][0]["provider"] == "rsshub"
-    assert data["sources"]["rss"][0]["service_fetch_window_hours"] == 720
+    assert data["sources"]["rss"] == []
+    entry = data["sources"]["apify_social"]["subscriptions"][0]
+    assert entry["platform"] == "bilibili" and entry["enabled"] is False
+    assert entry["service_fetch_window_hours"] == 720
 
 
 def test_user_config_builder_adds_apify_subscription_secret_env(tmp_path, monkeypatch):

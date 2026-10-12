@@ -38,6 +38,7 @@ from .actorops_v2_maintenance_routes import (
 from .actorops_v2_operator_routes import register_actorops_v2_operator_routes
 from .apify_key_pool_routes import pool_api_error, register_apify_key_pool_routes
 from .catalog_metadata_routes import register_catalog_metadata_routes
+from .bilibili_source_state import public_bilibili_source_additions
 from .catalog_membership_routes import (
     register_catalog_list_route,
     register_catalog_membership_routes,
@@ -877,8 +878,7 @@ def create_app(
         return setup_type
 
     def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
-        item = dict(source)
-        item.pop("enforce_public_network", None)
+        item = {key: value for key, value in source.items() if key != "enforce_public_network"}
         item["setup_type"] = workspace_catalog_source_setup_type(
             str(source["workspace_id"]),
             str(source.get("type") or ""),
@@ -922,7 +922,7 @@ def create_app(
             )
             if not _is_admin(user) or item["setup_type"] in PLATFORM_PROFILE_SETUP_TYPES:
                 item.pop("secret_env", None)
-        return item
+        return {**item, **public_bilibili_source_additions(store, source)}
 
     def reject_pool_managed_source_secret(
         source_type: str,

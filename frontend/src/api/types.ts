@@ -1,4 +1,3 @@
-
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer'
 
 export type User = {
@@ -418,6 +417,7 @@ export type CatalogSource = {
   id: string
   type: string
   setup_type?: string
+  acquisition?: import('./sourceAcquisitionTypes').SourceAcquisitionState
   display_name: string
   description?: string
   scope: 'public' | 'workspace' | 'private'

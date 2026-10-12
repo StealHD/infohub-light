@@ -25,6 +25,25 @@ def route_mapping_profile(route: str) -> dict[str, object]:
     """Return the bounded mapping vocabulary for one registered route."""
 
     profiles: dict[str, dict[str, object]] = {
+        "bilibili/profile/items": {
+            "source": "Bilibili",
+            "accepted_actor_types": ["UP creator uploads", "user videos with owner UID"],
+            "wrong_route_actor_types": ["video search without author binding", "profile metadata only", "comments or danmaku only"],
+            "target_inputs": {
+                "native_id": ["uid", "mid", "userId", "creatorId"],
+                "native_id_array": ["userIds", "creatorIds"],
+                "url": ["profileUrl", "userUrl"],
+                "url_array": ["userUrls", "creatorUrls", "profileUrls", "startUrls"],
+            },
+            "content_aliases": {
+                "native_id": ["bvid", "aid", "videoId"],
+                "url": ["url", "videoUrl"],
+                "published_at": ["pubdate", "publishDate", "publishedAt", "created"],
+                "title_or_text": ["title", "desc", "description"],
+                "identity": ["owner.mid", "authorMid", "creatorId", "authorId", "uid"],
+                "image": ["pic", "cover", "thumbnailUrl"],
+            },
+        },
         "x/profile/items": {
             "source": "X",
             "accepted_actor_types": [

@@ -31,6 +31,7 @@ _ALIASES = {
         "channelthumbnail", "authorthumbnail", "thumbnailurl",
         "profilepicture", "avatarurl", "avatar",
     ),
+    "bilibili": ("creatoravatar", "authoravatarurl", "avatarurl", "face", "avatar"),
 }
 
 

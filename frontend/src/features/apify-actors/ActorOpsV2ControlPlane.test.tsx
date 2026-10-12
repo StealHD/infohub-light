@@ -6,15 +6,15 @@ import { ActorOpsV2ControlPlane } from './ActorOpsV2ControlPlane'
 import { actorOpsV2RouteView } from './actorOpsV2RouteModel'
 
 describe('ActorOpsV2ControlPlane', () => {
-  it('shows readable v2 route selection and a safe Store preview without internal identifiers', async () => {
+  it.each([['youtube', 'channel', 'YouTube 视频更新'], ['bilibili', 'profile', 'Bilibili 视频更新']])('shows readable %s routes and safe Store previews', async (platform, targetType, title) => {
     render(
       <ActorOpsV2ControlPlane
         routes={[
           actorOpsV2RouteView({
             route_id: 'route-youtube',
-            route_key: 'youtube/channel/items',
-            platform: 'youtube',
-            target_type: 'channel',
+            route_key: `${platform}/${targetType}/items`,
+            platform,
+            target_type: targetType,
             capability: 'items',
             health: 'degraded',
             health_reason: 'insufficient_stable_paths', stable_candidate_count: 1, cooling_candidate_count: 0,
@@ -42,8 +42,8 @@ describe('ActorOpsV2ControlPlane', () => {
     expect(screen.getAllByTestId('actorops-v2-control-plane').length).toBe(1)
     expect(screen.getByTestId('actorops-v2-control-plane').querySelectorAll('[data-actorops-route-card]')).toHaveLength(1)
     expect(screen.getByText('降级可用')).toBeInTheDocument()
-    expect(screen.getByText('YouTube 视频更新')).toBeInTheDocument()
-    expect(screen.getByText('YouTube 视频更新').closest('[data-actorops-route-heading]')).toHaveTextContent('YouTube 视频更新ActorOps 已停用')
+    expect(screen.getByText(title)).toBeInTheDocument()
+    expect(screen.getByText(title).closest('[data-actorops-route-heading]')).toHaveTextContent(`${title}ActorOps 已停用`)
     expect(screen.getByRole('button', { name: '查看运行详情' }).closest('[data-actorops-route-actions]')).toBeInTheDocument()
     expect(screen.getByText('主用')).toBeInTheDocument()
     expect(screen.getByText('稳定路径 1')).toBeInTheDocument()

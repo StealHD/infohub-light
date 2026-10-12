@@ -9,6 +9,10 @@ from .ports import DiscoveryActorMatch
 
 _TOKEN_BREAK = re.compile(r"[^a-z0-9]+")
 _NEGATIVE_PHRASES = {
+    "bilibili": (
+        "comments scraper", "comment scraper", "danmaku scraper",
+        "followers scraper", "follower scraper", "live scraper",
+    ),
     "x": (
         "followers scraper", "follower scraper", "following scraper",
         "quote tweets", "quote tweet", "retweets scraper", "retweet scraper",
@@ -36,12 +40,14 @@ _PLATFORM_TOKENS = {
     "x": frozenset({"twitter", "tweet", "tweets", "x"}),
     "instagram": frozenset({"ig", "instagram"}),
     "youtube": frozenset({"youtube", "yt"}),
+    "bilibili": frozenset({"bilibili"}),
 }
 _FOREIGN_PLATFORM_TOKENS = frozenset({
     "avito", "facebook", "linkedin", "pinterest", "pubmed", "reddit",
     "rednote", "scribd", "skool", "spotify", "threads", "tiktok", "twitch",
 })
 _PUBLICATION_TOKENS = {
+    "bilibili": frozenset({"upload", "uploads", "video", "videos"}),
     "x": frozenset({"post", "posts", "timeline", "tweet", "tweets"}),
     "instagram": frozenset({"media", "post", "posts", "reel", "reels"}),
     "youtube": frozenset({"channel", "short", "shorts", "upload", "uploads", "video", "videos"}),

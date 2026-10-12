@@ -17,6 +17,7 @@ def deterministic_input_plan(
     input_keys: Sequence[str],
     identity_ref: str,
     list_handle_input_keys: Sequence[str] = (),
+    list_native_id_input_keys: Sequence[str] = (),
     list_url_input_keys: Sequence[str] = (),
     handle_input_keys: Sequence[str] = (),
     url_input_keys: Sequence[str] = (),
@@ -27,7 +28,7 @@ def deterministic_input_plan(
 
     inputs = _properties(revision.input_schema)
     input_key = _first_input(
-        inputs, input_keys, (*list_handle_input_keys, *list_url_input_keys)
+        inputs, input_keys, (*list_handle_input_keys, *list_native_id_input_keys, *list_url_input_keys)
     )
     if input_key is None:
         return None, "actorops_discovery_missing_target_input"
@@ -42,6 +43,7 @@ def deterministic_input_plan(
             schema=inputs.get(input_key),
             identity_ref=identity_ref,
             list_handle_input_keys=list_handle_input_keys,
+            list_native_id_input_keys=list_native_id_input_keys,
             list_url_input_keys=list_url_input_keys,
             handle_input_keys=handle_input_keys,
             url_input_keys=url_input_keys,
@@ -283,7 +285,10 @@ def _input_value(
     key: str, *, identity_ref: str, list_handle_input_keys: Sequence[str],
     list_url_input_keys: Sequence[str], handle_input_keys: Sequence[str],
     url_input_keys: Sequence[str], schema: object = None,
+    list_native_id_input_keys: Sequence[str] = (),
 ) -> object:
+    if key in list_native_id_input_keys:
+        return [{"$ref": "target.native_id"}]
     if key in list_handle_input_keys:
         return [{"$ref": "target.handle"}]
     if key in list_url_input_keys:

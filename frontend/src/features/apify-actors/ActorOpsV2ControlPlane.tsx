@@ -104,7 +104,7 @@ function modeLabel(mode: ActorOpsV2RouteView['runtime_mode']) {
 }
 
 function routeTitle(platform: string) {
-  const titles: Record<string, string> = { instagram: 'Instagram 更新', x: 'X 动态', youtube: 'YouTube 视频更新' }
+  const titles: Record<string, string> = { instagram: 'Instagram 更新', x: 'X 动态', youtube: 'YouTube 视频更新', bilibili: 'Bilibili 视频更新' }
   return titles[platform] || '订阅更新'
 }
 

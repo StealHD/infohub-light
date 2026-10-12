@@ -912,18 +912,16 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "bilibili": _guide_source(
         "Bilibili UP Videos",
         "Bilibili UP 主视频",
-        "Follow public videos from one Bilibili UP account through the workspace RSSHub service.",
-        "通过工作区 RSSHub 服务关注一个 Bilibili UP 主的公开视频。",
+        "Follow public UP videos through the workspace Apify main/standby route.",
+        "通过工作区 Apify 主备线路关注一个 Bilibili UP 主的公开视频。",
         self_service=True,
         requires_web_setup=False,
         en_web_setup_note=(
-            "OpenClaw provides only the controlled route identity. The workspace "
-            "RSSHub Base URL is configured by an administrator and is never part "
-            "of the proposal."
+            "OpenClaw provides the controlled UID identity; ActorOps prepares the "
+            "source locally before enabling acquisition."
         ),
         zh_web_setup_note=(
-            "OpenClaw 只提供受控路由身份；工作区 RSSHub Base URL 由管理员配置，"
-            "不会出现在提案中。"
+            "OpenClaw 只提供受控 UID 身份；ActorOps 完成本地准备后启用获取。"
         ),
         fields={
             "site": _guide_field(

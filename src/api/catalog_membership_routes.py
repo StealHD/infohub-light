@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from .actorops_source_lifecycle import ActorOpsSourceLifecycle
 from .context import ApiContext
 from .responses import ApiError, ok
+from .bilibili_source_state import catalog_sources_for_user
 from .system_auth import (
     api_context,
     current_user,
@@ -53,10 +54,7 @@ async def catalog_sources(
             "admin role required to list disabled sources",
             status_code=403,
         )
-    sources = context.store.list_visible_sources(
-        user,
-        include_disabled=include_disabled,
-    )
+    sources = catalog_sources_for_user(context.store, user, include_disabled=include_disabled)
     return ok(
         {"sources": [context.public_source(source, user) for source in sources]}
     )

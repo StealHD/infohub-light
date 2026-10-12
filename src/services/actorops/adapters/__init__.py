@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from ..ports import FetchWindow, NativeFallbackResult, TargetSpec
 from ..registry import AdapterRegistry
 from .instagram.profile_items import InstagramProfileItemsAdapter
+from .bilibili.profile_items import BilibiliProfileItemsAdapter
 from .x.profile_items import XProfileItemsAdapter
 from .youtube.channel_items import YouTubeChannelItemsAdapter
 from .youtube.native import build_youtube_native_fetcher
@@ -24,6 +25,7 @@ def build_default_registry(
     for adapter in (
         XProfileItemsAdapter(),
         InstagramProfileItemsAdapter(),
+        BilibiliProfileItemsAdapter(),
         YouTubeChannelItemsAdapter(native_fetcher=youtube_native_fetcher),
     ):
         registry.register(adapter)

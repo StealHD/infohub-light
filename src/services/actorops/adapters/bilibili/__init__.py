@@ -1,0 +1,1 @@
+"""Bilibili UP publication adapters."""

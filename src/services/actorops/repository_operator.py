@@ -14,6 +14,7 @@ from .domain import (
 from .repository_errors import ActorOpsConflict, ActorOpsNotFound
 from .replacement_lifecycle import expire_stale_plans
 from .store_metadata import StoreMetadata, pricing_json
+from .bilibili_bootstrap import initial_bilibili_setup, replacement_binding_set
 
 
 _OPEN = ("previewed", "authorized", "running", "ready")
@@ -97,13 +98,7 @@ class OperatorRepository:
         return self.repository.get_route(route_id)
 
     def binding_set(self, route_id: str) -> tuple[tuple[str, int, str], ...]:
-        rows = self.repository.connection.execute(
-            """SELECT source_id, binding_version, target_fingerprint FROM actor_source_bindings_v2
-               WHERE workspace_id=? AND route_id=? AND status='ready'
-               ORDER BY source_id""",
-            (self.repository.workspace_id, route_id),
-        ).fetchall()
-        return tuple((str(row["source_id"]), int(row["binding_version"]), str(row["target_fingerprint"])) for row in rows)
+        return replacement_binding_set(self.repository, route_id)
 
     def create_plan(self, *, plan_id: str, route_id: str, target_assignment: AssignmentRole, target_priority: int, proposed_candidate_id: str, idempotency_key: str, created_by_user_id: str, per_probe_cap_usd: float, total_cap_usd: float) -> ReplacementPlanRecord:
         self.repository._require_transaction()
@@ -118,11 +113,12 @@ class OperatorRepository:
         candidate = self.repository.get_candidate(proposed_candidate_id)
         metadata = self.metadata(proposed_candidate_id)
         assigned = next((item for item in self.repository.list_route_candidates(route_id) if item.assignment_role is target_assignment and item.priority == target_priority), None)
-        fills_empty_standby = (
+        fills_empty_slot = (
             assigned is None
             and target_assignment is AssignmentRole.STANDBY
             and target_priority in {1, 2}
-        )
+        ) or (assigned is None and target_assignment is AssignmentRole.ACTIVE
+              and target_priority == 0 and initial_bilibili_setup(self.repository, route_id))
         bindings = self.binding_set(route_id)
         per_probe = round(float(per_probe_cap_usd), 6)
         total = round(float(total_cap_usd), 6)
@@ -132,7 +128,7 @@ class OperatorRepository:
             or metadata is None
         ):
             raise ActorOpsConflict("actorops_replacement_candidate_invalid")
-        if (assigned is None and not fills_empty_standby) or not bindings:
+        if (assigned is None and not fills_empty_slot) or not bindings:
             raise ActorOpsConflict("actorops_replacement_route_not_ready")
         current = assigned or candidate
         if not 0 < per_probe <= min(route.per_run_cap_usd, 0.20) or not 0 < total <= 0.60 or per_probe * len(bindings) > total:

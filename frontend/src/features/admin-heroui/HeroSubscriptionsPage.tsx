@@ -663,7 +663,7 @@ export function HeroSubscriptionsPage() {
                 onRetry={() => scheduleQuery.refetch()}
                 onUpdate={(patch) => scheduleMutation.mutate(patch)}
               />}
-              onFetch={(entry) => fetchMutation.mutateAsync({ source: entry.source, subscription: entry.subscription })}
+              actorOpsEditable={isAdmin} onFetch={(entry) => fetchMutation.mutateAsync({ source: entry.source, subscription: entry.subscription })}
               onToggleNotification={(entry, enabled) => notificationMutation.mutateAsync({ source: entry.source, subscription: entry.subscription, enabled })}
               onEditSubscription={beginEditSubscription}
               onEditSource={beginEditSource}

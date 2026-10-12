@@ -13,6 +13,9 @@ def source_config_target(
     """Return the raw acquisition target across social and native source shapes."""
 
     value = config.get("target")
+    if not str(value or "").strip() and str(platform or "").casefold() == "bilibili":
+        from .services.bilibili_source_identity import bilibili_public_target
+        value = bilibili_public_target(config)
     if not str(value or "").strip() and str(platform or "").casefold() == "youtube":
         value = config.get("url")
     return str(value or "").strip()

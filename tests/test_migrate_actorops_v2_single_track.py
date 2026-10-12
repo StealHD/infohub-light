@@ -159,6 +159,7 @@ def test_fresh_store_seeds_v2_routes_with_safe_default_maintenance(
             (DEFAULT_WORKSPACE_ID,),
         ).fetchall()
         assert [tuple(row) for row in routes] == [
+            ("bilibili", "profile", "items", "disabled", 0.02),
             ("instagram", "profile", "items", "disabled", 0.02),
             ("x", "profile", "items", "disabled", 0.02),
             ("youtube", "channel", "items", "disabled", 0.02),
@@ -170,7 +171,7 @@ def test_fresh_store_seeds_v2_routes_with_safe_default_maintenance(
                WHERE workspace_id=? ORDER BY route_id""",
             (DEFAULT_WORKSPACE_ID,),
         ).fetchall()
-        assert len(policies) == 4
+        assert len(policies) == 5
         assert all(int(row["enabled"]) == 1 for row in policies)
         assert all(
             row["authorization_origin"] == "system_default" for row in policies

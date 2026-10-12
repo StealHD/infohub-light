@@ -72,7 +72,7 @@ export function ActorOpsV2RouteControls({ route }: { route: ActorOpsV2RouteView 
 }
 
 function replacementTargets(route: ActorOpsV2RouteView): ActorOpsV2ReplacementTarget[] {
-  const active = route.active_candidate ? [{ candidate: route.active_candidate, assignment: 'active' as const, priority: 0, slotLabel: '主用' }] : []
+  const active = route.active_candidate || (route.platform === 'bilibili' && route.runtime_mode === 'disabled') ? [{ candidate: route.active_candidate || null, assignment: 'active' as const, priority: 0, slotLabel: '主用' }] : []
   const byPriority = new Map(orderedActorOpsV2StandbyCandidates(route.standby_candidates).map((candidate, index) => {
     const priority = candidate.priority ?? index + 1
     return [priority, candidate] as const

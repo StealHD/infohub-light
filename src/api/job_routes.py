@@ -15,8 +15,8 @@ from .system_auth import (
     current_user,
     is_admin,
     require_mutating_member,
-    visible_source_or_404,
 )
+from .bilibili_source_state import require_source_job_access
 from ..services.job_eligibility import JobEligibilityService
 from ..services.system_settings import resolve_system_setting
 
@@ -116,7 +116,7 @@ def _create_job(
             status_code=403,
         )
     if payload.source_id:
-        visible_source_or_404(store, payload.source_id, user)
+        require_source_job_access(store, payload.source_id, user)
     if job_type == "user_feed_refresh":
         refresh_scope = "all" if is_admin(user) else "private"
         refresh_payload = {

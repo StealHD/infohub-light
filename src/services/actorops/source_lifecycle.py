@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ..source_type_registry import is_youtube_channel_config
+from ..bilibili_source_identity import is_bilibili_source
 from .binding_service import ActorOpsBindingError, ActorOpsBindingService
 from .binding_reconciliation import ActorOpsBindingReconciler
 from .repository import ActorOpsNotFound, ActorOpsRepository
@@ -14,7 +15,7 @@ def is_actorops_managed_source(source_type: str, config: object) -> bool:
     if not isinstance(config, Mapping):
         return False
     if source_type == "rss":
-        return is_youtube_channel_config(config)
+        return is_youtube_channel_config(config) or is_bilibili_source(source_type, config)
     if source_type != "apify_social":
         return False
     profile_id = str(config.get("profile_id") or "").strip()
@@ -23,7 +24,7 @@ def is_actorops_managed_source(source_type: str, config: object) -> bool:
     return (
         str(config.get("platform") or "").casefold(),
         str(config.get("kind") or "").casefold(),
-    ) in {("x", "profile"), ("instagram", "profile")}
+    ) in {("x", "profile"), ("instagram", "profile"), ("bilibili", "profile")}
 
 
 def agent_source_update_requires_web(

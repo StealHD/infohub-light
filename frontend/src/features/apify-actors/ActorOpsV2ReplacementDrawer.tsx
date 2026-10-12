@@ -249,7 +249,8 @@ function showRevalidationToast(plan: ActorOpsV2ReplacementPlan | null) {
 
 function replacementCaps(route: ActorOpsV2RouteView): [number, number] {
   const cap = Math.min(route.per_run_cap_usd, 0.20)
-  return [cap, Math.min(0.60, cap * Math.max(1, route.binding_summary.ready_count))]
+  const pending = route.platform === 'bilibili' && route.runtime_mode === 'disabled' && !route.active_candidate ? route.binding_summary.pending_count : 0
+  return [cap, Math.min(0.60, cap * Math.max(1, route.binding_summary.ready_count + pending))]
 }
 
 function useReplacementFailureNotice(

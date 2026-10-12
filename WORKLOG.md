@@ -13,53 +13,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "verification"
   ],
   "recorded_on": "2026-09-21",
-  "result": "在 codex/model-inheritance-analysis 修复结算后遗留 Repair 阻塞码未唤醒/未更新，区分费用未决与结果恢复；blocked 事件映射为日志合同支持的 unavailable。Instagram 旧 Manifest 通过已证明的共同作者结构接入通用身份端口，复用原作者路径，保留真实主作者、图集与直接目标头像优先级；显式 structures 不被覆盖。同步合同、排查说明和更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-21-actorops-repair-wakeup-coauthors",
-  "unresolved": [
-    "历史失败任务及既有候选冷却保留，本次未补抓历史媒体，也未更改生产；外部网络/DNS 超时不属于本轮代码修复结果。"
-  ],
-  "validation": [
-    "Adapter、结构映射、Instagram 媒体、Repair、Resilience、结果恢复和预算针对性回归通过。",
-    "Impacted preflight 14/14 通过，前端关联测试 121 项通过；SQLite 未关闭连接警告 0。证据 .test-results/20260921T032507Z-44404/result.json。",
-    "对现有两个已结算 Dataset 仅执行 GET 回放：有共同作者证据的结果 3/3 解析成功并保留品牌主作者；缺少共同作者证据的结果继续拒绝目标身份不匹配。未启动新的付费 Run。",
-    "无运行中抓取任务时重启本地分支 API/Worker，保留原环境、数据库及配置；ready 接口的数据库、Worker、日志均 ready，浏览器 5173/feed 内容正常。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
-  "result": "在 codex/model-inheritance-analysis 修复自动恢复状态流转：对账扫描自动收尾成功 source_fetch 遗留、精确关联且已结算 observed 的未使用 Attempt，保留 Job、费用和候选健康；active Route 免费回退异常仍同步 Repair。Repair 复用当前 Binding 已结算证明尝试接管，沿用授权、平台能力、三槽、全局故障及最后一路约束；接管不消耗新 Probe 预算。认证候选缺当前证明时打通调度和费用准入，仅补未证明 Binding；接管受阻记录安全原因并有界退避。同步架构合同、排查说明和更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-21-actorops-completed-job-repair-assignment",
-  "unresolved": [
-    "Instagram 现有三槽占满且不满足全局故障替换条件，保留现有候选并自动退避；本轮不放宽槽位、冷却或 standing authorization。",
-    "外部 YouTube RSS 404 仍可能发生；本次修复其对自动 Repair 流程的影响，不声称上游永久可用。"
-  ],
-  "validation": [
-    "新增成功 Job 自动收尾及安全边界、RSS 404 仍写 Repair、认证候选接管/证明失效/预算/权限/槽位/已确认故障替换、认证候选实际模拟探测完整链路回归，相关 Runtime、Maintenance、Reconciliation、Resilience 和恢复测试通过。",
-    "最终 impacted preflight 14/14 通过，SQLite 未关闭连接警告 0；证据 .test-results/20260921T040625Z-62509/result.json。首次预检在发现认证候选费用准入遗漏后主动中止，修复及专项复验后重新运行。",
-    "只读本地库复制到内存验证真实状态；实际环境无运行中抓取时重启分支 API/Worker，ready 与 Feed 正常。Worker 正常对账自动将 YouTube 遗留 Attempt 收尾为 cancelled/actorops_result_recovery_superseded，原 Job succeeded、历史次数及费用保持不变；12:12 Repair 自动 recovered。",
-    "12:13 Instagram Repair 自动从 awaiting_probe 转为 blocked/actorops_repair_assignment_unavailable，保留候选并安排退避。未手工清库/改业务记录、未人为启动付费测试、未发布生产。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
   "result": "在 codex/model-inheritance-analysis 修复 Apify 探测异常恢复：执行退出后的 created Probe 无远端预留才取消并释放预算，已有预留保留未决费用进入原对账。新 Maintenance/Replacement Probe 关联实际 Worker Job，终态 owner 或旧 Job exact Attempt 结果可恢复中断记录；运行中 owner 不回收。未捕获的传输异常按启动阶段区分暂时不可用与待对账，保留安全异常位置，不追加付费启动、不惩罚候选。容量受阻 Repair 在原准入可继续时提前唤醒；失败 Job 与完成日志保留安全错误码、Repair 返回下次重试时间。同步恢复合同、排查说明及更新日志。",
   "status": "completed",
   "task_id": "2026-09-21-apify-probe-stability-recovery",
@@ -452,6 +405,51 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "正文翻译与旧正文修复定向 32 项通过，重建保留译文、删除级联清理、未知外键仍拒绝；API/队列/Worker 定向及应用级测试通过。已审查最终 diff；通过翻译与专题速览分包将首屏 JavaScript Brotli 控制为 244209 bytes（上限 245760），构建与全部静态检查通过。",
     "发布准备补齐 global 49 SHA 绑定回执、迁移前备份/表形校验及兼容回滚；翻译、发布命令和迁移回执定向测试全部通过，shell 语法与 diff 检查通过；版本更新为 2.6.32。",
     "已发布 v2.6.32 / 49756de93aa9：本机 amd64 构建并校验上传，VPS global 49 显式迁移及 0600 备份成功；6 用户、1637 内容、103 快照计数保留，旧版本兼容健康通过。新版 API/Worker、完整 source digest、公网版本、React 资源检查通过，Tag 已推送。生产备份 service-translation-v49-20261006T150958463447Z.db。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-10-10",
+  "result": "在 codex/bilibili-apify 新 Worktree 实现 bilibili/profile/items ActorOps v2 适配器，新旧 UP 订阅保留目录身份并在运行时走 Apify 主备；新增可预览、幂等、备份及回滚保护的数据切换工具。保留 AV/BV 和原 RSS 视频 ID、历史、收藏、已读、通知及计划状态；未准备来源阻断获取，不回退 RSSHub。同步路线展示、手册、更新日志及合同。",
+  "status": "completed",
+  "task_id": "2026-10-10-bilibili-apify",
+  "unresolved": [
+    "仅在本地独立预览启用；未提交、合并或部署。联合投稿缺少目标 UP 参与证据时跳过，不回退 RSSHub。"
+  ],
+  "validation": [
+    "原实现 34 条 Bilibili、8 条 API、46 条订阅 UI、127 条 API/迁移/权限回归通过；保留旧身份、AV/BV 去重、主动停用及未知启动阻断。",
+    "本轮 30 条 Bilibili 定向回归通过，修复首次主用准备、nullable/混合输出、实际上传者归属、snake_case 字段及每 UP 数量限制；主动审查 diff。",
+    "最终 impacted preflight 14/14、SQLite 连接警告 0：.test-results/bilibili-live-actor-preflight-6/result.json。",
+    "独立预览已配置 blueskyscraper/bilibili-user-scraper 0.1.15 主用、zen-studio/bilibili-video-scraper 0.0.47 备用；两 UP 付费数据验证、实际抓取和切换通过。单次上限 $0.03，已结算合计 $0.21301；保留 11 条旧历史 ID、23 条阅读状态和 13 条订阅设置，切换后历史 7/6 未重复。",
+    "API/Worker/React 与 Chrome 截图验收通过，运行版本 bb40d31cfe9c-dirty-d1c2c8e7245d。预览库磁盘故障已备份恢复并校验核心表；AI 缺少密钥，预览关闭分析，原库未操作。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "verification"
+  ],
+  "recorded_on": "2026-10-12",
+  "result": "发布 Bilibili Apify v2.6.33：在 main 集成新旧订阅主备接入及本地实测修复，补齐生产显式数据迁移的私有回执、完整 SHA 与绑定指纹校验；按本机构建、原生产库备份迁移、VPS 切换、Tag 和 GitHub Release 流程交付。生产 Actor 主备独立验证后启用，保留现有订阅与历史。",
+  "status": "partial",
+  "task_id": "2026-10-12-release-v2-6-33",
+  "unresolved": [
+    "生产迁移、Actor 配置验证、VPS 健康、Tag 与 GitHub Release 待完成。"
+  ],
+  "validation": [
+    "发布前原 Bilibili 实现 impacted preflight 14/14、本地主备实际采集与去重通过；发布脚本、迁移回执与数据保护定向验证进行中。"
   ]
 }
 ```

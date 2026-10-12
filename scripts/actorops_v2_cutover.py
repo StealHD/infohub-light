@@ -281,9 +281,9 @@ def _parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
     for name in ("status", "snapshot", "verify-disabled", "verify-active"):
         command = subcommands.add_parser(name)
-        command.add_argument("--platform", required=True, choices=("youtube", "instagram", "x"))
+        command.add_argument("--platform", required=True, choices=("youtube", "instagram", "x", "bilibili"))
     change = subcommands.add_parser("transition")
-    change.add_argument("--platform", required=True, choices=("youtube", "instagram", "x"))
+    change.add_argument("--platform", required=True, choices=("youtube", "instagram", "x", "bilibili"))
     change.add_argument("--current", required=True, choices=[mode.value for mode in RuntimeMode])
     change.add_argument("--target", required=True, choices=[mode.value for mode in RuntimeMode])
     change.add_argument("--expected-generation", required=True, type=int)

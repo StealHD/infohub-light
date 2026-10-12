@@ -133,6 +133,7 @@
       "frontend_log_display_enabled": false,
       "workspace_rsshub_base_url_enabled": true,
       "managed_bilibili_subscription_enabled": true,
+      "bilibili_actorops_v2_acquisition_enabled": true,
       "bilibili_user_name_resolution_enabled": true,
       "rss_initial_fetch_window_enabled": true,
       "vps_private_rsshub_enabled": true
@@ -283,6 +284,13 @@
     "runtime_sources": {
       "apify_actor_ops_profiles": [
         {
+          "profile_id": "bilibili/profile/items",
+          "platform": "bilibili",
+          "target_type": "profile",
+          "capability": "items",
+          "mode": "primary"
+        },
+        {
           "profile_id": "x/profile/items",
           "route_key": "x/profile",
           "platform": "x",
@@ -355,6 +363,7 @@
         "openbb_optional"
       ],
       "apify_optional": [
+        "bilibili",
         "x",
         "instagram",
         "facebook",
@@ -373,6 +382,8 @@
       },
       "managed_rsshub": {
         "catalog_type": "rss",
+        "bilibili_acquisition": "actorops_v2",
+        "bilibili_rsshub_fetch_enabled": false,
         "sites": {
           "bilibili": [
             "user_video"

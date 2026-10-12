@@ -60,6 +60,7 @@ def _reference_matches(field: str, reference: str) -> bool:
             tokens & {"id", "ids"}
             or normalized in {
                 "channel", "channels", "channelinput", "channelinputs",
+                "uid", "mid",
             }
         )
     if reference == "target.handle":

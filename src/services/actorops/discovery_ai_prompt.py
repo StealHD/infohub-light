@@ -215,6 +215,10 @@ def _route_contract(route: str) -> dict[str, object]:
             "identity_field": "source_url", "target_ref": "target.canonical_url",
             "match": "url", "url_host_allowlist": ["youtube.com"],
         },
+        "bilibili/profile/items": {
+            "identity_field": "source_native_id", "target_ref": "target.native_id",
+            "match": "exact", "url_host_allowlist": ["bilibili.com"],
+        },
     }
     return values.get(route, {
         "identity_field": "source_url", "target_ref": "target.canonical_url",

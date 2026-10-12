@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 import feedparser
 
-from .base import BaseScraper
+from .base import BaseScraper, SourceFetchError
 from ..models import ContentItem, SourceType, RSSSourceConfig
 from ..rsshub import (
     RSSHUB_ACCESS_KEY_ENV,
@@ -22,6 +22,7 @@ from ..rsshub import (
     rsshub_source_key,
 )
 from ..services.network_policy import fetch_public_http
+from ..services.bilibili_source_identity import is_bilibili_source
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +69,10 @@ class RSSScraper(BaseScraper):
     async def _fetch_feed(
         self, source: RSSSourceConfig, since: datetime
     ) -> List[ContentItem]:
-        """Fetch items from a single RSS feed.
-
-        Args:
-            source: RSS feed configuration
-            since: Only fetch items after this time
-
-        Returns:
-            List[ContentItem]: Feed content items
-        """
+        """Fetch RSS content; controlled Bilibili requires its ActorOps runtime."""
+        if is_bilibili_source("rss", source.model_dump()):
+            raise SourceFetchError("Bilibili requires ActorOps v2", retryable=False,
+                                   code="actorops_v2_binding_not_ready")
         items = []
 
         try:

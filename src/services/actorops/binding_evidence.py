@@ -13,6 +13,7 @@ from ..apify_actor_manifest import (
     parse_actor_manifest,
 )
 from ..source_type_registry import is_youtube_channel_config
+from ..bilibili_source_identity import bilibili_public_target, is_bilibili_source
 from .domain import BindingRecord, RouteKey
 from .ports import ActorManifest, FetchWindow
 from .registry import AdapterNotRegistered, AdapterRegistry
@@ -61,6 +62,9 @@ class BindingEvidenceEvaluator:
         if source_type == "rss" and is_youtube_channel_config(config):
             route_key = RouteKey("youtube", "channel", "items")
             raw_target = str(config.get("url") or "")
+        elif is_bilibili_source(source_type, config):
+            route_key = RouteKey("bilibili", "profile", "items")
+            raw_target = bilibili_public_target(config)
         elif source_type == "apify_social":
             raw_target = str(config.get("target") or "")
             route_key = self._route_key(config, existing=existing)

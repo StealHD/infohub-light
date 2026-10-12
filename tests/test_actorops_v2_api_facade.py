@@ -150,7 +150,7 @@ def test_admin_route_list_is_v2_only(tmp_path: Path, monkeypatch) -> None:
     payload = response.json()["data"]
     assert payload["schema_version"] == 2
     assert {route["route_key"] for route in payload["routes"]} == {
-        "x/profile/items", "instagram/profile/items", "youtube/channel/items",
+        "x/profile/items", "instagram/profile/items", "youtube/channel/items", "bilibili/profile/items",
     }
     assert all(set(route["workflow"]) == {"discovery", "replacement"} for route in payload["routes"])
 

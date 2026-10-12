@@ -11,7 +11,7 @@ from .adapters import build_source_registry
 from .apify_remote import ApifyV2RemoteClient
 from .domain import ExecutionSnapshot, FailureClass, RuntimeMode
 from .errors import ActorOpsRuntimeError
-from .identity import stable_actor_item_id
+from .identity import stable_actor_item_id, legacy_rss_item_id
 from .ports import ExecutionResult, FetchWindow, PublicationProof
 from .publication import (
     ActorOpsV2RoutedList,
@@ -85,7 +85,9 @@ class ActorOpsV2Service:
                 max_items=int(subscription.fetch_limit),
                 since=_acquisition_since(
                     handle.snapshot.binding,
-                    since.astimezone(timezone.utc),
+                    datetime(2000, 1, 1, tzinfo=timezone.utc)
+                    if getattr(subscription, "keep_latest_item", False)
+                    else since.astimezone(timezone.utc),
                 ),
                 until=datetime.now(timezone.utc),
             ),
@@ -93,6 +95,8 @@ class ActorOpsV2Service:
         )
         self._latch(handle, result)
         items = self._project_items(result.items, subscription, result.execution_mode)
+        if getattr(subscription, "keep_latest_item", False):
+            items = _retain_latest(items, since)
         return ActorOpsV2RoutedList(
             items,
             v2_proof_payload(
@@ -168,6 +172,10 @@ class ActorOpsV2Service:
                 item.id = stable_actor_item_id(
                     str(metadata.get("platform") or ""), source_key, native_id
                 )
+            elif metadata.get("catalog_type") == "rss" and getattr(subscription, "rss_identity_url", None):
+                item.id = legacy_rss_item_id(subscription.rss_identity_url, item.url, managed=False)
+            elif metadata.get("catalog_type") == "rss" and getattr(subscription, "rss_identity_key", None):
+                item.id = legacy_rss_item_id(subscription.rss_identity_key, item.url, managed=True)
             item.metadata.update(
                 {
                     "source_id": str(subscription.source_id),
@@ -188,6 +196,14 @@ class ActorOpsV2Service:
             )
             projected.append(item)
         return projected
+
+
+def _retain_latest(items: list[Any], since: datetime) -> list[Any]:
+    selected = [item for item in items if item.published_at >= since]
+    if not selected and items:
+        selected = [max(items, key=lambda item: (item.published_at, item.id))]
+        selected[0].metadata["retention_policy"] = "latest_per_source"
+    return selected
 
 
 def build_source_actorops_service(

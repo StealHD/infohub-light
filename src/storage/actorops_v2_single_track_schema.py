@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from ..services.actorops.domain import RouteKey
 from ..services.actorops.adapters import build_default_registry
 from ..services.actorops.route_catalog import (
     catalog_entries,
@@ -173,17 +174,19 @@ def _rebuild_tables(connection: sqlite3.Connection) -> int:
     return shadow_routes
 
 
-def seed_default_catalog(connection: sqlite3.Connection) -> dict[str, int]:
+def seed_default_catalog(connection: sqlite3.Connection, *, route_keys=None) -> dict[str, int]:
     """Seed disabled Route and Maintenance facts from the registered adapters."""
 
     stamp = datetime.now(timezone.utc).isoformat()
     registry = build_default_registry()
+    entries = tuple(entry for entry in catalog_entries(registry)
+                    if route_keys is None or entry.route_key in route_keys)
     workspaces = [
         str(row[0]) for row in connection.execute("SELECT id FROM workspaces ORDER BY id")
     ]
     routes = policies = 0
     for workspace_id in workspaces:
-        for entry in catalog_entries(registry):
+        for entry in entries:
             cursor = connection.execute(
                 """INSERT OR IGNORE INTO actor_routes_v2 (
                        route_id, workspace_id, platform, target_type, capability,
@@ -210,9 +213,11 @@ def seed_default_catalog(connection: sqlite3.Connection) -> dict[str, int]:
         )
         policies += int(cursor.rowcount)
         for row in connection.execute(
-            "SELECT route_id FROM actor_routes_v2 WHERE workspace_id=? ORDER BY route_id",
+            "SELECT route_id, platform, target_type, capability FROM actor_routes_v2 WHERE workspace_id=? ORDER BY route_id",
             (workspace_id,),
         ):
+            if route_keys is not None and RouteKey(*row[1:]) not in route_keys:
+                continue
             route_id = str(row[0])
             cursor = connection.execute(
                 """INSERT OR IGNORE INTO actor_maintenance_policies_v2 (

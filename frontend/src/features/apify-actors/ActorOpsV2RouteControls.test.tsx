@@ -137,4 +137,9 @@ describe('ActorOpsV2RouteControls', () => {
     await browser.click(screen.getByRole('button', { name: '补充备用 1' }))
     expect(await screen.findByRole('heading', { name: '补充备用 1 Actor' })).toBeInTheDocument()
   })
+
+  it('offers initial primary setup for a disabled Bilibili route', () => {
+    renderControls({ ...route, platform: 'bilibili', runtime_mode: 'disabled', active_candidate: null, standby_candidates: [] })
+    expect(screen.getByRole('button', { name: '补充主用' })).toBeInTheDocument()
+  })
 })

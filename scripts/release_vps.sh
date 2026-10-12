@@ -108,6 +108,16 @@ reject_implicit_migrations() {
     [[ -z "$receipt_path" ]] || fail "migration receipt supplied for a release without a migration"
     return
   fi
+  if [[ "$migration_files" == "scripts/migrate_bilibili_actor_sources.py" && -z "$schema_delta" ]]; then
+    [[ "$receipt_path" == "$REMOTE_BASE/data/backups/"*.json ]] \
+      || fail "Bilibili requires its explicit data cutover and managed receipt before release"
+    verified_backup="$(ssh "$REMOTE_HOST" python3 - verify --base "$REMOTE_BASE" \
+      --receipt "$receipt_path" --revision "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
+      < "$ROOT_DIR/scripts/bilibili_release_receipt.py")" \
+      || fail "Bilibili release receipt verification failed"
+    MIGRATION_BACKUP_PATH="$verified_backup"
+    return
+  fi
   if [[ "$migration_files" == "scripts/migrate_content_translations_v49.py" && -z "$schema_delta" ]]; then
     [[ "$receipt_path" == "$REMOTE_BASE/data/backups/"*.json ]] \
       || fail "global 49 requires its explicit migration and managed receipt before release"
@@ -322,7 +332,10 @@ if receipt.get('backup') != {'path': str(expected_backup), 'mode': '0o600'}:
 if receipt.get('release_revision') != sys.argv[4].removeprefix('git:'):
     raise ValueError('migration receipt revision changed before cutover')
 expected_marker = receipt.get('marker', {})
+if expected_marker.get('version') == 30 and receipt.get('schema') != 'bilibili_actor_sources_release_receipt_v1':
+    raise ValueError('unsupported Bilibili migration receipt')
 if expected_marker not in [
+    {'version': 30, 'name': 'actorops_v2_single_track', 'checksum': 'actorops-v2-single-track-v1'},
     {'version': 47, 'name': 'notification_destinations', 'checksum': 'notification-destinations-v1'},
     {'version': 49, 'name': 'content_translations', 'checksum': 'content-translations-v1'},
 ]:

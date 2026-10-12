@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from ..storage.service_store import ServiceStore
 from .actorops.binding_service import ActorOpsBindingError
+from .bilibili_actor_source import is_bilibili_record, project_bilibili_runtime_record
 from .youtube_actor_source import (
     is_youtube_channel_record,
     project_youtube_actor_runtime_record,
@@ -30,6 +31,7 @@ def with_actorops_runtime_profiles(
         if (
             str(record.get("type") or "") == "apify_social"
             or is_youtube_channel_record(record)
+            or is_bilibili_record(record)
         )
         and str(record.get("source_id") or "")
     ]
@@ -56,12 +58,17 @@ def with_actorops_runtime_profiles(
         for row in rows
     }
     projected: list[dict[str, Any]] = []
-    for record in prepared:
+    for original_record, record in zip(original, prepared):
         route = route_by_source.get(str(record.get("source_id") or ""))
         if route is None:
             projected.append(record)
             continue
         route_id, platform = route
+        if is_bilibili_record(original_record):
+            projected.append(project_bilibili_runtime_record(
+                original_record, route_id=route_id if platform == "bilibili" else None,
+            ))
+            continue
         if is_youtube_channel_record(record):
             projected.append(
                 project_youtube_actor_runtime_record(record, route_id=route_id)
@@ -79,6 +86,9 @@ def with_actorops_runtime_profiles(
 
 
 def _without_catalog_profile(record: dict[str, Any]) -> dict[str, Any]:
+    if is_bilibili_record(record):
+        # Project even pending/missing bindings so none can execute RSSHub.
+        return project_bilibili_runtime_record(record)
     managed_youtube = is_youtube_channel_record(record)
     if (
         str(record.get("type") or "") != "apify_social"

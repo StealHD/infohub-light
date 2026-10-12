@@ -104,11 +104,13 @@ def output_semantic_error(manifest: Mapping[str, object]) -> str | None:
 def _canonical_pointer_matches(canonical: str, pointer: str, *, host: str) -> bool:
     leaf = _normalized_leaf(pointer)
     if canonical == "native_id":
-        return leaf == "id" or any(
+        return leaf in {"id", "aid", "bvid"} or (host == "bilibili.com" and leaf == "contentid") or any(
             token in leaf for token in ("postid", "tweetid", "videoid", "shortcode")
         )
     if canonical == "url":
         if pointer == X_POST_URL_POINTER and host == "x.com":
+            return True
+        if host == "bilibili.com" and leaf == "shareurl":
             return True
         return leaf == "url" or any(
             token in leaf for token in ("link", "permalink", "posturl", "tweeturl", "videourl")
@@ -119,7 +121,7 @@ def _canonical_pointer_matches(canonical: str, pointer: str, *, host: str) -> bo
             for token in ("created", "date", "publish", "taken", "time", "upload")
         )
     if canonical == "text":
-        allowed = ("body", "content", "fulltext", "text", "title")
+        allowed = ("body", "content", "description", "desc", "fulltext", "text", "title")
         if host == "instagram.com":
             allowed += ("caption",)
         elif host == "youtube.com":
@@ -137,9 +139,9 @@ def _identity_pointer_matches(
 ) -> bool:
     leaf = _normalized_leaf(pointer)
     if identity_field == "source_native_id":
-        return pointer == YOUTUBE_TARGET_NATIVE_ID_POINTER or leaf == "id" or any(
-            token in leaf for token in ("channelid", "sourceid", "userid")
-        )
+        return pointer == YOUTUBE_TARGET_NATIVE_ID_POINTER or leaf in {"id", "uid", "mid"} or any(
+            token in leaf for token in ("channelid", "sourceid", "userid", "creatorid", "authorid", "authormid", "creatormid", "ownerid")
+        ) or (host == "bilibili.com" and leaf == "uploaderid")
     if identity_field == "source_url":
         if pointer == YOUTUBE_TARGET_URL_POINTER and host == "youtube.com":
             return True

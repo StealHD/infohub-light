@@ -28,6 +28,8 @@ import {
 } from '../subscriptions/subscriptionModel'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import { HeroSelect } from './HeroAdminControls'
+import { sourceAcquisitionIssue, subscriptionUpdateDetails } from './subscriptionAcquisitionState'
+import { AcquisitionRecoveryHint } from './AcquisitionRecoveryHint'
 
 export type FetchLabel = '提交中' | '已排队' | '获取中' | '立即获取'
 
@@ -83,20 +85,6 @@ const formatCompactTime = (value?: string | null) => {
   return Number.isNaN(parsed.getTime())
     ? '时间未知'
     : parsed.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-const intervalLabel = (minutes?: number) => {
-  if (!minutes) return '周期未知'
-  if (minutes < 60) return `每 ${minutes} 分钟`
-  return `每 ${minutes / 60} 小时`
-}
-
-const formatClockTime = (value?: string | null) => {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime())
-    ? null
-    : parsed.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
 const formatUpdateTime = (value?: string | null) => {
@@ -297,9 +285,10 @@ export function SourceFilterMenu({ filters }: {
   </Popover>
 }
 
-export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSchedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionRows({ items, editable, actorOpsEditable = false, feedWindowDays = 7, globalSchedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   items: SubscriptionViewEntry[]
   editable: boolean
+  actorOpsEditable?: boolean
   feedWindowDays?: number
   globalSchedule?: FeedSchedule
   onFetch: (entry: SubscriptionViewEntry) => void | Promise<unknown>
@@ -311,27 +300,8 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
   return <div role="list" aria-label="订阅来源" className="grid min-w-0 max-w-full gap-2">
     {items.map((entry) => {
       const { source, subscription, health } = entry
-      const schedule = subscription.schedule
-      const subscriptionActive = source.enabled && subscription.enabled
-      const usesSourceSchedule = subscriptionActive && Boolean(schedule?.enabled)
-      const effectiveNextRunAt = !subscriptionActive
-        ? null
-        : usesSourceSchedule
-          ? schedule?.next_run_at
-          : globalSchedule?.enabled
-            ? globalSchedule.next_run_at
-            : null
-      const nextRunTime = formatClockTime(effectiveNextRunAt)
-      const updateDetails = !subscriptionActive
-        ? ['更新：订阅已停用']
-        : usesSourceSchedule
-          ? ['更新：单源', intervalLabel(schedule?.interval_minutes)]
-          : globalSchedule?.enabled
-            ? ['更新：全局', intervalLabel(globalSchedule.interval_minutes)]
-            : globalSchedule
-              ? ['更新：跟随全局', '全局已关闭']
-              : ['更新：跟随全局']
-      if (nextRunTime) updateDetails.push(`下次 ${nextRunTime}`)
+      const acquisitionIssue = sourceAcquisitionIssue(source)
+      const updateDetails = subscriptionUpdateDetails(source, subscription, globalSchedule)
       const latestAt = health?.last_attempt_at || health?.last_success_at
       const fetchBusy = entry.fetchLabel !== '立即获取'
       const notificationDisabled = !editable
@@ -404,6 +374,7 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
               title={`上次抓取 ${health?.last_fetched_count ?? 0} 条`}
               className="whitespace-nowrap"
             >{formatUpdateTime(latestAt)}</time>
+            <AcquisitionRecoveryHint source={source} canManageActors={actorOpsEditable} />
           </div>
           <div data-source-card-controls className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <Tooltip delay={250}>
@@ -452,14 +423,14 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
                   pending={fetchBusy}
                   className="type-control min-h-8 min-w-[104px] gap-1.5 rounded-xl bg-accent px-3 text-accent-foreground hover:bg-accent/90 pointer-coarse:min-h-11"
                   aria-label={`${entry.fetchLabel} ${source.display_name}；上次抓取 ${health?.last_fetched_count ?? 0} 条；最近更新 ${formatUpdateTime(latestAt)}`}
-                  disabled={fetchBusy}
+                  disabled={fetchBusy || Boolean(acquisitionIssue)}
                   onClick={() => onFetch(entry)}
                 >
                   <Icons.RefreshCw className={fetchBusy ? 'animate-spin motion-reduce:animate-none' : ''} size={14} aria-hidden="true" />
                   <span>立即获取</span>
                 </TooltipTriggerButton>
               </span>
-              <Tooltip.Content {...topAnchoredTooltipProps}>上次抓取 {health?.last_fetched_count ?? 0} 条 · 最近更新 {formatUpdateTime(latestAt)}</Tooltip.Content>
+              <Tooltip.Content {...topAnchoredTooltipProps}>{acquisitionIssue?.detail ?? `上次抓取 ${health?.last_fetched_count ?? 0} 条 · 最近更新 ${formatUpdateTime(latestAt)}`}</Tooltip.Content>
             </Tooltip>}
             {entry.notificationPending && <span className="sr-only" role="status">正在保存 {source.display_name} 的新内容通知设置</span>}
             {fetchBusy && <span className="sr-only" role="status">{entry.fetchLabel} {source.display_name}</span>}
@@ -513,9 +484,10 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
   </div>
 }
 
-export function SubscriptionListView({ items, editable, feedWindowDays = 7, globalSchedule, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionListView({ items, editable, actorOpsEditable = false, feedWindowDays = 7, globalSchedule, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   items: SubscriptionViewEntry[]
   editable: boolean
+  actorOpsEditable?: boolean
   feedWindowDays?: number
   globalSchedule?: FeedSchedule
   schedule: ReactNode
@@ -528,7 +500,7 @@ export function SubscriptionListView({ items, editable, feedWindowDays = 7, glob
   return <section data-subscription-list-workspace aria-label="我的订阅列表" className="grid min-w-0 max-w-full gap-3">
     {schedule}
     {items.length > 0 ? <SubscriptionRows
-      items={items}
+      items={items} actorOpsEditable={actorOpsEditable}
       editable={editable}
       feedWindowDays={feedWindowDays}
       globalSchedule={globalSchedule}

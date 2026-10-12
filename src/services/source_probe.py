@@ -15,7 +15,6 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig
-from ..rsshub import RSSHUB_ACCESS_KEY_ENV, is_managed_rsshub_config, rsshub_request_url
 from ..scrapers.apify_client import ApifyRunCoordinator
 from ..scrapers.apify_social import ApifySocialScraper
 from .config_runtime import (
@@ -32,6 +31,7 @@ from .config_runtime import (
     _validated_apify_social_target,
 )
 from .network_policy import fetch_public_http
+from .bilibili_source_identity import is_bilibili_source
 from .response_schema import bound_source_response_schemas, extract_response_schema
 
 _USER_AGENT = "Horizon-Private-Radar/1.0"
@@ -213,13 +213,9 @@ def run_source_test(
 
     if source_type == "rss":
         feed_url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
+        if is_bilibili_source("rss", payload):
+            raise ValueError("Bilibili 请通过已绑定来源的 ActorOps 测试任务验证")
         request_url = feed_url
-        if is_managed_rsshub_config(payload):
-            request_url = rsshub_request_url(
-                feed_url,
-                payload,
-                access_key=os.getenv(RSSHUB_ACCESS_KEY_ENV),
-            )
         if payload.get("enforce_public_network"):
             feed_text = _fetch_text(request_url, enforce_public_network=True)
         else:

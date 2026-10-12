@@ -51,6 +51,7 @@ export function sourceScopeLabel(scope: CatalogSource['scope']): string {
 
 const sourceTypeLabels: Record<string, string> = {
   rss: 'RSS / Atom',
+  bilibili: 'Bilibili UP 主',
   x_profile: 'X 账号',
   instagram_profile: 'Instagram 账号',
   youtube_channel: 'YouTube 频道',
