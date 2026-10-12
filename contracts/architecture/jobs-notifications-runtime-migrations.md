@@ -148,3 +148,5 @@ DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归
 VPS 迁移停止服务并跨过 35 秒 heartbeat 安全窗后执行。迁移成功、服务仍停止时，用 `scripts/content_translation_release_receipt.py write --base /opt/inteliscope --receipt /opt/inteliscope/data/backups/RECEIPT.json --revision FULL_SHA --backup BACKUP` 记录绑定本次发布 SHA 的 0600 回执，验证迁移前备份及迁移后库的完整性；重启旧 API/Worker 并通过健康检查后，才运行 `release_vps.sh release vX.Y.Z --migration-receipt RECEIPT`。发布前复核回执、表形和 marker，不对运行中的库扫描全库。global 49 仅新增附属表；已核验旧版本兼容后，切换失败保留迁移后的数据库和业务写入，只恢复旧程序。
 
 正文 v5 离线 reconcile 仅对已验证的翻译缓存外键放行内容表重建，临时关闭连接外键执行以保留缓存行，提交前验证所有外键和完整性；未知入向外键仍拒绝重建，失败整体回滚。
+
+Bilibili 旧库切换使用 `uv run python scripts/migrate_bilibili_actor_sources.py --data-dir <runtime/data>` 默认预览。停止 API/Worker、清空排队/运行任务并等待 heartbeat 失效后，使用 `--apply --services-stopped` 应用；工具检查 Apify 非终态 Run、创建权限 0600 的数据库备份并原子补齐 Route/Binding。现有 source/subscription/config/key、Feed 历史和用户阅读状态不改写。再次运行幂等；恢复服务后由现有本地 Binding 对账准备来源，付费实测与主备启用沿用 ActorOps 流程。

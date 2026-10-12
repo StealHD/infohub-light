@@ -33,7 +33,7 @@ Source catalog 规则：
 
 1. `src/services/source_type_registry.py` 是 catalog source type、config 校验、`source_key` 和 Worker payload 的统一合同入口。
 2. 当前 registry 支持 `rss`、`github_release`、`github_user`、`reddit_subreddit`、`reddit_user`、`telegram_channel`、`apify_social`、`hackernews`。
-2A. RSSHub 是 workspace runtime service，不是第九种 catalog type。受控 Bilibili row 继续保存为 `type=rss`，config 只允许 `provider=rsshub/site=bilibili/route_key=user_video/params.uid` 加既有安全 RSS 展示/保留字段；catalog URL 固定投影为公开 Bilibili profile，Worker 才用当前 `rsshub.base_url` 解析 `/bilibili/user/video/<uid>/1`。Base URL 可含管理员控制的反向代理 path prefix；若 SecretStore 存在 `RSSHUB_ACCESS_KEY`，请求只附加对应 route-scoped access code。受控请求禁用 redirect，且不经过 member 任意 URL 的公网 egress 路径。
+2A. RSSHub 是 workspace runtime service，不是目录类型。受控 Bilibili row 继续保存为 `type=rss`，config 保留 `provider=rsshub/site=bilibili/route_key=user_video/params.uid` 和安全 RSS 展示/保留字段；这些字段只作兼容身份。目录 URL 投影为公开 UP 主主页，运行时经 ready v2 Binding 投影为 `bilibili/profile/items` 的 Apify subscription。新旧订阅统一使用 ActorOps 主备，不请求 Bilibili RSSHub 路由；缺少 Binding、未准备或路线停用时阻断获取。新建与修改复用 ActorOps 本地来源生命周期，UP 主名称解析仍由 `search_bilibili_users` 负责。旧库显式补齐路线及 Binding，不改 source/subscription/key 或历史；直接未绑定来源 probe 提示使用已绑定来源的排队测试。公开来源增加 `setup_type=bilibili` 和安全 `acquisition{provider,status,allowed,reason}`；已订阅的等待来源在普通目录中可见，仍受 workspace/private 边界限制。单源获取与测试在入队及额度计数前返回明确 409 和恢复 action，不把已存在的等待来源报作 404。
 3. `source_key` 在同一 workspace 内唯一；导入旧配置和重复写入必须按 `source_key` 更新兼容的已有 source，而不是重复创建。旧配置导入碰到另一用户 private source 必须跳过并记录 `source_key_conflict`，不得覆盖其 metadata/config/secret_env。
 4. Telegram 源身份字段使用 config 内的 `channel`；Hub 分类频道使用 `hub_channel` 或兼容 `category`，不得混淆。
 5. 无效 source config 返回 `invalid_source_config`；疑似真实密钥返回 `invalid_secret_env`。
