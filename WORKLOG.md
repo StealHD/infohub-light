@@ -411,6 +411,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "d0691e2f10f4560b00daf0196a2312e71485be07",
   "control_topics": [
     "architecture",
     "capabilities",
@@ -423,7 +424,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "status": "completed",
   "task_id": "2026-10-10-bilibili-apify",
   "unresolved": [
-    "仅在本地独立预览启用；未提交、合并或部署。联合投稿缺少目标 UP 参与证据时跳过，不回退 RSSHub。"
+    "已随 v2.6.33 集成并部署生产，启用及实际验证见 2026-10-12-release-v2-6-33；联合投稿缺少目标 UP 参与证据时保守跳过。"
   ],
   "validation": [
     "原实现 34 条 Bilibili、8 条 API、46 条订阅 UI、127 条 API/迁移/权限回归通过；保留旧身份、AV/BV 去重、主动停用及未知启动阻断。",
@@ -434,22 +435,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
-
 ```json
 {
+  "commit": "d0691e2f10f4560b00daf0196a2312e71485be07",
   "control_topics": [
     "architecture",
     "verification"
   ],
   "recorded_on": "2026-10-12",
   "result": "发布 Bilibili Apify v2.6.33：在 main 集成新旧订阅主备接入及本地实测修复，补齐生产显式数据迁移的私有回执、完整 SHA 与绑定指纹校验；按本机构建、原生产库备份迁移、VPS 切换、Tag 和 GitHub Release 流程交付。生产 Actor 主备独立验证后启用，保留现有订阅与历史。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "2026-10-12-release-v2-6-33",
   "unresolved": [
-    "生产迁移、Actor 配置验证、VPS 健康、Tag 与 GitHub Release 待完成。"
+    "联合投稿缺少目标 UP 参与证据时保守跳过，不回退 RSSHub。"
   ],
   "validation": [
-    "发布前原 Bilibili 实现 impacted preflight 14/14、本地主备实际采集与去重通过；发布脚本、迁移回执与数据保护定向验证进行中。"
+    "迁移回执、Bilibili 数据保护与发布流程定向测试 56/56；代码大小、Markdown controls、WORKLOG 和 diff 检查通过。原 Bilibili 实现 impacted preflight 14/14。",
+    "main 集成并推送 d0691e2f；本机一次构建 linux/amd64，同 SHA 产物复用，生产版本 2.6.33 / d0691e2f10f4，API、Worker、React index-DyoEmdoQ.js 与公网健康通过。",
+    "原生产库停服务、跨 heartbeat 后备份并迁移 1 条路线、2 条绑定；私有回执绑定完整 SHA 与指纹。历史无存续任务的已结算实测先备份后标记取消，保留 $0.02005 原费用，无新增 Run。",
+    "生产主用 blueskyscraper/bilibili-user-scraper 0.1.15、备用 zen-studio/bilibili-video-scraper 0.0.47 分别验证两 UP 后应用；路线 active / generation 5、单次 $0.03，实际来源抓取及重复 no_advance 通过，总 Actor 费用 $0.20792，活跃 Attempt / 未结费用均 0。",
+    "保留 11 条旧 Bilibili 历史、15 条阅读状态、22 条订阅与原计划设置；历史现为 4/19，无重复视频 ID，生产 config hash 未改变，AI 按原配置运行。",
+    "受管发布完成后推送 v2.6.33 Tag；GitHub Release 已正式发布：https://github.com/StealHD/infohub-light/releases/tag/v2.6.33。"
   ]
 }
 ```
