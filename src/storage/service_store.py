@@ -8432,51 +8432,11 @@ class ServiceStore:
         error_code: str | None = None,
         tested_at: str | None = None,
     ) -> dict[str, Any] | None:
-        """Record a test only if it still targets the current generation."""
-
-        if status not in {"sent", "failed"}:
-            raise ValueError("email transport test status is invalid")
-        conn = self.connect()
-        owns_transaction = not conn.in_transaction
-        try:
-            if owns_transaction:
-                conn.execute("BEGIN IMMEDIATE")
-            now = tested_at or _now_iso()
-            conn.execute(
-                """
-                UPDATE workspace_email_transports
-                SET last_test_status = ?,
-                    last_test_generation = ?,
-                    last_tested_at = ?,
-                    last_test_error_code = ?,
-                    updated_at = ?
-                WHERE workspace_id = ? AND generation = ?
-                """,
-                (
-                    status,
-                    int(generation),
-                    now,
-                    error_code if status == "failed" else None,
-                    now,
-                    workspace_id,
-                    int(generation),
-                ),
-            )
-            updated = self.get_workspace_email_transport(
-                workspace_id=workspace_id
-            )
-            if owns_transaction:
-                conn.commit()
-        except Exception:
-            if owns_transaction and conn.in_transaction:
-                conn.rollback()
-            raise
-        if (
-            updated is None
-            or int(updated.get("generation") or 0) != int(generation)
-        ):
-            return None
-        return updated
+        from .email_transport_verification import record_email_transport_test
+        return record_email_transport_test(
+            self, workspace_id=workspace_id, generation=generation,
+            status=status, error_code=error_code, tested_at=tested_at,
+        )
 
     def get_workspace_telegram_transport(
         self,
@@ -8952,8 +8912,7 @@ class ServiceStore:
                     conn.rollback()
                     return None
                 transport_restored = not bool(
-                    transport.get("enabled")
-                    and transport.get("last_test_status") == "sent"
+                    transport.get("last_test_status") == "sent"
                     and int(transport.get("last_test_generation") or -1)
                     == int(transport_generation or 0)
                 )

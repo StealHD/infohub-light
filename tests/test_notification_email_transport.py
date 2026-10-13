@@ -201,7 +201,7 @@ def test_schema_v10_and_default_transport_are_additive(
     )["sender_name"] == "Inscope"
 
 
-def test_secret_is_write_only_and_current_generation_must_test_before_enable(
+def test_secret_is_write_only_and_current_generation_must_test_before_ready(
     email_context: dict[str, Any],
 ) -> None:
     service = email_context["service"]
@@ -217,7 +217,6 @@ def test_secret_is_write_only_and_current_generation_must_test_before_enable(
         sender_email="notice@qq.com",
         sender_name="InfoHub",
         credential=credential,
-        enabled=True,
     )
 
     assert saved["enabled"] is False
@@ -236,13 +235,13 @@ def test_secret_is_write_only_and_current_generation_must_test_before_enable(
     }
     assert credential.encode() not in store.db_path.read_bytes()
 
-    with pytest.raises(EmailTransportError) as enable_error:
-        service.upsert(
+    with pytest.raises(EmailTransportError) as send_error:
+        service.send_notification(
             workspace_id=workspace_id,
-            actor_user_id=owner["id"],
-            enabled=True,
+            recipient_email="reader@example.com",
+            payload={"kind": "new_items", "items": [{"title": "New"}]},
         )
-    assert enable_error.value.code == "email_transport_test_required"
+    assert send_error.value.code == "notification_channel_unavailable"
 
     tested = service.send_test(
         workspace_id=workspace_id,
@@ -257,11 +256,7 @@ def test_secret_is_write_only_and_current_generation_must_test_before_enable(
         ("notice@qq.com", credential)
     ]
 
-    enabled = service.upsert(
-        workspace_id=workspace_id,
-        actor_user_id=owner["id"],
-        enabled=True,
-    )
+    enabled = service.get_public_settings(workspace_id=workspace_id)
     assert enabled["enabled"] is True
     assert enabled["can_enable"] is True
     assert enabled["ready"] is True
@@ -297,11 +292,6 @@ def test_secret_digest_tampering_fails_closed(
         actor_user_id=owner["id"],
         recipient_email="reader@example.com",
     )
-    service.upsert(
-        workspace_id=workspace_id,
-        actor_user_id=owner["id"],
-        enabled=True,
-    )
 
     env_name = service.credential_env_name(workspace_id=workspace_id)
     SecretStore(email_context["data_dir"]).set(
@@ -311,7 +301,7 @@ def test_secret_digest_tampering_fails_closed(
 
     assert service.is_ready(workspace_id=workspace_id) is False
     public = service.get_public_settings(workspace_id=workspace_id)
-    assert public["enabled"] is True
+    assert public["enabled"] is False
     assert public["credential_configured"] is False
     assert public["ready"] is False
     with pytest.raises(EmailTransportError) as send_error:
@@ -458,11 +448,6 @@ def test_message_is_escaped_batched_to_twenty_and_unknown_is_not_definitive(
         actor_user_id=owner["id"],
         recipient_email="reader@example.com",
     )
-    service.upsert(
-        workspace_id=workspace_id,
-        actor_user_id=owner["id"],
-        enabled=True,
-    )
     FakeSMTP.instances = []
     items = [
         {
@@ -507,8 +492,9 @@ def test_message_is_escaped_batched_to_twenty_and_unknown_is_not_definitive(
     assert disconnected.value.outcome_unknown is True
 
 
-def test_rotation_invalidates_pending_email_but_leaves_sending_unknown(
-    email_context: dict[str, Any],
+@pytest.mark.parametrize("reason", ["rotation", "failed_test"])
+def test_unverified_transport_invalidates_pending_but_leaves_sending_unknown(
+    email_context: dict[str, Any], reason: str,
 ) -> None:
     store = email_context["store"]
     service = email_context["service"]
@@ -564,11 +550,19 @@ def test_rotation_invalidates_pending_email_but_leaves_sending_unknown(
         )
     store.connect().commit()
 
-    service.upsert(
-        workspace_id=workspace_id,
-        actor_user_id=owner["id"],
-        credential="replacement-test-auth-code",
-    )
+    if reason == "rotation":
+        service.upsert(
+            workspace_id=workspace_id, actor_user_id=owner["id"],
+            credential="replacement-test-auth-code",
+        )
+    else:
+        FakeSMTP.failure = smtplib.SMTPAuthenticationError(535, b"test-only rejection")
+        with pytest.raises(EmailTransportError):
+            service.send_test(
+                workspace_id=workspace_id, actor_user_id=owner["id"],
+                recipient_email="reader@example.com",
+            )
+        assert service.is_ready(workspace_id=workspace_id) is False
 
     pending = store.get_preferred_source_notification_delivery(
         "delivery-pending"
@@ -582,3 +576,89 @@ def test_rotation_invalidates_pending_email_but_leaves_sending_unknown(
     assert sending is not None
     assert sending["status"] == "sending"
     assert sending["error_code"] is None
+
+
+def test_legacy_disabled_flag_cannot_block_verified_email(email_context) -> None:
+    service = email_context["service"]
+    store = email_context["store"]
+    workspace_id = email_context["workspace"]["id"]
+    service.upsert(
+        workspace_id=workspace_id, actor_user_id=email_context["owner"]["id"],
+        provider="qq", sender_email="notice@qq.com", credential="test-only-password",
+    )
+    service.send_test(
+        workspace_id=workspace_id, actor_user_id=email_context["owner"]["id"],
+        recipient_email="reader@example.com",
+    )
+    store.connect().execute(
+        "UPDATE workspace_email_transports SET enabled = 0 WHERE workspace_id = ?",
+        (workspace_id,),
+    )
+    store.connect().commit()
+    assert service.is_ready(workspace_id=workspace_id) is True
+    public = service.get_public_settings(workspace_id=workspace_id)
+    assert public["enabled"] is public["ready"] is True
+    service.send_notification(
+        workspace_id=workspace_id, recipient_email="reader@example.com",
+        payload={"kind": "new_items", "items": [{"title": "New"}]},
+    )
+    assert len(FakeSMTP.instances) == 2
+    assert store.connect().execute("SELECT COUNT(*) FROM notification_targets").fetchone()[0] == 0
+    assert store.connect().execute("SELECT COUNT(*) FROM user_notification_target_bindings").fetchone()[0] == 0
+
+
+def test_transport_reverification_advances_watermark_once(email_context) -> None:
+    service = email_context["service"]
+    store = email_context["store"]
+    workspace_id = email_context["workspace"]["id"]
+    user_id = email_context["owner"]["id"]
+    service.upsert(
+        workspace_id=workspace_id, actor_user_id=user_id,
+        provider="qq", sender_email="notice@qq.com", credential="test-only-password",
+    )
+    store.upsert_user_notification_channel(
+        workspace_id=workspace_id, user_id=user_id, channel="email", enabled=True,
+        enabled_at="2020-01-01T00:00:00+00:00", generation=1, position=0,
+    )
+    def watermark():
+        return store.get_user_notification_channel(
+            workspace_id=workspace_id, user_id=user_id, channel="email",
+        )["enabled_at"]
+    def record(generation, status, date):
+        return store.record_workspace_email_transport_test(
+            workspace_id=workspace_id, generation=generation,
+            status=status, tested_at=date,
+        )
+    record(1, "sent", "2026-10-13T01:00:00+00:00")
+    assert watermark() == "2026-10-13T01:00:00+00:00"
+    record(1, "sent", "2026-10-13T02:00:00+00:00")
+    assert watermark() == "2026-10-13T01:00:00+00:00"
+    record(1, "failed", "2026-10-13T03:00:00+00:00")
+    assert service.is_ready(workspace_id=workspace_id) is False
+    record(1, "sent", "2026-10-13T04:00:00+00:00")
+    assert watermark() == "2026-10-13T04:00:00+00:00"
+    service.upsert(workspace_id=workspace_id, actor_user_id=user_id, credential="replacement-password")
+    assert record(1, "sent", "2026-10-13T05:00:00+00:00") is None
+    assert service.is_ready(workspace_id=workspace_id) is False
+    assert watermark() == "2026-10-13T04:00:00+00:00"
+
+
+def test_verification_and_recovery_watermark_roll_back_together(email_context, monkeypatch) -> None:
+    store = email_context["store"]
+    service = email_context["service"]
+    workspace_id = email_context["workspace"]["id"]
+    service.upsert(
+        workspace_id=workspace_id, actor_user_id=email_context["owner"]["id"],
+        provider="qq", sender_email="notice@qq.com", credential="test-only-password",
+    )
+    before = store.get_workspace_email_transport(workspace_id=workspace_id)
+    def fail_watermark(**_kwargs):
+        raise RuntimeError("test-only watermark failure")
+    monkeypatch.setattr(store, "advance_notification_channel_watermarks", fail_watermark)
+    with pytest.raises(RuntimeError, match="watermark failure"):
+        store.record_workspace_email_transport_test(
+            workspace_id=workspace_id, generation=1, status="sent",
+        )
+    assert store.get_workspace_email_transport(workspace_id=workspace_id) == before
+    assert service.is_ready(workspace_id=workspace_id) is False
+    assert store.connect().in_transaction is False

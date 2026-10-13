@@ -343,7 +343,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '管理员统一配置通知服务',
-        description: 'Owner/Admin 在“消息通知”的单一“通知服务”表格中配置和维护工作区共享服务。桌面显示服务、渠道、状态、使用情况和操作；窄屏将次要信息收进服务列，仍不横向滚动。新增和编辑使用弹窗，行操作收进“更多”菜单，归档会要求再次确认。首次创建 Telegram 服务时同时填写服务名称、Chat ID 和共享 Bot Token，之后可直接复用已配置 Token；首次创建邮件服务时同时选择 QQ、网易、Gmail、Resend 或 Amazon SES、填写发送凭据和收件地址，之后可复用发送凭据；Webhook 直接填写 Provider、URL 和可选签名。唯一主操作是“保存并测试”，接收端确认成功后自动启用，失败则保留不回显秘密的停用草稿供修改或重试。凭据、Bot Token、Chat ID、收件地址、Webhook URL 与签名提交后立即清空且不会回显。管理员应只把共享 Bot 加入获准会话；Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定。',
+        description: 'Owner/Admin 在“消息通知”的单一“通知服务”表格中配置和维护工作区共享服务。桌面显示服务、渠道、状态、使用情况和操作；窄屏将次要信息收进服务列，仍不横向滚动。新增和编辑使用弹窗，行操作收进“更多”菜单，归档会要求再次确认。首次创建 Telegram 服务时同时填写服务名称、Chat ID 和共享 Bot Token，之后可直接复用已配置 Token；首次创建邮件服务时同时选择 QQ、网易、Gmail、Resend 或 Amazon SES、填写发送凭据和收件地址，之后可复用发送凭据。邮件配置验证通过后通道自动可用，无需另开邮件总开关；需要暂停时使用对应通知服务的“暂停”，更换发送配置后须重新测试；Webhook 直接填写 Provider、URL 和可选签名。唯一主操作是“保存并测试”，接收端确认成功后自动启用，失败则保留不回显秘密的停用草稿供修改或重试。凭据、Bot Token、Chat ID、收件地址、Webhook URL 与签名提交后立即清空且不会回显。管理员应只把共享 Bot 加入获准会话；Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定。',
         href: '/settings/notifications',
         linkLabel: '配置通知发送服务',
       },

@@ -24,7 +24,6 @@ class NotificationEmailTransportPatchRequest(BaseModel):
     sender_email: str | None = Field(default=None, min_length=3, max_length=320)
     sender_name: str | None = Field(default=None, min_length=1, max_length=80)
     credential: str | None = Field(default=None, max_length=4096)
-    enabled: StrictBool | None = None
     region: str | None = Field(default=None, max_length=64)
     smtp_username: str | None = Field(default=None, max_length=320)
 
@@ -81,7 +80,6 @@ async def admin_notification_email_transport_patch(
         "provider",
         "sender_email",
         "sender_name",
-        "enabled",
     }
     if any(
         field in provided and getattr(payload, field) is None
@@ -89,7 +87,7 @@ async def admin_notification_email_transport_patch(
     ):
         raise ApiError(
             "invalid_email_transport",
-            "provider, sender_email, sender_name, and enabled cannot be null",
+            "provider, sender_email, and sender_name cannot be null",
             status_code=400,
         )
     updates = {
@@ -99,7 +97,6 @@ async def admin_notification_email_transport_patch(
             "sender_email",
             "sender_name",
             "credential",
-            "enabled",
             "region",
             "smtp_username",
         )

@@ -1519,11 +1519,6 @@ def test_email_transport_sends_one_message_containing_every_item(
         actor_user_id=context["user"]["id"],
         recipient_email="reader@example.test",
     )
-    service.email_transport.upsert(
-        workspace_id=context["workspace"]["id"],
-        actor_user_id=context["user"]["id"],
-        enabled=True,
-    )
     sent_messages.clear()
 
     service._send_email(
@@ -1565,7 +1560,7 @@ def test_email_transport_sends_one_message_containing_every_item(
     assert "https://example.com/second" in plain_body
 
 
-def test_paused_email_transport_skips_outbox_and_does_not_backfill(
+def test_unverified_email_transport_skips_outbox_and_does_not_backfill(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1612,11 +1607,6 @@ def test_paused_email_transport_skips_outbox_and_does_not_backfill(
         actor_user_id=context["user"]["id"],
         recipient_email="reader@example.com",
     )
-    service.email_transport.upsert(
-        workspace_id=context["workspace"]["id"],
-        actor_user_id=context["user"]["id"],
-        enabled=True,
-    )
     service.upsert_settings(
         workspace_id=context["workspace"]["id"],
         user_id=context["user"]["id"],
@@ -1641,7 +1631,7 @@ def test_paused_email_transport_skips_outbox_and_does_not_backfill(
     service.email_transport.upsert(
         workspace_id=context["workspace"]["id"],
         actor_user_id=context["user"]["id"],
-        enabled=False,
+        credential="replacement-test-password",
     )
     paused_settings = service.get_public_settings(
         workspace_id=context["workspace"]["id"],
@@ -1665,10 +1655,11 @@ def test_paused_email_transport_skips_outbox_and_does_not_backfill(
     store.connect().commit()
     assert _count(store, "preferred_source_notification_deliveries") == 0
 
-    service.email_transport.upsert(
-        workspace_id=context["workspace"]["id"],
-        actor_user_id=context["user"]["id"],
-        enabled=True,
+    store.connect().execute("UPDATE workspace_email_transports SET last_test_attempted_at = NULL")
+    store.connect().commit()
+    service.email_transport.send_test(
+        workspace_id=context["workspace"]["id"], actor_user_id=context["user"]["id"],
+        recipient_email="reader@example.com",
     )
     current_job = _job(context)
     current = _save_snapshot(

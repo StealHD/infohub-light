@@ -4055,7 +4055,6 @@ def test_admin_email_transport_requires_test_and_never_returns_secret(
             "sender_email": "notice@qq.com",
             "sender_name": "InfoHub",
             "credential": credential,
-            "enabled": True,
         },
     )
     assert saved.status_code == 200
@@ -4072,9 +4071,9 @@ def test_admin_email_transport_requires_test_and_never_returns_secret(
         "/api/admin/notification-email-transport",
         json={"enabled": True},
     )
-    assert premature_enable.status_code == 409
+    assert premature_enable.status_code == 400
     assert premature_enable.json()["error"]["code"] == (
-        "email_transport_test_required"
+        "invalid_request"
     )
 
     sent_messages = []
@@ -4119,10 +4118,7 @@ def test_admin_email_transport_requires_test_and_never_returns_secret(
     assert sent_messages[0]["To"] == recipient
     assert recipient.encode() not in (data_dir / "service.db").read_bytes()
 
-    enabled = client.patch(
-        "/api/admin/notification-email-transport",
-        json={"enabled": True},
-    )
+    enabled = client.get("/api/admin/notification-email-transport")
     assert enabled.status_code == 200
     assert enabled.json()["data"]["ready"] is True
     me = client.get("/api/me/notification-settings")

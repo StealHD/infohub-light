@@ -840,6 +840,25 @@ def test_admin_notification_service_configures_tests_and_reuses_email(
     for secret in (credential, sender, first_recipient, second_recipient):
         assert secret not in listed.text
 
+    conn = target_service.store.connect()
+    conn.execute("UPDATE workspace_email_transports SET enabled = 0")
+    conn.commit()
+    paused = client.patch(f"/api/admin/notification-services/{first_id}", json={"enabled": False})
+    assert paused.status_code == 200
+    services = client.get("/api/notification-services").json()["data"]
+    by_id = {item["id"]: item for item in services["services"]}
+    assert by_id[first_id]["enabled"] is False
+    assert by_id[first_id]["available"] is False
+    assert by_id[second_id]["available"] is True
+    assert services["channel_credentials"]["email"]["ready"] is True
+    for value in (False, True):
+        rejected = client.patch("/api/admin/notification-email-transport", json={"enabled": value})
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "invalid_request"
+    schema = client.get("/openapi.json").json()["components"]["schemas"]
+    assert "enabled" not in schema["NotificationEmailTransportPatchRequest"]["properties"]
+    assert client.get("/api/notification-services").json()["data"] == services
+
 
 def test_notification_service_failed_test_keeps_safe_draft(
     tmp_path,

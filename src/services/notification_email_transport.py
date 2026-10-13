@@ -312,7 +312,7 @@ class WorkspaceEmailTransportService:
             smtp_username=transport.get("smtp_username"),
         )
 
-    def _can_enable(self, transport: dict[str, Any]) -> bool:
+    def _is_verified(self, transport: dict[str, Any]) -> bool:
         try:
             self._resolved(transport)
         except EmailTransportError:
@@ -328,11 +328,7 @@ class WorkspaceEmailTransportService:
         transport = self.store.get_workspace_email_transport(
             workspace_id=workspace_id
         )
-        return bool(
-            transport
-            and transport.get("enabled")
-            and self._can_enable(transport)
-        )
+        return bool(transport and self._is_verified(transport))
 
     def get_public_settings(
         self,
@@ -366,7 +362,7 @@ class WorkspaceEmailTransportService:
         if transport is None:
             return base
         credential_configured = bool(self._bound_credential(transport))
-        can_enable = self._can_enable(transport)
+        ready = self._is_verified(transport)
         connection: dict[str, Any] | None = None
         try:
             resolved = self._resolved(transport)
@@ -386,7 +382,7 @@ class WorkspaceEmailTransportService:
             "sender_name": transport.get("sender_name"),
             "region": transport.get("region"),
             "smtp_username": transport.get("smtp_username"),
-            "enabled": bool(transport.get("enabled")),
+            "enabled": ready,  # Deprecated read-only alias; no independent switch.
             "credential_configured": credential_configured,
             "generation": int(transport.get("generation") or 0),
             "last_test_status": transport.get("last_test_status"),
@@ -395,8 +391,8 @@ class WorkspaceEmailTransportService:
             "last_test_error_code": transport.get(
                 "last_test_error_code"
             ),
-            "can_enable": can_enable,
-            "ready": bool(transport.get("enabled") and can_enable),
+            "can_enable": ready,
+            "ready": ready,
             "connection": connection,
             "updated_at": transport.get("updated_at"),
         }
@@ -410,7 +406,6 @@ class WorkspaceEmailTransportService:
         sender_email: Any = UNSET,
         sender_name: Any = UNSET,
         credential: Any = UNSET,
-        enabled: Any = UNSET,
         region: Any = UNSET,
         smtp_username: Any = UNSET,
     ) -> dict[str, Any]:
@@ -433,11 +428,7 @@ class WorkspaceEmailTransportService:
             current = self.store.get_workspace_email_transport(
                 workspace_id=workspace_id
             )
-            current_ready = bool(
-                current
-                and current.get("enabled")
-                and self._can_enable(current)
-            )
+            current_ready = bool(current and self._is_verified(current))
             target_provider = str(
                 (current or {}).get("provider")
                 if provider is UNSET
@@ -554,11 +545,6 @@ class WorkspaceEmailTransportService:
             )
             if changed_generation:
                 target_generation += 1
-            target_enabled = bool(
-                (current or {}).get("enabled", False)
-                if enabled is UNSET or enabled is None
-                else enabled
-            )
             last_test_status = (current or {}).get("last_test_status")
             last_test_generation = (current or {}).get(
                 "last_test_generation"
@@ -568,7 +554,6 @@ class WorkspaceEmailTransportService:
                 "last_test_error_code"
             )
             if changed_generation:
-                target_enabled = False
                 last_test_status = None
                 last_test_generation = None
                 last_tested_at = None
@@ -583,16 +568,7 @@ class WorkspaceEmailTransportService:
                 "last_test_status": last_test_status,
                 "last_test_generation": last_test_generation,
             }
-            if target_enabled and not self._can_enable(future_transport):
-                raise EmailTransportError(
-                    "email_transport_test_required",
-                    "test the current email transport before enabling it",
-                    status_code=409,
-                )
-            future_ready = bool(
-                target_enabled
-                and self._can_enable(future_transport)
-            )
+            future_ready = self._is_verified(future_transport)
 
             self.store.upsert_workspace_email_transport(
                 workspace_id=workspace_id,
@@ -601,7 +577,7 @@ class WorkspaceEmailTransportService:
                 sender_name=target_sender_name,
                 region=target_region,
                 smtp_username=target_smtp_username,
-                enabled=target_enabled,
+                enabled=future_ready,
                 credential_env_name=target_env,
                 credential_secret_digest=target_digest,
                 generation=target_generation,
@@ -614,14 +590,7 @@ class WorkspaceEmailTransportService:
                 last_test_error_code=last_test_error_code,
                 commit=False,
             )
-            disabled_now = bool(
-                not target_enabled
-                and (
-                    enabled is not UNSET
-                    or (current and current.get("enabled"))
-                )
-            )
-            if changed_generation or disabled_now:
+            if changed_generation:
                 self.store.invalidate_pending_email_deliveries(
                     workspace_id=workspace_id,
                     commit=False,
@@ -749,7 +718,7 @@ class WorkspaceEmailTransportService:
                 transport=transport,
                 recipient=recipient,
                 payload=payload,
-                require_enabled=False,
+                require_verified=False,
             )
         except EmailTransportError as exc:
             self.store.record_workspace_email_transport_test(
@@ -807,7 +776,7 @@ class WorkspaceEmailTransportService:
                 "summary": "这是一封测试邮件，用于验证当前通知服务。",
                 "url": "https://example.com/inteliscope-notification-service-test",
             },
-            require_enabled=False,
+            require_verified=False,
         )
         return int(transport.get("generation") or 0)
 
@@ -836,7 +805,7 @@ class WorkspaceEmailTransportService:
             transport=transport,
             recipient=recipient,
             payload=payload,
-            require_enabled=True,
+            require_verified=True,
         )
 
     def send_operational_alert(
@@ -869,11 +838,9 @@ class WorkspaceEmailTransportService:
         transport: dict[str, Any],
         recipient: str,
         payload: dict[str, Any],
-        require_enabled: bool,
+        require_verified: bool,
     ) -> None:
-        if require_enabled and not (
-            transport.get("enabled") and self._can_enable(transport)
-        ):
+        if require_verified and not self._is_verified(transport):
             raise EmailTransportError(
                 "notification_channel_unavailable",
                 "workspace email transport is not ready",
@@ -886,7 +853,7 @@ class WorkspaceEmailTransportService:
                 "email_transport_credential_unavailable",
                 "email transport credential is not configured",
                 status_code=409,
-                outcome_unknown=require_enabled,
+                outcome_unknown=require_verified,
             )
         resolved = self._resolved(transport)
         message = self._build_message(

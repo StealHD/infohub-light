@@ -10,29 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "interface",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
-  "result": "在 codex/model-inheritance-analysis 修复 Apify 探测异常恢复：执行退出后的 created Probe 无远端预留才取消并释放预算，已有预留保留未决费用进入原对账。新 Maintenance/Replacement Probe 关联实际 Worker Job，终态 owner 或旧 Job exact Attempt 结果可恢复中断记录；运行中 owner 不回收。未捕获的传输异常按启动阶段区分暂时不可用与待对账，保留安全异常位置，不追加付费启动、不惩罚候选。容量受阻 Repair 在原准入可继续时提前唤醒；失败 Job 与完成日志保留安全错误码、Repair 返回下次重试时间。同步恢复合同、排查说明及更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-21-apify-probe-stability-recovery",
-  "unresolved": [
-    "上游网络/Actor 失败仍可能发生；本次保障有界恢复和费用安全，不保证上游持续可用。",
-    "每日探测预算、价格上限和候选接管政策仍有效；当前 Jisoo 为 actorops_repair_daily_probe_limit。没有为验证手动发起付费 Probe，也未部署生产。"
-  ],
-  "validation": [
-    "Probe 启动前异常、终态/运行中 owner、历史结果关联、预留费用保留、幂等恢复、传输启动不确定性、候选健康隔离、接管唤醒与权限、真实 Worker 完成日志错误码等专项回归通过。",
-    "最终 preflight 15/15 通过，含后端全量、前端测试与构建；SQLite 未关闭连接警告 0。证据 .test-results/20260921T060214Z-74017/result.json；任务快照 /tmp/infohub-apify-stability-20260921.json。文档长度和末尾空行门禁问题已修正。",
-    "只读运行库复制到内存重放真实悬挂 Probe，验证可安全收尾；无运行中 Job 时保留原环境重启本地分支 API/Worker，ready 接口正常。14:13 Worker 正常对账自动将目标记录取消为 actorops_probe_owner_finished，cost_final=1、actual_cost_usd=0；未手工修改业务数据。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
     "observability",
     "verification"
   ],
@@ -456,6 +433,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产主用 blueskyscraper/bilibili-user-scraper 0.1.15、备用 zen-studio/bilibili-video-scraper 0.0.47 分别验证两 UP 后应用；路线 active / generation 5、单次 $0.03，实际来源抓取及重复 no_advance 通过，总 Actor 费用 $0.20792，活跃 Attempt / 未结费用均 0。",
     "保留 11 条旧 Bilibili 历史、15 条阅读状态、22 条订阅与原计划设置；历史现为 4/19，无重复视频 ID，生产 config hash 未改变，AI 按原配置运行。",
     "受管发布完成后推送 v2.6.33 Tag；GitHub Release 已正式发布：https://github.com/StealHD/infohub-light/releases/tag/v2.6.33。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-10-13",
+  "result": "移除邮件 Transport 隐藏独立启用门槛，按有效配置、绑定凭据及当前代数成功测试派生就绪状态；保留通知服务、个人和来源 opt-in，同步 API、手册、变更记录与 D231。",
+  "status": "completed",
+  "task_id": "2026-10-13-remove-email-transport-switch",
+  "unresolved": [
+    "仅本地实现，未部署生产、未发送真实邮件或修改生产通知配置。"
+  ],
+  "validation": [
+    "174 项邮件 Transport、通知服务 API、订阅 outbox 与 Service API 定向回归通过；覆盖旧 enabled=0、测试后自动就绪、失败失效、事务回滚、并发旧代数、服务暂停与不补发。",
+    "任务 snapshot 基线 a962d83d；独立 worktree 上 impacted preflight 14/14 通过，含受影响后端、前端关联测试、TypeScript、Lint、UI 合同和代码规模检查；SQLite 未关闭连接警告为 0。",
+    "差异已人工审查；API/架构合同、D231、操作手册和变更记录同步；init-pro 结构检查通过。"
   ]
 }
 ```
