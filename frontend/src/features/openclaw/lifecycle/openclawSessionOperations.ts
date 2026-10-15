@@ -1,6 +1,7 @@
 import { projectOpenClawRuntime, type OpenClawRuntimeProjection } from '../chat/openclawRuntimeProjection'
 import { stringOf } from '../chat/openclawProjectionUtils'
 import type { OpenClawClientPort } from '../openclawContracts'
+import { isIndependentConversation, verifyMainSessionModel } from './openclawMainSessionModel'
 export type OpenClawSessionCreateParams = {
   agentId: string
   parentSessionKey?: string
@@ -32,9 +33,11 @@ export async function readOpenClawRuntime(
     client.request('sessions.describe', { key: sessionKey }),
   ])
   if (verifyIdentity) {
-    const root = sessionValue as { session?: { key?: unknown; agentId?: unknown; parentSessionKey?: unknown } } | null
+    const root = sessionValue as { session?: Record<string, unknown> } | null
     if (root?.session?.key !== sessionKey || (root.session.agentId !== agentId && (requireRoot || root.session.agentId !== undefined))) throw new Error('OpenClaw 返回了不匹配的会话。')
-    if (requireRoot && root.session.parentSessionKey != null && root.session.parentSessionKey !== '') throw new Error('OpenClaw 未创建独立对话。')
+    if (requireRoot && !isIndependentConversation(root.session, agentId)) throw new Error('OpenClaw 未创建独立对话。')
   }
-  return projectOpenClawRuntime(modelsValue, agentsValue, sessionValue, agentId, sessionKey)
+  const projection = projectOpenClawRuntime(modelsValue, agentsValue, sessionValue, agentId, sessionKey)
+  await verifyMainSessionModel(client, sessionValue, agentId, projection, modelsValue, agentsValue)
+  return projection
 }

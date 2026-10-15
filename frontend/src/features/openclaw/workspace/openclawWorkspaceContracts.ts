@@ -37,6 +37,9 @@ export type OpenClawWorkspaceSession = {
   createdActor?: OpenClawWorkspaceActor
   createdAt?: number
   hasActiveRun: boolean
+  activityKnown?: boolean
+  hasWorktree?: boolean
+  hasAutomation?: boolean
   worktree?: { id: string; branch: string; repoRoot?: string }
 }
 
@@ -73,6 +76,7 @@ export interface OpenClawWorkspaceController {
   listSessions(): Promise<OpenClawWorkspaceSession[]>
   listSessionPage(input?: OpenClawSessionPageRequest): Promise<OpenClawSessionPage>
   deleteSession(sessionKey: string): Promise<void>
+  cleanupSessions?(options: { lastUsedAt(key: string): number; isEnabled(): boolean }): Promise<number>
   previewSession(sessionKey: string): Promise<OpenClawWorkspaceSession>
   listProjects(): Promise<OpenClawWorkspaceProject[]>
   listBranches(project: OpenClawWorkspaceProject): Promise<OpenClawWorkspaceBranches>

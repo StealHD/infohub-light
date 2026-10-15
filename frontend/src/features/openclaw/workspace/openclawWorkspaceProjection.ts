@@ -14,6 +14,7 @@ export function projectWorkspaceSessions(value: unknown): OpenClawWorkspaceSessi
       ...(row.createdVia === 'operator' || row.createdVia === 'agent' || row.createdVia === 'claw' ? { createdVia: row.createdVia } : {}),
       ...(actorValue && (actorType === 'human' || actorType === 'agent' || actorType === 'system') ? { createdActor: { type: actorType, ...(stringOf(actorValue.id) ? { id: stringOf(actorValue.id) } : {}), ...(stringOf(actorValue.label) ? { label: stringOf(actorValue.label) } : {}) } } : {}),
       ...(numberOf(row.createdAt) !== undefined ? { createdAt: numberOf(row.createdAt) } : {}), hasActiveRun: row.hasActiveRun === true,
+      activityKnown: typeof row.hasActiveRun === 'boolean', hasWorktree: Boolean(row.worktree || row.hasWorktree), hasAutomation: row.hasAutomation === true,
       ...(worktreeId && worktreeBranch ? { worktree: { id: worktreeId, branch: worktreeBranch, ...(stringOf(worktreeValue?.repoRoot) ? { repoRoot: stringOf(worktreeValue?.repoRoot) } : {}) } } : {}) }
   })
 }

@@ -77,7 +77,8 @@ async def openclaw_socket(socket: WebSocket):
         await socket.accept(headers=[(b'x-request-id', request_id.encode('ascii'))])
         await relay(
             socket, owner, valid_session, binding['agent_id'], readonly=user['role'] == 'viewer',
-            allowed_skill_keys=allowed_skill_keys, chat_ready=skill_policy_ready, delete_session=partial(delete_owned_session, context),
+            allowed_skill_keys=allowed_skill_keys, chat_ready=skill_policy_ready,
+            delete_session=partial(delete_owned_session, context, cleanup_allowed=lambda: _connections[owner] == 1),
         )
     except Exception as exc:
         stage, terminal, browser_code, upstream_code, upstream_status = _close_diagnostics(exc)

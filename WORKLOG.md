@@ -10,29 +10,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "control_topics": [
     "architecture",
     "interface",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
-  "result": "在 codex/model-inheritance-analysis 修复 Apify 探测异常恢复：执行退出后的 created Probe 无远端预留才取消并释放预算，已有预留保留未决费用进入原对账。新 Maintenance/Replacement Probe 关联实际 Worker Job，终态 owner 或旧 Job exact Attempt 结果可恢复中断记录；运行中 owner 不回收。未捕获的传输异常按启动阶段区分暂时不可用与待对账，保留安全异常位置，不追加付费启动、不惩罚候选。容量受阻 Repair 在原准入可继续时提前唤醒；失败 Job 与完成日志保留安全错误码、Repair 返回下次重试时间。同步恢复合同、排查说明及更新日志。",
-  "status": "completed",
-  "task_id": "2026-09-21-apify-probe-stability-recovery",
-  "unresolved": [
-    "上游网络/Actor 失败仍可能发生；本次保障有界恢复和费用安全，不保证上游持续可用。",
-    "每日探测预算、价格上限和候选接管政策仍有效；当前 Jisoo 为 actorops_repair_daily_probe_limit。没有为验证手动发起付费 Probe，也未部署生产。"
-  ],
-  "validation": [
-    "Probe 启动前异常、终态/运行中 owner、历史结果关联、预留费用保留、幂等恢复、传输启动不确定性、候选健康隔离、接管唤醒与权限、真实 Worker 完成日志错误码等专项回归通过。",
-    "最终 preflight 15/15 通过，含后端全量、前端测试与构建；SQLite 未关闭连接警告 0。证据 .test-results/20260921T060214Z-74017/result.json；任务快照 /tmp/infohub-apify-stability-20260921.json。文档长度和末尾空行门禁问题已修正。",
-    "只读运行库复制到内存重放真实悬挂 Probe，验证可安全收尾；无运行中 Job 时保留原环境重启本地分支 API/Worker，ready 接口正常。14:13 Worker 正常对账自动将目标记录取消为 actorops_probe_owner_finished，cost_final=1、actual_cost_usd=0；未手工修改业务数据。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "interface",
     "observability",
     "verification"
   ],
@@ -456,6 +433,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产主用 blueskyscraper/bilibili-user-scraper 0.1.15、备用 zen-studio/bilibili-video-scraper 0.0.47 分别验证两 UP 后应用；路线 active / generation 5、单次 $0.03，实际来源抓取及重复 no_advance 通过，总 Actor 费用 $0.20792，活跃 Attempt / 未结费用均 0。",
     "保留 11 条旧 Bilibili 历史、15 条阅读状态、22 条订阅与原计划设置；历史现为 4/19，无重复视频 ID，生产 config hash 未改变，AI 按原配置运行。",
     "受管发布完成后推送 v2.6.33 Tag；GitHub Release 已正式发布：https://github.com/StealHD/infohub-light/releases/tag/v2.6.33。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-10-13",
+  "result": "在 codex/agent-session-ux-analysis 独立 worktree 修复托管会话选择未持久化导致删后刷新生成同名新会话、导航未使用共享操作锁、会话树单页超限与普通主会话关联被误判为不独立/模型继承异常。增加有界父模型核验，保留真实分叉保护与失败新会话归档。按用户确认的空白闲置 7 天/其他 90 天实现托管浏览器分批自动清理、用户/Gateway 偏好、最近访问保护和条件删除复验；保护主/当前/运行中/工作树/自动任务及父会话。更新合同、手册和更新日志。",
+  "status": "completed",
+  "task_id": "2026-10-13-agent-session-ux-cleanup",
+  "unresolved": [
+    "清理在浏览器连接托管工作区时执行；同账号多连接时暂停自动删除。最近访问时间只在当前浏览器共享，Gateway 复验运行与更新时间；完整目录超过 1000 条时安全停止并提示暂未完成。",
+    "代码留在 codex/agent-session-ux-analysis，未合并、未部署。"
+  ],
+  "validation": [
+    "最终 impacted preflight 14/14 通过（.test-results/20261013T051009Z-434/result.json）：API/存储选测、1021 项全量前端测试、TypeScript/生产构建、ESLint、UI/E2E 合同、尺寸与控制面检查均通过；无未关闭 SQLite 连接警告。首轮发现的 React refs lint 已按 Hook 生命周期修复。",
+    "专项 43 项 Relay/目录/条件删除 Pytest 通过；桌面和平板共 4 项 Playwright 通过，覆盖真实本地 Relay 模型继承恢复、刷新保持选择、普通新会话模型核验及 7/90 天自动清理。新增用例保护未知活动、工作树、自动任务、父会话、条件更新时间与多连接；未调用真实模型或删除线上会话。",
+    "任务前快照 /tmp/infohub-agent-session-fix-impact.json；审查全部任务 diff，更新使用手册、API/架构/UI 合同和更新日志。"
   ]
 }
 ```

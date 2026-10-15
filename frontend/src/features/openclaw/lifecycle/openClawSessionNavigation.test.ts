@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createOpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { openOpenClawSession } from './openClawSessionNavigation'
 import type { OpenClawClientPort } from '../openclawContracts'
+import { managedSession, saveManagedSession } from '../storage/openclawManagedSession'
+import { managedGatewayUrl } from '../gateway/openclawManaged'
 
 function fixture({ mismatch = false, forbidden = false, historyFailure = false } = {}) {
   const refs = createOpenClawLifecycleRefs()
@@ -27,6 +29,32 @@ function fixture({ mismatch = false, forbidden = false, historyFailure = false }
 }
 
 describe('catalog session switching', () => {
+  it('persists the selected managed session for refresh', async () => {
+    const { input, key } = fixture()
+    input.getGatewayUrl = managedGatewayUrl
+    saveManagedSession(input.userId, 'parent')
+    expect(await openOpenClawSession(input, key, 'research')).toBe(true)
+    expect((await managedSession(input.userId)).sessionKey).toBe(key)
+    expect(input.vault.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate while deletion or send holds the runtime lock', async () => {
+    const { input, key, request } = fixture()
+    input.refs.session.operation = Symbol('delete-session')
+    expect(await openOpenClawSession(input, key, 'research')).toBe(false)
+    delete input.refs.session.operation
+    input.refs.run.pendingSend = true
+    expect(await openOpenClawSession(input, key, 'research')).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('holds the shared lock until navigation completes', async () => {
+    const { input, key } = fixture()
+    const pending = openOpenClawSession(input, key, 'research')
+    expect(input.refs.session.operation).toBeTypeOf('symbol')
+    expect(await pending).toBe(true)
+    expect(input.refs.session.operation).toBeUndefined()
+  })
   it('validates and opens the selected Agent on the existing connection', async () => {
     const { input, key, request } = fixture()
     expect(await openOpenClawSession(input, key, 'research')).toBe(true)

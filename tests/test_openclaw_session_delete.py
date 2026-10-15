@@ -64,3 +64,43 @@ def test_worktree_session_is_preserved_before_gateway_delete(tmp_path, monkeypat
     with pytest.raises(PermissionError, match='Worktree'):
         asyncio.run(session_delete.delete_owned_session(context, owner, 'own', {'key': 'agent:own:old', 'deleteTranscript': True}, lambda: True))
     assert calls == ['sessions.list']
+
+
+@pytest.mark.parametrize('changed', [{'updatedAt': 101}, {'hasAutomation': True}, {'childSessions': ['agent:own:child']}, {}])
+def test_automatic_cleanup_rechecks_selected_revision_and_dependencies(tmp_path, monkeypatch, changed):
+    from types import SimpleNamespace
+    from src.services.openclaw_relay import session_delete
+    calls = []
+    class Gateway:
+        def __init__(self, *_): pass
+        async def _session(self, operation):
+            return await operation(None, {'features': {'methods': ['sessions.list', 'sessions.delete']}})
+        async def _request(self, _socket, _identity, method, params):
+            calls.append((method, params))
+            if method == 'sessions.list':
+                return {'sessions': [{'key': 'agent:own:old', 'agentId': 'own', 'hasActiveRun': False,
+                                      'sessionId': 'fixed', 'updatedAt': 100, **changed}]}
+            return {'ok': True, 'deleted': True}
+    monkeypatch.setattr(session_delete, 'AgentSkillGateway', Gateway)
+    owner = Ownership(tmp_path, 'alice'); owner.add('agent:own:old')
+    context = SimpleNamespace(secret_values=None, store=SimpleNamespace(data_dir=tmp_path))
+    operation = session_delete.delete_owned_session(context, owner, 'own',
+        {'key': 'agent:own:old', 'deleteTranscript': True, 'expectedSessionUpdatedAt': 100}, lambda: True)
+    if changed:
+        with pytest.raises(PermissionError, match='changed'):
+            asyncio.run(operation)
+        assert len(calls) == 1
+    else:
+        assert asyncio.run(operation)['deleted'] is True
+        assert calls[-1][1]['expectedSessionUpdatedAt'] == 100
+
+
+def test_automatic_cleanup_pauses_with_other_connected_pages(tmp_path):
+    from types import SimpleNamespace
+    from src.services.openclaw_relay.session_delete import delete_owned_session
+    owner = Ownership(tmp_path, 'alice'); owner.add('agent:own:old')
+    context = SimpleNamespace(secret_values=None, store=SimpleNamespace(data_dir=tmp_path))
+    with pytest.raises(PermissionError, match='connected pages'):
+        asyncio.run(delete_owned_session(context, owner, 'own',
+            {'key': 'agent:own:old', 'deleteTranscript': True, 'expectedSessionUpdatedAt': 100},
+            lambda: True, cleanup_allowed=lambda: False))

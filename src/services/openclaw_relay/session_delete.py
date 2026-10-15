@@ -5,8 +5,11 @@ from ..agent_skill_gateway import AgentSkillGateway
 from .policy import request_params, response_payload
 
 
-async def delete_owned_session(context, owner, agent, params, valid_session):
+async def delete_owned_session(context, owner, agent, params, valid_session, *, cleanup_allowed=lambda: True):
     request_params('sessions.delete', params, owner, agent)
+    automatic = 'expectedSessionUpdatedAt' in params
+    if automatic and not cleanup_allowed():
+        raise PermissionError('Other connected pages may be using this session')
     gateway = AgentSkillGateway(context.secret_values, context.store.data_dir)
     async def operation(socket, hello):
         methods = hello.get('features', {}).get('methods', [])
@@ -18,9 +21,11 @@ async def delete_owned_session(context, owner, agent, params, valid_session):
         if len(matches) != 1 or matches[0].get('hasActiveRun') is not False:
             raise PermissionError('Session activity is not safely idle')
         row = matches[0]
+        if 'expectedSessionUpdatedAt' in params and (row.get('updatedAt') != params['expectedSessionUpdatedAt'] or row.get('hasAutomation') or row.get('childSessions')):
+            raise PermissionError('Session changed since cleanup selection')
         if row.get('worktree'):
             raise PermissionError('Worktree cleanup cannot preserve the session atomically')
-        if row.get('agentId', agent) != agent or not valid_session():
+        if row.get('agentId', agent) != agent or not valid_session() or automatic and not cleanup_allowed():
             raise PermissionError('Session authority changed')
         payload = dict(params)
         if not isinstance(row.get('sessionId'), str) or not row['sessionId']:

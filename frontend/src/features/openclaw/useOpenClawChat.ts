@@ -25,7 +25,7 @@ import {
 import { useOpenClawSessionRuntime } from './lifecycle/useOpenClawSessionRuntime'
 import { useOpenClawTranscriptController } from './lifecycle/useOpenClawTranscriptController'
 import { clearOpenClawTranscript } from './storage/openclawTranscriptStore'
-import { createOpenClawWorkspaceRuntime } from './workspace/openclawWorkspaceRuntime'
+import { useBrowserWorkspace } from './lifecycle/openclawBrowserWorkspace'
 
 export type { OpenClawChatController, OpenClawChatMessage, OpenClawChatOptions, OpenClawClientPort, OpenClawConnectionStatus, OpenClawContextUsage, OpenClawModelOption, OpenClawModelSwitchFallback, OpenClawRunActivity, OpenClawRunPhase, OpenClawRunTrace, OpenClawRuntimeSelection, OpenClawSanitizedAgentEvent, OpenClawSendRequest, OpenClawSendSnapshot, OpenClawSetupIssue, OpenClawThinkingOption, OpenClawToolsStatus } from './openclawContracts'
 export { projectOpenClawAgentEvent } from './chat/openclawEventProjection'
@@ -41,13 +41,13 @@ export function useOpenClawChat(options: OpenClawChatOptions): OpenClawChatContr
   )
   const gatewayUrlRef = useRef(initialGatewayUrl)
   const refs = useMemo(() => createOpenClawLifecycleRefs(), [])
-  const workspace = useMemo(() => createOpenClawWorkspaceRuntime(refs), [refs])
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const [state, dispatch] = useReducer(
     openClawChatReducer,
     createOpenClawChatState(initialGatewayUrl, options.enabled ? 'idle' : 'disabled'),
   )
   const getGatewayUrl = useCallback(() => gatewayUrlRef.current, [])
+  const workspace = useBrowserWorkspace(refs, options.userId, getGatewayUrl)
   const setGatewayUrlRef = useCallback((value: string) => { gatewayUrlRef.current = value }, [])
 
   const transcript = useOpenClawTranscriptController({

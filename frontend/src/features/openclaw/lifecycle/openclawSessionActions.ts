@@ -104,7 +104,7 @@ export function useOpenClawSessionActions(input: {
       if (!isCurrent()) return false
       return true
     } catch (error) {
-      if (createdKey && modelId && isCurrent()) await input.archiveFailedSession(client, createdKey, agentId)
+      if (createdKey && isCurrent()) await input.archiveFailedSession(client, createdKey, agentId)
       if (isCurrent()) input.dispatch({
         type: 'patch',
         value: { runtimeIssue: runtimeFailureMessage(error, 'switch') },

@@ -7,6 +7,9 @@ import { OPENCLAW_MAX_HISTORY_CHARS, OPENCLAW_MAX_MESSAGES, readOpenClawTranscri
 import type { OpenClawChatDispatch, OpenClawLifecycleState } from './openclawChatReducer'
 import type { OpenClawLifecycleRefs } from './openclawLifecycleRefs'
 import { readOpenClawRuntime } from './openclawSessionOperations'
+import { acquireRuntime } from './openclawRuntimeGuard'
+import { isManagedGateway } from '../gateway/openclawManaged'
+import { saveManagedSession } from '../storage/openclawManagedSession'
 
 type OpenSessionInput = {
   userId: string
@@ -25,15 +28,14 @@ type OpenSessionInput = {
   loadContextUsage(client: OpenClawClientPort, sessionKey: string): Promise<void>
 }
 
-const navigating = new WeakSet<OpenClawLifecycleRefs>()
-
 export async function openOpenClawSession(input: OpenSessionInput, sessionKey: string, requestedAgentId?: string): Promise<boolean> {
   const client = input.refs.connection.client
   let agentId = requestedAgentId ?? input.refs.session.agentId
   const targetKey = sessionKey.trim()
-  if (navigating.has(input.refs) || !client || !agentId || !targetKey || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
+  if (!client || !agentId || !targetKey || input.refs.session.operation || input.refs.run.pendingSend || input.refs.run.runId || input.state.sending || input.state.runtimeUpdating) return false
   if (targetKey === input.refs.session.sessionKey) return true
-  navigating.add(input.refs)
+  const release = acquireRuntime(input.refs)
+  if (!release) return false
   const epoch = ++input.refs.session.navigationEpoch
   const isCurrent = () => input.refs.session.navigationEpoch === epoch && input.refs.connection.client === client
   input.dispatch({ type: 'patch', value: { runtimeUpdating: true, runtimeIssue: null } })
@@ -56,7 +58,8 @@ export async function openOpenClawSession(input: OpenSessionInput, sessionKey: s
     if (!isCurrent()) return false
     if (!Array.isArray(history?.messages)) throw new Error('会话历史暂不可用。')
     const gatewayUrl = input.getGatewayUrl()
-    await input.vault.updateSession(input.userId, gatewayUrl, targetKey, isCurrent)
+    if (isManagedGateway(gatewayUrl)) saveManagedSession(input.userId, targetKey)
+    else await input.vault.updateSession(input.userId, gatewayUrl, targetKey, isCurrent)
     if (!isCurrent()) return false
     input.resetConversation()
     input.bind(agentId, targetKey)
@@ -71,7 +74,7 @@ export async function openOpenClawSession(input: OpenSessionInput, sessionKey: s
     if (isCurrent()) input.dispatch({ type: 'patch', value: { runtimeIssue: runtimeFailureMessage(error, 'load') } })
     return false
   } finally {
-    navigating.delete(input.refs)
+    release()
     if (isCurrent()) input.dispatch({ type: 'patch', value: { runtimeUpdating: false } })
   }
 }
