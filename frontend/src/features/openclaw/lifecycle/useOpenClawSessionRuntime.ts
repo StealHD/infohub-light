@@ -183,7 +183,6 @@ export function useOpenClawSessionRuntime(input: SessionRuntimeInput): OpenClawS
     applyRuntime(clearMessages
       ? { ...projection, selection: { ...projection.selection, thinkingLevel: null } }
       : projection, preserveThinking)
-    input.dispatch({ type: 'patch', value: { modelSwitchFallback: null, runtimeIssue: null } })
     void loadContextUsage(client, sessionKey)
     if (clearMessages) {
       input.transcript.replace([])

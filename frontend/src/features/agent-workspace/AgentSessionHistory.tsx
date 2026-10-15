@@ -3,10 +3,12 @@ import { Button, Checkbox, EmptyState, Input, Label, LoadingState, Modal, Refres
 import type { OpenClawChatController, OpenClawWorkspaceSession } from '../openclaw'
 import { AgentSessionRow } from './AgentSessionRow'
 import { useAgentSessionDirectory } from './useAgentSessionDirectory'
+import { SESSION_CLEANUP_POLICY } from './sessionCleanupPreference'
 
-export function AgentSessionHistory({ open, onOpenChange, chat, userId, onOpen, confirmBeforeDelete, onConfirmBeforeDeleteChange }: {
+export function AgentSessionHistory({ open, onOpenChange, chat, userId, onOpen, confirmBeforeDelete, onConfirmBeforeDeleteChange, cleanup }: {
   open: boolean; onOpenChange: (open: boolean) => void; chat: OpenClawChatController; userId: string; onOpen: (session: OpenClawWorkspaceSession) => Promise<boolean>
   confirmBeforeDelete: boolean; onConfirmBeforeDeleteChange: (enabled: boolean) => void
+  cleanup?: { enabled: boolean; setEnabled(value: boolean): void; status: string }
 }) {
   const [search, setSearch] = useState('')
   const [archived, setArchived] = useState(false)
@@ -22,6 +24,11 @@ export function AgentSessionHistory({ open, onOpenChange, chat, userId, onOpen, 
         <Switch isSelected={confirmBeforeDelete} onChange={onConfirmBeforeDeleteChange}>
           <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>删除前确认</Switch.Content>
         </Switch>
+        {cleanup && <div className="grid gap-2">
+          <Switch isSelected={cleanup.enabled} onChange={cleanup.setEnabled}><Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>自动清理闲置会话</Switch.Content></Switch>
+          <p className="type-caption text-muted">{SESSION_CLEANUP_POLICY} 此设置仅对当前账号和浏览器生效，连接工作区时分批执行。</p>
+          {cleanup.status && <p role="status" className="type-caption text-muted">{cleanup.status}</p>}
+        </div>}
         {directory.error && <StatusNotice title="会话暂不可用" status="warning">{directory.error}<RefreshButton onPress={directory.refresh} pending={directory.loading} label="重试" /></StatusNotice>}
         {!directory.available && <StatusNotice title="会话目录不可用" status="warning">连接支持会话目录的 Gateway 后重试。</StatusNotice>}
         {directory.loading && !directory.page ? <LoadingState label="正在读取历史会话" rows={3} /> : <div aria-busy={directory.loading} className="quiet-scroll-region grid max-h-[50dvh] min-w-0 gap-1 overflow-y-auto">

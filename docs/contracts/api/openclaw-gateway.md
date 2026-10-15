@@ -104,7 +104,7 @@
 
 ## 模型继承兼容与安全失败诊断
 
-OpenClaw 2026.9.2/2026.9.3 对默认模型分叉的 describe 与执行继承不一致。所有用户主动模型切换继续使用 fork=true 继承原上下文；Gateway 兼容补丁在分叉事务内将明确选择固定为 user 来源覆盖，保留原 transcript 和父关系，不改变没有显式选择时的继承。新子会话必须核验 Session/Agent/模型及覆盖来源后激活。恢复及发送前投影 parentSessionKey/modelOverrideSource：有父会话但没有 user 来源覆盖时为 unsafe_fork，身份或模型不明为 unknown，二者不能发送；再次选择相同模型也执行核对及必要的带上下文分叉。失败保留原会话，不自动发送或改成空白上下文。不增加 Gateway RPC 权限或模型调用参数。补丁只支持审阅的安装版本，由运维明确执行，Service 不自动改写安装包。
+OpenClaw 2026.9.2/2026.9.3 对默认模型分叉的 describe 与执行继承不一致。所有用户主动模型切换继续使用 fork=true 继承原上下文；Gateway 兼容补丁在分叉事务内将明确选择固定为 user 来源覆盖，保留原 transcript 和父关系，不改变没有显式选择时的继承。新子会话必须核验 Session/Agent/模型及覆盖来源后激活。恢复及发送前投影 parentSessionKey/modelOverrideSource：有父会话但没有 user 来源覆盖时默认 unsafe_fork；普通非 fork 的同 Agent `:main` 关联允许有界精确目录核验后读取父模型，仅父记录明确不存在或其独立模型与当前显示模型一致才 verified，查询失败仍阻止发送；身份或模型不明为 unknown，二者不能发送；再次选择相同模型也执行核对及必要的带上下文分叉。失败保留原会话，不自动发送或改成空白上下文。不增加 Gateway RPC 权限或模型调用参数。补丁只支持审阅的安装版本，由运维明确执行，Service 不自动改写安装包。
 
 转接 chat error 优先使用受限 errorKind 分类，其次已有安全错误码，再做有界文本分类；包括 Google RESOURCE_EXHAUSTED/429、上游 502/503/504、认证和超时。输出只包含安全 errorCode/errorMessage、有效 seq、所属 Session/run 标识及白名单消息模型身份，不转发原始错误正文、URL 或管理详情。新增 MODEL_UPSTREAM_UNAVAILABLE/MODEL_CONTEXT_LIMIT/MODEL_REFUSED 兼容现有错误码；未知保留通用失败。
 
@@ -118,4 +118,10 @@ Fast 使用 OpenClaw 2026.8.1 `chat.send.fastMode` 布尔覆盖项，与原生 `
 
 用户绑定 manifest v3 使用统一 20 工具集合；启动时对 active v1/v2 绑定执行主机锁、身份复查和 manifest CAS 的幂等升级。只转换已知旧标准过滤器，保留 token、binding 与 delegation；失败保留待升级状态，不改成成功。成员申请和管理员审批响应均包含 `permission_profile` 与有效 `permissions`，审批不会提升账号角色。内部隔离分析凭据不参加该升级。
 
-`sessions.delete` 仅在 hello 明确协商时可用；Controller 提交严格 `{key,deleteTranscript:true}`，不新增 REST 删除 API。Relay 只允许本人拥有、当前个人 Agent 下的非主会话，Viewer 不可写。托管 Relay 使用服务端独立 admin 连接复查唯一目录记录、显式 idle 状态和实时绑定，携带 Gateway sessionId 作为 expectedSessionId（若上游提供），再调用正式生命周期 RPC。管理凭据、上游文件路径与原始错误永不发往浏览器。成功响应投影为 `{ok:true,deleted:boolean,key?}`，key 若提供必须与请求一致；失败或未知结果不得报告成功。Gateway 负责活动资源回收；OpenClaw 2026.9.2 的工作树回收发生在会话记录删除之后，因此为满足失败时保留会话的要求，当前带工作树会话提前拒绝删除，要求先由 OpenClaw 安全清理工作树。不做本地替代清理。结构化事件使用 category=agent、action=session_delete、outcome=succeeded|skipped|failed 与 deleted 计数；未知结果记录安全错误码 session_delete_unconfirmed。
+`sessions.delete` 仅在 hello 明确协商时可用；手动删除提交 `{key,deleteTranscript:true}`，自动清理另携带下述条件更新时间；不新增 REST 删除 API。Relay 只允许本人拥有、当前个人 Agent 下的非主会话，Viewer 不可写。托管 Relay 使用服务端独立 admin 连接复查唯一目录记录、显式 idle 状态和实时绑定，携带 Gateway sessionId 作为 expectedSessionId（若上游提供），再调用正式生命周期 RPC。管理凭据、上游文件路径与原始错误永不发往浏览器。成功响应投影为 `{ok:true,deleted:boolean,key?}`，key 若提供必须与请求一致；失败或未知结果不得报告成功。Gateway 负责活动资源回收；OpenClaw 2026.9.2 的工作树回收发生在会话记录删除之后，因此为满足失败时保留会话的要求，当前带工作树会话提前拒绝删除，要求先由 OpenClaw 安全清理工作树。不做本地替代清理。结构化事件使用 category=agent、action=session_delete、outcome=succeeded|skipped|failed 与 deleted 计数；未知结果记录安全错误码 session_delete_unconfirmed。
+
+## 闲置会话清理
+
+托管工作区默认按本浏览器最近使用时间与 Gateway updatedAt 的较晚值清理：空白会话 7 天、其他会话 90 天；归档同样适用。空白只由 exact preview `empty` 确认，不从标题推断。分页 limit ≤100，完整目录最多 1000 条；不完整不删，每分钟最多检查 20 个候选、删除 10 个，轮转候选避免饥饿。当前/主/运行中/工作树/自动任务/被引用的父会话保留，缺失明确 idle 或更新时间也跳过。当前浏览器同用户/Gateway 的 Web Lock 串行清理；关闭网页不执行；同账号存在多个 Relay 连接时暂停自动删除，防止清掉另一页面的当前会话。
+
+`sessions.delete` 新增可选正有限 `expectedSessionUpdatedAt` 用于清理复验，Relay 重新核对更新时间、自动任务和子会话，并保留 Gateway sessionId/updatedAt/revision 条件删除。目录新增可选 `hasAutomation` 与仅布尔 `hasWorktree`，不暴露工作树路径。切换保存托管 sessionStorage；删除成功清本地 transcript 并同步当前选择。自动清理偏好及访问时间按用户/Gateway 隔离，存储不可用时停用清理。

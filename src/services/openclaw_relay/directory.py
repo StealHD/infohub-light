@@ -32,7 +32,7 @@ def directory_params(params, owner, agent):
 
 SESSION_FIELDS = {'key', 'label', 'displayName', 'derivedTitle', 'lastMessagePreview', 'agentId',
                   'updatedAt', 'createdAt', 'archived', 'parentSessionKey', 'createdVia',
-                  'hasActiveRun', 'totalTokens', 'contextWindow', 'totalTokensFresh', 'model',
+                  'hasActiveRun', 'hasAutomation', 'totalTokens', 'contextWindow', 'totalTokensFresh', 'model',
                   'modelProvider', 'provider', 'modelId', 'contextTokens', 'inputTokens', 'outputTokens'}
 
 
@@ -54,6 +54,8 @@ def directory_payload(payload, owner, agent, params=None):
             owner.add(key)
         if owner.owns(key) and (not legacy or key == search):
             sessions.append({k: v for k, v in row.items() if k in SESSION_FIELDS})
+            if row.get('worktree'):
+                sessions[-1]['hasWorktree'] = True
     result = {'sessions': sessions, 'count': len(sessions)}
     if personal:
         for field in ('totalCount', 'nextOffset'):

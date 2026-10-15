@@ -17,6 +17,18 @@ function runtimeWith(request: OpenClawClientPort['request']) {
 }
 
 describe('OpenClaw Agent Workspace runtime', () => {
+  it('reads the bounded session tree in pages accepted by the managed relay', async () => {
+    const request = vi.fn(async (_method: string, params: Record<string, unknown>) => {
+      expect(Number(params.limit)).toBeLessThanOrEqual(100)
+      const offset = Number(params.offset ?? 0)
+      return { sessions: Array.from({ length: 100 }, (_, index) => ({ key: `session-${offset + index}` })), hasMore: true, nextOffset: offset + 100 }
+    })
+    const { controller } = runtimeWith(request as OpenClawClientPort['request'])
+    const rows = await controller.listSessions()
+    expect(rows).toHaveLength(200)
+    expect(rows[199].key).toBe('session-199')
+    expect(request).toHaveBeenCalledTimes(2)
+  })
   it('derives capabilities only from hello.features.methods', () => {
     const refs = createOpenClawLifecycleRefs()
     refs.connection.hello = { features: { methods: ['sessions.list'] } }

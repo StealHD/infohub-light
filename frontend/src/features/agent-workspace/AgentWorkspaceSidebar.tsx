@@ -21,6 +21,7 @@ import { AgentSessionHistory } from './AgentSessionHistory'
 import { recentSessionRows, useAgentSessionDirectory } from './useAgentSessionDirectory'
 import type { AgentWorkspaceSessionState } from './useAgentWorkspaceSessions'
 import { readSessionDeleteConfirmation, writeSessionDeleteConfirmation } from './sessionDeletePreference'
+import { useAgentSessionCleanup } from './useAgentSessionCleanup'
 
 const workspaceLinks = [
   { to: '/agent/skills', label: 'Skills', icon: Icons.Sparkles },
@@ -50,6 +51,7 @@ export function AgentWorkspaceSidebar({
   )
   const opening = useRef(false)
   const directory = useAgentSessionDirectory(chat, user.id)
+  const cleanup = useAgentSessionCleanup(chat, user.id)
   const rows = recentSessionRows(directory.page?.sessions ?? [], sessions.current)
   const firstQuestion = chat.messages.find((message) => message.role === 'user')?.text
   const switchingDisabled = chat.isRunning || chat.runtimeUpdating
@@ -134,7 +136,7 @@ export function AgentWorkspaceSidebar({
     <div className="flex h-[var(--inteliscope-size-sidebar-footer)] shrink-0 items-center border-t border-separator p-2">
       <WorkspaceAccountMenu user={user} onLogout={onLogout} variant="agent" />
     </div>
-    <AgentSessionHistory open={historyOpen} onOpenChange={setHistoryOpen} chat={chat} userId={user.id} onOpen={openSession}
+    <AgentSessionHistory open={historyOpen} onOpenChange={setHistoryOpen} chat={chat} userId={user.id} onOpen={openSession} cleanup={cleanup.available ? cleanup : undefined}
       confirmBeforeDelete={confirmBeforeDelete} onConfirmBeforeDeleteChange={updateDeleteConfirmation} />
 
   </div>

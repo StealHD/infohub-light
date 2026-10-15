@@ -9,8 +9,10 @@ function publicRequestMessage(state: OpenClawWorkspaceError['state']): string {
 }
 function requireText(value: string, label: string): string { const normalized = value.trim(); if (!normalized) throw new OpenClawWorkspaceError('failed', `${label}不能为空。`); return normalized }
 
-export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { controller: OpenClawWorkspaceController; routeEvent(event: GatewayEvent): void } {
+export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs, onDeleted: (key: string) => void = () => {}): { controller: OpenClawWorkspaceController; routeEvent(event: GatewayEvent): void } {
   const listeners = new Set<(eventName: string) => void>()
+  const cleanupProgress = { lastKey: '' }
+  const deleted = (key: string) => { onDeleted(key); for (const listener of listeners) listener('sessions.changed') }
   async function request<T>(method: OpenClawWorkspaceMethod, params: Record<string, unknown>): Promise<T> {
     const client = refs.connection.client
     const generation = refs.connection.generation
@@ -31,7 +33,15 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
     invalidateSkills() { for (const listener of listeners) listener('skills.changed') },
     capabilities: () => Object.fromEntries(OPENCLAW_WORKSPACE_METHODS.map((method) => [method, gatewaySupportsMethod(refs.connection.hello, method)])) as ReturnType<OpenClawWorkspaceController['capabilities']>,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
-    async listSessions() { const value = await request('sessions.list', { limit: 200 }); return (await import('./openclawWorkspaceProjection')).projectWorkspaceSessions(value) },
+    async listSessions() {
+      const client = refs.connection.client
+      const generation = refs.connection.generation
+      const first = await controller.listSessionPage({ limit: 100 })
+      if (!first.hasMore) return first.sessions
+      const second = await controller.listSessionPage({ limit: 100, offset: first.nextOffset })
+      if (refs.connection.client !== client || refs.connection.generation !== generation) throw new OpenClawWorkspaceError('unavailable', 'OpenClaw 连接已变化，请重试。')
+      return [...new Map([...first.sessions, ...second.sessions].map((session) => [session.key, session])).values()].slice(0, 200)
+    },
     async listSessionPage(input = {}) {
       const { projectSessionPage, sessionPageParams } = await import('./openclawSessionDirectory')
       const params = sessionPageParams(input)
@@ -39,7 +49,10 @@ export function createOpenClawWorkspaceRuntime(refs: OpenClawLifecycleRefs): { c
     },
     async deleteSession(sessionKey) {
       const { deleteWorkspaceSession } = await import('./openclawSessionDeletion')
-      await deleteWorkspaceSession(refs, controller, sessionKey, request, () => { for (const listener of listeners) listener('sessions.changed') })
+      await deleteWorkspaceSession(refs, controller, sessionKey, request, () => deleted(sessionKey))
+    },
+    async cleanupSessions(options) {
+      return (await import('./openclawSessionCleanup')).cleanupWorkspaceSessions(refs, controller, request, options, deleted, cleanupProgress)
     },
     async previewSession(sessionKey) {
       const key = requireText(sessionKey, 'Session')

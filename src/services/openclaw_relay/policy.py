@@ -1,5 +1,6 @@
 """Explicit RPC boundary: the browser cannot control arbitrary Gateway methods."""
 import re
+import math
 from .ownership import Ownership
 from .directory import directory_params, directory_payload, skills_params, skills_payload
 from .errors import safe_history_failures
@@ -9,7 +10,7 @@ SESSION_METHODS = {
     'chat.send': {'sessionKey', 'agentId', 'message', 'idempotencyKey', 'thinking', 'attachments', 'deliver', 'fastMode'},
     'chat.abort': {'sessionKey', 'agentId', 'runId'},
     'sessions.describe': {'key'},
-    'sessions.delete': {'key', 'deleteTranscript'},
+    'sessions.delete': {'key', 'deleteTranscript', 'expectedSessionUpdatedAt'},
     'sessions.patch': {'key', 'agentId', 'archived'},
     'tools.effective': {'sessionKey', 'agentId'},
 }
@@ -60,6 +61,10 @@ def request_params(method: str, params: dict, owner: Ownership, agent: str, *, r
             raise PermissionError('Retired sessions are read-only')
     if method == 'sessions.delete' and (key == 'agent:' + agent + ':main' or params.get('deleteTranscript') is not True):
         raise PermissionError('Main session deletion or incomplete cleanup is unavailable')
+    if method == 'sessions.delete' and 'expectedSessionUpdatedAt' in params:
+        updated = params['expectedSessionUpdatedAt']
+        if type(updated) not in {int, float} or not math.isfinite(updated) or updated <= 0:
+            raise PermissionError('Invalid session revision')
     result = dict(params)
     if method == 'chat.history' and not key.startswith('agent:' + agent + ':'):
         # Let the exact legacy key select its original Agent; never rewrite history routing.

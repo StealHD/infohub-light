@@ -8,33 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "interface",
-    "observability",
-    "verification"
-  ],
-  "recorded_on": "2026-09-21",
-  "result": "修复 Apify 固定 API 代理不一致、已结算未启动后 Key 池残留阻塞及同 Job 重放误归因；限制预领取核账等待；Instagram 混合作者结果保留已验证行并记录排除数量。",
-  "status": "partial",
-  "task_id": "2026-09-21-apify-transport-settlement-mixed-batch",
-  "unresolved": [
-    "本地网络仍有间歇性传输失败；保留安全异常诊断及费用屏障。",
-    "未部署生产；历史失败 Job/Attempt 和来源冷却保持不变（Jisoo 至北京时间 20:56），未执行新一轮付费抓取验证 Feed 写入。"
-  ],
-  "validation": [
-    "相关定向回归通过；原凭据只读 Actor/Build/Dataset 校验成功。",
-    "真实正常抓取确认当前 Actor Run succeeded，最终费用 0.003 USD；返回 3 行，其中 2 行目标作者、1 行缺少共同作者证据。",
-    "同一已付费 Dataset 经修复解析器和内存 Repository 重验 valid_nonempty 2 条；未追加付费恢复。",
-    "本地 Worker 自动从已结算遗留 blocked 池恢复 ready；失败的零启动抓取也自动结算解锁。",
-    "最终 impacted preflight 15/15 通过，零 SQLite 未关闭警告；结果 .test-results/20260921T070920Z-13662/result.json。",
-    "本地 A API/Worker 已加载最终代码，连续核账超时期间健康检查 ready；分支 codex/model-inheritance-analysis。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "architecture"
   ],
   "recorded_on": "2026-09-22",
@@ -457,6 +430,31 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "174 项邮件 Transport、通知服务 API、订阅 outbox 与 Service API 定向回归通过；覆盖旧 enabled=0、测试后自动就绪、失败失效、事务回滚、并发旧代数、服务暂停与不补发。",
     "任务 snapshot 基线 a962d83d；独立 worktree 上 impacted preflight 14/14 通过，含受影响后端、前端关联测试、TypeScript、Lint、UI 合同和代码规模检查；SQLite 未关闭连接警告为 0。",
     "差异已人工审查；API/架构合同、D231、操作手册和变更记录同步；init-pro 结构检查通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "interface",
+    "ui",
+    "verification"
+  ],
+  "recorded_on": "2026-10-13",
+  "result": "在 codex/agent-session-ux-analysis 独立 worktree 修复托管会话选择未持久化导致删后刷新生成同名新会话、导航未使用共享操作锁、会话树单页超限与普通主会话关联被误判为不独立/模型继承异常。增加有界父模型核验，保留真实分叉保护与失败新会话归档。按用户确认的空白闲置 7 天/其他 90 天实现托管浏览器分批自动清理、用户/Gateway 偏好、最近访问保护和条件删除复验；保护主/当前/运行中/工作树/自动任务及父会话。更新合同、手册和更新日志。",
+  "status": "completed",
+  "task_id": "2026-10-13-agent-session-ux-cleanup",
+  "unresolved": [
+    "清理在浏览器连接托管工作区时执行；同账号多连接时暂停自动删除。最近访问时间只在当前浏览器共享，Gateway 复验运行与更新时间；完整目录超过 1000 条时安全停止并提示暂未完成。",
+    "已集成到本地 main；未推送远端、未部署。"
+  ],
+  "validation": [
+    "最终 impacted preflight 14/14 通过（.test-results/20261013T051009Z-434/result.json）：API/存储选测、1021 项全量前端测试、TypeScript/生产构建、ESLint、UI/E2E 合同、尺寸与控制面检查均通过；无未关闭 SQLite 连接警告。首轮发现的 React refs lint 已按 Hook 生命周期修复。",
+    "专项 43 项 Relay/目录/条件删除 Pytest 通过；桌面和平板共 4 项 Playwright 通过，覆盖真实本地 Relay 模型继承恢复、刷新保持选择、普通新会话模型核验及 7/90 天自动清理。新增用例保护未知活动、工作树、自动任务、父会话、条件更新时间与多连接；未调用真实模型或删除线上会话。",
+    "任务前快照 /tmp/infohub-agent-session-fix-impact.json；审查全部任务 diff，更新使用手册、API/架构/UI 合同和更新日志。",
+    "2026-10-15 本地 main 集成：来源 codex/agent-session-ux-analysis（07b549ac），目标 main 基线 acb0fef5；保留邮件配置修复，解决更新日志与工作记录冲突。集成快照 /tmp/infohub-session-main-integration-20261015.json；专项前端 37 项与删除接口 11 项通过，最终 impacted preflight 14/14 通过（.test-results/20261015T040020Z-18920/result.json），无未关闭 SQLite 连接警告。"
   ]
 }
 ```
