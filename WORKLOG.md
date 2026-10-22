@@ -440,21 +440,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "commit": "f2d7a0d3aceca6303b010e0c9085e5a9875b61c9",
   "control_topics": [
     "verification"
   ],
   "recorded_on": "2026-10-23",
   "result": "发布当前已集成 main 的 v2.6.34，范围为邮件 Transport 就绪修复、托管会话持久化与模型继承核验、7/90 天空闲会话清理；同步 OpenClaw 生产新域名运维说明，并执行生产域名切换与 API 重建验证。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "2026-10-23-release-v2-6-34-openclaw-domain",
-  "unresolved": [
-    "版本提交、远端发布、本地镜像构建、生产部署及新域名配置切换尚待完成。"
-  ],
+  "unresolved": [],
   "validation": [
-    "发布范围由用户确认，仅包含当前 main 已提交内容；其他工作区的会员支付、模型修复与 Nginx 未提交改动不纳入。",
-    "生产基线 v2.6.33 / d0691e2f10f4，API 与 Worker healthy；当前发布差异无显式数据库迁移。",
-    "新域名通过生产服务器 TLS/HTTP 200 校验，并从生产 API 容器以现有设备身份完成 WebSocket 101、协议 4 鉴权及 models.list 36 项读取；未调用模型。",
-    "按 docs/dev/test-gate.md 的最小发布路径执行，不重复开发测试或等待 CI。"
+    "用户确认仅发布已集成 main，保留其他工作区未提交内容。main 发布提交 f2d7a0d3aceca6303b010e0c9085e5a9875b61c9 已推送；版本 2.6.34 与 uv.lock 一致，无数据库结构迁移。",
+    "按最小发布路径在干净本地副本构建 linux/amd64 镜像；API/Worker 入口和产物身份检查通过，生产 React 构建通过（首屏 Brotli 244529 bytes）。未重复开发测试或等待 CI。",
+    "生产 release 2.6.34-20261022T174120Z-f2d7a0d3acec-fast-12403 已切换；API/Worker 同一 source digest，healthy、重启计数 0。保留排队/运行任务。",
+    "生产停服务备份 service.db 582852608 bytes 与 env.before，均为 0600，位于 /opt/inteliscope/backups/2.6.34-20261022T174120Z-f2d7a0d3acec-fast-12403/；未迁移或覆盖业务数据。",
+    "生产两个 OpenClaw URL 均已切至新域名，并重建 API 与需启动时加载 .env 的 Worker；切换前配置保留于 /opt/inteliscope/backups/openclaw-domain-20261022T174502Z/env.before（0600）。",
+    "重建后 API 使用实际环境连接新域名：WebSocket 101、协议 4、现有设备鉴权和 operator.read/write 通过，models.list 返回 36 项。未调用模型或发送测试通知。",
+    "生产内外健康和 React 静态资源通过；本机经公网 TLS 路径读到 2.6.34/f2d7a0d3acec，index-BuCPFk34.js HTTP 200、application/javascript。v2.6.34 Tag 已推送，GitHub Release 非草稿发布并读回核验：https://github.com/StealHD/infohub-light/releases/tag/v2.6.34。"
   ]
 }
 ```
