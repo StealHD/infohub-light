@@ -11,27 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "architecture"
   ],
   "recorded_on": "2026-09-22",
-  "result": "修复 Actor 自动修复候选停滞：同路线优先复用更多当前 Binding 的已结算非空证明，补齐部分验证候选；同等证明保持原选择，已尝试目标继续轮转，接管保留原权限、预算、冷却和槽位门。",
-  "status": "partial",
-  "task_id": "2026-09-22-actor-repair-progress",
-  "unresolved": [
-    "真实来源恢复尚待补齐 @thsottiaux 验证；正常探测槽最早为 2026-09-22 17:36 CST，仍受原授权、预算和未决费用检查约束。"
-  ],
-  "validation": [
-    "定向 ActorOps 修复、维护、Worker 回归通过；新增 7 项验证补齐证明后绕开主候选冷却及无效证明排除。",
-    "当前本地库只读演算选中已有单来源证明的备用，下一目标为 @thsottiaux；未新建付费探测。",
-    "最终 impacted preflight 14/14 通过，286.274 秒，0 SQLite ResourceWarning；.test-results/20260922T083028Z-74363/result.json。",
-    "本地 Worker 74595 已加载修复，健康检查 ready；正常 Repository 推进已把目标 Repair 转向 candidate_0aa76e017aa928a8e1ab240d，未追加付费 Run。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture"
-  ],
-  "recorded_on": "2026-09-22",
   "result": "修复 Instagram 空 structures 或仅共同作者声明关闭兼容媒体解析的问题；本地显式安装 global 48（停止 API/Worker，0600 备份），保存既有真实结果的缺图证据，并将已实测多图的候选用于本地 Instagram 路由。",
   "status": "completed",
   "task_id": "2026-09-22-instagram-gallery-recovery",
@@ -455,6 +434,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "专项 43 项 Relay/目录/条件删除 Pytest 通过；桌面和平板共 4 项 Playwright 通过，覆盖真实本地 Relay 模型继承恢复、刷新保持选择、普通新会话模型核验及 7/90 天自动清理。新增用例保护未知活动、工作树、自动任务、父会话、条件更新时间与多连接；未调用真实模型或删除线上会话。",
     "任务前快照 /tmp/infohub-agent-session-fix-impact.json；审查全部任务 diff，更新使用手册、API/架构/UI 合同和更新日志。",
     "2026-10-15 本地 main 集成：来源 codex/agent-session-ux-analysis（07b549ac），目标 main 基线 acb0fef5；保留邮件配置修复，解决更新日志与工作记录冲突。集成快照 /tmp/infohub-session-main-integration-20261015.json；专项前端 37 项与删除接口 11 项通过，最终 impacted preflight 14/14 通过（.test-results/20261015T040020Z-18920/result.json），无未关闭 SQLite 连接警告。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "verification"
+  ],
+  "recorded_on": "2026-10-23",
+  "result": "发布当前已集成 main 的 v2.6.34，范围为邮件 Transport 就绪修复、托管会话持久化与模型继承核验、7/90 天空闲会话清理；同步 OpenClaw 生产新域名运维说明，并执行生产域名切换与 API 重建验证。",
+  "status": "partial",
+  "task_id": "2026-10-23-release-v2-6-34-openclaw-domain",
+  "unresolved": [
+    "版本提交、远端发布、本地镜像构建、生产部署及新域名配置切换尚待完成。"
+  ],
+  "validation": [
+    "发布范围由用户确认，仅包含当前 main 已提交内容；其他工作区的会员支付、模型修复与 Nginx 未提交改动不纳入。",
+    "生产基线 v2.6.33 / d0691e2f10f4，API 与 Worker healthy；当前发布差异无显式数据库迁移。",
+    "新域名通过生产服务器 TLS/HTTP 200 校验，并从生产 API 容器以现有设备身份完成 WebSocket 101、协议 4 鉴权及 models.list 36 项读取；未调用模型。",
+    "按 docs/dev/test-gate.md 的最小发布路径执行，不重复开发测试或等待 CI。"
   ]
 }
 ```
